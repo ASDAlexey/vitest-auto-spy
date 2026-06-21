@@ -1,0 +1,42 @@
+name: Release
+
+# Publishes to npm when a v* tag is pushed, e.g. `git push origin v1.2.3`.
+# Requires an `NPM_TOKEN` repo secret (an npm Automation or granular token that
+# bypasses 2FA). Publishes with provenance for a verified npm badge.
+# Re-running for an already-published version is a no-op (safe to retry).
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+  id-token: write # required for npm provenance
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+          cache: npm
+
+      - run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Publish to npm (skip if version already exists)
+        run: |
+          VERSION="$(node -p "require('./package.json').version")"
+          if npm view "vitest-auto-spy@${VERSION}" version >/dev/null 2>&1; then
+            echo "vitest-auto-spy@${VERSION} is already published — skipping."
+          else
+            npm publish --provenance --access public
+          fi
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
