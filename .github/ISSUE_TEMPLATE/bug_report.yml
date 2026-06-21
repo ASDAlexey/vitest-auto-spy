@@ -1,0 +1,36 @@
+name: 🐛 Bug report
+description: Report a problem with vitest-auto-spy
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for taking the time to file a bug! Please fill out the sections below.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: A clear description of the bug and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Minimal reproduction
+      description: A small code snippet or a link to a repo/StackBlitz that reproduces the issue.
+      render: ts
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: vitest-auto-spy version
+      placeholder: 1.0.0
+    validations:
+      required: true
+  - type: input
+    id: env
+    attributes:
+      label: Vitest / RxJS / Angular versions
+      placeholder: vitest 4.1, rxjs 7.8, @angular/core 21.2
+    validations:
+      required: true
