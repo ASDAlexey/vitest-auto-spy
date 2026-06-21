@@ -1,10 +1,48 @@
+<div align="center">
+
 # vitest-auto-spy
 
-Create automatic, fully-typed test spies from a class — powered by Vitest's `vi.fn()`.
+**Automatic, fully-typed test spies from a class — powered by Vitest's `vi.fn()`.**
 
-A **drop-in replacement for [`jest-auto-spies`](https://www.npmjs.com/package/jest-auto-spies)**:
-the same API (`createSpyFromClass`, `provideAutoSpy`, `calledWith`, `resolveWith`,
-`nextWith`, `accessorSpies`, …), but spying only on **Vitest** instead of Jest.
+A drop-in replacement for [`jest-auto-spies`](https://www.npmjs.com/package/jest-auto-spies):
+same API, but spying only on **Vitest** instead of Jest.
+
+[![npm version](https://img.shields.io/npm/v/vitest-auto-spy?color=cb3837&logo=npm)](https://www.npmjs.com/package/vitest-auto-spy)
+[![npm downloads](https://img.shields.io/npm/dm/vitest-auto-spy?color=cb3837&logo=npm)](https://www.npmjs.com/package/vitest-auto-spy)
+[![CI](https://github.com/ASDAlexey/vitest-auto-spy/actions/workflows/ci.yml/badge.svg)](https://github.com/ASDAlexey/vitest-auto-spy/actions/workflows/ci.yml)
+[![minzipped size](https://img.shields.io/bundlephobia/minzip/vitest-auto-spy?label=minzip)](https://bundlephobia.com/package/vitest-auto-spy)
+[![types](https://img.shields.io/npm/types/vitest-auto-spy?logo=typescript&logoColor=white)](https://www.npmjs.com/package/vitest-auto-spy)
+[![coverage](https://img.shields.io/badge/coverage-100%25-brightgreen)](https://github.com/ASDAlexey/vitest-auto-spy/actions/workflows/ci.yml)
+[![license](https://img.shields.io/npm/l/vitest-auto-spy?color=blue)](./LICENSE)
+
+</div>
+
+---
+
+- 🧪 Reads a class and generates a typed `vi.fn()` spy for **every** method
+- 🎯 Return-type-aware helpers — sync, `Promise`, and `Observable` all get the right API
+- 🔀 `calledWith` / `mustBeCalledWith` argument dispatch
+- 📡 First-class RxJS `Observable` spying (`nextWith`, `nextWithValues`, `throwWith`, …)
+- ⚙️ Getter / setter spies via `accessorSpies`
+- 🅰️ Angular helpers (`provideAutoSpy`, `injectSpy`) — works with **both zoneless and zone.js**
+- 🟢 100% test coverage, zero runtime dependencies beyond a tiny arg serializer
+
+## Table of contents
+
+- [Install](#install)
+- [Why](#why)
+- [Migrating from jest-auto-spies](#migrating-from-jest-auto-spies)
+- [Configuration](#configuration)
+- [Synchronous methods](#synchronous-methods)
+- [Promise-returning methods](#promise-returning-methods)
+- [Observable methods & properties](#observable-returning-methods--observable-properties)
+- [Getters & setters](#getters--setters)
+- [Angular helpers](#angular-helpers)
+- [API reference](#api-reference)
+- [Contributing](#contributing)
+- [License](#license)
+
+## Install
 
 ```bash
 npm i -D vitest-auto-spy
@@ -12,8 +50,6 @@ npm i -D vitest-auto-spy
 
 Peer dependencies (provided by your project): `vitest`, `rxjs`, and — for the Angular
 helpers — `@angular/core`.
-
----
 
 ## Why
 
@@ -42,7 +78,29 @@ beforeEach(() => {
 `Spy<UserService>` exposes each method as a `vi.fn()` **plus** the right helpers based on
 the method's return type (sync / `Promise` / `Observable`).
 
----
+## Migrating from jest-auto-spies
+
+The public API is intentionally identical. In most projects the migration is a
+**find-and-replace of the import**:
+
+```diff
+- import { createSpyFromClass, provideAutoSpy } from 'jest-auto-spies';
++ import { createSpyFromClass, provideAutoSpy } from 'vitest-auto-spy';
+```
+
+| jest-auto-spies | vitest-auto-spy | Status |
+| --- | --- | --- |
+| `createSpyFromClass` | `createSpyFromClass` | ✅ identical |
+| `provideAutoSpy` | `provideAutoSpy` | ✅ identical |
+| `calledWith` / `mustBeCalledWith` | same | ✅ identical |
+| `resolveWith` / `rejectWith` / `resolveWithPerCall` | same | ✅ identical |
+| `nextWith` / `nextOneTimeWith` / `nextWithValues` / `nextWithPerCall` | same | ✅ identical |
+| `throwWith` / `complete` / `returnSubject` | same | ✅ identical |
+| `accessorSpies.getters/setters` | same | ✅ identical |
+| `createObservableWithValues` | same | ✅ identical |
+| underlying mock | `jest.fn()` → `vi.fn()` | 🔁 swapped |
+
+Just make sure your tests run under Vitest, and (for Angular) that `TestBed` is set up.
 
 ## Configuration
 
@@ -62,8 +120,6 @@ createSpyFromClass(MyService, {
 });
 ```
 
----
-
 ## Synchronous methods
 
 ```ts
@@ -80,8 +136,6 @@ myService.getName.mustBeCalledWith(1).mockReturnValue('Fake Name');
 expect(() => myService.getName(2)).toThrow();
 ```
 
----
-
 ## Promise-returning methods
 
 ```ts
@@ -95,8 +149,6 @@ await expect(myService.getProducts()).rejects.toBe('FAKE ERROR');
 myService.getProducts.resolveWithPerCall([{ value: ['a'] }, { value: ['b'] }]);
 myService.getProducts.calledWith(1).resolveWith(['one']);
 ```
-
----
 
 ## Observable-returning methods & Observable properties
 
@@ -141,8 +193,6 @@ const fake$ = createObservableWithValues([{ value: 1 }, { value: 2 }, { complete
 const { values$, subject } = createObservableWithValues([{ value: 1 }], { returnSubject: true });
 ```
 
----
-
 ## Getters & setters
 
 ```ts
@@ -159,8 +209,6 @@ expect(spy.userName).toBe('Fake Name');
 spy.userName = 'New Name';
 expect(spy.accessorSpies.setters.userName).toHaveBeenCalledWith('New Name');
 ```
-
----
 
 ## Angular helpers
 
@@ -200,8 +248,6 @@ mockReadonlyPropGetter(service, 'label', () => 'A');     // dynamic getter
 mockAccessorsProp(service, 'theme');                     // spied get + set
 ```
 
----
-
 ## API reference
 
 | Export | Description |
@@ -226,8 +272,21 @@ mockAccessorsProp(service, 'theme');                     // spied get + set
 
 `ValueConfig` (for `nextWithValues`): `{ value, delay? }` | `{ errorValue, delay? }` | `{ complete?, delay? }`.
 
----
+## Contributing
+
+Contributions are welcome! Please read [CONTRIBUTING.md](./CONTRIBUTING.md) and the
+[Code of Conduct](./CODE_OF_CONDUCT.md). In short:
+
+```bash
+npm ci
+npm test            # run the suite
+npm run test:coverage   # 100% thresholds enforced
+npm run build
+```
+
+If this package saved you time, a ⭐ on [GitHub](https://github.com/ASDAlexey/vitest-auto-spy)
+helps others find it.
 
 ## License
 
-MIT © Alexey Popov
+[MIT](./LICENSE) © [Alexey Popov](https://github.com/ASDAlexey)
