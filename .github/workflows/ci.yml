@@ -15,7 +15,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node: [20, 22]
+        # previous LTS (22), latest LTS (24), latest current release (26)
+        node: [22, 24, 26]
     steps:
       - uses: actions/checkout@v4
 
