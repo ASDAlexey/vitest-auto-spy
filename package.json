@@ -16,7 +16,11 @@
   "author": "Alexey Popov <asdalexey@yandex.ru>",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/alexeypopov/vitest-auto-spy.git"
+    "url": "git+https://github.com/ASDAlexey/vitest-auto-spy.git"
+  },
+  "homepage": "https://github.com/ASDAlexey/vitest-auto-spy#readme",
+  "bugs": {
+    "url": "https://github.com/ASDAlexey/vitest-auto-spy/issues"
   },
   "type": "module",
   "main": "./dist/index.cjs",
