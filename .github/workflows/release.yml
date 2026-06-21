@@ -10,7 +10,7 @@ on:
     tags: ['v*']
 
 permissions:
-  contents: read
+  contents: write # required to create the GitHub Release
   id-token: write # required for npm provenance
 
 jobs:
@@ -43,3 +43,13 @@ jobs:
           fi
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Create GitHub Release (skip if it already exists)
+        run: |
+          if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
+            echo "Release ${GITHUB_REF_NAME} already exists — skipping."
+          else
+            gh release create "${GITHUB_REF_NAME}" --generate-notes --latest
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
