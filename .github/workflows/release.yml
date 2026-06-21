@@ -25,6 +25,9 @@ jobs:
           registry-url: https://registry.npmjs.org
           cache: npm
 
+      - name: Pin npm
+        run: npm i -g npm@11
+
       - run: npm ci
 
       - name: Build
