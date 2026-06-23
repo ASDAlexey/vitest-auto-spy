@@ -5,13 +5,13 @@
  * function spies, `calledWith` objects and observable properties, all backed by
  * a controllable `ReplaySubject`.
  */
-
-import { defer, EMPTY, from, merge, Observable, of, ReplaySubject, throwError, timer } from 'rxjs';
+import { EMPTY, Observable, ReplaySubject, defer, from, merge, of, throwError, timer } from 'rxjs';
 import { concatMap, delay, switchMap, take, takeUntil, takeWhile } from 'rxjs/operators';
 
 import { REPLAY_BUFFER_SIZE } from './constants';
-import type { AddObservableSpyMethods, ValueConfig, ValueConfigPerCall } from './types';
 import type { CalledWithObject, ReturnValueContainer } from './internal-types';
+import { decorate } from './spy-decoration';
+import type { AddObservableSpyMethods, ValueConfig, ValueConfigPerCall } from './types';
 import { isCompleteConfig, isErrorConfig, isNextValueConfig } from './value-config-guards';
 
 function createReplaySubject<T>(): ReplaySubject<T> {
@@ -29,19 +29,20 @@ function mergeSubjectWithDefaultValues<T>(subject: ReplaySubject<T>, valuesConfi
   const results$ = from(valuesConfigs).pipe(
     // Honor a delay on a completion entry before it stops the stream.
     concatMap((config) =>
-      isCompleteConfig(config) && config.complete && config.delay
-        ? of(config).pipe(delay(config.delay))
-        : of(config),
+      isCompleteConfig(config) && config.complete && config.delay ? of(config).pipe(delay(config.delay)) : of(config),
     ),
     // Stop (and signal completion) as soon as a `{ complete: true }` entry arrives.
     takeWhile((config) => {
       if (!isCompleteConfig(config)) {
         return true;
       }
+
       if (config.complete) {
         onCompleteSubject.next();
+
         return false;
       }
+
       return true;
     }),
     // Map each remaining entry to its emission: a value, an error, or nothing.
@@ -49,11 +50,13 @@ function mergeSubjectWithDefaultValues<T>(subject: ReplaySubject<T>, valuesConfi
       if (isNextValueConfig(config) && config.value) {
         return config.delay ? of(config.value).pipe(delay(config.delay)) : of(config.value);
       }
+
       if (isErrorConfig(config) && config.errorValue) {
         return config.delay
           ? timer(config.delay).pipe(switchMap(() => throwError(() => config.errorValue)))
           : throwError(() => config.errorValue);
       }
+
       return EMPTY;
     }),
   );
@@ -66,78 +69,90 @@ function mergeSubjectWithDefaultValues<T>(subject: ReplaySubject<T>, valuesConfi
  * `onSubjectConfigured` so the caller can publish the resulting observable.
  */
 function addObservableHelpers<T>(
-  objectToDecorate: any,
+  objectToDecorate: object,
   providedSubject: ReplaySubject<T>,
   onSubjectConfigured: (subject: Observable<T>) => void,
 ): void {
-  objectToDecorate.nextWith = (value: T): void => {
-    providedSubject.next(value);
-    onSubjectConfigured(providedSubject);
-  };
-  objectToDecorate.nextOneTimeWith = (value: T): void => {
-    providedSubject.next(value);
-    providedSubject.complete();
-    onSubjectConfigured(providedSubject);
-  };
-  objectToDecorate.nextWithValues = (valuesConfigs: ValueConfig<T>[]): void => {
-    if (valuesConfigs.length === 0) {
-      return;
-    }
-    onSubjectConfigured(mergeSubjectWithDefaultValues(providedSubject, valuesConfigs));
-  };
-  objectToDecorate.throwWith = (value: any): void => {
-    providedSubject.error(value);
-    onSubjectConfigured(providedSubject);
-  };
-  objectToDecorate.complete = (): void => {
-    providedSubject.complete();
-    onSubjectConfigured(providedSubject);
-  };
-  objectToDecorate.returnSubject = (): ReplaySubject<T> => {
-    onSubjectConfigured(providedSubject);
-    return providedSubject;
-  };
+  decorate(objectToDecorate, {
+    nextWith: (value: T): void => {
+      providedSubject.next(value);
+      onSubjectConfigured(providedSubject);
+    },
+    nextOneTimeWith: (value: T): void => {
+      providedSubject.next(value);
+      providedSubject.complete();
+      onSubjectConfigured(providedSubject);
+    },
+    nextWithValues: (valuesConfigs: ValueConfig<T>[]): void => {
+      if (valuesConfigs.length === 0) {
+        return;
+      }
+
+      onSubjectConfigured(mergeSubjectWithDefaultValues(providedSubject, valuesConfigs));
+    },
+    throwWith: (value: unknown): void => {
+      providedSubject.error(value);
+      onSubjectConfigured(providedSubject);
+    },
+    complete: (): void => {
+      providedSubject.complete();
+      onSubjectConfigured(providedSubject);
+    },
+    returnSubject: (): ReplaySubject<T> => {
+      onSubjectConfigured(providedSubject);
+
+      return providedSubject;
+    },
+  });
 }
 
 /** Build the per-call observable for one `ValueConfigPerCall` entry. */
-function buildPerCallObservable(replaySubject: ReplaySubject<any>, config: ValueConfigPerCall<any>): Observable<any> {
-  let observable: Observable<any> = replaySubject.asObservable();
+function buildPerCallObservable<T>(replaySubject: ReplaySubject<T>, config: ValueConfigPerCall<T>): Observable<T> {
+  let observable: Observable<T> = replaySubject.asObservable();
+
   if (config.delay) {
     observable = observable.pipe(delay(config.delay));
   }
+
   if (!config.doNotComplete) {
     observable = observable.pipe(take(1));
   }
+
   return observable;
 }
 
 /** Attach `nextWithPerCall`, which returns one controllable subject per call. */
-function addNextWithPerCall(
-  objectToDecorate: any,
+function addNextWithPerCall<T>(
+  objectToDecorate: object,
   returnValueContainer: ReturnValueContainer,
-  onConfigured: (container: ReturnValueContainer) => void = () => undefined,
+  onConfigured: (container: ReturnValueContainer) => void = (): void => undefined,
 ): void {
-  objectToDecorate.nextWithPerCall = (valueConfigsPerCall: ValueConfigPerCall<any>[]): ReplaySubject<any>[] => {
-    const returnedSubjects: ReplaySubject<any>[] = [];
-    if (valueConfigsPerCall.length === 0) {
+  decorate(objectToDecorate, {
+    nextWithPerCall: (valueConfigsPerCall: ValueConfigPerCall<T>[]): ReplaySubject<T>[] => {
+      const returnedSubjects: ReplaySubject<T>[] = [];
+
+      if (valueConfigsPerCall.length === 0) {
+        return returnedSubjects;
+      }
+
+      const valuesPerCalls: ReturnValueContainer['valuesPerCalls'] = [];
+      valueConfigsPerCall.forEach((config) => {
+        const replaySubject = createReplaySubject<T>();
+        replaySubject.next(config.value);
+        returnedSubjects.push(replaySubject);
+
+        valuesPerCalls.push({ wrappedValue: buildPerCallObservable(replaySubject, config) });
+      });
+      returnValueContainer.valuesPerCalls = valuesPerCalls;
+
+      onConfigured(returnValueContainer);
+
       return returnedSubjects;
-    }
-
-    returnValueContainer.valuesPerCalls = [];
-    valueConfigsPerCall.forEach((config) => {
-      const replaySubject = new ReplaySubject<any>(REPLAY_BUFFER_SIZE);
-      replaySubject.next(config.value);
-      returnedSubjects.push(replaySubject);
-
-      returnValueContainer.valuesPerCalls!.push({ wrappedValue: buildPerCallObservable(replaySubject, config) });
-    });
-
-    onConfigured(returnValueContainer);
-    return returnedSubjects;
-  };
+    },
+  });
 }
 
-export function addObservableHelpersToFunctionSpy(spyFunction: any, valueContainer: ReturnValueContainer): void {
+export function addObservableHelpersToFunctionSpy(spyFunction: object, valueContainer: ReturnValueContainer): void {
   const subject = createReplaySubject();
   addObservableHelpers(spyFunction, subject, (configuredSubject) => {
     valueContainer.value = configuredSubject;
@@ -145,10 +160,7 @@ export function addObservableHelpersToFunctionSpy(spyFunction: any, valueContain
   addNextWithPerCall(spyFunction, valueContainer);
 }
 
-export function addObservableHelpersToCalledWithObject(
-  calledWithObject: CalledWithObject,
-  calledWithArgs: any[],
-): void {
+export function addObservableHelpersToCalledWithObject(calledWithObject: CalledWithObject, calledWithArgs: unknown[]): void {
   const subject = createReplaySubject();
   const returnValueContainer: ReturnValueContainer = { value: undefined };
   addObservableHelpers(calledWithObject, subject, (configuredSubject) => {
@@ -172,15 +184,27 @@ export function createObservableWithValues<T>(
 ): Observable<T> | { values$: Observable<T>; subject: ReplaySubject<T> } {
   const subject = createReplaySubject<T>();
   const values$ = mergeSubjectWithDefaultValues(subject, valuesConfigs);
+
   return config?.returnSubject ? { values$, subject } : values$;
 }
 
 /** Create an observable property spy (deferred subscription to a controllable subject). */
-export function createObservablePropSpy<T>(): Observable<T> & AddObservableSpyMethods<T> {
-  let subject = createReplaySubject<T>();
-  const observableSpy: any = defer(() => subject);
-  addObservableHelpers(observableSpy, subject, (configuredSubject) => {
-    subject = configuredSubject as ReplaySubject<T>;
+export function createObservablePropSpy<T>(): AddObservableSpyMethods<T> & Observable<T> {
+  const providedSubject = createReplaySubject<T>();
+  // The currently-published stream: starts as the backing subject, but
+  // `nextWithValues` swaps in a merged observable. `defer` re-reads it on each
+  // subscription, so late reconfiguration is honoured. The backing
+  // `providedSubject` is captured separately, so `nextWith`/`complete` after a
+  // `nextWithValues` keep operating on a real Subject.
+  let published$: Observable<T> = providedSubject;
+  const observableSpy: Observable<T> = defer(() => published$);
+  addObservableHelpers(observableSpy, providedSubject, (configuredSubject) => {
+    published$ = configuredSubject;
   });
-  return observableSpy;
+
+  // `addObservableHelpers` attaches the `AddObservableSpyMethods<T>` helpers onto
+  // `observableSpy` at runtime; the assertion re-exposes those dynamically-attached
+  // methods to the type system.
+  // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- the helpers are assembled at runtime via `decorate`; their presence cannot be expressed without an assertion on the in-place-mutated Observable.
+  return observableSpy as AddObservableSpyMethods<T> & Observable<T>;
 }

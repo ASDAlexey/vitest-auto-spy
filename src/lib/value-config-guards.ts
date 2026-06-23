@@ -1,7 +1,6 @@
 /**
  * Type guards that narrow a `ValueConfig` union to its concrete variant.
  */
-
 import type { CompleteValueConfig, ErrorValueConfig, NextValueConfig, ValueConfig } from './types';
 
 export function isCompleteConfig<T>(config: ValueConfig<T>): config is CompleteValueConfig {
