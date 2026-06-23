@@ -3,40 +3,50 @@
  * helpers (`mockReturnValue`, `resolveWith`, `nextWith`, `calledWith`, …) and
  * the argument-matching logic that decides what a call returns.
  */
-
 import { vi } from 'vitest';
 
 import { ArgsMap } from './args-map';
 import { errorHandler } from './error-handler';
-import type { AddSpyMethodsByReturnTypes, Func } from './types';
 import type { CalledWithObject, ReturnValueContainer } from './internal-types';
-import {
-  addObservableHelpersToCalledWithObject,
-  addObservableHelpersToFunctionSpy,
-} from './observable-spy';
+import { addObservableHelpersToCalledWithObject, addObservableHelpersToFunctionSpy } from './observable-spy';
 import { addPromiseHelpersToCalledWithObject, addPromiseHelpersToFunctionSpy } from './promise-spy';
+import { decorate } from './spy-decoration';
+import type { AddSpyMethodsByReturnTypes, Func } from './types';
 
-/** Pull the next pre-wrapped value for a `*PerCall` configuration, applying its delay. */
-function getNextCallValue(valueContainer: ReturnValueContainer): any {
-  const wrapped = valueContainer.valuesPerCalls!.shift();
-  let returnedValue = wrapped?.wrappedValue;
-  if (wrapped && wrapped.delay) {
-    returnedValue = (returnedValue as Promise<any>).then(
-      (value) => new Promise((resolve) => setTimeout(() => resolve(value), wrapped.delay)),
-    );
-  }
-  return returnedValue;
+/** Narrow the loosely-typed map lookup back to a `ReturnValueContainer`. */
+function isReturnValueContainer(value: unknown): value is ReturnValueContainer {
+  return typeof value === 'object' && value !== null && 'value' in value;
 }
 
-/** Resolve a container into the actual value a spy should return. */
-function unwrapContainer(container: ReturnValueContainer): any {
+/**
+ * Resolve a container into the actual value a spy should return. `*PerCall`
+ * configs are consumed one entry per call; any delay is already baked into the
+ * wrapped Promise/Observable at configuration time, so nothing extra is applied
+ * here.
+ */
+function unwrapContainer(container: ReturnValueContainer): unknown {
   if (container._isRejectedPromise) {
     return Promise.reject(container.value);
   }
-  if (container.valuesPerCalls?.length) {
-    return getNextCallValue(container);
+
+  const wrapped = container.valuesPerCalls?.shift();
+
+  if (wrapped) {
+    return wrapped.wrappedValue;
   }
+
   return container.value;
+}
+
+/** Look up a configured value for the given args, unwrapping it if present. */
+function lookupConfigured(calledWithObject: CalledWithObject, actualArgs: unknown[]): { found: boolean; value: unknown } {
+  const configured = calledWithObject.argsToValuesMap.get(actualArgs);
+
+  if (isReturnValueContainer(configured)) {
+    return { found: true, value: unwrapContainer(configured) };
+  }
+
+  return { found: false, value: undefined };
 }
 
 /**
@@ -47,21 +57,24 @@ function returnTheCorrectFakeValue(
   calledWithObject: CalledWithObject,
   mustBeCalledWithObject: CalledWithObject,
   valueContainer: ReturnValueContainer,
-  actualArgs: any[],
+  actualArgs: unknown[],
   functionName: string,
-): any {
+): unknown {
   if (calledWithObject.wasConfigured) {
-    const configured = calledWithObject.argsToValuesMap.get(actualArgs);
-    if (configured) {
-      return unwrapContainer(configured);
+    const match = lookupConfigured(calledWithObject, actualArgs);
+
+    if (match.found) {
+      return match.value;
     }
   }
 
   if (mustBeCalledWithObject.wasConfigured) {
-    const configured = mustBeCalledWithObject.argsToValuesMap.get(actualArgs);
-    if (configured) {
-      return unwrapContainer(configured);
+    const match = lookupConfigured(mustBeCalledWithObject, actualArgs);
+
+    if (match.found) {
+      return match.value;
     }
+
     errorHandler.throwArgumentsError(actualArgs, functionName);
   }
 
@@ -69,13 +82,16 @@ function returnTheCorrectFakeValue(
 }
 
 /** Attach `mockReturnValue` plus the promise/observable helpers to a `calledWith` chain. */
-function addMethodsToCalledWith(calledWith: CalledWithObject, calledWithArgs: any[]): CalledWithObject {
+function addMethodsToCalledWith(calledWith: CalledWithObject, calledWithArgs: unknown[]): CalledWithObject {
   calledWith.wasConfigured = true;
-  calledWith.mockReturnValue = (value: any): void => {
-    calledWith.argsToValuesMap.set(calledWithArgs, { value });
-  };
+  decorate(calledWith, {
+    mockReturnValue: (value: unknown): void => {
+      calledWith.argsToValuesMap.set(calledWithArgs, { value });
+    },
+  });
   addPromiseHelpersToCalledWithObject(calledWith, calledWithArgs);
   addObservableHelpersToCalledWithObject(calledWith, calledWithArgs);
+
   return calledWith;
 }
 
@@ -89,7 +105,7 @@ export function createFunctionSpy<FunctionType extends Func>(name: string): AddS
   const mustBeCalledWithObject = createCalledWithObject();
   const valueContainer: ReturnValueContainer = { value: undefined };
 
-  const functionSpy = vi.fn((...actualArgs: any[]) =>
+  const functionSpy = vi.fn((...actualArgs: unknown[]) =>
     returnTheCorrectFakeValue(calledWithObject, mustBeCalledWithObject, valueContainer, actualArgs, name),
   );
   functionSpy.mockName(name);
@@ -97,10 +113,21 @@ export function createFunctionSpy<FunctionType extends Func>(name: string): AddS
   addPromiseHelpersToFunctionSpy(functionSpy, valueContainer);
   addObservableHelpersToFunctionSpy(functionSpy, valueContainer);
 
-  (functionSpy as any).calledWith = (...calledWithArgs: any[]) =>
-    addMethodsToCalledWith(calledWithObject, calledWithArgs);
-  (functionSpy as any).mustBeCalledWith = (...calledWithArgs: any[]) =>
-    addMethodsToCalledWith(mustBeCalledWithObject, calledWithArgs);
+  const spy = decorate(functionSpy, {
+    calledWith: (...calledWithArgs: unknown[]): CalledWithObject => addMethodsToCalledWith(calledWithObject, calledWithArgs),
+    mustBeCalledWith: (...calledWithArgs: unknown[]): CalledWithObject => addMethodsToCalledWith(mustBeCalledWithObject, calledWithArgs),
+  });
 
-  return functionSpy as unknown as AddSpyMethodsByReturnTypes<FunctionType>;
+  return exposeAsSpy<FunctionType>(spy);
+}
+
+/**
+ * Bridge the runtime-assembled spy (a `vi.fn()` decorated with heterogeneous
+ * promise/observable/calledWith helpers) to its public `AddSpyMethodsByReturnTypes`
+ * surface. The concrete `FunctionType` is only known to the caller, so the
+ * spy's `(...args: unknown[]) => unknown` call signature must be widened.
+ */
+function exposeAsSpy<FunctionType extends Func>(spy: object): AddSpyMethodsByReturnTypes<FunctionType> {
+  // eslint-disable-next-line @typescript-eslint/consistent-type-assertions, @typescript-eslint/no-explicit-any -- the spy is built dynamically from heterogeneous decorators; its concrete `FunctionType` call signature is only known to the caller, so the public spy surface is bridged via the spy's `any`-typed dynamic shape (kept local to this single helper).
+  return spy as any;
 }

@@ -1,10 +1,11 @@
 import { Injectable } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { Observable, of, ReplaySubject } from 'rxjs';
+import { Observable, ReplaySubject, of } from 'rxjs';
 import { take } from 'rxjs/operators';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  type Spy,
   createFunctionSpy,
   createObservableWithValues,
   createSpyFromClass,
@@ -14,7 +15,6 @@ import {
   mockReadonlyProp,
   mockReadonlyPropGetter,
   provideAutoSpy,
-  type Spy,
 } from './auto-spy';
 
 // ---------------------------------------------------------------------------
@@ -92,6 +92,15 @@ describe('createSpyFromClass', () => {
     expect(vi.isMockFunction(spy.syncMethod)).toBe(true);
   });
 
+  // Restriction semantics (matching jest-auto-spies): when `methodsToSpyOn` is
+  // given, ONLY those methods are spied — other prototype methods are left out.
+  it('restricts spying to the listed methods only', () => {
+    const spy = createSpyFromClass(MyService, ['syncMethod']);
+    expect(vi.isMockFunction(spy.syncMethod)).toBe(true);
+    expect(vi.isMockFunction(spy.getObs)).toBe(false);
+    expect(vi.isMockFunction(spy.baseMethod)).toBe(false);
+  });
+
   it('accepts a config object', () => {
     const spy = createSpyFromClass(MyService, {
       methodsToSpyOn: ['syncMethod'],
@@ -132,12 +141,21 @@ describe('sync methods', () => {
 
   it('mustBeCalledWith throws when called with the wrong args', () => {
     spy.syncMethod.mustBeCalledWith(1).mockReturnValue('one');
-    expect(() => spy.syncMethod(2)).toThrowError(/actual arguments were/);
+    expect(() => spy.syncMethod(2)).toThrow(/actual arguments were/);
   });
 
   it('mustBeCalledWith throws when called without args', () => {
     spy.syncMethod.mustBeCalledWith(1).mockReturnValue('one');
-    expect(() => spy.syncMethod()).toThrowError(/without any arguments/);
+    expect(() => spy.syncMethod()).toThrow(/without any arguments/);
+  });
+
+  // Regression (bug #2): `javascript-stringify` can return `undefined`; the
+  // arg-key builder guards that (`?? ''`). An `undefined` argument must still
+  // produce a stable, matchable key rather than crashing the key lookup.
+  it('calledWith matches an undefined argument via a stable key', () => {
+    expect(() => spy.syncMethod.calledWith(undefined).mockReturnValue('ok')).not.toThrow();
+    expect(spy.syncMethod(undefined)).toBe('ok');
+    expect(spy.syncMethod(1)).toBeUndefined();
   });
 });
 
@@ -223,7 +241,10 @@ describe('observable methods', () => {
   });
 
   it('nextWithPerCall returns a subject per call', async () => {
-    spy.getObs.nextWithPerCall([{ value: 1, delay: 1 }, { value: 2, doNotComplete: true }]);
+    spy.getObs.nextWithPerCall([
+      { value: 1, delay: 1 },
+      { value: 2, doNotComplete: true },
+    ]);
     const first = await collect(spy.getObs());
     const second = await collect(spy.getObs().pipe(take(1)));
     expect(first.values).toEqual([1]);
@@ -241,6 +262,16 @@ describe('observable methods', () => {
     const b = await collect(spy.getObs(5));
     expect(a.values).toEqual([1]);
     expect(b.values).toEqual([2]);
+  });
+
+  // Regression (bug #1): a delayed per-call OBSERVABLE value must not be treated
+  // as a Promise (the old code called `.then` on the Observable). It must still
+  // emit the configured value after the delay instead of throwing.
+  it('nextWithPerCall with a delayed observable value emits without calling .then', async () => {
+    const subjects = spy.getObs.nextWithPerCall([{ value: 1, delay: 1 }]);
+    expect(subjects).toHaveLength(1);
+    const r = await collect(spy.getObs());
+    expect(r.values).toEqual([1]);
   });
 });
 
@@ -261,6 +292,17 @@ describe('observable properties', () => {
     spy.things$.nextWithValues([{ value: 9 }, { complete: true }]);
     const r = await collect(spy.things$);
     expect(r).toEqual({ values: [9], completed: true });
+  });
+
+  // Regression (bug #3): after `nextWithValues` swaps in a merged observable, a
+  // later `nextWith` must still operate on the real backing Subject (the prop
+  // spy keeps the Subject reference separate from the published stream).
+  it('nextWith after nextWithValues still emits via the backing subject', async () => {
+    const spy = createSpyFromClass(MyService, { observablePropsToSpyOn: ['things$'] });
+    spy.things$.nextWithValues([{ value: 9 }]);
+    spy.things$.nextWith(42);
+    const r = await collect(spy.things$.pipe(take(1)));
+    expect(r.values).toEqual([42]);
   });
 });
 
@@ -372,11 +414,11 @@ describe('createFunctionSpy', () => {
 
 describe('errorHandler', () => {
   it('formats the actual arguments', () => {
-    expect(() => errorHandler.throwArgumentsError([1, 'a'], 'fn')).toThrowError(/actual arguments were: 1,'a'/);
+    expect(() => errorHandler.throwArgumentsError([1, 'a'], 'fn')).toThrow(/actual arguments were: 1,'a'/);
   });
 
   it('handles a call without arguments', () => {
-    expect(() => errorHandler.throwArgumentsError([], 'fn')).toThrowError(/without any arguments/);
+    expect(() => errorHandler.throwArgumentsError([], 'fn')).toThrow(/without any arguments/);
   });
 });
 

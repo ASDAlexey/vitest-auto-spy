@@ -3,7 +3,6 @@
  * (inherited) prototype method becomes a function spy, plus any configured
  * observable properties and getter/setter accessors.
  */
-
 import { createAccessorsSpies } from './accessor-spy';
 import { createFunctionSpy } from './function-spy';
 import { createObservablePropSpy } from './observable-spy';
@@ -25,58 +24,60 @@ const EMPTY_CONFIGURATION: ResolvedSpyConfiguration = {
 };
 
 /** Own, non-getter method names of a single prototype object (excluding the constructor). */
-function extractMethodsFromObject(obj: any): string[] {
+function extractMethodsFromObject(obj: object): string[] {
   const descriptors = Object.getOwnPropertyDescriptors(obj);
-  return Object.keys(descriptors).filter((name) => name !== 'constructor' && !descriptors[name].get);
+
+  return Object.keys(descriptors).filter((name) => name !== 'constructor' && !descriptors[name]?.get);
 }
 
-/** Walk the prototype chain and collect every method name, including inherited ones. */
-function getAllMethodNames(obj: any): string[] {
-  let methods: string[] = [];
-  while (obj) {
-    const parentObj = Object.getPrototypeOf(obj);
+/** Walk the prototype chain and collect every method name (de-duplicated), including inherited ones. */
+function getAllMethodNames(prototype: object): string[] {
+  const methods = new Set<string>();
+  let current: object | null = prototype;
+
+  while (current) {
+    const parentObj: object | null = Object.getPrototypeOf(current);
+
     if (parentObj) {
-      methods = methods.concat(extractMethodsFromObject(obj));
+      extractMethodsFromObject(current).forEach((name) => methods.add(name));
     }
-    obj = parentObj;
+
+    current = parentObj;
   }
-  return methods;
+
+  return [...methods];
 }
 
 /** Normalize the overloaded second argument into a single flat configuration. */
-function resolveConfiguration<T>(
-  methodsToSpyOnOrConfig?: OnlyMethodKeysOf<T>[] | ClassSpyConfiguration<T>,
-): ResolvedSpyConfiguration {
+function resolveConfiguration<T>(methodsToSpyOnOrConfig?: ClassSpyConfiguration<T> | OnlyMethodKeysOf<T>[]): ResolvedSpyConfiguration {
   if (!methodsToSpyOnOrConfig) {
     return { ...EMPTY_CONFIGURATION };
   }
 
   if (Array.isArray(methodsToSpyOnOrConfig)) {
-    return { ...EMPTY_CONFIGURATION, methodsToSpyOn: methodsToSpyOnOrConfig as string[] };
+    return { ...EMPTY_CONFIGURATION, methodsToSpyOn: methodsToSpyOnOrConfig };
   }
 
   return {
-    methodsToSpyOn: (methodsToSpyOnOrConfig.methodsToSpyOn as string[]) || [],
-    observablePropsToSpyOn: (methodsToSpyOnOrConfig.observablePropsToSpyOn as string[]) || [],
-    settersToSpyOn: (methodsToSpyOnOrConfig.settersToSpyOn as string[]) || [],
-    gettersToSpyOn: (methodsToSpyOnOrConfig.gettersToSpyOn as string[]) || [],
+    methodsToSpyOn: methodsToSpyOnOrConfig.methodsToSpyOn ?? [],
+    observablePropsToSpyOn: methodsToSpyOnOrConfig.observablePropsToSpyOn ?? [],
+    settersToSpyOn: methodsToSpyOnOrConfig.settersToSpyOn ?? [],
+    gettersToSpyOn: methodsToSpyOnOrConfig.gettersToSpyOn ?? [],
   };
 }
 
 /** Generate a fully-typed auto-spy from a class. */
 export function createSpyFromClass<T>(
   ObjectClass: ClassType<T>,
-  methodsToSpyOnOrConfig?: OnlyMethodKeysOf<T>[] | ClassSpyConfiguration<T>,
+  methodsToSpyOnOrConfig?: ClassSpyConfiguration<T> | OnlyMethodKeysOf<T>[],
 ): Spy<T> {
-  const { methodsToSpyOn, observablePropsToSpyOn, settersToSpyOn, gettersToSpyOn } =
-    resolveConfiguration(methodsToSpyOnOrConfig);
+  const { methodsToSpyOn, observablePropsToSpyOn, settersToSpyOn, gettersToSpyOn } = resolveConfiguration(methodsToSpyOnOrConfig);
 
-  const methodNames = getAllMethodNames(ObjectClass.prototype);
-  if (methodsToSpyOn.length > 0) {
-    methodNames.push(...methodsToSpyOn);
-  }
+  // When an explicit `methodsToSpyOn` list is given, restrict to it (matching
+  // `jest-auto-spies`); otherwise auto-discover every prototype method.
+  const methodNames = methodsToSpyOn.length > 0 ? methodsToSpyOn : getAllMethodNames(ObjectClass.prototype);
 
-  const autoSpy: any = {};
+  const autoSpy: Record<string, unknown> = {};
 
   observablePropsToSpyOn.forEach((observablePropName) => {
     autoSpy[observablePropName] = createObservablePropSpy();
@@ -88,5 +89,8 @@ export function createSpyFromClass<T>(
     autoSpy[methodName] = createFunctionSpy(methodName);
   });
 
+  // `autoSpy` is assembled key-by-key from the runtime method/accessor names;
+  // its concrete `Spy<T>` shape only exists structurally after assembly.
+  // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- the spy object is built dynamically from runtime-discovered names; its `Spy<T>` shape cannot be expressed before assembly.
   return autoSpy as Spy<T>;
 }

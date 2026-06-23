@@ -5,7 +5,6 @@
  * to a method spy based on its return type, how accessor spies are exposed, and
  * what the configuration object accepts.
  */
-
 import type { Observable, Subject } from 'rxjs';
 import type { Mock } from 'vitest';
 
@@ -14,9 +13,11 @@ import type { Mock } from 'vitest';
 // ---------------------------------------------------------------------------
 
 /** Any callable. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- `Func` is the generic constraint for every spied method; `any[]`/`any` are required so `Parameters`/`ReturnType` inference (used throughout the spy types) accepts arbitrary method signatures.
 export type Func = (...args: any[]) => any;
 
 /** A constructable class (with arbitrary static members). */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- a class may be invoked with arbitrary constructor args and expose arbitrary static members; both `any`s model that open shape for `createSpyFromClass`.
 export type ClassType<T> = { new (...args: any[]): T; [key: string]: any };
 
 // ---------------------------------------------------------------------------
@@ -29,9 +30,10 @@ type StringKeysForPropertyType<ObjectType, PropType> = Extract<
 >;
 
 /** Keys of `T` that are methods. */
-export type OnlyMethodKeysOf<T> = StringKeysForPropertyType<T, (...args: any[]) => any>;
+export type OnlyMethodKeysOf<T> = StringKeysForPropertyType<T, Func>;
 
 /** Keys of `T` that are `Observable` properties. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- `Observable<any>` matches an observable property of *any* element type; `Observable<unknown>` would not structurally match e.g. `Observable<number>` here.
 export type OnlyObservablePropsOf<T> = StringKeysForPropertyType<T, Observable<any>>;
 
 /** Keys of `T` that are *not* methods (plain props, getters, setters). */
@@ -51,13 +53,13 @@ export type ValueConfigPerCall<T> = { value: T; delay?: number; doNotComplete?: 
 export type NextValueConfig<T> = { value: T; delay?: number };
 
 /** Error the stream (optionally delayed). */
-export type ErrorValueConfig = { errorValue: any; delay?: number };
+export type ErrorValueConfig = { errorValue: unknown; delay?: number };
 
 /** Complete the stream (optionally delayed). */
 export type CompleteValueConfig = { complete?: boolean; delay?: number };
 
 /** One entry in a precise emission sequence. */
-export type ValueConfig<T> = NextValueConfig<T> | ErrorValueConfig | CompleteValueConfig;
+export type ValueConfig<T> = CompleteValueConfig | ErrorValueConfig | NextValueConfig<T>;
 
 // ---------------------------------------------------------------------------
 // Helper bundles attached to a method spy by its return type
@@ -70,7 +72,7 @@ export interface AddObservableSpyMethods<T> {
   nextOneTimeWith(value?: T): void;
   nextWithValues(valuesConfigs: ValueConfig<T>[]): void;
   nextWithPerCall(valuesPerCall?: ValueConfigPerCall<T>[]): Subject<T>[];
-  throwWith(value: any): void;
+  throwWith(value: unknown): void;
   complete(): void;
   returnSubject(): Subject<T>;
 }
@@ -78,7 +80,7 @@ export interface AddObservableSpyMethods<T> {
 /** Helpers attached to a `Promise`-returning spy. */
 export interface AddPromiseSpyMethods<T> {
   resolveWith(value?: T): void;
-  rejectWith(value?: any): void;
+  rejectWith(value?: unknown): void;
   resolveWithPerCall(valuesPerCall: ValueConfigPerCall<T>[]): void;
 }
 
@@ -94,25 +96,26 @@ export interface AddCalledWithSpyMethods<Method extends Func> {
 }
 
 /** Argument-matching helpers that resolve to observable helpers. */
-export type AddCalledWithObservable<O> = {
-  calledWith(...args: any[]): AddObservableSpyMethods<O>;
-  mustBeCalledWith(...args: any[]): AddObservableSpyMethods<O>;
+export type AddCalledWithObservable<Method extends Func, O> = {
+  calledWith(...args: Parameters<Method>): AddObservableSpyMethods<O>;
+  mustBeCalledWith(...args: Parameters<Method>): AddObservableSpyMethods<O>;
 };
 
 /** Argument-matching helpers that resolve to promise helpers. */
-export type AddCalledWithPromise<P> = {
-  calledWith(...args: any[]): AddPromiseSpyMethods<P>;
-  mustBeCalledWith(...args: any[]): AddPromiseSpyMethods<P>;
+export type AddCalledWithPromise<Method extends Func, P> = {
+  calledWith(...args: Parameters<Method>): AddPromiseSpyMethods<P>;
+  mustBeCalledWith(...args: Parameters<Method>): AddPromiseSpyMethods<P>;
 };
 
 /** Wrap a method's spy with the helper bundle chosen by its return type. */
 export type AddSpyMethodsByReturnTypes<Method extends Func> = Method &
   Mock &
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the `(...args: any[]) => infer ReturnType` conditional only extracts the return type; the parameter shape is irrelevant here and a narrower signature would fail to match arbitrary methods.
   (Method extends (...args: any[]) => infer ReturnType
     ? ReturnType extends Promise<infer P>
-      ? AddPromiseSpyMethods<P> & AddCalledWithPromise<P>
+      ? AddCalledWithPromise<Method, P> & AddPromiseSpyMethods<P>
       : ReturnType extends Observable<infer O>
-        ? AddObservableSpyMethods<O> & AddCalledWithObservable<O>
+        ? AddCalledWithObservable<Method, O> & AddObservableSpyMethods<O>
         : AddCalledWithSpyMethods<Method>
     : never);
 
@@ -129,13 +132,13 @@ export type AddAccessorsSpies<T> = {
 };
 
 /** Fully-typed spy of `T`. */
-export type Spy<T> = {
+export type Spy<T> = AddAccessorsSpies<T> & {
   [K in keyof T]: T[K] extends Func
     ? AddSpyMethodsByReturnTypes<T[K]>
     : T[K] extends Observable<infer O>
-      ? T[K] & AddObservableSpyMethods<O>
+      ? AddObservableSpyMethods<O> & T[K]
       : T[K];
-} & AddAccessorsSpies<T>;
+};
 
 // ---------------------------------------------------------------------------
 // Configuration
