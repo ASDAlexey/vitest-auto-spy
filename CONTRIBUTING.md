@@ -40,6 +40,30 @@ test: cover createObservableWithValues edge cases
 chore: bump dev dependencies
 ```
 
+The commit type also drives the **automatic version bump** on release (see below),
+so choose it accordingly.
+
+## Releases
+
+Releases are **fully automated**. When a PR is merged into `master`, the
+[`Auto Release`](./.github/workflows/auto-release.yml) workflow inspects the
+Conventional Commits since the last tag and, if there is anything releasable:
+
+| Commit(s) since last tag | Version bump |
+| --- | --- |
+| `BREAKING CHANGE:` in body, or `type!:` in the header | major |
+| `feat:` | minor |
+| `fix:` | patch |
+| only `chore` / `docs` / `refactor` / `test` / `ci` / … | no release |
+
+The workflow then bumps `package.json`, creates the `vX.Y.Z` commit and tag,
+publishes to npm (with provenance) and opens a GitHub Release with generated
+notes. **You never bump the version or tag by hand** — just land good commits.
+
+> Maintainers: this requires an `NPM_TOKEN` repo secret. Pushing a `v*` tag
+> manually still triggers the standalone [`Release`](./.github/workflows/release.yml)
+> workflow as a fallback.
+
 ## Submitting a PR
 
 1. Fork the repo and create a branch from `master`.

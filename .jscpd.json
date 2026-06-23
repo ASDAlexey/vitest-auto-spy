@@ -1,0 +1,9 @@
+{
+  "threshold": 0,
+  "reporters": ["consoleFull"],
+  "absolute": true,
+  "gitignore": true,
+  "format": ["typescript"],
+  "ignore": ["**/*.spec.ts", "**/dist/**", "**/coverage/**", "**/node_modules/**"],
+  "path": ["src"]
+}
