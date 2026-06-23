@@ -1,0 +1,126 @@
+name: Auto Release
+
+# Runs on every push to master (i.e. after a PR is merged).
+# Determines the version bump from Conventional Commits since the last tag,
+# then bumps package.json, tags, publishes to npm and creates a GitHub Release.
+#
+# Bump rules:
+#   - `BREAKING CHANGE` in body, or `type!:` in the header -> major
+#   - `feat:`                                              -> minor
+#   - `fix:`                                               -> patch
+#   - anything else (chore/docs/refactor/ci/test/...)      -> no release
+#
+# Requires an `NPM_TOKEN` repo secret (npm Automation or granular token that
+# bypasses 2FA). Publishes with provenance for a verified npm badge.
+# The version-bump commit/tag is pushed with GITHUB_TOKEN, which does NOT
+# re-trigger workflows, so there is no release loop.
+
+on:
+  push:
+    branches: [master, main]
+
+permissions:
+  contents: write # push the bump commit/tag and create the GitHub Release
+  id-token: write # npm provenance
+
+# Never run two releases at once.
+concurrency:
+  group: auto-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history + tags for commit analysis
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24 # latest LTS
+          registry-url: https://registry.npmjs.org
+          cache: npm
+
+      - name: Pin npm
+        run: npm i -g npm@11
+
+      - run: npm ci
+
+      - name: Decide version bump from Conventional Commits
+        id: bump
+        run: |
+          LAST_TAG="$(git describe --tags --abbrev=0 2>/dev/null || true)"
+          if [ -n "$LAST_TAG" ]; then
+            RANGE="${LAST_TAG}..HEAD"
+            echo "Analysing commits in ${RANGE}"
+          else
+            RANGE=""
+            echo "No previous tag — analysing full history"
+          fi
+
+          SUBJECTS="$(git log $RANGE --format='%s')"
+          BODIES="$(git log $RANGE --format='%B')"
+
+          BUMP=""
+          # major: "BREAKING CHANGE" in any body, or "type!:" / "type(scope)!:" header
+          if echo "$BODIES" | grep -qE 'BREAKING[ -]CHANGE' \
+            || echo "$SUBJECTS" | grep -qE '^[a-z]+(\([^)]+\))?!:'; then
+            BUMP="major"
+          elif echo "$SUBJECTS" | grep -qE '^feat(\([^)]+\))?:'; then
+            BUMP="minor"
+          elif echo "$SUBJECTS" | grep -qE '^fix(\([^)]+\))?:'; then
+            BUMP="patch"
+          fi
+
+          if [ -z "$BUMP" ]; then
+            echo "No releasable commits (feat/fix/BREAKING) since ${LAST_TAG:-start} — skipping release."
+            echo "bump=none" >> "$GITHUB_OUTPUT"
+          else
+            echo "Selected bump: ${BUMP}"
+            echo "bump=${BUMP}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Type-check + test + build
+        if: steps.bump.outputs.bump != 'none'
+        run: |
+          npm run typecheck
+          npm run test
+          npm run build
+
+      - name: Bump version, commit and tag
+        if: steps.bump.outputs.bump != 'none'
+        id: version
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # `npm version` updates package.json, creates a commit and a v* tag.
+          # [skip ci] is belt-and-suspenders; GITHUB_TOKEN pushes don't trigger
+          # workflows anyway.
+          NEW_VERSION="$(npm version ${{ steps.bump.outputs.bump }} -m 'chore(release): %s [skip ci]')"
+          echo "version=${NEW_VERSION}" >> "$GITHUB_OUTPUT"
+          git push --follow-tags
+
+      - name: Publish to npm (skip if version already exists)
+        if: steps.bump.outputs.bump != 'none'
+        run: |
+          VERSION="$(node -p "require('./package.json').version")"
+          if npm view "vitest-auto-spy@${VERSION}" version >/dev/null 2>&1; then
+            echo "vitest-auto-spy@${VERSION} is already published — skipping."
+          else
+            npm publish --provenance --access public
+          fi
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Create GitHub Release
+        if: steps.bump.outputs.bump != 'none'
+        run: |
+          TAG="${{ steps.version.outputs.version }}"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release ${TAG} already exists — skipping."
+          else
+            gh release create "$TAG" --generate-notes --latest
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
