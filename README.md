@@ -286,6 +286,10 @@ npm run test:coverage   # 100% thresholds enforced
 npm run build
 ```
 
+Releases are automated: merging a PR into `master` bumps the version from the
+Conventional Commit types and publishes to npm — see
+[CONTRIBUTING.md → Releases](./CONTRIBUTING.md#releases).
+
 If this package saved you time, a ⭐ on [GitHub](https://github.com/ASDAlexey/vitest-auto-spy)
 helps others find it.
 

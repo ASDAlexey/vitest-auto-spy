@@ -1,0 +1,6 @@
+dist
+coverage
+node_modules
+*.cjs
+*.mts
+*.config.ts

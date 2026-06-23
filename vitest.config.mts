@@ -14,7 +14,10 @@ export default defineConfig(() => ({
       provider: 'v8' as const,
       reportsDirectory: 'coverage',
       reporter: ['text', 'html', 'lcov'],
-      include: ['src/auto-spy.ts'],
+      // Measure the real implementation under src/lib/** (plus the public barrel),
+      // not just the re-export entry point. Pure type-only files contribute no
+      // executable statements.
+      include: ['src/lib/**/*.ts', 'src/auto-spy.ts'],
       thresholds: {
         lines: 100,
         functions: 100,
