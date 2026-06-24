@@ -10,6 +10,14 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+### Added
+
+- **Bun & `node:test` runtimes** — two new entry points that run the exact same core on a
+  non-Vitest runner: `vitest-auto-spy/bun` (Bun's `bun:test` mocks) and `vitest-auto-spy/node`
+  (`node:test`'s `mock.fn()`). Public API is identical to the Vitest entry; only native mock
+  methods differ by runner (the auto-spy helpers are normalised). Built on the `MockAdapter`
+  seam below.
+
 ### Changed
 
 - **`MockAdapter` seam — the core no longer imports `vitest`.** The single `vi.fn()` /

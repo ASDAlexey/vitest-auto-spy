@@ -19,7 +19,9 @@ export default defineConfig(() => ({
       reporter: ['text', 'html', 'lcov'],
       // Measure the real implementation under src/lib/** plus the public entry
       // barrels. Pure type-only files contribute no executable statements.
-      include: ['src/lib/**/*.ts', 'src/auto-spy.ts', 'src/index.ts', 'src/rxjs.ts', 'src/angular.ts'],
+      // `src/bun.ts` is excluded: it imports `bun:test`, which only resolves
+      // under the Bun runtime — its adapter logic is covered via `bun-adapter.ts`.
+      include: ['src/lib/**/*.ts', 'src/auto-spy.ts', 'src/index.ts', 'src/node.ts', 'src/rxjs.ts', 'src/angular.ts'],
       thresholds: {
         lines: 100,
         functions: 100,
