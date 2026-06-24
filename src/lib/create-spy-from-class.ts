@@ -5,7 +5,7 @@
  */
 import { createAccessorsSpies } from './accessor-spy';
 import { createFunctionSpy } from './function-spy';
-import { createObservablePropSpy } from './observable-spy';
+import { requireObservableSupport } from './observable-support';
 import type { ClassSpyConfiguration, ClassType, OnlyMethodKeysOf, Spy } from './types';
 
 /** All names to spy on, flattened from either form of the config argument. */
@@ -79,8 +79,10 @@ export function createSpyFromClass<T>(
 
   const autoSpy: Record<string, unknown> = {};
 
+  // Routed through the IoC registry so the core never statically imports rxjs;
+  // requesting observable props without `vitest-auto-spy/rxjs` throws a clear hint.
   observablePropsToSpyOn.forEach((observablePropName) => {
-    autoSpy[observablePropName] = createObservablePropSpy();
+    autoSpy[observablePropName] = requireObservableSupport().createPropSpy();
   });
 
   createAccessorsSpies(autoSpy, gettersToSpyOn, settersToSpyOn);

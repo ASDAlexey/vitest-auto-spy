@@ -8,7 +8,7 @@ import { vi } from 'vitest';
 import { ArgsMap } from './args-map';
 import { errorHandler } from './error-handler';
 import type { CalledWithObject, ReturnValueContainer } from './internal-types';
-import { addObservableHelpersToCalledWithObject, addObservableHelpersToFunctionSpy } from './observable-spy';
+import { getObservableSupport } from './observable-support';
 import { addPromiseHelpersToCalledWithObject, addPromiseHelpersToFunctionSpy } from './promise-spy';
 import { decorate } from './spy-decoration';
 import type { AddSpyMethodsByReturnTypes, Func } from './types';
@@ -90,7 +90,7 @@ function addMethodsToCalledWith(calledWith: CalledWithObject, calledWithArgs: un
     },
   });
   addPromiseHelpersToCalledWithObject(calledWith, calledWithArgs);
-  addObservableHelpersToCalledWithObject(calledWith, calledWithArgs);
+  getObservableSupport()?.addToCalledWithObject(calledWith, calledWithArgs);
 
   return calledWith;
 }
@@ -111,7 +111,7 @@ export function createFunctionSpy<FunctionType extends Func>(name: string): AddS
   functionSpy.mockName(name);
 
   addPromiseHelpersToFunctionSpy(functionSpy, valueContainer);
-  addObservableHelpersToFunctionSpy(functionSpy, valueContainer);
+  getObservableSupport()?.addToFunctionSpy(functionSpy, valueContainer);
 
   const spy = decorate(functionSpy, {
     calledWith: (...calledWithArgs: unknown[]): CalledWithObject => addMethodsToCalledWith(calledWithObject, calledWithArgs),

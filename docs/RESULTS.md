@@ -33,13 +33,16 @@ docs; this file is the index + the final verification status.
    `no-explicit-any`, `consistent-type-assertions: never`, `no-non-null-assertion`, rxjs
    hygiene, eslint-comments, regex, import dedup; dropped Angular/ngrx/template/local-rules
    plugins). Toolchain installed; scripts added.
-3. **Decouple from Angular & rxjs** → `docs/02-DECOUPLE-ANGULAR-RXJS.md`. **Feasible and worth
-   it**, but not a pure file-shuffle (~0.5–1.5 days, 2 PRs). Angular split is trivial (one
-   isolated file); rxjs needs one inversion-of-control refactor. Full plan + honest difficulty.
-   *Analysis only — not applied this session (it's a 2.0 API change).*
-4. **Size optimization** → `docs/03-SIZE-OPTIMIZATION.md`. **~77% smaller tarball** (131 kB →
-   ~30 kB) with zero behavior change via drop-sourcemaps + minify; dropping `javascript-stringify`
-   is the risky lever, deferred. *Analysis only — recommendations, not applied.*
+3. **Decouple from Angular & rxjs** → `docs/02-DECOUPLE-ANGULAR-RXJS.md`. **APPLIED.** Both
+   splits done in one pass: Angular and rxjs moved behind `vitest-auto-spy/angular` and
+   `vitest-auto-spy/rxjs` subpath exports, with the inversion-of-control observable registry
+   (`lib/observable-support.ts`) so the core never imports rxjs at runtime. Verified at the
+   bundle level — `dist/index.*` requires only `vitest`; `dist/rxjs.*` only `rxjs`;
+   `dist/angular.*` only `@angular/core/testing`. `rxjs`/`@angular/core` are now optional peers.
+4. **Size optimization** → `docs/03-SIZE-OPTIMIZATION.md`. **APPLIED — all three levers.**
+   Sourcemaps dropped + minify (#1, #2) and the `javascript-stringify` dependency replaced with
+   a dependency-free inline serializer (#3, gated by serialization-contract tests). Tarball
+   29.4 kB → 13.7 kB compressed (131 kB → 48.6 kB unpacked); zero runtime dependencies.
 5. **All results in md** → this file + the four `docs/0x-*.md`.
 6. **Future roadmap (Node/Bun, more stars)** → `docs/04-ROADMAP.md`. Framework-agnostic core is
    the #1 star lever, then `bun test` / `node:test`, Nest/React/Vue adapters, marketing, and a
@@ -82,7 +85,15 @@ delay into the promise at config time, just like observables — deleting the br
 Plus a handful of justified `consistent-type-assertions` disables for runtime-assembled spy
 types and `vi.spyOn` / `TestBed.inject` dynamic keys. No `as unknown` anywhere (banned).
 
-## Not done on purpose (analysis-only, future PRs)
-- The Angular/rxjs decoupling (task 3) and the size optimizations (task 4) are **documented
-  recommendations**, not applied — both are API/build changes best done as their own releases.
-  Nothing in this session changes the public API or the shipped build config.
+## Follow-up session — decoupling + size optimization applied
+The previously analysis-only tasks 3 and 4 have since been **implemented** (see the updated
+task-by-task notes above and `docs/02`/`docs/03`):
+
+- **Subpath entry points + IoC** — `vitest-auto-spy` (core), `vitest-auto-spy/rxjs`,
+  `vitest-auto-spy/angular`. Core is framework-agnostic at runtime. **BREAKING**: observable
+  and Angular helpers move to their subpaths (major version bump on next release).
+- **Size** — sourcemaps off, minify on, `javascript-stringify` removed (inline serializer).
+  Zero runtime dependencies; tarball ~53% smaller compressed.
+- **Gates** — 55 tests, genuine 100% coverage (added `core-standalone.spec.ts` for the
+  no-rxjs paths and `lib/serialize-args.spec.ts` for the serializer contract), ESLint 0,
+  jscpd 0, typecheck 0, build success, Prettier clean.

@@ -4,18 +4,11 @@ import { Observable, ReplaySubject, of } from 'rxjs';
 import { take } from 'rxjs/operators';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import {
-  type Spy,
-  createFunctionSpy,
-  createObservableWithValues,
-  createSpyFromClass,
-  errorHandler,
-  injectSpy,
-  mockAccessorsProp,
-  mockReadonlyProp,
-  mockReadonlyPropGetter,
-  provideAutoSpy,
-} from './auto-spy';
+// Public entries: core (`./index`), Angular helpers (`./angular`), and the rxjs
+// layer (`./rxjs`) — importing the latter registers observable support (IoC).
+import { injectSpy, mockAccessorsProp, mockReadonlyProp, mockReadonlyPropGetter, provideAutoSpy } from './angular';
+import { type Spy, createFunctionSpy, createSpyFromClass, errorHandler } from './index';
+import { createObservableWithValues } from './rxjs';
 
 // ---------------------------------------------------------------------------
 // Test subjects
