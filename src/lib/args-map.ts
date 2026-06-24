@@ -2,7 +2,7 @@
  * Serializes argument lists into stable string keys, so that
  * `calledWith(1, 'a')` can be matched against the actual call arguments.
  */
-import { stringify } from 'javascript-stringify';
+import { serializeValue } from './serialize-args';
 
 type SerializedArgs = string;
 
@@ -17,10 +17,10 @@ export class ArgsMap {
     return this.#map[this.#serialize(key)];
   }
 
-  // Keys are always argument arrays, which `javascript-stringify` always renders
-  // to a string. `String(...)` keeps the result total against its `string |
-  // undefined` signature without an unreachable fallback branch.
+  // Keys are always argument arrays; `serializeValue` renders them to a stable,
+  // total string (single-quoted strings, bracketed arrays, distinct `undefined`
+  // / function / symbol / BigInt / Date renderings, circular-ref safe).
   #serialize(key: unknown): SerializedArgs {
-    return String(stringify(key));
+    return serializeValue(key);
   }
 }

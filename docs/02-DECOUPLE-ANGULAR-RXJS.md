@@ -1,5 +1,11 @@
 # Decoupling from Angular & rxjs (task 3)
 
+> **STATUS: ✅ IMPLEMENTED.** Both the Angular and rxjs splits below are done, including the
+> inversion-of-control refactor. Core is `vitest-auto-spy`, with `vitest-auto-spy/rxjs` and
+> `vitest-auto-spy/angular` as opt-in subpaths; `rxjs`/`@angular/core` are optional peers.
+> Verified at the bundle level — the core requires only `vitest`. The document below is the
+> original plan, kept for rationale.
+
 > Question: can the library be separated from Angular and rxjs internally, so the core spy
 > functionality is usable in **any** project (plain Node, Bun, React, Vue) — with Angular as
 > just one supported case rather than a hard dependency?

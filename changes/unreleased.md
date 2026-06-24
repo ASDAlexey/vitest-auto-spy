@@ -2,9 +2,13 @@
 
 ## Highlights
 
-Tooling & type-safety hardening release. The library now builds under a very strict TypeScript
-config and a distilled ESLint/Prettier ruleset, runs `jscpd` at zero-tolerance for duplication,
-and ships internal documentation (code review, decoupling feasibility, size analysis, roadmap).
+Framework-agnostic + leaner release (with the earlier tooling & type-safety hardening). The
+core is now decoupled from rxjs and Angular behind opt-in subpath entries, the package has zero
+runtime dependencies, and the tarball is ~53% smaller. It still builds under a very strict
+TypeScript config + distilled ESLint/Prettier ruleset and runs `jscpd` at zero tolerance.
+
+> ⚠️ **Breaking:** observable spies now import from `vitest-auto-spy/rxjs` and Angular helpers
+> from `vitest-auto-spy/angular`. See the README "Entry points" table.
 
 ## Added
 
@@ -21,8 +25,19 @@ and ships internal documentation (code review, decoupling feasibility, size anal
 - `docs/` — `01-CODE-REVIEW.md`, `02-DECOUPLE-ANGULAR-RXJS.md`, `03-SIZE-OPTIMIZATION.md`,
   `04-ROADMAP.md`.
 
+- **Framework-agnostic core + opt-in subpath entries** — `vitest-auto-spy` (core),
+  `vitest-auto-spy/rxjs`, `vitest-auto-spy/angular`. An inversion-of-control registry keeps the
+  core free of any runtime rxjs/Angular import; `rxjs`/`@angular/core` are now optional peers.
+- **Dependency-free arg serializer** replacing `javascript-stringify` — same observable output,
+  one fewer dependency.
+
 ## Changed
 
+- **BREAKING:** observable helpers (`createObservableWithValues`, `observablePropsToSpyOn`,
+  `nextWith`, …) move to `vitest-auto-spy/rxjs`; Angular helpers (`provideAutoSpy`, `injectSpy`,
+  `mock*`) move to `vitest-auto-spy/angular`. The sync/promise/accessor core API is unchanged.
+- **Smaller package** — sourcemaps dropped + minify + `javascript-stringify` removed. Tarball
+  29.4 kB → 13.7 kB compressed (131 kB → 48.6 kB unpacked); **zero runtime dependencies**.
 - Hardened the `src/lib/**` type surface: `any` → `unknown` + narrowing where possible,
   unnecessary `as` casts removed, non-null assertions replaced with guards. Remaining `any`
   is limited to load-bearing generic-inference spots, each with a justified disable.
@@ -40,5 +55,6 @@ and ships internal documentation (code review, decoupling feasibility, size anal
 
 ## Notes for maintainers
 
-- Bundle-size wins (drop sourcemaps, minify; ~77% smaller tarball) and the Angular/rxjs
-  decoupling are planned but **not** in this release — see `docs/03` and `docs/02`.
+- This release contains a **breaking** import-surface change (subpath entries), so it warrants a
+  **major** version bump. The conventional-commit body should include a `BREAKING CHANGE:` footer
+  so semantic-release cuts a major.

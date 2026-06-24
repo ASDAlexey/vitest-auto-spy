@@ -50,8 +50,33 @@ same API, but spying only on **Vitest** instead of Jest.
 npm i -D vitest-auto-spy
 ```
 
-Peer dependencies (provided by your project): `vitest`, `rxjs`, and — for the Angular
-helpers — `@angular/core`.
+Peer dependencies are all **optional** and provided by your project: `vitest` (required),
+plus `rxjs` and `@angular/core` only if you use the matching entry point. The package itself
+has **zero runtime dependencies**.
+
+### Entry points
+
+The library ships a framework-agnostic core and two opt-in layers, so a plain Node / Bun /
+React / Vue project pulls **neither rxjs nor Angular into its runtime bundle**:
+
+| Import | Provides | Pulls in |
+| --- | --- | --- |
+| `vitest-auto-spy` | `createSpyFromClass`, `createFunctionSpy`, sync + promise + accessor spies, `errorHandler`, types | `vitest` |
+| `vitest-auto-spy/rxjs` | observable spies (`nextWith`, `nextWithValues`, `observablePropsToSpyOn`, …) + `createObservableWithValues` | `rxjs` |
+| `vitest-auto-spy/angular` | `provideAutoSpy`, `injectSpy`, `mockReadonlyProp*`, `mockAccessorsProp` | `@angular/core` |
+
+```ts
+import { createSpyFromClass } from 'vitest-auto-spy';
+import 'vitest-auto-spy/rxjs'; // once (e.g. in your test setup) — enables observable spies
+import { provideAutoSpy, injectSpy } from 'vitest-auto-spy/angular';
+```
+
+> Using an observable spy (`observablePropsToSpyOn`, `nextWith`, …) without importing
+> `vitest-auto-spy/rxjs` throws a clear hint telling you to add that import.
+>
+> The decoupling is at the **runtime** level. The core's _type_ surface (`Spy<T>`) still
+> references rxjs types, so keep `rxjs` available for type-checking (it's normally already a
+> devDependency); none of it reaches your runtime bundle.
 
 ## Why
 
@@ -87,8 +112,13 @@ The public API is intentionally identical. In most projects the migration is a
 
 ```diff
 - import { createSpyFromClass, provideAutoSpy } from 'jest-auto-spies';
-+ import { createSpyFromClass, provideAutoSpy } from 'vitest-auto-spy';
++ import { createSpyFromClass } from 'vitest-auto-spy';
++ import { provideAutoSpy } from 'vitest-auto-spy/angular';
++ import 'vitest-auto-spy/rxjs'; // once, if you use observable spies
 ```
+
+The only API-shape change from `jest-auto-spies` is that the Angular helpers and the
+observable layer live behind the `/angular` and `/rxjs` subpaths (see [Entry points](#entry-points)).
 
 | jest-auto-spies | vitest-auto-spy | Status |
 | --- | --- | --- |
@@ -155,7 +185,11 @@ myService.getProducts.calledWith(1).resolveWith(['one']);
 ## Observable-returning methods & Observable properties
 
 Both spied **methods** that return an `Observable` and spied **properties** of type
-`Observable` get the same control surface:
+`Observable` get the same control surface. Enable them by importing the rxjs layer once:
+
+```ts
+import 'vitest-auto-spy/rxjs';
+```
 
 ```ts
 myService.getProducts$.nextWith([{ name: 'Product 1' }]); // emit, stream stays open
@@ -187,7 +221,7 @@ myService.getProducts$.calledWith(1).nextWith([{ name: 'Product 1' }]);
 ### Standalone observable builder
 
 ```ts
-import { createObservableWithValues } from 'vitest-auto-spy';
+import { createObservableWithValues } from 'vitest-auto-spy/rxjs';
 
 const fake$ = createObservableWithValues([{ value: 1 }, { value: 2 }, { complete: true }]);
 
@@ -217,7 +251,7 @@ expect(spy.accessorSpies.setters.userName).toHaveBeenCalledWith('New Name');
 `provideAutoSpy` is the shorthand for providing an auto-spy in a `TestBed`:
 
 ```ts
-import { provideAutoSpy, injectSpy } from 'vitest-auto-spy';
+import { provideAutoSpy, injectSpy } from 'vitest-auto-spy/angular';
 
 TestBed.configureTestingModule({
   providers: [
@@ -243,7 +277,7 @@ beforeEach(() => {
 ### Signal / readonly property mocking (bonus)
 
 ```ts
-import { mockReadonlyProp, mockReadonlyPropGetter, mockAccessorsProp } from 'vitest-auto-spy';
+import { mockReadonlyProp, mockReadonlyPropGetter, mockAccessorsProp } from 'vitest-auto-spy/angular';
 
 mockReadonlyProp(service, 'isReady', true);              // static value (incl. signals)
 mockReadonlyPropGetter(service, 'label', () => 'A');     // dynamic getter

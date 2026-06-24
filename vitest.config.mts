@@ -10,14 +10,16 @@ export default defineConfig(() => ({
     environment: 'jsdom',
     setupFiles: ['src/test-setup.ts'],
     include: ['src/**/*.spec.ts'],
+    // Per-file isolation so the IoC observable registry starts empty in the
+    // "core without rxjs" spec regardless of test-file order.
+    isolate: true,
     coverage: {
       provider: 'v8' as const,
       reportsDirectory: 'coverage',
       reporter: ['text', 'html', 'lcov'],
-      // Measure the real implementation under src/lib/** (plus the public barrel),
-      // not just the re-export entry point. Pure type-only files contribute no
-      // executable statements.
-      include: ['src/lib/**/*.ts', 'src/auto-spy.ts'],
+      // Measure the real implementation under src/lib/** plus the public entry
+      // barrels. Pure type-only files contribute no executable statements.
+      include: ['src/lib/**/*.ts', 'src/auto-spy.ts', 'src/index.ts', 'src/rxjs.ts', 'src/angular.ts'],
       thresholds: {
         lines: 100,
         functions: 100,
