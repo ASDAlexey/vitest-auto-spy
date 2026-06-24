@@ -2,9 +2,12 @@
  * vitest-auto-spy
  * ===============
  *
- * Create automatic, fully-typed test spies from a class — powered by Vitest's
- * `vi.fn()`. A drop-in replacement for [`jest-auto-spies`](https://www.npmjs.com/package/jest-auto-spies),
- * with the exact same API surface but spying only on Vitest.
+ * Create automatic, fully-typed test spies from a class. The core is
+ * runtime-agnostic: it talks to the host test runner through a `MockAdapter`,
+ * and importing this entry registers the default Vitest adapter (`vi.fn()` /
+ * `vi.spyOn()`), so it stays zero-config. A drop-in replacement for
+ * [`jest-auto-spies`](https://www.npmjs.com/package/jest-auto-spies), with the
+ * exact same API surface.
  *
  * ```ts
  * // framework-agnostic core (sync + promise + accessor spies)

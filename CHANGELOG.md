@@ -10,8 +10,14 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
-> Nothing yet. Add user-facing changes here as PRs land (see CONTRIBUTING.md). When the
-> release automation publishes a version, this section is renamed to `[x.y.z] - YYYY-MM-DD`.
+### Changed
+
+- **`MockAdapter` seam — the core no longer imports `vitest`.** The single `vi.fn()` /
+  `vi.spyOn()` dependency now lives behind a registered `MockAdapter` (the same inversion-of-control
+  pattern as the rxjs decouple). `vitest-auto-spy` registers the default Vitest adapter on import,
+  so existing usage is unchanged and stays zero-config — verified at the bundle level (only
+  `vitest-adapter` references `vitest`; the rest of the core does not). This unblocks future
+  non-Vitest entries (`vitest-auto-spy/bun`, `…/node`) over the same core.
 
 ## [1.3.0] - 2026-06-24
 
