@@ -77,6 +77,11 @@ import { provideAutoSpy, injectSpy } from 'vitest-auto-spy/angular';
 > The decoupling is at the **runtime** level. The core's _type_ surface (`Spy<T>`) still
 > references rxjs types, so keep `rxjs` available for type-checking (it's normally already a
 > devDependency); none of it reaches your runtime bundle.
+>
+> The same inversion-of-control applies to the **test runner**: the core no longer imports
+> `vitest` directly — `vi.fn()` / `vi.spyOn()` sit behind a `MockAdapter` that the
+> `vitest-auto-spy` entry registers by default, so it stays zero-config. This is the groundwork
+> for running the exact same core on other Vitest-compatible runners.
 
 ## Why
 
