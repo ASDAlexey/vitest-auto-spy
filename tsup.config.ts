@@ -4,7 +4,17 @@ export default defineConfig({
   // Entry points: the framework-agnostic core (default Vitest adapter), the Bun
   // and `node:test` runtime variants, the optional rxjs layer, and the optional
   // Angular TestBed helpers.
-  entry: ['src/index.ts', 'src/bun.ts', 'src/node.ts', 'src/rxjs.ts', 'src/angular.ts'],
+  entry: [
+    'src/index.ts',
+    'src/bun.ts',
+    'src/node.ts',
+    'src/rxjs.ts',
+    'src/angular.ts',
+    'src/nestjs.ts',
+    'src/react.ts',
+    'src/vue.ts',
+    'src/svelte.ts',
+  ],
   format: ['esm', 'cjs'],
   dts: true,
   clean: true,
