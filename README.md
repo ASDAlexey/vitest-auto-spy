@@ -27,7 +27,7 @@ same API, but spying only on **Vitest** instead of Jest.
 - 📡 First-class RxJS `Observable` spying (`nextWith`, `nextWithValues`, `throwWith`, …)
 - ⚙️ Getter / setter spies via `accessorSpies`
 - 🅰️ Angular helpers (`provideAutoSpy`, `injectSpy`) — works with **both zoneless and zone.js**
-- 🟢 100% test coverage, zero runtime dependencies beyond a tiny arg serializer
+- 🟢 100% test coverage, **zero runtime dependencies** (in-tree arg serializer, no `javascript-stringify`)
 
 ## Table of contents
 
