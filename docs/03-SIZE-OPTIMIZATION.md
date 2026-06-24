@@ -1,5 +1,11 @@
 # Bundle / package size optimization (task 4)
 
+> **STATUS: ✅ IMPLEMENTED — all three levers.** Sourcemaps dropped (#1), minify on (#2), and
+> `javascript-stringify` replaced with a dependency-free inline serializer (#3, gated by
+> serialization-contract tests in `src/lib/serialize-args.spec.ts`). Result: tarball 29.4 kB →
+> 13.7 kB compressed (131 kB → 48.6 kB unpacked), **zero runtime dependencies**. The document
+> below is the original analysis.
+
 > Goal: make the published package smaller with identical functionality.
 
 ## Current built output (`dist/`, v1.0.1)

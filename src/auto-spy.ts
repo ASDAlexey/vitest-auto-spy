@@ -7,7 +7,12 @@
  * with the exact same API surface but spying only on Vitest.
  *
  * ```ts
- * import { createSpyFromClass, provideAutoSpy } from 'vitest-auto-spy';
+ * // framework-agnostic core (sync + promise + accessor spies)
+ * import { createSpyFromClass } from 'vitest-auto-spy';
+ *
+ * // opt-in layers — import only what you use:
+ * import 'vitest-auto-spy/rxjs';                       // enables observable spies
+ * import { provideAutoSpy } from 'vitest-auto-spy/angular'; // Angular TestBed helpers
  * ```
  *
  * --------------------------------------------------------------------------
@@ -101,25 +106,22 @@
  * ```
  *
  * --------------------------------------------------------------------------
- * ## Angular helpers (bonus)
+ * ## Optional layers
  * --------------------------------------------------------------------------
  *
+ * Observable spies live behind `vitest-auto-spy/rxjs` and Angular TestBed
+ * helpers behind `vitest-auto-spy/angular`, so a plain Node / Bun / React / Vue
+ * project pulls neither rxjs nor Angular into its runtime bundle unless it opts
+ * in (the core's type surface still references rxjs types):
+ *
  * ```ts
- * TestBed.configureTestingModule({
- *   providers: [provideAutoSpy(MyService)],
- * });
- *
- * const service = injectSpy(MyService);
- *
- * // signals / readonly / accessor property mocking
- * mockReadonlyProp(service, 'isReady', true);
- * mockReadonlyPropGetter(service, 'label', () => 'A');
- * mockAccessorsProp(service, 'theme');
+ * import 'vitest-auto-spy/rxjs'; // nextWith / nextWithValues / observablePropsToSpyOn / …
+ * import { provideAutoSpy, injectSpy } from 'vitest-auto-spy/angular';
  * ```
  *
  * --------------------------------------------------------------------------
  *
- * This file is the public barrel: the implementation lives in `./lib/*`.
+ * This file is the public core barrel: the implementation lives in `./lib/*`.
  */
 
 // Public types
@@ -128,17 +130,6 @@ export type * from './lib/types';
 // Core factories
 export { createSpyFromClass } from './lib/create-spy-from-class';
 export { createFunctionSpy } from './lib/function-spy';
-export { createObservableWithValues } from './lib/observable-spy';
 
 // mustBeCalledWith error reporting
 export { errorHandler } from './lib/error-handler';
-
-// Angular helpers (bonus)
-export {
-  injectSpy,
-  mockAccessorsProp,
-  mockReadonlyProp,
-  mockReadonlyPropGetter,
-  provideAutoSpy,
-  type AngularValueProvider,
-} from './lib/angular';
