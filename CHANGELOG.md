@@ -12,11 +12,28 @@ The latest released version here must always match the one published on
 
 ### Added
 
+- **Framework adapters — NestJS, React, Vue/Pinia, Svelte.** Four new entry points over the same
+  core, each importing **nothing** from its framework (helpers are structural, frameworks stay
+  optional consumer-side peers):
+  - `vitest-auto-spy/nestjs` — `provideAutoSpy` (the `{ provide, useValue }` shape `Test.createTestingModule` consumes) and `injectSpy(moduleRef, token)` typed as `Spy<T>`.
+  - `vitest-auto-spy/vue` — `provideAutoSpy(token, Class)` returning `{ [token]: Spy<T> }` for `@vue/test-utils`' `global.provide`, plus class-based Pinia store spying.
+  - `vitest-auto-spy/react` and `vitest-auto-spy/svelte` — natural import paths over the core for spying class-based services/stores in those suites.
+- **`createAutoMock<T>()` — auto-mock by type/interface (no class).** A `Proxy`-based factory that
+  builds a fully-typed `Spy<T>` from a TypeScript type alone, materializing each accessed method as
+  a decorated spy lazily (cached by key) with the **same** return-type-aware control helpers as
+  `createSpyFromClass`. Optional `overrides` seed concrete property values/implementations.
 - **Bun & `node:test` runtimes** — two new entry points that run the exact same core on a
   non-Vitest runner: `vitest-auto-spy/bun` (Bun's `bun:test` mocks) and `vitest-auto-spy/node`
   (`node:test`'s `mock.fn()`). Public API is identical to the Vitest entry; only native mock
   methods differ by runner (the auto-spy helpers are normalised). Built on the `MockAdapter`
   seam below.
+
+### Docs
+
+- README leads with the runtime-agnostic, multi-framework story: runtime-support badges, a
+  competitor comparison table, a `createAutoMock` section, and a **Framework adapters** section
+  (NestJS/React/Vue/Svelte ahead of Angular). npm keywords lead with `auto-mock` / `class-mock` /
+  `typed-mock` instead of `angular`.
 
 ### Changed
 
