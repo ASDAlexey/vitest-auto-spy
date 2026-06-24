@@ -56,12 +56,14 @@ has **zero runtime dependencies**.
 
 ### Entry points
 
-The library ships a framework-agnostic core and two opt-in layers, so a plain Node / Bun /
-React / Vue project pulls **neither rxjs nor Angular into its runtime bundle**:
+The library ships a framework-agnostic core plus runtime and framework layers, so a plain
+Node / Bun / React / Vue project pulls **neither rxjs nor Angular into its runtime bundle**:
 
 | Import | Provides | Pulls in |
 | --- | --- | --- |
 | `vitest-auto-spy` | `createSpyFromClass`, `createFunctionSpy`, sync + promise + accessor spies, `errorHandler`, types | `vitest` |
+| `vitest-auto-spy/bun` | the same core, driven by Bun's `bun:test` mocks | `bun:test` |
+| `vitest-auto-spy/node` | the same core, driven by `node:test`'s `mock.fn()` | `node:test` |
 | `vitest-auto-spy/rxjs` | observable spies (`nextWith`, `nextWithValues`, `observablePropsToSpyOn`, …) + `createObservableWithValues` | `rxjs` |
 | `vitest-auto-spy/angular` | `provideAutoSpy`, `injectSpy`, `mockReadonlyProp*`, `mockAccessorsProp` | `@angular/core` |
 
@@ -70,6 +72,22 @@ import { createSpyFromClass } from 'vitest-auto-spy';
 import 'vitest-auto-spy/rxjs'; // once (e.g. in your test setup) — enables observable spies
 import { provideAutoSpy, injectSpy } from 'vitest-auto-spy/angular';
 ```
+
+#### Runtimes
+
+The core is runner-agnostic behind a `MockAdapter`: pick the entry that matches your test
+runner — the public API (`createSpyFromClass`, `calledWith`, `resolveWith`, `nextWith`, …) is
+identical across all three.
+
+```ts
+import { createSpyFromClass } from 'vitest-auto-spy';      // Vitest (default, zero-config)
+import { createSpyFromClass } from 'vitest-auto-spy/bun';  // Bun — bun:test
+import { createSpyFromClass } from 'vitest-auto-spy/node'; // node:test
+```
+
+> Only the auto-spy helpers are normalised across runtimes; **native** mock methods stay the
+> runner's own — `mockReturnValue` on Vitest/Bun, `spy.method.mock.mockImplementation` on
+> `node:test`. Each entry registers its adapter on import, so import the one matching your runner.
 
 > Using an observable spy (`observablePropsToSpyOn`, `nextWith`, …) without importing
 > `vitest-auto-spy/rxjs` throws a clear hint telling you to add that import.
