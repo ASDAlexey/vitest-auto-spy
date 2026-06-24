@@ -15,6 +15,9 @@
     "auto-spy",
     "auto-spies",
     "jest-auto-spies",
+    "bun",
+    "bun-test",
+    "node-test",
     "rxjs",
     "observable",
     "zoneless",
@@ -40,6 +43,16 @@
       "import": "./dist/index.js",
       "require": "./dist/index.cjs"
     },
+    "./bun": {
+      "types": "./dist/bun.d.ts",
+      "import": "./dist/bun.js",
+      "require": "./dist/bun.cjs"
+    },
+    "./node": {
+      "types": "./dist/node.d.ts",
+      "import": "./dist/node.js",
+      "require": "./dist/node.cjs"
+    },
     "./rxjs": {
       "types": "./dist/rxjs.d.ts",
       "import": "./dist/rxjs.js",
@@ -57,6 +70,14 @@
     "LICENSE"
   ],
   "sideEffects": [
+    "**/index.js",
+    "**/index.cjs",
+    "**/bun.js",
+    "**/bun.cjs",
+    "**/node.js",
+    "**/node.cjs",
+    "**/angular.js",
+    "**/angular.cjs",
     "**/rxjs.js",
     "**/rxjs.cjs"
   ],
