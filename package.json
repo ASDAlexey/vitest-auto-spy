@@ -1,6 +1,6 @@
 {
   "name": "vitest-auto-spy",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Auto-spy utilities for Vitest + Angular (works with both zoneless and zone.js). Drop-in replacement for jest-auto-spies.",
   "keywords": [
     "vitest",
