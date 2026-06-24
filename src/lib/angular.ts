@@ -4,9 +4,9 @@
  * accessor pairs (incl. `signal()` / `computed()`).
  */
 import { TestBed } from '@angular/core/testing';
-import { vi } from 'vitest';
 
 import { createSpyFromClass } from './create-spy-from-class';
+import { getMockAdapter } from './mock-adapter';
 import type { ClassSpyConfiguration, ClassType, OnlyMethodKeysOf, Spy } from './types';
 
 /** `{ provide, useValue }` shape consumed by Angular's `providers`. */
@@ -41,7 +41,9 @@ export function mockReadonlyPropGetter<T, K extends keyof T>(object: T, property
   Object.defineProperty(object, property, { get: getter, configurable: true });
 }
 
-/** Replace a property with spied `get`/`set` accessors (`vi.fn()`). */
+/** Replace a property with spied `get`/`set` accessors (host-runner mocks). */
 export function mockAccessorsProp<T, K extends keyof T>(object: T, property: K): void {
-  Object.defineProperty(object, property, { get: vi.fn(), set: vi.fn(), configurable: true });
+  const adapter = getMockAdapter();
+
+  Object.defineProperty(object, property, { get: adapter.createMockFn(), set: adapter.createMockFn(), configurable: true });
 }
