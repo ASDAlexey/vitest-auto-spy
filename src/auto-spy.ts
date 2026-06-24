@@ -132,6 +132,7 @@ export type * from './lib/types';
 
 // Core factories
 export { createSpyFromClass } from './lib/create-spy-from-class';
+export { createAutoMock } from './lib/auto-mock';
 export { createFunctionSpy } from './lib/function-spy';
 
 // mustBeCalledWith error reporting

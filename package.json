@@ -1,9 +1,24 @@
 {
   "name": "vitest-auto-spy",
   "version": "1.3.0",
-  "description": "Auto-spy utilities for Vitest + Angular (works with both zoneless and zone.js). Drop-in replacement for jest-auto-spies.",
+  "description": "Auto-generate fully-typed test spies from a class — across Vitest, Bun and node:test, with NestJS/React/Vue/Svelte/Angular recipes. Drop-in replacement for jest-auto-spies.",
   "keywords": [
+    "auto-mock",
+    "class-mock",
+    "typed-mock",
+    "auto-spy",
+    "auto-spies",
+    "vitest-mock",
+    "sinon-alternative",
+    "jest-auto-spies",
     "vitest",
+    "bun",
+    "bun-test",
+    "node-test",
+    "nestjs",
+    "react",
+    "vue",
+    "svelte",
     "angular",
     "testing",
     "unit-testing",
@@ -12,12 +27,6 @@
     "mock",
     "mocking",
     "test-doubles",
-    "auto-spy",
-    "auto-spies",
-    "jest-auto-spies",
-    "bun",
-    "bun-test",
-    "node-test",
     "rxjs",
     "observable",
     "zoneless",
@@ -62,6 +71,26 @@
       "types": "./dist/angular.d.ts",
       "import": "./dist/angular.js",
       "require": "./dist/angular.cjs"
+    },
+    "./nestjs": {
+      "types": "./dist/nestjs.d.ts",
+      "import": "./dist/nestjs.js",
+      "require": "./dist/nestjs.cjs"
+    },
+    "./react": {
+      "types": "./dist/react.d.ts",
+      "import": "./dist/react.js",
+      "require": "./dist/react.cjs"
+    },
+    "./vue": {
+      "types": "./dist/vue.d.ts",
+      "import": "./dist/vue.js",
+      "require": "./dist/vue.cjs"
+    },
+    "./svelte": {
+      "types": "./dist/svelte.d.ts",
+      "import": "./dist/svelte.js",
+      "require": "./dist/svelte.cjs"
     }
   },
   "files": [
@@ -78,6 +107,14 @@
     "**/node.cjs",
     "**/angular.js",
     "**/angular.cjs",
+    "**/nestjs.js",
+    "**/nestjs.cjs",
+    "**/react.js",
+    "**/react.cjs",
+    "**/vue.js",
+    "**/vue.cjs",
+    "**/svelte.js",
+    "**/svelte.cjs",
     "**/rxjs.js",
     "**/rxjs.cjs"
   ],
