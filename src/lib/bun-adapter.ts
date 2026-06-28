@@ -11,7 +11,7 @@
  * redefine helper.
  */
 import type { MockAdapter, MockFn } from './mock-adapter';
-import { spyOnAccessorByRedefine } from './redefine-accessor-spy';
+import { createRedefineMockAdapter } from './redefine-accessor-spy';
 import type { Func } from './types';
 
 /** A Bun (`bun:test`) mock function — the surface this adapter relies on. */
@@ -46,11 +46,9 @@ export function createBunMockAdapter(bun: BunTestApi): MockAdapter {
     return mockFn;
   };
 
-  return {
+  return createRedefineMockAdapter({
     createMockFn,
-    spyOnGetter: (target: object, property: string): MockFn => spyOnAccessorByRedefine(createMockFn, target, property, 'get'),
-    spyOnSetter: (target: object, property: string): MockFn => spyOnAccessorByRedefine(createMockFn, target, property, 'set'),
     getCalls: (mockFn: MockFn): readonly unknown[][] => asBunMock(mockFn).mock.calls,
     reset: (mockFn: MockFn): void => asBunMock(mockFn).mockReset(),
-  };
+  });
 }
