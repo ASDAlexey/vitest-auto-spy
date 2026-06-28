@@ -9,6 +9,13 @@
  * suites. The core (`vitest-auto-spy`) stays framework-agnostic and never
  * references Angular.
  */
+import { registerMockAdapter } from './lib/mock-adapter';
+import { vitestMockAdapter } from './lib/vitest-adapter';
+
+// Angular suites run on Vitest, and this entry may be imported without the core
+// (`provideAutoSpy` builds spies on its own), so register the default adapter here too.
+registerMockAdapter(vitestMockAdapter);
+
 export {
   injectSpy,
   mockAccessorsProp,

@@ -19,6 +19,10 @@ export default defineConfig(() => ({
       reporter: ['text', 'html', 'lcov'],
       // Measure the real implementation under src/lib/** plus the public entry
       // barrels. Pure type-only files contribute no executable statements.
+      // `src/bun.ts` and `src/node.ts` are excluded: they import `bun:test` /
+      // `node:test`, which only resolve under their own runtimes (Vitest cannot
+      // bundle the built-in `node:test`) — their adapter logic is covered via
+      // `bun-adapter.ts` / `node-adapter.ts`.
       include: ['src/lib/**/*.ts', 'src/auto-spy.ts', 'src/index.ts', 'src/rxjs.ts', 'src/angular.ts'],
       thresholds: {
         lines: 100,
