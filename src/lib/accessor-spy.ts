@@ -1,16 +1,17 @@
 /**
  * Getter / setter spies.
  *
- * Installs empty, configurable accessors on the auto-spy and wraps them with
- * `vi.spyOn`, exposing the resulting mocks under `accessorSpies`.
+ * Installs empty, configurable accessors on the auto-spy and wraps them with the
+ * active {@link MockAdapter}'s accessor spy, exposing the resulting mocks under
+ * `accessorSpies`.
  */
-import { type MockInstance, vi } from 'vitest';
+import { getMockAdapter, type MockFn } from './mock-adapter';
 
 type AccessorType = 'getter' | 'setter';
 
-type AccessorSpies = { getters: Record<string, MockInstance>; setters: Record<string, MockInstance> };
+type AccessorSpies = { getters: Record<string, MockFn>; setters: Record<string, MockFn> };
 
-/** Install no-op `get`/`set` accessors so `vi.spyOn` has something to wrap. */
+/** Install no-op `get`/`set` accessors so the adapter has something to wrap. */
 function defineWithEmptyAccessors(obj: Record<string, unknown>, prop: string): void {
   Object.defineProperty(obj, prop, {
     get(): undefined {
@@ -23,11 +24,10 @@ function defineWithEmptyAccessors(obj: Record<string, unknown>, prop: string): v
   });
 }
 
-function spyOnAccessor(autoSpy: Record<string, unknown>, accessorName: string, accessorType: AccessorType): MockInstance {
-  // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- `vi.spyOn`'s key parameter is typed against the static object shape, but `accessorName` is a dynamic string; `as never` satisfies the overload for a key only known at runtime.
-  const key = accessorName as never;
+function spyOnAccessor(autoSpy: Record<string, unknown>, accessorName: string, accessorType: AccessorType): MockFn {
+  const adapter = getMockAdapter();
 
-  return accessorType === 'setter' ? vi.spyOn(autoSpy, key, 'set') : vi.spyOn(autoSpy, key, 'get');
+  return accessorType === 'setter' ? adapter.spyOnSetter(autoSpy, accessorName) : adapter.spyOnGetter(autoSpy, accessorName);
 }
 
 export function createAccessorsSpies(autoSpy: Record<string, unknown>, gettersToSpyOn: string[], settersToSpyOn: string[]): void {
