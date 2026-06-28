@@ -5,9 +5,9 @@
 **Auto-generate fully-typed test spies from a class — across any Vitest-compatible runtime and framework.**
 
 The only auto-spy library that reads a **class** and gives a **fully-typed** spy of every method
-with **return-type-aware** helpers (`resolveWith` / `nextWith` / `calledWith`). Available today for
-**Vitest** (with **RxJS** and **Angular** helpers); **Bun**, **node:test**, and NestJS / React /
-Vue·Pinia / Svelte recipes land in the next release ([availability](#availability)). A drop-in
+with **return-type-aware** helpers (`resolveWith` / `nextWith` / `calledWith`). Runs on **Vitest**,
+**Bun** (`bun:test`) and **`node:test`** behind one identical API, with **RxJS** spies and
+**Angular / NestJS / React / Vue·Pinia / Svelte** recipes ([availability](#availability)). A drop-in
 replacement for [`jest-auto-spies`](https://www.npmjs.com/package/jest-auto-spies) — same API.
 
 [![npm version](https://img.shields.io/npm/v/vitest-auto-spy?color=cb3837&logo=npm)](https://www.npmjs.com/package/vitest-auto-spy)
@@ -19,8 +19,8 @@ replacement for [`jest-auto-spies`](https://www.npmjs.com/package/jest-auto-spie
 [![license](https://img.shields.io/npm/l/vitest-auto-spy?color=blue)](./LICENSE)
 
 [![Vitest](https://img.shields.io/badge/Vitest-✓-6E9F18?logo=vitest&logoColor=white)](#runtimes)
-[![Bun](https://img.shields.io/badge/Bun-next-yellow?logo=bun&logoColor=white)](#availability)
-[![node:test](https://img.shields.io/badge/node%3Atest-next-yellow?logo=node.js&logoColor=white)](#availability)
+[![Bun](https://img.shields.io/badge/Bun-✓-6E9F18?logo=bun&logoColor=white)](#availability)
+[![node:test](https://img.shields.io/badge/node%3Atest-✓-6E9F18?logo=node.js&logoColor=white)](#availability)
 [![runtime deps](https://img.shields.io/badge/runtime%20deps-0-brightgreen)](#install)
 
 📦 [**npm**](https://www.npmjs.com/package/vitest-auto-spy) · 🐙 [**GitHub**](https://github.com/ASDAlexey/vitest-auto-spy) · 🔖 [**Changelog**](./CHANGELOG.md)
@@ -31,8 +31,8 @@ replacement for [`jest-auto-spies`](https://www.npmjs.com/package/jest-auto-spie
 
 - 🧪 Reads a class and generates a typed spy for **every** method — no hand-written `vi.fn()` lists
 - 🧬 Or mock from a **type/interface** alone — `createAutoMock<T>()`, no class required
-- 🌐 One `MockAdapter` core — **Vitest** today; **Bun** and **`node:test`** next release, identical API on each
-- 🧩 Framework recipes: **Angular** today; **NestJS, React, Vue/Pinia, Svelte** next release
+- 🌐 One `MockAdapter` core — **Vitest**, **Bun** and **`node:test`**, identical API on each
+- 🧩 Framework recipes: **Angular**, **NestJS**, **React**, **Vue/Pinia** and **Svelte**
 - 🎯 Return-type-aware helpers — sync, `Promise`, and `Observable` all get the right API
 - 🔀 `calledWith` / `mustBeCalledWith` argument dispatch
 - 📡 First-class RxJS `Observable` spying (`nextWith`, `nextWithValues`, `throwWith`, …)
@@ -97,16 +97,15 @@ them only for the matching entry point. The package itself has **zero runtime de
 
 ## Availability
 
-> **On npm today vs. shipping next.** `vitest-auto-spy@1.3.0` publishes the **Vitest core** plus the
-> **RxJS** and **Angular** layers. The Bun / `node:test` runtimes and the NestJS / React / Vue /
-> Svelte recipes are implemented and tested in the repo but **not yet published as entry points** —
-> they land in the next release. Snippets that use them are marked _next release_ below.
+> **All entry points are published.** As of `vitest-auto-spy@1.4.0`, the **Vitest / Bun / `node:test`**
+> runtimes, the **RxJS** layer, and the **Angular / NestJS / React / Vue·Pinia / Svelte** recipes all
+> ship as importable entry points — one identical API across every runner and framework.
 
 | Entry point | Status |
 | --- | --- |
-| `vitest-auto-spy` · `vitest-auto-spy/rxjs` · `vitest-auto-spy/angular` | ✅ **Published** (1.3.0) |
-| `vitest-auto-spy/bun` · `vitest-auto-spy/node` | 🔜 next release |
-| `vitest-auto-spy/nestjs` · `/react` · `/vue` · `/svelte` | 🔜 next release |
+| `vitest-auto-spy` · `vitest-auto-spy/rxjs` · `vitest-auto-spy/angular` | ✅ **Published** (1.4.0) |
+| `vitest-auto-spy/bun` · `vitest-auto-spy/node` | ✅ **Published** (1.4.0) |
+| `vitest-auto-spy/nestjs` · `/react` · `/vue` · `/svelte` | ✅ **Published** (1.4.0) |
 
 ## Quick start
 
@@ -205,14 +204,14 @@ Node / Bun / React / Vue project pulls **neither rxjs nor Angular into its runti
 | `vitest-auto-spy` | `createSpyFromClass`, `createAutoMock`, `createFunctionSpy`, sync + promise + accessor spies, `errorHandler`, types | `vitest` | ✅ |
 | `vitest-auto-spy/rxjs` | observable spies (`nextWith`, `nextWithValues`, `observablePropsToSpyOn`, …) + `createObservableWithValues` | `rxjs` | ✅ |
 | `vitest-auto-spy/angular` | `provideAutoSpy`, `injectSpy`, `mockReadonlyProp*`, `mockAccessorsProp` | `@angular/core` | ✅ |
-| `vitest-auto-spy/bun` | the same core, driven by Bun's `bun:test` mocks | `bun:test` | 🔜 |
-| `vitest-auto-spy/node` | the same core, driven by `node:test`'s `mock.fn()` | `node:test` | 🔜 |
-| `vitest-auto-spy/nestjs` | `provideAutoSpy`, `injectSpy` for `Test.createTestingModule` | — (your `@nestjs/*`) | 🔜 |
-| `vitest-auto-spy/react` | the core, with a natural import for React Testing Library suites | — (your `react`) | 🔜 |
-| `vitest-auto-spy/vue` | `provideAutoSpy` for `global.provide` + Pinia store spying | — (your `vue`/`pinia`) | 🔜 |
-| `vitest-auto-spy/svelte` | the core, with a natural import for Svelte suites | — (your `svelte`) | 🔜 |
+| `vitest-auto-spy/bun` | the same core, driven by Bun's `bun:test` mocks | `bun:test` | ✅ |
+| `vitest-auto-spy/node` | the same core, driven by `node:test`'s `mock.fn()` | `node:test` | ✅ |
+| `vitest-auto-spy/nestjs` | `provideAutoSpy`, `injectSpy` for `Test.createTestingModule` | — (your `@nestjs/*`) | ✅ |
+| `vitest-auto-spy/react` | the core, with a natural import for React Testing Library suites | — (your `react`) | ✅ |
+| `vitest-auto-spy/vue` | `provideAutoSpy` for `global.provide` + Pinia store spying | — (your `vue`/`pinia`) | ✅ |
+| `vitest-auto-spy/svelte` | the core, with a natural import for Svelte suites | — (your `svelte`) | ✅ |
 
-✅ published in 1.3.0 · 🔜 next release (see [Availability](#availability)).
+✅ all entry points published in 1.4.0 (see [Availability](#availability)).
 
 > The framework subpaths import **nothing** from their framework — the helpers are structural, so
 > `@nestjs/*`, `react`, `vue`/`pinia` and `svelte` stay your own (already-present) dev dependencies and
@@ -232,8 +231,8 @@ identical across all three.
 
 ```ts
 import { createSpyFromClass } from 'vitest-auto-spy'; // Vitest (default, zero-config)
-import { createSpyFromClass } from 'vitest-auto-spy/bun'; // Bun — bun:test  (next release)
-import { createSpyFromClass } from 'vitest-auto-spy/node'; // node:test      (next release)
+import { createSpyFromClass } from 'vitest-auto-spy/bun'; // Bun — bun:test
+import { createSpyFromClass } from 'vitest-auto-spy/node'; // node:test
 ```
 
 > Only the auto-spy helpers are normalised across runtimes; **native** mock methods stay the
@@ -457,9 +456,9 @@ The core is framework-agnostic — `createSpyFromClass` / `createAutoMock` work 
 subpaths below add a natural import and, where the framework has class DI, a tiny `provide*` helper.
 None of them pull the framework into this package; they're recipes over the same core.
 
-> **Angular** (`vitest-auto-spy/angular`) is published today. The **NestJS, React, Vue/Pinia and
-> Svelte** entry points ship in the next release ([Availability](#availability)) — until then you
-> can copy the recipe using the core `vitest-auto-spy` import directly.
+> The **Angular**, **NestJS**, **React**, **Vue/Pinia** and **Svelte** entry points are all published
+> ([Availability](#availability)). Each is a thin recipe over the same core, so you can equally copy it
+> using the core `vitest-auto-spy` import directly.
 
 ### NestJS
 
