@@ -5,8 +5,9 @@
 **Auto-generate fully-typed test spies from a class — across any Vitest-compatible runtime and framework.**
 
 The only auto-spy library that reads a **class** and gives a **fully-typed** spy of every method
-with **return-type-aware** helpers (`resolveWith` / `nextWith` / `calledWith`) — on **Vitest**,
-**Bun** and **node:test**, with recipes for NestJS, React, Vue/Pinia, Svelte and Angular. A drop-in
+with **return-type-aware** helpers (`resolveWith` / `nextWith` / `calledWith`). Available today for
+**Vitest** (with **RxJS** and **Angular** helpers); **Bun**, **node:test**, and NestJS / React /
+Vue·Pinia / Svelte recipes land in the next release ([availability](#availability)). A drop-in
 replacement for [`jest-auto-spies`](https://www.npmjs.com/package/jest-auto-spies) — same API.
 
 [![npm version](https://img.shields.io/npm/v/vitest-auto-spy?color=cb3837&logo=npm)](https://www.npmjs.com/package/vitest-auto-spy)
@@ -18,8 +19,8 @@ replacement for [`jest-auto-spies`](https://www.npmjs.com/package/jest-auto-spie
 [![license](https://img.shields.io/npm/l/vitest-auto-spy?color=blue)](./LICENSE)
 
 [![Vitest](https://img.shields.io/badge/Vitest-✓-6E9F18?logo=vitest&logoColor=white)](#runtimes)
-[![Bun](https://img.shields.io/badge/Bun-✓-14151A?logo=bun&logoColor=white)](#runtimes)
-[![node:test](https://img.shields.io/badge/node%3Atest-✓-339933?logo=node.js&logoColor=white)](#runtimes)
+[![Bun](https://img.shields.io/badge/Bun-next-yellow?logo=bun&logoColor=white)](#availability)
+[![node:test](https://img.shields.io/badge/node%3Atest-next-yellow?logo=node.js&logoColor=white)](#availability)
 [![runtime deps](https://img.shields.io/badge/runtime%20deps-0-brightgreen)](#install)
 
 📦 [**npm**](https://www.npmjs.com/package/vitest-auto-spy) · 🐙 [**GitHub**](https://github.com/ASDAlexey/vitest-auto-spy) · 🔖 [**Changelog**](./CHANGELOG.md)
@@ -30,8 +31,8 @@ replacement for [`jest-auto-spies`](https://www.npmjs.com/package/jest-auto-spie
 
 - 🧪 Reads a class and generates a typed spy for **every** method — no hand-written `vi.fn()` lists
 - 🧬 Or mock from a **type/interface** alone — `createAutoMock<T>()`, no class required
-- 🌐 Runs on **Vitest, Bun and `node:test`** behind one `MockAdapter` — identical API on each
-- 🧩 Framework recipes: **NestJS, React, Vue/Pinia, Svelte, Angular**
+- 🌐 One `MockAdapter` core — **Vitest** today; **Bun** and **`node:test`** next release, identical API on each
+- 🧩 Framework recipes: **Angular** today; **NestJS, React, Vue/Pinia, Svelte** next release
 - 🎯 Return-type-aware helpers — sync, `Promise`, and `Observable` all get the right API
 - 🔀 `calledWith` / `mustBeCalledWith` argument dispatch
 - 📡 First-class RxJS `Observable` spying (`nextWith`, `nextWithValues`, `throwWith`, …)
@@ -41,7 +42,10 @@ replacement for [`jest-auto-spies`](https://www.npmjs.com/package/jest-auto-spie
 ## Table of contents
 
 - [Install](#install)
+- [Availability](#availability)
+- [Quick start](#quick-start)
 - [Why](#why)
+- [How it works (and what it won't spy)](#how-it-works-and-what-it-wont-spy)
 - [Comparison](#comparison)
 - [Migrating from jest-auto-spies](#migrating-from-jest-auto-spies)
 - [Configuration](#configuration)
@@ -57,7 +61,10 @@ replacement for [`jest-auto-spies`](https://www.npmjs.com/package/jest-auto-spie
   - [Svelte](#svelte)
   - [Angular](#angular)
 - [API reference](#api-reference)
+- [FAQ & troubleshooting](#faq--troubleshooting)
+- [Versioning](#versioning)
 - [Contributing](#contributing)
+- [Acknowledgements](#acknowledgements)
 - [License](#license)
 
 ## Install
@@ -66,64 +73,77 @@ replacement for [`jest-auto-spies`](https://www.npmjs.com/package/jest-auto-spie
 npm i -D vitest-auto-spy
 ```
 
-Peer dependencies are all **optional** and provided by your project: `vitest` (required),
-plus `rxjs` and `@angular/core` only if you use the matching entry point. The package itself
-has **zero runtime dependencies**.
+### Requirements
 
-### Entry points
+| Tool | Minimum |
+| --- | --- |
+| Node.js | ≥ 18 |
+| Vitest | ≥ 1.0 (required peer) |
+| TypeScript | ≥ 4.7 for the typed helpers (plain JS works too, just untyped) |
 
-The library ships a framework-agnostic core plus runtime and framework layers, so a plain
-Node / Bun / React / Vue project pulls **neither rxjs nor Angular into its runtime bundle**:
+Ships **dual ESM + CommonJS** with bundled `.d.ts` types, so it drops into both `import`- and
+`require`-style test setups.
 
-| Import | Provides | Pulls in |
+### Peer dependencies
+
+All peers are **provided by your project**; `rxjs` and `@angular/core` are **optional** — install
+them only for the matching entry point. The package itself has **zero runtime dependencies**.
+
+| Peer | Needed for | Optional? |
 | --- | --- | --- |
-| `vitest-auto-spy` | `createSpyFromClass`, `createFunctionSpy`, sync + promise + accessor spies, `errorHandler`, types | `vitest` |
-| `vitest-auto-spy/bun` | the same core, driven by Bun's `bun:test` mocks | `bun:test` |
-| `vitest-auto-spy/node` | the same core, driven by `node:test`'s `mock.fn()` | `node:test` |
-| `vitest-auto-spy/rxjs` | observable spies (`nextWith`, `nextWithValues`, `observablePropsToSpyOn`, …) + `createObservableWithValues` | `rxjs` |
-| `vitest-auto-spy/angular` | `provideAutoSpy`, `injectSpy`, `mockReadonlyProp*`, `mockAccessorsProp` | `@angular/core` |
-| `vitest-auto-spy/nestjs` | `provideAutoSpy`, `injectSpy` for `Test.createTestingModule` | — (your `@nestjs/*`) |
-| `vitest-auto-spy/react` | the core, with a natural import for React Testing Library suites | — (your `react`) |
-| `vitest-auto-spy/vue` | `provideAutoSpy` for `global.provide` + Pinia store spying | — (your `vue`/`pinia`) |
-| `vitest-auto-spy/svelte` | the core, with a natural import for Svelte suites | — (your `svelte`) |
+| `vitest` | the default runner | no |
+| `rxjs` | `vitest-auto-spy/rxjs` observable spies (and `Spy<T>` type-checking) | yes |
+| `@angular/core` | `vitest-auto-spy/angular` helpers | yes |
 
-> The framework subpaths import **nothing** from their framework — the helpers are structural, so
-> `@nestjs/*`, `react`, `vue`/`pinia` and `svelte` stay your own (already-present) dev dependencies and
-> never reach this package's runtime bundle.
+## Availability
 
-```ts
-import { createSpyFromClass } from 'vitest-auto-spy';
-import 'vitest-auto-spy/rxjs'; // once (e.g. in your test setup) — enables observable spies
-import { provideAutoSpy, injectSpy } from 'vitest-auto-spy/angular';
-```
+> **On npm today vs. shipping next.** `vitest-auto-spy@1.3.0` publishes the **Vitest core** plus the
+> **RxJS** and **Angular** layers. The Bun / `node:test` runtimes and the NestJS / React / Vue /
+> Svelte recipes are implemented and tested in the repo but **not yet published as entry points** —
+> they land in the next release. Snippets that use them are marked _next release_ below.
 
-#### Runtimes
+| Entry point | Status |
+| --- | --- |
+| `vitest-auto-spy` · `vitest-auto-spy/rxjs` · `vitest-auto-spy/angular` | ✅ **Published** (1.3.0) |
+| `vitest-auto-spy/bun` · `vitest-auto-spy/node` | 🔜 next release |
+| `vitest-auto-spy/nestjs` · `/react` · `/vue` · `/svelte` | 🔜 next release |
 
-The core is runner-agnostic behind a `MockAdapter`: pick the entry that matches your test
-runner — the public API (`createSpyFromClass`, `calledWith`, `resolveWith`, `nextWith`, …) is
-identical across all three.
+## Quick start
+
+Pass a class — every method becomes a typed spy, and the **constructor is never called** (no side
+effects). The helper you get on each method matches its return type:
 
 ```ts
-import { createSpyFromClass } from 'vitest-auto-spy';      // Vitest (default, zero-config)
-import { createSpyFromClass } from 'vitest-auto-spy/bun';  // Bun — bun:test
-import { createSpyFromClass } from 'vitest-auto-spy/node'; // node:test
+import { beforeEach, expect, it } from 'vitest';
+import { createSpyFromClass, type Spy } from 'vitest-auto-spy';
+
+class UserService {
+  getName(id: number): string {
+    return 'real name';
+  }
+  async getUser(id: number): Promise<{ id: number; name: string }> {
+    return fetchUser(id);
+  }
+}
+
+let userService: Spy<UserService>;
+
+beforeEach(() => {
+  userService = createSpyFromClass(UserService); // every method is now a spy
+});
+
+it('stubs each method with the right helper for its return type', async () => {
+  userService.getName.mockReturnValue('Ada'); // sync
+  userService.getUser.resolveWith({ id: 1, name: 'Ada' }); // Promise helper
+
+  expect(userService.getName(1)).toBe('Ada');
+  await expect(userService.getUser(1)).resolves.toEqual({ id: 1, name: 'Ada' });
+  expect(userService.getName).toHaveBeenCalledWith(1);
+});
 ```
 
-> Only the auto-spy helpers are normalised across runtimes; **native** mock methods stay the
-> runner's own — `mockReturnValue` on Vitest/Bun, `spy.method.mock.mockImplementation` on
-> `node:test`. Each entry registers its adapter on import, so import the one matching your runner.
-
-> Using an observable spy (`observablePropsToSpyOn`, `nextWith`, …) without importing
-> `vitest-auto-spy/rxjs` throws a clear hint telling you to add that import.
->
-> The decoupling is at the **runtime** level. The core's _type_ surface (`Spy<T>`) still
-> references rxjs types, so keep `rxjs` available for type-checking (it's normally already a
-> devDependency); none of it reaches your runtime bundle.
->
-> The same inversion-of-control applies to the **test runner**: the core no longer imports
-> `vitest` directly — `vi.fn()` / `vi.spyOn()` sit behind a `MockAdapter` that the
-> `vitest-auto-spy` entry registers by default, so it stays zero-config. This is the groundwork
-> for running the exact same core on other Vitest-compatible runners.
+No class, only a TypeScript type? Reach for
+[`createAutoMock<T>()`](#auto-mock-by-type-no-class-needed).
 
 ## Why
 
@@ -152,11 +172,91 @@ beforeEach(() => {
 `Spy<UserService>` exposes each method as a `vi.fn()` **plus** the right helpers based on
 the method's return type (sync / `Promise` / `Observable`).
 
+## How it works (and what it won't spy)
+
+`createSpyFromClass(MyService)` reads `MyService.prototype` and walks the **prototype chain** — it
+never `new`s the class. Concretely:
+
+- ✅ **The class is never instantiated.** The constructor and its side effects (HTTP clients, DB
+  connections, `inject()` calls) never run — you pass the class itself, not an instance.
+- ✅ **Inherited methods are spied too**, all the way up the prototype chain.
+- ✅ Each method is replaced by a fresh spy carrying the helpers that match its **return type**:
+  sync → `mockReturnValue` / `calledWith`; `Promise` → `resolveWith` / `rejectWith`; `Observable`
+  → `nextWith` / `throwWith` / … .
+
+What it **won't** auto-discover — by design, because these aren't prototype methods:
+
+- ⚠️ **Arrow-function class fields** (`doThing = () => {}`) are instance properties set in the
+  constructor, so prototype scanning can't see them. Use regular methods, list them explicitly, or
+  mock them by hand. (Same constraint as `jest-auto-spies`.)
+- ⚠️ **Getters / setters** are skipped unless named in `gettersToSpyOn` / `settersToSpyOn` — see
+  [Getters & setters](#getters--setters).
+- ⚠️ **Plain data properties** carry no value until you set one; auto-spy mocks *behaviour*
+  (methods), not state. To mock by type including properties, use
+  [`createAutoMock`](#auto-mock-by-type-no-class-needed).
+
+## Entry points & runtimes
+
+The library ships a framework-agnostic core plus runtime and framework layers, so a plain
+Node / Bun / React / Vue project pulls **neither rxjs nor Angular into its runtime bundle**:
+
+| Import | Provides | Pulls in | Status |
+| --- | --- | --- | :---: |
+| `vitest-auto-spy` | `createSpyFromClass`, `createAutoMock`, `createFunctionSpy`, sync + promise + accessor spies, `errorHandler`, types | `vitest` | ✅ |
+| `vitest-auto-spy/rxjs` | observable spies (`nextWith`, `nextWithValues`, `observablePropsToSpyOn`, …) + `createObservableWithValues` | `rxjs` | ✅ |
+| `vitest-auto-spy/angular` | `provideAutoSpy`, `injectSpy`, `mockReadonlyProp*`, `mockAccessorsProp` | `@angular/core` | ✅ |
+| `vitest-auto-spy/bun` | the same core, driven by Bun's `bun:test` mocks | `bun:test` | 🔜 |
+| `vitest-auto-spy/node` | the same core, driven by `node:test`'s `mock.fn()` | `node:test` | 🔜 |
+| `vitest-auto-spy/nestjs` | `provideAutoSpy`, `injectSpy` for `Test.createTestingModule` | — (your `@nestjs/*`) | 🔜 |
+| `vitest-auto-spy/react` | the core, with a natural import for React Testing Library suites | — (your `react`) | 🔜 |
+| `vitest-auto-spy/vue` | `provideAutoSpy` for `global.provide` + Pinia store spying | — (your `vue`/`pinia`) | 🔜 |
+| `vitest-auto-spy/svelte` | the core, with a natural import for Svelte suites | — (your `svelte`) | 🔜 |
+
+✅ published in 1.3.0 · 🔜 next release (see [Availability](#availability)).
+
+> The framework subpaths import **nothing** from their framework — the helpers are structural, so
+> `@nestjs/*`, `react`, `vue`/`pinia` and `svelte` stay your own (already-present) dev dependencies and
+> never reach this package's runtime bundle.
+
+```ts
+import { createSpyFromClass } from 'vitest-auto-spy';
+import 'vitest-auto-spy/rxjs'; // once (e.g. in your test setup) — enables observable spies
+import { provideAutoSpy, injectSpy } from 'vitest-auto-spy/angular';
+```
+
+### Runtimes
+
+The core is runner-agnostic behind a `MockAdapter`: pick the entry that matches your test
+runner — the public API (`createSpyFromClass`, `calledWith`, `resolveWith`, `nextWith`, …) is
+identical across all three.
+
+```ts
+import { createSpyFromClass } from 'vitest-auto-spy'; // Vitest (default, zero-config)
+import { createSpyFromClass } from 'vitest-auto-spy/bun'; // Bun — bun:test  (next release)
+import { createSpyFromClass } from 'vitest-auto-spy/node'; // node:test      (next release)
+```
+
+> Only the auto-spy helpers are normalised across runtimes; **native** mock methods stay the
+> runner's own — `mockReturnValue` on Vitest/Bun, `spy.method.mock.mockImplementation` on
+> `node:test`. Each entry registers its adapter on import, so import the one matching your runner.
+
+> Using an observable spy (`observablePropsToSpyOn`, `nextWith`, …) without importing
+> `vitest-auto-spy/rxjs` throws a clear hint telling you to add that import.
+>
+> The decoupling is at the **runtime** level. The core's _type_ surface (`Spy<T>`) still
+> references rxjs types, so keep `rxjs` available for type-checking (it's normally already a
+> devDependency); none of it reaches your runtime bundle.
+>
+> The same inversion-of-control applies to the **test runner**: the core no longer imports
+> `vitest` directly — `vi.fn()` / `vi.spyOn()` sit behind a `MockAdapter` that the
+> `vitest-auto-spy` entry registers by default, so it stays zero-config. This is the groundwork
+> for running the exact same core on other Vitest-compatible runners.
+
 ## Comparison
 
 | Library | Reads a class? | Return-type-aware helpers? | Runtimes | We win on |
 | --- | :---: | :---: | --- | --- |
-| **vitest-auto-spy** | ✅ | ✅ | Vitest · Bun · node:test | — |
+| **vitest-auto-spy** | ✅ | ✅ | Vitest (Bun · node:test next) | — |
 | [jest-auto-spies](https://www.npmjs.com/package/jest-auto-spies) | ✅ | ✅ | Jest only | Vitest/Bun/Node successor, **same API** — direct migration path |
 | [vitest-mock-extended](https://www.npmjs.com/package/vitest-mock-extended) | ❌ (Proxy) | ❌ | Vitest | Return-type ergonomics **and** reading a real class (we also ship a Proxy mode: [`createAutoMock`](#auto-mock-by-type-no-class-needed)) |
 | [@golevelup/ts-vitest](https://www.npmjs.com/package/@golevelup/ts-vitest) | partial | ❌ | Vitest | Typed `Promise`/`Observable` helpers + explicit class→spy + `mustBeCalledWith` |
@@ -179,7 +279,7 @@ The public API is intentionally identical. In most projects the migration is a
 ```
 
 The only API-shape change from `jest-auto-spies` is that the Angular helpers and the
-observable layer live behind the `/angular` and `/rxjs` subpaths (see [Entry points](#entry-points)).
+observable layer live behind the `/angular` and `/rxjs` subpaths (see [Entry points & runtimes](#entry-points--runtimes)).
 
 | jest-auto-spies | vitest-auto-spy | Status |
 | --- | --- | --- |
@@ -357,6 +457,10 @@ The core is framework-agnostic — `createSpyFromClass` / `createAutoMock` work 
 subpaths below add a natural import and, where the framework has class DI, a tiny `provide*` helper.
 None of them pull the framework into this package; they're recipes over the same core.
 
+> **Angular** (`vitest-auto-spy/angular`) is published today. The **NestJS, React, Vue/Pinia and
+> Svelte** entry points ship in the next release ([Availability](#availability)) — until then you
+> can copy the recipe using the core `vitest-auto-spy` import directly.
+
 ### NestJS
 
 Use `provideAutoSpy` to register a fully-mocked service in a `TestingModule`, then `injectSpy` to
@@ -397,7 +501,7 @@ React has no DI container, so there's no `provide*` helper — the recipe is: **
 own** (services, stores, API clients, hook deps), then pass the spy into a Context provider or hook.
 The spy is a plain object of spied functions, so it drops straight into `value={...}`:
 
-```ts
+```tsx
 import { render, screen } from '@testing-library/react';
 import { createSpyFromClass, type Spy } from 'vitest-auto-spy/react';
 import { CartContext, Cart } from './cart';
@@ -548,6 +652,38 @@ mockAccessorsProp(service, 'theme');                     // spied get + set
 
 `ValueConfig` (for `nextWithValues`): `{ value, delay? }` | `{ errorValue, delay? }` | `{ complete?, delay? }`.
 
+## FAQ & troubleshooting
+
+**"I get `X.nextWith is not a function` / observable helpers are missing."**
+Import the rxjs layer once (e.g. in your test setup): `import 'vitest-auto-spy/rxjs';`. Without it,
+requesting an observable spy throws a hint pointing you here.
+
+**"My method isn't on the spy."**
+Auto-discovery only sees **prototype methods**. Arrow-function class fields (`foo = () => {}`) and
+plain properties aren't included — see [How it works](#how-it-works-and-what-it-wont-spy). List
+getters/setters via `gettersToSpyOn` / `settersToSpyOn`.
+
+**"Does it construct my class? Will the constructor's side effects run?"**
+No. `createSpyFromClass` reads the prototype and never `new`s the class, so constructors (and their
+HTTP/DB/`inject()` side effects) never run.
+
+**"I only have an interface/type, not a class."**
+Use [`createAutoMock<T>()`](#auto-mock-by-type-no-class-needed) — it builds the spy lazily from the
+type via a `Proxy`, no runtime class needed.
+
+**"Can I use it without TypeScript?"**
+Yes — the runtime works in plain JS; you just lose the compile-time `Spy<T>` typing.
+
+**"Native mock methods differ between runners."**
+Only the auto-spy helpers are normalised. Native APIs stay the runner's own (`mockReturnValue` on
+Vitest/Bun, `spy.method.mock.mockImplementation` on `node:test`).
+
+## Versioning
+
+This package follows [Semantic Versioning](https://semver.org). Breaking changes to the public API
+land only in major releases; see the [Changelog](./CHANGELOG.md) for what changed in each version.
+Releases are automated from Conventional Commits (see [Contributing](#contributing)).
+
 ## Contributing
 
 Contributions are welcome! Please read [CONTRIBUTING.md](./CONTRIBUTING.md) and the
@@ -562,10 +698,17 @@ npm run build
 
 Releases are automated: merging a PR into `master` bumps the version from the
 Conventional Commit types and publishes to npm — see
-[CONTRIBUTING.md → Releases](./CONTRIBUTING.md#releases).
+[CONTRIBUTING.md → Releasing](./CONTRIBUTING.md#releasing).
 
 If this package saved you time, a ⭐ on [GitHub](https://github.com/ASDAlexey/vitest-auto-spy)
 helps others find it.
+
+## Acknowledgements
+
+API and ergonomics are modelled on Shai Reznik's
+[`jest-auto-spies`](https://www.npmjs.com/package/jest-auto-spies) — `vitest-auto-spy` is its
+Vitest-era successor with the same surface, so migrations are (mostly) a find-and-replace. Thanks to
+the Vitest, Bun, RxJS and Angular communities whose tooling this builds on.
 
 ## License
 
