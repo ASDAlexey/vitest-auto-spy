@@ -1,13 +1,13 @@
 /**
- * The function spy factory — a single `vi.fn()` augmented with all return-type
- * helpers (`mockReturnValue`, `resolveWith`, `nextWith`, `calledWith`, …) and
- * the argument-matching logic that decides what a call returns.
+ * The function spy factory — a single host-runner mock (via the {@link MockAdapter})
+ * augmented with all return-type helpers (`mockReturnValue`, `resolveWith`,
+ * `nextWith`, `calledWith`, …) and the argument-matching logic that decides what
+ * a call returns.
  */
-import { vi } from 'vitest';
-
 import { ArgsMap } from './args-map';
 import { errorHandler } from './error-handler';
 import type { CalledWithObject, ReturnValueContainer } from './internal-types';
+import { getMockAdapter } from './mock-adapter';
 import { getObservableSupport } from './observable-support';
 import { addPromiseHelpersToCalledWithObject, addPromiseHelpersToFunctionSpy } from './promise-spy';
 import { decorate } from './spy-decoration';
@@ -105,10 +105,11 @@ export function createFunctionSpy<FunctionType extends Func>(name: string): AddS
   const mustBeCalledWithObject = createCalledWithObject();
   const valueContainer: ReturnValueContainer = { value: undefined };
 
-  const functionSpy = vi.fn((...actualArgs: unknown[]) =>
-    returnTheCorrectFakeValue(calledWithObject, mustBeCalledWithObject, valueContainer, actualArgs, name),
+  const functionSpy = getMockAdapter().createMockFn(
+    (...actualArgs: unknown[]) =>
+      returnTheCorrectFakeValue(calledWithObject, mustBeCalledWithObject, valueContainer, actualArgs, name),
+    name,
   );
-  functionSpy.mockName(name);
 
   addPromiseHelpersToFunctionSpy(functionSpy, valueContainer);
   getObservableSupport()?.addToFunctionSpy(functionSpy, valueContainer);
@@ -122,7 +123,7 @@ export function createFunctionSpy<FunctionType extends Func>(name: string): AddS
 }
 
 /**
- * Bridge the runtime-assembled spy (a `vi.fn()` decorated with heterogeneous
+ * Bridge the runtime-assembled spy (a host-runner mock decorated with heterogeneous
  * promise/observable/calledWith helpers) to its public `AddSpyMethodsByReturnTypes`
  * surface. The concrete `FunctionType` is only known to the caller, so the
  * spy's `(...args: unknown[]) => unknown` call signature must be widened.
