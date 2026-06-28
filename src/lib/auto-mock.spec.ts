@@ -84,4 +84,26 @@ describe('createAutoMock', () => {
 
     expect((mock as unknown as { then: unknown }).then).toBeUndefined();
   });
+
+  it('reflects cached keys via `in`, Object.keys and getOwnPropertyDescriptor', () => {
+    const mock = createAutoMock<UserService>({ apiUrl: 'https://seeded.test' });
+
+    // `has` trap: seeded key present, un-accessed key absent
+    expect('apiUrl' in mock).toBe(true);
+    expect('getName' in mock).toBe(false);
+
+    void mock.getName; // materialize + cache a spy → now an own key
+
+    // `ownKeys` + `getOwnPropertyDescriptor` (enumerable check) via Object.keys
+    expect(Object.keys(mock).sort()).toEqual(['apiUrl', 'getName']);
+
+    // `getOwnPropertyDescriptor`: present (value branch) vs missing (undefined branch)
+    expect(Object.getOwnPropertyDescriptor(mock, 'apiUrl')).toMatchObject({
+      value: 'https://seeded.test',
+      enumerable: true,
+      configurable: true,
+      writable: true,
+    });
+    expect(Object.getOwnPropertyDescriptor(mock, 'absent')).toBeUndefined();
+  });
 });
