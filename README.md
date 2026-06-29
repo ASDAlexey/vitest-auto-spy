@@ -97,15 +97,15 @@ them only for the matching entry point. The package itself has **zero runtime de
 
 ## Availability
 
-> **All entry points are published.** As of `vitest-auto-spy@1.4.0`, the **Vitest / Bun / `node:test`**
-> runtimes, the **RxJS** layer, and the **Angular / NestJS / React / Vue·Pinia / Svelte** recipes all
-> ship as importable entry points — one identical API across every runner and framework.
+> **All entry points are published.** The **Vitest / Bun / `node:test`** runtimes, the **RxJS** layer,
+> and the **Angular / NestJS / React / Vue·Pinia / Svelte** recipes all ship as importable entry points —
+> one identical API across every runner and framework.
 
 | Entry point | Status |
 | --- | --- |
-| `vitest-auto-spy` · `vitest-auto-spy/rxjs` · `vitest-auto-spy/angular` | ✅ **Published** (1.4.0) |
-| `vitest-auto-spy/bun` · `vitest-auto-spy/node` | ✅ **Published** (1.4.0) |
-| `vitest-auto-spy/nestjs` · `/react` · `/vue` · `/svelte` | ✅ **Published** (1.4.0) |
+| `vitest-auto-spy` · `vitest-auto-spy/rxjs` · `vitest-auto-spy/angular` | ✅ **Published** |
+| `vitest-auto-spy/bun` · `vitest-auto-spy/node` | ✅ **Published** |
+| `vitest-auto-spy/nestjs` · `/react` · `/vue` · `/svelte` | ✅ **Published** |
 
 ## Quick start
 
@@ -211,7 +211,7 @@ Node / Bun / React / Vue project pulls **neither rxjs nor Angular into its runti
 | `vitest-auto-spy/vue` | `provideAutoSpy` for `global.provide` + Pinia store spying | — (your `vue`/`pinia`) | ✅ |
 | `vitest-auto-spy/svelte` | the core, with a natural import for Svelte suites | — (your `svelte`) | ✅ |
 
-✅ all entry points published in 1.4.0 (see [Availability](#availability)).
+✅ all entry points published (see [Availability](#availability)).
 
 > The framework subpaths import **nothing** from their framework — the helpers are structural, so
 > `@nestjs/*`, `react`, `vue`/`pinia` and `svelte` stay your own (already-present) dev dependencies and
@@ -712,3 +712,5 @@ the Vitest, Bun, RxJS and Angular communities whose tooling this builds on.
 ## License
 
 [MIT](./LICENSE) © [Alexey Popov](https://github.com/ASDAlexey)
+
+Get in touch: [asdalexey.github.io](https://asdalexey.github.io/ru/)
