@@ -39,6 +39,11 @@ export default defineConfig({
         ],
       },
       {
+        text: 'Utilities',
+        collapsed: false,
+        items: [{ text: 'Console spies', link: '/utilities/console' }],
+      },
+      {
         text: 'Adapters',
         collapsed: false,
         items: [
