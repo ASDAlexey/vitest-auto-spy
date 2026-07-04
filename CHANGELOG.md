@@ -12,6 +12,53 @@ The latest released version here must always match the one published on
 
 ### Added
 
+- **Console spies — `vitest-auto-spy/console`.** A new entry point: importing it replaces
+  `console.debug` / `error` / `info` / `log` / `time` / `timeEnd` / `trace` / `warn` with
+  **silent, fully-typed spies**, each exported ready to assert — no `vi.spyOn(console, 'info')`
+  boilerplate, no log output polluting the test run:
+
+  ```ts
+  import { consoleInfoSpy, consoleWarnSpy } from 'vitest-auto-spy/console';
+
+  service.doWork();
+
+  expect(consoleInfoSpy).toHaveBeenCalledWith('done');
+  expect(consoleWarnSpy).not.toHaveBeenCalled();
+  ```
+
+  Housekeeping helpers: `resetConsoleSpies()` clears the recorded calls (Vitest's
+  `clearMocks: true` already does this per test), `restoreConsole()` puts the original methods
+  back, `installConsoleSpies()` re-installs after a restore (idempotent otherwise). The spies are
+  built on the registered `MockAdapter`, so a runtime entry imported first (`…/bun`, `…/node`)
+  drives them with that runner's mocks; with none, the default Vitest adapter is registered.
+- **`hasMockAdapter()`** (internal seam) — lets non-runtime side-effect entries such as
+  `…/console` register the default Vitest adapter only when no runtime entry already installed
+  its own, instead of stomping it.
+
+### Docs
+
+- README: a dedicated **Utilities** section — a table of every standalone helper (`injectSpy`,
+  `provideAutoSpy`, `createFunctionSpy`, `createAutoMock`, `createObservableWithValues`,
+  `mockReadonlyProp` / `mockReadonlyPropGetter` / `mockAccessorsProp`, `errorHandler`, the console
+  spies) with entry points and examples.
+- Docs site: new **Utilities → Console spies** page; `createAutoMock` and the console spies added
+  to the API reference.
+
+## [1.5.1] - 2026-06-29
+
+README-only release — no code or API changes (the `fix:`-typed README commit cut a patch).
+
+## [1.5.0] - 2026-06-28
+
+README-only release — no code or API changes.
+
+> Note: published as a **minor** because the README commit was typed `feat:`. Included here for an
+> honest, gap-free history.
+
+## [1.4.0] - 2026-06-28
+
+### Added
+
 - **Framework adapters — NestJS, React, Vue/Pinia, Svelte.** Four new entry points over the same
   core, each importing **nothing** from its framework (helpers are structural, frameworks stay
   optional consumer-side peers):
@@ -161,7 +208,10 @@ Maintenance release — no user-facing or API changes.
   `mockAccessorsProp`.
 - Dual ESM + CJS build with type declarations; 100% test coverage.
 
-[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v1.3.0...HEAD
+[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v1.5.1...HEAD
+[1.5.1]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v1.5.0...v1.5.1
+[1.5.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v1.4.0...v1.5.0
+[1.4.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v1.0.1...v1.1.0
