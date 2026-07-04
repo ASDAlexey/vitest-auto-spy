@@ -37,6 +37,8 @@ replacement for [`jest-auto-spies`](https://www.npmjs.com/package/jest-auto-spie
 - 🔀 `calledWith` / `mustBeCalledWith` argument dispatch
 - 📡 First-class RxJS `Observable` spying (`nextWith`, `nextWithValues`, `throwWith`, …)
 - ⚙️ Getter / setter spies via `accessorSpies`
+- 🧰 DI & mocking utilities — `provideAutoSpy` / `injectSpy` (Angular, NestJS, Vue), `createFunctionSpy`, `mockReadonlyProp` for signals
+- 🔇 Console spies — `import { consoleInfoSpy } from 'vitest-auto-spy/console'` silences `console` and asserts its calls
 - 🟢 100% test coverage, **zero runtime dependencies** (in-tree arg serializer, no `javascript-stringify`)
 
 ## Table of contents
@@ -60,6 +62,7 @@ replacement for [`jest-auto-spies`](https://www.npmjs.com/package/jest-auto-spie
   - [Vue / Pinia](#vue--pinia)
   - [Svelte](#svelte)
   - [Angular](#angular)
+- [Utilities](#utilities)
 - [API reference](#api-reference)
 - [FAQ & troubleshooting](#faq--troubleshooting)
 - [Versioning](#versioning)
@@ -105,7 +108,7 @@ them only for the matching entry point. The package itself has **zero runtime de
 | --- | --- |
 | `vitest-auto-spy` · `vitest-auto-spy/rxjs` · `vitest-auto-spy/angular` | ✅ **Published** |
 | `vitest-auto-spy/bun` · `vitest-auto-spy/node` | ✅ **Published** |
-| `vitest-auto-spy/nestjs` · `/react` · `/vue` · `/svelte` | ✅ **Published** |
+| `vitest-auto-spy/nestjs` · `/react` · `/vue` · `/svelte` · `/console` | ✅ **Published** |
 
 ## Quick start
 
@@ -210,6 +213,7 @@ Node / Bun / React / Vue project pulls **neither rxjs nor Angular into its runti
 | `vitest-auto-spy/react` | the core, with a natural import for React Testing Library suites | — (your `react`) | ✅ |
 | `vitest-auto-spy/vue` | `provideAutoSpy` for `global.provide` + Pinia store spying | — (your `vue`/`pinia`) | ✅ |
 | `vitest-auto-spy/svelte` | the core, with a natural import for Svelte suites | — (your `svelte`) | ✅ |
+| `vitest-auto-spy/console` | `consoleInfoSpy` & friends — silent typed spies over the global `console`, installed on import | `vitest` | ✅ |
 
 ✅ all entry points published (see [Availability](#availability)).
 
@@ -625,6 +629,79 @@ mockReadonlyPropGetter(service, 'label', () => 'A');     // dynamic getter
 mockAccessorsProp(service, 'theme');                     // spied get + set
 ```
 
+## Utilities
+
+Beyond the spy factories, the package ships a set of small standalone helpers. Each one is a
+single-purpose utility you can pick up independently — they all ride on the same core:
+
+| Utility | Entry point | What it's for |
+| --- | --- | --- |
+| `injectSpy(token)` / `injectSpy(moduleRef, token)` | `/angular`, `/nestjs` | Pull a provided spy out of the DI container, already typed as `Spy<T>` — no casting |
+| `provideAutoSpy(Class, config?)` | `/angular`, `/nestjs`, `/vue` | One-liner `{ provide, useValue }` (or Vue `global.provide`) that builds the spy for you |
+| `createFunctionSpy(name)` | core | A single standalone function spy with the full helper set (`calledWith`, `resolveWith`, `nextWith`, …) — no class needed |
+| `createAutoMock<T>(overrides?)` | core | Proxy-based spy from a **type/interface** alone ([details](#auto-mock-by-type-no-class-needed)) |
+| `createObservableWithValues(configs, opts?)` | `/rxjs` | Build a fake `Observable` emitting a precise sequence of values / errors / completion |
+| `consoleInfoSpy` / `consoleWarnSpy` / … | `/console` | Silent typed spies over the global `console`, installed on import ([details](#console-spies--vitest-auto-spyconsole)) |
+| `mockReadonlyProp(obj, prop, value)` | `/angular` | Overwrite a `readonly` property (incl. Angular signals) with a static value |
+| `mockReadonlyPropGetter(obj, prop, getter)` | `/angular` | Same, but backed by a dynamic getter |
+| `mockAccessorsProp(obj, prop)` | `/angular` | Redefine a property with spied `get` + `set` |
+| `errorHandler` | core | The `mustBeCalledWith` argument-mismatch reporter — swap it to customize failure output |
+
+A taste of the DI pair — provide the spy, inject it back fully typed:
+
+```ts
+import { provideAutoSpy, injectSpy } from 'vitest-auto-spy/angular';
+
+TestBed.configureTestingModule({ providers: [provideAutoSpy(UserService)] });
+const userService = injectSpy(UserService); // Spy<UserService>, no `as` cast
+```
+
+And a standalone function spy, when there's no class or interface at all:
+
+```ts
+import { createFunctionSpy } from 'vitest-auto-spy';
+
+const onSave = createFunctionSpy<(id: number) => Promise<void>>('onSave');
+onSave.calledWith(1).resolveWith();
+```
+
+### Console spies — `vitest-auto-spy/console`
+
+Importing the entry replaces `console.debug` / `error` / `info` / `log` / `time` / `timeEnd` /
+`trace` / `warn` with **silent, fully-typed spies** and exports each one ready to assert — no
+`vi.spyOn(console, 'info')` boilerplate in every suite, no log output polluting the test run:
+
+```ts
+import { consoleInfoSpy, consoleWarnSpy } from 'vitest-auto-spy/console';
+
+service.doWork();
+
+expect(consoleInfoSpy).toHaveBeenCalledWith('done');
+expect(consoleWarnSpy).not.toHaveBeenCalled();
+```
+
+Housekeeping: `resetConsoleSpies()` clears the recorded calls between tests (Vitest's
+`clearMocks: true` already does that automatically), `restoreConsole()` puts the original
+methods back, and `installConsoleSpies()` re-installs after a restore.
+
+> The spies use the registered `MockAdapter` — import your runtime entry
+> (`vitest-auto-spy/bun`, `…/node`) **before** `vitest-auto-spy/console` and the console spies
+> are driven by that runner's mocks; with no prior runtime entry the default Vitest adapter is used.
+
+Prefer a fully detached fake instead of touching the real global? `createAutoMock<Console>()`
+gives you a typed, in-memory console to inject into code that takes a logger:
+
+```ts
+import { createAutoMock } from 'vitest-auto-spy';
+
+const fakeConsole = createAutoMock<Console>();
+const service = new ReportService(fakeConsole);
+
+service.doWork();
+
+expect(fakeConsole.info).toHaveBeenCalledWith('done');
+```
+
 ## API reference
 
 | Export | Description |
@@ -637,6 +714,8 @@ mockAccessorsProp(service, 'theme');                     // spied get + set
 | `createFunctionSpy(name)` | A single standalone function spy with all helpers |
 | `createObservableWithValues(configs, opts?)` | Build an Observable from value configs |
 | `mockReadonlyProp` / `mockReadonlyPropGetter` / `mockAccessorsProp` | Mock readonly / accessor / signal props |
+| `consoleDebugSpy` … `consoleWarnSpy` _(`/console`)_ | Silent typed spies replacing the global `console` methods on import |
+| `installConsoleSpies()` / `resetConsoleSpies()` / `restoreConsole()` | Install / clear / undo the console spies |
 | `errorHandler` | The `mustBeCalledWith` argument-mismatch error helper |
 
 **Spied sync method:** `mockReturnValue`, `calledWith(...)`, `mustBeCalledWith(...)`
