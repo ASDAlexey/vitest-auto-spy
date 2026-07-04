@@ -2,13 +2,14 @@ import { defineConfig } from 'tsup';
 
 export default defineConfig({
   // Entry points: the framework-agnostic core (default Vitest adapter), the Bun
-  // and `node:test` runtime variants, the optional rxjs layer, and the optional
-  // Angular TestBed helpers.
+  // and `node:test` runtime variants, the optional rxjs layer, the console
+  // spies, and the optional Angular TestBed helpers.
   entry: [
     'src/index.ts',
     'src/bun.ts',
     'src/node.ts',
     'src/rxjs.ts',
+    'src/console.ts',
     'src/angular.ts',
     'src/nestjs.ts',
     'src/react.ts',

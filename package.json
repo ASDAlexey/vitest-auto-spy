@@ -1,6 +1,6 @@
 {
   "name": "vitest-auto-spy",
-  "version": "1.5.0",
+  "version": "1.6.0",
   "description": "Auto-generate fully-typed test spies from a class — across Vitest, Bun and node:test, with NestJS/React/Vue/Svelte/Angular recipes. Drop-in replacement for jest-auto-spies.",
   "keywords": [
     "auto-mock",
@@ -67,6 +67,11 @@
       "import": "./dist/rxjs.js",
       "require": "./dist/rxjs.cjs"
     },
+    "./console": {
+      "types": "./dist/console.d.ts",
+      "import": "./dist/console.js",
+      "require": "./dist/console.cjs"
+    },
     "./angular": {
       "types": "./dist/angular.d.ts",
       "import": "./dist/angular.js",
@@ -116,7 +121,9 @@
     "**/svelte.js",
     "**/svelte.cjs",
     "**/rxjs.js",
-    "**/rxjs.cjs"
+    "**/rxjs.cjs",
+    "**/console.js",
+    "**/console.cjs"
   ],
   "engines": {
     "node": ">=18"
