@@ -5,7 +5,8 @@
  * active {@link MockAdapter}'s accessor spy, exposing the resulting mocks under
  * `accessorSpies`.
  */
-import { getMockAdapter, type MockFn } from './mock-adapter';
+import { type MockFn, getMockAdapter } from './mock-adapter';
+import { markAsMock } from './spy-mark';
 
 type AccessorType = 'getter' | 'setter';
 
@@ -26,8 +27,10 @@ function defineWithEmptyAccessors(obj: Record<string, unknown>, prop: string): v
 
 function spyOnAccessor(autoSpy: Record<string, unknown>, accessorName: string, accessorType: AccessorType): MockFn {
   const adapter = getMockAdapter();
+  const mock = accessorType === 'setter' ? adapter.spyOnSetter(autoSpy, accessorName) : adapter.spyOnGetter(autoSpy, accessorName);
+  markAsMock(mock);
 
-  return accessorType === 'setter' ? adapter.spyOnSetter(autoSpy, accessorName) : adapter.spyOnGetter(autoSpy, accessorName);
+  return mock;
 }
 
 export function createAccessorsSpies(autoSpy: Record<string, unknown>, gettersToSpyOn: string[], settersToSpyOn: string[]): void {

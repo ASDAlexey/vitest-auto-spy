@@ -38,6 +38,8 @@ export interface MockAdapter {
   getCalls(mock: MockFn): readonly unknown[][];
   /** Reset a mock created by this adapter (clears its recorded calls and any configured implementation). */
   reset(mock: MockFn): void;
+  /** Clear a mock's recorded calls only, preserving its implementation. */
+  clear(mock: MockFn): void;
 }
 
 let registeredAdapter: MockAdapter | undefined;

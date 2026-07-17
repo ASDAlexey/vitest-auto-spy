@@ -40,6 +40,16 @@ describe('vitestMockAdapter', () => {
     expect(vitestMockAdapter.getCalls(fn)).toEqual([]);
   });
 
+  it('clear drops recorded calls while keeping the implementation', () => {
+    const fn = vitestMockAdapter.createMockFn((value: number) => value + 1);
+    fn(1);
+
+    vitestMockAdapter.clear(fn);
+
+    expect(vitestMockAdapter.getCalls(fn)).toEqual([]);
+    expect(fn(2)).toBe(3);
+  });
+
   it('spyOnGetter / spyOnSetter wrap the property accessors', () => {
     let backing = 5;
     const target: Record<string, unknown> = {};
