@@ -1,0 +1,116 @@
+{
+  "name": "vitest-auto-spies",
+  "version": "1.6.0",
+  "description": "Alias of vitest-auto-spy — auto-generate fully-typed test spies from a class across Vitest, Bun and node:test, with RxJS/Angular/NestJS/React/Vue/Svelte recipes. Install vitest-auto-spy (singular) directly; this package re-exports it.",
+  "keywords": [
+    "vitest-auto-spies",
+    "vitest-auto-spy",
+    "auto-spies",
+    "auto-spy",
+    "auto-mock",
+    "jest-auto-spies",
+    "vitest",
+    "bun",
+    "node-test",
+    "testing",
+    "spy",
+    "mock",
+    "rxjs",
+    "typescript"
+  ],
+  "license": "MIT",
+  "author": "Alexey Popov <asdalexey@yandex.ru>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ASDAlexey/vitest-auto-spy.git",
+    "directory": "alias"
+  },
+  "homepage": "https://github.com/ASDAlexey/vitest-auto-spy#readme",
+  "bugs": {
+    "url": "https://github.com/ASDAlexey/vitest-auto-spy/issues"
+  },
+  "type": "module",
+  "main": "./index.cjs",
+  "module": "./index.js",
+  "types": "./index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "import": "./index.js",
+      "require": "./index.cjs"
+    },
+    "./bun": {
+      "types": "./bun.d.ts",
+      "import": "./bun.js",
+      "require": "./bun.cjs"
+    },
+    "./node": {
+      "types": "./node.d.ts",
+      "import": "./node.js",
+      "require": "./node.cjs"
+    },
+    "./rxjs": {
+      "types": "./rxjs.d.ts",
+      "import": "./rxjs.js",
+      "require": "./rxjs.cjs"
+    },
+    "./console": {
+      "types": "./console.d.ts",
+      "import": "./console.js",
+      "require": "./console.cjs"
+    },
+    "./angular": {
+      "types": "./angular.d.ts",
+      "import": "./angular.js",
+      "require": "./angular.cjs"
+    },
+    "./nestjs": {
+      "types": "./nestjs.d.ts",
+      "import": "./nestjs.js",
+      "require": "./nestjs.cjs"
+    },
+    "./react": {
+      "types": "./react.d.ts",
+      "import": "./react.js",
+      "require": "./react.cjs"
+    },
+    "./vue": {
+      "types": "./vue.d.ts",
+      "import": "./vue.js",
+      "require": "./vue.cjs"
+    },
+    "./svelte": {
+      "types": "./svelte.d.ts",
+      "import": "./svelte.js",
+      "require": "./svelte.cjs"
+    }
+  },
+  "files": [
+    "*.js",
+    "*.cjs",
+    "*.d.ts",
+    "README.md"
+  ],
+  "dependencies": {
+    "vitest-auto-spy": "^1.6.0"
+  },
+  "peerDependencies": {
+    "@angular/core": ">=16.0.0",
+    "rxjs": ">=7.0.0",
+    "vitest": ">=1.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@angular/core": {
+      "optional": true
+    },
+    "rxjs": {
+      "optional": true
+    }
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

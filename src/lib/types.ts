@@ -84,9 +84,14 @@ export interface AddPromiseSpyMethods<T> {
   resolveWithPerCall(valuesPerCall: ValueConfigPerCall<T>[]): void;
 }
 
-/** A configured `mockReturnValue` continuation for a `calledWith`/`mustBeCalledWith` chain. */
+/**
+ * A configured return-value continuation for a `calledWith`/`mustBeCalledWith`
+ * chain. `mockReturnValue` is the native name; `returnValue` is the
+ * `jest-auto-spies` alias, kept so migrating tests are a pure import swap.
+ */
 export type WithMockReturnValue<Method extends Func> = {
   mockReturnValue: (value: ReturnType<Method>) => void;
+  returnValue: (value: ReturnType<Method>) => void;
 };
 
 /** Argument-matching helpers attached to a plain (sync) spy. */

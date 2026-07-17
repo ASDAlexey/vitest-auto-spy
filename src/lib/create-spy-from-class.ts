@@ -30,8 +30,19 @@ function extractMethodsFromObject(obj: object): string[] {
   return Object.keys(descriptors).filter((name) => name !== 'constructor' && !descriptors[name]?.get);
 }
 
-/** Walk the prototype chain and collect every method name (de-duplicated), including inherited ones. */
+// A class's method set is immutable for a run, but the same class is typically
+// spied once per `beforeEach` — caching by prototype avoids re-walking the chain
+// on every spy. `WeakMap` keeps this GC-safe (no retention of unused classes).
+const methodNamesCache = new WeakMap<object, string[]>();
+
+/** Walk the prototype chain and collect every method name (de-duplicated), including inherited ones. Cached per prototype. */
 function getAllMethodNames(prototype: object): string[] {
+  const cached = methodNamesCache.get(prototype);
+
+  if (cached) {
+    return cached;
+  }
+
   const methods = new Set<string>();
   let current: object | null = prototype;
 
@@ -45,7 +56,10 @@ function getAllMethodNames(prototype: object): string[] {
     current = parentObj;
   }
 
-  return [...methods];
+  const result = [...methods];
+  methodNamesCache.set(prototype, result);
+
+  return result;
 }
 
 /** Normalize the overloaded second argument into a single flat configuration. */

@@ -12,6 +12,20 @@ The latest released version here must always match the one published on
 
 ### Added
 
+- **`returnValue()` alias on the `calledWith` / `mustBeCalledWith` chain.** The
+  `jest-auto-spies` name `spy.method.calledWith(1).returnValue(x)` now works alongside
+  `mockReturnValue`, so migrating from `jest-auto-spies` / `@bugsplat/vitest-auto-spies` is a pure
+  import swap — no test rewrites.
+
+### Changed
+
+- **Performance:** `createSpyFromClass` caches each class's prototype method names in a `WeakMap`,
+  so spying the same class in every `beforeEach` no longer re-walks the prototype chain.
+
+## [1.7.0] - 2026-07-04
+
+### Added
+
 - **Console spies — `vitest-auto-spy/console`.** A new entry point: importing it replaces
   `console.debug` / `error` / `info` / `log` / `time` / `timeEnd` / `trace` / `warn` with
   **silent, fully-typed spies**, each exported ready to assert — no `vi.spyOn(console, 'info')`
