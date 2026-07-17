@@ -133,7 +133,11 @@ export type * from './lib/types';
 // Core factories
 export { createSpyFromClass } from './lib/create-spy-from-class';
 export { createAutoMock } from './lib/auto-mock';
+export { mockDeep } from './lib/mock-deep';
 export { createFunctionSpy } from './lib/function-spy';
+
+// Reset helpers
+export { clearAutoSpy, resetAutoSpy } from './lib/reset-auto-spy';
 
 // mustBeCalledWith error reporting
 export { errorHandler } from './lib/error-handler';
