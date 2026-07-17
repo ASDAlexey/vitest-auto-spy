@@ -1,9 +1,24 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="840" height="300" viewBox="0 0 840 300" font-family="ui-sans-serif, -apple-system, Segoe UI, Roboto, sans-serif" role="img" aria-label="One class-based API, three Vitest-compatible runtimes: Vitest, Bun, node:test">
+<svg xmlns="http://www.w3.org/2000/svg" width="840" height="320" viewBox="0 0 840 320" font-family="ui-sans-serif, -apple-system, Segoe UI, Roboto, sans-serif" role="img" aria-label="One class-based API, three Vitest-compatible runtimes: Vitest, Bun, node:test">
   <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#eef2fb"/>
+    </linearGradient>
     <linearGradient id="card" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="#ffffff"/>
-      <stop offset="1" stop-color="#f4f6fb"/>
+      <stop offset="1" stop-color="#f5f7fc"/>
     </linearGradient>
+    <linearGradient id="brand" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#6E9F18"/>
+      <stop offset="1" stop-color="#1f6feb"/>
+    </linearGradient>
+    <linearGradient id="arrow" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#8c959f"/>
+      <stop offset="1" stop-color="#1f6feb"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="160%">
+      <feDropShadow dx="0" dy="6" stdDeviation="10" flood-color="#1f2a44" flood-opacity="0.14"/>
+    </filter>
     <style>
       @media (prefers-color-scheme: dark) {
         .bg { fill: #0d1117; }
@@ -11,41 +26,45 @@
         .title { fill: #e6edf3; }
         .sub { fill: #8b949e; }
         .code { fill: #e6edf3; }
-        .arrow { stroke: #6e7681; }
-        .chip { fill: #1f6feb22; stroke: #388bfd; }
-        .chipText { fill: #58a6ff; }
+        .fn { fill: #d2a8ff; }
+        .type { fill: #7ee787; }
+        .punct { fill: #8b949e; }
+        .arrow { stroke: url(#arrow); }
       }
     </style>
   </defs>
 
-  <rect class="bg" width="840" height="300" fill="#ffffff" rx="16"/>
+  <rect class="bg" width="840" height="320" fill="url(#bg)" rx="18"/>
 
-  <text class="title" x="40" y="56" font-size="30" font-weight="700" fill="#0d1117">vitest-auto-spy</text>
-  <text class="sub" x="40" y="84" font-size="16" fill="#57606a">One class-based API. Every Vitest-compatible runtime.</text>
+  <text class="title" x="40" y="58" font-size="30" font-weight="700" fill="#0d1117">vitest-auto-spy</text>
+  <text class="sub" x="40" y="86" font-size="16" fill="#57606a">One class-based API. Every Vitest-compatible runtime.</text>
 
   <!-- source call -->
-  <rect class="card" x="40" y="120" width="330" height="70" rx="12" fill="url(#card)" stroke="#d0d7de"/>
-  <text class="code" x="62" y="153" font-size="16" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" fill="#0d1117">createSpyFromClass(</text>
-  <text class="code" x="62" y="176" font-size="16" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" fill="#0d1117">&#160;&#160;UserService)</text>
+  <rect class="card" x="40" y="126" width="330" height="76" rx="14" fill="url(#card)" stroke="#d0d7de" filter="url(#shadow)"/>
+  <text x="64" y="162" font-size="16" font-family="ui-monospace, SFMono-Regular, Menlo, monospace"><tspan class="fn" fill="#8250df">createSpyFromClass</tspan><tspan class="punct" fill="#6e7781">(</tspan></text>
+  <text x="64" y="186" font-size="16" font-family="ui-monospace, SFMono-Regular, Menlo, monospace"><tspan class="type" fill="#0550ae">&#160;&#160;UserService</tspan><tspan class="punct" fill="#6e7781">)</tspan></text>
 
   <!-- arrow -->
-  <line class="arrow" x1="378" y1="155" x2="470" y2="155" stroke="#8c959f" stroke-width="2"/>
-  <polygon points="470,150 482,155 470,160" fill="#8c959f"/>
+  <line class="arrow" x1="378" y1="164" x2="474" y2="164" stroke="url(#arrow)" stroke-width="2.5" stroke-linecap="round"/>
+  <polygon points="474,158 488,164 474,170" fill="#1f6feb"/>
 
   <!-- fully-typed spy -->
-  <rect class="card" x="490" y="120" width="310" height="70" rx="12" fill="url(#card)" stroke="#d0d7de"/>
-  <text class="title" x="512" y="150" font-size="16" font-weight="600" fill="#0d1117">Spy&lt;UserService&gt;</text>
-  <text class="sub" x="512" y="174" font-size="13" fill="#57606a">typed methods + resolveWith / nextWith / calledWith</text>
+  <rect class="card" x="490" y="126" width="310" height="76" rx="14" fill="url(#card)" stroke="#d0d7de" filter="url(#shadow)"/>
+  <text class="title" x="514" y="158" font-size="16" font-weight="600" fill="#0d1117">Spy&lt;UserService&gt;</text>
+  <text class="sub" x="514" y="182" font-size="13" fill="#57606a">typed methods + resolveWith / nextWith / calledWith</text>
 
   <!-- runtime chips -->
   <g>
-    <rect class="chip" x="40" y="228" width="240" height="46" rx="23" fill="#ddf4ff" stroke="#54aeff"/>
-    <text class="chipText" x="160" y="257" font-size="17" font-weight="600" text-anchor="middle" fill="#0969da">Vitest</text>
+    <rect x="40" y="244" width="240" height="48" rx="24" fill="#ddf4ff" stroke="#54aeff"/>
+    <circle cx="70" cy="268" r="6" fill="#6E9F18"/>
+    <text x="164" y="273" font-size="17" font-weight="600" text-anchor="middle" fill="#0969da">Vitest</text>
 
-    <rect class="chip" x="300" y="228" width="240" height="46" rx="23" fill="#ddf4ff" stroke="#54aeff"/>
-    <text class="chipText" x="420" y="257" font-size="17" font-weight="600" text-anchor="middle" fill="#0969da">Bun&#160;&#160;(bun:test)</text>
+    <rect x="300" y="244" width="240" height="48" rx="24" fill="#fbe9f4" stroke="#f472b6"/>
+    <circle cx="330" cy="268" r="6" fill="#fbf0df" stroke="#e0a96d" stroke-width="1.5"/>
+    <text x="424" y="273" font-size="17" font-weight="600" text-anchor="middle" fill="#be185d">Bun&#160;&#160;(bun:test)</text>
 
-    <rect class="chip" x="560" y="228" width="240" height="46" rx="23" fill="#ddf4ff" stroke="#54aeff"/>
-    <text class="chipText" x="680" y="257" font-size="17" font-weight="600" text-anchor="middle" fill="#0969da">node:test</text>
+    <rect x="560" y="244" width="240" height="48" rx="24" fill="#e6f4ea" stroke="#5aa469"/>
+    <circle cx="590" cy="268" r="6" fill="#539e43"/>
+    <text x="684" y="273" font-size="17" font-weight="600" text-anchor="middle" fill="#2f7d32">node:test</text>
   </g>
 </svg>
