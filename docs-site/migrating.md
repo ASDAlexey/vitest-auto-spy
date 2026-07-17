@@ -16,11 +16,17 @@ The only API-shape change is that the Angular helpers and the observable layer l
 
 ## Mapping table
 
+This also covers migrating from
+[`@bugsplat/vitest-auto-spies`](https://www.npmjs.com/package/@bugsplat/vitest-auto-spies) —
+it re-exports the same `jest-auto-spies` API, so the swap is identical (and you gain Bun /
+`node:test`, `createAutoMock`, framework recipes and console spies on top).
+
 | jest-auto-spies | vitest-auto-spy | Status |
 | --- | --- | --- |
 | `createSpyFromClass` | `createSpyFromClass` | ✅ identical |
 | `provideAutoSpy` | `provideAutoSpy` (from `/angular`) | ✅ identical |
 | `calledWith` / `mustBeCalledWith` | same | ✅ identical |
+| `calledWith(...).returnValue(v)` | same — `.returnValue` **and** `.mockReturnValue` both work | ✅ identical |
 | `resolveWith` / `rejectWith` / `resolveWithPerCall` | same | ✅ identical |
 | `nextWith` / `nextOneTimeWith` / `nextWithValues` / `nextWithPerCall` | same | ✅ identical |
 | `throwWith` / `complete` / `returnSubject` | same | ✅ identical |
