@@ -127,6 +127,16 @@ describe('sync methods', () => {
     expect(spy.syncMethod(2)).toBeUndefined();
   });
 
+  // `returnValue` is the `jest-auto-spies` alias of `mockReturnValue` — kept so
+  // migrating tests are a pure import swap. Covers both chain entry points.
+  it('returnValue alias configures calledWith and mustBeCalledWith', () => {
+    spy.syncMethod.calledWith(1).returnValue('one');
+    expect(spy.syncMethod(1)).toBe('one');
+
+    spy.syncMethod.mustBeCalledWith(2).returnValue('two');
+    expect(spy.syncMethod(2)).toBe('two');
+  });
+
   it('mustBeCalledWith returns value for matching args', () => {
     spy.syncMethod.mustBeCalledWith(1).mockReturnValue('one');
     expect(spy.syncMethod(1)).toBe('one');

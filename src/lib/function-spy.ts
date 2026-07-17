@@ -81,13 +81,18 @@ function returnTheCorrectFakeValue(
   return unwrapContainer(valueContainer);
 }
 
-/** Attach `mockReturnValue` plus the promise/observable helpers to a `calledWith` chain. */
+/** Attach `mockReturnValue` (and its `returnValue` alias) plus the promise/observable helpers to a `calledWith` chain. */
 function addMethodsToCalledWith(calledWith: CalledWithObject, calledWithArgs: unknown[]): CalledWithObject {
   calledWith.wasConfigured = true;
+
+  const setReturnValue = (value: unknown): void => {
+    calledWith.argsToValuesMap.set(calledWithArgs, { value });
+  };
+
   decorate(calledWith, {
-    mockReturnValue: (value: unknown): void => {
-      calledWith.argsToValuesMap.set(calledWithArgs, { value });
-    },
+    mockReturnValue: setReturnValue,
+    // `returnValue` is the `jest-auto-spies` name — aliased so migrating tests need no rewrite.
+    returnValue: setReturnValue,
   });
   addPromiseHelpersToCalledWithObject(calledWith, calledWithArgs);
   getObservableSupport()?.addToCalledWithObject(calledWith, calledWithArgs);
@@ -106,8 +111,7 @@ export function createFunctionSpy<FunctionType extends Func>(name: string): AddS
   const valueContainer: ReturnValueContainer = { value: undefined };
 
   const functionSpy = getMockAdapter().createMockFn(
-    (...actualArgs: unknown[]) =>
-      returnTheCorrectFakeValue(calledWithObject, mustBeCalledWithObject, valueContainer, actualArgs, name),
+    (...actualArgs: unknown[]) => returnTheCorrectFakeValue(calledWithObject, mustBeCalledWithObject, valueContainer, actualArgs, name),
     name,
   );
 
