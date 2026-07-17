@@ -10,17 +10,25 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+## [1.8.0] - 2026-07-17
+
 ### Added
 
-- **`returnValue()` alias on the `calledWith` / `mustBeCalledWith` chain.** The
-  `jest-auto-spies` name `spy.method.calledWith(1).returnValue(x)` now works alongside
-  `mockReturnValue`, so migrating from `jest-auto-spies` / `@bugsplat/vitest-auto-spies` is a pure
-  import swap — no test rewrites.
+- **`returnValue()` alias on the `calledWith` / `mustBeCalledWith` chain.** The `jest-auto-spies`
+  name `spy.method.calledWith(1).returnValue(x)` now works alongside `mockReturnValue`, so migrating
+  from `jest-auto-spies` / `@bugsplat/vitest-auto-spies` is a pure import swap — no test rewrites.
 
 ### Changed
 
 - **Performance:** `createSpyFromClass` caches each class's prototype method names in a `WeakMap`,
   so spying the same class in every `beforeEach` no longer re-walks the prototype chain.
+
+### Docs
+
+- Comparison tables (README + docs site) now cover `@bugsplat/vitest-auto-spies`, positioning this
+  package as a superset (Bun / `node:test`, `createAutoMock`, framework recipes, console spies, zero
+  runtime deps, rxjs 8). Migration guides document the `returnValue` alias, and two README SVG
+  diagrams were added (a runtimes hero and an Angular `provideAutoSpy` recipe).
 
 ## [1.7.0] - 2026-07-04
 
@@ -60,14 +68,12 @@ The latest released version here must always match the one published on
 
 ## [1.5.1] - 2026-06-29
 
-README-only release — no code or API changes (the `fix:`-typed README commit cut a patch).
+> README-only release — no code or API changes (the `fix:`-typed README commit cut a patch).
 
 ## [1.5.0] - 2026-06-28
 
-README-only release — no code or API changes.
-
-> Note: published as a **minor** because the README commit was typed `feat:`. Included here for an
-> honest, gap-free history.
+> README-only release — no code or API changes. Published as a **minor** because the README commit
+> was typed `feat:`; included here for an honest, gap-free history.
 
 ## [1.4.0] - 2026-06-28
 
@@ -89,13 +95,6 @@ README-only release — no code or API changes.
   methods differ by runner (the auto-spy helpers are normalised). Built on the `MockAdapter`
   seam below.
 
-### Docs
-
-- README leads with the runtime-agnostic, multi-framework story: runtime-support badges, a
-  competitor comparison table, a `createAutoMock` section, and a **Framework adapters** section
-  (NestJS/React/Vue/Svelte ahead of Angular). npm keywords lead with `auto-mock` / `class-mock` /
-  `typed-mock` instead of `angular`.
-
 ### Changed
 
 - **`MockAdapter` seam — the core no longer imports `vitest`.** The single `vi.fn()` /
@@ -105,18 +104,24 @@ README-only release — no code or API changes.
   `vitest-adapter` references `vitest`; the rest of the core does not). This unblocks future
   non-Vitest entries (`vitest-auto-spy/bun`, `…/node`) over the same core.
 
+### Docs
+
+- README leads with the runtime-agnostic, multi-framework story: runtime-support badges, a
+  competitor comparison table, a `createAutoMock` section, and a **Framework adapters** section
+  (NestJS/React/Vue/Svelte ahead of Angular). npm keywords lead with `auto-mock` / `class-mock` /
+  `typed-mock` instead of `angular`.
+
 ## [1.3.0] - 2026-06-24
 
-Maintenance release — no user-facing or API changes.
+> Maintenance release — no user-facing or API changes. Published as a **minor** because the
+> maintenance commit was typed `feat:`; it ships no new feature, included here for an honest,
+> gap-free history.
 
 ### Removed
 
 - Internal planning docs (`docs/`) are no longer tracked in the repository; they are now
   local-only working notes (`/docs/` is git-ignored). The published npm package is unaffected
   (`docs/` was never part of the tarball).
-
-> Note: published as a **minor** because the maintenance commit was typed `feat:`. It ships no
-> new feature — included here for an honest, gap-free history.
 
 ## [1.2.0] - 2026-06-24
 
@@ -222,7 +227,9 @@ Maintenance release — no user-facing or API changes.
   `mockAccessorsProp`.
 - Dual ESM + CJS build with type declarations; 100% test coverage.
 
-[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v1.5.1...HEAD
+[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v1.8.0...HEAD
+[1.8.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v1.7.0...v1.8.0
+[1.7.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v1.5.1...v1.7.0
 [1.5.1]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v1.5.0...v1.5.1
 [1.5.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v1.3.0...v1.4.0
