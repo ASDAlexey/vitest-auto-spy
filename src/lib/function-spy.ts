@@ -10,7 +10,9 @@ import type { CalledWithObject, ReturnValueContainer } from './internal-types';
 import { getMockAdapter } from './mock-adapter';
 import { getObservableSupport } from './observable-support';
 import { addPromiseHelpersToCalledWithObject, addPromiseHelpersToFunctionSpy } from './promise-spy';
+import { installSettledResultsPolyfill } from './settled-results';
 import { decorate } from './spy-decoration';
+import { attachClearHook, attachConfigReset, markAsMock } from './spy-mark';
 import type { AddSpyMethodsByReturnTypes, Func } from './types';
 
 /** Narrow the loosely-typed map lookup back to a `ReturnValueContainer`. */
@@ -104,16 +106,28 @@ function createCalledWithObject(): CalledWithObject {
   return { wasConfigured: false, argsToValuesMap: new ArgsMap() };
 }
 
-/** Create a single Vitest-backed function spy with all return-type helpers attached. */
+/** Revert a `calledWith`/`mustBeCalledWith` chain to unconfigured (fresh map, no matches). */
+function resetCalledWithObject(calledWithObject: CalledWithObject): void {
+  calledWithObject.wasConfigured = false;
+  calledWithObject.argsToValuesMap = new ArgsMap();
+}
+
+/** Create a single host-runner-backed function spy with all return-type helpers attached. */
 export function createFunctionSpy<FunctionType extends Func>(name: string): AddSpyMethodsByReturnTypes<FunctionType> {
   const calledWithObject = createCalledWithObject();
   const mustBeCalledWithObject = createCalledWithObject();
   const valueContainer: ReturnValueContainer = { value: undefined };
 
   const functionSpy = getMockAdapter().createMockFn(
-    (...actualArgs: unknown[]) => returnTheCorrectFakeValue(calledWithObject, mustBeCalledWithObject, valueContainer, actualArgs, name),
+    (...actualArgs: unknown[]) =>
+      settledResultsRecorder.record(returnTheCorrectFakeValue(calledWithObject, mustBeCalledWithObject, valueContainer, actualArgs, name)),
     name,
   );
+
+  // Bun / node:test don't track `mock.settledResults`; polyfill it so the typed
+  // `spy.method.mock.settledResults` surface works on every runtime (Vitest keeps
+  // its native array — the recorder is then a no-op).
+  const settledResultsRecorder = installSettledResultsPolyfill(functionSpy);
 
   addPromiseHelpersToFunctionSpy(functionSpy, valueContainer);
   getObservableSupport()?.addToFunctionSpy(functionSpy, valueContainer);
@@ -122,6 +136,21 @@ export function createFunctionSpy<FunctionType extends Func>(name: string): AddS
     calledWith: (...calledWithArgs: unknown[]): CalledWithObject => addMethodsToCalledWith(calledWithObject, calledWithArgs),
     mustBeCalledWith: (...calledWithArgs: unknown[]): CalledWithObject => addMethodsToCalledWith(mustBeCalledWithObject, calledWithArgs),
   });
+
+  // `resetAutoSpy` reverts this spy's configuration; the state lives in these
+  // closures, so the host runner's own reset can't reach it. Clearing the
+  // container in place keeps the reference the mock implementation closed over.
+  attachConfigReset(spy, () => {
+    resetCalledWithObject(calledWithObject);
+    resetCalledWithObject(mustBeCalledWithObject);
+    valueContainer.value = undefined;
+    delete valueContainer._isRejectedPromise;
+    delete valueContainer.valuesPerCalls;
+  });
+  // Empties the polyfilled `settledResults` on `clearAutoSpy`/`resetAutoSpy`
+  // (a no-op on Vitest, where the host clears its native array).
+  attachClearHook(spy, () => settledResultsRecorder.clear());
+  markAsMock(spy);
 
   return exposeAsSpy<FunctionType>(spy);
 }

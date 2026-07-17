@@ -6,7 +6,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { createNodeMockAdapter, type NodeMock, type NodeTestApi } from './node-adapter';
+import { type NodeMock, type NodeTestApi, createNodeMockAdapter } from './node-adapter';
 import type { Func } from './types';
 
 /** Build a `node:test`-like `mock` whose `fn()` records `{ arguments }`-shaped calls. */
@@ -52,13 +52,30 @@ describe('createNodeMockAdapter', () => {
 
     fn(1, 'a');
     fn(2);
-    expect(adapter.getCalls(fn)).toEqual([
-      [1, 'a'],
-      [2],
-    ]);
+    expect(adapter.getCalls(fn)).toEqual([[1, 'a'], [2]]);
 
     adapter.reset(fn);
     expect(adapter.getCalls(fn)).toEqual([]);
+  });
+
+  it('clear drops the recorded calls (node:test has no separate implementation reset)', () => {
+    const adapter = createNodeMockAdapter(makeNodeTestApi());
+    const fn = adapter.createMockFn();
+
+    fn('x');
+    adapter.clear(fn);
+
+    expect(adapter.getCalls(fn)).toEqual([]);
+  });
+
+  it('names the mock via displayName for cross-runner diagnostics (and skips it when unnamed)', () => {
+    const adapter = createNodeMockAdapter(makeNodeTestApi());
+
+    const named = adapter.createMockFn(undefined, 'fetchUser');
+    const anonymous = adapter.createMockFn();
+
+    expect(Object.getOwnPropertyDescriptor(named, 'displayName')?.value).toBe('fetchUser');
+    expect(Object.getOwnPropertyDescriptor(anonymous, 'displayName')).toBeUndefined();
   });
 
   it('spyOnGetter / spyOnSetter record accessor access', () => {

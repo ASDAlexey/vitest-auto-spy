@@ -32,11 +32,29 @@ function asNodeMock(mockFn: MockFn): NodeMock {
   return mockFn as any;
 }
 
+/**
+ * `node:test`'s `mock.fn()` has no `mockName`, so spies were nameless in its
+ * diagnostics while Vitest/Bun showed names. Attach the name as `displayName`
+ * (the convention inspectors read) for cross-runner parity. Non-enumerable so it
+ * never leaks into `Object.keys`/serialization.
+ */
+function nameNodeMock(mockFn: MockFn, name?: string): MockFn {
+  if (name !== undefined) {
+    Object.defineProperty(mockFn, 'displayName', { value: name, configurable: true });
+  }
+
+  return mockFn;
+}
+
 /** Build a `node:test` {@link MockAdapter} from the runtime's `mock` primitive. */
 export function createNodeMockAdapter(nodeTest: NodeTestApi): MockAdapter {
   return createRedefineMockAdapter({
-    createMockFn: (implementation?: Func): MockFn => nodeTest.fn(implementation ?? ((): void => undefined)),
+    createMockFn: (implementation?: Func, name?: string): MockFn =>
+      nameNodeMock(nodeTest.fn(implementation ?? ((): void => undefined)), name),
     getCalls: (mockFn: MockFn): readonly unknown[][] => asNodeMock(mockFn).mock.calls.map((call) => call.arguments),
     reset: (mockFn: MockFn): void => asNodeMock(mockFn).mock.resetCalls(),
+    // `node:test` mocks reset call history via `resetCalls()`; there is no
+    // separate implementation to preserve, so clear maps to the same primitive.
+    clear: (mockFn: MockFn): void => asNodeMock(mockFn).mock.resetCalls(),
   });
 }
