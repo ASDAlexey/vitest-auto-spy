@@ -7,6 +7,7 @@ library that reads a **class** and gives a **fully-typed** spy of every method w
 | Library | Reads a class? | Return-type-aware helpers? | Runtime | We win on |
 | --- | --- | --- | --- | --- |
 | **jest-auto-spies** | ✅ | ✅ | Jest only | Vitest/Bun/Node successor, same API — direct migration path. |
+| **@bugsplat/vitest-auto-spies** | ✅ | ✅ | Vitest only | Same class-based API **plus** Bun & `node:test`, type-only `createAutoMock`, framework recipes, console spies, and **zero runtime deps** (it depends on `@hirez_io/auto-spies-core`; `rxjs < 8` cap — we support rxjs 8). |
 | **vitest-mock-extended** | ❌ (Proxy) | ❌ | Vitest | Return-type ergonomics + reading a real class. Complementary. |
 | **@golevelup/ts-vitest** | partial | ❌ | Vitest | Typed Promise/Observable helpers + explicit class→spy + `mustBeCalledWith`. |
 | **sinon** | ❌ (manual) | ❌ | Any | Auto-generated + fully typed vs manual + loosely typed. |
