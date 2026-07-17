@@ -1,6 +1,7 @@
 dist
 coverage
 node_modules
+alias
 *.cjs
 *.mts
 *.config.ts
