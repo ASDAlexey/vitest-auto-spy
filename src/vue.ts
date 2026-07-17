@@ -36,10 +36,6 @@ import { vitestMockAdapter } from './lib/vitest-adapter';
 
 registerMockAdapter(vitestMockAdapter);
 
-export {
-  provideAutoSpy,
-  type VueInjectionToken,
-  type VueProvideSpy,
-} from './lib/vue';
+export { provideAutoSpy, type VueInjectionToken, type VueProvideSpy } from './lib/vue';
 
 export * from './auto-spy';
