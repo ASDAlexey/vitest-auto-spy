@@ -106,6 +106,50 @@ describe('createSpyFromClass', () => {
     expect(spy.accessorSpies.getters.userName).toBeDefined();
     expect(spy.accessorSpies.setters.theme).toBeDefined();
   });
+
+  it('warns when a requested method is absent from the prototype (but not when all exist)', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    createSpyFromClass(MyService, ['syncMethod', 'nope'] as unknown as ['syncMethod']);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('nope'));
+
+    warn.mockClear();
+    createSpyFromClass(MyService, ['syncMethod']);
+    expect(warn).not.toHaveBeenCalled();
+
+    warn.mockRestore();
+  });
+
+  it('lazySpies materializes method spies on first access, keeping enumeration', () => {
+    const spy = createSpyFromClass(MyService, { lazySpies: true });
+
+    // enumerable placeholder before first access
+    expect(Object.keys(spy)).toContain('syncMethod');
+
+    expect(vi.isMockFunction(spy.syncMethod)).toBe(true);
+    spy.syncMethod.calledWith(1).mockReturnValue('lazy');
+    expect(spy.syncMethod(1)).toBe('lazy');
+    // cached: same reference after materialization
+    expect(spy.syncMethod).toBe(spy.syncMethod);
+  });
+
+  it('autoSpyAccessors auto-discovers and spies every getter/setter', () => {
+    const spy = createSpyFromClass(MyService, { autoSpyAccessors: true });
+
+    spy.accessorSpies.getters.userName.mockReturnValue('Auto');
+    expect(spy.userName).toBe('Auto');
+
+    spy.userName = 'set';
+    expect(spy.accessorSpies.setters.userName).toHaveBeenCalledWith('set');
+  });
+
+  it('calledWith matches asymmetric matchers (expect.any / objectContaining)', () => {
+    const spy = createSpyFromClass(MyService);
+
+    spy.syncMethod.calledWith(expect.any(Number)).mockReturnValue('num');
+    expect(spy.syncMethod(7)).toBe('num');
+    expect(spy.syncMethod('x' as unknown as number)).toBeUndefined();
+  });
 });
 
 // ---------------------------------------------------------------------------
