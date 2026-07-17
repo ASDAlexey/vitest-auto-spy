@@ -7,7 +7,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { registerMockAdapter } from './mock-adapter';
-import { injectSpy, provideAutoSpy, type NestModuleRef } from './nestjs';
+import { type NestModuleRef, injectSpy, provideAutoSpy } from './nestjs';
 import type { ClassType, Spy } from './types';
 import { vitestMockAdapter } from './vitest-adapter';
 
