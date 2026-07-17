@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="840" height="320" viewBox="0 0 840 320" font-family="ui-sans-serif, -apple-system, Segoe UI, Roboto, sans-serif" role="img" aria-label="Angular TestBed: provideAutoSpy registers a typed spy provider and injectSpy returns Spy&lt;ApiService&gt; — no manual provide/useValue, no TestBed.inject&lt;any&gt;">
+  <defs>
+    <linearGradient id="acard" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#f4f6fb"/>
+    </linearGradient>
+    <style>
+      @media (prefers-color-scheme: dark) {
+        .abg { fill: #0d1117; }
+        .acard { fill: #161b22; stroke: #30363d; }
+        .atitle { fill: #e6edf3; }
+        .asub { fill: #8b949e; }
+        .acode { fill: #e6edf3; }
+        .aarrow { stroke: #6e7681; }
+        .achip { fill: #1f6feb22; stroke: #388bfd; }
+        .achipText { fill: #58a6ff; }
+        .abad { fill: #2ea04326; stroke: #3fb950; }
+        .abadText { fill: #3fb950; }
+      }
+    </style>
+  </defs>
+
+  <rect class="abg" width="840" height="320" fill="#ffffff" rx="16"/>
+
+  <text class="atitle" x="40" y="52" font-size="26" font-weight="700" fill="#0d1117">Angular · TestBed recipe</text>
+  <text class="asub" x="40" y="78" font-size="15" fill="#57606a">provideAutoSpy + injectSpy — a typed spy provider, zero boilerplate.</text>
+
+  <!-- providers -->
+  <rect class="acard" x="40" y="108" width="330" height="76" rx="12" fill="url(#acard)" stroke="#d0d7de"/>
+  <text class="asub" x="62" y="132" font-size="12" fill="#57606a">providers:</text>
+  <text class="acode" x="62" y="158" font-size="15" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" fill="#0d1117">provideAutoSpy(</text>
+  <text class="acode" x="62" y="178" font-size="15" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" fill="#0d1117">&#160;&#160;ApiService)</text>
+
+  <!-- arrow 1 -->
+  <line class="aarrow" x1="378" y1="146" x2="452" y2="146" stroke="#8c959f" stroke-width="2"/>
+  <polygon points="452,141 464,146 452,151" fill="#8c959f"/>
+
+  <!-- injectSpy -->
+  <rect class="acard" x="472" y="108" width="328" height="76" rx="12" fill="url(#acard)" stroke="#d0d7de"/>
+  <text class="acode" x="494" y="142" font-size="15" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" fill="#0d1117">injectSpy(ApiService)</text>
+  <text class="atitle" x="494" y="168" font-size="15" font-weight="600" fill="#0d1117">: Spy&lt;ApiService&gt;</text>
+
+  <!-- what you DON'T write -->
+  <g>
+    <rect class="abad" x="40" y="216" width="378" height="42" rx="21" fill="#dafbe1" stroke="#4ac26b"/>
+    <text class="abadText" x="229" y="242" font-size="14" font-weight="600" text-anchor="middle" fill="#1a7f37">no manual { provide, useValue }</text>
+
+    <rect class="abad" x="430" y="216" width="370" height="42" rx="21" fill="#dafbe1" stroke="#4ac26b"/>
+    <text class="abadText" x="615" y="242" font-size="14" font-weight="600" text-anchor="middle" fill="#1a7f37">no TestBed.inject&lt;any&gt; cast</text>
+  </g>
+
+  <!-- frameworks sharing the recipe -->
+  <g>
+    <rect class="achip" x="40" y="272" width="240" height="34" rx="17" fill="#ddf4ff" stroke="#54aeff"/>
+    <text class="achipText" x="160" y="294" font-size="14" font-weight="600" text-anchor="middle" fill="#0969da">Angular</text>
+
+    <rect class="achip" x="300" y="272" width="240" height="34" rx="17" fill="#ddf4ff" stroke="#54aeff"/>
+    <text class="achipText" x="420" y="294" font-size="14" font-weight="600" text-anchor="middle" fill="#0969da">NestJS</text>
+
+    <rect class="achip" x="560" y="272" width="240" height="34" rx="17" fill="#ddf4ff" stroke="#54aeff"/>
+    <text class="achipText" x="680" y="294" font-size="14" font-weight="600" text-anchor="middle" fill="#0969da">Vue · Pinia</text>
+  </g>
+</svg>

@@ -25,6 +25,10 @@ replacement for [`jest-auto-spies`](https://www.npmjs.com/package/jest-auto-spie
 
 📦 [**npm**](https://www.npmjs.com/package/vitest-auto-spy) · 🐙 [**GitHub**](https://github.com/ASDAlexey/vitest-auto-spy) · 🔖 [**Changelog**](./CHANGELOG.md)
 
+<br/>
+
+<img src="./assets/one-api-three-runtimes.svg" alt="One class-based API, three Vitest-compatible runtimes: Vitest, Bun and node:test" width="720" />
+
 </div>
 
 ---
@@ -95,7 +99,7 @@ them only for the matching entry point. The package itself has **zero runtime de
 | Peer | Needed for | Optional? |
 | --- | --- | --- |
 | `vitest` | the default runner | no |
-| `rxjs` | `vitest-auto-spy/rxjs` observable spies (and `Spy<T>` type-checking) | yes |
+| `rxjs` | `vitest-auto-spy/rxjs` observable spies (and `Spy<T>` type-checking) — `>=7`, **no upper bound** (the rxjs 8 line included) | yes |
 | `@angular/core` | `vitest-auto-spy/angular` helpers | yes |
 
 ## Availability
@@ -259,8 +263,9 @@ import { createSpyFromClass } from 'vitest-auto-spy/node'; // node:test
 
 | Library | Reads a class? | Return-type-aware helpers? | Runtimes | We win on |
 | --- | :---: | :---: | --- | --- |
-| **vitest-auto-spy** | ✅ | ✅ | Vitest (Bun · node:test next) | — |
+| **vitest-auto-spy** | ✅ | ✅ | Vitest · Bun · node:test | — |
 | [jest-auto-spies](https://www.npmjs.com/package/jest-auto-spies) | ✅ | ✅ | Jest only | Vitest/Bun/Node successor, **same API** — direct migration path |
+| [@bugsplat/vitest-auto-spies](https://www.npmjs.com/package/@bugsplat/vitest-auto-spies) | ✅ | ✅ | Vitest only | Same class-based API **plus** Bun & `node:test`, [type-only `createAutoMock`](#auto-mock-by-type-no-class-needed), framework recipes (Angular/NestJS/React/Vue/Svelte), console spies, and **zero runtime deps** (it depends on `@hirez_io/auto-spies-core`) |
 | [vitest-mock-extended](https://www.npmjs.com/package/vitest-mock-extended) | ❌ (Proxy) | ❌ | Vitest | Return-type ergonomics **and** reading a real class (we also ship a Proxy mode: [`createAutoMock`](#auto-mock-by-type-no-class-needed)) |
 | [@golevelup/ts-vitest](https://www.npmjs.com/package/@golevelup/ts-vitest) | partial | ❌ | Vitest | Typed `Promise`/`Observable` helpers + explicit class→spy + `mustBeCalledWith` |
 | [sinon](https://www.npmjs.com/package/sinon) | ❌ (manual) | ❌ | Any | Auto-generated + fully typed vs. manual + loosely typed |
@@ -284,11 +289,16 @@ The public API is intentionally identical. In most projects the migration is a
 The only API-shape change from `jest-auto-spies` is that the Angular helpers and the
 observable layer live behind the `/angular` and `/rxjs` subpaths (see [Entry points & runtimes](#entry-points--runtimes)).
 
+This also covers migrating from [`@bugsplat/vitest-auto-spies`](https://www.npmjs.com/package/@bugsplat/vitest-auto-spies),
+which re-exports the same `jest-auto-spies` API — the swap is identical, and you gain Bun /
+`node:test`, `createAutoMock`, framework recipes and console spies on top.
+
 | jest-auto-spies | vitest-auto-spy | Status |
 | --- | --- | --- |
 | `createSpyFromClass` | `createSpyFromClass` | ✅ identical |
 | `provideAutoSpy` | `provideAutoSpy` | ✅ identical |
 | `calledWith` / `mustBeCalledWith` | same | ✅ identical |
+| `calledWith(...).returnValue(v)` | same — `.returnValue` **and** `.mockReturnValue` both work | ✅ identical |
 | `resolveWith` / `rejectWith` / `resolveWithPerCall` | same | ✅ identical |
 | `nextWith` / `nextOneTimeWith` / `nextWithValues` / `nextWithPerCall` | same | ✅ identical |
 | `throwWith` / `complete` / `returnSubject` | same | ✅ identical |
@@ -592,6 +602,12 @@ it('shows the cart total from the store', () => {
 ```
 
 ### Angular
+
+<div align="center">
+
+<img src="./assets/angular-provide-auto-spy.svg" alt="Angular TestBed recipe: provideAutoSpy registers a typed spy provider and injectSpy returns Spy<ApiService> — no manual { provide, useValue }, no TestBed.inject<any> cast" width="720" />
+
+</div>
 
 `provideAutoSpy` is the shorthand for providing an auto-spy in a `TestBed`:
 
