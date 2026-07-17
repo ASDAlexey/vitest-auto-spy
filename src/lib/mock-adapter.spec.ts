@@ -14,6 +14,7 @@ const fakeAdapter: MockAdapter = {
   spyOnSetter: () => () => undefined,
   getCalls: () => [],
   reset: () => undefined,
+  clear: () => undefined,
 };
 
 describe('mock adapter registry', () => {

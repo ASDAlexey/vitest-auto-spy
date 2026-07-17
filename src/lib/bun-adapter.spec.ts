@@ -24,6 +24,9 @@ function makeBunTestApi(withName = true): { api: BunTestApi; names: string[] } {
       fn.mockReset = (): void => {
         calls.length = 0;
       };
+      fn.mockClear = (): void => {
+        calls.length = 0;
+      };
 
       if (withName) {
         fn.mockName = (name: string): void => {
@@ -82,6 +85,16 @@ describe('createBunMockAdapter', () => {
     expect(adapter.getCalls(fn)).toEqual([[1, 'a'], [2]]);
 
     adapter.reset(fn);
+    expect(adapter.getCalls(fn)).toEqual([]);
+  });
+
+  it('clear drops the recorded calls', () => {
+    const adapter = createBunMockAdapter(makeBunTestApi().api);
+    const fn = adapter.createMockFn();
+
+    fn('x');
+    adapter.clear(fn);
+
     expect(adapter.getCalls(fn)).toEqual([]);
   });
 

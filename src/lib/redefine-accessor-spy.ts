@@ -18,6 +18,7 @@ interface RedefineAdapterParts {
   createMockFn: MockAdapter['createMockFn'];
   getCalls: MockAdapter['getCalls'];
   reset: MockAdapter['reset'];
+  clear: MockAdapter['clear'];
 }
 
 /**
@@ -26,23 +27,19 @@ interface RedefineAdapterParts {
  * / `getCalls` / `reset`; the `spyOnGetter` / `spyOnSetter` wiring through
  * {@link spyOnAccessorByRedefine} is shared so the two adapters don't duplicate it.
  */
-export function createRedefineMockAdapter({ createMockFn, getCalls, reset }: RedefineAdapterParts): MockAdapter {
+export function createRedefineMockAdapter({ createMockFn, getCalls, reset, clear }: RedefineAdapterParts): MockAdapter {
   return {
     createMockFn,
     spyOnGetter: (target: object, property: string): MockFn => spyOnAccessorByRedefine(createMockFn, target, property, 'get'),
     spyOnSetter: (target: object, property: string): MockFn => spyOnAccessorByRedefine(createMockFn, target, property, 'set'),
     getCalls,
     reset,
+    clear,
   };
 }
 
 /** Replace one accessor of `target[property]` with a mock, preserving the other. Returns the mock. */
-export function spyOnAccessorByRedefine(
-  createMockFn: CreateMockFn,
-  target: object,
-  property: string,
-  type: 'get' | 'set',
-): MockFn {
+export function spyOnAccessorByRedefine(createMockFn: CreateMockFn, target: object, property: string, type: 'get' | 'set'): MockFn {
   const existing = Object.getOwnPropertyDescriptor(target, property);
   const original = type === 'get' ? existing?.get : existing?.set;
   const mock = createMockFn(original);
