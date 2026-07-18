@@ -10,8 +10,8 @@ with **return-type-aware** helpers (`resolveWith` / `nextWith` / `calledWith`). 
 **Angular / NestJS / React / Vue·Pinia / Svelte** recipes ([availability](#availability)). A drop-in
 replacement for [`jest-auto-spies`](https://www.npmjs.com/package/jest-auto-spies) — same API.
 
-[![npm version](https://img.shields.io/npm/v/vitest-auto-spy?color=cb3837&logo=npm)](https://www.npmjs.com/package/vitest-auto-spy)
-[![npm downloads](https://img.shields.io/npm/dm/vitest-auto-spy?color=cb3837&logo=npm)](https://www.npmjs.com/package/vitest-auto-spy)
+[![npm version](https://img.shields.io/npm/v/vitest-auto-spy?color=brightgreen&logo=npm)](https://www.npmjs.com/package/vitest-auto-spy)
+[![npm downloads](https://img.shields.io/npm/dm/vitest-auto-spy?color=brightgreen&logo=npm)](https://www.npmjs.com/package/vitest-auto-spy)
 [![CI](https://github.com/ASDAlexey/vitest-auto-spy/actions/workflows/ci.yml/badge.svg)](https://github.com/ASDAlexey/vitest-auto-spy/actions/workflows/ci.yml)
 [![minzipped size](https://img.shields.io/bundlephobia/minzip/vitest-auto-spy?label=minzip)](https://bundlephobia.com/package/vitest-auto-spy)
 [![types](https://img.shields.io/npm/types/vitest-auto-spy?logo=typescript&logoColor=white)](https://www.npmjs.com/package/vitest-auto-spy)
