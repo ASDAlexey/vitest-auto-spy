@@ -10,6 +10,13 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+## [1.9.1] - 2026-07-18
+
+### Docs
+
+- Recolored the npm version and downloads badges from npm red to `brightgreen`, matching the
+  coverage / Vitest / Bun / runtime-deps badges for a consistent badge row.
+
 ## [1.9.0] - 2026-07-18
 
 ### Added
@@ -281,7 +288,8 @@ The latest released version here must always match the one published on
   `mockAccessorsProp`.
 - Dual ESM + CJS build with type declarations; 100% test coverage.
 
-[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v1.9.0...HEAD
+[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v1.9.1...HEAD
+[1.9.1]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v1.9.0...v1.9.1
 [1.9.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v1.8.2...v1.9.0
 [1.8.2]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v1.8.1...v1.8.2
 [1.8.1]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v1.8.0...v1.8.1
