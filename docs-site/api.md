@@ -31,7 +31,8 @@ recorded on `mock.settledResults` (native on Vitest, polyfilled on Bun / `node:t
 ## Configuration
 
 **`ClassSpyConfiguration`:** `methodsToSpyOn`, `observablePropsToSpyOn`, `gettersToSpyOn`,
-`settersToSpyOn`
+`settersToSpyOn`, `autoSpyAccessors` (auto-discover getters/setters), `lazySpies` (build each
+method spy on first access — the `provideAutoSpy` default on Angular)
 
 **`ValueConfig`** (for `nextWithValues`): `{ value, delay? }` | `{ errorValue, delay? }` |
 `{ complete?, delay? }`.
