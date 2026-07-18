@@ -25,6 +25,23 @@ The spies are change-detection agnostic, so they work in **both zoneless and zon
 projects — nothing here touches `NgZone` or change detection. You still need the usual Vitest +
 Angular wiring (`@analogjs/vite-plugin-angular` plus a TestBed setup file).
 
+## Lazy spies by default
+
+Angular tests typically spy a wide service but call only a couple of its methods per test, so
+`provideAutoSpy` defaults to **lazy** spies: each method spy is built on first access instead of
+eagerly up-front. On a wide service where a test touches two methods, spy assembly is roughly
+**4× faster** (≈8× on a 20-method service) — the unused methods never pay the full spy-construction
+cost. Everything else is unchanged: `Object.keys`, `vi.isMockFunction`, `calledWith`,
+`resetAutoSpy` / `clearAutoSpy` all behave identically.
+
+```ts
+provideAutoSpy(WideService);                       // lazy — the fast default
+provideAutoSpy(WideService, { lazySpies: false }); // opt out: build every spy eagerly
+```
+
+Only `provideAutoSpy` (the Angular entry) defaults to lazy; the framework-agnostic
+`createSpyFromClass` still builds eagerly unless you pass `{ lazySpies: true }`.
+
 ## Signal / readonly property mocking
 
 ```ts

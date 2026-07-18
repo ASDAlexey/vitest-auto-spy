@@ -635,6 +635,12 @@ beforeEach(() => {
 > [`@analogjs/vite-plugin-angular`](https://www.npmjs.com/package/@analogjs/vite-plugin-angular)
 > plus a TestBed setup file (e.g. `@analogjs/vitest-angular`'s `setupTestBed()`).
 
+> **Lazy by default.** `provideAutoSpy` builds each method spy on first access
+> (`lazySpies: true`), since Angular tests typically spy a wide service but call
+> only a few of its methods — roughly **4× faster** spy assembly (≈8× on a
+> 20-method service). Behaviour is unchanged; pass `{ lazySpies: false }` to build
+> every spy eagerly.
+
 #### Signal / readonly property mocking (bonus)
 
 ```ts
@@ -725,7 +731,7 @@ expect(fakeConsole.info).toHaveBeenCalledWith('done');
 | `createSpyFromClass(Class, methodsOrConfig?)` | Build a fully-typed `Spy<T>` from a class |
 | `createAutoMock<T>(overrides?)` | Build a `Spy<T>` from a **type/interface** alone (Proxy, no class) |
 | `mockDeep<T>(overrides?)` | Build a **recursive** auto-mock — `mock.repo.user.find()` chains without seeding |
-| `resetAutoSpy(spy)` / `clearAutoSpy(spy)` | Reset every spy in an auto-spy at once — `reset` also wipes `calledWith` config; `clear` keeps it |
+| `resetAutoSpy(spy)` / `clearAutoSpy(spy)` | Reset every spy in an auto-spy at once — `reset` also reverts return-value config (`calledWith` **and** a bare `mockReturnValue`); `clear` keeps it |
 | `provideAutoSpy(Class, methodsOrConfig?)` | Angular / NestJS `{ provide, useValue }` shorthand |
 | `provideAutoSpy(token, Class, methodsOrConfig?)` | Vue `{ [token]: Spy<T> }` for `global.provide` |
 | `injectSpy(token)` _(Angular)_ / `injectSpy(moduleRef, token)` _(NestJS)_ | Inject typed as `Spy<T>` |
@@ -746,7 +752,7 @@ also matches **asymmetric matchers** (`calledWith(expect.any(Number))`, `expect.
 
 **Config (`ClassSpyConfiguration`):** `methodsToSpyOn`, `observablePropsToSpyOn`,
 `gettersToSpyOn`, `settersToSpyOn`, `autoSpyAccessors` (discover every getter/setter),
-`lazySpies` (materialize method spies on first access — cheaper for wide classes)
+`lazySpies` (materialize method spies on first access — cheaper for wide classes; the `provideAutoSpy` default on Angular)
 
 `ValueConfig` (for `nextWithValues`): `{ value, delay? }` | `{ errorValue, delay? }` | `{ complete?, delay? }`.
 
