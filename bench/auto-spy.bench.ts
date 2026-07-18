@@ -59,6 +59,23 @@ describe('createSpyFromClass', () => {
   });
 });
 
+// The realistic Angular pattern: a wide service is spied per test, but a given
+// test calls only a couple of its methods. `provideAutoSpy` defaults to this
+// lazy path — each unused method skips the full function-spy assembly.
+describe('lazy vs eager spy (wide class, only 2 methods called)', () => {
+  bench('eager: create + call 2', () => {
+    const spy = createSpyFromClass(WideService);
+    spy.m0();
+    spy.m5();
+  });
+
+  bench('lazy (provideAutoSpy default): create + call 2', () => {
+    const spy = createSpyFromClass(WideService, { lazySpies: true });
+    spy.m0();
+    spy.m5();
+  });
+});
+
 describe('createAutoMock (type-only, lazy Proxy)', () => {
   bench('create + access 4 methods', () => {
     const mock = createAutoMock<WideApi>();
