@@ -15,6 +15,7 @@ const fakeAdapter: MockAdapter = {
   getCalls: () => [],
   reset: () => undefined,
   clear: () => undefined,
+  restoreImplementation: () => undefined,
 };
 
 describe('mock adapter registry', () => {
