@@ -14,15 +14,19 @@ function makeNodeTestApi(): NodeTestApi {
   return {
     fn: (implementation?: Func): NodeMock => {
       const calls: { arguments: unknown[] }[] = [];
+      let currentImplementation = implementation;
       const fn = ((...args: unknown[]): unknown => {
         calls.push({ arguments: args });
 
-        return implementation?.(...args);
+        return currentImplementation?.(...args);
       }) as NodeMock;
       fn.mock = {
         calls,
         resetCalls: (): void => {
           calls.length = 0;
+        },
+        mockImplementation: (next: Func): void => {
+          currentImplementation = next;
         },
       };
 
@@ -66,6 +70,16 @@ describe('createNodeMockAdapter', () => {
     adapter.clear(fn);
 
     expect(adapter.getCalls(fn)).toEqual([]);
+  });
+
+  it('restoreImplementation re-installs the given implementation', () => {
+    const adapter = createNodeMockAdapter(makeNodeTestApi());
+    const fn = adapter.createMockFn(() => 'original');
+
+    expect(fn()).toBe('original');
+
+    adapter.restoreImplementation(fn, () => 'restored');
+    expect(fn()).toBe('restored');
   });
 
   it('names the mock via displayName for cross-runner diagnostics (and skips it when unnamed)', () => {
