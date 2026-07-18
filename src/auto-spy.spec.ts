@@ -506,6 +506,16 @@ describe('provideAutoSpy / injectSpy', () => {
     const eagerDescriptor = Object.getOwnPropertyDescriptor(eager, 'syncMethod');
     expect(eagerDescriptor && 'value' in eagerDescriptor).toBe(true);
   });
+
+  it('applies the lazy default across every argument form (array and config object)', () => {
+    // Array of method names → still lazy.
+    const fromArray = provideAutoSpy(MyService, ['syncMethod']).useValue;
+    expect(Object.getOwnPropertyDescriptor(fromArray, 'syncMethod')?.get).toBeTypeOf('function');
+
+    // Config object without an explicit lazySpies → default applies (lazy).
+    const fromConfig = provideAutoSpy(MyService, { methodsToSpyOn: ['syncMethod'] }).useValue;
+    expect(Object.getOwnPropertyDescriptor(fromConfig, 'syncMethod')?.get).toBeTypeOf('function');
+  });
 });
 
 // ---------------------------------------------------------------------------
