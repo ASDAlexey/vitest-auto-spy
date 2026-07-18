@@ -80,9 +80,13 @@ import { clearAutoSpy, resetAutoSpy } from 'vitest-auto-spy';
 // clears recorded calls only — configured returns are kept
 clearAutoSpy(myService);
 
-// clears calls AND reverts every calledWith / return-value config to pristine
+// clears calls AND reverts configuration to pristine
 resetAutoSpy(myService);
 ```
+
+`resetAutoSpy` reverts both the library config (`calledWith` / `resolveWith` / `nextWith` / …) **and**
+a bare return value set directly on a spy (`myService.getName.mockReturnValue('x')`) — after a reset
+the method returns `undefined` again until reconfigured.
 
 ## Observable methods & properties — `nextWith`
 
