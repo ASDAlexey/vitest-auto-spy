@@ -20,10 +20,10 @@ hero:
 features:
   - icon: 🎯
     title: Fully typed spies
-    details: Every method becomes a typed mock, with return-type-aware helpers — sync, Promise and Observable each get the right API.
+    details: Every method becomes a typed mock with return-type-aware helpers — resolveWith for Promises, nextWith for Observables, calledWith / mustBeCalledWith for argument matching.
   - icon: 🧪
     title: Reads a real class
-    details: createSpyFromClass reads your class and generates a spy for every method, so you never hand-maintain a mock object again.
+    details: createSpyFromClass reads your class and spies every method — or mock straight from a type with createAutoMock and recursive mockDeep, no class required.
   - icon: 🔀
     title: Multi-runtime
     details: One identical public API behind a MockAdapter seam — run the same core on Vitest, Bun (bun:test) or node:test.
