@@ -136,6 +136,15 @@ export type AddAccessorsSpies<T> = {
   };
 };
 
+/**
+ * A recursively-mocked `T`: object properties become nested deep mocks (so
+ * `mock.repo.user.find()` works without seeding), methods become spies, and
+ * primitive properties keep their type (seed them via `overrides`/assignment).
+ */
+export type DeepMockProxy<T> = {
+  [K in keyof T]: T[K] extends Func ? AddSpyMethodsByReturnTypes<T[K]> : T[K] extends object ? DeepMockProxy<T[K]> : T[K];
+};
+
 /** Fully-typed spy of `T`. */
 export type Spy<T> = AddAccessorsSpies<T> & {
   [K in keyof T]: T[K] extends Func
@@ -155,4 +164,8 @@ export interface ClassSpyConfiguration<T> {
   observablePropsToSpyOn?: OnlyObservablePropsOf<T>[];
   settersToSpyOn?: OnlyPropsOf<T>[];
   gettersToSpyOn?: OnlyPropsOf<T>[];
+  /** Auto-discover and spy every getter/setter on the prototype chain (merged with the explicit lists). */
+  autoSpyAccessors?: boolean;
+  /** Materialize each method spy lazily, on first access, instead of eagerly up-front (cheaper for large classes). */
+  lazySpies?: boolean;
 }

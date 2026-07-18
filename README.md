@@ -635,6 +635,12 @@ beforeEach(() => {
 > [`@analogjs/vite-plugin-angular`](https://www.npmjs.com/package/@analogjs/vite-plugin-angular)
 > plus a TestBed setup file (e.g. `@analogjs/vitest-angular`'s `setupTestBed()`).
 
+> **Lazy by default.** `provideAutoSpy` builds each method spy on first access
+> (`lazySpies: true`), since Angular tests typically spy a wide service but call
+> only a few of its methods — roughly **4× faster** spy assembly (≈8× on a
+> 20-method service). Behaviour is unchanged; pass `{ lazySpies: false }` to build
+> every spy eagerly.
+
 #### Signal / readonly property mocking (bonus)
 
 ```ts
@@ -724,6 +730,8 @@ expect(fakeConsole.info).toHaveBeenCalledWith('done');
 | --- | --- |
 | `createSpyFromClass(Class, methodsOrConfig?)` | Build a fully-typed `Spy<T>` from a class |
 | `createAutoMock<T>(overrides?)` | Build a `Spy<T>` from a **type/interface** alone (Proxy, no class) |
+| `mockDeep<T>(overrides?)` | Build a **recursive** auto-mock — `mock.repo.user.find()` chains without seeding |
+| `resetAutoSpy(spy)` / `clearAutoSpy(spy)` | Reset every spy in an auto-spy at once — `reset` also reverts return-value config (`calledWith` **and** a bare `mockReturnValue`); `clear` keeps it |
 | `provideAutoSpy(Class, methodsOrConfig?)` | Angular / NestJS `{ provide, useValue }` shorthand |
 | `provideAutoSpy(token, Class, methodsOrConfig?)` | Vue `{ [token]: Spy<T> }` for `global.provide` |
 | `injectSpy(token)` _(Angular)_ / `injectSpy(moduleRef, token)` _(NestJS)_ | Inject typed as `Spy<T>` |
@@ -734,7 +742,8 @@ expect(fakeConsole.info).toHaveBeenCalledWith('done');
 | `installConsoleSpies()` / `resetConsoleSpies()` / `restoreConsole()` | Install / clear / undo the console spies |
 | `errorHandler` | The `mustBeCalledWith` argument-mismatch error helper |
 
-**Spied sync method:** `mockReturnValue`, `calledWith(...)`, `mustBeCalledWith(...)`
+**Spied sync method:** `mockReturnValue`, `calledWith(...)`, `mustBeCalledWith(...)` — `calledWith`
+also matches **asymmetric matchers** (`calledWith(expect.any(Number))`, `expect.objectContaining({...})`)
 
 **Spied Promise method:** `resolveWith`, `rejectWith`, `resolveWithPerCall`
 
@@ -742,7 +751,8 @@ expect(fakeConsole.info).toHaveBeenCalledWith('done');
 `nextWithPerCall`, `throwWith`, `complete`, `returnSubject`
 
 **Config (`ClassSpyConfiguration`):** `methodsToSpyOn`, `observablePropsToSpyOn`,
-`gettersToSpyOn`, `settersToSpyOn`
+`gettersToSpyOn`, `settersToSpyOn`, `autoSpyAccessors` (discover every getter/setter),
+`lazySpies` (materialize method spies on first access — cheaper for wide classes; the `provideAutoSpy` default on Angular)
 
 `ValueConfig` (for `nextWithValues`): `{ value, delay? }` | `{ errorValue, delay? }` | `{ complete?, delay? }`.
 
@@ -785,10 +795,15 @@ Contributions are welcome! Please read [CONTRIBUTING.md](./CONTRIBUTING.md) and 
 
 ```bash
 npm ci
-npm test            # run the suite
-npm run test:coverage   # 100% thresholds enforced
+npm test            # run the suite once
+npm run test:watch  # fast local loop — no v8 coverage instrumentation
+npm run test:coverage   # 100% thresholds enforced (slower; for CI / pre-push)
 npm run build
 ```
+
+> **Tip:** develop against `npm run test:watch` — it skips the v8 coverage
+> instrumentation that `test:coverage` adds, so the feedback loop is noticeably
+> faster. Run `test:coverage` before pushing to confirm the 100% thresholds.
 
 Releases are automated: merging a PR into `master` bumps the version from the
 Conventional Commit types and publishes to npm — see

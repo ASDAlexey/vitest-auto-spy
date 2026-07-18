@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { serializeValue } from './serialize-args';
+import { isDeepValue, serializePrimitive, serializeValue } from './serialize-args';
 
 describe('serializeValue', () => {
   it('renders primitives the way arg-matching keys expect', () => {
@@ -56,5 +56,23 @@ describe('serializeValue', () => {
     circular['self'] = circular;
 
     expect(serializeValue(circular)).toBe('{self:[Circular]}');
+  });
+});
+
+describe('serializePrimitive', () => {
+  it('renders a non-object value identically to serializeValue', () => {
+    expect(serializePrimitive('hi')).toBe(serializeValue('hi'));
+    expect(serializePrimitive(-0)).toBe('-0');
+    expect(serializePrimitive(undefined)).toBe('undefined');
+  });
+});
+
+describe('isDeepValue', () => {
+  it('is true for non-null objects and false for primitives/null', () => {
+    expect(isDeepValue({})).toBe(true);
+    expect(isDeepValue([1])).toBe(true);
+    expect(isDeepValue(null)).toBe(false);
+    expect(isDeepValue('x')).toBe(false);
+    expect(isDeepValue(1)).toBe(false);
   });
 });

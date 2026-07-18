@@ -38,6 +38,16 @@ export interface MockAdapter {
   getCalls(mock: MockFn): readonly unknown[][];
   /** Reset a mock created by this adapter (clears its recorded calls and any configured implementation). */
   reset(mock: MockFn): void;
+  /** Clear a mock's recorded calls only, preserving its implementation. */
+  clear(mock: MockFn): void;
+  /**
+   * Re-install `implementation` as the mock's implementation, discarding any
+   * host-level `mockReturnValue` / `mockImplementation` override. Used by
+   * {@link resetAutoSpy} to revert a function spy to its library dispatch — a
+   * plain `clear` (`mockClear`) cannot, and a full `reset` (`mockReset`) would
+   * wipe the dispatch itself.
+   */
+  restoreImplementation(mock: MockFn, implementation: Func): void;
 }
 
 let registeredAdapter: MockAdapter | undefined;

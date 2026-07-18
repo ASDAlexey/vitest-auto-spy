@@ -55,8 +55,13 @@ function serializeObject(value: object, seen: WeakSet<object>): string {
   return result;
 }
 
-/** Serialize any value into a stable, collision-resistant string. Always total. */
-export function serializeValue(value: unknown, seen: WeakSet<object> = new WeakSet<object>()): string {
+/**
+ * Render a non-object value (string, number, boolean, bigint, symbol, function,
+ * null, undefined). Extracted so the {@link ArgsMap} hot path can key arrays of
+ * primitives without allocating the circular-ref `WeakSet` — its output is
+ * byte-identical to what {@link serializeValue} produces for the same value.
+ */
+export function serializePrimitive(value: unknown): string {
   if (typeof value === 'string') {
     return quoteString(value);
   }
@@ -73,14 +78,24 @@ export function serializeValue(value: unknown, seen: WeakSet<object> = new WeakS
     return `[Function: ${value.name}]`;
   }
 
-  if (typeof value === 'object' && value !== null) {
-    return serializeObject(value, seen);
-  }
-
   // `String(-0)` is `'0'`, which would collide with `0`; keep them distinct.
   if (Object.is(value, -0)) {
     return '-0';
   }
 
   return String(value);
+}
+
+/** Whether a value must go through the deep object serializer (non-null object). */
+export function isDeepValue(value: unknown): boolean {
+  return typeof value === 'object' && value !== null;
+}
+
+/** Serialize any value into a stable, collision-resistant string. Always total. */
+export function serializeValue(value: unknown, seen: WeakSet<object> = new WeakSet<object>()): string {
+  if (typeof value === 'object' && value !== null) {
+    return serializeObject(value, seen);
+  }
+
+  return serializePrimitive(value);
 }
