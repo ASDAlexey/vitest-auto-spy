@@ -118,11 +118,13 @@ export function createFunctionSpy<FunctionType extends Func>(name: string): AddS
   const mustBeCalledWithObject = createCalledWithObject();
   const valueContainer: ReturnValueContainer = { value: undefined };
 
-  const functionSpy = getMockAdapter().createMockFn(
-    (...actualArgs: unknown[]) =>
-      settledResultsRecorder.record(returnTheCorrectFakeValue(calledWithObject, mustBeCalledWithObject, valueContainer, actualArgs, name)),
-    name,
-  );
+  // The library's dispatch: pick the configured value for the call, then record
+  // its settled outcome. Captured by name so `resetAutoSpy` can re-install it,
+  // discarding any host-level `mockReturnValue`/`mockImplementation` a test set.
+  const dispatch = (...actualArgs: unknown[]): unknown =>
+    settledResultsRecorder.record(returnTheCorrectFakeValue(calledWithObject, mustBeCalledWithObject, valueContainer, actualArgs, name));
+
+  const functionSpy = getMockAdapter().createMockFn(dispatch, name);
 
   // Bun / node:test don't track `mock.settledResults`; polyfill it so the typed
   // `spy.method.mock.settledResults` surface works on every runtime (Vitest keeps
@@ -146,6 +148,9 @@ export function createFunctionSpy<FunctionType extends Func>(name: string): AddS
     valueContainer.value = undefined;
     delete valueContainer._isRejectedPromise;
     delete valueContainer.valuesPerCalls;
+    // Re-install the library dispatch so a bare `spy.method.mockReturnValue(…)`
+    // set directly on the host mock is reverted too (mockClear alone can't).
+    getMockAdapter().restoreImplementation(functionSpy, dispatch);
   });
   // Empties the polyfilled `settledResults` on `clearAutoSpy`/`resetAutoSpy`
   // (a no-op on Vitest, where the host clears its native array).

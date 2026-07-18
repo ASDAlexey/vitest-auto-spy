@@ -55,6 +55,15 @@ describe('clearAutoSpy', () => {
 
     expect(mock.f).toHaveBeenCalledTimes(0);
   });
+
+  it('keeps a native mockReturnValue (clear preserves configured return values)', () => {
+    const spy = createSpyFromClass(Svc);
+    spy.a.mockReturnValue('native');
+
+    clearAutoSpy(spy);
+
+    expect(spy.a()).toBe('native');
+  });
 });
 
 describe('resetAutoSpy', () => {
@@ -67,6 +76,16 @@ describe('resetAutoSpy', () => {
 
     expect(spy.a).toHaveBeenCalledTimes(0);
     expect(spy.a(1)).toBeUndefined();
+  });
+
+  it('reverts a native mockReturnValue set directly on the spy (not just calledWith config)', () => {
+    const spy = createSpyFromClass(Svc);
+    spy.a.mockReturnValue('native');
+    expect(spy.a()).toBe('native');
+
+    resetAutoSpy(spy);
+
+    expect(spy.a()).toBeUndefined();
   });
 
   it('resets accessor spies collected from the bag (without triggering them)', () => {
