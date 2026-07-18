@@ -19,6 +19,8 @@ beforeEach(() => {
 ```
 
 `Spy<UserService>` exposes each method as a mock **plus** the right helpers based on the method's
-return type (sync / `Promise` / `Observable`).
+return type: `resolveWith` / `rejectWith` for `Promise`s, `nextWith` / `throwWith` for RxJS
+`Observable`s, and `calledWith` / `mustBeCalledWith` for argument matching.
 
-<!-- TODO: expand — add a fuller "why auto-spies" narrative, a before/after comparison, and a link out to the runtime/adapter sections. -->
+No class to hand? Mock straight from a **type or interface** with `createAutoMock<T>()`, or build a
+recursive, self-seeding mock with `mockDeep<T>()` — see [Auto-mock by type](./auto-mock-by-type).

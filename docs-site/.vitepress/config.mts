@@ -34,7 +34,8 @@ export default defineConfig({
         name: 'keywords',
         content:
           'vitest, auto spy, auto-spies, vitest-auto-spy, jest-auto-spies, test spies, typed mocks, ' +
-          'createSpyFromClass, createAutoMock, bun test, node:test, angular testing, nestjs, react, vue, svelte, rxjs, mocking, typescript',
+          'createSpyFromClass, createAutoMock, mockDeep, deep mock, resolveWith, calledWith, mustBeCalledWith, ' +
+          'bun test, node:test, angular testing, nestjs, react, vue, pinia, svelte, rxjs, mocking, typescript',
       },
     ],
     ['meta', { property: 'og:type', content: 'website' }],
@@ -67,10 +68,10 @@ export default defineConfig({
     const path = pageData.relativePath.replace(/(index)?\.md$/, '');
     const canonical = `${HOSTNAME}${path}`;
     const title = pageData.title ? `${pageData.title} | vitest-auto-spy` : 'vitest-auto-spy';
-    const description = pageData.description || pageData.frontmatter.description || '';
+    const description = pageData.description || pageData.frontmatter['description'] || '';
 
-    pageData.frontmatter.head ??= [];
-    pageData.frontmatter.head.push(
+    pageData.frontmatter['head'] ??= [];
+    pageData.frontmatter['head'].push(
       ['link', { rel: 'canonical', href: canonical }],
       ['meta', { property: 'og:title', content: title }],
       ['meta', { property: 'og:description', content: description }],
