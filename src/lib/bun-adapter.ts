@@ -21,6 +21,7 @@ export interface BunMock {
   mockName?: (name: string) => void;
   mockReset: () => void;
   mockClear: () => void;
+  mockImplementation: (implementation: Func) => void;
   mock: { calls: unknown[][] };
 }
 
@@ -52,5 +53,6 @@ export function createBunMockAdapter(bun: BunTestApi): MockAdapter {
     getCalls: (mockFn: MockFn): readonly unknown[][] => asBunMock(mockFn).mock.calls,
     reset: (mockFn: MockFn): void => asBunMock(mockFn).mockReset(),
     clear: (mockFn: MockFn): void => asBunMock(mockFn).mockClear(),
+    restoreImplementation: (mockFn: MockFn, implementation: Func): void => asBunMock(mockFn).mockImplementation(implementation),
   });
 }

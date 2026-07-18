@@ -18,7 +18,7 @@ import type { Func } from './types';
 /** A `node:test` mock function — the surface this adapter relies on. */
 export interface NodeMock {
   (...args: unknown[]): unknown;
-  mock: { calls: { arguments: unknown[] }[]; resetCalls(): void };
+  mock: { calls: { arguments: unknown[] }[]; resetCalls(): void; mockImplementation(implementation: Func): void };
 }
 
 /** The slice of `node:test` the Node entry injects (the module's `mock` object). */
@@ -56,5 +56,6 @@ export function createNodeMockAdapter(nodeTest: NodeTestApi): MockAdapter {
     // `node:test` mocks reset call history via `resetCalls()`; there is no
     // separate implementation to preserve, so clear maps to the same primitive.
     clear: (mockFn: MockFn): void => asNodeMock(mockFn).mock.resetCalls(),
+    restoreImplementation: (mockFn: MockFn, implementation: Func): void => asNodeMock(mockFn).mock.mockImplementation(implementation),
   });
 }

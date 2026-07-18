@@ -67,43 +67,60 @@ function mergeSubjectWithDefaultValues<T>(subject: ReplaySubject<T>, valuesConfi
 /**
  * Attach the core observable helpers to `objectToDecorate`. Every helper calls
  * `onSubjectConfigured` so the caller can publish the resulting observable.
+ *
+ * The backing subject is reached through `getSubject`, not a live instance, so a
+ * function spy that never uses an observable helper (the common case for a
+ * sync/promise method once rxjs is loaded) never allocates a `ReplaySubject`.
+ * `getSubject` is expected to memoize, so every helper sees the same instance.
  */
 function addObservableHelpers<T>(
   objectToDecorate: object,
-  providedSubject: ReplaySubject<T>,
+  getSubject: () => ReplaySubject<T>,
   onSubjectConfigured: (subject: Observable<T>) => void,
 ): void {
   decorate(objectToDecorate, {
     nextWith: (value: T): void => {
-      providedSubject.next(value);
-      onSubjectConfigured(providedSubject);
+      const subject = getSubject();
+      subject.next(value);
+      onSubjectConfigured(subject);
     },
     nextOneTimeWith: (value: T): void => {
-      providedSubject.next(value);
-      providedSubject.complete();
-      onSubjectConfigured(providedSubject);
+      const subject = getSubject();
+      subject.next(value);
+      subject.complete();
+      onSubjectConfigured(subject);
     },
     nextWithValues: (valuesConfigs: ValueConfig<T>[]): void => {
       if (valuesConfigs.length === 0) {
         return;
       }
 
-      onSubjectConfigured(mergeSubjectWithDefaultValues(providedSubject, valuesConfigs));
+      onSubjectConfigured(mergeSubjectWithDefaultValues(getSubject(), valuesConfigs));
     },
     throwWith: (value: unknown): void => {
-      providedSubject.error(value);
-      onSubjectConfigured(providedSubject);
+      const subject = getSubject();
+      subject.error(value);
+      onSubjectConfigured(subject);
     },
     complete: (): void => {
-      providedSubject.complete();
-      onSubjectConfigured(providedSubject);
+      const subject = getSubject();
+      subject.complete();
+      onSubjectConfigured(subject);
     },
     returnSubject: (): ReplaySubject<T> => {
-      onSubjectConfigured(providedSubject);
+      const subject = getSubject();
+      onSubjectConfigured(subject);
 
-      return providedSubject;
+      return subject;
     },
   });
+}
+
+/** A memoizing lazy factory: the `ReplaySubject` is created on first use, then reused. */
+function lazySubject<T>(): () => ReplaySubject<T> {
+  let subject: ReplaySubject<T> | undefined;
+
+  return (): ReplaySubject<T> => (subject ??= createReplaySubject<T>());
 }
 
 /** Build the per-call observable for one `ValueConfigPerCall` entry. */
@@ -153,17 +170,15 @@ function addNextWithPerCall<T>(
 }
 
 export function addObservableHelpersToFunctionSpy(spyFunction: object, valueContainer: ReturnValueContainer): void {
-  const subject = createReplaySubject();
-  addObservableHelpers(spyFunction, subject, (configuredSubject) => {
+  addObservableHelpers(spyFunction, lazySubject(), (configuredSubject) => {
     valueContainer.value = configuredSubject;
   });
   addNextWithPerCall(spyFunction, valueContainer);
 }
 
 export function addObservableHelpersToCalledWithObject(calledWithObject: CalledWithObject, calledWithArgs: unknown[]): void {
-  const subject = createReplaySubject();
   const returnValueContainer: ReturnValueContainer = { value: undefined };
-  addObservableHelpers(calledWithObject, subject, (configuredSubject) => {
+  addObservableHelpers(calledWithObject, lazySubject(), (configuredSubject) => {
     returnValueContainer.value = configuredSubject;
     calledWithObject.argsToValuesMap.set(calledWithArgs, returnValueContainer);
   });
@@ -198,7 +213,7 @@ export function createObservablePropSpy<T>(): AddObservableSpyMethods<T> & Obser
   // `nextWithValues` keep operating on a real Subject.
   let published$: Observable<T> = providedSubject;
   const observableSpy: Observable<T> = defer(() => published$);
-  addObservableHelpers(observableSpy, providedSubject, (configuredSubject) => {
+  addObservableHelpers(observableSpy, () => providedSubject, (configuredSubject) => {
     published$ = configuredSubject;
   });
 
