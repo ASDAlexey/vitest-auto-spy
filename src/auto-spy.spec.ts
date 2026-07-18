@@ -489,6 +489,23 @@ describe('provideAutoSpy / injectSpy', () => {
     expect(provider.provide).toBe(MyService);
     expect(vi.isMockFunction(provider.useValue.syncMethod)).toBe(true);
   });
+
+  it('defaults to lazy spies (materialized on first access) and honours lazySpies: false', () => {
+    const lazy = provideAutoSpy(MyService).useValue;
+
+    // Not yet touched: the method is a lazy accessor placeholder, not a data property.
+    expect(Object.getOwnPropertyDescriptor(lazy, 'syncMethod')?.get).toBeTypeOf('function');
+
+    // First access materializes the real spy and caches it as a data property.
+    expect(vi.isMockFunction(lazy.syncMethod)).toBe(true);
+    const materialized = Object.getOwnPropertyDescriptor(lazy, 'syncMethod');
+    expect(materialized && 'value' in materialized).toBe(true);
+
+    // Opt out: eager spies are materialized up-front, before any access.
+    const eager = provideAutoSpy(MyService, { lazySpies: false }).useValue;
+    const eagerDescriptor = Object.getOwnPropertyDescriptor(eager, 'syncMethod');
+    expect(eagerDescriptor && 'value' in eagerDescriptor).toBe(true);
+  });
 });
 
 // ---------------------------------------------------------------------------
