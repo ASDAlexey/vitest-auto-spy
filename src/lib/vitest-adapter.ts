@@ -45,4 +45,12 @@ export const vitestMockAdapter: MockAdapter = {
   reset(mock: MockFn): void {
     asVitestMock(mock).mockReset();
   },
+
+  clear(mock: MockFn): void {
+    asVitestMock(mock).mockClear();
+  },
+
+  restoreImplementation(mock: MockFn, implementation: Func): void {
+    asVitestMock(mock).mockImplementation(implementation);
+  },
 };

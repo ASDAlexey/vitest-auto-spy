@@ -14,6 +14,14 @@ interface ResolvedSpyConfiguration {
   observablePropsToSpyOn: string[];
   settersToSpyOn: string[];
   gettersToSpyOn: string[];
+  autoSpyAccessors: boolean;
+  lazySpies: boolean;
+}
+
+/** Getter/setter accessor names discovered along a prototype chain. */
+interface AccessorNames {
+  getters: string[];
+  setters: string[];
 }
 
 const EMPTY_CONFIGURATION: ResolvedSpyConfiguration = {
@@ -21,6 +29,8 @@ const EMPTY_CONFIGURATION: ResolvedSpyConfiguration = {
   observablePropsToSpyOn: [],
   settersToSpyOn: [],
   gettersToSpyOn: [],
+  autoSpyAccessors: false,
+  lazySpies: false,
 };
 
 /** Own, non-getter method names of a single prototype object (excluding the constructor). */
@@ -28,6 +38,26 @@ function extractMethodsFromObject(obj: object): string[] {
   const descriptors = Object.getOwnPropertyDescriptors(obj);
 
   return Object.keys(descriptors).filter((name) => name !== 'constructor' && !descriptors[name]?.get);
+}
+
+/**
+ * Visit every prototype in the chain that has a parent — i.e. everything up to
+ * but not including `Object.prototype` (whose parent is `null`). Shared by the
+ * method- and accessor-name collectors so both stop before `Object`'s own
+ * members (`__proto__`, `hasOwnProperty`, …).
+ */
+function walkOwnPrototypes(prototype: object, visit: (obj: object) => void): void {
+  let current: object | null = prototype;
+
+  while (current) {
+    const parent: object | null = Object.getPrototypeOf(current);
+
+    if (parent) {
+      visit(current);
+    }
+
+    current = parent;
+  }
 }
 
 // A class's method set is immutable for a run, but the same class is typically
@@ -44,22 +74,84 @@ function getAllMethodNames(prototype: object): string[] {
   }
 
   const methods = new Set<string>();
-  let current: object | null = prototype;
-
-  while (current) {
-    const parentObj: object | null = Object.getPrototypeOf(current);
-
-    if (parentObj) {
-      extractMethodsFromObject(current).forEach((name) => methods.add(name));
-    }
-
-    current = parentObj;
-  }
+  walkOwnPrototypes(prototype, (obj) => extractMethodsFromObject(obj).forEach((name) => methods.add(name)));
 
   const result = [...methods];
   methodNamesCache.set(prototype, result);
 
   return result;
+}
+
+/** Walk the prototype chain and collect every getter/setter name (de-duplicated), excluding the constructor. */
+function getAllAccessorNames(prototype: object): AccessorNames {
+  const getters = new Set<string>();
+  const setters = new Set<string>();
+
+  walkOwnPrototypes(prototype, (obj) => {
+    const descriptors = Object.getOwnPropertyDescriptors(obj);
+
+    Object.keys(descriptors).forEach((name) => {
+      if (name === 'constructor') {
+        return;
+      }
+
+      if (descriptors[name]?.get) {
+        getters.add(name);
+      }
+
+      if (descriptors[name]?.set) {
+        setters.add(name);
+      }
+    });
+  });
+
+  return { getters: [...getters], setters: [...setters] };
+}
+
+/** Merge explicitly-listed accessors with auto-discovered ones (de-duplicated) when `autoSpyAccessors` is on. */
+function resolveAccessors(prototype: object, config: ResolvedSpyConfiguration): AccessorNames {
+  if (!config.autoSpyAccessors) {
+    return { getters: config.gettersToSpyOn, setters: config.settersToSpyOn };
+  }
+
+  const discovered = getAllAccessorNames(prototype);
+
+  return {
+    getters: [...new Set([...config.gettersToSpyOn, ...discovered.getters])],
+    setters: [...new Set([...config.settersToSpyOn, ...discovered.setters])],
+  };
+}
+
+/** Warn (without throwing) when a requested method name is absent from the class prototype — a common "why isn't my spy called" source. */
+function warnOnUnknownMethods(ObjectClass: ClassType<unknown>, requested: string[]): void {
+  const available = new Set(getAllMethodNames(ObjectClass.prototype));
+  const unknown = requested.filter((name) => !available.has(name));
+
+  if (unknown.length === 0) {
+    return;
+  }
+
+  // `console.warn` is the project-sanctioned diagnostic channel (CLAUDE.md); the
+  // repo's `no-console` lint rule is stricter than that policy, so disable it here.
+  // eslint-disable-next-line no-console -- intentional dev-time misconfiguration warning; console.warn is allowed per CLAUDE.md.
+  console.warn(
+    `[vitest-auto-spy] createSpyFromClass(${ObjectClass.name}): requested method(s) not found on the class prototype: ` +
+      `${unknown.join(', ')}. A spy was still created, but the real code will never call it — check for typos.`,
+  );
+}
+
+/** Install a lazily-materializing spy under `methodName`: the spy is created on first access, then cached as a data property. */
+function defineLazyMethodSpy(autoSpy: Record<string, unknown>, methodName: string): void {
+  Object.defineProperty(autoSpy, methodName, {
+    configurable: true,
+    enumerable: true,
+    get(): unknown {
+      const spy = createFunctionSpy(methodName);
+      Object.defineProperty(autoSpy, methodName, { configurable: true, enumerable: true, writable: true, value: spy });
+
+      return spy;
+    },
+  });
 }
 
 /** Normalize the overloaded second argument into a single flat configuration. */
@@ -77,6 +169,8 @@ function resolveConfiguration<T>(methodsToSpyOnOrConfig?: ClassSpyConfiguration<
     observablePropsToSpyOn: methodsToSpyOnOrConfig.observablePropsToSpyOn ?? [],
     settersToSpyOn: methodsToSpyOnOrConfig.settersToSpyOn ?? [],
     gettersToSpyOn: methodsToSpyOnOrConfig.gettersToSpyOn ?? [],
+    autoSpyAccessors: methodsToSpyOnOrConfig.autoSpyAccessors ?? false,
+    lazySpies: methodsToSpyOnOrConfig.lazySpies ?? false,
   };
 }
 
@@ -85,24 +179,36 @@ export function createSpyFromClass<T>(
   ObjectClass: ClassType<T>,
   methodsToSpyOnOrConfig?: ClassSpyConfiguration<T> | OnlyMethodKeysOf<T>[],
 ): Spy<T> {
-  const { methodsToSpyOn, observablePropsToSpyOn, settersToSpyOn, gettersToSpyOn } = resolveConfiguration(methodsToSpyOnOrConfig);
+  const config = resolveConfiguration(methodsToSpyOnOrConfig);
 
   // When an explicit `methodsToSpyOn` list is given, restrict to it (matching
   // `jest-auto-spies`); otherwise auto-discover every prototype method.
-  const methodNames = methodsToSpyOn.length > 0 ? methodsToSpyOn : getAllMethodNames(ObjectClass.prototype);
+  const methodNames = config.methodsToSpyOn.length > 0 ? config.methodsToSpyOn : getAllMethodNames(ObjectClass.prototype);
+
+  if (config.methodsToSpyOn.length > 0) {
+    warnOnUnknownMethods(ObjectClass, config.methodsToSpyOn);
+  }
 
   const autoSpy: Record<string, unknown> = {};
 
   // Routed through the IoC registry so the core never statically imports rxjs;
   // requesting observable props without `vitest-auto-spy/rxjs` throws a clear hint.
-  observablePropsToSpyOn.forEach((observablePropName) => {
+  config.observablePropsToSpyOn.forEach((observablePropName) => {
     autoSpy[observablePropName] = requireObservableSupport().createPropSpy();
   });
 
-  createAccessorsSpies(autoSpy, gettersToSpyOn, settersToSpyOn);
+  const accessors = resolveAccessors(ObjectClass.prototype, config);
+  createAccessorsSpies(autoSpy, accessors.getters, accessors.setters);
 
+  // Lazy path materializes each method spy on first access (cheaper for large
+  // classes where a test touches few methods); enumeration stays intact because
+  // the placeholder is an enumerable accessor. Eager path is the default.
   methodNames.forEach((methodName) => {
-    autoSpy[methodName] = createFunctionSpy(methodName);
+    if (config.lazySpies) {
+      defineLazyMethodSpy(autoSpy, methodName);
+    } else {
+      autoSpy[methodName] = createFunctionSpy(methodName);
+    }
   });
 
   // `autoSpy` is assembled key-by-key from the runtime method/accessor names;

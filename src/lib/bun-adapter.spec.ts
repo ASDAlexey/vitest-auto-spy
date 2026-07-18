@@ -15,14 +15,21 @@ function makeBunTestApi(withName = true): { api: BunTestApi; names: string[] } {
   const api: BunTestApi = {
     mock: (implementation?: Func): BunMock => {
       const calls: unknown[][] = [];
+      let currentImplementation = implementation;
       const fn = ((...args: unknown[]): unknown => {
         calls.push(args);
 
-        return implementation?.(...args);
+        return currentImplementation?.(...args);
       }) as BunMock;
       fn.mock = { calls };
       fn.mockReset = (): void => {
         calls.length = 0;
+      };
+      fn.mockClear = (): void => {
+        calls.length = 0;
+      };
+      fn.mockImplementation = (next: Func): void => {
+        currentImplementation = next;
       };
 
       if (withName) {
@@ -83,6 +90,26 @@ describe('createBunMockAdapter', () => {
 
     adapter.reset(fn);
     expect(adapter.getCalls(fn)).toEqual([]);
+  });
+
+  it('clear drops the recorded calls', () => {
+    const adapter = createBunMockAdapter(makeBunTestApi().api);
+    const fn = adapter.createMockFn();
+
+    fn('x');
+    adapter.clear(fn);
+
+    expect(adapter.getCalls(fn)).toEqual([]);
+  });
+
+  it('restoreImplementation re-installs the given implementation', () => {
+    const adapter = createBunMockAdapter(makeBunTestApi().api);
+    const fn = adapter.createMockFn(() => 'original');
+
+    expect(fn()).toBe('original');
+
+    adapter.restoreImplementation(fn, () => 'restored');
+    expect(fn()).toBe('restored');
   });
 
   it('spyOnGetter / spyOnSetter record accessor access', () => {

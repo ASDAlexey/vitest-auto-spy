@@ -106,6 +106,50 @@ describe('createSpyFromClass', () => {
     expect(spy.accessorSpies.getters.userName).toBeDefined();
     expect(spy.accessorSpies.setters.theme).toBeDefined();
   });
+
+  it('warns when a requested method is absent from the prototype (but not when all exist)', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    createSpyFromClass(MyService, ['syncMethod', 'nope'] as unknown as ['syncMethod']);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('nope'));
+
+    warn.mockClear();
+    createSpyFromClass(MyService, ['syncMethod']);
+    expect(warn).not.toHaveBeenCalled();
+
+    warn.mockRestore();
+  });
+
+  it('lazySpies materializes method spies on first access, keeping enumeration', () => {
+    const spy = createSpyFromClass(MyService, { lazySpies: true });
+
+    // enumerable placeholder before first access
+    expect(Object.keys(spy)).toContain('syncMethod');
+
+    expect(vi.isMockFunction(spy.syncMethod)).toBe(true);
+    spy.syncMethod.calledWith(1).mockReturnValue('lazy');
+    expect(spy.syncMethod(1)).toBe('lazy');
+    // cached: same reference after materialization
+    expect(spy.syncMethod).toBe(spy.syncMethod);
+  });
+
+  it('autoSpyAccessors auto-discovers and spies every getter/setter', () => {
+    const spy = createSpyFromClass(MyService, { autoSpyAccessors: true });
+
+    spy.accessorSpies.getters.userName.mockReturnValue('Auto');
+    expect(spy.userName).toBe('Auto');
+
+    spy.userName = 'set';
+    expect(spy.accessorSpies.setters.userName).toHaveBeenCalledWith('set');
+  });
+
+  it('calledWith matches asymmetric matchers (expect.any / objectContaining)', () => {
+    const spy = createSpyFromClass(MyService);
+
+    spy.syncMethod.calledWith(expect.any(Number)).mockReturnValue('num');
+    expect(spy.syncMethod(7)).toBe('num');
+    expect(spy.syncMethod('x' as unknown as number)).toBeUndefined();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -444,6 +488,33 @@ describe('provideAutoSpy / injectSpy', () => {
     const provider = provideAutoSpy(MyService);
     expect(provider.provide).toBe(MyService);
     expect(vi.isMockFunction(provider.useValue.syncMethod)).toBe(true);
+  });
+
+  it('defaults to lazy spies (materialized on first access) and honours lazySpies: false', () => {
+    const lazy = provideAutoSpy(MyService).useValue;
+
+    // Not yet touched: the method is a lazy accessor placeholder, not a data property.
+    expect(Object.getOwnPropertyDescriptor(lazy, 'syncMethod')?.get).toBeTypeOf('function');
+
+    // First access materializes the real spy and caches it as a data property.
+    expect(vi.isMockFunction(lazy.syncMethod)).toBe(true);
+    const materialized = Object.getOwnPropertyDescriptor(lazy, 'syncMethod');
+    expect(materialized && 'value' in materialized).toBe(true);
+
+    // Opt out: eager spies are materialized up-front, before any access.
+    const eager = provideAutoSpy(MyService, { lazySpies: false }).useValue;
+    const eagerDescriptor = Object.getOwnPropertyDescriptor(eager, 'syncMethod');
+    expect(eagerDescriptor && 'value' in eagerDescriptor).toBe(true);
+  });
+
+  it('applies the lazy default across every argument form (array and config object)', () => {
+    // Array of method names → still lazy.
+    const fromArray = provideAutoSpy(MyService, ['syncMethod']).useValue;
+    expect(Object.getOwnPropertyDescriptor(fromArray, 'syncMethod')?.get).toBeTypeOf('function');
+
+    // Config object without an explicit lazySpies → default applies (lazy).
+    const fromConfig = provideAutoSpy(MyService, { methodsToSpyOn: ['syncMethod'] }).useValue;
+    expect(Object.getOwnPropertyDescriptor(fromConfig, 'syncMethod')?.get).toBeTypeOf('function');
   });
 });
 
