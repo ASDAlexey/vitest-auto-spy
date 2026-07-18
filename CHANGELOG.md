@@ -10,6 +10,60 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+## [1.9.0] - 2026-07-18
+
+### Added
+
+- **`mockDeep<T>()` — recursive, class-free auto-mock.** The deep counterpart of `createAutoMock`:
+  nested access auto-creates chainable spies, so `mock.repo.user.find()` works with no manual
+  seeding — every hop is itself a callable spy carrying the full `calledWith` / `resolveWith` /
+  `nextWith` surface. Seed concrete values via `overrides` or assignment.
+- **`mock.settledResults` across every runtime.** Vitest tracks each mock call's eventual promise
+  outcome natively; a built-in polyfill now provides the same `{ type, value }` array on Bun
+  (`bun:test`) and `node:test`, so `spy.method.mock.settledResults` reads identically on all three.
+- **Asymmetric matchers in `calledWith` / `mustBeCalledWith`.** A config may now include
+  `expect.any(...)`, `expect.objectContaining({...})`, `expect.stringMatching(...)`, …; a config
+  that contains a matcher is stored as a predicate and evaluated against the actual args on lookup.
+- **`resetAutoSpy(spy)` / `clearAutoSpy(spy)`.** Reset every spy inside an assembled auto-spy in one
+  call — `clearAutoSpy` drops recorded calls only, `resetAutoSpy` also reverts all configuration.
+  Works on both `createSpyFromClass` spies and `createAutoMock` proxies, covering method and
+  accessor spies alike (found by brand, never by triggering live accessors).
+- **`lazySpies` / `autoSpyAccessors` config and friendlier diagnostics.** `lazySpies` materializes
+  each method spy on first access (cheaper for wide classes); `autoSpyAccessors` auto-discovers
+  every getter/setter on the prototype chain; `createSpyFromClass` now warns (without throwing) when
+  a requested method name is absent from the class prototype.
+
+### Changed
+
+- **Performance — Angular spies are lazy by default.** `provideAutoSpy` now defaults to
+  `lazySpies: true`: on a wide service where a test calls only a couple of methods, spy assembly is
+  roughly **4× faster** (≈8× on a 20-method service). Behaviour is unchanged; pass
+  `{ lazySpies: false }` to build every spy eagerly.
+- **Performance — deferred observable subjects.** Observable spies no longer allocate their backing
+  `ReplaySubject` until an observable helper is first used, so a sync/promise method spy created
+  with the rxjs layer loaded skips that allocation.
+
+### Fixed
+
+- **`resetAutoSpy` reverts a bare `mockReturnValue`.** A return value set directly on a spy
+  (`spy.method.mockReturnValue(x)`), not just library `calledWith` config, is now reverted on reset
+  — via a new `MockAdapter` primitive that re-installs the library dispatch across Vitest, Bun and
+  `node:test` (a plain `mockClear` could not, and a full `mockReset` would wipe the dispatch itself).
+
+### Docs
+
+- New **VitePress documentation site** deployed to GitHub Pages (with sitemap, canonical / Open Graph
+  tags and JSON-LD for SEO), plus reference pages for `mockDeep`, `settledResults`, asymmetric
+  matchers, `lazySpies` and the reset helpers. README updated to match.
+
+## [1.8.2] - 2026-07-17
+
+> README-only release — no code or API changes (a `fix:`-typed README commit cut a patch).
+
+## [1.8.1] - 2026-07-17
+
+> README-only release — no code or API changes (a `fix:`-typed README commit cut a patch).
+
 ## [1.8.0] - 2026-07-17
 
 ### Added
@@ -227,7 +281,10 @@ The latest released version here must always match the one published on
   `mockAccessorsProp`.
 - Dual ESM + CJS build with type declarations; 100% test coverage.
 
-[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v1.8.0...HEAD
+[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v1.9.0...HEAD
+[1.9.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v1.8.2...v1.9.0
+[1.8.2]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v1.8.1...v1.8.2
+[1.8.1]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v1.8.0...v1.8.1
 [1.8.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v1.7.0...v1.8.0
 [1.7.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v1.5.1...v1.7.0
 [1.5.1]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v1.5.0...v1.5.1
