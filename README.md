@@ -5,10 +5,13 @@
 **Auto-generate fully-typed test spies from a class — across any Vitest-compatible runtime and framework.**
 
 The only auto-spy library that reads a **class** and gives a **fully-typed** spy of every method
-with **return-type-aware** helpers (`resolveWith` / `nextWith` / `calledWith`). Runs on **Vitest**,
-**Bun** (`bun:test`) and **`node:test`** behind one identical API, with **RxJS** spies and
-**Angular / NestJS / React / Vue·Pinia / Svelte** recipes ([availability](#availability)). A drop-in
-replacement for [`jest-auto-spies`](https://www.npmjs.com/package/jest-auto-spies) — same API.
+with **return-type-aware** helpers — `resolveWith` / `rejectWith` for `Promise`s, `nextWith` /
+`throwWith` for RxJS `Observable`s, and `calledWith` / `mustBeCalledWith` for argument matching. Or
+skip the class entirely and mock straight from a **type or interface** with `createAutoMock<T>()` and
+recursive `mockDeep<T>()`. Runs on **Vitest**, **Bun** (`bun:test`) and **`node:test`** behind one
+identical API, with **RxJS** spies and **Angular / NestJS / React / Vue·Pinia / Svelte** recipes
+([availability](#availability)). A drop-in replacement for
+[`jest-auto-spies`](https://www.npmjs.com/package/jest-auto-spies) — same API.
 
 [![npm version](https://img.shields.io/npm/v/vitest-auto-spy?color=brightgreen&logo=npm)](https://www.npmjs.com/package/vitest-auto-spy)
 [![npm downloads](https://img.shields.io/npm/dm/vitest-auto-spy?color=brightgreen&logo=npm)](https://www.npmjs.com/package/vitest-auto-spy)

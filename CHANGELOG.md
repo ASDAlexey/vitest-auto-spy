@@ -10,6 +10,21 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+## [1.9.2] - 2026-07-18
+
+### Docs
+
+- Redesigned the README hero (`assets/one-api-three-runtimes.svg`): the `Spy<UserService>` card now
+  shows real typed methods mapped to their `resolveWith` / `nextWith` / `calledWith` helpers, the
+  `createSpyFromClass(UserService)` call sits on a single line, and the runtime chips carry the
+  Vitest / Bun / node:test brand marks and colors. Fixed a dark-mode grey halo (removed the blurred
+  glow and the light drop-shadow), a badge that overflowed the card, and raw `<>` in `aria-label`
+  that broke SVG parsing.
+- Expanded the intro copy and search metadata for discoverability: the README and docs now name the
+  full helper set (`resolveWith` / `rejectWith`, `nextWith` / `throwWith`, `calledWith` /
+  `mustBeCalledWith`) plus `createAutoMock<T>()` and `mockDeep<T>()`, and added matching `package.json`
+  keywords and docs-site meta keywords.
+
 ## [1.9.1] - 2026-07-18
 
 ### Docs
@@ -288,7 +303,8 @@ The latest released version here must always match the one published on
   `mockAccessorsProp`.
 - Dual ESM + CJS build with type declarations; 100% test coverage.
 
-[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v1.9.1...HEAD
+[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v1.9.2...HEAD
+[1.9.2]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v1.9.1...v1.9.2
 [1.9.1]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v1.9.0...v1.9.1
 [1.9.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v1.8.2...v1.9.0
 [1.8.2]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v1.8.1...v1.8.2
