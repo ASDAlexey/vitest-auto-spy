@@ -19,6 +19,7 @@ interface RedefineAdapterParts {
   getCalls: MockAdapter['getCalls'];
   reset: MockAdapter['reset'];
   clear: MockAdapter['clear'];
+  restoreImplementation: MockAdapter['restoreImplementation'];
 }
 
 /**
@@ -27,7 +28,13 @@ interface RedefineAdapterParts {
  * / `getCalls` / `reset`; the `spyOnGetter` / `spyOnSetter` wiring through
  * {@link spyOnAccessorByRedefine} is shared so the two adapters don't duplicate it.
  */
-export function createRedefineMockAdapter({ createMockFn, getCalls, reset, clear }: RedefineAdapterParts): MockAdapter {
+export function createRedefineMockAdapter({
+  createMockFn,
+  getCalls,
+  reset,
+  clear,
+  restoreImplementation,
+}: RedefineAdapterParts): MockAdapter {
   return {
     createMockFn,
     spyOnGetter: (target: object, property: string): MockFn => spyOnAccessorByRedefine(createMockFn, target, property, 'get'),
@@ -35,6 +42,7 @@ export function createRedefineMockAdapter({ createMockFn, getCalls, reset, clear
     getCalls,
     reset,
     clear,
+    restoreImplementation,
   };
 }
 
