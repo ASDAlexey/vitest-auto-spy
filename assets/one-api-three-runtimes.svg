@@ -41,17 +41,16 @@
 
   <!-- source call -->
   <rect class="card" x="40" y="126" width="330" height="76" rx="14" fill="url(#card)" stroke="#d0d7de" filter="url(#shadow)"/>
-  <text x="64" y="162" font-size="16" font-family="ui-monospace, SFMono-Regular, Menlo, monospace"><tspan class="fn" fill="#8250df">createSpyFromClass</tspan><tspan class="punct" fill="#6e7781">(</tspan></text>
-  <text x="64" y="186" font-size="16" font-family="ui-monospace, SFMono-Regular, Menlo, monospace"><tspan class="type" fill="#0550ae">&#160;&#160;UserService</tspan><tspan class="punct" fill="#6e7781">)</tspan></text>
+  <text x="64" y="170" font-size="15" font-family="ui-monospace, SFMono-Regular, Menlo, monospace"><tspan class="fn" fill="#8250df">createSpyFromClass</tspan><tspan class="punct" fill="#6e7781">(</tspan><tspan class="type" fill="#0550ae">UserService</tspan><tspan class="punct" fill="#6e7781">)</tspan></text>
 
   <!-- arrow -->
   <line class="arrow" x1="378" y1="164" x2="474" y2="164" stroke="url(#arrow)" stroke-width="2.5" stroke-linecap="round"/>
   <polygon points="474,158 488,164 474,170" fill="#1f6feb"/>
 
   <!-- fully-typed spy -->
-  <rect class="card" x="490" y="126" width="310" height="76" rx="14" fill="url(#card)" stroke="#d0d7de" filter="url(#shadow)"/>
+  <rect class="card" x="490" y="126" width="330" height="76" rx="14" fill="url(#card)" stroke="#d0d7de" filter="url(#shadow)"/>
   <text class="title" x="514" y="158" font-size="16" font-weight="600" fill="#0d1117">Spy&lt;UserService&gt;</text>
-  <text class="sub" x="514" y="182" font-size="13" fill="#57606a">typed methods + resolveWith / nextWith / calledWith</text>
+  <text class="sub" x="514" y="182" font-size="12" fill="#57606a">typed methods + resolveWith / nextWith / calledWith</text>
 
   <!-- runtime chips -->
   <g>
