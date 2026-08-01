@@ -10,6 +10,17 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+## [1.9.3] - 2026-08-01
+
+### Changed
+
+- **Published bundles are no longer minified.** `tsup` ran with `minify: true`, so every file in
+  `dist/` shipped as a single unreadable line — which supply-chain scanners flag as unauditable
+  code (Socket raised a `Minified code` alert on 1.9.2). The published output is now plain,
+  readable JavaScript: the tarball grows from ~30 kB to ~47 kB and the unpacked size from ~190 kB
+  to ~325 kB, which costs nothing at runtime — this is a dev-only dependency that never reaches a
+  production bundle. No API or behaviour change.
+
 ## [1.9.2] - 2026-07-18
 
 ### Docs
