@@ -19,9 +19,11 @@ export default defineConfig({
   format: ['esm', 'cjs'],
   dts: true,
   clean: true,
-  // Ship no sourcemaps and minify — non-functional bytes off every consumer.
+  // Ship no sourcemaps. Do NOT minify: supply-chain scanners (Socket, Snyk)
+  // flag minified published code as unauditable, and this is a dev-only
+  // dependency where a few extra KB never reach a production bundle.
   sourcemap: false,
-  minify: true,
+  minify: false,
   treeshake: true,
   external: ['@angular/core', '@angular/core/testing', 'bun:test', 'node:test', 'rxjs', 'rxjs/operators', 'vitest'],
   // tsup strips the `node:` prefix by default, but `node:test` has no unprefixed
