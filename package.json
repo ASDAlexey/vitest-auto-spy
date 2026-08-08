@@ -142,6 +142,8 @@
   },
   "scripts": {
     "build": "tsup",
+    "size:badge": "node scripts/size-badge.mjs",
+    "size:badge:check": "node scripts/size-badge.mjs --check",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
