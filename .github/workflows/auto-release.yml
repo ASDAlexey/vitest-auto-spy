@@ -88,6 +88,21 @@ jobs:
           npm run test
           npm run build
 
+      # Must run after the build (it measures the fresh dist/) and before
+      # `npm version`, which refuses to run on a dirty working tree. Committing
+      # here also means the README published to npm carries the correct number.
+      - name: Sync the minzip badge with the fresh build
+        if: steps.bump.outputs.bump != 'none'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          npm run size:badge
+          if git diff --quiet -- README.md; then
+            echo "Badge already matches the built bundle — nothing to commit."
+          else
+            git commit -m 'chore(readme): sync minzip badge with the built bundle [skip ci]' -- README.md
+          fi
+
       - name: Bump version, commit and tag
         if: steps.bump.outputs.bump != 'none'
         id: version
