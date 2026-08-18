@@ -10,6 +10,33 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+### Added
+
+- **`instanceMethodsToSpyOn`** — spy callables that live on the *instance* instead of the prototype:
+  arrow-function properties, Angular `signal()` / `computed()` fields, ngrx `signalStore()` methods.
+  Prototype discovery cannot see them, and naming them in `methodsToSpyOn` was the wrong tool — that
+  option *restricts* what is spied and reports the name as a probable typo. Names listed here are
+  **added** on top of whatever the method resolution produced, and never warn.
+- **`mockValueProp(obj, prop, value)`** — the writable counterpart of `mockReadonlyProp`, for members
+  the code under test assigns to (and for stubbing a method on a real, non-spy instance).
+- **`restoreMockedProps()`** — undoes every patch the `mock*Prop` helpers applied, newest first,
+  restoring the original descriptor (or deleting the property when there was none). Needed whenever
+  the patched object outlives the spec file — a global, a class prototype, a singleton — which is
+  always the case under Vitest's `isolate: false`.
+- The `mock*Prop` helpers now also accept a `PropertyKey` overload, so members the public type does
+  not describe (`#private` fields, ad-hoc keys) no longer need an `as never` cast at the call site.
+- Every `mock*Prop` helper **returns its own undo** (`RestoreProp`), for a stub that has to come off
+  inside a single test rather than at the end of the file; calling it twice is a no-op.
+- `mockAccessorsProp(obj, prop, { get, set })` takes real implementations behind the spied
+  accessors — what a DOM property backed by an attribute (`input.valueAsNumber`, …) needs.
+
+### Fixed
+
+- **Lazy method spies are assignable again.** `provideAutoSpy` builds spies lazily, and the
+  placeholder was a getter-only property, so the common `spy.method = vi.fn()` threw
+  `TypeError: Cannot set property … which has only a getter` under ES-module strict mode. The
+  placeholder now carries a setter that materializes the assigned value.
+
 ## [1.9.3] - 2026-08-01
 
 ### Changed
