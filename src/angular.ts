@@ -21,6 +21,10 @@ export {
   mockAccessorsProp,
   mockReadonlyProp,
   mockReadonlyPropGetter,
+  mockValueProp,
   provideAutoSpy,
+  restoreMockedProps,
+  type AccessorImplementations,
   type AngularValueProvider,
+  type RestoreProp,
 } from './lib/angular';
