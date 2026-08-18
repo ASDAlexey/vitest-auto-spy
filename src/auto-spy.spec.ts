@@ -6,7 +6,15 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Public entries: core (`./index`), Angular helpers (`./angular`), and the rxjs
 // layer (`./rxjs`) — importing the latter registers observable support (IoC).
-import { injectSpy, mockAccessorsProp, mockReadonlyProp, mockReadonlyPropGetter, provideAutoSpy } from './angular';
+import {
+  injectSpy,
+  mockAccessorsProp,
+  mockReadonlyProp,
+  mockReadonlyPropGetter,
+  mockValueProp,
+  provideAutoSpy,
+  restoreMockedProps,
+} from './angular';
 import { type Spy, createFunctionSpy, createSpyFromClass, errorHandler } from './index';
 import { createObservableWithValues } from './rxjs';
 
@@ -24,6 +32,10 @@ class BaseService {
 class MyService extends BaseService {
   things$: Observable<number> = of(1);
   theme!: string;
+
+  // Instance-assigned callable: the shape of an Angular `signal()` field, an arrow-function
+  // property or an ngrx `signalStore()` method. Never reachable through the prototype chain.
+  readonly counter = (): number => 0;
 
   private _userName = 'real';
 
@@ -120,6 +132,43 @@ describe('createSpyFromClass', () => {
     warn.mockRestore();
   });
 
+  it('instanceMethodsToSpyOn spies callables that live on the instance, on top of the prototype ones', () => {
+    const spy = createSpyFromClass(MyService, { instanceMethodsToSpyOn: ['counter'] });
+
+    expect(vi.isMockFunction(spy.counter)).toBe(true);
+    // the prototype methods are still auto-discovered — the list adds, it does not restrict
+    expect(vi.isMockFunction(spy.syncMethod)).toBe(true);
+    expect(vi.isMockFunction(spy.baseMethod)).toBe(true);
+
+    spy.counter.mockReturnValue(42);
+    expect(spy.counter()).toBe(42);
+  });
+
+  it('instanceMethodsToSpyOn adds to an explicit methodsToSpyOn whitelist without warning', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    const spy = createSpyFromClass(MyService, { methodsToSpyOn: ['syncMethod'], instanceMethodsToSpyOn: ['counter'] });
+
+    expect(vi.isMockFunction(spy.syncMethod)).toBe(true);
+    expect(vi.isMockFunction(spy.counter)).toBe(true);
+    // the whitelist still restricts the prototype side
+    expect(vi.isMockFunction(spy.getObs)).toBe(false);
+    expect(warn).not.toHaveBeenCalled();
+
+    warn.mockRestore();
+  });
+
+  it('does not warn about a name listed in both methodsToSpyOn and instanceMethodsToSpyOn', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    const spy = createSpyFromClass(MyService, { methodsToSpyOn: ['counter'], instanceMethodsToSpyOn: ['counter'] });
+
+    expect(vi.isMockFunction(spy.counter)).toBe(true);
+    expect(warn).not.toHaveBeenCalled();
+
+    warn.mockRestore();
+  });
+
   it('lazySpies materializes method spies on first access, keeping enumeration', () => {
     const spy = createSpyFromClass(MyService, { lazySpies: true });
 
@@ -131,6 +180,24 @@ describe('createSpyFromClass', () => {
     expect(spy.syncMethod(1)).toBe('lazy');
     // cached: same reference after materialization
     expect(spy.syncMethod).toBe(spy.syncMethod);
+  });
+
+  it('lazySpies placeholders stay assignable (spy.method = fn) before and after materialization', () => {
+    const spy = createSpyFromClass(MyService, { lazySpies: true });
+    // borrow correctly-typed spies from an eager instance of the same class
+    const { syncMethod: replacement, getObs: other } = createSpyFromClass(MyService);
+
+    replacement.mockReturnValue('assigned');
+
+    // assignment before the getter ever ran — the placeholder must not be getter-only
+    spy.syncMethod = replacement;
+    expect(spy.syncMethod).toBe(replacement);
+    expect(spy.syncMethod(1)).toBe('assigned');
+
+    // and once materialized the property is a plain writable one
+    expect(vi.isMockFunction(spy.getObs)).toBe(true);
+    spy.getObs = other;
+    expect(spy.getObs).toBe(other);
   });
 
   it('autoSpyAccessors auto-discovers and spies every getter/setter', () => {
@@ -544,5 +611,94 @@ describe('property mocking helpers', () => {
     obj.theme = 'dark';
     void obj.theme;
     expect(obj.theme).toBeUndefined();
+  });
+
+  it('mockValueProp installs a plain writable value', () => {
+    const obj = { size: 1 };
+
+    mockValueProp(obj, 'size', 42);
+    expect(obj.size).toBe(42);
+
+    // unlike mockReadonlyProp, the code under test may assign to it
+    obj.size = 7;
+    expect(obj.size).toBe(7);
+  });
+
+  it('restoreMockedProps puts the original descriptors back, newest patch first', () => {
+    const service = {
+      label: 'real',
+      get computedish(): string {
+        return 'from getter';
+      },
+    };
+    const descriptorBefore = Object.getOwnPropertyDescriptor(service, 'computedish');
+
+    mockReadonlyProp(service, 'label', 'first');
+    mockValueProp(service, 'label', 'second');
+    mockReadonlyProp(service, 'computedish', 'mocked');
+
+    expect(service.label).toBe('second');
+    expect(service.computedish).toBe('mocked');
+
+    restoreMockedProps();
+
+    expect(service.label).toBe('real');
+    expect(service.computedish).toBe('from getter');
+    expect(Object.getOwnPropertyDescriptor(service, 'computedish')?.get).toBe(descriptorBefore?.get);
+  });
+
+  it('mockAccessorsProp accepts real get/set implementations and still records the calls', () => {
+    const el = { text: 'initial' };
+
+    mockAccessorsProp(el, 'text', {
+      get: () => 'from getter',
+      set: (value: never) => {
+        seen = value;
+      },
+    });
+
+    let seen: unknown;
+
+    expect(el.text).toBe('from getter');
+
+    el.text = 'written';
+    expect(seen).toBe('written');
+
+    const descriptor = Object.getOwnPropertyDescriptor(el, 'text');
+    expect(vi.isMockFunction(descriptor?.get)).toBe(true);
+    expect(descriptor?.set).toHaveBeenCalledWith('written');
+  });
+
+  it('every helper returns an undo for its own patch, without touching the others', () => {
+    const service = { a: 'real-a', b: 'real-b' };
+
+    const restoreA = mockReadonlyProp(service, 'a', 'mocked-a');
+    mockValueProp(service, 'b', 'mocked-b');
+
+    restoreA();
+    expect(service.a).toBe('real-a');
+    expect(service.b).toBe('mocked-b');
+
+    // undoing twice is a no-op — the patch is gone from the log
+    restoreA();
+    expect(service.a).toBe('real-a');
+
+    restoreMockedProps();
+    expect(service.b).toBe('real-b');
+  });
+
+  it('restoreMockedProps deletes properties the helpers introduced, and is idempotent', () => {
+    const host: { added?: string } = {};
+
+    mockReadonlyProp(host, 'added', 'mocked');
+    mockAccessorsProp(host, 'added');
+    expect('added' in host).toBe(true);
+
+    restoreMockedProps();
+    expect('added' in host).toBe(false);
+
+    // a second call has nothing left to undo
+    expect(() => restoreMockedProps()).not.toThrow();
+    expect('added' in host).toBe(false);
   });
 });

@@ -161,6 +161,15 @@ export type Spy<T> = AddAccessorsSpies<T> & {
 /** Restricts/extends what `createSpyFromClass` spies on. */
 export interface ClassSpyConfiguration<T> {
   methodsToSpyOn?: OnlyMethodKeysOf<T>[];
+  /**
+   * Callables that live on the *instance* rather than on the prototype — an arrow-function
+   * property, an Angular `signal()` / `computed()` field, a method of an ngrx `signalStore()`.
+   * Prototype discovery cannot see them, so they are named here and **added** to whatever the
+   * method resolution produced (auto-discovered methods, or `methodsToSpyOn` when it is set).
+   * Unlike `methodsToSpyOn`, a name here never triggers the "not found on the class prototype"
+   * warning — being absent from the prototype is the whole point.
+   */
+  instanceMethodsToSpyOn?: OnlyMethodKeysOf<T>[];
   observablePropsToSpyOn?: OnlyObservablePropsOf<T>[];
   settersToSpyOn?: OnlyPropsOf<T>[];
   gettersToSpyOn?: OnlyPropsOf<T>[];

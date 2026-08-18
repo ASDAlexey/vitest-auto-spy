@@ -11,6 +11,7 @@ import type { ClassSpyConfiguration, ClassType, OnlyMethodKeysOf, Spy } from './
 /** All names to spy on, flattened from either form of the config argument. */
 interface ResolvedSpyConfiguration {
   methodsToSpyOn: string[];
+  instanceMethodsToSpyOn: string[];
   observablePropsToSpyOn: string[];
   settersToSpyOn: string[];
   gettersToSpyOn: string[];
@@ -26,6 +27,7 @@ interface AccessorNames {
 
 const EMPTY_CONFIGURATION: ResolvedSpyConfiguration = {
   methodsToSpyOn: [],
+  instanceMethodsToSpyOn: [],
   observablePropsToSpyOn: [],
   settersToSpyOn: [],
   gettersToSpyOn: [],
@@ -122,9 +124,13 @@ function resolveAccessors(prototype: object, config: ResolvedSpyConfiguration): 
   };
 }
 
-/** Warn (without throwing) when a requested method name is absent from the class prototype — a common "why isn't my spy called" source. */
-function warnOnUnknownMethods(ObjectClass: ClassType<unknown>, requested: string[]): void {
-  const available = new Set(getAllMethodNames(ObjectClass.prototype));
+/**
+ * Warn (without throwing) when a requested method name is absent from the class prototype — a
+ * common "why isn't my spy called" source. Names declared as `instanceMethodsToSpyOn` are exempt:
+ * they are expected to be missing from the prototype.
+ */
+function warnOnUnknownMethods(ObjectClass: ClassType<unknown>, requested: string[], instanceMethods: string[]): void {
+  const available = new Set([...getAllMethodNames(ObjectClass.prototype), ...instanceMethods]);
   const unknown = requested.filter((name) => !available.has(name));
 
   if (unknown.length === 0) {
@@ -140,16 +146,32 @@ function warnOnUnknownMethods(ObjectClass: ClassType<unknown>, requested: string
   );
 }
 
-/** Install a lazily-materializing spy under `methodName`: the spy is created on first access, then cached as a data property. */
+/** Replace the accessor placeholder with the plain, writable data property the spy ends up as. */
+function materializeMethodSpy(autoSpy: Record<string, unknown>, methodName: string, value: unknown): void {
+  Object.defineProperty(autoSpy, methodName, { configurable: true, enumerable: true, writable: true, value });
+}
+
+/**
+ * Install a lazily-materializing spy under `methodName`: the spy is created on first access, then
+ * cached as a data property.
+ *
+ * The placeholder carries a setter as well, so that `spy.method = vi.fn()` — a common way to hand a
+ * spy its implementation — keeps working. Without it the assignment would hit a getter-only
+ * property and throw `TypeError: Cannot set property … which has only a getter` in strict mode,
+ * which is how every ES module runs.
+ */
 function defineLazyMethodSpy(autoSpy: Record<string, unknown>, methodName: string): void {
   Object.defineProperty(autoSpy, methodName, {
     configurable: true,
     enumerable: true,
     get(): unknown {
       const spy = createFunctionSpy(methodName);
-      Object.defineProperty(autoSpy, methodName, { configurable: true, enumerable: true, writable: true, value: spy });
+      materializeMethodSpy(autoSpy, methodName, spy);
 
       return spy;
+    },
+    set(value: unknown): void {
+      materializeMethodSpy(autoSpy, methodName, value);
     },
   });
 }
@@ -166,6 +188,7 @@ function resolveConfiguration<T>(methodsToSpyOnOrConfig?: ClassSpyConfiguration<
 
   return {
     methodsToSpyOn: methodsToSpyOnOrConfig.methodsToSpyOn ?? [],
+    instanceMethodsToSpyOn: methodsToSpyOnOrConfig.instanceMethodsToSpyOn ?? [],
     observablePropsToSpyOn: methodsToSpyOnOrConfig.observablePropsToSpyOn ?? [],
     settersToSpyOn: methodsToSpyOnOrConfig.settersToSpyOn ?? [],
     gettersToSpyOn: methodsToSpyOnOrConfig.gettersToSpyOn ?? [],
@@ -182,11 +205,15 @@ export function createSpyFromClass<T>(
   const config = resolveConfiguration(methodsToSpyOnOrConfig);
 
   // When an explicit `methodsToSpyOn` list is given, restrict to it (matching
-  // `jest-auto-spies`); otherwise auto-discover every prototype method.
-  const methodNames = config.methodsToSpyOn.length > 0 ? config.methodsToSpyOn : getAllMethodNames(ObjectClass.prototype);
+  // `jest-auto-spies`); otherwise auto-discover every prototype method. Either way,
+  // `instanceMethodsToSpyOn` is added on top: those callables sit on the instance, so no amount of
+  // prototype walking would find them.
+  const resolvedMethods = config.methodsToSpyOn.length > 0 ? config.methodsToSpyOn : getAllMethodNames(ObjectClass.prototype);
+  const methodNames =
+    config.instanceMethodsToSpyOn.length > 0 ? [...new Set([...resolvedMethods, ...config.instanceMethodsToSpyOn])] : resolvedMethods;
 
   if (config.methodsToSpyOn.length > 0) {
-    warnOnUnknownMethods(ObjectClass, config.methodsToSpyOn);
+    warnOnUnknownMethods(ObjectClass, config.methodsToSpyOn, config.instanceMethodsToSpyOn);
   }
 
   const autoSpy: Record<string, unknown> = {};
