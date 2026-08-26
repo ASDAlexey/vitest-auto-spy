@@ -3175,6 +3175,11 @@ The exported surface of `vitest-auto-spy` and its subpaths.
 | `createSpyClass(Class, config?)`                                                                             | A spy that can be called with `new`; records `calls` and `instances`                            |
 | `setupAutoSpy(opts?)`                                                                                        | Property restore + duplicate-copy detection + mock-registry hygiene, in one call (`/setup`)     |
 | `setupFakeTimers(config?)` / `advanceTimers(ms?)`                                                            | Paired fake-timer install/restore, and an advance that settles queued microtasks (`/setup`)     |
+| `stubIntersectionObserver()` / `stubResizeObserver()` / `stubMutationObserver()` / `stubObserver(name)` | Replace an observer global with one the spec drives; restored by `restoreMockedProps()`         |
+| `intersectionEntry(target, isIntersecting, overrides?)`                                                 | Build one `IntersectionObserverEntry` without the fields nothing reads                          |
+| `mockSignalProp(object, prop, initial)`                                                                 | Replace a signal-valued property with a real writable signal, and hand back the handle (`/angular`) |
+| `blockNetwork()`                                                                                        | Reject every `fetch`, naming what was requested (`/setup`)                                      |
+| `restoreTimerGlobals()` / `getWatchedTimerGlobals()`                                                    | Put back timer globals the fakes deleted / the names captured (`/setup`)                        |
 | `renderShallow(Component, opts?)`                                                                            | `TestBed` component without its children and (by default) its template (`/angular`)             |
 | `createWithAutoSpies(Class, opts?)`                                                                          | Build a class through Angular DI with every unprovided token auto-spied (`/angular`)            |
 | `stable(fixture)` / `flushEffects()`                                                                         | Zoneless waiting: flush effects, then await the fixture (`/angular`)                            |
@@ -3251,7 +3256,7 @@ never needs two imports from this package.
 | `/vue`                        | `provideAutoSpy`, `VueInjectionToken`, `VueProvideSpy`                                                                                              |
 | `/react`, `/svelte`           | — (the core, under a name that reads right in those suites)                                                                                         |
 | `/console`                    | `consoleDebugSpy` … `consoleWarnSpy`, `installConsoleSpies`, `resetConsoleSpies`, `restoreConsole`                                                   |
-| `/setup`                      | `setupAutoSpy`, `setupFakeTimers`, `advanceTimers`, `describeDuplicateCopies`, `getPackageCopies`                                                     |
+| `/setup`                      | `setupAutoSpy`, `setupFakeTimers`, `advanceTimers`, `blockNetwork`, `restoreTimerGlobals`, the stray-timer trackers, `describeDuplicateCopies`, `getPackageCopies` |
 | `/eslint-plugin`              | the flat-config plugin object                                                                                                                       |
 
 **One adapter per run**
