@@ -168,5 +168,17 @@ export {
 // Type bridges between `Spy<T>` and `T`, plus a construction-compatible spy
 export { asInstance, asSpy, createSpyClass, type ConstructorSpy } from './lib/spy-typing';
 
+// Observer globals a component constructs itself, replaced by ones a spec can drive
+export {
+  intersectionEntry,
+  stubIntersectionObserver,
+  stubMutationObserver,
+  stubObserver,
+  stubResizeObserver,
+  type ObserverGlobal,
+  type ObserverInstance,
+  type ObserverStub,
+} from './lib/observer-stubs';
+
 // Duplicate-install detection (`setupAutoSpy()` turns this into a failed run)
 export { describeDuplicateCopies, getPackageCopies } from './lib/package-identity';
