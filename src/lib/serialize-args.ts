@@ -11,6 +11,10 @@
  *   (`undefined`, `-0`, functions, symbols, `BigInt`, `Date`, `Map`, `Set`),
  * - and circular-reference safety (so an object that references itself yields a
  *   stable key instead of overflowing the stack).
+ *
+ * It deviates from that output in one place, deliberately: object keys are sorted
+ * rather than kept in insertion order, so that two literals differing only in the
+ * order they were written produce one key. See {@link serializeEntries}.
  */
 
 function quoteString(value: string): string {
@@ -18,7 +22,14 @@ function quoteString(value: string): string {
 }
 
 function serializeEntries(value: object, seen: WeakSet<object>): string {
+  // Keys are sorted, because object key order in JavaScript is insertion order: `{ id: 1, name: 'a' }`
+  // and `{ name: 'a', id: 1 }` are the same argument, and an insertion-ordered key would make them
+  // two. `calledWith` would then not match the call, the spy would answer `undefined`, and nothing in
+  // the failure would point at the order the object literal happened to be written in. Sorting also
+  // makes `mustBeCalledWith` mismatch messages stable rather than dependent on construction order.
+  // Keys within one object are unique, so the comparator never has to report equality.
   return Object.entries(value)
+    .sort(([left], [right]) => (left > right ? 1 : -1))
     .map(([key, entryValue]) => `${key}:${serializeValue(entryValue, seen)}`)
     .join(',');
 }

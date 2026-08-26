@@ -36,6 +36,18 @@ describe('serializeValue', () => {
     expect(serializeValue([{ a: [1] }])).toBe('[{a:[1]}]');
   });
 
+  it('keys an object by its content, not by the order the literal was written in', () => {
+    expect(serializeValue({ id: 1, name: 'a' })).toBe(serializeValue({ name: 'a', id: 1 }));
+  });
+
+  it('sorts keys at every depth', () => {
+    expect(serializeValue({ b: { d: 1, c: 2 }, a: 3 })).toBe('{a:3,b:{c:2,d:1}}');
+  });
+
+  it('leaves array order alone — there the order is the value', () => {
+    expect(serializeValue([1, 2])).not.toBe(serializeValue([2, 1]));
+  });
+
   it('renders Map and Set distinctly (no `{}` collision)', () => {
     expect(serializeValue(new Map([['k', 'v']]))).toBe("new Map([['k','v']])");
     expect(serializeValue(new Set([1, 2]))).toBe('new Set([1,2])');
