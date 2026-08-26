@@ -12,6 +12,15 @@ The latest released version here must always match the one published on
 
 ### BREAKING CHANGES
 
+- **The `vitest` peer range is now `>=2.1.0`** (was `>=1.0.0`). The typed
+  `spy.method.mock.settledResults` surface comes from Vitest's own `Mock` type, and `@vitest/spy`
+  only grew `settledResults` in 2.0 — on Vitest 1 that documented surface never type-checked, so the
+  old range claimed a version the types could not serve. 2.1 rather than 2.0 because the 2.x line
+  effectively *is* 2.1 (2.0.x is ~0.3% of Vitest installs against 2.1.x's ~10%). Nothing in the
+  shipped code changes: there are no version branches to delete, so `dist/` size, runtime and memory
+  are untouched — this is the supported range catching up with what the types actually require.
+  Vitest 1 users: upgrade Vitest, or stay on `vitest-auto-spy@2.0.x`.
+
 - **`methodsToSpyOn` now adds instead of restricting**, which is what `jest-auto-spies` always did
   and what this library documented itself as being compatible with. Up to v1 an explicit list
   replaced prototype discovery, so a spec that named two methods silently lost every other one. The

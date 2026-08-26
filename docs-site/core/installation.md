@@ -22,9 +22,15 @@ dependencies**.
 | Tool       | Minimum                                                          |
 | ---------- | ---------------------------------------------------------------- |
 | Node.js    | ≥ 18                                                             |
-| Vitest     | ≥ 1.0                                                            |
+| Vitest     | ≥ 2.1                                                            |
 | Bun        | ≥ 1.4 for `vitest-auto-spy/bun-angular`; any recent Bun for `/bun` |
 | TypeScript | ≥ 4.7 for the typed helpers (plain JS works too, just untyped)   |
+
+Vitest **≥ 2.1** because the typed `spy.method.mock.settledResults` surface is Vitest's own `Mock`
+type, and `@vitest/spy` only grew `settledResults` in 2.0 — 2.1 is where the 2.x line actually sits.
+The runtime helpers themselves still run on older Vitest (the library polyfills `settledResults` for
+`bun:test` and `node:test` regardless), but the types no longer line up there, so the range stops
+claiming it.
 
 Ships **ESM with bundled `.d.ts` types**. Two subpaths additionally ship a CommonJS build —
 `vitest-auto-spy/node` (a `node --test` suite written in CJS) and `vitest-auto-spy/eslint-plugin`
