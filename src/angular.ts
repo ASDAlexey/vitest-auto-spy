@@ -38,3 +38,23 @@ export {
 } from './lib/create-with-auto-spies';
 export { flushEffects, stable } from './lib/zoneless';
 export { registerSignalMatchers, type SignalLike } from './lib/signal-matchers';
+
+export {
+  disableTestBedDiagnostics,
+  enableTestBedDiagnostics,
+  formatSpecTiming,
+  getTestBedTiming,
+  instrumentTestBed,
+  reportSpecTiming,
+  type SpecTiming,
+  type TestBedDiagnosticsOptions,
+} from './lib/testbed-diagnostics';
+
+export {
+  expectEmission,
+  expectEmissions,
+  expectNoEmission,
+  type EmissionObserver,
+  type EmissionOptions,
+  type SubscribableLike,
+} from './lib/expect-emission';
