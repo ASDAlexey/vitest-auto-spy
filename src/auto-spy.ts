@@ -153,3 +153,13 @@ export {
   type AccessorImplementations,
   type RestoreProp,
 } from './lib/prop-mock';
+
+// Observable assertions that fail when the stream stays silent
+export {
+  expectEmission,
+  expectEmissions,
+  expectNoEmission,
+  type EmissionObserver,
+  type EmissionOptions,
+  type SubscribableLike,
+} from './lib/expect-emission';
