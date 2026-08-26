@@ -150,6 +150,18 @@ The latest released version here must always match the one published on
 
 ### Fixed
 
+- **`vitest.shared-env.config.mts` carried configuration Vitest 4 ignores.** It set
+  `poolOptions: { threads: { singleThread: true } }`; `test.poolOptions` was removed in Vitest 4,
+  which logged `was removed in Vitest 4` on every run and dropped it. The top-level
+  `fileParallelism: false` already forces `maxWorkers` to 1, so the shared-environment run was
+  correct — it just also printed a deprecation on every invocation.
+- **The benchmark compared the lazy spy path against itself.** `bench/auto-spy.bench.ts` wrote its
+  "eager" case as `createSpyFromClass(WideService)` with no configuration, and `lazySpies` defaults
+  to `true` — so both branches were lazy and the reported "1.79x faster than lazy" was noise
+  (±84% rme) guarding nothing. It now passes `lazySpies` explicitly on both sides and sweeps class
+  width against how many methods a test actually calls, which is the trade the default is making.
+  Measured that way, lazy wins from 1.8× (10 methods, 2 called) to 7× (40 methods, 3 called) and
+  gives back ~10% only when a single test calls every method.
 - **`setupFakeTimers()` no longer breaks a later file.** Two bugs in one helper. Its hooks were
   unguarded, so a suite that drives the clock itself — or a nested `describe` calling the helper
   again — reached a second `vi.useRealTimers()`, which leaves the environment without `clearInterval`
@@ -168,6 +180,22 @@ The latest released version here must always match the one published on
   construction order. Array order is untouched — there the order is the value.
 
 ### Changed
+
+- **The published package is roughly half the size** — `dist/` 625 kB → 241 kB, tarball 187 kB →
+  108 kB, 74 files → 54. CommonJS now ships only for `vitest-auto-spy/node` and
+  `vitest-auto-spy/eslint-plugin`; every other subpath is ESM-only. Nothing that worked stopped
+  working, because the removed output could not be loaded in the first place: Vitest refuses to be
+  required (`Vitest cannot be imported in a CommonJS module using require()`), so eight of the twelve
+  `.cjs` files threw on their own first line. The four that did load were not usable together
+  either — esbuild cannot code-split CommonJS, so each `.cjs` carried a private copy of the
+  `MockAdapter` / `ObservableSupport` registries and `require('vitest-auto-spy/rxjs')` alongside
+  `require('vitest-auto-spy/node')` still failed with "Observable spies require rxjs". The two
+  survivors are the two that are self-contained and genuinely reachable: a `node --test` suite
+  written in CJS, and a CommonJS `eslint.config.cjs`. Separately, `bun-angular` moved into the same
+  ESM pass as every other entry, so it shares the emitted chunks instead of inlining its own copy of
+  the core (45 kB → 8 kB of JS, 43 kB → 7 kB of types). Subpaths that lost their `require` condition
+  resolve through `default`, so a bundler asking for `require` still finds the ESM file rather than
+  failing resolution.
 
 - **Every error and warning now ends with `Docs: <url>`** — a stack trace is read far more often than
   a README, by a person at 2am and by an agent on every failed run, and a message that names its own
