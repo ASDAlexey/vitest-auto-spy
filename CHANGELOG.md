@@ -72,6 +72,16 @@ The latest released version here must always match the one published on
   Every page now carries `title` / `description` frontmatter, so canonical links and OpenGraph tags
   are no longer empty.
 
+- **A "How it works" page** _(docs site)_ — the two ideas the library rests on, spelled out for
+  someone deciding whether to trust it with their suite. The runtime half: the prototype-chain walk
+  that discovers method names, why it stops before `Object.prototype`, why names come from property
+  descriptors rather than from reading them (a getter would execute), and why the class is never
+  constructed — which is what makes a service with five constructor dependencies mockable without
+  mocking any of them. The type half: the conditional type that reads a method's return type to
+  decide whether it gets `resolveWith`, `nextWith` or `mockReturnValue`. It also names the single
+  `as` in the core and explains why it cannot be removed. Sits in Core between `Installation` and
+  `createSpyFromClass`; the README's short "How it works (and what it won't spy)" links to it.
+
 ### Fixed
 
 - **`mockDeep` was unusable on `bun:test`** — every node handed its spy methods back with `this`
