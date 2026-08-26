@@ -12,10 +12,13 @@
  *  3. **Draining the runner's restore registry.** Every `vi.spyOn` adds an entry that only
  *     `vi.restoreAllMocks()` removes; with a shared environment that list grows for the whole run.
  */
-import { afterEach, vi } from 'vitest';
+import { afterAll, afterEach, beforeEach, vi } from 'vitest';
 
+import { blockNetwork } from './network-stub';
 import { describeDuplicateCopies } from './package-identity';
 import { restoreMockedProps } from './prop-mock';
+import { cancelStrayTimers, trackStrayTimers } from './stray-timers';
+import { restoreTimerGlobals } from './timer-globals';
 
 /** How `setupAutoSpy` should react to more than one install of the library. */
 export type DuplicateCopiesReaction = 'off' | 'throw' | 'warn';
@@ -32,6 +35,26 @@ export interface SetupAutoSpyOptions {
    * where the runner's restore registry otherwise grows for the entire run.
    */
   restoreMocks?: boolean;
+  /**
+   * Cancel timeouts, intervals and animation frames that outlive the file that scheduled them.
+   * Default `false`, because it wraps the global schedulers and that should be a deliberate choice.
+   * Turn it on with `isolate: false`, where a stray callback fires during a *later* file and is
+   * reported against it — see {@link trackStrayTimers}.
+   */
+  strayTimers?: boolean;
+  /**
+   * Reject every `fetch` before each test, so a unit run cannot reach the network. Default `false`,
+   * since it changes the behaviour of code under test. Worth turning on under happy-dom, which —
+   * unlike jsdom — implements `fetch`: requests nothing asserts on then abort at teardown and fail
+   * an otherwise green run with no test named. See {@link blockNetwork}.
+   */
+  blockNetwork?: boolean;
+  /**
+   * Put back timer globals that uninstalling the fakes removed rather than restored. Default `true`:
+   * it only ever replaces a global that has gone missing, so it cannot overwrite anything a spec
+   * installed on purpose. See {@link restoreTimerGlobals}.
+   */
+  restoreTimerGlobals?: boolean;
 }
 
 function reportDuplicateCopies(reaction: DuplicateCopiesReaction): void {
@@ -74,5 +97,27 @@ export function setupAutoSpy(options: SetupAutoSpyOptions = {}): void {
     afterEach(() => {
       vi.restoreAllMocks();
     });
+  }
+
+  if (options.strayTimers ?? false) {
+    // Wrapping happens now, once per worker; the sweep is per file, because "still wanted?" only
+    // becomes an unambiguous no once the file is over.
+    trackStrayTimers();
+    afterAll(() => {
+      cancelStrayTimers();
+    });
+  }
+
+  if (options.blockNetwork ?? false) {
+    // Per test rather than once: the stub is registered as a property patch, so `restoreProps`
+    // takes it off again after every test, and re-installing is what keeps it in place.
+    beforeEach(blockNetwork);
+  }
+
+  // Last of the `afterEach` hooks, so it runs after a spec's own timer teardown and repairs
+  // whatever that removed. Hooks registered here run in registration order (`sequence.hooks`
+  // defaults to 'stack' for nested suites, but these are all top-level and file-scoped).
+  if (options.restoreTimerGlobals ?? true) {
+    afterEach(restoreTimerGlobals);
   }
 }

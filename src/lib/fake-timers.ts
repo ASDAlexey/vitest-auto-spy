@@ -15,6 +15,9 @@
  */
 import { afterEach, beforeEach, vi } from 'vitest';
 
+import { DOCS_LINKS, withDocs } from './docs-links';
+import { restoreTimerGlobals } from './timer-globals';
+
 /**
  * Config forwarded verbatim to `vi.useFakeTimers()`.
  *
@@ -42,12 +45,22 @@ export type FakeTimersConfig = Parameters<typeof vi.useFakeTimers>[0];
  *   `Date` and `queueMicrotask` real.
  */
 export function setupFakeTimers(config?: FakeTimersConfig): void {
+  // Both hooks are guarded, because installing or uninstalling twice does not round-trip: a suite
+  // that drives the clock itself, or a nested `describe` that calls this helper again, reaches a
+  // second `vi.useRealTimers()` — and that one leaves the environment without `clearInterval`,
+  // which then explodes during teardown of whichever file happens to run next.
   beforeEach(() => {
-    vi.useFakeTimers(config);
+    if (!vi.isFakeTimers()) {
+      vi.useFakeTimers(config);
+    }
   });
 
   afterEach(() => {
-    vi.useRealTimers();
+    if (vi.isFakeTimers()) {
+      vi.useRealTimers();
+    }
+
+    restoreTimerGlobals();
   });
 }
 
@@ -68,7 +81,9 @@ export function setupFakeTimers(config?: FakeTimersConfig): void {
  */
 export async function advanceTimers(ms = 0): Promise<void> {
   if (!vi.isFakeTimers()) {
-    throw new Error('advanceTimers() requires fake timers — call setupFakeTimers() or vi.useFakeTimers() first');
+    throw new Error(
+      withDocs('advanceTimers() requires fake timers — call setupFakeTimers() or vi.useFakeTimers() first', DOCS_LINKS.fakeTimers),
+    );
   }
 
   vi.advanceTimersByTime(ms);

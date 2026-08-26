@@ -25,3 +25,6 @@ useVitestAdapter();
 export { setupAutoSpy, type DuplicateCopiesReaction, type SetupAutoSpyOptions } from './lib/setup-auto-spy';
 export { advanceTimers, setupFakeTimers, type FakeTimersConfig } from './lib/fake-timers';
 export { describeDuplicateCopies, getPackageCopies } from './lib/package-identity';
+export { cancelStrayTimers, countStrayTimers, trackStrayTimers, type SchedulerHost, type StopTrackingTimers } from './lib/stray-timers';
+export { getWatchedTimerGlobals, restoreTimerGlobals } from './lib/timer-globals';
+export { BLOCKED_FETCH_MESSAGE, blockNetwork } from './lib/network-stub';

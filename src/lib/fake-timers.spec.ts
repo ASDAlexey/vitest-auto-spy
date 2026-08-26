@@ -37,6 +37,40 @@ describe('setupFakeTimers', () => {
       expect(Date.now() - before).toBeLessThan(1_000);
     });
   });
+
+  describe('when the suite drives the clock itself', () => {
+    setupFakeTimers();
+
+    // The hook already installed the fakes; taking them off mid-test is what a spec that wants real
+    // timers for one assertion does. The `afterEach` must then not uninstall a second time.
+    it('tolerates the spec uninstalling them first', () => {
+      vi.useRealTimers();
+
+      expect(vi.isFakeTimers()).toBe(false);
+    });
+
+    it('still has a working environment in the next test', () => {
+      expect(typeof clearInterval).toBe('function');
+      expect(typeof Date.now()).toBe('number');
+    });
+  });
+
+  describe('nested inside another setupFakeTimers', () => {
+    setupFakeTimers();
+
+    describe('the inner block', () => {
+      setupFakeTimers();
+
+      it('does not install twice', () => {
+        expect(vi.isFakeTimers()).toBe(true);
+      });
+    });
+
+    it('leaves the outer block with a usable clock', () => {
+      expect(vi.isFakeTimers()).toBe(true);
+      expect(typeof Date.now()).toBe('number');
+    });
+  });
 });
 
 describe('advanceTimers', () => {

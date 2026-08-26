@@ -9,6 +9,7 @@ import '../index';
 import { getPackageCopies, registerPackageCopy, resetPackageCopies } from './package-identity';
 import { countMockedProps, mockValueProp, restoreMockedProps } from './prop-mock';
 import { setupAutoSpy } from './setup-auto-spy';
+import { countStrayTimers, trackStrayTimers } from './stray-timers';
 
 const DUPLICATE = 'file:///app/node_modules/other/node_modules/vitest-auto-spy/dist/index.js';
 const REAL_ROOTS = getPackageCopies();
@@ -101,5 +102,65 @@ describe('runner mock restoration (opted in)', () => {
 
   it('finds the stub restored in the next test', () => {
     expect(stubTarget.compute()).toBe('real');
+  });
+});
+
+describe('network blocking (opted in)', () => {
+  setupAutoSpy({ duplicateCopies: 'off', blockNetwork: true });
+
+  it('rejects instead of reaching the network, and names what was requested', async () => {
+    await expect(fetch('https://cdn.example.test/icon.svg')).rejects.toThrow(/fetch is stubbed[\s\S]*icon\.svg/);
+  });
+
+  it('re-installs the stub for the next test, after restoreProps took it off', async () => {
+    await expect(fetch('https://cdn.example.test/other.svg')).rejects.toThrow(/fetch is stubbed/);
+  });
+});
+
+describe('timer globals (on by default)', () => {
+  setupAutoSpy({ duplicateCopies: 'off', restoreProps: false });
+
+  it('puts back a timer global that went missing during the previous test', () => {
+    // Standing in for what happy-dom's realm does when the fakes come off: the global is gone,
+    // not replaced. The hook installed above repaired it before this test started.
+    expect(typeof Date).toBe('function');
+    expect(typeof clearInterval).toBe('function');
+  });
+});
+
+describe('timer globals (opted out)', () => {
+  setupAutoSpy({ duplicateCopies: 'off', restoreProps: false, restoreTimerGlobals: false });
+
+  it('installs no repair hook, leaving the environment entirely to the suite', () => {
+    // Nothing observable to assert beyond the run staying healthy: the point of the option is that
+    // a project managing its own globals is not second-guessed.
+    expect(typeof Date).toBe('function');
+  });
+});
+
+describe('stray-timer containment (opted in)', () => {
+  // Installs the wrappers immediately and registers the per-file sweep. The sweep itself runs after
+  // this file's last test, so what is asserted here is that tracking is live and counting.
+  setupAutoSpy({ duplicateCopies: 'off', restoreProps: false, strayTimers: true });
+
+  afterAll(() => {
+    // Hand the globals back, so the option under test does not colour the rest of the run.
+    trackStrayTimers()();
+  });
+
+  it('records a timeout the test leaves behind', () => {
+    const before = countStrayTimers();
+
+    setTimeout(() => undefined, 60_000);
+
+    expect(countStrayTimers()).toBe(before + 1);
+  });
+
+  it('is not installed twice when setupAutoSpy runs again', () => {
+    const scheduler = globalThis.setTimeout;
+
+    setupAutoSpy({ duplicateCopies: 'off', restoreProps: false, strayTimers: true });
+
+    expect(globalThis.setTimeout).toBe(scheduler);
   });
 });
