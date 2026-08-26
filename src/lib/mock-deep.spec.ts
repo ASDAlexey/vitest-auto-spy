@@ -70,4 +70,15 @@ describe('mockDeep', () => {
     mock.apiUrl = 'https://assigned.test';
     expect(mock.apiUrl).toBe('https://assigned.test');
   });
+
+  it('hands back spy methods bound to the spy, not to the Proxy', () => {
+    // Bun's `mock()` asserts `this instanceof Mock` inside `mockReturnValue`, so a method read off a
+    // deep node with `this` still pointing at the Proxy makes every node unusable on `bun:test`.
+    const mock = mockDeep<Root>();
+    const { mockReturnValue } = mock.db.repo.user.find;
+
+    mockReturnValue('bound');
+
+    expect(mock.db.repo.user.find()).toBe('bound');
+  });
 });

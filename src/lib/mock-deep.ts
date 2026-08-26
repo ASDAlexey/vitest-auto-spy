@@ -40,9 +40,14 @@ function createDeepNode(name: string, overrides: object): unknown {
         return undefined;
       }
 
-      // Real spy surface (calledWith / mock / mockReturnValue / …) wins over a child.
+      // Real spy surface (calledWith / mock / mockReturnValue / …) wins over a child. A method is
+      // bound to the spy itself rather than handed back with `this` pointing at the Proxy: Bun's
+      // `mock()` asserts `this instanceof Mock` inside `mockReturnValue` and friends, so an
+      // unbound read would make every deep node unusable on `bun:test`.
       if (key in target) {
-        return Reflect.get(target, key, receiver);
+        const value: unknown = Reflect.get(target, key, receiver);
+
+        return typeof value === 'function' ? value.bind(target) : value;
       }
 
       // Never spawn children for JS-internal symbol protocols.
