@@ -1065,10 +1065,10 @@ touched per spy — a large spec file's worth):
 
 | | time | heap |
 | --- | ---: | ---: |
-| lazy (the default) | **27 ms** | **34.7 MB** |
-| eager (`lazySpies: false`) | 257 ms | 424.5 MB |
+| lazy (the default) | **22 ms** | **35.4 MB** |
+| eager (`lazySpies: false`) | 203 ms | 372.7 MB |
 
-Nine times the speed and a twelfth of the memory, because 38 of the 40 spies are never built. Each
+Nine times the speed and a tenth of the memory, because 38 of the 40 spies are never built. Each
 one that is skipped is a function, its argument map, and the promise/observable helper bundles
 attached to it.
 
@@ -1076,8 +1076,25 @@ The worst case for lazy is a test that really does call every method:
 
 | | time | heap |
 | --- | ---: | ---: |
-| lazy | 243 ms | 444.0 MB |
-| eager | 232 ms | 438.5 MB |
+| lazy | 228 ms | 372.9 MB |
+| eager | 216 ms | 372.4 MB |
+
+### What a single spy costs
+
+A materialised spy is mostly the host runner's own mock — under Vitest that is the larger part of
+its ~4.7 kB, and nothing this library does can shrink it. What the library adds on top used to
+include two `calledWith` chains built with every spy, each an object plus an argument map, whether
+or not the spec ever called `calledWith`. They are now built on first use, which is nearly always
+never:
+
+| 2000 spies × 40 methods, all materialised | heap |
+| --- | ---: |
+| chains built eagerly (before) | 417.3 MB |
+| chains built on first use | **372.7 MB** |
+
+That is ~560 B off every materialised spy, ~11% of the total, and it costs nothing when a spec does
+use `calledWith` — the chain is then built exactly as before. `resetAutoSpy()` drops the chains
+rather than replacing them with empty maps, so a reset spy is back to a fresh spy's footprint.
 
 Five percent slower, one percent more memory — the price of the accessor indirection when nothing is
 saved. That asymmetry is why lazy is the default rather than an option: the common case wins an
