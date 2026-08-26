@@ -107,6 +107,7 @@ export default defineConfig({
           { text: 'Auto-mock by type', link: '/core/auto-mock-by-type' },
           { text: 'Observable assertions', link: '/core/observable-assertions' },
           { text: 'Bridging Spy<T> and T', link: '/core/spy-typing' },
+          { text: 'Performance', link: '/core/performance' },
         ],
       },
       {
