@@ -73,6 +73,18 @@ export function hasMockAdapter(): boolean {
   return registeredAdapter !== undefined;
 }
 
+/**
+ * Forget the registered adapter.
+ *
+ * Internal — no public entry re-exports the registry. It exists because the registry is
+ * *process-wide*: a spec that exercises the "nothing registered yet" path cannot rely on its file
+ * being the first to touch it (under `isolate: false` every spec shares one module graph), so it
+ * has to empty the registry itself and put the previous adapter back afterwards.
+ */
+export function resetMockAdapter(): void {
+  registeredAdapter = undefined;
+}
+
 const MISSING_MOCK_ADAPTER =
   'No mock adapter registered. Import a runtime entry once before creating spies — ' +
   "'vitest-auto-spy' (default, Vitest) or a runtime variant such as 'vitest-auto-spy/bun'.";

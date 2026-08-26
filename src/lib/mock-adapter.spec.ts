@@ -1,12 +1,14 @@
 /**
- * The mock-adapter registry in isolation. This file deliberately imports ONLY
- * `./mock-adapter` (never a public entry), so per-file isolation (vitest
- * `isolate: true`) keeps the registry empty — exercising the "no adapter
- * registered" path that a real runtime entry is responsible for filling.
+ * The mock-adapter registry.
+ *
+ * The registry is process-wide, and under `isolate: false` every spec file shares it, so this file
+ * cannot assume it is the first to touch it — nor may it leave a fake adapter behind for whatever
+ * runs next. Each test empties the registry itself and restores whatever was there before, which is
+ * what makes the "no adapter registered" path testable regardless of file order or isolation.
  */
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { type MockAdapter, getMockAdapter, registerMockAdapter } from './mock-adapter';
+import { type MockAdapter, getMockAdapter, hasMockAdapter, registerMockAdapter, resetMockAdapter } from './mock-adapter';
 
 const fakeAdapter: MockAdapter = {
   createMockFn: () => () => undefined,
@@ -19,6 +21,25 @@ const fakeAdapter: MockAdapter = {
 };
 
 describe('mock adapter registry', () => {
+  let installedAdapter: MockAdapter | undefined;
+
+  beforeEach(() => {
+    installedAdapter = hasMockAdapter() ? getMockAdapter() : undefined;
+    resetMockAdapter();
+  });
+
+  afterEach(() => {
+    resetMockAdapter();
+
+    if (installedAdapter) {
+      registerMockAdapter(installedAdapter);
+    }
+  });
+
+  it('reports an empty registry before any entry has registered an adapter', () => {
+    expect(hasMockAdapter()).toBe(false);
+  });
+
   it('throws an actionable hint when no entry has registered an adapter', () => {
     expect(() => getMockAdapter()).toThrow(/no mock adapter registered/i);
   });
@@ -26,6 +47,7 @@ describe('mock adapter registry', () => {
   it('returns the adapter installed by a runtime entry', () => {
     registerMockAdapter(fakeAdapter);
 
+    expect(hasMockAdapter()).toBe(true);
     expect(getMockAdapter()).toBe(fakeAdapter);
   });
 });

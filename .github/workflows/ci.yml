@@ -38,5 +38,10 @@ jobs:
       - name: Test + coverage
         run: npm run test:coverage
 
+      # One shared environment, one worker — the mode `setupAutoSpy()` exists for. A property patch
+      # or a registry left behind by one file surfaces here and nowhere else.
+      - name: Test (shared environment, isolate false)
+        run: npm run test:shared-env
+
       - name: Build
         run: npm run build

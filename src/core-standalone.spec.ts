@@ -1,13 +1,17 @@
 /**
- * The core (`vitest-auto-spy`) must work with ZERO rxjs runtime support when
- * `vitest-auto-spy/rxjs` is never imported. This file deliberately imports only
- * the core entry; per-file isolation (vitest `isolate: true`) keeps the IoC
- * observable registry empty here, exercising the "rxjs not installed" paths.
+ * The core (`vitest-auto-spy`) must work with ZERO rxjs runtime support when `vitest-auto-spy/rxjs`
+ * is never imported — the "rxjs not installed" paths.
+ *
+ * The IoC observable registry is process-wide, so this file cannot assume it runs before some other
+ * spec imported `vitest-auto-spy/rxjs`: under `isolate: false` they all share one module graph.
+ * Each test therefore empties the registry itself and puts back whatever was registered, which is
+ * what makes these paths reachable regardless of file order or isolation.
  */
 import { Observable, of } from 'rxjs';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createSpyFromClass } from './index';
+import { type ObservableSupport, getObservableSupport, registerObservableSupport, resetObservableSupport } from './lib/observable-support';
 
 class Service {
   value$: Observable<number> = of(1);
@@ -26,6 +30,21 @@ class Service {
 }
 
 describe('core without vitest-auto-spy/rxjs', () => {
+  let installedSupport: ObservableSupport | undefined;
+
+  beforeEach(() => {
+    installedSupport = getObservableSupport();
+    resetObservableSupport();
+  });
+
+  afterEach(() => {
+    resetObservableSupport();
+
+    if (installedSupport) {
+      registerObservableSupport(installedSupport);
+    }
+  });
+
   it('sync + promise + calledWith spies work without any observable support', async () => {
     const spy = createSpyFromClass(Service);
 

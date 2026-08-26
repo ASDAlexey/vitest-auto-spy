@@ -10,8 +10,10 @@ export default defineConfig({
     environment: 'jsdom',
     setupFiles: ['src/test-setup.ts'],
     include: ['src/**/*.spec.ts'],
-    // Per-file isolation so the IoC observable registry starts empty in the
-    // "core without rxjs" spec regardless of test-file order.
+    // Per-file isolation is the default run, but nothing in the suite depends on it any more: the
+    // two specs that exercise an empty registry (`core-standalone`, `mock-adapter`) now empty and
+    // restore it themselves. `npm run test:shared-env` proves that by running everything with
+    // `isolate: false` in a single worker — the mode `setupAutoSpy()` exists for.
     isolate: true,
     coverage: {
       provider: 'v8' as const,

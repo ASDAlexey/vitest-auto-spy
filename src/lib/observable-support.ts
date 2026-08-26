@@ -30,6 +30,17 @@ export function getObservableSupport(): ObservableSupport | undefined {
   return registeredSupport;
 }
 
+/**
+ * Forget the registered observable support.
+ *
+ * Internal, and for the same reason as `resetMockAdapter`: the registry is process-wide, so the
+ * spec that proves the core works with **no** rxjs layer must empty it rather than assume its file
+ * ran before `vitest-auto-spy/rxjs` was ever imported.
+ */
+export function resetObservableSupport(): void {
+  registeredSupport = undefined;
+}
+
 const MISSING_RXJS_SUPPORT =
   "Observable spies require rxjs. Import 'vitest-auto-spy/rxjs' once (e.g. in your test setup) " +
   'to enable observablePropsToSpyOn / nextWith / nextWithValues / throwWith / complete / returnSubject.';
