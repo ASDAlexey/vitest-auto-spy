@@ -150,6 +150,11 @@ The latest released version here must always match the one published on
 
 ### Fixed
 
+- **`require('vitest-auto-spy/node')` was handed ESM type declarations.** The two subpaths that ship
+  CommonJS listed a single `types` key for both conditions, pointing at the `.d.ts`. In a
+  `"type": "module"` package that makes TypeScript's `node16` resolution read an ESM declaration file
+  for a CommonJS import and report the types as masquerading — while the emitted `.d.cts` files were
+  published and referenced by nothing. Both subpaths now carry per-condition `types`.
 - **`vitest.shared-env.config.mts` carried configuration Vitest 4 ignores.** It set
   `poolOptions: { threads: { singleThread: true } }`; `test.poolOptions` was removed in Vitest 4,
   which logged `was removed in Vitest 4` on every run and dropped it. The top-level
@@ -180,6 +185,16 @@ The latest released version here must always match the one published on
   construction order. Array order is untouched — there the order is the value.
 
 ### Changed
+
+- **A spy no longer allocates its `calledWith` machinery until something configures it.** Every
+  function spy used to be born with two `calledWith` chains — an object plus an argument map each —
+  and the overwhelming majority of spies never configure either. They are now built on first use, so
+  a materialised spy sheds ~560 B: 2000 spies over a 40-method class drop from 417.3 MB to 372.7 MB
+  of heap, about 11%. Nothing changes when a spec does use `calledWith`; the chain is then built
+  exactly as before. `resetAutoSpy()` now drops the chains instead of replacing them with empty maps,
+  so a reset spy is back to a fresh spy's footprint. On the dispatch path the same change removed a
+  `{ found, value }` object that was allocated on every call of a configured spy purely to carry a
+  boolean — an object argument matches in 2.64 µs instead of 2.82 µs.
 
 - **The published package is roughly half the size** — `dist/` 625 kB → 241 kB, tarball 187 kB →
   108 kB, 74 files → 54. CommonJS now ships only for `vitest-auto-spy/node` and
