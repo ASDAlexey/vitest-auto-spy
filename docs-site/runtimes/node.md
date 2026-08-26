@@ -84,6 +84,29 @@ and the differences stop mattering: they read the same on all three runtimes.
 polyfill, so it reads identically to Vitest (`{ type: 'fulfilled' | 'incomplete' | 'rejected', value }`).
 See [Control helpers → Inspecting promise outcomes](/core/control-helpers#settled-results).
 
+## Every mock is retained until `mock.reset()`
+
+`node:test` registers every `mock.fn()` in its module-level `MockTracker` and keeps the reference for
+the lifetime of the process. Dropping the spy does not free it; nothing the library does can, either
+— `clearAutoSpy()` / `resetAutoSpy()` revert a spy's *configuration*, not the runner's registry.
+
+Measured: 20 000 spies of a 10-method class created and dropped, then two forced collections, held
+**435.6 MB**. One `mock.reset()` brought the same measurement to 0.1 MB.
+
+That is Node's behaviour rather than this adapter's, and it stays invisible until a long suite runs
+out of heap. Reset the tracker per test and it never comes up:
+
+```js
+import { afterEach, mock } from 'node:test';
+
+afterEach(() => {
+  mock.reset();
+});
+```
+
+Vitest and Bun both drop their own registries between files, so this is specific to
+`vitest-auto-spy/node`.
+
 ::: tip Which runtime
 `node:test` needs no dependency at all beyond Node, which makes it a good fit for a library with no
 build step. For an app suite, [Vitest](/runtimes/vitest) or [Bun](/runtimes/bun) will be less work —

@@ -107,7 +107,7 @@ npm i -D vitest-auto-spy
 
 | Tool       | Minimum                                                        |
 | ---------- | -------------------------------------------------------------- |
-| Node.js    | ≥ 18                                                           |
+| Node.js    | ≥ 18 for the library — in practice, whatever your runner needs |
 | Vitest     | ≥ 2.1 (required peer)                                          |
 | Bun        | ≥ 1.4 for `vitest-auto-spy/bun-angular`; any recent Bun for `vitest-auto-spy/bun` |
 | TypeScript | ≥ 4.7 for the typed helpers (plain JS works too, just untyped) |
@@ -117,6 +117,14 @@ type, and `@vitest/spy` only grew `settledResults` in 2.0 — 2.1 is where the 2
 The runtime helpers themselves still run on older Vitest (the library polyfills `settledResults` for
 `bun:test` and `node:test` regardless), but the types no longer line up there, so the range stops
 claiming it.
+
+Node **≥ 18** is the library's own floor and it holds — the published output is ES2022 and every
+entry runs on 18. What moves the real minimum is the runner: **Vitest 4 cannot start on Node 18 at
+all**, because Vite 7 calls `crypto.hash` (added in Node 20.12) and the run dies with
+`TypeError: crypto.hash is not a function` before a spec loads. On Vitest ≤ 3 Node 18 is fine. Which
+version to actually run is measured in
+[Performance → Which Node version](https://vitest-auto-spy.dev/core/performance#which-node-version):
+the core is 9–15% faster from Node 24 on, and a cold import more than halves.
 
 Ships **ESM with bundled `.d.ts` types**. Two subpaths additionally ship a CommonJS build —
 `vitest-auto-spy/node` (a `node --test` suite written in CJS) and `vitest-auto-spy/eslint-plugin`

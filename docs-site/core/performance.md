@@ -124,6 +124,55 @@ removed a second inlined copy of the core on top of that.
 | published tarball | 187 kB | **108 kB** |
 | files in the package | 74 | **54** |
 
+## Which Node version
+
+The library's own code runs unchanged from Node 18 up, so this is a question about the runtime
+underneath it, not about compatibility. Measured on one machine across six versions, three ways: the
+**core in isolation** (`src/lib/**` bundled and driven by a minimal mock adapter — 13 reps, the
+`p75` of ns/op, no runner inside the measurement), the repo's own 39-file suite through
+`vitest run` (best of three), and a cold `import('vitest-auto-spy/node')`.
+
+| Core operation (p75, ns/op) | 18 | 20 | 22 | 24 | 25 | 26 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `createSpyFromClass`, 10 methods | 1410 | 1433 | 1264 | 1323 | 1416 | **1285** |
+| lazy, 10 methods / 2 called | 3056 | 3578 | 3096 | 2869 | 2934 | **2852** |
+| eager, 10 methods / 2 called | 5180 | 4703 | 4222 | **3954** | 4073 | 4096 |
+| eager, 40 methods / 3 called | 20026 | 18145 | 17206 | **15635** | 16373 | 15945 |
+| lazy, 40 methods / all 40 called | 42028 | 43630 | 40384 | 34933 | 35748 | **34325** |
+| `createAutoMock<T>()` + 4 accesses | 2237 | 2489 | 2074 | **1756** | 1821 | 1782 |
+
+The break is between 22 and 24 — V8 12.4 to 13.6 — and it is 9–15% on every case that allocates
+spies. 24, 25 and 26 are the same speed within noise; 20 is not an improvement on 18.
+
+| | 20 | 22 | 24 | 25 | 26 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| the 39-file suite, `vitest run` | 3.75 s | 3.31 s | 2.67 s | 2.69 s | **2.54 s** |
+| cold `import('vitest-auto-spy/node')` | 10.2 ms | 11.8 ms | 4.9 ms | **4.3 ms** | 4.5 ms |
+| process startup | 9.9 ms | 10.8 ms | 7.9 ms | **7.4 ms** | 7.7 ms |
+| peak RSS of the suite | 2647 MB | **2565 MB** | 3599 MB | 3432 MB | 3019 MB |
+| RSS after the import | **40 MB** | 51 MB | 51 MB | 54 MB | 57 MB |
+
+Import cost more than halves at 24, which is per worker rather than per run — it is the one number
+that scales with how many files a suite spreads across.
+
+**What a spy costs does not change with the version.** Held heap per spy is identical to the byte on
+all six — 13584 B eager (10 methods), 5513 B lazy with two methods touched, 2473 B lazy untouched.
+The RSS rows above move because newer V8 starts with a larger heap and lets more garbage accumulate
+before collecting, not because the library allocates differently.
+
+So: **run 24 (or 26)**. The only argument for staying on 22 is a memory-capped CI container — a
+gigabyte of peak RSS separates them — and on 24 that is what `--max-old-space-size` is for, rather
+than a slower runtime. Node 18 and 20 are both past end-of-life, and Node 18 additionally cannot run
+Vitest 4 at all (see [Installation](./installation)).
+
+::: details Why `npm run bench` is not the source for this table
+The cross-version numbers here come from a standalone harness, not from the repo's Vitest bench.
+Vitest bench was tried first and rejected: consecutive runs of the same case on the same version
+returned 0.0090 ms and 5.06 ms — GC pauses land in different samples and swamp a 10% difference
+between runtimes. `npm run bench` stays the right tool for what it guards (ratios between two
+options inside one run); it cannot compare two runtimes.
+:::
+
 ## What to reach for
 
 | Situation | Use | Why |
