@@ -166,3 +166,6 @@ export {
 
 // Type bridges between `Spy<T>` and `T`, plus a construction-compatible spy
 export { asInstance, asSpy, createSpyClass, type ConstructorSpy } from './lib/spy-typing';
+
+// Duplicate-install detection (`setupAutoSpy()` turns this into a failed run)
+export { describeDuplicateCopies, getPackageCopies } from './lib/package-identity';

@@ -13,7 +13,13 @@
  * their own adapter over the very same core. This is the same refactor spirit as
  * the rxjs decouple in `observable-support.ts`.
  */
+import { registerPackageCopy } from './package-identity';
 import type { Func } from './types';
+
+// Every entry bundles this module, so importing any of them records which install of the library
+// was loaded. `setupAutoSpy()` turns two recorded installs into an actionable failure instead of
+// the order-dependent breakage that split spies produce.
+registerPackageCopy();
 
 /**
  * A host-runner mock function: a callable spy (Vitest `vi.fn()`, Bun `mock()`,
