@@ -16,7 +16,7 @@ identical API, with **RxJS** spies and **Angular / NestJS / React / Vue·Pinia /
 [![npm version](https://img.shields.io/npm/v/vitest-auto-spy?color=brightgreen&logo=npm)](https://www.npmjs.com/package/vitest-auto-spy)
 [![npm downloads](https://img.shields.io/npm/dm/vitest-auto-spy?color=brightgreen&logo=npm)](https://www.npmjs.com/package/vitest-auto-spy)
 [![CI](https://github.com/ASDAlexey/vitest-auto-spy/actions/workflows/ci.yml/badge.svg)](https://github.com/ASDAlexey/vitest-auto-spy/actions/workflows/ci.yml)
-[![minzipped size](https://img.shields.io/badge/minzip-3.5%20kB-brightgreen)](#install)
+[![minzipped size](https://img.shields.io/badge/minzip-5.3%20kB-brightgreen)](#install)
 [![types](https://img.shields.io/npm/types/vitest-auto-spy?logo=typescript&logoColor=white)](https://www.npmjs.com/package/vitest-auto-spy)
 [![coverage](https://img.shields.io/badge/coverage-100%25-brightgreen)](https://github.com/ASDAlexey/vitest-auto-spy/actions/workflows/ci.yml)
 [![license](https://img.shields.io/npm/l/vitest-auto-spy?color=blue)](./LICENSE)
@@ -53,6 +53,7 @@ identical API, with **RxJS** spies and **Angular / NestJS / React / Vue·Pinia /
 - [Install](#install)
 - [Availability](#availability)
 - [Quick start](#quick-start)
+- [How to mock](#how-to-mock)
 - [Why](#why)
 - [How it works (and what it won't spy)](#how-it-works-and-what-it-wont-spy)
 - [Comparison](#comparison)
@@ -69,7 +70,15 @@ identical API, with **RxJS** spies and **Angular / NestJS / React / Vue·Pinia /
   - [Vue / Pinia](#vue--pinia)
   - [Svelte](#svelte)
   - [Angular](#angular)
+    - [Shallow component rendering](#shallow-component-rendering)
+    - [Building a class with auto-spied dependencies](#building-a-class-with-auto-spied-dependencies)
+    - [Zoneless waiting](#zoneless-waiting)
+    - [Where a spec spends its time](#where-a-spec-spends-its-time)
 - [Utilities](#utilities)
+- [Observable assertions](#observable-assertions)
+- [Test-run hygiene](#test-run-hygiene)
+- [ESLint plugin](#eslint-plugin)
+- [Bridging `Spy<T>` and `T`](#bridging-spyt-and-t)
 - [API reference](#api-reference)
 - [FAQ & troubleshooting](#faq--troubleshooting)
 - [Versioning](#versioning)
@@ -154,6 +163,137 @@ it('stubs each method with the right helper for its return type', async () => {
 No class, only a TypeScript type? Reach for
 [`createAutoMock<T>()`](#auto-mock-by-type-no-class-needed).
 
+## How to mock
+
+One recipe per thing a spec has to stand in for — each is the whole answer, not a fragment. The
+[ESLint rules](#eslint-plugin) shipped with the package link back to these, so a report always
+comes with the replacement.
+
+### How to mock: a service behind Angular DI
+
+```ts
+import { injectSpy, provideAutoSpy } from 'vitest-auto-spy/angular';
+
+TestBed.configureTestingModule({ providers: [provideAutoSpy(CartService)] });
+
+const cart = injectSpy(CartService); // Spy<CartService>
+cart.total.mockReturnValue(42);
+```
+
+`provideAutoSpy` reads the real class, so the stub cannot drift from it: add a method to
+`CartService` and the spy has it. A hand-written `{ provide: CartService, useValue: { total:
+vi.fn() } }` silently keeps mocking yesterday's class.
+
+### How to mock: a service without DI
+
+```ts
+import { createAutoMock, createSpyFromClass } from 'vitest-auto-spy';
+
+const cart = createSpyFromClass(CartService); // from a class
+const gateway = createAutoMock<PaymentGateway>(); // from a type/interface alone
+```
+
+The constructor is never called, so no side effects run. `createAutoMock<T>()` is for the case
+where there is no runtime class to read — an interface, a type alias, an imported `.d.ts`.
+
+### How to mock: reading a spy back from DI
+
+```ts
+const cart = injectSpy(CartService); // typed Spy<CartService>, no cast
+```
+
+Not `vi.spyOn(TestBed.inject(CartService), 'total')`: that replaces one method and leaves the rest
+of a **real** service live, which is how a unit test quietly turns into an integration test.
+
+### How to mock: a whole class's dependencies at once
+
+```ts
+import { createWithAutoSpies } from 'vitest-auto-spy/angular';
+
+const { instance, spies } = createWithAutoSpies(CartService);
+
+spies.get(PricingService).total.mockReturnValue(100);
+expect(instance.checkout(3)).toBe(120);
+```
+
+Angular DI still builds the class — constructor parameters and `inject()` fields resolve exactly as
+they do in the app — but any token nobody provided is answered with a spy instead of a
+`NullInjectorError`. Pass `providers` for the ones you want to control by hand; they win.
+
+### How to mock: a readonly property or a signal
+
+```ts
+import { mockReadonlyProp, mockValueProp, restoreMockedProps } from 'vitest-auto-spy';
+
+mockReadonlyProp(store, 'items', signal([task])); // readonly field, signal(), computed()
+mockValueProp(service, 'retries', 3); // a field the code assigns to
+```
+
+Not `Object.defineProperty`: these record the descriptor they overwrote, hand back the undo for
+their own patch, and are all reverted by one `restoreMockedProps()` — which
+[`setupAutoSpy()`](#test-run-hygiene) wires into `afterEach` for you. An un-restored patch on a
+global, a prototype or a singleton leaks into the next file whenever `isolate: false` is on.
+
+### How to mock: an Observable
+
+```ts
+import { expectEmission } from 'vitest-auto-spy';
+
+cart.items$.nextWith([task]); // drive the stream from the spy
+
+await expect(expectEmission(component.visible$)).resolves.toEqual([task]);
+```
+
+Not `source$.subscribe(value => expect(value).toEqual(…))`: if the stream never emits, the callback
+never runs, nothing is asserted, and the test is green and empty. `expectEmission` **is** the
+assertion — a silent stream fails it, with the stream's name and the timeout in the message.
+
+### How to mock: a component's children
+
+```ts
+import { renderShallow } from 'vitest-auto-spy/angular';
+
+const { fixture, component } = renderShallow(TaskListComponent, {
+  providers: [provideAutoSpy(TaskService)],
+  inputs: { projectId: 42 },
+});
+```
+
+One call for `configureTestingModule` + `NO_ERRORS_SCHEMA` + `overrideComponent` with trimmed
+`imports` and a blank template. `fixture` is a real `ComponentFixture`, so everything in
+`@angular/core/testing` still applies. See [shallow rendering](#shallow-component-rendering) for
+`keepTemplate`, `keepChildren` and what it actually saves.
+
+### How to mock: a class the code under test builds with `new`
+
+```ts
+import { createSpyClass, mockValueProp } from 'vitest-auto-spy';
+
+const WorkerSpy = createSpyClass(BackgroundWorker);
+
+mockValueProp(globalThis, 'BackgroundWorker', WorkerSpy);
+service.start();
+
+expect(WorkerSpy.calls[0]).toEqual(['./task.js']);
+WorkerSpy.instances[0].postMessage.mockReturnValue(undefined);
+```
+
+A runner mock (`vi.fn()`) refuses `new` as soon as it carries a `mockReturnValue`. `createSpyClass`
+is a real constructor whose instances are full auto-spies, and it records every construction.
+
+### How to mock: a pipe
+
+A pipe is a class with one method, so it is the plain case:
+
+```ts
+const currency = createSpyFromClass(CurrencyPipe);
+
+currency.transform.calledWith(10, 'EUR').mockReturnValue('€10');
+```
+
+In a component spec, provide it (`provideAutoSpy(CurrencyPipe)`) or keep it out of the template
+entirely — `renderShallow` drops it with the rest of the subtree.
+
 ## Why
 
 Manually mocking a service is tedious and brittle:
@@ -209,18 +349,20 @@ What it **won't** auto-discover — by design, because these aren't prototype me
 The library ships a framework-agnostic core plus runtime and framework layers, so a plain
 Node / Bun / React / Vue project pulls **neither rxjs nor Angular into its runtime bundle**:
 
-| Import                    | Provides                                                                                                            | Pulls in               | Status |
-| ------------------------- | ------------------------------------------------------------------------------------------------------------------- | ---------------------- | :----: |
-| `vitest-auto-spy`         | `createSpyFromClass`, `createAutoMock`, `createFunctionSpy`, sync + promise + accessor spies, `errorHandler`, types | `vitest`               |   ✅   |
-| `vitest-auto-spy/rxjs`    | observable spies (`nextWith`, `nextWithValues`, `observablePropsToSpyOn`, …) + `createObservableWithValues`         | `rxjs`                 |   ✅   |
-| `vitest-auto-spy/angular` | `provideAutoSpy`, `injectSpy`, `mockReadonlyProp*`, `mockValueProp`, `mockAccessorsProp`, `restoreMockedProps`      | `@angular/core`        |   ✅   |
-| `vitest-auto-spy/bun`     | the same core, driven by Bun's `bun:test` mocks                                                                     | `bun:test`             |   ✅   |
-| `vitest-auto-spy/node`    | the same core, driven by `node:test`'s `mock.fn()`                                                                  | `node:test`            |   ✅   |
-| `vitest-auto-spy/nestjs`  | `provideAutoSpy`, `injectSpy` for `Test.createTestingModule`                                                        | — (your `@nestjs/*`)   |   ✅   |
-| `vitest-auto-spy/react`   | the core, with a natural import for React Testing Library suites                                                    | — (your `react`)       |   ✅   |
-| `vitest-auto-spy/vue`     | `provideAutoSpy` for `global.provide` + Pinia store spying                                                          | — (your `vue`/`pinia`) |   ✅   |
-| `vitest-auto-spy/svelte`  | the core, with a natural import for Svelte suites                                                                   | — (your `svelte`)      |   ✅   |
-| `vitest-auto-spy/console` | `consoleInfoSpy` & friends — silent typed spies over the global `console`, installed on import                      | `vitest`               |   ✅   |
+| Import                          | Provides                                                                                                                                                      | Pulls in               | Status |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------- | :----: |
+| `vitest-auto-spy`               | `createSpyFromClass`, `createAutoMock`, `createFunctionSpy`, sync + promise + accessor spies, `errorHandler`, types                                           | `vitest`               |   ✅   |
+| `vitest-auto-spy/rxjs`          | observable spies (`nextWith`, `nextWithValues`, `observablePropsToSpyOn`, …) + `createObservableWithValues`                                                   | `rxjs`                 |   ✅   |
+| `vitest-auto-spy/angular`       | `provideAutoSpy`, `injectSpy`, `renderShallow`, `createWithAutoSpies`, `stable`/`flushEffects`, the `mock*Prop` helpers, signal matchers, TestBed diagnostics | `@angular/core`        |   ✅   |
+| `vitest-auto-spy/bun`           | the same core, driven by Bun's `bun:test` mocks                                                                                                               | `bun:test`             |   ✅   |
+| `vitest-auto-spy/node`          | the same core, driven by `node:test`'s `mock.fn()`                                                                                                            | `node:test`            |   ✅   |
+| `vitest-auto-spy/nestjs`        | `provideAutoSpy`, `injectSpy` for `Test.createTestingModule`                                                                                                  | — (your `@nestjs/*`)   |   ✅   |
+| `vitest-auto-spy/react`         | the core, with a natural import for React Testing Library suites                                                                                              | — (your `react`)       |   ✅   |
+| `vitest-auto-spy/vue`           | `provideAutoSpy` for `global.provide` + Pinia store spying                                                                                                    | — (your `vue`/`pinia`) |   ✅   |
+| `vitest-auto-spy/svelte`        | the core, with a natural import for Svelte suites                                                                                                             | — (your `svelte`)      |   ✅   |
+| `vitest-auto-spy/console`       | `consoleInfoSpy` & friends — silent typed spies over the global `console`, installed on import                                                                | `vitest`               |   ✅   |
+| `vitest-auto-spy/setup`         | `setupAutoSpy()` — property restore, duplicate-copy detection and mock-registry hygiene in one call                                                           | `vitest`               |   ✅   |
+| `vitest-auto-spy/eslint-plugin` | the lint rules that steer a suite onto these helpers                                                                                                          | — (your `eslint`)      |   ✅   |
 
 ✅ all entry points published (see [Availability](#availability)).
 
@@ -701,6 +843,134 @@ afterEach(() => restoreMockedProps());
 Members the public type does not describe (`#private` fields, ad-hoc keys) are accepted too — the
 helpers take a `PropertyKey` overload, so no `as never` dance.
 
+#### Shallow component rendering
+
+`renderShallow` is the standard `TestBed` sequence a component-heavy suite ends up copy-pasting —
+`configureTestingModule` + `NO_ERRORS_SCHEMA` + `overrideComponent` with emptied `imports` and a
+blank template — given a name:
+
+```ts
+import { provideAutoSpy, renderShallow } from 'vitest-auto-spy/angular';
+
+const { fixture, component } = renderShallow(TaskListComponent, {
+  providers: [provideAutoSpy(TaskService), provideHttpClient()],
+  inputs: { projectId: 42 }, // set through componentRef.setInput, before the first CD
+});
+```
+
+| Option          | Default | What it does                                                                                                                    |
+| --------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `providers`     | `[]`    | Providers for the testing module. `EnvironmentProviders` (`provideHttpClient()`, …) welcome                                     |
+| `imports`       | `[]`    | Extra imports for the testing module (a stub module, a routing harness)                                                         |
+| `inputs`        | —       | Values for the component's inputs — signal inputs take the **value**, not the signal                                            |
+| `keepTemplate`  | `false` | Keep the real template (for `viewChild`, content projection, host bindings)                                                     |
+| `keepChildren`  | `[]`    | Child components/directives/pipes that stay resolvable; everything else is dropped                                              |
+| `template`      | `''`    | A stand-in template to render instead of a blank one                                                                            |
+| `beforeCreate`  | —       | Runs after the module is configured, before the component exists — the seam for stubbing a dependency a field initializer reads |
+| `detectChanges` | `true`  | Run the first change detection, and therefore `ngOnInit`                                                                        |
+
+`fixture` is a real `ComponentFixture`; nothing here replaces `@angular/core/testing`.
+
+**What it saves, measured.** On `the reference suite` (784 specs, Angular 22 zoneless, the AOT
+`@angular/build:unit-test` builder), three of its most expensive component specs were converted and
+the ten-file batch re-run three times — medians, same batch, same machine:
+
+| Spec (479 tests in the batch, all still green)             | Before | After  | Change   |
+| ---------------------------------------------------------- | ------ | ------ | -------- |
+| `access-container.component.spec.ts` (34 tests)            | 129 ms | 61 ms  | **2.1×** |
+| `whats-here-intersections.component.spec.ts` (58 fixtures) | 133 ms | 75 ms  | **1.8×** |
+| `slide-minimap-tab.component.spec.ts` (20 tests)           | 29 ms  | 38 ms  | **0.8×** |
+| the three together                                         | 291 ms | 174 ms | **1.7×** |
+
+The third row is the honest half of the result: `slide-minimap-tab` renders a small leaf component,
+where the per-test `overrideComponent` costs more than the subtree it removes. **Shallow rendering
+pays where there is a real child tree to skip** — the seven untouched files in the same batch moved
+by ±10%, which is this suite's run-to-run noise, so the two wins are outside it and the one
+regression is only just outside.
+
+Use [the diagnostics](#where-a-spec-spends-its-time) to find the files worth converting rather than
+guessing: across those ten files `TestBed` accounted for 820 ms of 3231 ms (25%), but per file the
+share ranged from 13% to 66%.
+
+#### Building a class with auto-spied dependencies
+
+```ts
+import { createWithAutoSpies } from 'vitest-auto-spy/angular';
+
+const { instance, spies, injector } = createWithAutoSpies(CartService, {
+  providers: [{ provide: TaxService, useValue: realTax }], // explicit providers win
+});
+
+spies.get(PricingService).total.mockReturnValue(100);
+```
+
+The class is built through its own Angular factory, so constructor parameters **and** `inject()`
+field initializers resolve normally; an unprovided token gets a `createSpyFromClass` spy (a class)
+or a `createAutoMock` proxy (an `InjectionToken`). `inject(X, { optional: true })` still returns
+`null`, exactly as it would in the app. `spies.get(token)` resolves through the same injector the
+instance used, so it returns the explicit provider when there is one — and
+`spies.autoSpiedTokens()` lists what was invented.
+
+> Plain providers only: this builds an `Injector.create()` injector, which does not accept the
+> `EnvironmentProviders` returned by `provideHttpClient()` and friends. A class that needs those
+> belongs in a `TestBed` — `renderShallow`, or a plain `configureTestingModule`.
+
+#### Zoneless waiting
+
+```ts
+import { flushEffects, stable } from 'vitest-auto-spy/angular';
+
+component.filter.set('open');
+await stable(fixture); // flush effects, then await the fixture
+
+flushEffects(); // the no-fixture half: services, stores, runInInjectionContext code
+```
+
+`fixture.detectChanges()` runs a single change-detection pass and does **not** flush pending
+effects, so an assertion right after it reads state that has not finished computing. In a zoneless
+app the state that matters is signal-derived and effects are what move it forward. `stable` does
+both, in the right order; `flushEffects` prefers `TestBed.tick()` (Angular ≥ 20) and falls back to
+`ApplicationRef.tick()`.
+
+#### Asserting a signal's value
+
+```ts
+import { registerSignalMatchers } from 'vitest-auto-spy/angular';
+
+registerSignalMatchers(); // once, in your setup file
+
+expect(component.total).toHaveSignalValue(3);
+expect(component.items).toHaveSignalValue([{ id: 1 }]);
+```
+
+`expect(component.total).toBeTruthy()` passes for every signal ever created — a signal is a
+function. The matcher reads it, deep-compares, and rejects anything that is not a zero-argument
+getter, so the missing-parentheses mistake fails instead of quietly passing.
+
+#### Where a spec spends its time
+
+```ts
+// vitest.setup.ts
+import { enableTestBedDiagnostics } from 'vitest-auto-spy/angular';
+
+if (process.env['SPEC_TIMING']) {
+  enableTestBedDiagnostics();
+}
+```
+
+```
+[vitest-auto-spy] src/app/…/layer-editor.component.spec.ts — TestBed 353ms of 661ms (53%), logic 308ms, 155 component(s), 132 module config(s)
+```
+
+One line per spec file: how much of its wall clock went into `TestBed` (module configuration,
+template compilation, component creation) versus plain logic, and how many components it created.
+That is the list of rewrite candidates, and the number that says whether a rewrite helped. Pass
+`report` to collect the timings yourself, `minTestBedMs` to stay quiet about cheap files, and call
+`disableTestBedDiagnostics()` to put the untouched `TestBed` back.
+
+The clock is captured at import time, so a spec using `vi.useFakeTimers()` is still measured
+honestly rather than reported as free.
+
 ## Utilities
 
 Beyond the spy factories, the package ships a set of small standalone helpers. Each one is a
@@ -776,24 +1046,140 @@ service.doWork();
 expect(fakeConsole.info).toHaveBeenCalledWith('done');
 ```
 
+## Observable assertions
+
+`expect(...)` inside a `subscribe()` callback is the most common way to write a test that passes
+while asserting nothing: if the stream never emits, the callback never runs and no expectation is
+ever evaluated. These helpers invert that — the assertion is the `await`.
+
+```ts
+import { expectEmission, expectEmissions, expectNoEmission } from 'vitest-auto-spy';
+
+await expect(expectEmission(component.visible$)).resolves.toEqual([task]);
+await expect(expectEmissions(source$, 3)).resolves.toEqual([1, 2, 3]);
+await expectNoEmission(source$, { timeout: 50 }); // asserts silence
+```
+
+A stream that stays quiet fails with the label and the timeout in the message, one that errors
+fails with the error, and one that completes empty says so:
+
+```
+saved$ did not emit within 1000 ms (0 emission(s) received). Either the stream never fired — check
+the trigger and any provider spy feeding it — or it is slower than the timeout; …
+```
+
+| Option    | Default | Notes                                                        |
+| --------- | ------- | ------------------------------------------------------------ |
+| `timeout` | `1000`  | Milliseconds to wait. `0` waits indefinitely                 |
+| `label`   | —       | Name used in the failure message instead of "the observable" |
+
+The source is duck-typed (anything with `subscribe`), so this lives in the **core** entry and pulls
+in no rxjs: it works with rxjs `Observable`s, `toObservable()` results and hand-rolled
+subscribables alike. The watchdog uses the timer functions captured at import time, so
+`vi.useFakeTimers()` cannot stop it — the failure stays "the stream did not emit", not "the test
+timed out".
+
+## Test-run hygiene
+
+```ts
+// vitest.setup.ts
+import { setupAutoSpy } from 'vitest-auto-spy/setup';
+
+setupAutoSpy();
+```
+
+Three pieces of hygiene that every project otherwise assembles by hand, and that are expensive to
+diagnose when they are missing:
+
+1. **`restoreMockedProps()` after each test.** `vi.restoreAllMocks()` knows about spies, not about
+   properties `mockReadonlyProp` / `mockValueProp` redefined. Under `isolate: false` an un-restored
+   patch on a global, a prototype or a singleton leaks straight into the next file.
+2. **One copy of the library in the process.** Two copies keep two sets of console spies and two
+   registries, so an assertion runs against a spy that never replaced the console the code under
+   test called; the symptom reads as "tests fail depending on file order". The check fails the run
+   with a report naming both copies and what to do about each cause — a second install, or one
+   install loaded in both its ESM and CommonJS form.
+3. **Draining the runner's restore registry.** Every `vi.spyOn` adds an entry that only
+   `vi.restoreAllMocks()` removes; with a shared environment that list grows for the whole run.
+
+| Option            | Default   | Notes                                                                         |
+| ----------------- | --------- | ----------------------------------------------------------------------------- |
+| `duplicateCopies` | `'throw'` | `'warn'` to report without failing, `'off'` to skip the check                 |
+| `restoreProps`    | `true`    | `restoreMockedProps()` in a global `afterEach`                                |
+| `restoreMocks`    | `false`   | `vi.restoreAllMocks()` in a global `afterEach` — turn on for `isolate: false` |
+
+`restoreMocks` is off by default because it also drops `vi.spyOn` stubs a suite installed in
+`beforeAll`; it is the knob to reach for when the run shares one environment across files.
+
+## ESLint plugin
+
+```js
+// eslint.config.js
+import autoSpy from 'vitest-auto-spy/eslint-plugin';
+
+export default [{ files: ['**/*.spec.ts'], ...autoSpy.configs.recommended }];
+```
+
+Scope it to spec files yourself: every rule is about test code, and `Object.defineProperty` or an
+object of `vi.fn()`s is perfectly reasonable in application code. Flat config only — the legacy
+`.eslintrc` `plugins: ['…']` form resolves names to `eslint-plugin-*` packages, which a subpath
+export can never be.
+
+| Rule                           | Recommended | Flags                                                                                 |
+| ------------------------------ | :---------: | ------------------------------------------------------------------------------------- |
+| `prefer-provide-auto-spy`      |   `warn`    | `{ provide: X, useValue: { a: vi.fn() } }` → `provideAutoSpy(X)`                      |
+| `prefer-create-spy-from-class` |   `warn`    | an object literal of two or more `vi.fn()`s → `createSpyFromClass` / `createAutoMock` |
+| `prefer-inject-spy`            |   `warn`    | `vi.spyOn(TestBed.inject(X), 'm')` → `injectSpy(X)`                                   |
+| `no-object-define-property`    |   `error`   | `Object.defineProperty` in a spec → `mockReadonlyProp` / `mockValueProp`              |
+| `no-expect-in-subscribe`       |   `error`   | `expect()` inside a `subscribe()` callback → `expectEmission`                         |
+
+Every message ends with a link to the matching [recipe](#how-to-mock): a rule that only says
+"don't" moves the problem rather than solving it. Rules travel with the API they recommend, so they
+are versioned together and stop being re-written in every project that installs the package.
+
+## Bridging `Spy<T>` and `T`
+
+`Spy<T>` is a mapped type. It drops `#private` / `private` members, so it is **not** assignable to
+`T` — correct (a spy is not the class), and a constant nuisance when an API asks for `T`. The fix
+is a named, documented view instead of `as any` scattered through a suite:
+
+```ts
+import { asInstance, asSpy } from 'vitest-auto-spy';
+
+asInstance(cartSpy); // Spy<CartService> → CartService, for APIs typed against the class
+asSpy(TestBed.inject(CartService)); // CartService → Spy<CartService>, for the helpers
+```
+
+Both are the same object at runtime; only the view changes.
+
 ## API reference
 
-| Export                                                                                | Description                                                                                                                                         |
-| ------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `createSpyFromClass(Class, methodsOrConfig?)`                                         | Build a fully-typed `Spy<T>` from a class                                                                                                           |
-| `createAutoMock<T>(overrides?)`                                                       | Build a `Spy<T>` from a **type/interface** alone (Proxy, no class)                                                                                  |
-| `mockDeep<T>(overrides?)`                                                             | Build a **recursive** auto-mock — `mock.repo.user.find()` chains without seeding                                                                    |
-| `resetAutoSpy(spy)` / `clearAutoSpy(spy)`                                             | Reset every spy in an auto-spy at once — `reset` also reverts return-value config (`calledWith` **and** a bare `mockReturnValue`); `clear` keeps it |
-| `provideAutoSpy(Class, methodsOrConfig?)`                                             | Angular / NestJS `{ provide, useValue }` shorthand                                                                                                  |
-| `provideAutoSpy(token, Class, methodsOrConfig?)`                                      | Vue `{ [token]: Spy<T> }` for `global.provide`                                                                                                      |
-| `injectSpy(token)` _(Angular)_ / `injectSpy(moduleRef, token)` _(NestJS)_             | Inject typed as `Spy<T>`                                                                                                                            |
-| `createFunctionSpy(name)`                                                             | A single standalone function spy with all helpers                                                                                                   |
-| `createObservableWithValues(configs, opts?)`                                          | Build an Observable from value configs                                                                                                              |
-| `mockReadonlyProp` / `mockReadonlyPropGetter` / `mockValueProp` / `mockAccessorsProp` | Mock readonly / writable / accessor / signal props                                                                                                  |
-| `restoreMockedProps()`                                                                | Undo every `mock*Prop` patch (descriptors restored newest-first)                                                                                    |
-| `consoleDebugSpy` … `consoleWarnSpy` _(`/console`)_                                   | Silent typed spies replacing the global `console` methods on import                                                                                 |
-| `installConsoleSpies()` / `resetConsoleSpies()` / `restoreConsole()`                  | Install / clear / undo the console spies                                                                                                            |
-| `errorHandler`                                                                        | The `mustBeCalledWith` argument-mismatch error helper                                                                                               |
+| Export                                                                                                       | Description                                                                                                                                         |
+| ------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `createSpyFromClass(Class, methodsOrConfig?)`                                                                | Build a fully-typed `Spy<T>` from a class                                                                                                           |
+| `createAutoMock<T>(overrides?)`                                                                              | Build a `Spy<T>` from a **type/interface** alone (Proxy, no class)                                                                                  |
+| `mockDeep<T>(overrides?)`                                                                                    | Build a **recursive** auto-mock — `mock.repo.user.find()` chains without seeding                                                                    |
+| `resetAutoSpy(spy)` / `clearAutoSpy(spy)`                                                                    | Reset every spy in an auto-spy at once — `reset` also reverts return-value config (`calledWith` **and** a bare `mockReturnValue`); `clear` keeps it |
+| `provideAutoSpy(Class, methodsOrConfig?)`                                                                    | Angular / NestJS `{ provide, useValue }` shorthand                                                                                                  |
+| `provideAutoSpy(token, Class, methodsOrConfig?)`                                                             | Vue `{ [token]: Spy<T> }` for `global.provide`                                                                                                      |
+| `injectSpy(token)` _(Angular)_ / `injectSpy(moduleRef, token)` _(NestJS)_                                    | Inject typed as `Spy<T>`                                                                                                                            |
+| `createFunctionSpy(name)`                                                                                    | A single standalone function spy with all helpers                                                                                                   |
+| `createObservableWithValues(configs, opts?)`                                                                 | Build an Observable from value configs                                                                                                              |
+| `mockReadonlyProp` / `mockReadonlyPropGetter` / `mockValueProp` / `mockAccessorsProp`                        | Mock readonly / writable / accessor / signal props                                                                                                  |
+| `restoreMockedProps()` / `countMockedProps()`                                                                | Undo every `mock*Prop` patch (descriptors restored newest-first) / how many are still applied                                                       |
+| `expectEmission(source$, opts?)` / `expectEmissions(source$, n, opts?)` / `expectNoEmission(source$, opts?)` | Assert an Observable without a `subscribe` callback that may never run                                                                              |
+| `asInstance(spy)` / `asSpy(instance)`                                                                        | The two named views between `Spy<T>` and `T`, instead of `as any`                                                                                   |
+| `createSpyClass(Class, config?)`                                                                             | A spy that can be called with `new`; records `calls` and `instances`                                                                                |
+| `setupAutoSpy(opts?)` _(`/setup`)_                                                                           | Property restore + duplicate-copy detection + mock-registry hygiene, in one call                                                                    |
+| `describeDuplicateCopies()` / `getPackageCopies()`                                                           | The duplicate-install report, and the copies behind it                                                                                              |
+| `renderShallow(Component, opts?)` _(Angular)_                                                                | `TestBed` component, minus its children and (by default) its template                                                                               |
+| `createWithAutoSpies(Class, opts?)` _(Angular)_                                                              | Build a class through Angular DI with every unprovided token auto-spied                                                                             |
+| `stable(fixture)` / `flushEffects()` _(Angular)_                                                             | Zoneless waiting: flush effects, then await the fixture                                                                                             |
+| `registerSignalMatchers()` _(Angular)_                                                                       | Adds `expect(sig).toHaveSignalValue(value)`                                                                                                         |
+| `enableTestBedDiagnostics(opts?)` _(Angular)_                                                                | Per-file report of how much of a spec's time went into `TestBed`                                                                                    |
+| `consoleDebugSpy` … `consoleWarnSpy` _(`/console`)_                                                          | Silent typed spies replacing the global `console` methods on import                                                                                 |
+| `installConsoleSpies()` / `resetConsoleSpies()` / `restoreConsole()`                                         | Install / clear / undo the console spies                                                                                                            |
+| `errorHandler`                                                                                               | The `mustBeCalledWith` argument-mismatch error helper                                                                                               |
 
 **Spied sync method:** `mockReturnValue`, `calledWith(...)`, `mustBeCalledWith(...)` — `calledWith`
 also matches **asymmetric matchers** (`calledWith(expect.any(Number))`, `expect.objectContaining({...})`)

@@ -12,6 +12,79 @@ The latest released version here must always match the one published on
 
 ### Added
 
+- **`renderShallow(Component, options?)`** _(`/angular`)_ — the `TestBed` sequence a component-heavy
+  suite copy-pastes (`configureTestingModule` + `NO_ERRORS_SCHEMA` + `overrideComponent` with emptied
+  `imports`, a blank template and no styles), as one call that returns a real `ComponentFixture`.
+  Options: `providers` (incl. `EnvironmentProviders`), `imports`, `inputs` (signal inputs take the
+  value), `keepTemplate`, `keepChildren`, `template`, `beforeCreate`, `detectChanges`.
+  Measured on `the reference suite`: converting three of its most expensive component specs took them from
+  291 ms to 174 ms (1.7× overall; 2.1× and 1.8× on the two with a real child tree, 0.8× — slower —
+  on a leaf component, where the per-test `overrideComponent` costs more than the subtree it removes).
+- **`createWithAutoSpies(Class, options?)`** _(`/angular`)_ — build a service, store or pipe through
+  real Angular DI with every unprovided token answered by a spy instead of a `NullInjectorError`.
+  Constructor parameters and `inject()` fields both resolve; explicit `providers` win;
+  `spies.get(token)` reads back what the instance actually used.
+- **`stable(fixture)` / `flushEffects()`** _(`/angular`)_ — zoneless waiting. `detectChanges()` runs
+  one pass and never flushes effects, so an assertion after it reads state that has not finished
+  computing. `flushEffects` prefers `TestBed.tick()` (Angular ≥ 20) and falls back to
+  `ApplicationRef.tick()`.
+- **`expectEmission` / `expectEmissions` / `expectNoEmission`** — assert an Observable without a
+  `subscribe` callback that may never run. The source is duck-typed, so these live in the core entry
+  and pull in no rxjs, and the watchdog uses the timer functions captured at import time, so
+  `vi.useFakeTimers()` cannot silence it.
+- **`setupAutoSpy(options?)`** _(new `vitest-auto-spy/setup` entry)_ — one call for a project's test-run
+  hygiene: `restoreMockedProps()` in a global `afterEach`, detection of a second copy of the library
+  in the process (a duplicate install, or one install loaded as both ESM and CJS) with a report that
+  says what to do, and opt-in `vi.restoreAllMocks()` for runs with `isolate: false`.
+- **`enableTestBedDiagnostics(options?)`** _(`/angular`)_ — one line per spec file saying how much of
+  its wall clock went into `TestBed` versus plain logic, and how many components it created. Also
+  `instrumentTestBed`, `disableTestBedDiagnostics`, `getTestBedTiming`, `formatSpecTiming`,
+  `reportSpecTiming`.
+- **`vitest-auto-spy/eslint-plugin`** (new entry) — five flat-config rules that steer a suite onto
+  these helpers: `prefer-provide-auto-spy`, `prefer-create-spy-from-class`, `prefer-inject-spy`,
+  `no-object-define-property`, `no-expect-in-subscribe`. Every message links to the matching README
+  recipe.
+- **`registerSignalMatchers()`** _(`/angular`)_ — adds `expect(sig).toHaveSignalValue(value)`, which
+  reads the signal and refuses anything that is not a zero-argument getter (unlike
+  `expect(sig).toBeTruthy()`, which passes for every signal ever created).
+- **`asInstance(spy)` / `asSpy(instance)`** — the two named views between `Spy<T>` and `T`, replacing
+  the `as any` a mapped type forces at those boundaries. **`createSpyClass(Class, config?)`** — a spy
+  that can be called with `new` (a `vi.fn()` refuses once it carries a `mockReturnValue`), recording
+  `calls` and `instances`.
+- **`countMockedProps()`** — how many `mock*Prop` patches are still applied.
+- The property helpers (`mockReadonlyProp`, `mockReadonlyPropGetter`, `mockValueProp`,
+  `mockAccessorsProp`, `restoreMockedProps`) are now exported from the **core** entry too. Nothing
+  about them is Angular-specific; `vitest-auto-spy/angular` keeps exporting them unchanged.
+- README gained a **"How to mock"** section: one recipe per thing a spec stands in for — a service
+  behind DI, a service without DI, reading a spy back from DI, a whole class's dependencies, a
+  readonly property or signal, an Observable, a component's children, a `new`-ed class, a pipe.
+
+### Fixed
+
+- **`TestBed` diagnostics measured on a fake clock.** `vi.useFakeTimers()` replaces
+  `performance.now`, so an instrumented spec reported "0 ms for 155 components". The clock is now
+  captured at import time.
+- **The diagnostics report was swallowed by the library's own console spies.** It went through
+  `console.info`, which `vitest-auto-spy/console` replaces with a silent mock; it now writes to
+  `process.stdout` and falls back to the console only where there is none.
+- **Two specs could only pass with per-file isolation.** `core-standalone.spec.ts` and
+  `mock-adapter.spec.ts` exercise an *empty* IoC registry, and relied on their file being the first
+  to touch a process-wide one — so they failed under `isolate: false`, and `mock-adapter.spec.ts`
+  additionally left a fake adapter installed for whatever ran next. Both now empty and restore the
+  registry themselves (via internal `resetMockAdapter()` / `resetObservableSupport()`), and
+  `npm run test:shared-env` runs the whole suite with `isolate: false` in a single worker — in CI
+  too, so the mode `setupAutoSpy()` exists for stays proven rather than asserted.
+- `src/lib/observable-spy.ts` was committed unformatted. Nothing caught it: CI ran type-check,
+  coverage and build only, so `npm run lint` and `npm run format:check` never ran there. Both are
+  now CI steps, alongside the shared-environment run.
+- **`renderShallow` rejected `EnvironmentProviders`** — the shape every Angular `provide*()` helper
+  returns (`provideHttpClient()`, `provideRouter()`, …). `TestBed` accepts them; the option type
+  now does too.
+
+## [1.10.0] - 2026-08-18
+
+### Added
+
 - **`instanceMethodsToSpyOn`** — spy callables that live on the *instance* instead of the prototype:
   arrow-function properties, Angular `signal()` / `computed()` fields, ngrx `signalStore()` methods.
   Prototype discovery cannot see them, and naming them in `methodsToSpyOn` was the wrong tool — that
@@ -341,7 +414,9 @@ The latest released version here must always match the one published on
   `mockAccessorsProp`.
 - Dual ESM + CJS build with type declarations; 100% test coverage.
 
-[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v1.9.2...HEAD
+[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v1.10.0...HEAD
+[1.10.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v1.9.3...v1.10.0
+[1.9.3]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v1.9.2...v1.9.3
 [1.9.2]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v1.9.1...v1.9.2
 [1.9.1]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v1.9.0...v1.9.1
 [1.9.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v1.8.2...v1.9.0
