@@ -221,6 +221,46 @@ Nothing about these helpers is Angular-specific: they are exported from the **co
 `vitest-auto-spy/angular` keeps re-exporting them unchanged. `countMockedProps()` reports how many
 patches are still applied.
 
+### Driving a signal
+
+`createSpyFromClass` walks the prototype, and a `signal()` / `computed()` field is not there — it is
+assigned on the instance. Listing it in `methodsToSpyOn` does not help either: that makes it a
+function spy, and a function spy answers `undefined` until configured, so a component reading
+`service.count()` gets nothing where it expects a value.
+
+What a spec wants is the signal real and writable, so the component reacts the way it does in the
+application. That is the two-line pair every suite ends up writing — a writable handle for the test,
+a readonly one for the service:
+
+```ts
+const count = signal(0);
+mockReadonlyProp(service, 'count', count);
+```
+
+`mockSignalProp` is that pair with the handle returned rather than declared:
+
+```ts
+import { mockSignalProp } from 'vitest-auto-spy/angular';
+
+const service = injectSpy(CounterService);
+const count = mockSignalProp(service, 'count', 0);
+
+expect(component.label()).toBe('0 items');
+
+count.set(42);
+await fixture.whenStable();
+
+expect(component.label()).toBe('42 items');
+```
+
+The signal comes from `@angular/core`, so reactivity is genuine: a `computed()` downstream
+recomputes, an `effect()` runs, a template binding updates. A stand-in with a `set` method would
+satisfy `service.count()` and silently notify nothing — the failure this helper exists to avoid
+rather than cause.
+
+Returning the handle also removes the temptation to reach for `service.count` and call `.set` on
+it: `Signal<T>` has no `set`, so that only type-checks after an assertion.
+
 ## Where a spec spends its time
 
 ```ts

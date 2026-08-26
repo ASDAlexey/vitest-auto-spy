@@ -633,6 +633,12 @@ Source: https://asdalexey.github.io/vitest-auto-spy/core/control-helpers
 Each spied method gets helpers chosen by its return type. `calledWith` / `mustBeCalledWith`
 dispatch by argument, and the type-specific helpers configure the result.
 
+**Key order does not matter**
+Arguments are matched by a serialized key, and object keys are sorted before it is built — so
+`calledWith({ id: 1, name: 'a' })` matches a call made with `{ name: 'a', id: 1 }`. The two are
+the same argument, and the order a literal happened to be written in is not something a test
+should depend on.
+
 ## Synchronous methods
 
 ```ts
@@ -1926,8 +1932,9 @@ import { setupAutoSpy } from 'vitest-auto-spy/setup';
 setupAutoSpy();
 ```
 
-One call for three pieces of hygiene that every project otherwise assembles by hand, and that are
-expensive to diagnose when they are missing.
+One call for the pieces of hygiene every project otherwise assembles by hand, each of which is
+cheap to install and expensive to diagnose when it is missing. The first three are on by default;
+the rest are switches, because they change what the code under test sees.
 
 ## 1. Restoring patched properties
 
@@ -1996,14 +2003,89 @@ Each takes an optional host, defaulting to the real globals, so a test can conta
 instead. Under `isolate: true` this is close to a no-op — the environment is discarded per file
 anyway.
 
+## 5. Keeping the run off the network
+
+Opt-in, and the reason it exists is a run that is green and still fails.
+
+jsdom ships no `fetch`, so under it a component reaching for a remote asset is inert and the suite
+never notices. happy-dom implements it, and the same component starts issuing real requests — an
+icon loader pulling every SVG from a CDN, a config service polling an endpoint. The tests still
+pass, because nothing they assert depends on the response. The run does not:
+
+```text
+ Test Files  260 passed (260)
+      Tests  2257 passed (2257)
+
+Vitest caught 8 unhandled errors during the test run.
+DOMException [AbortError]: The operation was aborted.
+```
+
+The runner aborts whatever is in flight when it tears the environment down, and those aborts arrive
+as unhandled rejections after the summary. Exit code 1, and no test named — because no test failed.
+
+```ts
+setupAutoSpy({ blockNetwork: true });
+```
+
+`fetch` then rejects immediately, naming what was requested — which is the thing a stack trace does
+not tell you:
+
+```text
+[vitest-auto-spy] fetch is stubbed in unit tests — the code under test requested https://cdn.example.test/sprite.svg
+```
+
+Nothing leaves the machine, the run stops depending on a host being reachable, and the code under
+test takes exactly the branch it would take for a failed request. A spec that genuinely wants
+`fetch` replaces it as before — this is a floor, not a ceiling. The stub is installed per test
+(`restoreProps` takes it off again), and `blockNetwork()` is exported for suites that want it
+somewhere narrower.
+
+## 6. Putting back timer globals the fakes took with them
+
+On by default, because it can only ever repair.
+
+`vi.useRealTimers()` reads like the inverse of `vi.useFakeTimers()`, and in a plain Node realm it
+is. Under a DOM environment it is not: `@sinonjs/fake-timers` restores a global by assigning the
+original back **when it was an own property of the global object**, and deletes it otherwise. In
+happy-dom `Date` is inherited from the environment's realm, so uninstalling removes it outright.
+
+With `isolate: true` nothing notices. With `isolate: false` the next file in the same worker meets
+a realm with no `Date` and dies inside Vitest's own `useFakeTimers`, several files away from
+whatever installed the fakes:
+
+```text
+TypeError: Cannot read properties of undefined (reading 'now')
+ ❯ hijackMethod node_modules/@sinonjs/fake-timers/src/fake-timers-src.js
+ ❯ Object.useFakeTimers node_modules/vitest/dist/chunks/vi.js
+ ❯ src/app/billing/invoice.component.spec.ts:24:6
+```
+
+The file in that stack is simply the one that ran next.
+
+The real globals are captured when the library is first imported — before any spec can install
+fakes — and anything left `undefined` after a test is put back. Only that: a value a spec replaced
+on purpose is still there and is left alone, so the repair cannot overwrite a deliberate stub.
+
+```ts
+import { getWatchedTimerGlobals, restoreTimerGlobals } from 'vitest-auto-spy/setup';
+
+restoreTimerGlobals(); // safe at any point, and as often as you like
+getWatchedTimerGlobals(); // the names captured in this environment
+```
+
+`setupFakeTimers()` runs the same repair in its own `afterEach`, so a suite using it is covered
+whether or not `setupAutoSpy()` is installed.
+
 ## Options
 
-| Option            | Default   | Notes                                                                         |
-| ----------------- | --------- | ----------------------------------------------------------------------------- |
-| `duplicateCopies` | `'throw'` | `'warn'` to report without failing, `'off'` to skip the check                 |
-| `restoreProps`    | `true`    | `restoreMockedProps()` in a global `afterEach`                                |
-| `restoreMocks`    | `false`   | `vi.restoreAllMocks()` in a global `afterEach` — turn on for `isolate: false` |
-| `strayTimers`     | `false`   | Track and cancel timeouts, intervals and frames that outlive their file      |
+| Option                | Default   | Notes                                                                         |
+| --------------------- | --------- | ----------------------------------------------------------------------------- |
+| `duplicateCopies`     | `'throw'` | `'warn'` to report without failing, `'off'` to skip the check                 |
+| `restoreProps`        | `true`    | `restoreMockedProps()` in a global `afterEach`                                |
+| `restoreMocks`        | `false`   | `vi.restoreAllMocks()` in a global `afterEach` — turn on for `isolate: false` |
+| `strayTimers`         | `false`   | Track and cancel timeouts, intervals and frames that outlive their file      |
+| `blockNetwork`        | `false`   | Reject every `fetch`, so a unit run cannot reach the network                  |
+| `restoreTimerGlobals` | `true`    | Put back timer globals that uninstalling the fakes deleted                    |
 
 `restoreMocks` is off by default because it also drops `vi.spyOn` stubs a suite installed in
 `beforeAll`; it is the knob to reach for when the run shares one environment across files.
@@ -2043,6 +2125,17 @@ Written as two separate hooks, the second is the one a suite forgets — and a f
 behind leaks into every later file in the same worker, where it surfaces as an unrelated test
 hanging on a `setTimeout` that never fires. Pairing them in one call is the whole point.
 
+Both hooks are guarded. Installing or uninstalling twice does not round-trip: a suite that drives
+the clock itself, or a nested `describe` that calls this helper again, otherwise reaches a second
+`vi.useRealTimers()` — and that one leaves the environment without `clearInterval`, which explodes
+during teardown of whichever file happens to run next.
+
+The `afterEach` also puts back any timer global that uninstalling removed rather than restored.
+Under happy-dom `Date` is inherited from the environment's realm, so `vi.useRealTimers()` deletes
+it instead of reassigning; with `isolate: false` the next file then dies inside Vitest's own
+`useFakeTimers`. See [test-run hygiene](https://asdalexey.github.io/vitest-auto-spy/utilities/setup#_6-putting-back-timer-globals-the-fakes-took-with-them)
+for the whole story, including the standalone `restoreTimerGlobals()`.
+
 The optional `config` is forwarded verbatim to `vi.useFakeTimers()`, typed off Vitest's own
 signature so it tracks whatever the installed version accepts:
 
@@ -2080,6 +2173,128 @@ On real timers it throws a message naming the fix, rather than letting Vitest fa
 **Angular**
 Pair it with [`stable(fixture)`](https://asdalexey.github.io/vitest-auto-spy/adapters/angular#zoneless-waiting): `advanceTimers` moves the
 clock, `stable` flushes the effects and change detection the clock set off.
+
+---
+
+Source: https://asdalexey.github.io/vitest-auto-spy/utilities/observer-stubs
+
+# Observer stubs
+
+```ts
+import { intersectionEntry, stubIntersectionObserver } from 'vitest-auto-spy';
+
+it('reveals the card once it scrolls into view', async () => {
+  const observers = stubIntersectionObserver();
+  const fixture = TestBed.createComponent(RevealHost);
+
+  fixture.detectChanges(); // the directive constructs its observer
+
+  observers.last.emit([intersectionEntry(fixture.nativeElement, true)]);
+  await fixture.whenStable();
+
+  expect(fixture.nativeElement.classList).toContain('is-visible');
+});
+```
+
+`IntersectionObserver`, `ResizeObserver` and `MutationObserver` share a shape that makes them
+awkward to test. The code under test constructs the observer itself, keeps the instance private,
+and the only thing a spec can reach is the global constructor. So the spec has to intercept the
+construction, remember the callback, and invoke it with entries it builds by hand — forty lines
+that say nothing about the component, and that every project writes again.
+
+Two details make the hand-rolled version go wrong rather than merely be tedious.
+
+## The stub nobody takes off
+
+A spec that assigns `globalThis.IntersectionObserver` directly leaves it there. With
+`isolate: false` the next file in the worker inherits it and fails on something unrelated —
+`.observe is not a function`, or an assertion that never fires — pointing at innocent code.
+
+Installation here goes through `mockValueProp`, so `restoreMockedProps()` — which
+[`setupAutoSpy()`](https://asdalexey.github.io/vitest-auto-spy/utilities/setup) already runs after every test — puts the real constructor back with no
+teardown of your own.
+
+## The instance reached through a static field
+
+`MockObserver.last` is the usual trick, and it is shared mutable state that survives the file just
+like the stub does: the observer one spec constructed is still there for the next one to find.
+
+Here the handle returned by the installer owns the instances, so nothing outlives the spec that
+made it. Reaching for `last` when the code under test constructed nothing throws and says so,
+rather than failing three lines later against `undefined`:
+
+```text
+[vitest-auto-spy] stubObserver('IntersectionObserver'): the code under test has not constructed an
+IntersectionObserver. Render the component (or run the effect) before reaching for `last`, and
+check that the stub was installed before the construction rather than after it.
+```
+
+## The handle
+
+```ts
+const observers = stubResizeObserver();
+
+observers.instances; // every observer constructed since the stub went in, in order
+observers.last; // the newest — the usual case, where a component builds exactly one
+```
+
+Each instance exposes what a spec asserts on and what it drives:
+
+| Member         | What it is                                                                |
+| -------------- | ------------------------------------------------------------------------- |
+| `targets`      | everything passed to `observe`, with `unobserve`/`disconnect` applied      |
+| `observe`      | the spy — for asserting *that* something was observed, and with what       |
+| `unobserve`    | the spy                                                                    |
+| `disconnect`   | the spy                                                                    |
+| `disconnected` | whether teardown ran — the readable form of asserting on `disconnect`      |
+| `emit(entries)` | invoke the callback with one batch, exactly as the browser delivers it    |
+
+`emit` takes an array rather than a single entry on purpose. A fast scroll or a resize storm
+delivers several at once, and code that assumes one entry per call is a real bug this makes
+reachable:
+
+```ts
+observers.last.emit([intersectionEntry(first, false), intersectionEntry(second, true)]);
+```
+
+## Building entries
+
+`intersectionEntry(target, isIntersecting, overrides?)` fills in the fields nothing reads.
+`intersectionRatio` is derived rather than accepted, because the two disagreeing is not a state the
+browser produces — a spec that sets them apart is testing something that cannot happen.
+
+```ts
+intersectionEntry(element, true);
+intersectionEntry(element, true, { boundingClientRect: new DOMRect(0, 0, 200, 100) });
+```
+
+The rect fields are left out unless asked for. Fabricating four `DOMRectReadOnly`s for an assertion
+that looks at `isIntersecting` would be ceremony, not fidelity — and `overrides` supplies whatever
+a particular component does read.
+
+For `ResizeObserver` and `MutationObserver` the entries stay yours, since what a component reads
+from them varies too much to guess:
+
+```ts
+observers.last.emit([{ contentRect: { width: 320 } } as ResizeObserverEntry]);
+```
+
+## The installers
+
+| Function                     | Global replaced          |
+| ---------------------------- | ------------------------ |
+| `stubIntersectionObserver()` | `IntersectionObserver`   |
+| `stubResizeObserver()`       | `ResizeObserver`         |
+| `stubMutationObserver()`     | `MutationObserver`       |
+| `stubObserver(name)`         | any of the three, by name |
+
+All four are exported from the core entry — nothing here is Angular-specific, and the spies come
+from whichever [runtime adapter](https://asdalexey.github.io/vitest-auto-spy/runtimes/vitest) is registered, so they work on Bun and
+`node:test` too.
+
+**Zoneless Angular**
+`emit` runs the component's callback synchronously; the change detection it schedules does not.
+Follow it with `await fixture.whenStable()` or [`stable(fixture)`](https://asdalexey.github.io/vitest-auto-spy/adapters/angular#zoneless-waiting).
 
 ---
 
@@ -2359,6 +2574,46 @@ class prototype, a singleton), which is always the case under Vitest's `isolate:
 Nothing about these helpers is Angular-specific: they are exported from the **core** entry too, and
 `vitest-auto-spy/angular` keeps re-exporting them unchanged. `countMockedProps()` reports how many
 patches are still applied.
+
+### Driving a signal
+
+`createSpyFromClass` walks the prototype, and a `signal()` / `computed()` field is not there — it is
+assigned on the instance. Listing it in `methodsToSpyOn` does not help either: that makes it a
+function spy, and a function spy answers `undefined` until configured, so a component reading
+`service.count()` gets nothing where it expects a value.
+
+What a spec wants is the signal real and writable, so the component reacts the way it does in the
+application. That is the two-line pair every suite ends up writing — a writable handle for the test,
+a readonly one for the service:
+
+```ts
+const count = signal(0);
+mockReadonlyProp(service, 'count', count);
+```
+
+`mockSignalProp` is that pair with the handle returned rather than declared:
+
+```ts
+import { mockSignalProp } from 'vitest-auto-spy/angular';
+
+const service = injectSpy(CounterService);
+const count = mockSignalProp(service, 'count', 0);
+
+expect(component.label()).toBe('0 items');
+
+count.set(42);
+await fixture.whenStable();
+
+expect(component.label()).toBe('42 items');
+```
+
+The signal comes from `@angular/core`, so reactivity is genuine: a `computed()` downstream
+recomputes, an `effect()` runs, a template binding updates. A stand-in with a `set` method would
+satisfy `service.count()` and silently notify nothing — the failure this helper exists to avoid
+rather than cause.
+
+Returning the handle also removes the temptation to reach for `service.count` and call `.set` on
+it: `Signal<T>` has no `set`, so that only type-checks after an assertion.
 
 ## Where a spec spends its time
 

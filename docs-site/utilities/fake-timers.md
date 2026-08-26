@@ -30,6 +30,17 @@ Written as two separate hooks, the second is the one a suite forgets — and a f
 behind leaks into every later file in the same worker, where it surfaces as an unrelated test
 hanging on a `setTimeout` that never fires. Pairing them in one call is the whole point.
 
+Both hooks are guarded. Installing or uninstalling twice does not round-trip: a suite that drives
+the clock itself, or a nested `describe` that calls this helper again, otherwise reaches a second
+`vi.useRealTimers()` — and that one leaves the environment without `clearInterval`, which explodes
+during teardown of whichever file happens to run next.
+
+The `afterEach` also puts back any timer global that uninstalling removed rather than restored.
+Under happy-dom `Date` is inherited from the environment's realm, so `vi.useRealTimers()` deletes
+it instead of reassigning; with `isolate: false` the next file then dies inside Vitest's own
+`useFakeTimers`. See [test-run hygiene](./setup#_6-putting-back-timer-globals-the-fakes-took-with-them)
+for the whole story, including the standalone `restoreTimerGlobals()`.
+
 The optional `config` is forwarded verbatim to `vi.useFakeTimers()`, typed off Vitest's own
 signature so it tracks whatever the installed version accepts:
 

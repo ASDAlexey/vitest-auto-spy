@@ -43,6 +43,7 @@ spied method earns helpers from its return type — `calledWith`/`mustBeCalledWi
 - [Console spies](https://asdalexey.github.io/vitest-auto-spy/utilities/console): Silent, typed spies over the global console — installed on import, restored on demand.
 - [Test-run hygiene](https://asdalexey.github.io/vitest-auto-spy/utilities/setup): setupAutoSpy() — property restore, mock-registry reset and duplicate-copy detection in one call.
 - [Fake timers](https://asdalexey.github.io/vitest-auto-spy/utilities/fake-timers): setupFakeTimers pairs install with restore, and advanceTimers drains the microtasks a bare advance leaves pending.
+- [Observer stubs](https://asdalexey.github.io/vitest-auto-spy/utilities/observer-stubs): stubIntersectionObserver and friends — replace an observer the component constructs itself with one the spec drives, and get the real global back automatically.
 - [ESLint plugin](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-plugin): Five flat-config lint rules that steer a suite onto the auto-spy helpers, versioned with the API they recommend.
 
 ## Adapters

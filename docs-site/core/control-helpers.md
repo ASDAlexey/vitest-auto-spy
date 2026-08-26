@@ -8,6 +8,13 @@ description: calledWith, mustBeCalledWith, resolveWith, nextWith and the rest â€
 Each spied method gets helpers chosen by its return type. `calledWith` / `mustBeCalledWith`
 dispatch by argument, and the type-specific helpers configure the result.
 
+::: tip Key order does not matter
+Arguments are matched by a serialized key, and object keys are sorted before it is built â€” so
+`calledWith({ id: 1, name: 'a' })` matches a call made with `{ name: 'a', id: 1 }`. The two are
+the same argument, and the order a literal happened to be written in is not something a test
+should depend on.
+:::
+
 ## Synchronous methods
 
 ```ts
