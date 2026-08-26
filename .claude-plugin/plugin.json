@@ -1,7 +1,7 @@
 {
   "name": "vitest-auto-spy",
   "description": "Typed test spies from a class or a type on Vitest, bun:test and node:test — the skill teaches an agent the API, the anti-patterns and the error→fix table.",
-  "version": "1.13.0",
+  "version": "2.0.0",
   "author": {
     "name": "Alexey Popov",
     "url": "https://github.com/ASDAlexey"
