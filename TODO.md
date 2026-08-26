@@ -143,6 +143,19 @@ Sources: <https://github.blog/changelog/2026-07-31-restricting-npm-bypass-2fa-gr
       link each competitor row and add a per-feature breakdown (see analysis
       below).
 
+- [ ] **`using spy = createSpyFromClass(X)` via `Symbol.dispose`** — the one thing a newer runtime
+      actually unlocks for this library. Attaching a `[Symbol.dispose]()` that calls `resetAutoSpy`
+      is free on every supported version (Node defines the symbol since 18.18) and the `using`
+      *syntax* is the consumer's toolchain problem — esbuild/tsc downlevel it, and Node runs it
+      natively from 24 (verified: 22 throws `SyntaxError`). Would remove the `afterEach` from specs
+      that only exist to reset one spy. Not a performance item — a benchmark pass found no hot-path
+      win from any newer built-in (see `docs-site/core/performance.md#which-node-version`).
+- [ ] **`node:test` retains every mock forever** — `MockTracker` holds each `mock.fn()` for the life
+      of the process: 20 000 spies of a 10-method class held 435.6 MB after being dropped and
+      GC'd; `mock.reset()` released all of it. Documented in `docs-site/runtimes/node.md`, but worth
+      deciding whether the `/node` entry should do something about it (a `resetAutoSpy` hook cannot
+      — the tracker is global, and resetting it would clobber mocks the spec created by hand).
+
 ---
 
 # Competitor analysis
