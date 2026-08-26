@@ -53,23 +53,24 @@
     "url": "https://github.com/ASDAlexey/vitest-auto-spy/issues"
   },
   "type": "module",
-  "main": "./dist/index.cjs",
+  "main": "./dist/index.js",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
-      "require": "./dist/index.cjs"
+      "default": "./dist/index.js"
     },
     "./bun": {
       "types": "./dist/bun.d.ts",
       "import": "./dist/bun.js",
-      "require": "./dist/bun.cjs"
+      "default": "./dist/bun.js"
     },
     "./bun-angular": {
       "types": "./dist/bun-angular.d.ts",
-      "import": "./dist/bun-angular.js"
+      "import": "./dist/bun-angular.js",
+      "default": "./dist/bun-angular.js"
     },
     "./node": {
       "types": "./dist/node.d.ts",
@@ -79,42 +80,42 @@
     "./rxjs": {
       "types": "./dist/rxjs.d.ts",
       "import": "./dist/rxjs.js",
-      "require": "./dist/rxjs.cjs"
+      "default": "./dist/rxjs.js"
     },
     "./console": {
       "types": "./dist/console.d.ts",
       "import": "./dist/console.js",
-      "require": "./dist/console.cjs"
+      "default": "./dist/console.js"
     },
     "./angular": {
       "types": "./dist/angular.d.ts",
       "import": "./dist/angular.js",
-      "require": "./dist/angular.cjs"
+      "default": "./dist/angular.js"
     },
     "./nestjs": {
       "types": "./dist/nestjs.d.ts",
       "import": "./dist/nestjs.js",
-      "require": "./dist/nestjs.cjs"
+      "default": "./dist/nestjs.js"
     },
     "./react": {
       "types": "./dist/react.d.ts",
       "import": "./dist/react.js",
-      "require": "./dist/react.cjs"
+      "default": "./dist/react.js"
     },
     "./vue": {
       "types": "./dist/vue.d.ts",
       "import": "./dist/vue.js",
-      "require": "./dist/vue.cjs"
+      "default": "./dist/vue.js"
     },
     "./svelte": {
       "types": "./dist/svelte.d.ts",
       "import": "./dist/svelte.js",
-      "require": "./dist/svelte.cjs"
+      "default": "./dist/svelte.js"
     },
     "./setup": {
       "types": "./dist/setup.d.ts",
       "import": "./dist/setup.js",
-      "require": "./dist/setup.cjs"
+      "default": "./dist/setup.js"
     },
     "./eslint-plugin": {
       "types": "./dist/eslint-plugin.d.ts",
@@ -132,28 +133,18 @@
   ],
   "sideEffects": [
     "**/index.js",
-    "**/index.cjs",
     "**/bun.js",
-    "**/bun.cjs",
     "**/bun-angular.js",
     "**/node.js",
     "**/node.cjs",
     "**/angular.js",
-    "**/angular.cjs",
     "**/nestjs.js",
-    "**/nestjs.cjs",
     "**/react.js",
-    "**/react.cjs",
     "**/vue.js",
-    "**/vue.cjs",
     "**/svelte.js",
-    "**/svelte.cjs",
     "**/rxjs.js",
-    "**/rxjs.cjs",
     "**/console.js",
-    "**/console.cjs",
-    "**/setup.js",
-    "**/setup.cjs"
+    "**/setup.js"
   ],
   "engines": {
     "node": ">=18"

@@ -19,7 +19,6 @@ const EXTERNAL = [
 // code as unauditable, and this is a dev-only dependency where a few extra KB never reach a
 // production bundle.
 const SHARED = {
-  format: ['esm', 'cjs'] as const,
   dts: true,
   sourcemap: false,
   minify: false,
@@ -33,12 +32,14 @@ const SHARED = {
 export default defineConfig([
   {
     ...SHARED,
-    // Entry points: the framework-agnostic core (default Vitest adapter), the Bun and `node:test`
-    // runtime variants, the optional rxjs layer, the console spies, and the optional Angular
-    // TestBed helpers.
+    // One ESM pass over every entry, so they share the emitted chunks: the core is bundled once and
+    // each entry is a thin re-export of it. `bun-angular` used to be built in its own pass and paid
+    // for that with a fully inlined copy of the core (45 kB of JS + 43 kB of types); folding it in
+    // here cuts it to ~8 kB of each.
     entry: [
       'src/index.ts',
       'src/bun.ts',
+      'src/bun-angular.ts',
       'src/node.ts',
       'src/rxjs.ts',
       'src/console.ts',
@@ -50,15 +51,29 @@ export default defineConfig([
       'src/setup.ts',
       'src/eslint-plugin.ts',
     ],
+    format: ['esm'] as const,
     clean: true,
   },
   {
     ...SHARED,
-    // `bun-angular` is ESM-only: it awaits its DOM registrar at the top level, and top-level await
-    // has no CommonJS form. Nothing is lost — it is loaded as a `bun test` preload, and Bun runs
-    // ESM natively. `clean` stays off so this pass does not wipe the first one's output.
-    entry: ['src/bun-angular.ts'],
-    format: ['esm'],
+    // CommonJS only where a `require()` can actually succeed, which is a much shorter list than it
+    // looks. Two independent reasons rule the rest out:
+    //
+    //  1. **Vitest refuses to be required at all** (`Vitest cannot be imported in a CommonJS module
+    //     using require()`), so every Vitest-backed entry — `index`, `angular`, `nestjs`, `react`,
+    //     `vue`, `svelte`, `console`, `setup` — threw on the first line of its own `.cjs`. Those
+    //     files could never load in any consumer; they were ~230 kB of unreachable output.
+    //  2. **esbuild cannot code-split CommonJS**, so each `.cjs` is a self-contained bundle with its
+    //     own copy of the `MockAdapter` / `ObservableSupport` registries. Requiring two entries gave
+    //     two disconnected registries: `require('…/rxjs')` next to `require('…/node')` still failed
+    //     with "Observable spies require rxjs". Only a *single* self-contained entry works in CJS.
+    //
+    // What survives is what is genuinely usable: `node` (a `node --test` suite written in CJS, used
+    // on its own) and `eslint-plugin` (loaded by a CommonJS `eslint.config.cjs`, no registry
+    // involved). `bun` is dropped too — Bun runs ESM natively and `bun test` files are ESM.
+    // `clean` stays off so this pass does not wipe the first one's output.
+    entry: ['src/node.ts', 'src/eslint-plugin.ts'],
+    format: ['cjs'] as const,
     clean: false,
   },
 ]);
