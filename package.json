@@ -104,6 +104,11 @@
       "types": "./dist/svelte.d.ts",
       "import": "./dist/svelte.js",
       "require": "./dist/svelte.cjs"
+    },
+    "./setup": {
+      "types": "./dist/setup.d.ts",
+      "import": "./dist/setup.js",
+      "require": "./dist/setup.cjs"
     }
   },
   "files": [
@@ -132,7 +137,9 @@
     "**/rxjs.js",
     "**/rxjs.cjs",
     "**/console.js",
-    "**/console.cjs"
+    "**/console.cjs",
+    "**/setup.js",
+    "**/setup.cjs"
   ],
   "engines": {
     "node": ">=18"

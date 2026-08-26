@@ -1,9 +1,9 @@
-import { defineConfig } from 'vitest/config';
 import angular from '@analogjs/vite-plugin-angular';
+import { defineConfig } from 'vitest/config';
 
 // auto-spy uses Angular TestBed (provideAutoSpy / injectSpy) → needs the
 // Analog Angular plugin + zoneless vitest-angular setup.
-export default defineConfig(() => ({
+export default defineConfig({
   plugins: [angular({ tsconfig: 'tsconfig.spec.json' })],
   test: {
     globals: true,
@@ -23,7 +23,14 @@ export default defineConfig(() => ({
       // `node:test`, which only resolve under their own runtimes (Vitest cannot
       // bundle the built-in `node:test`) — their adapter logic is covered via
       // `bun-adapter.ts` / `node-adapter.ts`.
-      include: ['src/lib/**/*.ts', 'src/auto-spy.ts', 'src/index.ts', 'src/rxjs.ts', 'src/angular.ts'],
+      include: [
+        'src/lib/**/*.ts',
+        'src/auto-spy.ts',
+        'src/index.ts',
+        'src/rxjs.ts',
+        'src/angular.ts',
+        'src/setup.ts',
+      ],
       thresholds: {
         lines: 100,
         functions: 100,
@@ -32,4 +39,4 @@ export default defineConfig(() => ({
       },
     },
   },
-}));
+});

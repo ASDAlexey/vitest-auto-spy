@@ -15,6 +15,7 @@ export default defineConfig({
     'src/react.ts',
     'src/vue.ts',
     'src/svelte.ts',
+    'src/setup.ts',
   ],
   format: ['esm', 'cjs'],
   dts: true,
