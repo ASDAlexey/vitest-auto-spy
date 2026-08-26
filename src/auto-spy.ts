@@ -163,3 +163,6 @@ export {
   type EmissionOptions,
   type SubscribableLike,
 } from './lib/expect-emission';
+
+// Type bridges between `Spy<T>` and `T`, plus a construction-compatible spy
+export { asInstance, asSpy, createSpyClass, type ConstructorSpy } from './lib/spy-typing';
