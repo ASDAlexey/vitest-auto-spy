@@ -36,3 +36,5 @@ export {
   type CreateWithAutoSpiesOptions,
   type SpyRegistry,
 } from './lib/create-with-auto-spies';
+export { flushEffects, stable } from './lib/zoneless';
+export { registerSignalMatchers, type SignalLike } from './lib/signal-matchers';
