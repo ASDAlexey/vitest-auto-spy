@@ -79,6 +79,59 @@ skipped.
       halved, break Bun / browser / StackBlitz portability, and hand supply-chain scanners an opaque
       artifact in a package that deliberately ships unminified (see `tsup.config.ts`).
 
+## Release infrastructure — move npm publishing to OIDC (deadline ~Jan 2027)
+
+npm is retiring granular access tokens with **Bypass 2FA** — exactly the kind of
+token both publishing workflows use today (`NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}`
+in `.github/workflows/auto-release.yml` and `.github/workflows/release.yml`).
+
+- **2026-07-31, already in force** — such a token can no longer perform
+  account/governance actions: creating or deleting tokens, changing package
+  access or maintainers, editing the trusted-publishing config, managing
+  org/team membership. Publishing itself still works.
+- **~January 2027, announced** — direct publishing is removed. The token drops
+  to reading private packages and *staging* a publish; the release then waits
+  for a human to approve it with 2FA. At that point auto-release stops being
+  automatic.
+
+Not affected: `GITHUB_TOKEN`, GitHub PATs, GitHub App tokens.
+
+The fix is **Trusted Publishing (OIDC)** — GitHub Actions exchanges its own
+OIDC token for a short-lived publish credential, so no npm token lives in the
+repo at all.
+
+- [ ] **Register the trusted publisher on npmjs.com.** Requires an interactive
+      2FA challenge, so it cannot be scripted: package `vitest-auto-spy` →
+      Settings → Trusted Publisher → GitHub Actions; owner `ASDAlexey`, repo
+      `vitest-auto-spy`, workflow file `auto-release.yml` (with the extension),
+      environment left empty, action `npm publish`.
+- [ ] **Decide what happens to `release.yml`.** The publisher config names one
+      workflow file, so two publishing workflows cannot both authenticate over
+      OIDC unless npm accepts a second entry. Either reduce `release.yml` to
+      creating the GitHub Release for a pushed tag, or drop it and leave
+      `auto-release.yml` as the single publishing path.
+- [ ] **Strip the token from the workflows** — remove the
+      `env: NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}` block from the publish
+      step. `permissions: id-token: write` is already set in both files, and
+      that is all OIDC needs.
+- [ ] **Check the toolchain floor** — trusted publishing needs npm >= 11.5.1 and
+      Node >= 22.14. Node is pinned to 24; `npm i -g npm@11` currently resolves
+      above 11.5.1, but pin an exact version so a floating 11.x cannot drift
+      below the floor.
+- [ ] **Drop `--provenance`** — under OIDC, provenance attestations are
+      generated automatically for a public package from a public repo. The flag
+      is harmless but no longer carries meaning.
+- [ ] **Clean up after the first green OIDC release** — delete the `NPM_TOKEN`
+      repo secret and revoke the token on npm. Only after a real publish has
+      succeeded without it; the "skip if version already exists" guard in both
+      workflows makes a retry safe.
+- [ ] **Update the workflow header comments** — both files still state
+      "Requires an `NPM_TOKEN` repo secret (an npm Automation or granular token
+      that bypasses 2FA)".
+
+Sources: <https://github.blog/changelog/2026-07-31-restricting-npm-bypass-2fa-granular-access-tokens/>,
+<https://docs.npmjs.com/trusted-publishers>
+
 ## Backlog (not in this pass)
 
 - [ ] **`node:test` adapter ignores the `name` argument** of
