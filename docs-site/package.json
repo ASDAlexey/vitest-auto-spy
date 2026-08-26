@@ -6,6 +6,7 @@
   "type": "module",
   "scripts": {
     "dev": "vitepress dev",
+    "prebuild": "node ../scripts/generate-llms-txt.mjs",
     "build": "vitepress build",
     "preview": "vitepress preview"
   },

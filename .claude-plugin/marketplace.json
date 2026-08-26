@@ -1,0 +1,36 @@
+{
+  "name": "vitest-auto-spy",
+  "owner": {
+    "name": "Alexey Popov",
+    "url": "https://github.com/ASDAlexey"
+  },
+  "metadata": {
+    "description": "The vitest-auto-spy plugin — an agent skill for writing tests with typed auto-spies.",
+    "version": "1.0.0"
+  },
+  "plugins": [
+    {
+      "name": "vitest-auto-spy",
+      "source": "./",
+      "description": "Teaches an agent to write and fix tests that use vitest-auto-spy: typed spies from a class or a type on Vitest, bun:test and node:test, with Angular/NestJS/React/Vue/Svelte adapters.",
+      "version": "1.12.0",
+      "author": {
+        "name": "Alexey Popov",
+        "url": "https://github.com/ASDAlexey"
+      },
+      "homepage": "https://asdalexey.github.io/vitest-auto-spy/",
+      "license": "MIT",
+      "category": "testing",
+      "keywords": [
+        "testing",
+        "vitest",
+        "bun",
+        "node-test",
+        "mocking",
+        "spies",
+        "angular",
+        "typescript"
+      ]
+    }
+  ]
+}

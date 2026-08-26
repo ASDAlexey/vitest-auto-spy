@@ -1,0 +1,3170 @@
+# vitest-auto-spy
+
+> Auto-generate fully-typed test spies from a class, a type or nothing at all — one API across
+> Vitest, `bun test` and `node:test`, plus Angular/NestJS/React/Vue/Svelte adapters. A drop-in
+> successor to `jest-auto-spies`. Zero runtime dependencies.
+
+- Install: `npm i -D vitest-auto-spy`
+- Repository: https://github.com/ASDAlexey/vitest-auto-spy
+- Documentation: https://asdalexey.github.io/vitest-auto-spy/
+- Offline agent cheat sheet, shipped inside the package: `node_modules/vitest-auto-spy/AGENTS.md`
+- Everything below inlined as one file: https://asdalexey.github.io/vitest-auto-spy/llms-full.txt
+
+The one-line orientation: `createSpyFromClass(Class)` when a class exists, `createAutoMock<T>()`
+when only a type does, `createMock<T>(partial)` when the double is read rather than called. Each
+spied method earns helpers from its return type — `calledWith`/`mustBeCalledWith` always,
+`resolveWith`/`rejectWith` for a `Promise`, `nextWith`/`throwWith` for an `Observable`.
+
+---
+
+
+# Overview
+
+A drop-in, fully-typed jest-auto-spies successor — one API across Vitest, Bun and node:test, and the only way to run Angular's TestBed under bun test.
+
+- **Fully typed spies** — Every method becomes a typed mock with return-type-aware helpers — resolveWith for Promises, nextWith for Observables, calledWith / mustBeCalledWith for argument matching. — https://asdalexey.github.io/vitest-auto-spy/core/create-spy-from-class
+- **Class, type, or neither** — createSpyFromClass reads a real class and spies every method. No class? createAutoMock<T>() and recursive mockDeep<T>() mock straight from a type — and createMock<T>() builds the spy-free data shape a test only reads. — https://asdalexey.github.io/vitest-auto-spy/core/auto-mock-by-type
+- **One API, three runtimes** — The core talks to your runner through a MockAdapter seam, so the same spies run on Vitest, Bun (bun:test) and node:test. Only native mock methods stay the runner's own. — https://asdalexey.github.io/vitest-auto-spy/runtimes/vitest
+- **Angular TestBed on Bun** — Bun ships no DOM and cannot resolve templateUrl, so Angular specs simply do not run there. One preload installs a DOM, inlines external templates and styles through a Bun.plugin hook, and boots a zoneless TestBed. — https://asdalexey.github.io/vitest-auto-spy/runtimes/bun-angular
+- **Faster Angular specs** — renderShallow collapses the shallow-TestBed copy-paste into one call (1.7× on real component specs), createWithAutoSpies builds a class through DI with every unprovided token spied, and per-file diagnostics say which specs are worth converting. — https://asdalexey.github.io/vitest-auto-spy/adapters/angular
+- **Observables that fail on silence** — expectEmission / expectEmissions / expectNoEmission replace the expect() inside a subscribe callback that never runs — the assertion is the await. Duck-typed, so no rxjs is pulled in. — https://asdalexey.github.io/vitest-auto-spy/core/observable-assertions
+- **Fake timers that settle** — setupFakeTimers() pairs install with restore, and advanceTimers() drains the microtasks a bare advanceTimersByTime leaves pending — the gap that makes a timer assertion read like a race. — https://asdalexey.github.io/vitest-auto-spy/utilities/fake-timers
+- **Lint rules and hygiene** — Five ESLint rules steer a suite onto these helpers, each linking to its recipe, and setupAutoSpy() wires property restore, duplicate-copy detection and mock-registry hygiene in one line. — https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-plugin
+- **Zero runtime deps** — An in-tree arg serializer and opt-in subpaths keep rxjs and Angular out of your runtime bundle. 100% test coverage, verified on Node 22/24/26 and Bun 1.4. — https://asdalexey.github.io/vitest-auto-spy/core/installation
+
+---
+
+Source: https://asdalexey.github.io/vitest-auto-spy/core/introduction
+
+# Introduction
+
+`vitest-auto-spy` reads a class and generates a typed spy for **every** method, powered by your
+test runner's mock primitive (`vi.fn()` on Vitest, and the equivalents on Bun and `node:test`).
+It is a drop-in successor to [`jest-auto-spies`](https://www.npmjs.com/package/jest-auto-spies):
+the same API, but spying on Vitest-compatible runners instead of Jest.
+
+Manually mocking a service is tedious and brittle — one `vi.fn()` line per method, kept in sync
+by hand. Instead:
+
+```ts
+import { createSpyFromClass, type Spy } from 'vitest-auto-spy';
+
+let userService: Spy<UserService>;
+
+beforeEach(() => {
+  userService = createSpyFromClass(UserService);
+});
+```
+
+`Spy<UserService>` exposes each method as a mock **plus** the right helpers based on the method's
+return type: `resolveWith` / `rejectWith` for `Promise`s, `nextWith` / `throwWith` for RxJS
+`Observable`s, and `calledWith` / `mustBeCalledWith` for argument matching.
+
+No class to hand? Mock straight from a **type or interface** with `createAutoMock<T>()`, or build a
+recursive, self-seeding mock with `mockDeep<T>()`. For a double the code under test only **reads** —
+a DTO, a route snapshot, a config object — `createMock<T>(partial?)` returns a plain, spy-free `T`
+instead. See [Auto-mock by type](https://asdalexey.github.io/vitest-auto-spy/core/auto-mock-by-type).
+
+## Where it runs
+
+The core never imports your test runner directly: `vi.fn()` and its equivalents sit behind a
+`MockAdapter` that each entry point registers on import. Pick the one that matches your runner and
+the rest of the API is identical.
+
+```ts
+import { createSpyFromClass } from 'vitest-auto-spy'; // Vitest (default, zero-config)
+import { createSpyFromClass } from 'vitest-auto-spy/bun'; // Bun — bun:test
+import { createSpyFromClass } from 'vitest-auto-spy/node'; // node:test
+```
+
+Angular's `TestBed` runs on Bun too, which nothing else offers — see
+[Angular on Bun](https://asdalexey.github.io/vitest-auto-spy/runtimes/bun-angular).
+
+Next: [Installation](https://asdalexey.github.io/vitest-auto-spy/core/installation) for the wiring, or
+[`createSpyFromClass`](https://asdalexey.github.io/vitest-auto-spy/core/create-spy-from-class) for the full configuration surface.
+
+---
+
+Source: https://asdalexey.github.io/vitest-auto-spy/core/installation
+
+# Installation
+
+```bash
+npm i -D vitest-auto-spy
+```
+
+Peer dependencies are all **provided by your project**; `rxjs` and `@angular/core` are **optional**
+— install them only for the matching entry point. The package itself has **zero runtime
+dependencies**.
+
+| Peer            | Needed for                                                                  | Optional? |
+| --------------- | --------------------------------------------------------------------------- | --------- |
+| `vitest`        | the default runner                                                          | no        |
+| `rxjs`          | `vitest-auto-spy/rxjs` observable spies — `>=7`, no upper bound (rxjs 8 too) | yes       |
+| `@angular/core` | `vitest-auto-spy/angular` and `vitest-auto-spy/bun-angular` helpers          | yes       |
+
+| Tool       | Minimum                                                          |
+| ---------- | ---------------------------------------------------------------- |
+| Node.js    | ≥ 18                                                             |
+| Vitest     | ≥ 1.0                                                            |
+| Bun        | ≥ 1.4 for `vitest-auto-spy/bun-angular`; any recent Bun for `/bun` |
+| TypeScript | ≥ 4.7 for the typed helpers (plain JS works too, just untyped)   |
+
+Ships **dual ESM + CommonJS** with bundled `.d.ts` types, so it drops into both `import`- and
+`require`-style setups. The one exception is `vitest-auto-spy/bun-angular`, which is **ESM-only**
+(it awaits its DOM registrar at the top level, and top-level `await` has no CommonJS form).
+
+## Entry points
+
+The library ships a framework-agnostic core plus runtime and framework layers, so a plain
+Node / Bun / React / Vue project pulls **neither rxjs nor Angular into its runtime bundle**:
+
+| Import                          | Provides                                                                                                                                                                                                        | Pulls in                    |
+| ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------- |
+| `vitest-auto-spy`               | `createSpyFromClass`, `createAutoMock`, `mockDeep`, `createMock`, `createFunctionSpy`, the `mock*Prop` helpers, the [observable assertions](https://asdalexey.github.io/vitest-auto-spy/core/observable-assertions), the [type bridges](https://asdalexey.github.io/vitest-auto-spy/core/spy-typing), `errorHandler`, types | `vitest`                    |
+| `vitest-auto-spy/bun`           | the same core, driven by Bun's `bun:test` mocks                                                                                                                                                                 | `bun:test`                  |
+| `vitest-auto-spy/bun-angular`   | Angular's `TestBed` under `bun test` — DOM, JIT `templateUrl` resolution and a zoneless environment from one preload, plus the core and the Angular helpers                                                     | `bun:test`, `@angular/core` |
+| `vitest-auto-spy/node`          | the same core, driven by `node:test`'s `mock.fn()`                                                                                                                                                              | `node:test`                 |
+| `vitest-auto-spy/rxjs`          | observable spies (`nextWith`, `nextWithValues`, `observablePropsToSpyOn`, …) + `createObservableWithValues`                                                                                                     | `rxjs`                      |
+| `vitest-auto-spy/angular`       | `provideAutoSpy`, `injectSpy`, `renderShallow`, `createWithAutoSpies`, `stable`/`flushEffects`, signal matchers, TestBed diagnostics, the `mock*Prop` helpers                                                   | `@angular/core`             |
+| `vitest-auto-spy/nestjs`        | `provideAutoSpy`, `injectSpy` for `Test.createTestingModule`                                                                                                                                                    | — (your `@nestjs/*`)        |
+| `vitest-auto-spy/react`         | the core, with a natural import for React Testing Library suites                                                                                                                                                | — (your `react`)            |
+| `vitest-auto-spy/vue`           | `provideAutoSpy` for `global.provide` + Pinia store spying                                                                                                                                                      | — (your `vue`/`pinia`)      |
+| `vitest-auto-spy/svelte`        | the core, with a natural import for Svelte suites                                                                                                                                                               | — (your `svelte`)           |
+| `vitest-auto-spy/console`       | [console spies](https://asdalexey.github.io/vitest-auto-spy/utilities/console) — silent typed spies over the global `console`                                                                                                                            | `vitest`                    |
+| `vitest-auto-spy/setup`         | [`setupAutoSpy()`](https://asdalexey.github.io/vitest-auto-spy/utilities/setup) and [`setupFakeTimers()`](https://asdalexey.github.io/vitest-auto-spy/utilities/fake-timers)                                                                                                                      | `vitest`                    |
+| `vitest-auto-spy/eslint-plugin` | [the lint rules](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-plugin) that steer a suite onto these helpers                                                                                                                              | — (your `eslint`)           |
+
+Each entry registers its mock adapter **on import**, so import the one matching your test runner —
+mixing `vitest-auto-spy` into a `bun test` run leaves the wrong adapter installed.
+
+## Wiring it up
+
+### Vitest
+
+Zero-config: `import { createSpyFromClass } from 'vitest-auto-spy'` in a spec is enough. A setup
+file is only needed for things that are global by nature — the rxjs layer and run hygiene:
+
+```ts
+// vitest.setup.ts
+import 'vitest-auto-spy/rxjs'; // once — enables observable spies everywhere
+import { setupAutoSpy } from 'vitest-auto-spy/setup';
+
+setupAutoSpy();
+```
+
+```ts
+// vitest.config.ts
+export default defineConfig({
+  test: {
+    setupFiles: ['./vitest.setup.ts'],
+  },
+});
+```
+
+`setupAutoSpy()` matters most when the suite shares one environment (`isolate: false`), where an
+un-restored property patch outlives the file that made it. See
+[Test-run hygiene](https://asdalexey.github.io/vitest-auto-spy/utilities/setup).
+
+### Bun
+
+```ts
+// user.test.ts
+import { describe, expect, it } from 'bun:test';
+import { createSpyFromClass } from 'vitest-auto-spy/bun';
+```
+
+```bash
+bun test
+```
+
+For the equivalent of a Vitest setup file, use a preload:
+
+```toml
+# bunfig.toml
+[test]
+preload = ["./bun-setup.ts"]
+```
+
+Angular under `bun test` has its own entry and its own preload — see
+[Angular on Bun](https://asdalexey.github.io/vitest-auto-spy/runtimes/bun-angular). Bun 1.4's `--isolate`, `--parallel`, `--shard`,
+`--changed` and `--timings` all work unchanged; [Bun](https://asdalexey.github.io/vitest-auto-spy/runtimes/bun) covers what each one means for
+your spies.
+
+### node:test
+
+```ts
+// user.test.ts
+import { describe, it } from 'node:test';
+import { createSpyFromClass } from 'vitest-auto-spy/node';
+```
+
+```bash
+node --test
+```
+
+`node:test` has no `expect`; pair it with `node:assert` (or any assertion library) — the spy surface
+is the same either way.
+
+## TypeScript
+
+The typed helpers need nothing beyond a normal setup, with one thing worth knowing: **the `Spy<T>`
+type surface references rxjs types even when you never import the rxjs layer.** Keep `rxjs`
+installed for type-checking — it is normally already a devDependency — and none of it reaches your
+runtime bundle.
+
+```jsonc
+{
+  "compilerOptions": {
+    // "bundler" or "node16"/"nodenext" — anything that understands `exports` subpaths
+    "moduleResolution": "bundler",
+  },
+}
+```
+
+`Spy<T>` is a **mapped type**: it drops `#private` and `private` members, so it is not assignable
+to `T`. Declare the variable as `Spy<T>` rather than as `T`, or bridge the two with
+[`asInstance` / `asSpy`](https://asdalexey.github.io/vitest-auto-spy/core/spy-typing).
+
+---
+
+Source: https://asdalexey.github.io/vitest-auto-spy/core/how-it-works
+
+# How it works
+
+Everything in this library comes down to two ideas. One runs at runtime, the other exists only in
+the type system. The rest of the repository is the work that keeps those two honest in real
+codebases.
+
+## Why it exists
+
+You are testing a component that calls `UserService`. The real service can't come along — it would
+hit the network. So you write a fake, by hand:
+
+```ts
+const userService = {
+  getUser: vi.fn(),
+  saveUser: vi.fn(),
+  deleteUser: vi.fn(),
+  refresh: vi.fn(),
+  // …one line per method, forever
+};
+```
+
+Three problems, all of them silent:
+
+- add a method to the service and you have to remember to add it here;
+- rename one and the test keeps "passing" — it just stops observing the call;
+- there are no types: `getUser: vi.fn()` knows nothing about the real signature.
+
+The same fake, assembled for you:
+
+```ts
+const userService = createSpyFromClass(UserService);
+```
+
+## Idea one — ask the class for its methods
+
+**In one sentence:** a class can be asked which methods it has, and that list is enough to build an
+object where every name is a mock.
+
+Class methods don't live on instances, they live on the prototype:
+
+```ts
+class UserService {
+  getUser(id: number) {
+    /* … */
+  }
+  saveUser(user: User) {
+    /* … */
+  }
+}
+
+Object.getOwnPropertyNames(UserService.prototype);
+// → ['constructor', 'getUser', 'saveUser']
+```
+
+Drop `constructor`, spread a mock across the remaining names, and you have the engine:
+
+```ts
+function createSpyFromClass(SomeClass) {
+  const spy = {};
+
+  for (const name of Object.getOwnPropertyNames(SomeClass.prototype)) {
+    if (name === 'constructor') continue;
+
+    spy[name] = vi.fn();
+  }
+
+  return spy;
+}
+```
+
+```ts
+const service = createSpyFromClass(UserService);
+service.getUser; // vi.fn()
+service.saveUser; // vi.fn()
+```
+
+That's the whole idea. No code generation, no compiler plugin — ask for the method names, build an
+object from them.
+
+### What the real implementation adds
+
+The idea is small; the work is in the edges. Each of these is a case where the naive loop above
+returns a spy that looks right and behaves wrong.
+
+**Inheritance.** `getOwnPropertyNames` only sees one level: for `class Admin extends UserService`,
+none of `UserService`'s methods appear. So the real version walks up the prototype chain, stopping
+at the last prototype that still has a parent:
+
+```ts
+let current = SomeClass.prototype;
+
+while (Object.getPrototypeOf(current)) {
+  // ← Object.prototype has no parent; that's the stop
+  collectNamesFrom(current);
+  current = Object.getPrototypeOf(current);
+}
+```
+
+The stop condition is what keeps `toString`, `hasOwnProperty` and the rest of `Object.prototype`
+out of your spy.
+
+**Getters.** If the class declares `get isReady()`, reading the property would execute the getter —
+on a class that was never constructed, that usually throws. So names are collected from property
+*descriptors* rather than by reading:
+
+```ts
+const descriptors = Object.getOwnPropertyDescriptors(current);
+
+// a descriptor with `.get` is an accessor, and takes a different path
+Object.keys(descriptors).filter((name) => !descriptors[name]?.get);
+```
+
+Accessors get their own treatment — see
+[accessor spies](https://asdalexey.github.io/vitest-auto-spy/core/create-spy-from-class#accessor-spies-—-accessorspies).
+
+**The mock itself.** In the real version the value is not a bare `vi.fn()` but
+`createFunctionSpy(name)`, which attaches `calledWith`, `resolveWith`, `nextWith` and the rest of
+the [control helpers](https://asdalexey.github.io/vitest-auto-spy/core/control-helpers). The assembly step is unchanged.
+
+**Cost.** The method list of a class is fixed for the run, but the same class is typically spied
+once per `beforeEach`. The walk result is cached in a `WeakMap` keyed by prototype, so it happens
+once per class and holds no strong reference to it.
+
+### The consequence: your class never runs
+
+The library only looks at the class from the outside. No instance is created, no constructor is
+called. A service that needs five dependencies and a live connection to be constructed is faked
+without mocking any of them.
+
+The flip side: anything that lives **on the instance** rather than on the prototype is invisible to
+a prototype walk — arrow-function fields (`handle = () => {}`), Angular `signal()` properties, the
+methods of an ngrx `signalStore()`. For those there is `instanceMethodsToSpyOn` (names given
+explicitly), and when there is no class at all — only an interface —
+[`createAutoMock<T>()`](https://asdalexey.github.io/vitest-auto-spy/core/auto-mock-by-type), a `Proxy` that mints a spy the first time a key is
+touched.
+
+## Idea two — types read the return type
+
+**In one sentence:** TypeScript looks at what a method returns and offers the helpers that fit it.
+
+```ts
+userService.getUser.resolveWith(user); // returns a Promise    → resolveWith
+userService.items$.nextWith([1, 2]); // returns an Observable → nextWith
+userService.getName.calledWith(1).mockReturnValue('Ann'); // plain → mockReturnValue
+```
+
+There is no runtime here at all — only types. The tool is a conditional type:
+
+```ts
+type ChooseHelpers<Method> =
+  Method extends (...args: any[]) => Promise<infer P> // returns Promise<P>?
+    ? { resolveWith(value: P): void; rejectWith(err: unknown): void }
+    : Method extends (...args: any[]) => Observable<infer O> // Observable<O>?
+      ? { nextWith(value: O): void; complete(): void }
+      : { mockReturnValue(value: ReturnType<Method>): void }; // plain method
+```
+
+It reads like `if / else if / else`: *if the method returns a Promise give it these helpers, else if
+an Observable these, otherwise those.* `infer P` means "remember what the Promise was parameterized
+with", so `resolveWith` accepts the right type instead of `any`.
+
+The second half maps that over every key of the class:
+
+```ts
+type Spy<T> = {
+  [K in keyof T]: T[K] extends Func
+    ? T[K] & ChooseHelpers<T[K]> // method: itself, plus its helpers
+    : T[K]; // not a method: left alone
+};
+```
+
+`T[K] & ChooseHelpers<T[K]>` is an intersection: the spy is still callable exactly like the original
+method **and** carries the control helpers.
+
+```ts
+const service: Spy<UserService> = createSpyFromClass(UserService);
+
+service.getUser.resolveWith(user); // ✅ getUser returns Promise<User>
+service.getUser.nextWith(user); // ❌ no such helper — autocomplete won't offer it
+```
+
+## Where the two meet
+
+One line, at the end of `createSpyFromClass`:
+
+```ts
+return autoSpy as Spy<T>;
+```
+
+At runtime an ordinary object of mocks was assembled. TypeScript took no part in assembling it — it
+is handed a promise that what came back has the shape of `Spy<T>`.
+
+This is the only assertion in the core, and it is irreducible: the object is built from names known
+only at runtime, while `Spy<T>` is computed by the compiler from the class type. Neither can verify
+the other. Correctness rests on the fact that the prototype walk and the mapped type look at **the
+same class**, and therefore produce the same set of keys.
+
+## What the rest of the repository is
+
+Everything else is scaffolding around those two ideas:
+
+| Layer                                        | What it does                                                                                                                          |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `createFunctionSpy`                          | implements at runtime what the types promise: `calledWith`, `resolveWith`, `nextWith`, `mustBeCalledWith`                              |
+| `ArgsMap`                                    | argument matching: `calledWith(1, 'a')` resolves in O(1) through a prototype-less map, with a predicate path for `expect.any(…)` and friends |
+| `MockAdapter`                                | the core never imports a test runner directly — it sits behind an interface, which is why the same library runs on Vitest, Bun and `node:test` |
+| `/rxjs`                                      | Observable helpers are a separate entry point; don't import it and not a byte of rxjs enters your bundle                               |
+| `resetAutoSpy`                               | resets every spy on an object in one call (`calledWith` configs live in closures, where `mockClear` can't reach)                       |
+| `/angular`, `/nestjs`, `/react`, `/vue`, `/svelte` | thin per-framework wrappers — `provideAutoSpy` for the Angular TestBed, and so on                                                  |
+
+## One compatibility note
+
+The API is a drop-in replacement for `jest-auto-spies` — migration is a change of import. There is a
+single exception: here `methodsToSpyOn` is an **exhaustive whitelist** (give it a list and the
+prototype walk is skipped entirely), where in `jest-auto-spies` it was additive to whatever was
+discovered. See [Migrating](https://asdalexey.github.io/vitest-auto-spy/migrating).
+
+## Next
+
+- [`createSpyFromClass`](https://asdalexey.github.io/vitest-auto-spy/core/create-spy-from-class) — the full configuration surface
+- [Control helpers](https://asdalexey.github.io/vitest-auto-spy/core/control-helpers) — what the return-type-aware helpers actually do
+- [Bridging `Spy<T>` and `T`](https://asdalexey.github.io/vitest-auto-spy/core/spy-typing) — why `Spy<T>` is not assignable to `T`
+- [Auto-mock by type](https://asdalexey.github.io/vitest-auto-spy/core/auto-mock-by-type) — when there is no class to walk
+
+---
+
+Source: https://asdalexey.github.io/vitest-auto-spy/core/create-spy-from-class
+
+# createSpyFromClass
+
+`createSpyFromClass(Class, methodsOrConfig?)` builds a fully-typed `Spy<T>` from a class, turning
+every method into a mock with return-type-aware helpers.
+
+## Configuration
+
+```ts
+// 1. all methods (default)
+createSpyFromClass(MyService);
+
+// 2. only these methods
+createSpyFromClass(MyService, ['getName', 'getAge']);
+
+// 3. full config object
+createSpyFromClass(MyService, {
+  methodsToSpyOn: ['getName'],
+  observablePropsToSpyOn: ['products$'], // Observable *properties*
+  gettersToSpyOn: ['userName'],
+  settersToSpyOn: ['userName'],
+  autoSpyAccessors: true, // auto-discover every getter/setter on the prototype chain
+  lazySpies: true, // build each method spy on first access (see below)
+});
+```
+
+Passing an array **restricts** spying to the listed methods (matching `jest-auto-spies`), rather
+than augmenting the auto-discovered set.
+
+The `ClassSpyConfiguration` keys are `methodsToSpyOn`, `instanceMethodsToSpyOn`,
+`observablePropsToSpyOn`, `gettersToSpyOn`, `settersToSpyOn`, `autoSpyAccessors` and `lazySpies`.
+
+### `instanceMethodsToSpyOn` — callables that are not on the prototype
+
+Method discovery walks the **prototype chain**, which is where `class` methods live. A callable
+assigned to an *instance field* is invisible to it — an arrow-function property, an Angular
+`signal()` / `computed()` field, a method of an ngrx `signalStore()`. Name those explicitly:
+
+```ts
+class TaskStore {
+  readonly count = signal(0); // instance field, not on the prototype
+  readonly reload = (): void => {}; // arrow property, same story
+  load(): void {} // ordinary method — auto-discovered
+}
+
+createSpyFromClass(TaskStore, {
+  instanceMethodsToSpyOn: ['count', 'reload'],
+});
+```
+
+Unlike `methodsToSpyOn`, this list **adds** to whatever discovery produced rather than restricting
+it, and a name here never triggers the "not found on the class prototype" warning — being absent
+from the prototype is the point.
+
+## Lazy spies — `lazySpies`
+
+**What it is.** By default `createSpyFromClass` builds a spy for **every** method up front (eager).
+With `lazySpies: true`, each method spy is instead created on **first access** (`spy.method`) and
+then cached, so methods a test never touches never pay the spy-construction cost.
+
+**Why it matters.** Building a spy is not free: each method gets a host-runner mock plus the
+`calledWith` / `resolveWith` / `nextWith` helper surface. On a wide service where a test calls only
+a couple of methods, eagerly building all of them is mostly wasted work.
+
+```ts
+const spy = createSpyFromClass(WideService, { lazySpies: true });
+spy.getName.mockReturnValue('Ada'); // getName is built here, on first access
+// the other 18 methods are never built — nothing to construct, nothing to reset
+```
+
+**When to use it.** Reach for `lazySpies` when spying **wide services** (many methods) where each
+test exercises only a few — the typical unit-test shape. For small classes the difference is
+negligible, so the eager default is fine.
+
+**Angular defaults to this**
+The `vitest-auto-spy/angular` `provideAutoSpy` helper already sets `lazySpies: true` by default —
+Angular tests overwhelmingly match this pattern. Pass `{ lazySpies: false }` there to opt back into
+eager spies. See [Adapters → Angular](https://asdalexey.github.io/vitest-auto-spy/adapters/angular#lazy-spies-by-default).
+
+**Behaviour is identical either way.** `Object.keys`, `vi.isMockFunction`, `calledWith`,
+`resetAutoSpy` / `clearAutoSpy` and enumeration all work the same; lazy only changes *when* each spy
+is constructed, not what it does. The one nuance: a lazy method is an accessor until first touched,
+so a never-accessed spy has no recorded calls (which is exactly why `resetAutoSpy` can skip it).
+
+## The `Spy<T>` shape
+
+`Spy<T>` is a **mapped type** over `T`:
+
+- every **method** becomes the mock intersected with the helpers its return type earns —
+  `calledWith` / `mustBeCalledWith` always, plus `resolveWith` / `rejectWith` for a `Promise` and
+  `nextWith` / `throwWith` / … for an `Observable`;
+- every **`Observable` property** gains the observable helpers while keeping its own type;
+- everything else keeps its declared type;
+- an `accessorSpies` bag is added on top.
+
+Because it is a mapped type, `Spy<T>` **drops `#private` and `private` members** and is therefore
+not assignable to `T`. Declare the variable as `Spy<T>`, or cross the gap explicitly with
+[`asInstance` / `asSpy`](https://asdalexey.github.io/vitest-auto-spy/core/spy-typing):
+
+```ts
+let users: Spy<UserService>; // ✅
+let users: UserService = createSpyFromClass(UserService); // ❌ private members missing
+```
+
+## Accessor spies — `accessorSpies`
+
+Getters and setters are not methods, so they get their own bag. List them, or turn on
+`autoSpyAccessors` to discover every accessor on the prototype chain:
+
+```ts
+const settings = createSpyFromClass(SettingsService, {
+  gettersToSpyOn: ['theme'],
+  settersToSpyOn: ['theme'],
+});
+
+settings.accessorSpies.getters.theme.mockReturnValue('dark');
+expect(settings.theme).toBe('dark');
+
+settings.theme = 'light';
+expect(settings.accessorSpies.setters.theme).toHaveBeenCalledWith('light');
+```
+
+The property itself reads and writes normally — `accessorSpies` is where the mock lives, so
+`settings.theme` stays typed as `string`, not as a mock.
+
+## A single function — `createFunctionSpy`
+
+When there is no class at all, `createFunctionSpy<Fn>(name)` builds one spy with the same
+return-type-aware helper surface. The `name` is what shows up in failure messages.
+
+```ts
+import { createFunctionSpy } from 'vitest-auto-spy';
+
+const load = createFunctionSpy<(id: number) => Promise<string>>('load');
+
+load.calledWith(1).resolveWith('value');
+
+await expect(load(1)).resolves.toBe('value');
+```
+
+## Edge cases
+
+**Inherited methods are spied.** Discovery walks the whole prototype chain, so a method declared on
+a base class is spied exactly like one declared on the subclass. `Object.prototype` is not included.
+
+**Abstract classes work at runtime**, because an abstract class is still a constructor function with
+a prototype — only TypeScript refuses to type it as `ClassType<T>`. Pass the concrete subclass to
+`createSpyFromClass` and keep the abstract class as the DI token:
+
+```ts
+providers: [{ provide: PaymentGateway, useValue: createSpyFromClass(StripeGateway) }];
+```
+
+`injectSpy` already accepts an abstract constructor as its token, so reading it back needs nothing
+special.
+
+**Constructor bodies never run.** The spy is assembled from the prototype; the class is never
+instantiated, so a constructor that opens a socket or reads config is not a problem.
+
+**A method the class does not have warns.** Naming an unknown method in `methodsToSpyOn` logs a
+"not found on the class prototype" warning — the usual cause of "why isn't my spy called". Use
+`instanceMethodsToSpyOn` for the callables that legitimately are not there.
+
+**No class, no problem.** [`createAutoMock<T>()`](https://asdalexey.github.io/vitest-auto-spy/core/auto-mock-by-type) builds the same surface from a
+type alone, `mockDeep<T>()` does it recursively, and `createMock<T>()` returns a plain, spy-free `T`
+for a data shape the code only reads.
+
+---
+
+Source: https://asdalexey.github.io/vitest-auto-spy/core/control-helpers
+
+# Control helpers
+
+Each spied method gets helpers chosen by its return type. `calledWith` / `mustBeCalledWith`
+dispatch by argument, and the type-specific helpers configure the result.
+
+## Synchronous methods
+
+```ts
+// standard vi.fn() API works as-is
+myService.getName.mockReturnValue('Fake Name');
+
+// return a value only for specific arguments
+myService.getName.calledWith(1).mockReturnValue('Fake Name');
+expect(myService.getName(1)).toBe('Fake Name');
+expect(myService.getName(2)).toBeUndefined();
+
+// throw if called with the "wrong" arguments
+myService.getName.mustBeCalledWith(1).mockReturnValue('Fake Name');
+expect(() => myService.getName(2)).toThrow();
+```
+
+### Asymmetric matchers in `calledWith`
+
+`calledWith` / `mustBeCalledWith` accept the same asymmetric matchers as `expect`
+(`expect.any`, `expect.objectContaining`, `expect.stringMatching`, …). A config that
+contains at least one matcher is stored as a predicate and matched against the actual
+arguments at call time, instead of by exact serialization.
+
+```ts
+myService.getName.calledWith(expect.any(Number)).mockReturnValue('Fake Name');
+expect(myService.getName(1)).toBe('Fake Name');
+expect(myService.getName(2)).toBe('Fake Name');
+
+myService.save.calledWith(expect.objectContaining({ id: 1 })).mockReturnValue(true);
+expect(myService.save({ id: 1, name: 'x' })).toBe(true);
+```
+
+## Promise-returning methods — `resolveWith`
+
+```ts
+myService.getProducts.resolveWith([{ name: 'Product 1' }]);
+await expect(myService.getProducts()).resolves.toEqual([{ name: 'Product 1' }]);
+
+myService.getProducts.rejectWith('FAKE ERROR');
+
+// per-call values, and conditional-by-args
+myService.getProducts.resolveWithPerCall([{ value: ['a'] }, { value: ['b'] }]);
+myService.getProducts.calledWith(1).resolveWith(['one']);
+```
+
+### Inspecting promise outcomes — `mock.settledResults`
+
+Every spied method exposes `mock.settledResults`: one index-aligned entry per call,
+recording how that call's returned promise eventually settled. Vitest tracks this
+natively; on Bun (`bun:test`) and `node:test` it is provided by a built-in polyfill,
+so the surface is identical across all three runtimes.
+
+```ts
+myService.getProducts.resolveWith([{ name: 'Product 1' }]);
+await myService.getProducts();
+expect(myService.getProducts.mock.settledResults).toEqual([{ type: 'fulfilled', value: [{ name: 'Product 1' }] }]);
+
+myService.getProducts.rejectWith('FAKE ERROR');
+await myService.getProducts().catch(() => undefined);
+expect(myService.getProducts.mock.settledResults).toContainEqual({ type: 'rejected', value: 'FAKE ERROR' });
+```
+
+Each entry is `{ type: 'fulfilled' | 'incomplete' | 'rejected', value }`. A call whose
+promise is still pending is recorded as `incomplete` until it settles.
+
+## Resetting spies — `clearAutoSpy` / `resetAutoSpy`
+
+Reset every spy inside an assembled spy with one call, instead of reaching for
+`mockClear` / `mockReset` on each method by hand. Both work on `createSpyFromClass`
+spies and `createAutoMock` proxies, and cover method spies **and** accessor spies.
+
+```ts
+import { clearAutoSpy, resetAutoSpy } from 'vitest-auto-spy';
+
+// clears recorded calls only — configured returns are kept
+clearAutoSpy(myService);
+
+// clears calls AND reverts configuration to pristine
+resetAutoSpy(myService);
+```
+
+`resetAutoSpy` reverts both the library config (`calledWith` / `resolveWith` / `nextWith` / …) **and**
+a bare return value set directly on a spy (`myService.getName.mockReturnValue('x')`) — after a reset
+the method returns `undefined` again until reconfigured.
+
+## Observable methods & properties — `nextWith`
+
+Enabled by importing the rxjs layer once (`import 'vitest-auto-spy/rxjs';`). See
+[Runtimes → RxJS](https://asdalexey.github.io/vitest-auto-spy/runtimes/rxjs).
+
+```ts
+myService.getProducts$.nextWith([{ name: 'Product 1' }]); // emit, stream stays open
+myService.getProducts$.nextOneTimeWith([{ name: 'X' }]);  // emit once, then complete
+myService.getProducts$.throwWith('FAKE ERROR');           // error the stream
+myService.getProducts$.complete();                        // complete the stream
+```
+
+### A precise sequence — `nextWithValues`
+
+`nextWithValues(configs)` emits the entries **in order**, and stops at the first `{ complete: true }`.
+Anything pushed onto the backing subject afterwards is merged in until that completion arrives.
+
+```ts
+myService.getProducts$.nextWithValues([
+  { value: [{ name: 'Product 1' }] },
+  { value: [{ name: 'Product 2' }], delay: 100 },
+  { complete: true },
+]);
+```
+
+#### `ValueConfig`
+
+| Shape                       | Effect                                                  |
+| --------------------------- | ------------------------------------------------------- |
+| `{ value, delay? }`         | emit `value` (after `delay` ms, if given)               |
+| `{ errorValue, delay? }`    | error the stream with `errorValue` (after `delay` ms)   |
+| `{ complete?, delay? }`     | complete the stream — `complete: false` emits nothing   |
+
+`delay` is milliseconds and is applied with RxJS's own `delay()` / `timer()`, so under fake timers
+you have to advance the clock: [`advanceTimers(ms)`](https://asdalexey.github.io/vitest-auto-spy/utilities/fake-timers) does that **and**
+drains the microtasks the emission queues.
+
+### A fresh stream per call — `nextWithPerCall`
+
+`nextWithPerCall(configs)` hands the **n-th call** the n-th entry, and returns one `ReplaySubject`
+per entry so a test can push more values into a specific call later.
+
+```ts
+const [first$, second$] = myService.watch$.nextWithPerCall([
+  { value: 'a' },
+  { value: 'b', doNotComplete: true },
+]);
+
+expect(await firstValueFrom(myService.watch$())).toBe('a');
+
+// the second call's stream stays open, so it can be driven further
+second$.next('b2');
+```
+
+Each per-call stream **completes after its first value** unless the entry sets
+`doNotComplete: true`. `ValueConfigPerCall` is `{ value, delay?, doNotComplete? }`.
+
+### Manual control — `returnSubject`
+
+`returnSubject()` hands back the `ReplaySubject` behind the spy, for the cases the helpers do not
+cover:
+
+```ts
+const subject = myService.getProducts$.returnSubject();
+
+subject.next([{ name: 'Product 1' }]);
+subject.error(new Error('boom'));
+```
+
+It is a `ReplaySubject`, so a subscriber that arrives late still sees the values already pushed.
+
+Full reference, plus the standalone `createObservableWithValues` builder:
+[Runtimes → RxJS](https://asdalexey.github.io/vitest-auto-spy/runtimes/rxjs).
+
+---
+
+Source: https://asdalexey.github.io/vitest-auto-spy/core/auto-mock-by-type
+
+# Auto-mock by type
+
+`vitest-auto-spy` picks each method's helper surface from its **return type**: sync methods get
+`mockReturnValue` / `calledWith` / `mustBeCalledWith`, `Promise`-returning methods get
+`resolveWith` / `rejectWith` / `resolveWithPerCall`, and `Observable`-returning methods/properties
+get `nextWith` and friends.
+
+## From a type — `createAutoMock`
+
+`createAutoMock<T>(overrides?)` builds a `Spy<T>` from a **type or interface** alone —
+no runtime class needed. Each accessed method becomes a spy with the full helper surface;
+seed concrete values through `overrides`.
+
+```ts
+import { createAutoMock } from 'vitest-auto-spy';
+
+interface UserService {
+  getName(id: number): string;
+  load(id: number): Promise<User>;
+}
+
+const users = createAutoMock<UserService>();
+users.getName.calledWith(1).mockReturnValue('Ada');
+users.load.resolveWith({ id: 1 });
+```
+
+## From a type, without spies — `createMock`
+
+`createAutoMock` is built for a collaborator the code under test **calls**: every un-seeded member
+comes back as a spy. For a double it only **reads** — a DTO, a route snapshot, a config object —
+that is the wrong trade. `createMock<T>(partial?)` returns a plain `T` assembled from the fields you
+seed, with no spies anywhere.
+
+```ts
+import { createMock } from 'vitest-auto-spy';
+
+const route = createMock<ActivatedRouteSnapshot>({ data: { title: 'Report' } });
+const config = createMock<ServerConfig>({ baseUrl: 'https://example.test' });
+```
+
+|                   | `createMock<T>()`                          | `createAutoMock<T>()`                   |
+| ----------------- | ------------------------------------------ | --------------------------------------- |
+| Returns           | `T`                                        | `Spy<T>`                                |
+| Un-seeded members | `undefined`                                | a lazily created, decorated spy         |
+| Reach for it when | the double is **read** — data shapes       | the double is **called** — collaborators |
+
+`partial` is a `Partial<T>`, so the seeded fields stay type-checked: an unknown key, or a known key
+with the wrong type, is still a compile error. It is also the single place the `as` lives, so a
+suite under a `no-type-assertion` lint rule stops sprinkling `eslint-disable` over its fixtures.
+
+## Recursive deep mocks — `mockDeep`
+
+`mockDeep<T>(overrides?)` is the recursive counterpart of `createAutoMock`. Nested object
+access auto-creates chainable spies, so a deep call like `mock.repo.user.find()` works with
+no manual seeding — every hop is itself a callable spy carrying `calledWith` / `mockReturnValue`
+/ `resolveWith`.
+
+```ts
+import { mockDeep } from 'vitest-auto-spy';
+
+interface Api {
+  repo: { user: { find(id: number): Promise<User> } };
+}
+
+const api = mockDeep<Api>();
+api.repo.user.find.calledWith(1).resolveWith({ id: 1 });
+await expect(api.repo.user.find(1)).resolves.toEqual({ id: 1 });
+
+// seed concrete values on the root via overrides, or by assignment
+const seeded = mockDeep<Api>({ repo: { user: { find: () => Promise.resolve({ id: 9 }) } } });
+```
+
+Seeded values (via `overrides` or `mock.x = …`) shadow the auto-generated child for that key.
+Nodes are intentionally **not** thenable, so awaiting a node never treats it as a promise.
+
+---
+
+Source: https://asdalexey.github.io/vitest-auto-spy/core/observable-assertions
+
+# Observable assertions
+
+`expect(...)` inside a `subscribe()` callback is the most common way to write a test that passes
+while asserting nothing: if the stream never emits, the callback never runs, no expectation is
+evaluated and the test is green and empty. These helpers invert that — **the assertion is the
+`await`**.
+
+```ts
+import { expectEmission, expectEmissions, expectNoEmission } from 'vitest-auto-spy';
+
+await expect(expectEmission(component.visible$)).resolves.toEqual([task]);
+await expect(expectEmissions(source$, 3)).resolves.toEqual([1, 2, 3]);
+await expectNoEmission(source$, { timeout: 50 }); // asserts silence
+```
+
+| Helper                                   | Resolves with                        | Rejects when                                                                |
+| ---------------------------------------- | ------------------------------------ | --------------------------------------------------------------------------- |
+| `expectEmission(source$, opts?)`         | the first value                      | nothing arrives in time, the stream errors, or it completes empty           |
+| `expectEmissions(source$, count, opts?)` | the first `count` values as an array | fewer than `count` arrive in time, the stream errors, or it completes short |
+| `expectNoEmission(source$, opts?)`       | `void`                               | anything is emitted while it should stay silent                             |
+
+## Options
+
+| Option    | Default                             | Notes                                                                                                               |
+| --------- | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `timeout` | `1000` (`0` for `expectNoEmission`) | Milliseconds to wait for a value — or, in `expectNoEmission`, how long silence must hold. `0` disables the watchdog |
+| `label`   | —                                   | Name used in the failure message instead of the generic "the observable"                                            |
+
+## Failure messages
+
+A stream that stays quiet fails with the label and the timeout, one that errors fails with the
+error, and one that completes empty says so:
+
+```
+saved$ did not emit within 1000 ms (0 emission(s) received). Either the stream never fired — check
+the trigger and any provider spy feeding it — or it is slower than the timeout; raise it with
+`{ timeout: … }`, or pass `{ timeout: 0 }` when running under fake timers.
+```
+
+```
+saved$ completed after 0 emission(s), expected 1. A completed-but-empty stream is the usual sign
+that the value was produced before the subscription.
+```
+
+## No rxjs required
+
+The source is duck-typed — anything with a `subscribe` method — so these live in the **core** entry
+and pull in no rxjs at runtime. They work with rxjs `Observable`s and `Subject`s, Angular
+`toObservable()` results, and hand-rolled subscribables alike.
+
+The watchdog uses the timer functions captured at import time, so `vi.useFakeTimers()` cannot
+silence it: the failure stays "the stream did not emit", not "the test timed out". A synchronous
+source (`of(…)`, a `BehaviorSubject`) settles and unsubscribes without ever arming the timer.
+
+**Lint it**
+The [`no-expect-in-subscribe`](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-plugin) rule flags `expect()` inside a
+`subscribe()` callback and points here.
+
+---
+
+Source: https://asdalexey.github.io/vitest-auto-spy/core/spy-typing
+
+# Bridging `Spy<T>` and `T`
+
+`Spy<T>` is a mapped type. It drops `#private` / `private` members, so it is **not** assignable to
+`T` — which is correct (a spy is not the class) and a constant nuisance when an API asks for `T`.
+The fix is a named, documented view instead of an `as any` scattered through a suite:
+
+```ts
+import { asInstance, asSpy } from 'vitest-auto-spy';
+
+asInstance(cartSpy); // Spy<CartService> → CartService, for APIs typed against the class
+asSpy(TestBed.inject(CartService)); // CartService → Spy<CartService>, for the helpers
+```
+
+Both are the same object at runtime; only the view changes.
+
+```ts
+const store = createSpyFromClass(CartStore);
+
+renderShallow(CartComponent, {
+  providers: [{ provide: CartStore, useValue: asInstance(store) }],
+});
+```
+
+Declare the variable as `Spy<T>` (which is what `injectSpy(X)` returns) rather than as `T`, and the
+bridges stay at the boundaries where an external API forces the other view.
+
+## A spy you can call with `new`
+
+A runner mock (`vi.fn()`) rejects `new` as soon as it carries a `mockReturnValue`, so code under
+test that does `new Foo()` — a `Worker`, an `IntersectionObserver`, a hand-rolled client — cannot
+be served by one. `createSpyClass` returns a real constructor function whose instances are full
+auto-spies:
+
+```ts
+import { createSpyClass } from 'vitest-auto-spy';
+import { mockValueProp } from 'vitest-auto-spy';
+
+const WorkerSpy = createSpyClass(BackgroundWorker);
+mockValueProp(globalThis, 'BackgroundWorker', WorkerSpy);
+
+service.start();
+
+expect(WorkerSpy.calls[0]).toEqual(['./task.js']);
+WorkerSpy.instances[0].postMessage.mockReturnValue(undefined);
+```
+
+| Member      | What it holds                                           |
+| ----------- | ------------------------------------------------------- |
+| `calls`     | The arguments of every `new` (and plain call), in order |
+| `instances` | The `Spy<T>` produced by each construction, in order    |
+
+It takes the same optional second argument as
+[`createSpyFromClass`](https://asdalexey.github.io/vitest-auto-spy/core/create-spy-from-class), so each instance can be configured the usual way.
+
+---
+
+Source: https://asdalexey.github.io/vitest-auto-spy/recipes
+
+# Spec patterns
+
+The API reference says what each helper does. This page says which ones you will actually reach for,
+in what order, and what breaks at scale — measured against a private Angular 22 zoneless suite of
+roughly 370 spec files that has been on this library since early versions.
+
+The distribution is lopsided, and worth knowing before you learn the whole surface:
+
+| Helper                                             | Spec files using it |
+| -------------------------------------------------- | ------------------: |
+| [`provideAutoSpy`](https://asdalexey.github.io/vitest-auto-spy/adapters/angular)               |                 371 |
+| [`injectSpy`](https://asdalexey.github.io/vitest-auto-spy/adapters/angular)                    |                 308 |
+| [`mockReadonlyProp`](https://asdalexey.github.io/vitest-auto-spy/adapters/angular#signal-readonly-property-mocking) |           127 |
+| [`mockValueProp`](https://asdalexey.github.io/vitest-auto-spy/adapters/angular#signal-readonly-property-mocking)    |           104 |
+| `instanceMethodsToSpyOn`                            |                 103 |
+| `observablePropsToSpyOn`                            |                  79 |
+| [console spies](https://asdalexey.github.io/vitest-auto-spy/utilities/console)                 |                  68 |
+| [`createSpyFromClass`](https://asdalexey.github.io/vitest-auto-spy/core/create-spy-from-class) |                  41 |
+
+Two things follow. **`createSpyFromClass` is the exception, not the rule** — in an Angular app the
+spy almost always arrives through DI. And **`instanceMethodsToSpyOn` is not an edge case**: in a
+signals codebase it appears in more than a quarter of all spec files, because `signal()` and
+`computed()` fields are exactly the callables prototype discovery cannot see.
+
+## The canonical service spec
+
+```ts
+import { signal } from '@angular/core';
+import { TestBed } from '@angular/core/testing';
+import { of } from 'rxjs';
+import { injectSpy, provideAutoSpy, type Spy } from 'vitest-auto-spy/angular';
+
+describe('TaskService', () => {
+  let projects: Spy<ProjectStore>;
+  let feed: Spy<NewsFeedService>;
+  let service: TaskService;
+
+  beforeEach(() => {
+    TestBed.configureTestingModule({
+      providers: [
+        // plain service — every prototype method is spied, nothing to configure
+        provideAutoSpy(NotificationService),
+        // signals and computed live on the INSTANCE, so they are named explicitly
+        provideAutoSpy(ProjectStore, { instanceMethodsToSpyOn: ['current', 'isEmpty'] }),
+        // Observable *properties* are named too — methods returning one are not
+        provideAutoSpy(NewsFeedService, { observablePropsToSpyOn: ['connected$'] }),
+      ],
+    });
+
+    projects = injectSpy(ProjectStore);
+    feed = injectSpy(NewsFeedService);
+
+    // seed the defaults every test needs, once
+    feed.connected$.nextWith(true);
+    projects.save.mockReturnValue(of(true));
+
+    service = TestBed.inject(TaskService);
+  });
+
+  it('saves through the store', () => {
+    service.save(task);
+
+    expect(projects.save).toHaveBeenCalledWith(task);
+  });
+});
+```
+
+Four conventions carry most of the value:
+
+1. **One `configureTestingModule` per `describe`.** Reconfiguring per `it()` pays for module
+   compilation on every test; it is the single largest avoidable cost in an Angular suite.
+2. **Declare each spy as `Spy<T>`, resolve it with `injectSpy`.** Never as `T` — `Spy<T>` is a mapped
+   type and drops private members ([why](https://asdalexey.github.io/vitest-auto-spy/core/spy-typing)).
+3. **Seed defaults in `beforeEach`, override in the test.** A method that returns an `Observable` and
+   is never configured returns `undefined`, and the failure surfaces far from its cause.
+4. **`provideAutoSpy` is lazy by default**, so listing a wide service costs nothing for the methods a
+   test never touches.
+
+## Signals
+
+A signal is a callable field on the instance, which puts it in two places at once. Which helper you
+need depends on whether you are mocking a **dependency** or the **class under test**.
+
+```ts
+// a DEPENDENCY's signal — name it, and the spy is a mock you configure like any other
+provideAutoSpy(ProjectStore, { instanceMethodsToSpyOn: ['current', 'isEmpty'] });
+injectSpy(ProjectStore).current.mockReturnValue({ id: 1 });
+
+// the CLASS UNDER TEST's own signal / computed / input — replace the field with a real signal
+mockReadonlyProp(component, 'selected', signal(true));
+mockReadonlyProp(component, 'items', signal([]));
+mockReadonlyProp(component, 'host', signal({ nativeElement: element }));
+```
+
+`mockReadonlyProp(target, key, signal(value))` is the workhorse — a real signal, so anything
+`computed()` downstream of it recomputes correctly, which a `vi.fn()` returning a value would not do.
+For a value that has to change during the test, keep the signal and `.set()` it:
+
+```ts
+const selected = signal(false);
+
+mockReadonlyProp(component, 'selected', selected);
+selected.set(true); // every computed reading it updates
+```
+
+Use `mockReadonlyPropGetter` when the value must be recomputed on each read rather than replaced, and
+`mockValueProp` for an ordinary writable field.
+
+**`vi.restoreAllMocks()` does not undo these**
+They redefine property descriptors, which the runner's spy registry knows nothing about. Wire
+[`setupAutoSpy()`](https://asdalexey.github.io/vitest-auto-spy/utilities/setup) — it registers `restoreMockedProps()` in a global `afterEach`.
+Without it, a patch on a global, a prototype or a singleton leaks into the next file under
+`isolate: false`.
+
+## Observable properties vs. observable methods
+
+The distinction trips people up because the names look the same:
+
+```ts
+class NewsFeedService {
+  readonly connected$ = new BehaviorSubject(false); // a PROPERTY  → observablePropsToSpyOn
+  watch(id: number): Observable<Item> {}            // a METHOD    → nothing to configure
+}
+
+provideAutoSpy(NewsFeedService, { observablePropsToSpyOn: ['connected$'] });
+
+feed.connected$.nextWith(true);     // the property, driven by the helpers
+feed.watch.nextWith(item);          // the method, spied automatically
+```
+
+A method that returns an `Observable` is discovered on the prototype like any other, and gets the
+observable helpers from its **return type**. Only properties need naming — nothing on the prototype
+points at them.
+
+Both need the rxjs layer loaded once, in your setup file:
+
+```ts
+import 'vitest-auto-spy/rxjs';
+```
+
+Without it, `nextWith` throws with an error saying exactly that.
+
+## Reaching a spy that `injectSpy` cannot
+
+`injectSpy(X)` reads the **global** `TestBed` injector. A provider declared on the component itself
+(`@Component({ providers: [...] })`) lives in the element injector, which `TestBed.inject` never
+sees. Go through the fixture and re-view the result:
+
+```ts
+import { asSpy } from 'vitest-auto-spy';
+
+const player = asSpy(fixture.debugElement.injector.get(PlayerService));
+
+player.play.mockReturnValue(true);
+```
+
+The mirror direction — handing a spy to a plain function typed against the real class — is
+[`asInstance`](https://asdalexey.github.io/vitest-auto-spy/core/spy-typing):
+
+```ts
+expect(isEnabled(asInstance(featureFlags))).toBe(true);
+```
+
+Both are the same object at runtime. Reach for them only at these boundaries; a suite that needs one
+in every file has declared its variables as `T` instead of `Spy<T>`.
+
+## ngrx signals
+
+A `signalStore()` puts everything on the **instance**, so prototype discovery finds nothing at all:
+
+```ts
+// either name every member you touch…
+provideAutoSpy(TaskStore, { instanceMethodsToSpyOn: ['entities', 'isLoading', 'load'] });
+
+// …or skip the class and mock from the type, which needs no prototype
+const store = createAutoMock<TaskStore>();
+```
+
+`createAutoMock<T>()` is usually the better trade for a store: every accessed member becomes a spy
+lazily, so nothing has to be listed and the list cannot fall behind the store.
+
+An `rxMethod` is a function with a `destroy` property, which a bare mock does not have — build it
+explicitly, or the component's cleanup throws:
+
+```ts
+const load = Object.assign(vi.fn(), { destroy: vi.fn() });
+```
+
+## Effects
+
+Do not try to replace `effect()` by mocking `@angular/core`. Under the Angular unit-test builder the
+specs are bundled and `@angular/core` sits in a shared chunk, so replacing it re-enters a chunk that
+is still initialising and fails with `Cannot access '__vi_import_N__' before initialization`. The
+same applies to any module those shared chunks depend on.
+
+Assert the effect's **result** instead: set the signals it reads, let it run, and check what it
+produced.
+
+```ts
+mockReadonlyProp(component, 'state', signal(State.Selected));
+
+await stable(fixture); // flush effects, then await the fixture
+
+expect(component.icon()).toBe('favouritesFilled');
+```
+
+[`stable(fixture)`](https://asdalexey.github.io/vitest-auto-spy/adapters/angular#zoneless-waiting) is the one to reach for:
+`fixture.detectChanges()` runs a single change-detection pass and does **not** flush pending effects,
+so an assertion right after it reads state that has not finished computing. `flushEffects()` is the
+no-fixture half, for services and stores.
+
+## Timers that outlive their file
+
+This one only appears at scale, and it appears as a failure in an **innocent** file.
+
+With `isolate: false` every spec file in a worker shares one environment. A `setTimeout` a component
+schedules and never clears keeps running after its file is done; the callback then fires while the
+next file is mid-test, against mocks and a DOM that no longer match. `requestAnimationFrame` matters
+just as much in a zoneless app — Angular's change-detection scheduler races a `setTimeout` against a
+frame callback, so a destroyed component can still have one queued.
+
+Symptoms, all reported against the wrong file:
+
+- `Schedulers cannot synchronously execute watches while scheduling`
+- `signal read during notification phase`
+- an unhandled rejection naming a component the failing file never imported
+
+One option covers it — it wraps the schedulers once, records every handle, and cancels the survivors
+in `afterAll`:
+
+```ts
+// vitest.setup.ts
+setupAutoSpy({ strayTimers: true });
+```
+
+The pieces are exported too, for a suite that wants the sweep somewhere else or wants a leak to
+**fail** rather than be tidied away:
+
+```ts
+import { cancelStrayTimers, countStrayTimers, trackStrayTimers } from 'vitest-auto-spy/setup';
+
+trackStrayTimers(); // once, as early as the setup file runs — idempotent
+afterEach(() => expect(countStrayTimers()).toBe(0)); // treat a leak as a failure
+afterAll(() => cancelStrayTimers()); // …or just sweep, and log the count it returns
+```
+
+If you are on `isolate: false`, assume you need this before you need it.
+
+## Fake timers
+
+```ts
+import { advanceTimers, setupFakeTimers } from 'vitest-auto-spy/setup';
+
+setupFakeTimers(); // once per describe — pairs install with restore
+
+it('debounces', async () => {
+  component.search('query');
+
+  await advanceTimers(300); // advance AND drain the microtasks the advance queues
+  await stable(fixture);
+
+  expect(api.search).toHaveBeenCalledWith('query');
+});
+```
+
+`vi.advanceTimersByTime()` alone leaves the promise chain the timer resolved still pending, which is
+what makes a timer assertion read like a race. `advanceTimers()` closes that gap.
+
+## Console
+
+Import the entry once and assert on the exported spies; the output is silenced rather than printed.
+
+```ts
+import { consoleErrorSpy } from 'vitest-auto-spy/console';
+
+service.handle(brokenPayload);
+
+expect(consoleErrorSpy).toHaveBeenCalledWith(expect.stringContaining('parse'));
+```
+
+Never add a second `vi.spyOn(console, 'error')` on top: whichever patch wins depends on import order,
+and the assertion then runs against a spy that never intercepted the call.
+
+## What not to do
+
+| ❌                                                          | ✅                                                            |
+| ----------------------------------------------------------- | ------------------------------------------------------------- |
+| a hand-written `{ provide: X, useValue: { a: vi.fn() } }`     | `provideAutoSpy(X)`                                            |
+| `vi.spyOn(TestBed.inject(X), 'method')`                       | `injectSpy(X).method`                                          |
+| `Object.defineProperty(service, 'ready', { value: true })`    | `mockReadonlyProp(service, 'ready', true)`                     |
+| `let s: MyService = createSpyFromClass(MyService)`             | `let s: Spy<MyService>`                                        |
+| `source$.subscribe(v => expect(v).toBe(1))`                    | `await expect(expectEmission(source$)).resolves.toBe(1)`       |
+| `expect(component.total).toBeTruthy()` on a signal             | `expect(component.total).toHaveSignalValue(3)`                 |
+| `configureTestingModule` inside every `it()`                   | one per `describe`                                             |
+| `methodsToSpyOn` used to *add* a method                        | omit it, or use `instanceMethodsToSpyOn`                       |
+
+The first three are enforceable — [the ESLint plugin](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-plugin) has a rule for each.
+Scope it to spec files: an object of `vi.fn()`s is perfectly reasonable in application code.
+
+---
+
+Source: https://asdalexey.github.io/vitest-auto-spy/runtimes/vitest
+
+# Vitest
+
+The default, zero-config entry point. Importing `vitest-auto-spy` registers the Vitest mock
+adapter (`vi.fn()` / `vi.spyOn()`) and exposes the full core API.
+
+```ts
+import { createSpyFromClass } from 'vitest-auto-spy'; // Vitest (default, zero-config)
+```
+
+The core is runner-agnostic behind a `MockAdapter`; the Vitest entry registers the default adapter
+on import, so existing usage stays unchanged. Native mock methods (e.g. `mockReturnValue`) remain
+Vitest's own — only the auto-spy helpers are normalised across runtimes.
+
+## A spec, start to finish
+
+```ts
+import { beforeEach, describe, expect, it } from 'vitest';
+import { type Spy, createSpyFromClass } from 'vitest-auto-spy';
+
+import { UserService } from './user.service';
+import { Greeter } from './greeter';
+
+describe('Greeter', () => {
+  let users: Spy<UserService>;
+  let greeter: Greeter;
+
+  beforeEach(() => {
+    users = createSpyFromClass(UserService);
+    greeter = new Greeter(users);
+  });
+
+  it('greets the name the service returns', () => {
+    users.getName.calledWith(1).mockReturnValue('Ada');
+
+    expect(greeter.greet(1)).toBe('Hello, Ada!');
+    expect(users.getName).toHaveBeenCalledWith(1);
+  });
+});
+```
+
+## What belongs in the setup file
+
+Nothing is required to create a spy. Two things are global by nature and belong in
+`setupFiles` rather than in a spec:
+
+```ts
+// vitest.setup.ts
+import 'vitest-auto-spy/rxjs'; // once — enables nextWith / observablePropsToSpyOn everywhere
+import { setupAutoSpy } from 'vitest-auto-spy/setup';
+
+setupAutoSpy();
+```
+
+```ts
+// vitest.config.ts
+import { defineConfig } from 'vitest/config';
+
+export default defineConfig({
+  test: {
+    setupFiles: ['./vitest.setup.ts'],
+  },
+});
+```
+
+- **`import 'vitest-auto-spy/rxjs'`** registers the observable layer. Without it, using an observable
+  helper (`nextWith`, `observablePropsToSpyOn`, …) throws a message naming this exact import — a spy
+  factory never pulls rxjs in on its own.
+- **[`setupAutoSpy()`](https://asdalexey.github.io/vitest-auto-spy/utilities/setup)** restores `mock*Prop` patches, resets the mock registry and
+  fails the run on a duplicate installed copy of the package.
+
+Registering [signal matchers](https://asdalexey.github.io/vitest-auto-spy/adapters/angular) (`toHaveSignalValue`) is a third setup-file
+candidate for Angular suites: `registerSignalMatchers()` from `vitest-auto-spy/angular`.
+
+## Isolation
+
+Vitest isolates each file by default, so a leftover property patch or a spy stored in a
+module-scope variable dies with the file. Turning that off (`isolate: false`, a shared environment,
+a single thread) is exactly the mode `setupAutoSpy()` exists for — this package runs its own suite
+both ways in CI for that reason.
+
+```ts
+// vitest.config.ts — the mode to be careful in
+export default defineConfig({
+  test: {
+    isolate: false,
+    setupFiles: ['./vitest.setup.ts'], // now doing real work
+  },
+});
+```
+
+## The Angular subpath
+
+An Angular suite imports from `vitest-auto-spy/angular` instead — it registers the same Vitest
+adapter and adds the `TestBed` helpers:
+
+```ts
+import { injectSpy, provideAutoSpy, renderShallow, stable } from 'vitest-auto-spy/angular';
+```
+
+It needs an Angular-aware Vitest setup (for example `@analogjs/vite-plugin-angular` plus a
+`setupTestBed()` call). See [Angular](https://asdalexey.github.io/vitest-auto-spy/adapters/angular) — and
+[Angular on Bun](https://asdalexey.github.io/vitest-auto-spy/runtimes/bun-angular) for the same suite under `bun test`.
+
+---
+
+Source: https://asdalexey.github.io/vitest-auto-spy/runtimes/bun
+
+# Bun (`bun:test`)
+
+The `vitest-auto-spy/bun` entry runs the exact same core on Bun's `bun:test` mocks instead of
+Vitest.
+
+```ts
+import { createSpyFromClass } from 'vitest-auto-spy/bun'; // Bun — bun:test
+```
+
+The public API (`createSpyFromClass`, `calledWith`, `resolveWith`, `nextWith`, …) is **identical**
+to the Vitest entry. Only **native** mock methods stay the runner's own; the auto-spy helpers are
+normalised. Import the entry matching your runner — it registers the Bun adapter on import.
+
+Testing Angular under `bun test` has its own entry, [`vitest-auto-spy/bun-angular`](https://asdalexey.github.io/vitest-auto-spy/runtimes/bun-angular).
+
+## A runnable example
+
+```ts
+// user.test.ts
+import { describe, expect, it } from 'bun:test';
+import { type Spy, createSpyFromClass } from 'vitest-auto-spy/bun';
+
+class UserService {
+  getName(id: number): string {
+    return `user-${id}`;
+  }
+
+  async load(id: number): Promise<string> {
+    return `loaded-${id}`;
+  }
+}
+
+describe('UserService spy', () => {
+  it('returns per-argument values and resolves promises', async () => {
+    const users: Spy<UserService> = createSpyFromClass(UserService);
+
+    users.getName.calledWith(7).mockReturnValue('seven');
+    users.load.resolveWith('ok');
+
+    expect(users.getName(7)).toBe('seven');
+    await expect(users.load(1)).resolves.toBe('ok');
+    expect(users.getName).toHaveBeenCalledWith(7);
+  });
+});
+```
+
+```bash
+bun test
+```
+
+The optional rxjs layer works the same way — `import 'vitest-auto-spy/rxjs'` once, and
+`nextWith` / `nextWithValues` / `observablePropsToSpyOn` are available on Bun too.
+
+## What differs from Vitest
+
+Everything the library normalises reads the same on both runners; what is left is Bun's own mock
+behaviour, and it is worth knowing which is which.
+
+| Behaviour                     | Vitest                       | Bun                                                     | Who handles it                                     |
+| ----------------------------- | ---------------------------- | ------------------------------------------------------- | -------------------------------------------------- |
+| `mock.settledResults`         | native                       | not tracked                                             | polyfilled — reads identically on both              |
+| `mockReset()`                 | keeps the spy, clears calls  | also drops the implementation                           | the adapter restores it, so auto-spies survive      |
+| `spyOn(obj, 'prop', 'get')`   | supported                    | throws — accessors are not supported yet                | accessor spies go through property redefinition     |
+| Spy names in failure messages | `vi.fn()` names              | `mockName()`                                            | set for you                                         |
+| Fake timers                   | `vi.useFakeTimers()`         | `jest.useFakeTimers()`                                  | not normalised — `vitest-auto-spy/setup` is Vitest-only |
+
+`mock.settledResults` is documented under
+[Control helpers → Inspecting promise outcomes](https://asdalexey.github.io/vitest-auto-spy/core/control-helpers#settled-results).
+
+## Bun 1.4 test-runner flags
+
+Bun 1.4 turned `bun test` into a runner with the scheduling controls a large suite needs. Nothing in
+this package has to be configured for them — they are listed here because two of them change how a
+suite behaves, and the library's answer differs per flag.
+
+| Flag                          | What it does                                                        | Effect on your spies                                                                                            |
+| ----------------------------- | ------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `--isolate`                   | a fresh JavaScript global per test file, in one process             | matches Vitest's default. Registries and property patches cannot leak between files                              |
+| _(no flag)_                   | one shared global for the whole run                                 | the mode to be careful in — a property patch or a leftover registry outlives the file that made it                |
+| `--parallel[=N]`              | spreads files over worker processes                                 | none: each worker is its own process, so each has its own registry                                                |
+| `--shard=M/N`                 | splits files across CI runners                                      | none                                                                                                              |
+| `--changed[=ref]`             | only the files your diff touches                                    | none                                                                                                              |
+| `--timings` / `--update-timings` | balances shards by recorded wall-clock time                      | none                                                                                                              |
+| `--retry <N>` / `{ repeats: n }` | re-runs a flaky or stress-tested test                            | a spy that is not reset between runs accumulates calls — reset in `beforeEach`                                     |
+
+Without `--isolate`, treat a Bun run the way you would treat Vitest's `isolate: false`: restore what
+you patch. `restoreMockedProps()` in an `afterEach` covers the property helpers; `resetAutoSpy(spy)`
+clears a spy that outlives one test.
+
+**Which mode to run**
+`--isolate` is the safer default and costs little; `--parallel` is the one that makes a big suite
+fast. They compose: `bun test --isolate --parallel`.
+
+## Compatibility
+
+This package is verified on **Bun 1.4** and tracks `latest` in CI. Its own Bun suite lives in
+`src/bun-tests/` and runs on the real `bun:test` — the Vitest suite can only exercise the Bun
+adapter against a stub, since `bun:test` does not resolve outside Bun.
+
+---
+
+Source: https://asdalexey.github.io/vitest-auto-spy/runtimes/bun-angular
+
+# Angular on Bun (`bun:test`)
+
+Angular has no `bun test` integration of its own. Two things are missing, and both are fatal on
+their own:
+
+1. **No DOM.** Bun ships none, and everything from `platformBrowserTesting()` onwards reads
+   `document`.
+2. **No template resolution.** `@Component({ templateUrl: './x.html' })` is not an import — nothing
+   in the module graph points at the HTML file — so Angular's JIT compiler refuses to build the
+   component (_"Component X is not resolved"_). Under Vitest, `@analogjs/vite-plugin-angular` inlines
+   it during transform. Bun has no such transform.
+
+`vitest-auto-spy/bun-angular` closes both, plus the wiring around them, from a single preload.
+
+## Setup
+
+```toml
+# bunfig.toml
+[test]
+preload = ["vitest-auto-spy/bun-angular"]
+```
+
+```bash
+bun add -d @happy-dom/global-registrator   # or: bun add -d jsdom
+```
+
+That is the whole configuration. On load the entry:
+
+1. installs a DOM — `@happy-dom/global-registrator` if present, otherwise `jsdom`, and nothing at all
+   if a DOM is already there;
+2. registers a `Bun.plugin` `onLoad` hook that inlines `templateUrl` / `styleUrl` / `styleUrls` into
+   the component source;
+3. initialises a **zoneless** `TestBed` environment and resets the testing module after each test;
+4. registers the Bun mock adapter, so every spy helper is Bun's.
+
+**It has to be a preload**
+A `Bun.plugin` hook only sees modules loaded **after** it is registered. Importing this entry from
+inside a spec is too late for the component under test — its template will not be inlined. Importing
+it from a spec **as well** is fine: the module is cached and every step is guarded.
+
+## Writing a spec
+
+From here a spec reads exactly like its Vitest counterpart.
+
+```ts
+// greeting.test.ts
+import { TestBed } from '@angular/core/testing';
+import { describe, expect, it } from 'bun:test';
+
+import { GreetingComponent } from './greeting.component'; // declared with templateUrl
+import { GreetingService } from './greeting.service';
+import { injectSpy, provideAutoSpy, stable } from 'vitest-auto-spy/bun-angular';
+
+describe('GreetingComponent', () => {
+  it('renders the name the service returns', async () => {
+    TestBed.configureTestingModule({ providers: [provideAutoSpy(GreetingService)] });
+
+    injectSpy(GreetingService).currentName.mockReturnValue('external user');
+
+    const fixture = TestBed.createComponent(GreetingComponent);
+
+    await stable(fixture);
+
+    expect(fixture.nativeElement.textContent).toContain('Hello, external user!');
+  });
+});
+```
+
+```bash
+bun test              # add --isolate for a fresh global per file
+```
+
+## What you get
+
+| Helper                                    | Works on Bun | Notes                                                   |
+| ----------------------------------------- | :----------: | ------------------------------------------------------- |
+| `provideAutoSpy` / `injectSpy`            |      ✅      | identical to the Vitest entry, lazy spies by default    |
+| `renderShallow`                           |      ✅      | real `ComponentFixture`, child subtree dropped          |
+| `createWithAutoSpies`                     |      ✅      | builds a class through Angular DI with every dep spied  |
+| `stable` / `flushEffects`                 |      ✅      | zoneless waiting                                        |
+| the whole core (`createSpyFromClass`, …)  |      ✅      | re-exported from this entry                             |
+| `registerSignalMatchers`                  |      ❌      | needs the runner's `expect.extend` — Vitest only        |
+| TestBed diagnostics (`instrumentTestBed`) |      ❌      | needs suite-level runner hooks — Vitest only            |
+
+## Stylesheets
+
+A test runner has no CSS pre-processor, and no spec asserts on styles. So `.css` is inlined verbatim
+and everything else (`.scss`, `.less`, `.styl`) becomes an **empty** stylesheet — the component still
+compiles and renders. Override it if you genuinely need the text:
+
+```ts
+inlineAngularResources(source, path, { inlineStyleExtensions: ['.css', '.scss'] });
+```
+
+## Building your own preload
+
+Every piece is exported, so a project with its own preload can compose them instead of taking the
+defaults:
+
+```ts
+// bun-preload.ts
+import { createJsdomRegistrar, inlineAngularResources, registerDomGlobals } from 'vitest-auto-spy/bun-angular';
+
+await registerDomGlobals({
+  registrars: [createJsdomRegistrar({ load: () => import('jsdom'), target: globalThis, url: 'https://app.test/' })],
+});
+```
+
+`registerDomGlobals` returns the name of the registrar that installed the DOM, or `undefined` when
+one was already present, and throws with every attempt listed when none worked.
+
+## Limits worth knowing
+
+- **The rewrite is textual, not a parse.** It skips comments and string literals — a `templateUrl`
+  written in prose is left alone — but it does not track `${…}` interpolation or regex literals.
+- **Line numbers are preserved.** Every inlined value is a single-line literal, so a failing spec's
+  stack trace still points at the component's own line.
+- **`node_modules` is skipped.** Published Angular libraries are already compiled.
+- **This entry is ESM-only.** It awaits its DOM registrar at the top level, which has no CommonJS
+  form. Bun runs ESM natively, so nothing is lost.
+
+---
+
+Source: https://asdalexey.github.io/vitest-auto-spy/runtimes/node
+
+# node:test
+
+The `vitest-auto-spy/node` entry runs the same core on `node:test`'s `mock.fn()`.
+
+```ts
+import { createSpyFromClass } from 'vitest-auto-spy/node'; // node:test
+```
+
+The public API is identical to the Vitest entry. Importing the entry registers the `node:test`
+adapter; the auto-spy helpers (`calledWith`, `resolveWith`, `nextWith`, …) are normalised, while
+native mock methods stay the runner's own.
+
+## A runnable example
+
+`node:test` ships no `expect`, so pair it with `node:assert` — the spy surface is the same either
+way.
+
+```js
+// user.test.mjs
+import assert from 'node:assert/strict';
+import { describe, it } from 'node:test';
+import { createSpyFromClass } from 'vitest-auto-spy/node';
+
+class UserService {
+  getName(id) {
+    return `user-${id}`;
+  }
+
+  async load(id) {
+    return `loaded-${id}`;
+  }
+}
+
+describe('UserService spy', () => {
+  it('returns per-argument values and resolves promises', async () => {
+    const users = createSpyFromClass(UserService);
+
+    users.getName.calledWith(7).mockReturnValue('seven');
+    users.load.resolveWith('ok');
+
+    assert.equal(users.getName(7), 'seven');
+    assert.equal(await users.load(1), 'ok');
+    assert.deepEqual(users.getName.mock.calls[0].arguments, [7]);
+  });
+});
+```
+
+```bash
+node --test
+```
+
+## Where the native surface differs
+
+`node:test`'s mock is not Jest-compatible, and this is the one place that shows through. The
+auto-spy helpers hide it; reading the raw mock does not.
+
+| What you want            | Vitest / Bun                         | `node:test`                                        |
+| ------------------------ | ------------------------------------ | -------------------------------------------------- |
+| Recorded calls           | `spy.method.mock.calls[0]` → args    | `spy.method.mock.calls[0].arguments`                |
+| Replace the implementation | `spy.method.mockImplementation(fn)` | `spy.method.mock.mockImplementation(fn)`            |
+| Reset                    | `spy.method.mockReset()`             | `spy.method.mock.resetCalls()` / `restore()`        |
+| Return value             | `spy.method.mockReturnValue(v)`      | **absent** — see the note below                     |
+| Spy name in diagnostics  | set for you                          | `mock.fn()` has no name — names are absent          |
+
+The last row is the one that bites: `spy.method.mockReturnValue('x')` is a **native** Vitest/Bun
+method, and `node:test` has none, so it is `undefined` here. The library's own
+`spy.method.calledWith(...).mockReturnValue('x')` **does** work on all three runtimes — it is part of
+the normalised surface, not the runner's.
+
+```js
+users.getName.calledWith(7).mockReturnValue('seven'); // ✅ everywhere
+users.getName.mockReturnValue('seven'); // ❌ not on node:test
+```
+
+Prefer the normalised helpers (`calledWith(...).mockReturnValue(...)`, `resolveWith`, `nextWith`)
+and the differences stop mattering: they read the same on all three runtimes.
+
+`mock.settledResults` — which `node:test` does not track natively — is provided by a built-in
+polyfill, so it reads identically to Vitest (`{ type: 'fulfilled' | 'incomplete' | 'rejected', value }`).
+See [Control helpers → Inspecting promise outcomes](https://asdalexey.github.io/vitest-auto-spy/core/control-helpers#settled-results).
+
+**Which runtime**
+`node:test` needs no dependency at all beyond Node, which makes it a good fit for a library with no
+build step. For an app suite, [Vitest](https://asdalexey.github.io/vitest-auto-spy/runtimes/vitest) or [Bun](https://asdalexey.github.io/vitest-auto-spy/runtimes/bun) will be less work —
+both ship `expect` and a watch mode.
+
+---
+
+Source: https://asdalexey.github.io/vitest-auto-spy/runtimes/rxjs
+
+# RxJS
+
+Observable spying lives behind the `vitest-auto-spy/rxjs` subpath, keeping `rxjs` out of the
+runtime bundle of non-rxjs projects. Import it **once** (e.g. in your test setup) to enable
+observable helpers:
+
+```ts
+import 'vitest-auto-spy/rxjs';
+```
+
+Both spied **methods** that return an `Observable` and spied **properties** of type `Observable`
+get the same control surface:
+
+```ts
+myService.getProducts$.nextWith([{ name: 'Product 1' }]); // emit, stream stays open
+myService.getProducts$.nextOneTimeWith([{ name: 'X' }]);  // emit one value, then complete
+myService.getProducts$.throwWith('FAKE ERROR');           // error the stream
+myService.getProducts$.complete();                        // complete the stream
+
+// emit a precise sequence — values, errors, completion, optional delays
+myService.getProducts$.nextWithValues([
+  { value: [{ name: 'Product 1' }] },
+  { errorValue: 'FAKE ERROR' },
+  { complete: true },
+]);
+
+// a fresh stream per call
+myService.getProducts$.nextWithPerCall([{ value: ['a'] }, { value: ['b'] }]);
+
+// grab the underlying Subject for full manual control
+const subject = myService.getProducts$.returnSubject();
+```
+
+Using an observable spy without importing `vitest-auto-spy/rxjs` throws a clear hint telling you to
+add the import. The core's _type_ surface (`Spy<T>`) still references rxjs types, so keep `rxjs`
+available for type-checking; none of it reaches your runtime bundle.
+
+## Standalone observable builder
+
+```ts
+import { createObservableWithValues } from 'vitest-auto-spy/rxjs';
+
+const fake$ = createObservableWithValues([{ value: 1 }, { value: 2 }, { complete: true }]);
+
+// or get the subject too
+const { values$, subject } = createObservableWithValues([{ value: 1 }], { returnSubject: true });
+```
+
+`ValueConfig` (for `nextWithValues`): `{ value, delay? }` | `{ errorValue, delay? }` | `{ complete?, delay? }`.
+
+`ValueConfigPerCall` (for `nextWithPerCall`) is `{ value, delay?, doNotComplete? }`.
+
+## Reading a sequence as a marble
+
+`nextWithValues` emits its entries in order, so the config list maps one-to-one onto a marble
+diagram — `delay` is the only thing that puts space between frames.
+
+```ts
+myService.getProducts$.nextWithValues([{ value: 'a' }, { value: 'b' }, { complete: true }]);
+// (ab|)   — both values synchronously, then completion
+```
+
+```ts
+myService.getProducts$.nextWithValues([
+  { value: 'a' },
+  { value: 'b', delay: 20 },
+  { complete: true, delay: 10 },
+]);
+// a 20ms b 10ms |
+```
+
+```ts
+myService.getProducts$.nextWithValues([{ value: 'a' }, { errorValue: 'boom', delay: 20 }]);
+// a 20ms #
+```
+
+A `{ complete: false }` entry emits nothing and does not stop the stream — it is the "leave it open"
+form. Everything after the first `{ complete: true }` is dropped.
+
+## Timing
+
+- **`delay` is milliseconds**, applied with RxJS's own `delay()` (values, completion) and `timer()`
+  (errors). It is real time, not a virtual scheduler.
+- **Without a delay, emission is synchronous.** `nextWith` pushes onto a `ReplaySubject` right away,
+  so a subscriber that has already run sees the value in the same tick.
+- **The backing subject is a `ReplaySubject`**, so a subscriber that arrives *after* the emission
+  still receives it. This is what makes `spy.thing$.nextWith(v)` work regardless of whether the code
+  under test subscribed first.
+- **Under fake timers**, a delayed entry needs the clock advanced.
+  [`advanceTimers(ms)`](https://asdalexey.github.io/vitest-auto-spy/utilities/fake-timers) advances **and** drains the microtasks the emission
+  queues — a bare `vi.advanceTimersByTime()` leaves the `await` continuation pending, and the
+  assertion then reads state from before the callback finished.
+
+```ts
+import { advanceTimers, setupFakeTimers } from 'vitest-auto-spy/setup';
+
+setupFakeTimers();
+
+myService.getProducts$.nextWithValues([{ value: 'a', delay: 100 }]);
+
+const seen: string[] = [];
+myService.getProducts$.subscribe((value) => seen.push(value));
+
+await advanceTimers(100);
+
+expect(seen).toEqual(['a']);
+```
+
+## Asserting instead of subscribing
+
+For the assertion side of a stream — "it emits", "it emits these three", "it stays silent" — use the
+[observable assertions](https://asdalexey.github.io/vitest-auto-spy/core/observable-assertions). They are duck-typed, so they work on any
+subscribable and pull in no rxjs of their own:
+
+```ts
+import { expectEmission, expectNoEmission } from 'vitest-auto-spy';
+
+const emitted = expectEmission(myService.getProducts$);
+
+myService.getProducts$.nextWith(['x']);
+
+expect(await emitted).toEqual(['x']);
+```
+
+---
+
+Source: https://asdalexey.github.io/vitest-auto-spy/utilities/console
+
+# Console spies
+
+Console spying lives behind the `vitest-auto-spy/console` subpath. Importing the entry (in a test
+file or your Vitest setup file) replaces `console.debug` / `error` / `info` / `log` / `time` /
+`timeEnd` / `trace` / `warn` with **silent, fully-typed spies** and exports each one ready to
+assert — no `vi.spyOn(console, 'info')` boilerplate in every suite, no log output polluting the
+test run:
+
+```ts
+import { consoleInfoSpy, consoleWarnSpy } from 'vitest-auto-spy/console';
+
+service.doWork();
+
+expect(consoleInfoSpy).toHaveBeenCalledWith('done');
+expect(consoleWarnSpy).not.toHaveBeenCalled();
+```
+
+## Exports
+
+One spy per patched method: `consoleDebugSpy`, `consoleErrorSpy`, `consoleInfoSpy`,
+`consoleLogSpy`, `consoleTimeSpy`, `consoleTimeEndSpy`, `consoleTraceSpy`, `consoleWarnSpy`
+(type `ConsoleMethodSpy`).
+
+## Housekeeping
+
+```ts
+import { installConsoleSpies, resetConsoleSpies, restoreConsole } from 'vitest-auto-spy/console';
+
+resetConsoleSpies(); // clear the recorded calls (Vitest's `clearMocks: true` does this per test)
+restoreConsole(); // put the original console methods back
+installConsoleSpies(); // re-install after a restore (idempotent otherwise)
+```
+
+- `resetConsoleSpies()` clears recorded calls but keeps the spies installed. With
+  `clearMocks: true` in your Vitest config this happens automatically before each test.
+- `restoreConsole()` undoes the patching entirely and forgets the installed spies.
+- `installConsoleSpies()` returns the full `ConsoleSpies` bag; calling it while spies are
+  installed returns the same bag.
+
+## Runtimes
+
+The spies are built on the registered [`MockAdapter`](https://asdalexey.github.io/vitest-auto-spy/runtimes/vitest), not on `vi.spyOn`
+directly — import your runtime entry (`vitest-auto-spy/bun`, `vitest-auto-spy/node`) **before**
+`vitest-auto-spy/console` and the console spies are driven by that runner's mocks. With no prior
+runtime entry, the default Vitest adapter is registered.
+
+## Fully detached alternative
+
+Prefer not to touch the real global? `createAutoMock<Console>()` gives you a typed, in-memory
+console to inject into code that takes a logger:
+
+```ts
+import { createAutoMock } from 'vitest-auto-spy';
+
+const fakeConsole = createAutoMock<Console>();
+const service = new ReportService(fakeConsole);
+
+service.doWork();
+
+expect(fakeConsole.info).toHaveBeenCalledWith('done');
+```
+
+---
+
+Source: https://asdalexey.github.io/vitest-auto-spy/utilities/setup
+
+# Test-run hygiene
+
+```ts
+// vitest.setup.ts
+import { setupAutoSpy } from 'vitest-auto-spy/setup';
+
+setupAutoSpy();
+```
+
+One call for three pieces of hygiene that every project otherwise assembles by hand, and that are
+expensive to diagnose when they are missing.
+
+## 1. Restoring patched properties
+
+`vi.restoreAllMocks()` knows about spies, not about properties
+[`mockReadonlyProp` / `mockValueProp`](https://asdalexey.github.io/vitest-auto-spy/adapters/angular#signal-readonly-property-mocking)
+redefined. Under `isolate: false` an un-restored patch on a global, a prototype or a singleton
+leaks straight into the next file. `setupAutoSpy()` registers `restoreMockedProps()` in a global
+`afterEach`.
+
+## 2. One copy of the library in the process
+
+Two copies keep two sets of console spies and two registries, so an assertion runs against a spy
+that never replaced the console the code under test called — and the symptom reads as "tests fail
+depending on file order". The check fails the run with a report naming both copies and what to do
+about each cause: a second install, or one install loaded in both its ESM and CommonJS form.
+
+```ts
+import { describeDuplicateCopies, getPackageCopies } from 'vitest-auto-spy/setup';
+
+getPackageCopies(); // the registered copies, for your own reporting
+describeDuplicateCopies(); // the human-readable report, or undefined when there is only one
+```
+
+Both are exported from the core entry as well.
+
+## 3. Draining the runner's restore registry
+
+Every `vi.spyOn` adds an entry that only `vi.restoreAllMocks()` removes; with a shared environment
+that list grows for the whole run. `restoreMocks: true` drains it after each test.
+
+## 4. Cancelling timers that outlive their file
+
+Opt-in, and only relevant with `isolate: false` — where every spec file in a worker shares one set of
+globals. A `setTimeout` a component schedules and never clears survives the file that created it: the
+callback fires while a **different** file is mid-test, against mocks and a DOM that no longer match,
+and the runner blames whichever file happened to be running.
+
+`requestAnimationFrame` is the half that gets missed. Angular's zoneless change-detection scheduler
+races a timeout against a frame callback, so a component torn down at the end of one file can still
+have a frame queued — and what surfaces later is an Angular-internal complaint (a scheduler running
+watches while scheduling, a signal read in the notification phase) attributed to innocent code.
+
+```ts
+setupAutoSpy({ strayTimers: true });
+```
+
+That wraps the four schedulers once per worker and sweeps whatever is outstanding in `afterAll`. The
+pieces are exported for a suite that wants the sweep elsewhere — or wants a leak to **fail** rather
+than be tidied away:
+
+```ts
+import { cancelStrayTimers, countStrayTimers, trackStrayTimers } from 'vitest-auto-spy/setup';
+
+const stop = trackStrayTimers(); // idempotent; returns the undo, which also cancels
+afterEach(() => expect(countStrayTimers()).toBe(0));
+afterAll(() => {
+  const cancelled = cancelStrayTimers(); // how many had to be cancelled
+
+  if (cancelled > 0) {
+    process.stdout.write(`${cancelled} timer(s) outlived this file\n`);
+  }
+});
+```
+
+Each takes an optional host, defaulting to the real globals, so a test can contain a stand-in object
+instead. Under `isolate: true` this is close to a no-op — the environment is discarded per file
+anyway.
+
+## Options
+
+| Option            | Default   | Notes                                                                         |
+| ----------------- | --------- | ----------------------------------------------------------------------------- |
+| `duplicateCopies` | `'throw'` | `'warn'` to report without failing, `'off'` to skip the check                 |
+| `restoreProps`    | `true`    | `restoreMockedProps()` in a global `afterEach`                                |
+| `restoreMocks`    | `false`   | `vi.restoreAllMocks()` in a global `afterEach` — turn on for `isolate: false` |
+| `strayTimers`     | `false`   | Track and cancel timeouts, intervals and frames that outlive their file      |
+
+`restoreMocks` is off by default because it also drops `vi.spyOn` stubs a suite installed in
+`beforeAll`; it is the knob to reach for when the run shares one environment across files.
+
+```ts
+setupAutoSpy({ restoreMocks: true, duplicateCopies: 'warn' });
+```
+
+---
+
+Source: https://asdalexey.github.io/vitest-auto-spy/utilities/fake-timers
+
+# Fake timers
+
+```ts
+import { advanceTimers, setupFakeTimers } from 'vitest-auto-spy/setup';
+
+describe('SearchComponent', () => {
+  setupFakeTimers();
+
+  it('debounces the query', async () => {
+    component.onInput('ab');
+    await advanceTimers(300);
+    expect(search.query).toHaveBeenCalledWith('ab');
+  });
+});
+```
+
+Two pieces of boilerplate every suite that tests a debounce, a poll or a retry ends up writing, and
+the one bug that hides in them.
+
+## `setupFakeTimers(config?)`
+
+Installs the clock in a `beforeEach` and gives it back in an `afterEach`.
+
+Written as two separate hooks, the second is the one a suite forgets — and a frozen clock left
+behind leaks into every later file in the same worker, where it surfaces as an unrelated test
+hanging on a `setTimeout` that never fires. Pairing them in one call is the whole point.
+
+The optional `config` is forwarded verbatim to `vi.useFakeTimers()`, typed off Vitest's own
+signature so it tracks whatever the installed version accepts:
+
+```ts
+setupFakeTimers({ toFake: ['setTimeout'] }); // leave Date and queueMicrotask real
+```
+
+## `advanceTimers(ms?)`
+
+`vi.advanceTimersByTime()` plus the step that is easy to miss.
+
+Advancing runs the timer callbacks synchronously — but whatever they *queue* is still sitting in
+the microtask queue when the next line executes: a resolved promise, an `await` continuation, an
+RxJS `delay()` handing control back. The assertion then reads state from before the callback
+finished, and the test fails in a way that reads like a race in the code under test.
+
+```ts
+// Fails like a race in the code under test:
+vi.advanceTimersByTime(300);
+expect(search.query).toHaveBeenCalled();
+
+// Awaits the queue the callback filled:
+await advanceTimers(300);
+expect(search.query).toHaveBeenCalled();
+```
+
+That is why it is `async` — the return value must be awaited.
+
+`ms` defaults to `0`: the "run everything already due, then flush microtasks" step, which is what a
+`setTimeout(fn, 0)` or a resolved-promise chain needs.
+
+On real timers it throws a message naming the fix, rather than letting Vitest fail deeper in with
+"timers are not mocked".
+
+**Angular**
+Pair it with [`stable(fixture)`](https://asdalexey.github.io/vitest-auto-spy/adapters/angular#zoneless-waiting): `advanceTimers` moves the
+clock, `stable` flushes the effects and change detection the clock set off.
+
+---
+
+Source: https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-plugin
+
+# ESLint plugin
+
+```js
+// eslint.config.js
+import autoSpy from 'vitest-auto-spy/eslint-plugin';
+
+export default [{ files: ['**/*.spec.ts'], ...autoSpy.configs.recommended }];
+```
+
+Scope it to spec files yourself: every rule is about test code, and `Object.defineProperty` or an
+object of `vi.fn()`s is perfectly reasonable in application code.
+
+**Flat config only**
+The legacy `.eslintrc` `plugins: ['…']` form resolves plugin names to `eslint-plugin-*` packages,
+which a subpath export of this package can never be.
+
+## Rules
+
+| Rule                           | Recommended | Flags                                                                                 |
+| ------------------------------ | :---------: | ------------------------------------------------------------------------------------- |
+| `prefer-provide-auto-spy`      |   `warn`    | `{ provide: X, useValue: { a: vi.fn() } }` → `provideAutoSpy(X)`                      |
+| `prefer-create-spy-from-class` |   `warn`    | an object literal of two or more `vi.fn()`s → `createSpyFromClass` / `createAutoMock` |
+| `prefer-inject-spy`            |   `warn`    | `vi.spyOn(TestBed.inject(X), 'm')` → `injectSpy(X)`                                   |
+| `no-object-define-property`    |   `error`   | `Object.defineProperty` in a spec → `mockReadonlyProp` / `mockValueProp`              |
+| `no-expect-in-subscribe`       |   `error`   | `expect()` inside a `subscribe()` callback → `expectEmission`                         |
+
+The two `error` rules are the ones that catch a test being _wrong_ rather than verbose:
+`Object.defineProperty` leaves no way back — nothing restores the original descriptor, so the patch
+leaks into the next file under `isolate: false` — and an `expect()` inside `subscribe()` never runs
+if the stream stays silent, leaving a green test that asserted nothing.
+
+## Picking rules by hand
+
+`configs.recommended` is a plain flat-config object, so the severities are yours to change:
+
+```js
+import autoSpy from 'vitest-auto-spy/eslint-plugin';
+
+export default [
+  {
+    files: ['**/*.spec.ts'],
+    plugins: { 'vitest-auto-spy': autoSpy },
+    rules: {
+      'vitest-auto-spy/no-expect-in-subscribe': 'error',
+      'vitest-auto-spy/prefer-provide-auto-spy': 'off',
+    },
+  },
+];
+```
+
+Every message ends with a link to the matching recipe in the README's
+[How to mock](https://github.com/ASDAlexey/vitest-auto-spy#how-to-mock) section: a rule that only
+says "don't" moves the problem rather than solving it. The rules travel with the API they
+recommend, so they are versioned together and stop being re-written in every project that installs
+the package.
+
+---
+
+Source: https://asdalexey.github.io/vitest-auto-spy/adapters/angular
+
+# Angular
+
+The `vitest-auto-spy/angular` entry adds `provideAutoSpy` — a shorthand for providing an auto-spy
+in a `TestBed` — plus `injectSpy`, shallow component rendering, DI-driven instantiation, zoneless
+waiting, a signal matcher, `TestBed` diagnostics and the signal/readonly property mockers.
+
+```ts
+import { injectSpy, provideAutoSpy } from 'vitest-auto-spy/angular';
+
+TestBed.configureTestingModule({
+  providers: [
+    provideAutoSpy(MyService),
+    // accepts the same second argument as createSpyFromClass
+    provideAutoSpy(ApiService, { methodsToSpyOn: ['get', 'post'] }),
+  ],
+});
+
+let myService: Spy<MyService>;
+
+beforeEach(() => {
+  myService = injectSpy(MyService);
+});
+```
+
+The spies are change-detection agnostic, so they work in **both zoneless and zone.js** Angular
+projects — nothing here touches `NgZone` or change detection. You still need the usual Vitest +
+Angular wiring (`@analogjs/vite-plugin-angular` plus a TestBed setup file).
+
+**Running the same suite on Bun**
+`bun test` cannot run Angular specs out of the box — Bun ships no DOM and cannot resolve
+`templateUrl`. [`vitest-auto-spy/bun-angular`](https://asdalexey.github.io/vitest-auto-spy/runtimes/bun-angular) closes both from one preload
+and re-exports everything on this page except `registerSignalMatchers` and the `TestBed`
+diagnostics, which need the runner's `expect.extend` and suite-level hooks.
+
+## Lazy spies by default
+
+Angular tests typically spy a wide service but call only a couple of its methods per test, so
+`provideAutoSpy` defaults to **lazy** spies: each method spy is built on first access instead of
+eagerly up-front. On a wide service where a test touches two methods, spy assembly is roughly
+**4× faster** (≈8× on a 20-method service) — the unused methods never pay the full spy-construction
+cost. Everything else is unchanged: `Object.keys`, `vi.isMockFunction`, `calledWith`,
+`resetAutoSpy` / `clearAutoSpy` all behave identically.
+
+```ts
+provideAutoSpy(WideService); // lazy — the fast default
+provideAutoSpy(WideService, { lazySpies: false }); // opt out: build every spy eagerly
+```
+
+Only `provideAutoSpy` (the Angular entry) defaults to lazy; the framework-agnostic
+`createSpyFromClass` still builds eagerly unless you pass `{ lazySpies: true }`.
+
+## Shallow component rendering
+
+`renderShallow` is the standard `TestBed` sequence a component-heavy suite ends up copy-pasting —
+`configureTestingModule` + `NO_ERRORS_SCHEMA` + `overrideComponent` with emptied `imports` and a
+blank template — given a name:
+
+```ts
+import { provideAutoSpy, renderShallow } from 'vitest-auto-spy/angular';
+
+const { fixture, component } = renderShallow(TaskListComponent, {
+  providers: [provideAutoSpy(TaskService), provideHttpClient()],
+  inputs: { projectId: 42 }, // set through componentRef.setInput, before the first CD
+});
+```
+
+| Option          | Default | What it does                                                                                                                    |
+| --------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `providers`     | `[]`    | Providers for the testing module. `EnvironmentProviders` (`provideHttpClient()`, …) welcome                                     |
+| `imports`       | `[]`    | Extra imports for the testing module (a stub module, a routing harness)                                                         |
+| `inputs`        | —       | Values for the component's inputs — signal inputs take the **value**, not the signal                                            |
+| `keepTemplate`  | `false` | Keep the real template (for `viewChild`, content projection, host bindings)                                                     |
+| `keepChildren`  | `[]`    | Child components/directives/pipes that stay resolvable; everything else is dropped                                              |
+| `template`      | `''`    | A stand-in template to render instead of a blank one                                                                            |
+| `beforeCreate`  | —       | Runs after the module is configured, before the component exists — the seam for stubbing a dependency a field initializer reads |
+| `detectChanges` | `true`  | Run the first change detection, and therefore `ngOnInit`                                                                        |
+
+`fixture` is a real `ComponentFixture`; nothing here replaces `@angular/core/testing`. Blanking the
+template keeps lifecycle hooks, inputs, signals and DI — everything a spec that asserts on
+TypeScript state actually reads.
+
+### What it saves, measured
+
+On a private Angular 22 zoneless suite (784 specs, the AOT `@angular/build:unit-test` builder), three
+of its most expensive component specs were converted and the ten-file batch re-run three times —
+medians, same batch, same machine:
+
+| Spec (479 tests in the batch, all still green)     | Before | After  | Change   |
+| --------------------------------------------------- | ------ | ------ | -------- |
+| a container with a deep child tree (34 tests)      | 129 ms | 61 ms  | **2.1×** |
+| a list rendering 58 fixtures                       | 133 ms | 75 ms  | **1.8×** |
+| a small leaf component (20 tests)                  | 29 ms  | 38 ms  | **0.8×** |
+| the three together                                 | 291 ms | 174 ms | **1.7×** |
+
+The third row is the honest half of the result: a leaf component has almost no subtree to remove, so
+the per-test `overrideComponent` costs more than it saves. **Shallow rendering pays where there is a
+real child tree to skip.** Use [the diagnostics](#where-a-spec-spends-its-time) to find the files
+worth converting rather than guessing.
+
+## Building a class with auto-spied dependencies
+
+The alternative a project writes by hand is a `providers` array listing each dependency with a
+`useValue` object of `vi.fn()`s, rewritten whenever a dependency is added. Here the injector itself
+answers an unknown token with a spy, so the spec names only what it wants to control:
+
+```ts
+import { createWithAutoSpies } from 'vitest-auto-spy/angular';
+
+const { instance, spies, injector } = createWithAutoSpies(CartService, {
+  providers: [{ provide: TaxService, useValue: realTax }], // explicit providers win
+});
+
+spies.get(PricingService).total.mockReturnValue(100);
+expect(instance.checkout()).toBe(100);
+```
+
+The class is built through its own Angular factory, so constructor parameters **and** `inject()`
+field initializers resolve normally. An unprovided token gets a `createSpyFromClass` spy (a class)
+or a `createAutoMock` proxy (an `InjectionToken`); `inject(X, { optional: true })` still returns
+`null`, exactly as it would in the app. `spies.get(token)` resolves through the same injector the
+instance used — so it returns the explicit provider when there is one — and `spies.autoSpiedTokens()`
+lists what was invented.
+
+**Plain providers only**
+This builds an `Injector.create()` injector, which does not accept the `EnvironmentProviders`
+returned by `provideHttpClient()` and friends. A class that needs those belongs in a `TestBed` —
+[`renderShallow`](#shallow-component-rendering), or a plain `configureTestingModule`.
+
+## Zoneless waiting
+
+```ts
+import { flushEffects, stable } from 'vitest-auto-spy/angular';
+
+component.filter.set('open');
+await stable(fixture); // flush effects, then await the fixture
+expect(component.visible()).toEqual([openTask]);
+
+flushEffects(); // the no-fixture half: services, stores, runInInjectionContext code
+```
+
+`fixture.detectChanges()` runs a single change-detection pass and does **not** flush pending
+effects, so an assertion right after it reads state that has not finished computing. In a zoneless
+app the state that matters is signal-derived and effects are what move it forward. `stable` does
+both, in the right order; `flushEffects` prefers `TestBed.tick()` (Angular ≥ 20) and falls back to
+`ApplicationRef.tick()`.
+
+## Running one effect on demand
+
+`flushEffects()` asks the scheduler to run everything currently dirty. Sometimes a spec needs one
+specific effect to run *now* — typically because its trigger has been replaced with a static signal,
+so it will never become dirty on its own:
+
+```ts
+import { mockReadonlyProp, runEffect } from 'vitest-auto-spy/angular';
+
+mockReadonlyProp(component, 'state', signal(State.Selected));
+
+runEffect(component.highlightEffect);
+
+expect(component.icon()).toBe('starFilled');
+```
+
+`runEffect` runs the body with the signal values as they stand, cleanup registration intact, without
+marking the effect clean — a later flush still behaves normally.
+
+**Do not reach for `vi.mock('@angular/core')` instead**
+The instinct is to replace `effect()` with the identity function so the callback becomes something
+the spec holds. Under the Angular unit-test builder that is not available: specs are bundled,
+`@angular/core` lands in a chunk other chunks already depend on, and substituting it re-enters that
+chunk mid-initialisation. The run dies with `Cannot access '__vi_import_N__' before initialization`,
+which says nothing about mocking. The same applies to `vi.mock()` with a relative path — once
+bundled there is no module boundary left to replace.
+
+It reads Angular's reactive node off the `EffectRef`, so it is tied to an internal-by-convention
+detail. If a future Angular moves the effect body, `runEffect` throws with a message saying to assert
+the effect's **result** instead — set the signals it reads, `await stable(fixture)`, check what came
+out. That is the more durable shape wherever it is practical.
+
+## Asserting a signal
+
+```ts
+import { registerSignalMatchers } from 'vitest-auto-spy/angular';
+
+registerSignalMatchers(); // once, in your setup file
+
+expect(component.total).toHaveSignalValue(3);
+expect(component.items).toHaveSignalValue([{ id: 1 }]);
+```
+
+`expect(component.total).toBeTruthy()` passes for every signal ever created — a signal is a
+function. The matcher reads it, deep-compares with the runner's own equality, and rejects anything
+that is not a zero-argument getter, so the missing-parentheses mistake fails instead of quietly
+passing.
+
+## Signal / readonly property mocking
+
+```ts
+import { mockAccessorsProp, mockReadonlyProp, mockReadonlyPropGetter, mockValueProp, restoreMockedProps } from 'vitest-auto-spy/angular';
+
+mockReadonlyProp(service, 'isReady', true); // static value (incl. signals)
+mockReadonlyPropGetter(service, 'label', () => 'A'); // dynamic getter
+mockValueProp(service, 'retries', 3); // plain writable value
+mockAccessorsProp(service, 'theme'); // spied get + set
+```
+
+Every helper records the descriptor it overwrote, so a single `restoreMockedProps()` puts them all
+back — and each one also returns the undo for _its own_ patch, for a stub that has to come off
+inside a single test. That matters when the patched object outlives the spec file (a global, a
+class prototype, a singleton), which is always the case under Vitest's `isolate: false`:
+[`setupAutoSpy()`](https://asdalexey.github.io/vitest-auto-spy/utilities/setup) wires the `afterEach` for you.
+
+Nothing about these helpers is Angular-specific: they are exported from the **core** entry too, and
+`vitest-auto-spy/angular` keeps re-exporting them unchanged. `countMockedProps()` reports how many
+patches are still applied.
+
+## Where a spec spends its time
+
+```ts
+// vitest.setup.ts
+import { enableTestBedDiagnostics } from 'vitest-auto-spy/angular';
+
+if (process.env['SPEC_TIMING']) {
+  enableTestBedDiagnostics();
+}
+```
+
+```
+[vitest-auto-spy] src/app/…/layer-editor.component.spec.ts — TestBed 353ms of 661ms (53%), logic 308ms, 155 component(s), 132 module config(s)
+```
+
+One line per spec file: how much of its wall clock went into `TestBed` (module configuration,
+template compilation, component creation) versus plain logic, and how many components it created.
+That is the list of rewrite candidates, and the number that says whether a rewrite helped.
+
+| Option         | Default           | Notes                                                           |
+| -------------- | ----------------- | --------------------------------------------------------------- |
+| `report`       | one line per file | Receives the `SpecTiming` object — collect the timings yourself |
+| `minTestBedMs` | `0`               | Stay quiet about files cheaper than this                        |
+
+`disableTestBedDiagnostics()` puts the untouched `TestBed` back; `instrumentTestBed()`,
+`getTestBedTiming()`, `formatSpecTiming()` and `reportSpecTiming()` are the pieces underneath, for
+a suite that wants the numbers without the per-file line. The clock is
+captured at import time, so a spec using `vi.useFakeTimers()` is still measured honestly rather
+than reported as free, and the report goes to `process.stdout` — not `console.info`, which
+[`vitest-auto-spy/console`](https://asdalexey.github.io/vitest-auto-spy/utilities/console) replaces with a silent mock.
+
+---
+
+Source: https://asdalexey.github.io/vitest-auto-spy/adapters/nestjs
+
+# NestJS
+
+The `vitest-auto-spy/nestjs` entry ships a `{ provide, useValue }` provider tailored for
+`Test.createTestingModule({ providers: [...] })`, plus a typed `injectSpy` that pulls a spy out of
+the resulting `TestingModule`.
+
+```ts
+import { provideAutoSpy, injectSpy } from 'vitest-auto-spy/nestjs';
+
+const moduleRef = await Test.createTestingModule({
+  providers: [
+    provideAutoSpy(MyService),
+    provideAutoSpy(ApiService, { methodsToSpyOn: ['get', 'post'] }),
+  ],
+}).compile();
+
+const myService = injectSpy(moduleRef, MyService);
+```
+
+Dependency-free by design: `@nestjs/common` / `@nestjs/testing` are optional peers, so the entry
+describes the module reference with a minimal structural type instead of importing them.
+
+**`injectSpy` takes two arguments here**
+Angular's `injectSpy(token)` reads from the global `TestBed`. NestJS has no global module, so the
+NestJS variant is **`injectSpy(moduleRef, token)`** — the module reference comes first.
+
+## A full spec
+
+```ts
+import { Test, type TestingModule } from '@nestjs/testing';
+import { beforeEach, describe, expect, it } from 'vitest';
+import { type Spy } from 'vitest-auto-spy';
+import { injectSpy, provideAutoSpy } from 'vitest-auto-spy/nestjs';
+
+import { AuthService } from './auth.service';
+import { UserService } from './user.service';
+
+describe('AuthService', () => {
+  let moduleRef: TestingModule;
+  let auth: AuthService;
+  let users: Spy<UserService>;
+
+  beforeEach(async () => {
+    moduleRef = await Test.createTestingModule({
+      providers: [AuthService, provideAutoSpy(UserService)],
+    }).compile();
+
+    auth = moduleRef.get(AuthService);
+    users = injectSpy(moduleRef, UserService);
+  });
+
+  it('signs in a known user', async () => {
+    users.findByEmail.calledWith('ada@example.com').resolveWith({ id: 1, name: 'Ada' });
+
+    await expect(auth.signIn('ada@example.com')).resolves.toMatchObject({ id: 1 });
+    expect(users.findByEmail).toHaveBeenCalledWith('ada@example.com');
+  });
+
+  it('rejects an unknown one', async () => {
+    users.findByEmail.resolveWith(null);
+
+    await expect(auth.signIn('nobody@example.com')).rejects.toThrow('Unknown user');
+  });
+});
+```
+
+`AuthService` itself is provided **for real** — it is the class under test. Everything it injects is
+provided as an auto-spy.
+
+## Abstract classes and interface tokens
+
+Nest often injects against an abstract class or a string/symbol token. `provideAutoSpy` needs a
+constructor to read methods from, so give it the concrete class and re-point the token:
+
+```ts
+// abstract class as the token, concrete class as the shape
+providers: [{ provide: PaymentGateway, useValue: provideAutoSpy(StripeGateway).useValue }];
+
+// a string/symbol token
+providers: [{ provide: 'PAYMENT_GATEWAY', useValue: provideAutoSpy(StripeGateway).useValue }];
+```
+
+Then read it back the way Nest resolves it:
+
+```ts
+const gateway = injectSpy(moduleRef, PaymentGateway);
+```
+
+When there is no class at all — a pure interface — use
+[`createAutoMock<PaymentGateway>()`](https://asdalexey.github.io/vitest-auto-spy/core/auto-mock-by-type) as the `useValue` instead; it builds
+the same spy surface from the type.
+
+## Why there is no `@nestjs` dependency
+
+`@nestjs/common` and `@nestjs/testing` stay **your** dev dependencies. The entry describes the module
+reference with a minimal structural type (`NestModuleRef` — anything with a `get(token)`), so
+nothing from Nest reaches this package's runtime bundle, and `injectSpy` also works against a hand-
+rolled fake in a unit test.
+
+---
+
+Source: https://asdalexey.github.io/vitest-auto-spy/adapters/react
+
+# React
+
+React has no DI container, so `vitest-auto-spy/react` ships **no** `provide*` helper — it is a
+*recipe*: spy the **classes** you own (services, stores, API clients, the deps you inject into
+hooks or hand to a Context provider), not the components themselves.
+
+```ts
+import { createSpyFromClass, type Spy } from 'vitest-auto-spy/react';
+```
+
+The spy is a plain object of mocks, so you pass it straight into a `<Context.Provider value={spy}>`
+or a hook's dependency argument, then drive return values with `calledWith` / `resolveWith` /
+`mockReturnValue` and assert against `spy.method.mock.calls`.
+
+Importing this entry registers the default Vitest mock adapter and re-exports the same public API
+as the core. It pulls in `vitest` only — never `react` or `@testing-library/react`, which stay your
+own dev dependencies.
+
+## Through a Context provider
+
+The spy is a plain object of mocks, so it goes straight into a provider's `value`:
+
+```tsx
+import { render, screen } from '@testing-library/react';
+import { beforeEach, describe, expect, it } from 'vitest';
+import { type Spy, createSpyFromClass } from 'vitest-auto-spy/react';
+
+import { Cart, CartContext } from './cart';
+import { CartStore } from './cart-store';
+
+describe('<Cart />', () => {
+  let cart: Spy<CartStore>;
+
+  beforeEach(() => {
+    cart = createSpyFromClass(CartStore);
+  });
+
+  it('renders the total the store reports', () => {
+    cart.total.mockReturnValue(42);
+
+    render(
+      <CartContext.Provider value={cart}>
+        <Cart />
+      </CartContext.Provider>,
+    );
+
+    expect(screen.getByText('$42')).toBeInTheDocument();
+  });
+
+  it('checks out with the items on screen', async () => {
+    cart.checkout.resolveWith({ orderId: 'ord_42' });
+
+    render(
+      <CartContext.Provider value={cart}>
+        <Cart />
+      </CartContext.Provider>,
+    );
+
+    await userEvent.click(screen.getByRole('button', { name: 'Check out' }));
+
+    expect(cart.checkout).toHaveBeenCalledWith('tok_abc');
+  });
+});
+```
+
+`Spy<CartStore>` is a mapped type and drops `#private` members, so it is not assignable to
+`CartStore`. If the context is typed as the class, bridge it with
+[`asInstance(cart)`](https://asdalexey.github.io/vitest-auto-spy/core/spy-typing) rather than an `as`.
+
+## As a hook dependency
+
+A hook that takes its collaborator as an argument is the easiest thing in a React codebase to test,
+and the spy needs no wrapper at all:
+
+```ts
+import { renderHook, waitFor } from '@testing-library/react';
+import { expect, it } from 'vitest';
+import { createSpyFromClass } from 'vitest-auto-spy/react';
+
+import { UserApi } from './user-api';
+import { useUser } from './use-user';
+
+it('exposes the loaded user', async () => {
+  const api = createSpyFromClass(UserApi);
+
+  api.fetchUser.calledWith(1).resolveWith({ id: 1, name: 'Ada' });
+
+  const { result } = renderHook(() => useUser(1, api));
+
+  await waitFor(() => expect(result.current.user?.name).toBe('Ada'));
+  expect(api.fetchUser).toHaveBeenCalledTimes(1);
+});
+```
+
+**What not to spy**
+Spy the classes you own, not components or hooks. A spied component tells you nothing about
+rendering, and a spied hook makes the test assert its own mock. Keep the boundary at the
+service/store/API-client seam.
+
+---
+
+Source: https://asdalexey.github.io/vitest-auto-spy/adapters/vue
+
+# Vue / Pinia
+
+The `vitest-auto-spy/vue` entry re-exports the full core (zero-config on Vitest) and adds a small
+`provideAutoSpy(token, Class)` that builds a `global.provide` entry for `@vue/test-utils`. Nothing
+here imports `vue`, `pinia` or `@vue/test-utils` — they stay optional peers.
+
+Class-based services injected via `provide`/`inject` and class-based Pinia stores are the natural
+fit:
+
+```ts
+import { createSpyFromClass, provideAutoSpy } from 'vitest-auto-spy/vue';
+
+// Spy a Pinia store's actions
+const store = createSpyFromClass(CartStore);
+store.checkout.resolveWith({ ok: true });
+
+// Provide a spied service to a mounted component
+const provide = provideAutoSpy(UserServiceKey, UserService);
+provide[UserServiceKey].getName.mockReturnValue('Fake Name');
+```
+
+## A full `mount` example
+
+`provideAutoSpy(token, Class, methodsOrConfig?)` returns a **`global.provide` map** —
+`{ [token]: Spy<T> }` — so it spreads straight into `@vue/test-utils`:
+
+```ts
+import { mount } from '@vue/test-utils';
+import { expect, it } from 'vitest';
+import { provideAutoSpy } from 'vitest-auto-spy/vue';
+
+import Greeting from './Greeting.vue';
+import { UserService, UserServiceKey } from './user.service';
+
+it('renders the name the service returns', () => {
+  const provide = provideAutoSpy(UserServiceKey, UserService);
+
+  provide[UserServiceKey].getName.calledWith(1).mockReturnValue('Ada');
+
+  const wrapper = mount(Greeting, {
+    props: { userId: 1 },
+    global: { provide },
+  });
+
+  expect(wrapper.text()).toContain('Ada');
+  expect(provide[UserServiceKey].getName).toHaveBeenCalledWith(1);
+});
+```
+
+Providing more than one collaborator is a merge of the maps:
+
+```ts
+const provide = {
+  ...provideAutoSpy(UserServiceKey, UserService),
+  ...provideAutoSpy(CartKey, CartStore, { methodsToSpyOn: ['total', 'checkout'] }),
+};
+```
+
+The token can be a plain string, a `symbol`, or a typed `InjectionKey<T>` (which is a branded
+`symbol`) — the returned map is keyed by exactly the token you passed.
+
+## A class-based Pinia store
+
+A store written as a class is just a class, so `createSpyFromClass` spies every action and getter:
+
+```ts
+import { expect, it } from 'vitest';
+import { type Spy, createSpyFromClass } from 'vitest-auto-spy/vue';
+
+import { CartStore } from './cart.store';
+
+it('drives the store the component talks to', async () => {
+  const cart: Spy<CartStore> = createSpyFromClass(CartStore);
+
+  cart.itemCount.mockReturnValue(3); // a getter-style action
+  cart.checkout.resolveWith({ orderId: 'ord_42' }); // an async action
+
+  expect(cart.itemCount()).toBe(3);
+  await expect(cart.checkout('tok_abc')).resolves.toEqual({ orderId: 'ord_42' });
+  expect(cart.checkout).toHaveBeenCalledWith('tok_abc');
+});
+```
+
+Every action is inert until you configure it — `cart.addItem('sku', 1)` records the call and returns
+`undefined`, so no real store logic runs.
+
+**Setup-store (composition API) stores**
+`defineStore('cart', () => …)` returns a plain object of refs and functions, not a class. Use
+[`createAutoMock<T>()`](https://asdalexey.github.io/vitest-auto-spy/core/auto-mock-by-type) there — it mocks from the store's **type** with the
+same helpers, no class required.
+
+---
+
+Source: https://asdalexey.github.io/vitest-auto-spy/adapters/svelte
+
+# Svelte
+
+Svelte has no class-based dependency injection, so `vitest-auto-spy/svelte` adds **no** helper of
+its own — it is a recipe, not a framework integration. Svelte apps typically keep their logic in
+plain class-based services or stores; `createSpyFromClass` spies that class, and you inject the spy
+into the component under test (props, context, or a mocked module) exactly the way the component
+receives the real one.
+
+```ts
+import { createSpyFromClass } from 'vitest-auto-spy/svelte';
+import { render } from '@testing-library/svelte';
+import Cart from './Cart.svelte';
+import { CartStore } from './cart-store';
+
+const cartStore = createSpyFromClass(CartStore);
+cartStore.total.mockReturnValue(42);
+
+render(Cart, { props: { store: cartStore } });
+```
+
+Importing this entry registers the default Vitest mock adapter and re-exports the whole core, so a
+Svelte suite needs a single import. It pulls in neither `svelte` nor `@testing-library/svelte`.
+
+## Through context
+
+When the component reads its collaborator from `getContext`, seed the same key with the spy:
+
+```ts
+import { render, screen } from '@testing-library/svelte';
+import { expect, it } from 'vitest';
+import { createSpyFromClass } from 'vitest-auto-spy/svelte';
+
+import Cart from './Cart.svelte';
+import { CART_STORE, CartStore } from './cart-store';
+
+it('renders the total the store reports', () => {
+  const cartStore = createSpyFromClass(CartStore);
+
+  cartStore.total.mockReturnValue(42);
+
+  render(Cart, { context: new Map([[CART_STORE, cartStore]]) });
+
+  expect(screen.getByText('$42')).toBeInTheDocument();
+});
+```
+
+## Through a mocked module
+
+When the component imports a singleton directly, replace the module — the spy is what the factory
+returns:
+
+```ts
+import { render } from '@testing-library/svelte';
+import { expect, it, vi } from 'vitest';
+import { createSpyFromClass } from 'vitest-auto-spy/svelte';
+
+import { CartStore } from './cart-store';
+
+const cartStore = vi.hoisted(() => createSpyFromClass(CartStore));
+
+vi.mock('./cart-store', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./cart-store')>()),
+  cartStore,
+}));
+
+it('checks out through the module singleton', async () => {
+  cartStore.checkout.resolveWith({ orderId: 'ord_42' });
+
+  render(await import('./Cart.svelte').then((m) => m.default));
+
+  expect(cartStore.checkout).toHaveBeenCalled();
+});
+```
+
+**`vi.mock` needs a module boundary**
+A `vi.mock` factory is hoisted above the file's own imports, so it must not close over anything
+declared at module scope — `vi.hoisted` is what makes the spy available to it. And in setups that
+bundle the spec (Angular's `@angular/build:unit-test` builder, for instance) a relative path has no
+module boundary left to replace; inject the spy through props or context there instead.
+
+---
+
+Source: https://asdalexey.github.io/vitest-auto-spy/migrating
+
+# Migrating from jest-auto-spies
+
+The public API is intentionally identical to
+[`jest-auto-spies`](https://www.npmjs.com/package/jest-auto-spies). In most projects the migration
+is a **find-and-replace of the import**:
+
+```diff
+- import { createSpyFromClass, provideAutoSpy } from 'jest-auto-spies';
++ import { createSpyFromClass } from 'vitest-auto-spy';
++ import { provideAutoSpy } from 'vitest-auto-spy/angular';
++ import 'vitest-auto-spy/rxjs'; // once, if you use observable spies
+```
+
+The only API-shape change is that the Angular helpers and the observable layer live behind the
+`/angular` and `/rxjs` subpaths (see [Installation → Entry points](https://asdalexey.github.io/vitest-auto-spy/core/installation)).
+
+## Mapping table
+
+This also covers migrating from
+[`@bugsplat/vitest-auto-spies`](https://www.npmjs.com/package/@bugsplat/vitest-auto-spies) —
+it re-exports the same `jest-auto-spies` API, so the swap is identical (and you gain Bun /
+`node:test`, `createAutoMock`, framework recipes and console spies on top).
+
+| jest-auto-spies | vitest-auto-spy | Status |
+| --- | --- | --- |
+| `createSpyFromClass` | `createSpyFromClass` | ✅ identical |
+| `provideAutoSpy` | `provideAutoSpy` (from `/angular`) | ✅ identical |
+| `calledWith` / `mustBeCalledWith` | same | ✅ identical |
+| `calledWith(...).returnValue(v)` | same — `.returnValue` **and** `.mockReturnValue` both work | ✅ identical |
+| `resolveWith` / `rejectWith` / `resolveWithPerCall` | same | ✅ identical |
+| `nextWith` / `nextOneTimeWith` / `nextWithValues` / `nextWithPerCall` | same | ✅ identical |
+| `throwWith` / `complete` / `returnSubject` | same | ✅ identical |
+| `accessorSpies.getters/setters` | same | ✅ identical |
+| `createObservableWithValues` | same (from `/rxjs`) | ✅ identical |
+| underlying mock | `jest.fn()` → `vi.fn()` | 🔁 swapped |
+
+Just make sure your tests run under Vitest (or Bun / `node:test` via the matching entry), and — for
+Angular — that `TestBed` is set up.
+
+## Step by step
+
+1. **Install and remove.**
+
+   ```bash
+   npm i -D vitest-auto-spy
+   npm rm jest-auto-spies   # or @bugsplat/vitest-auto-spies
+   ```
+
+2. **Rewrite the imports.** The core keeps its name; the Angular helpers and the observable layer
+   moved behind subpaths.
+
+   ```diff
+   - import { createSpyFromClass, provideAutoSpy } from 'jest-auto-spies';
+   + import { createSpyFromClass } from 'vitest-auto-spy';
+   + import { provideAutoSpy } from 'vitest-auto-spy/angular';
+   ```
+
+3. **Add the rxjs import once** — in the setup file, not per spec — if any spy uses `nextWith`,
+   `nextWithValues` or `observablePropsToSpyOn`:
+
+   ```ts
+   // vitest.setup.ts
+   import 'vitest-auto-spy/rxjs';
+   ```
+
+   Skipping this does not fail silently: the first observable helper throws a message naming this
+   exact import.
+
+4. **Pick the entry that matches your runner.** `vitest-auto-spy` registers Vitest's adapter,
+   `/bun` registers `bun:test`'s, `/node` registers `node:test`'s. One per run.
+
+5. **Type the variables as `Spy<T>`.** If a spec declared `let service: MyService = createSpyFromClass(...)`,
+   it will now fail to compile when the class has `#private` or `private` members — `Spy<T>` is a
+   mapped type and drops them. `let service: Spy<MyService>` is the fix, or
+   [`asInstance` / `asSpy`](https://asdalexey.github.io/vitest-auto-spy/core/spy-typing) where the spy must be handed to something typed as the
+   class.
+
+6. **Run the suite.** Nothing else in the API changed, so what fails now is real.
+
+7. **Optional, but worth it once green:**
+   [`setupAutoSpy()`](https://asdalexey.github.io/vitest-auto-spy/utilities/setup) in the setup file, and the
+   [ESLint rules](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-plugin) that steer the suite onto the newer helpers.
+
+## Per-runner gotchas
+
+**Vitest.** Nothing beyond the import swap. If the suite runs with `isolate: false` or a shared
+environment, add `setupAutoSpy()` — Jest isolated every file, and a `mock*Prop` patch that was
+harmless there now outlives its spec.
+
+**Bun (`bun:test`).** `mockReset()` on Bun also drops the implementation (Vitest keeps the spy) —
+the adapter restores it, so auto-spies are unaffected, but a hand-rolled `mock()` in the same spec
+will behave differently. `spyOn` refuses accessor properties on Bun; the accessor spies here go
+through property redefinition and work anyway. Angular suites need
+[`vitest-auto-spy/bun-angular`](https://asdalexey.github.io/vitest-auto-spy/runtimes/bun-angular).
+
+**`node:test`.** There is no `expect` — pair it with `node:assert`. And `spy.method.mockReturnValue`
+is a *native* Vitest/Bun method that `node:test` does not have; the normalised
+`spy.method.calledWith(...).mockReturnValue(...)` works everywhere. Recorded calls read as
+`mock.calls[0].arguments`, not `mock.calls[0]`. See [node:test](https://asdalexey.github.io/vitest-auto-spy/runtimes/node).
+
+**Angular.** `provideAutoSpy` defaults to **lazy** spies here (`jest-auto-spies` was always eager).
+Behaviour is identical; if you depend on every spy existing before first access, pass
+`{ lazySpies: false }`.
+
+## What you gain by moving
+
+Beyond the runner swap, everything the old API did not have:
+[`createAutoMock` / `mockDeep` / `createMock`](https://asdalexey.github.io/vitest-auto-spy/core/auto-mock-by-type),
+[`renderShallow` and `createWithAutoSpies`](https://asdalexey.github.io/vitest-auto-spy/adapters/angular),
+[observable assertions](https://asdalexey.github.io/vitest-auto-spy/core/observable-assertions),
+[fake timers that settle](https://asdalexey.github.io/vitest-auto-spy/utilities/fake-timers),
+[console spies](https://asdalexey.github.io/vitest-auto-spy/utilities/console), [five ESLint rules](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-plugin),
+Bun and `node:test` support — and [Angular's `TestBed` under `bun test`](https://asdalexey.github.io/vitest-auto-spy/runtimes/bun-angular).
+
+---
+
+Source: https://asdalexey.github.io/vitest-auto-spy/api
+
+# API reference
+
+The exported surface of `vitest-auto-spy` and its subpaths.
+
+| Export                                                                                                       | Description                                                                                     |
+| ------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------- |
+| `createSpyFromClass(Class, methodsOrConfig?)`                                                                | Build a fully-typed `Spy<T>` from a class                                                       |
+| `createAutoMock<T>(overrides?)`                                                                              | Build a `Spy<T>` from a **type/interface** alone (Proxy, no class)                              |
+| `createMock<T>(partial?)`                                                                                    | Build a plain, spy-free `T` from the fields a test seeds — for data shapes, not collaborators   |
+| `mockDeep<T>(overrides?)`                                                                                    | Recursive `DeepMockProxy<T>` — nested access auto-creates chainable spies                       |
+| `clearAutoSpy(spy)` / `resetAutoSpy(spy)`                                                                    | Clear calls (keep config) / full reset of every spy inside an assembled spy                     |
+| `provideAutoSpy(Class, methodsOrConfig?)`                                                                    | Angular `{ provide, useValue }` shorthand (`/angular`); NestJS / Vue variants in their subpaths |
+| `injectSpy(token)`                                                                                           | `TestBed.inject` typed as `Spy<T>` (`/angular`); NestJS variant takes `(moduleRef, token)`      |
+| `createFunctionSpy(name)`                                                                                    | A single standalone function spy with all helpers                                               |
+| `createObservableWithValues(configs, opts?)`                                                                 | Build an Observable from value configs (`/rxjs`)                                                |
+| `mockReadonlyProp` / `mockReadonlyPropGetter` / `mockValueProp` / `mockAccessorsProp`                        | Mock readonly / writable / accessor / signal props (core, also re-exported from `/angular`)     |
+| `restoreMockedProps()` / `countMockedProps()`                                                                | Undo every `mock*Prop` patch / how many are still applied                                       |
+| `expectEmission(source$, opts?)` / `expectEmissions(source$, n, opts?)` / `expectNoEmission(source$, opts?)` | Assert an Observable without a `subscribe` callback that may never run                          |
+| `asInstance(spy)` / `asSpy(instance)`                                                                        | The two named views between `Spy<T>` and `T`, instead of `as any`                               |
+| `createSpyClass(Class, config?)`                                                                             | A spy that can be called with `new`; records `calls` and `instances`                            |
+| `setupAutoSpy(opts?)`                                                                                        | Property restore + duplicate-copy detection + mock-registry hygiene, in one call (`/setup`)     |
+| `setupFakeTimers(config?)` / `advanceTimers(ms?)`                                                            | Paired fake-timer install/restore, and an advance that settles queued microtasks (`/setup`)     |
+| `renderShallow(Component, opts?)`                                                                            | `TestBed` component without its children and (by default) its template (`/angular`)             |
+| `createWithAutoSpies(Class, opts?)`                                                                          | Build a class through Angular DI with every unprovided token auto-spied (`/angular`)            |
+| `stable(fixture)` / `flushEffects()`                                                                         | Zoneless waiting: flush effects, then await the fixture (`/angular`)                            |
+| `registerSignalMatchers()`                                                                                   | Adds `expect(sig).toHaveSignalValue(value)` (`/angular`)                                        |
+| `enableTestBedDiagnostics(opts?)`                                                                            | Per-file report of how much of a spec's time went into `TestBed` (`/angular`)                   |
+| `registerDomGlobals(opts?)`                                                                                  | Install a DOM into a runtime that ships none; returns the registrar used (`/bun-angular`)       |
+| `createJsdomRegistrar(opts)` / `createGlobalRegistratorRegistrar(opts)`                                      | The two DOM strategies `registerDomGlobals` tries, for a custom preload (`/bun-angular`)        |
+| `copyWindowGlobals(source, target)`                                                                          | Copy a window's properties onto a global-like target, without clobbering runtime built-ins      |
+| `inlineAngularResources(source, path, opts?)`                                                                | Rewrite `templateUrl` / `styleUrl` / `styleUrls` into inline `template` / `styles`              |
+| `consoleDebugSpy` … `consoleWarnSpy`                                                                         | Silent typed spies replacing the global `console` methods on import (`/console`)                |
+| `installConsoleSpies()` / `resetConsoleSpies()` / `restoreConsole()`                                         | Install / clear / undo the console spies (`/console`)                                           |
+| `errorHandler`                                                                                               | The `mustBeCalledWith` argument-mismatch error helper                                           |
+| `vitest-auto-spy/eslint-plugin`                                                                              | Five flat-config lint rules that steer a suite onto these helpers                               |
+
+## Helper surface by return type
+
+**Spied sync method:** `mockReturnValue`, `calledWith(...)`, `mustBeCalledWith(...)` —
+`calledWith` / `mustBeCalledWith` accept asymmetric matchers (`expect.any`, `expect.objectContaining`, …)
+
+**Spied Promise method:** `resolveWith`, `rejectWith`, `resolveWithPerCall`; outcomes are
+recorded on `mock.settledResults` (native on Vitest, polyfilled on Bun / `node:test`)
+
+**Spied Observable method / property:** `nextWith`, `nextOneTimeWith`, `nextWithValues`,
+`nextWithPerCall`, `throwWith`, `complete`, `returnSubject`
+
+## Configuration
+
+**`ClassSpyConfiguration`:** `methodsToSpyOn`, `instanceMethodsToSpyOn` (callables that live on the
+instance — `signal()` fields, arrow props, `signalStore()` methods), `observablePropsToSpyOn`,
+`gettersToSpyOn`, `settersToSpyOn`, `autoSpyAccessors` (auto-discover getters/setters), `lazySpies`
+(build each method spy on first access — the `provideAutoSpy` default on Angular)
+
+**`ValueConfig`** (for `nextWithValues`): `{ value, delay? }` | `{ errorValue, delay? }` |
+`{ complete?, delay? }`.
+
+## Public types
+
+**`Spy<T>`** — the assembled spy. A **mapped type** over `T`: every method becomes
+`AddSpyMethodsByReturnTypes<Method>` (the mock plus the helpers its return type earns), every
+`Observable` property gains the observable helpers, everything else keeps its own type. It also adds
+an `accessorSpies` bag: `accessorSpies.getters[key]` / `accessorSpies.setters[key]`.
+
+Because it is a mapped type it **drops `#private` and `private` members**, so `Spy<T>` is not
+assignable to `T`. Declare the variable as `Spy<T>` — `injectSpy(X)` already returns it — or bridge
+the two with [`asInstance` / `asSpy`](https://asdalexey.github.io/vitest-auto-spy/core/spy-typing).
+
+**`ClassType<T>`** — a constructor of `T`, the token `createSpyFromClass` / `provideAutoSpy` take.
+
+**`DeepMockProxy<T>`** — what `mockDeep<T>()` returns: object properties become nested deep mocks,
+so `mock.a.b.c` is chainable without seeding.
+
+**`AddSpyMethodsByReturnTypes<Method>`** — the per-method surface: the mock itself intersected with
+`calledWith` / `mustBeCalledWith`, plus the `Promise` or `Observable` helper bundle when the return
+type earns one.
+
+**`ClassSpyConfiguration<T>`**, **`ValueConfig<T>`**, `NextValueConfig`, `ErrorValueConfig`,
+`CompleteValueConfig`, `ValueConfigPerCall`, `OnlyMethodKeysOf<T>`, `OnlyObservablePropsOf<T>` are
+exported from the core as well.
+
+## Exports by subpath
+
+Every runtime and framework subpath re-exports the **whole core** on top of what it adds, so a spec
+never needs two imports from this package.
+
+| Subpath                       | Adds on top of the core                                                                                                                             |
+| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `vitest-auto-spy`             | — (this is the core; registers the Vitest adapter)                                                                                                  |
+| `/bun`                        | — (registers the `bun:test` adapter)                                                                                                                |
+| `/node`                       | — (registers the `node:test` adapter)                                                                                                               |
+| `/bun-angular`                | `provideAutoSpy`, `injectSpy`, `renderShallow`, `createWithAutoSpies`, `stable`, `flushEffects`, the DOM/inliner building blocks; registers the Bun adapter and boots a zoneless `TestBed` |
+| `/rxjs`                       | `createObservableWithValues` + the observable type surface; registers the observable layer                                                          |
+| `/angular`                    | `provideAutoSpy`, `injectSpy`, `renderShallow`, `createWithAutoSpies`, `stable`, `flushEffects`, `registerSignalMatchers`, the TestBed diagnostics    |
+| `/nestjs`                     | `provideAutoSpy`, `injectSpy(moduleRef, token)`, `NestModuleRef`, `NestValueProvider`                                                                |
+| `/vue`                        | `provideAutoSpy`, `VueInjectionToken`, `VueProvideSpy`                                                                                              |
+| `/react`, `/svelte`           | — (the core, under a name that reads right in those suites)                                                                                         |
+| `/console`                    | `consoleDebugSpy` … `consoleWarnSpy`, `installConsoleSpies`, `resetConsoleSpies`, `restoreConsole`                                                   |
+| `/setup`                      | `setupAutoSpy`, `setupFakeTimers`, `advanceTimers`, `describeDuplicateCopies`, `getPackageCopies`                                                     |
+| `/eslint-plugin`              | the flat-config plugin object                                                                                                                       |
+
+**One adapter per run**
+Each entry registers its mock adapter **on import**. Import the one that matches your runner —
+pulling `vitest-auto-spy` into a `bun test` run leaves Vitest's adapter installed.
+
+Two helpers are Vitest-only and deliberately absent from `/bun-angular`, because they need the
+runner's `expect.extend` and suite-level hooks: `registerSignalMatchers` and the TestBed diagnostics
+family.
+
+---
+
+Source: https://asdalexey.github.io/vitest-auto-spy/comparison
+
+# Comparison
+
+How `vitest-auto-spy` compares to other mocking / auto-spy libraries. The niche: the only auto-spy
+library that reads a **class** and gives a **fully-typed** spy of every method with
+**return-type-aware** control helpers — across any Vitest-compatible runtime and framework.
+
+| Library                                                                                       | Reads a class? | Return-type-aware helpers? | Runtime     | We win on                                                                                                                                                                                                              |
+| --------------------------------------------------------------------------------------------- | -------------- | -------------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| [**jest-auto-spies**](https://www.npmjs.com/package/jest-auto-spies)                          | ✅             | ✅                         | Jest only   | Vitest/Bun/`node:test` successor, same API — direct migration path.                                                                                                                                                    |
+| [**@bugsplat/vitest-auto-spies**](https://www.npmjs.com/package/@bugsplat/vitest-auto-spies)   | ✅             | ✅                         | Vitest only | Same class-based API **plus** Bun & `node:test`, type-only `createAutoMock`, framework recipes, console spies, and **zero runtime deps** (it depends on `@hirez_io/auto-spies-core`; `rxjs < 8` cap — we support rxjs 8). |
+| [**vitest-mock-extended**](https://www.npmjs.com/package/vitest-mock-extended)                | ❌ (Proxy)     | ❌                         | Vitest      | Return-type ergonomics **and** reading a real class. Its type-only mode is matched by `createAutoMock` / `mockDeep`, with the helpers kept.                                                                             |
+| [**@golevelup/ts-vitest**](https://www.npmjs.com/package/@golevelup/ts-vitest)                 | partial        | ❌                         | Vitest      | Typed Promise/Observable helpers + explicit class→spy + `mustBeCalledWith`.                                                                                                                                            |
+| [**ts-auto-mock**](https://www.npmjs.com/package/ts-auto-mock)                                 | ❌ (transform) | ❌                         | Jest/ts     | No compiler transformer to install — runtime-only, no toolchain coupling.                                                                                                                                              |
+| [**sinon**](https://www.npmjs.com/package/sinon)                                               | ❌ (manual)    | ❌                         | Any         | Auto-generated + fully typed vs manual + loosely typed.                                                                                                                                                                |
+| [**testdouble.js**](https://www.npmjs.com/package/testdouble)                                  | partial        | ❌                         | Any         | Stronger typing, return-type-aware helpers, framework recipes.                                                                                                                                                         |
+
+**Pitch:** the only auto-spy library that reads a **class** and gives a **fully-typed** spy of
+every method with **return-type-aware** control helpers (`resolveWith` / `nextWith` /
+`calledWith`) — across any Vitest-compatible runtime and framework.
+
+## Feature by feature
+
+|                                          | vitest-auto-spy | jest-auto-spies | vitest-mock-extended | @golevelup/ts-vitest | sinon |
+| ---------------------------------------- | :-------------: | :-------------: | :------------------: | :------------------: | :---: |
+| Spy every method of a class in one call  |       ✅        |       ✅        |          ❌          |       partial        |  ❌   |
+| Mock from a **type/interface**           |       ✅        |       ❌        |          ✅          |          ✅          |  ❌   |
+| Recursive deep mock                      |       ✅        |       ❌        |          ✅          |          ❌          |  ❌   |
+| Spy-free data double (`createMock`)      |       ✅        |       ❌        |          ❌          |          ❌          |  ❌   |
+| `resolveWith` / `rejectWith`             |       ✅        |       ✅        |          ❌          |          ❌          |  ❌   |
+| `nextWith` / `nextWithValues` (RxJS)     |       ✅        |       ✅        |          ❌          |          ❌          |  ❌   |
+| `calledWith` / `mustBeCalledWith`        |       ✅        |       ✅        |    `calledWith`      |          ❌          |  ❌   |
+| Getter / setter spies                    |       ✅        |       ✅        |          ❌          |          ❌          |  ✅   |
+| Vitest                                   |       ✅        |       ❌        |          ✅          |          ✅          |  ✅   |
+| Bun (`bun:test`)                         |       ✅        |       ❌        |          ❌          |          ❌          | partial |
+| `node:test`                              |       ✅        |       ❌        |          ❌          |          ❌          | partial |
+| Angular `TestBed` under `bun test`       |       ✅        |       ❌        |          ❌          |          ❌          |  ❌   |
+| Runtime dependencies                     |     **0**       |       1         |          1           |          0           |   4   |
+
+Dependency counts are each package's own `dependencies` on npm, checked 2026-08-26 —
+`@hirez_io/auto-spies-core` for `jest-auto-spies`, `ts-essentials` for `vitest-mock-extended`, and
+four `@sinonjs/*` + `diff` packages for `sinon`.
+
+## Beyond the class spy
+
+The tables above compare the part every one of these libraries does. What none of the others ship
+alongside it:
+
+- [**Angular's `TestBed` under `bun test`**](https://asdalexey.github.io/vitest-auto-spy/runtimes/bun-angular) — Bun ships no DOM and cannot
+  resolve `templateUrl`, so Angular specs do not run there at all. One preload closes both gaps.
+- [`renderShallow`](https://asdalexey.github.io/vitest-auto-spy/adapters/angular#shallow-component-rendering) and
+  [`createWithAutoSpies`](https://asdalexey.github.io/vitest-auto-spy/adapters/angular#building-a-class-with-auto-spied-dependencies) — the
+  shallow-`TestBed` copy-paste and DI-driven instantiation as one call each.
+- [`stable` / `flushEffects`](https://asdalexey.github.io/vitest-auto-spy/adapters/angular#zoneless-waiting) and `toHaveSignalValue` — zoneless
+  waiting and a signal matcher, for a codebase where `detectChanges()` is no longer enough.
+- [Observable assertions](https://asdalexey.github.io/vitest-auto-spy/core/observable-assertions) that fail when the stream stays silent,
+  duck-typed so they pull in no rxjs.
+- [`setupFakeTimers()` / `advanceTimers()`](https://asdalexey.github.io/vitest-auto-spy/utilities/fake-timers) — an advance that also drains the
+  microtasks a bare `advanceTimersByTime()` leaves pending.
+- [Five ESLint rules](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-plugin) versioned together with the API they recommend, and
+  [`setupAutoSpy()`](https://asdalexey.github.io/vitest-auto-spy/utilities/setup) for the test-run hygiene a shared environment needs.
+- [Per-file `TestBed` diagnostics](https://asdalexey.github.io/vitest-auto-spy/adapters/angular#where-a-spec-spends-its-time) — which specs
+  actually pay for `TestBed`, and by how much.
+
+## Where another library is the better answer
+
+- **You are on Jest and staying there.** `jest-auto-spies` is the same API; there is nothing to gain
+  from switching runner just for this.
+- **You only ever mock interfaces, never classes, and want nothing else.**
+  `vitest-mock-extended` is smaller and does exactly that. `createAutoMock` /
+  [`mockDeep`](https://asdalexey.github.io/vitest-auto-spy/core/auto-mock-by-type) cover the same ground here if you want the helpers too — the
+  two are complementary, not exclusive.
+- **You need sandboxes, fake servers, or a full test-double toolkit.** `sinon` is a wider tool; this
+  package is deliberately only about turning a type or a class into a typed spy.
+
+---
+
+Source: https://asdalexey.github.io/vitest-auto-spy/agents
+
+# For AI agents
+
+Most tests are now written with an assistant in the loop. Documentation an agent has to *infer* the
+API from costs tokens on every task and produces the same handful of mistakes each time, so this
+package ships a second, compressed form of its documentation written for a machine reader: the
+decision tree, the configuration semantics, an error→fix table and the anti-patterns.
+
+## The four entry points
+
+| What                                                             | Where                                                        | Best for                                                  |
+| ---------------------------------------------------------------- | ------------------------------------------------------------ | --------------------------------------------------------- |
+| [`llms.txt`](https://asdalexey.github.io/vitest-auto-spy/llms.txt)                                          | the site root                                                | a crawler choosing the one page it needs                  |
+| [`llms-full.txt`](https://asdalexey.github.io/vitest-auto-spy/llms-full.txt)                                | the site root                                                | reading the entire documentation in a single fetch        |
+| [`AGENTS.md`](https://github.com/ASDAlexey/vitest-auto-spy/blob/master/AGENTS.md) | `node_modules/vitest-auto-spy/AGENTS.md` | any agent, **with no network** — it ships in the tarball  |
+| [Spec patterns](https://asdalexey.github.io/vitest-auto-spy/recipes)                                        | the docs site                                                 | the shapes a real suite converged on, with the frequencies |
+| A Claude Code skill                                              | `skills/vitest-auto-spy/SKILL.md`, also in the tarball        | Claude Code, loaded only when a spec mentions the library |
+
+[`llms.txt`](https://llmstxt.org) is the convention an LLM-facing crawler looks for at a docs site
+root: a link-only map, so an agent fetches one page instead of scraping the rendered HTML of ten.
+Both files are generated from this site's sidebar and checked in CI, so they cannot drift.
+
+## Point your agent at it once
+
+The single highest-leverage line, in your project's `CLAUDE.md` / `AGENTS.md` / `.cursorrules`:
+
+```md
+When writing or fixing tests that use `vitest-auto-spy`, first read
+`node_modules/vitest-auto-spy/AGENTS.md`. It is the authoritative reference for the API,
+the configuration semantics and the common mistakes.
+```
+
+That file is already on disk in every project that installs the package, so the agent pays no
+network round-trip and gets the version it actually has installed rather than whatever the web
+returned.
+
+## Claude Code plugin
+
+The repository doubles as a Claude Code plugin marketplace, so the skill installs without touching
+your project files:
+
+```
+/plugin marketplace add ASDAlexey/vitest-auto-spy
+/plugin install vitest-auto-spy@vitest-auto-spy
+```
+
+The skill's description lists the library's exports and its four most common error messages, so it
+loads when a task is actually about this package and stays out of the way otherwise.
+
+## Errors that name their own fix
+
+An agent reads a stack trace far more often than it reads a README, so every error and warning this
+package throws ends with a link to the page that explains it:
+
+```
+Observable spies require rxjs. Import 'vitest-auto-spy/rxjs' once (e.g. in your test setup)
+to enable observablePropsToSpyOn / nextWith / nextWithValues / throwWith / complete / returnSubject.
+Docs: https://asdalexey.github.io/vitest-auto-spy/runtimes/rxjs
+```
+
+The same applies to a missing mock adapter, a method that is not on the prototype, `advanceTimers()`
+without fake timers, a `bun-angular` preload with no DOM package, an unresolvable `templateUrl`, a
+`mustBeCalledWith` violation and the duplicate-install report.
+
+## What agents get wrong most often
+
+These five account for the large majority of broken specs, and all five are covered in `AGENTS.md`:
+
+1. **`let s: MyService = createSpyFromClass(MyService)`.** `Spy<T>` is a mapped type and drops
+   private members. Declare it as `Spy<T>`, or bridge with [`asInstance` / `asSpy`](https://asdalexey.github.io/vitest-auto-spy/core/spy-typing) —
+   never with `as unknown as T`.
+2. **Treating `methodsToSpyOn` as additive.** It is an exhaustive whitelist. For a callable that is
+   an instance field, the additive option is
+   [`instanceMethodsToSpyOn`](https://asdalexey.github.io/vitest-auto-spy/core/create-spy-from-class#instancemethodstospyon-callables-that-are-not-on-the-prototype).
+3. **Calling `nextWith` without `import 'vitest-auto-spy/rxjs'`.** The observable layer is opt-in.
+4. **Importing `vitest-auto-spy` inside a `bun test` file.** Each entry registers its own mock
+   adapter on import; use [`vitest-auto-spy/bun`](https://asdalexey.github.io/vitest-auto-spy/runtimes/bun).
+5. **`expect()` inside a `subscribe()` callback.** A silent stream makes it a green test that
+   asserted nothing — use [`expectEmission`](https://asdalexey.github.io/vitest-auto-spy/core/observable-assertions), where the assertion is
+   the `await`.

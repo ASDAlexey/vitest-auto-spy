@@ -125,6 +125,8 @@
   "files": [
     "dist",
     "assets",
+    "skills",
+    "AGENTS.md",
     "README.md",
     "LICENSE"
   ],
@@ -163,6 +165,10 @@
     "build": "tsup",
     "size:badge": "node scripts/size-badge.mjs",
     "size:badge:check": "node scripts/size-badge.mjs --check",
+    "llms": "node scripts/generate-llms-txt.mjs",
+    "llms:check": "node scripts/generate-llms-txt.mjs --check",
+    "plugin:sync": "node scripts/sync-plugin-version.mjs",
+    "plugin:sync:check": "node scripts/sync-plugin-version.mjs --check",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -177,8 +183,9 @@
     "format": "prettier -w \"src/**/*.ts\"",
     "format:check": "prettier -c \"src/**/*.ts\"",
     "jscpd": "jscpd",
-    "check": "npm run typecheck && npm run lint && npm run jscpd && npm run test && npm run test:shared-env && npm run test:bun && npm run test:bun:angular",
-    "prepublishOnly": "npm run build"
+    "check": "npm run typecheck && npm run lint && npm run jscpd && npm run llms:check && npm run plugin:sync:check && npm run test && npm run test:shared-env && npm run test:bun && npm run test:bun:angular",
+    "prepublishOnly": "npm run build",
+    "version": "node scripts/sync-plugin-version.mjs && git add .claude-plugin"
   },
   "peerDependencies": {
     "@angular/core": ">=16.0.0",

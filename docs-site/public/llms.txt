@@ -1,0 +1,63 @@
+# vitest-auto-spy
+
+> Auto-generate fully-typed test spies from a class, a type or nothing at all — one API across
+> Vitest, `bun test` and `node:test`, plus Angular/NestJS/React/Vue/Svelte adapters. A drop-in
+> successor to `jest-auto-spies`. Zero runtime dependencies.
+
+- Install: `npm i -D vitest-auto-spy`
+- Repository: https://github.com/ASDAlexey/vitest-auto-spy
+- Documentation: https://asdalexey.github.io/vitest-auto-spy/
+- Offline agent cheat sheet, shipped inside the package: `node_modules/vitest-auto-spy/AGENTS.md`
+- Everything below inlined as one file: https://asdalexey.github.io/vitest-auto-spy/llms-full.txt
+
+The one-line orientation: `createSpyFromClass(Class)` when a class exists, `createAutoMock<T>()`
+when only a type does, `createMock<T>(partial)` when the double is read rather than called. Each
+spied method earns helpers from its return type — `calledWith`/`mustBeCalledWith` always,
+`resolveWith`/`rejectWith` for a `Promise`, `nextWith`/`throwWith` for an `Observable`.
+
+## Core
+
+- [Introduction](https://asdalexey.github.io/vitest-auto-spy/core/introduction): What vitest-auto-spy does — a typed spy of every method of a class, on Vitest, Bun or node:test.
+- [Installation](https://asdalexey.github.io/vitest-auto-spy/core/installation): Install vitest-auto-spy, pick the entry point that matches your runner, and wire it into Vitest, Bun or node:test.
+- [How it works](https://asdalexey.github.io/vitest-auto-spy/core/how-it-works): The two ideas behind vitest-auto-spy — a prototype-chain walk at runtime, and conditional types that pick helpers from a method's return type.
+- [createSpyFromClass](https://asdalexey.github.io/vitest-auto-spy/core/create-spy-from-class): Build a fully-typed Spy<T> from a class — configuration, the Spy<T> shape, accessor spies and the edge cases.
+- [Control helpers](https://asdalexey.github.io/vitest-auto-spy/core/control-helpers): calledWith, mustBeCalledWith, resolveWith, nextWith and the rest — the helpers each spied method earns from its return type.
+- [Auto-mock by type](https://asdalexey.github.io/vitest-auto-spy/core/auto-mock-by-type): createAutoMock, mockDeep and createMock — build a double from a type or interface, with no class at runtime.
+- [Observable assertions](https://asdalexey.github.io/vitest-auto-spy/core/observable-assertions): expectEmission, expectEmissions and expectNoEmission — assertions that fail when the stream stays silent.
+- [Bridging Spy<T> and T](https://asdalexey.github.io/vitest-auto-spy/core/spy-typing): Why Spy<T> is not assignable to T, and the two named views — asInstance and asSpy — that cross the gap without an `as`.
+
+## Spec patterns
+
+- [Patterns that hold up](https://asdalexey.github.io/vitest-auto-spy/recipes): The shapes a large Angular suite actually converged on — provideAutoSpy configuration, signal mocking, observable properties, and the traps that only surface at scale.
+
+## Runtimes
+
+- [Vitest](https://asdalexey.github.io/vitest-auto-spy/runtimes/vitest): The default zero-config entry — setup-file wiring, the rxjs and Angular subpaths, and what shared-environment runs need.
+- [Bun](https://asdalexey.github.io/vitest-auto-spy/runtimes/bun): Run vitest-auto-spy on Bun's bun:test, including Bun 1.4's --isolate, --parallel, --shard and --changed.
+- [Angular on Bun](https://asdalexey.github.io/vitest-auto-spy/runtimes/bun-angular): Run Angular's TestBed under bun test — DOM, JIT templates and zoneless change detection from one preload.
+- [node:test](https://asdalexey.github.io/vitest-auto-spy/runtimes/node): Run vitest-auto-spy on Node's built-in test runner — a runnable example and how node:test's native mock surface differs.
+- [RxJS](https://asdalexey.github.io/vitest-auto-spy/runtimes/rxjs): The opt-in observable layer — nextWith, nextWithValues, nextWithPerCall, returnSubject, and how delays behave.
+
+## Utilities
+
+- [Console spies](https://asdalexey.github.io/vitest-auto-spy/utilities/console): Silent, typed spies over the global console — installed on import, restored on demand.
+- [Test-run hygiene](https://asdalexey.github.io/vitest-auto-spy/utilities/setup): setupAutoSpy() — property restore, mock-registry reset and duplicate-copy detection in one call.
+- [Fake timers](https://asdalexey.github.io/vitest-auto-spy/utilities/fake-timers): setupFakeTimers pairs install with restore, and advanceTimers drains the microtasks a bare advance leaves pending.
+- [ESLint plugin](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-plugin): Five flat-config lint rules that steer a suite onto the auto-spy helpers, versioned with the API they recommend.
+
+## Adapters
+
+- [Angular](https://asdalexey.github.io/vitest-auto-spy/adapters/angular): provideAutoSpy, injectSpy, renderShallow, createWithAutoSpies, zoneless waiting and TestBed diagnostics — on Vitest and on bun test.
+- [NestJS](https://asdalexey.github.io/vitest-auto-spy/adapters/nestjs): provideAutoSpy and injectSpy(moduleRef, token) for Test.createTestingModule, with no @nestjs dependency.
+- [React](https://asdalexey.github.io/vitest-auto-spy/adapters/react): Spy the classes a React app owns — services, stores, API clients — and hand the spy to a Context provider or a hook.
+- [Vue / Pinia](https://asdalexey.github.io/vitest-auto-spy/adapters/vue): provideAutoSpy for @vue/test-utils global.provide, and spying a class-based Pinia store's actions.
+- [Svelte](https://asdalexey.github.io/vitest-auto-spy/adapters/svelte): Spy class-based Svelte services and stores, and inject the spy through props, context or a mocked module.
+- [Migrating from jest-auto-spies](https://asdalexey.github.io/vitest-auto-spy/migrating): A step-by-step swap from jest-auto-spies or @bugsplat/vitest-auto-spies, plus the per-runner gotchas.
+- [API reference](https://asdalexey.github.io/vitest-auto-spy/api): Every export of vitest-auto-spy and its subpaths, the helper surface per return type, and the public types.
+- [Comparison](https://asdalexey.github.io/vitest-auto-spy/comparison): How vitest-auto-spy compares to jest-auto-spies, vitest-mock-extended, @golevelup/ts-vitest, ts-auto-mock, sinon and testdouble.
+- [For AI agents](https://asdalexey.github.io/vitest-auto-spy/agents): llms.txt, llms-full.txt, a bundled AGENTS.md and a Claude Code skill — how to point Claude Code, Codex, Cursor or any other agent at this library.
+
+## Optional
+
+- [Changelog](https://github.com/ASDAlexey/vitest-auto-spy/blob/master/CHANGELOG.md): every released change, newest first.
+- [Full README](https://github.com/ASDAlexey/vitest-auto-spy#readme): the same material as one page, with extra recipes.

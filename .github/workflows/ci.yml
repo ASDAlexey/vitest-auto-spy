@@ -43,6 +43,16 @@ jobs:
       - name: Format
         run: npm run format:check
 
+      # `llms.txt` / `llms-full.txt` are generated from the docs sidebar and committed, so agents can
+      # fetch them from the deployed site *and* from raw GitHub. A stale pair is invisible until an
+      # agent reads the wrong thing — check it here rather than trusting the docs deploy to notice.
+      - name: llms.txt is up to date
+        run: npm run llms:check
+
+      # The Claude Code plugin manifests advertise the release the bundled skill describes.
+      - name: Plugin manifests match package.json
+        run: npm run plugin:sync:check
+
       - name: Test + coverage
         run: npm run test:coverage
 

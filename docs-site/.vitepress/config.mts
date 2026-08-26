@@ -35,7 +35,8 @@ export default defineConfig({
           'vitest, auto spy, auto-spies, vitest-auto-spy, jest-auto-spies, test spies, typed mocks, ' +
           'createSpyFromClass, createAutoMock, mockDeep, deep mock, resolveWith, calledWith, mustBeCalledWith, ' +
           'bun test, bun 1.4, angular on bun, node:test, angular testing, renderShallow, shallow rendering, zoneless, signal testing, ' +
-          'nestjs, react, vue, pinia, svelte, rxjs, eslint plugin, mocking, typescript',
+          'nestjs, react, vue, pinia, svelte, rxjs, eslint plugin, mocking, typescript, ' +
+          'llms.txt, AGENTS.md, ai agent, claude code skill, cursor, copilot',
       },
     ],
     ['meta', { property: 'og:type', content: 'website' }],
@@ -85,10 +86,12 @@ export default defineConfig({
     // https://vitepress.dev/reference/default-theme-config
     nav: [
       { text: 'Guide', link: '/core/introduction' },
+      { text: 'Patterns', link: '/recipes' },
       { text: 'Runtimes', link: '/runtimes/vitest' },
       { text: 'Adapters', link: '/adapters/angular' },
       { text: 'API', link: '/api' },
       { text: 'Comparison', link: '/comparison' },
+      { text: 'AI agents', link: '/agents' },
     ],
 
     sidebar: [
@@ -105,6 +108,11 @@ export default defineConfig({
           { text: 'Observable assertions', link: '/core/observable-assertions' },
           { text: 'Bridging Spy<T> and T', link: '/core/spy-typing' },
         ],
+      },
+      {
+        text: 'Spec patterns',
+        collapsed: false,
+        items: [{ text: 'Patterns that hold up', link: '/recipes' }],
       },
       {
         text: 'Runtimes',
@@ -124,6 +132,7 @@ export default defineConfig({
           { text: 'Console spies', link: '/utilities/console' },
           { text: 'Test-run hygiene', link: '/utilities/setup' },
           { text: 'Fake timers', link: '/utilities/fake-timers' },
+          { text: 'Observer stubs', link: '/utilities/observer-stubs' },
           { text: 'ESLint plugin', link: '/utilities/eslint-plugin' },
         ],
       },
@@ -141,6 +150,7 @@ export default defineConfig({
       { text: 'Migrating from jest-auto-spies', link: '/migrating' },
       { text: 'API reference', link: '/api' },
       { text: 'Comparison', link: '/comparison' },
+      { text: 'For AI agents', link: '/agents' },
     ],
 
     socialLinks: [{ icon: 'github', link: 'https://github.com/ASDAlexey/vitest-auto-spy' }],

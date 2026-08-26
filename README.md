@@ -16,7 +16,7 @@ identical API, with **RxJS** spies and **Angular / NestJS / React / Vue·Pinia /
 [![npm version](https://img.shields.io/npm/v/vitest-auto-spy?color=brightgreen&logo=npm)](https://www.npmjs.com/package/vitest-auto-spy)
 [![npm downloads](https://img.shields.io/npm/dm/vitest-auto-spy?color=brightgreen&logo=npm)](https://www.npmjs.com/package/vitest-auto-spy)
 [![CI](https://github.com/ASDAlexey/vitest-auto-spy/actions/workflows/ci.yml/badge.svg)](https://github.com/ASDAlexey/vitest-auto-spy/actions/workflows/ci.yml)
-[![minzipped size](https://img.shields.io/badge/minzip-5.3%20kB-brightgreen)](#install)
+[![minzipped size](https://img.shields.io/badge/minzip-5.7%20kB-brightgreen)](#install)
 [![types](https://img.shields.io/npm/types/vitest-auto-spy?logo=typescript&logoColor=white)](https://www.npmjs.com/package/vitest-auto-spy)
 [![coverage](https://img.shields.io/badge/coverage-100%25-brightgreen)](https://github.com/ASDAlexey/vitest-auto-spy/actions/workflows/ci.yml)
 [![license](https://img.shields.io/npm/l/vitest-auto-spy?color=blue)](./LICENSE)
@@ -27,7 +27,9 @@ identical API, with **RxJS** spies and **Angular / NestJS / React / Vue·Pinia /
 [![node:test](https://img.shields.io/badge/node%3Atest-✓-6E9F18?logo=node.js&logoColor=white)](#availability)
 [![runtime deps](https://img.shields.io/badge/runtime%20deps-0-brightgreen)](#install)
 
-📚 [**Documentation**](https://asdalexey.github.io/vitest-auto-spy/) · 📦 [**npm**](https://www.npmjs.com/package/vitest-auto-spy) · 🐙 [**GitHub**](https://github.com/ASDAlexey/vitest-auto-spy) · 🔖 [**Changelog**](./CHANGELOG.md)
+📚 [**Documentation**](https://asdalexey.github.io/vitest-auto-spy/) · 🧭 [**Spec patterns**](https://asdalexey.github.io/vitest-auto-spy/recipes) · 📦 [**npm**](https://www.npmjs.com/package/vitest-auto-spy) · 🐙 [**GitHub**](https://github.com/ASDAlexey/vitest-auto-spy) · 🔖 [**Changelog**](./CHANGELOG.md)
+
+🤖 [**AGENTS.md**](./AGENTS.md) · 🔤 [**llms.txt**](https://asdalexey.github.io/vitest-auto-spy/llms.txt) · 📄 [**llms-full.txt**](https://asdalexey.github.io/vitest-auto-spy/llms-full.txt) — see [Using this library with an AI agent](#using-this-library-with-an-ai-agent)
 
 <br/>
 
@@ -50,11 +52,14 @@ identical API, with **RxJS** spies and **Angular / NestJS / React / Vue·Pinia /
 - 📡 Observable assertions that fail on silence — `expectEmission` / `expectEmissions` / `expectNoEmission`, no rxjs required
 - 📏 Lint rules and one-line test-run hygiene — `vitest-auto-spy/eslint-plugin`, `setupAutoSpy()`
 - 🔇 Console spies — `import { consoleInfoSpy } from 'vitest-auto-spy/console'` silences `console` and asserts its calls
+- 🧭 [**Spec patterns**](https://asdalexey.github.io/vitest-auto-spy/recipes) — the shapes a ~370-file Angular suite converged on, and the traps that only surface at scale
+- 🤖 Built for AI agents too — an offline [`AGENTS.md`](#using-this-library-with-an-ai-agent) inside the package, `llms.txt` on the docs site, a Claude Code skill, and errors that name their own fix
 - 🟢 100% test coverage, **zero runtime dependencies** (in-tree arg serializer, no `javascript-stringify`)
 
 ## Table of contents
 
 - [Install](#install)
+- [Using this library with an AI agent](#using-this-library-with-an-ai-agent)
 - [Availability](#availability)
 - [Quick start](#quick-start)
 - [How to mock](#how-to-mock)
@@ -120,6 +125,43 @@ them only for the matching entry point. The package itself has **zero runtime de
 | `vitest`        | the default runner                                                                                                          | no        |
 | `rxjs`          | `vitest-auto-spy/rxjs` observable spies (and `Spy<T>` type-checking) — `>=7`, **no upper bound** (the rxjs 8 line included) | yes       |
 | `@angular/core` | `vitest-auto-spy/angular` helpers                                                                                           | yes       |
+
+## Using this library with an AI agent
+
+Most tests are now written with an assistant in the loop, so this package ships documentation
+written for one — not a second copy of the README, but the compressed form an agent can act on:
+the decision tree, the configuration semantics, an error→fix table and the anti-patterns.
+
+| What                                                                       | Where                                                                | For                                                     |
+| -------------------------------------------------------------------------- | -------------------------------------------------------------------- | ------------------------------------------------------- |
+| [`AGENTS.md`](./AGENTS.md)                                                  | `node_modules/vitest-auto-spy/AGENTS.md`                             | any agent, **offline** — it ships inside the npm tarball |
+| [`llms.txt`](https://asdalexey.github.io/vitest-auto-spy/llms.txt)          | the docs site root                                                   | a crawler picking the one page it needs                 |
+| [`llms-full.txt`](https://asdalexey.github.io/vitest-auto-spy/llms-full.txt)| the docs site root                                                   | reading the entire documentation in one fetch           |
+| A Claude Code skill                                                         | `skills/vitest-auto-spy/SKILL.md`, also in the tarball               | Claude Code, loaded on demand                           |
+| Runtime error messages                                                      | every thrown error ends with `Docs: <url>`                           | reading a stack trace instead of guessing               |
+
+### Point your agent at it once
+
+Add this to your project's `CLAUDE.md`, `AGENTS.md`, `.cursorrules` or equivalent:
+
+```md
+When writing or fixing tests that use `vitest-auto-spy`, first read
+`node_modules/vitest-auto-spy/AGENTS.md`. It is the authoritative reference for the API,
+the configuration semantics and the common mistakes.
+```
+
+### Claude Code plugin
+
+The repository is also a Claude Code marketplace, so the skill installs without touching your
+project files:
+
+```
+/plugin marketplace add ASDAlexey/vitest-auto-spy
+/plugin install vitest-auto-spy@vitest-auto-spy
+```
+
+The skill loads only when a spec actually mentions the library, so it costs nothing the rest of
+the time.
 
 ## Availability
 
@@ -967,19 +1009,19 @@ const { fixture, component } = renderShallow(TaskListComponent, {
 
 `fixture` is a real `ComponentFixture`; nothing here replaces `@angular/core/testing`.
 
-**What it saves, measured.** On `the reference suite` (784 specs, Angular 22 zoneless, the AOT
+**What it saves, measured.** On a private Angular 22 zoneless suite (784 specs, the AOT
 `@angular/build:unit-test` builder), three of its most expensive component specs were converted and
 the ten-file batch re-run three times — medians, same batch, same machine:
 
-| Spec (479 tests in the batch, all still green)             | Before | After  | Change   |
-| ---------------------------------------------------------- | ------ | ------ | -------- |
-| `access-container.component.spec.ts` (34 tests)            | 129 ms | 61 ms  | **2.1×** |
-| `whats-here-intersections.component.spec.ts` (58 fixtures) | 133 ms | 75 ms  | **1.8×** |
-| `slide-minimap-tab.component.spec.ts` (20 tests)           | 29 ms  | 38 ms  | **0.8×** |
-| the three together                                         | 291 ms | 174 ms | **1.7×** |
+| Spec (479 tests in the batch, all still green) | Before | After  | Change   |
+| ------------------------------------------------ | ------ | ------ | -------- |
+| a container with a deep child tree (34 tests)  | 129 ms | 61 ms  | **2.1×** |
+| a list rendering 58 fixtures                   | 133 ms | 75 ms  | **1.8×** |
+| a small leaf component (20 tests)              | 29 ms  | 38 ms  | **0.8×** |
+| the three together                             | 291 ms | 174 ms | **1.7×** |
 
-The third row is the honest half of the result: `slide-minimap-tab` renders a small leaf component,
-where the per-test `overrideComponent` costs more than the subtree it removes. **Shallow rendering
+The third row is the honest half of the result: a leaf component has almost no subtree to remove, so
+the per-test `overrideComponent` costs more than it saves. **Shallow rendering
 pays where there is a real child tree to skip** — the seven untouched files in the same batch moved
 by ±10%, which is this suite's run-to-run noise, so the two wins are outside it and the one
 regression is only just outside.
