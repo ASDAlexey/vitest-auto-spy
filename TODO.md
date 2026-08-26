@@ -46,6 +46,39 @@ skipped.
       `export type * from './lib/types'`. Fragmenting it would churn the public
       surface for no consumer benefit. Skipped deliberately.
 
+## Performance pass (Unreleased)
+
+- [x] **CommonJS output cut to the two entries where `require()` works.** Eight of the twelve `.cjs`
+      files threw on their own first line (Vitest refuses to be required), and esbuild cannot
+      code-split CommonJS, so each surviving bundle carried a private copy of the `MockAdapter` /
+      `ObservableSupport` registries — `require('…/rxjs')` next to `require('…/node')` failed with
+      "Observable spies require rxjs". Kept: `node` (self-contained, used alone) and `eslint-plugin`
+      (no registry). Folded `bun-angular` into the shared ESM pass, which removed its inlined copy
+      of the core. `dist/` 625 kB → 241 kB, tarball 187 kB → 108 kB.
+- [x] **`bench/auto-spy.bench.ts` compared the lazy path against itself.** Its "eager" case was
+      `createSpyFromClass(WideService)` with no config, and `lazySpies` defaults to `true` — so the
+      reported "1.79x faster" (±84% rme) measured noise. Rewritten to pass both options explicitly
+      and to sweep class width against methods actually called, which is what the default trades on.
+- [x] **`vitest.shared-env.config.mts` carried dead configuration.** `test.poolOptions` was removed
+      in Vitest 4 — it logged `was removed in Vitest 4` on every run and was ignored. The top-level
+      `fileParallelism: false` already covers it.
+- [~] **Micro-optimising `createFunctionSpy`.** Measured before deciding: `vi.fn()` alone is 1.3 µs
+      (p75) and the full `createFunctionSpy` is 1.9 µs, so *everything* this library adds per method
+      — two `ArgsMap`s, the promise helpers, three `defineProperty` brands, the `settledResults`
+      probe — is ~0.6 µs, and `new ArgsMap()` twice is 0.04 µs of it. Removing the whole bundle
+      would save a spec with 20 services × 10 methods about 0.12 ms. Not worth the loss of the
+      reset/clear hooks it buys. The levers that do move a suite are per-file environment cost and
+      the child subtree in `TestBed.createComponent` — both measured in
+      `docs-site/core/performance.md`.
+- [~] **Rewriting a hot path in Rust (napi / WASM).** The hot path is not computation: it is minting
+      JS closures the runner itself tracks, which no native module can return. The one pure-compute
+      piece, `serialize-args`, runs the whole `calledWith` dispatch in 0.5 µs (p75) — less than a
+      napi boundary crossing costs — and its input is arbitrary JS values (`Map`, `Set`, `Date`,
+      circular refs) that would have to be walked in JS before they could cross at all. Against that,
+      prebuilt binaries for six platform/arch pairs would multiply the package weight this pass just
+      halved, break Bun / browser / StackBlitz portability, and hand supply-chain scanners an opaque
+      artifact in a package that deliberately ships unminified (see `tsup.config.ts`).
+
 ## Backlog (not in this pass)
 
 - [ ] **`node:test` adapter ignores the `name` argument** of
