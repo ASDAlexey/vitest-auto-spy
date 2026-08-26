@@ -364,6 +364,24 @@ The pieces are exported too — `trackStrayTimers()` (idempotent, returns the un
 `vitest-auto-spy/setup`. Use `expect(countStrayTimers()).toBe(0)` in an `afterEach` to make a leak
 fail rather than be tidied away.
 
+Two more switches, both about the environment rather than the spies:
+
+```ts
+setupAutoSpy({ blockNetwork: true }); // reject every fetch, naming what was requested
+```
+
+Only relevant under happy-dom, which — unlike jsdom — implements `fetch`. A component that pulls a
+remote asset then really fetches it; nothing asserts on the response, so the tests pass, and the
+aborts at teardown fail the run with **no test named**. If a green run exits 1 with
+`DOMException [AbortError]`, this is it.
+
+`restoreTimerGlobals` is on by default and needs no thought unless you turn it off: uninstalling
+fake timers under happy-dom **deletes** `Date` instead of restoring it (the global is inherited from
+the realm, not owned by `globalThis`), and with `isolate: false` the next file dies inside Vitest's
+own `useFakeTimers` with `Cannot read properties of undefined (reading 'now')`. If you see that,
+the file in the stack is not the cause.
+
+
 Fake timers:
 
 ```ts
@@ -413,6 +431,43 @@ selected.set(true); // every computed reading it updates
 Pass a real `signal()`, not a `vi.fn()` returning a value — anything `computed()` downstream has to
 recompute, and only a real signal notifies it.
 
+`mockSignalProp` is that pair in one call, and hands back the writable half:
+
+```ts
+import { mockSignalProp } from 'vitest-auto-spy/angular';
+
+const selected = mockSignalProp(component, 'selected', false);
+
+selected.set(true); // every computed reading it updates
+```
+
+Use it whenever the value has to change during the test. `mockReadonlyProp` stays right when the
+value is fixed for the whole test and you never need the handle.
+
+
+
+
+### Observers the component constructs itself
+
+Do not assign `globalThis.IntersectionObserver` by hand: it stays assigned, and under
+`isolate: false` the next file inherits it.
+
+```ts
+import { intersectionEntry, stubIntersectionObserver } from 'vitest-auto-spy';
+
+const observers = stubIntersectionObserver(); // also stubResizeObserver / stubMutationObserver
+
+fixture.detectChanges(); // the component constructs it
+
+observers.last.emit([intersectionEntry(element, true)]); // one batch, as the browser delivers it
+await fixture.whenStable();
+
+expect(observers.last.disconnected).toBe(true); // after the component is destroyed
+```
+
+`restoreMockedProps()` puts the real constructor back, so `setupAutoSpy()` covers the teardown.
+`observers.last` throws if the code under test constructed nothing — render first, and install the
+stub before the construction, not after.
 ### `injectSpy` cannot reach a component-level provider
 
 `injectSpy(X)` reads the **global** `TestBed` injector. A provider declared on the component

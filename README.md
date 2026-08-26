@@ -1132,6 +1132,11 @@ single-purpose utility you can pick up independently — they all ride on the sa
 | `restoreMockedProps()`                             | `/angular`                    | Undo every patch the `mock*Prop` helpers applied — one call in `afterEach` (each helper also returns the undo for its own patch) |
 | `setupFakeTimers(config?)`                         | `/setup`                      | `vi.useFakeTimers()` / `vi.useRealTimers()` as one paired `beforeEach` + `afterEach` ([details](#fake-timers))                   |
 | `advanceTimers(ms?)`                               | `/setup`                      | Advance the fake clock **and** settle the microtasks the callbacks queued ([details](#fake-timers))                              |
+| `stubIntersectionObserver()` / `stubResizeObserver()` / `stubMutationObserver()` | core   | Replace an observer global with one the spec drives, restored automatically ([details](#observer-stubs))                          |
+| `intersectionEntry(target, isIntersecting, overrides?)` | core                  | Build one `IntersectionObserverEntry` without the fields nothing reads                                                           |
+| `mockSignalProp(obj, prop, initial)`               | `/angular`                    | Replace a signal-valued property with a real `WritableSignal`, and hand the writable handle back                                  |
+| `blockNetwork()`                                   | `/setup`                      | Reject every `fetch`, naming what was requested ([details](#test-run-hygiene))                                                    |
+| `restoreTimerGlobals()`                            | `/setup`                      | Put back timer globals that uninstalling the fakes deleted rather than restored                                                   |
 | `errorHandler`                                     | core                          | The `mustBeCalledWith` argument-mismatch reporter — swap it to customize failure output                                          |
 
 A taste of the DI pair — provide the spy, inject it back fully typed:
@@ -1231,8 +1236,8 @@ import { setupAutoSpy } from 'vitest-auto-spy/setup';
 setupAutoSpy();
 ```
 
-Three pieces of hygiene that every project otherwise assembles by hand, and that are expensive to
-diagnose when they are missing:
+The pieces of hygiene every project otherwise assembles by hand, each cheap to install and
+expensive to diagnose when it is missing. The first three are on by default:
 
 1. **`restoreMockedProps()` after each test.** `vi.restoreAllMocks()` knows about spies, not about
    properties `mockReadonlyProp` / `mockValueProp` redefined. Under `isolate: false` an un-restored
@@ -1244,12 +1249,27 @@ diagnose when they are missing:
    install loaded in both its ESM and CommonJS form.
 3. **Draining the runner's restore registry.** Every `vi.spyOn` adds an entry that only
    `vi.restoreAllMocks()` removes; with a shared environment that list grows for the whole run.
+4. **Timers that outlive their file.** Opt-in. Under `isolate: false` a `setTimeout` a component
+   never clears fires while a **later** file is mid-test, against mocks and a DOM that no longer
+   match, and the runner blames whichever file happened to be running.
+5. **The network.** Opt-in. jsdom ships no `fetch`, so a component reaching for a remote asset is
+   inert under it; happy-dom implements it and the same component issues real requests. Nothing
+   asserts on them, so every test passes — then the runner aborts what is in flight at teardown, the
+   aborts arrive as unhandled rejections, and a run with every test green exits 1 naming no test.
+6. **Timer globals the fakes took with them.** On by default, because it can only repair. Under
+   happy-dom `Date` is inherited from the environment's realm, so `vi.useRealTimers()` deletes it
+   rather than putting it back; with `isolate: false` the next file then dies inside Vitest's own
+   `useFakeTimers`, several files from the cause. Only globals that went missing are restored, so a
+   replacement a spec installed on purpose is left alone.
 
-| Option            | Default   | Notes                                                                         |
-| ----------------- | --------- | ----------------------------------------------------------------------------- |
-| `duplicateCopies` | `'throw'` | `'warn'` to report without failing, `'off'` to skip the check                 |
-| `restoreProps`    | `true`    | `restoreMockedProps()` in a global `afterEach`                                |
-| `restoreMocks`    | `false`   | `vi.restoreAllMocks()` in a global `afterEach` — turn on for `isolate: false` |
+| Option                | Default   | Notes                                                                         |
+| --------------------- | --------- | ----------------------------------------------------------------------------- |
+| `duplicateCopies`     | `'throw'` | `'warn'` to report without failing, `'off'` to skip the check                 |
+| `restoreProps`        | `true`    | `restoreMockedProps()` in a global `afterEach`                                |
+| `restoreMocks`        | `false`   | `vi.restoreAllMocks()` in a global `afterEach` — turn on for `isolate: false` |
+| `strayTimers`         | `false`   | Cancel timeouts, intervals and frames that outlive their file                 |
+| `blockNetwork`        | `false`   | Reject every `fetch`, so a unit run cannot reach the network                  |
+| `restoreTimerGlobals` | `true`    | Put back timer globals that uninstalling the fakes deleted                    |
 
 `restoreMocks` is off by default because it also drops `vi.spyOn` stubs a suite installed in
 `beforeAll`; it is the knob to reach for when the run shares one environment across files.
@@ -1298,6 +1318,59 @@ naming the fix, rather than letting Vitest fail deeper in with "timers are not m
 
 > On Angular, pair it with [`stable(fixture)`](#zoneless-waiting) — `advanceTimers` moves the clock,
 > `stable` flushes the effects and change detection that the clock set off.
+
+## Observer stubs
+
+```ts
+import { intersectionEntry, stubIntersectionObserver } from 'vitest-auto-spy';
+
+it('reveals the card once it scrolls into view', async () => {
+  const observers = stubIntersectionObserver();
+  const fixture = TestBed.createComponent(RevealHost);
+
+  fixture.detectChanges(); // the directive constructs its observer
+
+  observers.last.emit([intersectionEntry(fixture.nativeElement, true)]);
+  await fixture.whenStable();
+
+  expect(fixture.nativeElement.classList).toContain('is-visible');
+});
+```
+
+A component constructs its `IntersectionObserver` / `ResizeObserver` / `MutationObserver` itself and
+keeps the instance private, so the only handle a spec has is the global constructor. The stub every
+project writes for that goes wrong in two ways this one does not.
+
+**It is never taken off.** A directly assigned `globalThis.IntersectionObserver` is inherited by the
+next file under `isolate: false`, which then fails on something unrelated — `.observe is not a
+function`, or an assertion that never fires — pointing at innocent code. Installation here goes
+through `mockValueProp`, so `restoreMockedProps()` (which [`setupAutoSpy()`](#test-run-hygiene)
+already runs) puts the real constructor back.
+
+**The instance is reached through `static last`,** which is shared mutable state that outlives the
+spec just as the stub does. Here the instances live on the handle the installer returns. Asking for
+`last` before the code under test constructed anything throws and names which mistake it is, rather
+than failing three lines later against `undefined`.
+
+| Member          | What it is                                                            |
+| --------------- | --------------------------------------------------------------------- |
+| `instances`     | every observer constructed since the stub went in, in order            |
+| `last`          | the newest — the usual case, where a component builds exactly one      |
+| `targets`       | everything passed to `observe`, with `unobserve` / `disconnect` applied |
+| `observe` / `unobserve` / `disconnect` | the spies, for asserting *that* it happened      |
+| `disconnected`  | whether teardown ran                                                   |
+| `emit(entries)` | invoke the callback with one batch, as the browser delivers it         |
+
+`emit` takes an array on purpose: a fast scroll or a resize storm delivers several entries at once,
+and code that assumes one entry per call is a real bug this makes reachable.
+
+`stubResizeObserver()`, `stubMutationObserver()` and the generic `stubObserver(name)` are the same
+thing for the other two. `intersectionEntry(target, isIntersecting, overrides?)` fills in the fields
+nothing reads and derives `intersectionRatio`, since a ratio disagreeing with `isIntersecting` is
+not a state the browser produces.
+
+Nothing here is Angular-specific — the spies come from whichever runtime adapter is registered, so
+this works on Bun and `node:test` too.
 
 ## ESLint plugin
 
