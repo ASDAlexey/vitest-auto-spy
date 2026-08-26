@@ -21,6 +21,8 @@
     "vitest",
     "bun",
     "bun-test",
+    "bun-angular",
+    "angular-testbed",
     "node-test",
     "nestjs",
     "react",
@@ -64,6 +66,10 @@
       "types": "./dist/bun.d.ts",
       "import": "./dist/bun.js",
       "require": "./dist/bun.cjs"
+    },
+    "./bun-angular": {
+      "types": "./dist/bun-angular.d.ts",
+      "import": "./dist/bun-angular.js"
     },
     "./node": {
       "types": "./dist/node.d.ts",
@@ -127,6 +133,7 @@
     "**/index.cjs",
     "**/bun.js",
     "**/bun.cjs",
+    "**/bun-angular.js",
     "**/node.js",
     "**/node.cjs",
     "**/angular.js",
@@ -161,13 +168,16 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:shared-env": "vitest run --config vitest.shared-env.config.mts",
+    "test:bun": "bun test ./src/bun-tests/core.bun.test.ts ./src/bun-tests/rxjs.bun.test.ts",
+    "test:bun:angular": "bun test --preload ./src/bun-angular.ts ./src/bun-tests",
+    "test:bun:isolate": "bun test --isolate --preload ./src/bun-angular.ts ./src/bun-tests",
     "bench": "vitest bench --run --config vitest.bench.config.mts",
     "lint": "eslint . --ext .ts",
     "lint:fix": "eslint . --ext .ts --fix",
     "format": "prettier -w \"src/**/*.ts\"",
     "format:check": "prettier -c \"src/**/*.ts\"",
     "jscpd": "jscpd",
-    "check": "npm run typecheck && npm run lint && npm run jscpd && npm run test && npm run test:shared-env",
+    "check": "npm run typecheck && npm run lint && npm run jscpd && npm run test && npm run test:shared-env && npm run test:bun && npm run test:bun:angular",
     "prepublishOnly": "npm run build"
   },
   "peerDependencies": {
@@ -194,7 +204,9 @@
     "@angular/platform-browser": "^21.2.17",
     "@angular/platform-browser-dynamic": "^21.2.17",
     "@eslint-community/eslint-plugin-eslint-comments": "^4.7.2",
+    "@happy-dom/global-registrator": "^20.11.6",
     "@trivago/prettier-plugin-sort-imports": "^4.3.0",
+    "@types/jsdom": "^30.0.0",
     "@types/node": "^20.19.43",
     "@typescript-eslint/eslint-plugin": "^8.61.0",
     "@typescript-eslint/parser": "^8.61.0",

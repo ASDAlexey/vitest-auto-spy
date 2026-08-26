@@ -35,7 +35,7 @@ module.exports = {
     // ===== Library source =====
     {
       files: ['src/**/*.ts'],
-      excludedFiles: ['**/*.spec.ts'],
+      excludedFiles: ['**/*.spec.ts', 'src/bun-tests/**/*.ts'],
       extends: ['eslint:recommended', 'plugin:@typescript-eslint/recommended'],
       rules: {
         '@typescript-eslint/no-deprecated': 'error',
@@ -98,7 +98,7 @@ module.exports = {
 
     // ===== Tests =====
     {
-      files: ['src/**/*.spec.ts', 'src/test-setup.ts'],
+      files: ['src/**/*.spec.ts', 'src/bun-tests/**/*.ts', 'src/test-setup.ts'],
       extends: ['eslint:recommended', 'plugin:@typescript-eslint/recommended'],
       rules: {
         '@typescript-eslint/no-deprecated': 'error',

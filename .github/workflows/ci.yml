@@ -53,3 +53,53 @@ jobs:
 
       - name: Build
         run: npm run build
+
+  # Bun is a second runtime, not a second lane of the same one: `bun:test` mocks behave differently
+  # from Vitest's (no `mock.settledResults`, `mockReset` drops the implementation, `spyOn` refuses
+  # accessors), and the Angular preload only exists here. None of that is observable from the Node
+  # matrix above, which runs the Bun adapter against a stub.
+  bun:
+    name: Test (Bun ${{ matrix.bun }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # the floor this package supports, and whatever ships today
+        bun: ['1.4.0', 'latest']
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ matrix.bun }}
+
+      # Dependencies still come from the npm lockfile — Bun is the runtime under test here, not the
+      # package manager, and a second lockfile would be a second dependency tree to keep honest.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Pin npm
+        run: npm i -g npm@11
+
+      - run: npm ci
+
+      - name: Test (bun:test — core + rxjs, no preload)
+        run: npm run test:bun
+
+      - name: Test (bun:test — Angular TestBed)
+        run: npm run test:bun:angular
+
+      # Bun 1.4's `--isolate` gives each file a fresh global, the way Vitest behaves by default. The
+      # unflagged runs above share one global, so the pair covers both shapes a consumer can pick.
+      - name: Test (bun:test — --isolate)
+        run: npm run test:bun:isolate
+
+      - name: Build
+        run: npm run build
+
+      # The published artifact, not the source: `bun-angular` is ESM-only and is loaded as a
+      # preload, which is the one code path a source-only run never exercises.
+      - name: Test (built bun-angular entry as preload)
+        run: bun test --preload ./dist/bun-angular.js ./src/bun-tests

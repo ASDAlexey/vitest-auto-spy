@@ -4,6 +4,6 @@
   "absolute": true,
   "gitignore": true,
   "format": ["typescript"],
-  "ignore": ["**/*.spec.ts", "**/dist/**", "**/coverage/**", "**/node_modules/**"],
+  "ignore": ["**/*.spec.ts", "src/bun-tests/**", "**/dist/**", "**/coverage/**", "**/node_modules/**"],
   "path": ["src"]
 }
