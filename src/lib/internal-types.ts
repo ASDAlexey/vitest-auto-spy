@@ -22,9 +22,13 @@ export interface ReturnValueContainer {
   valuesPerCalls?: PerCallValue[];
 }
 
-/** Backing object for a `calledWith` / `mustBeCalledWith` chain. */
+/**
+ * Backing object for a `calledWith` / `mustBeCalledWith` chain.
+ *
+ * It exists only once the chain has been configured — the spy factory builds it on the first
+ * `calledWith(...)` call — so there is no `wasConfigured` flag: presence is configuration.
+ */
 export interface CalledWithObject {
-  wasConfigured: boolean;
   argsToValuesMap: ArgsMap;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the promise/observable decorators dynamically attach arbitrary helper methods (resolveWith, nextWith, …) onto this object; the index signature models that open, dynamically-assembled shape.
   [extra: string]: any;

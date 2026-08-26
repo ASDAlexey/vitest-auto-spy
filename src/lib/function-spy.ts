@@ -40,53 +40,70 @@ function unwrapContainer(container: ReturnValueContainer): unknown {
   return container.value;
 }
 
-/** Look up a configured value for the given args, unwrapping it if present. */
-function lookupConfigured(calledWithObject: CalledWithObject, actualArgs: unknown[]): { found: boolean; value: unknown } {
+/**
+ * The mutable state behind one function spy, in a single object.
+ *
+ * The two `calledWith` chains are **absent until configured**. They used to be built eagerly with
+ * the spy, and they are the most expensive thing a spy owns that most spies never use: an object
+ * plus an {@link ArgsMap} (a null-prototype record and a matcher array) each, ~600 B of the ~2.7 kB
+ * a materialised spy costs. A spec configures `calledWith` on a handful of methods and leaves the
+ * rest of the class alone, so creating them on first use is nearly always creating nothing.
+ *
+ * Presence therefore *is* configuration — there is no separate `wasConfigured` flag to keep in
+ * sync, and {@link resetAutoSpy} reverts a spy by dropping the objects, which frees their maps
+ * instead of replacing them with empty ones.
+ */
+interface SpyState {
+  readonly valueContainer: ReturnValueContainer;
+  calledWith?: CalledWithObject;
+  mustBeCalledWith?: CalledWithObject;
+}
+
+/**
+ * Returned by {@link lookupConfigured} when no configured value matched.
+ *
+ * A miss cannot be reported as `undefined`, because `undefined` is itself a legal configured value
+ * (`calledWith(1).mockReturnValue(undefined)`), and it must not be reported as `{ found, value }`
+ * either — that object was allocated on every call of a configured spy, on the hot path, purely to
+ * carry a boolean.
+ */
+const NO_MATCH = Symbol('vitest-auto-spy.noMatch');
+
+/** The configured value for these args, unwrapped — or {@link NO_MATCH}. */
+function lookupConfigured(calledWithObject: CalledWithObject, actualArgs: unknown[]): unknown {
   const configured = calledWithObject.argsToValuesMap.get(actualArgs);
 
-  if (isReturnValueContainer(configured)) {
-    return { found: true, value: unwrapContainer(configured) };
-  }
-
-  return { found: false, value: undefined };
+  return isReturnValueContainer(configured) ? unwrapContainer(configured) : NO_MATCH;
 }
 
 /**
  * Decide what the spy returns for a given call: a `calledWith` match wins first,
  * then a `mustBeCalledWith` match (throwing if none matches), else the default.
  */
-function returnTheCorrectFakeValue(
-  calledWithObject: CalledWithObject,
-  mustBeCalledWithObject: CalledWithObject,
-  valueContainer: ReturnValueContainer,
-  actualArgs: unknown[],
-  functionName: string,
-): unknown {
-  if (calledWithObject.wasConfigured) {
-    const match = lookupConfigured(calledWithObject, actualArgs);
+function returnTheCorrectFakeValue(state: SpyState, actualArgs: unknown[], functionName: string): unknown {
+  if (state.calledWith) {
+    const match = lookupConfigured(state.calledWith, actualArgs);
 
-    if (match.found) {
-      return match.value;
+    if (match !== NO_MATCH) {
+      return match;
     }
   }
 
-  if (mustBeCalledWithObject.wasConfigured) {
-    const match = lookupConfigured(mustBeCalledWithObject, actualArgs);
+  if (state.mustBeCalledWith) {
+    const match = lookupConfigured(state.mustBeCalledWith, actualArgs);
 
-    if (match.found) {
-      return match.value;
+    if (match !== NO_MATCH) {
+      return match;
     }
 
     errorHandler.throwArgumentsError(actualArgs, functionName);
   }
 
-  return unwrapContainer(valueContainer);
+  return unwrapContainer(state.valueContainer);
 }
 
 /** Attach `mockReturnValue` (and its `returnValue` alias) plus the promise/observable helpers to a `calledWith` chain. */
 function addMethodsToCalledWith(calledWith: CalledWithObject, calledWithArgs: unknown[]): CalledWithObject {
-  calledWith.wasConfigured = true;
-
   const setReturnValue = (value: unknown): void => {
     calledWith.argsToValuesMap.set(calledWithArgs, { value });
   };
@@ -102,14 +119,18 @@ function addMethodsToCalledWith(calledWith: CalledWithObject, calledWithArgs: un
   return calledWith;
 }
 
-function createCalledWithObject(): CalledWithObject {
-  return { wasConfigured: false, argsToValuesMap: new ArgsMap() };
-}
+/** The spy's `calledWith` / `mustBeCalledWith` chain, built on the first call that needs it. */
+function ensureCalledWithObject(state: SpyState, chain: 'calledWith' | 'mustBeCalledWith'): CalledWithObject {
+  const existing = state[chain];
 
-/** Revert a `calledWith`/`mustBeCalledWith` chain to unconfigured (fresh map, no matches). */
-function resetCalledWithObject(calledWithObject: CalledWithObject): void {
-  calledWithObject.wasConfigured = false;
-  calledWithObject.argsToValuesMap = new ArgsMap();
+  if (existing) {
+    return existing;
+  }
+
+  const created: CalledWithObject = { argsToValuesMap: new ArgsMap() };
+  state[chain] = created;
+
+  return created;
 }
 
 /**
@@ -124,15 +145,14 @@ function resetCalledWithObject(calledWithObject: CalledWithObject): void {
  * ```
  */
 export function createFunctionSpy<FunctionType extends Func>(name: string): AddSpyMethodsByReturnTypes<FunctionType> {
-  const calledWithObject = createCalledWithObject();
-  const mustBeCalledWithObject = createCalledWithObject();
   const valueContainer: ReturnValueContainer = { value: undefined };
+  const state: SpyState = { valueContainer };
 
   // The library's dispatch: pick the configured value for the call, then record
   // its settled outcome. Captured by name so `resetAutoSpy` can re-install it,
   // discarding any host-level `mockReturnValue`/`mockImplementation` a test set.
   const dispatch = (...actualArgs: unknown[]): unknown =>
-    settledResultsRecorder.record(returnTheCorrectFakeValue(calledWithObject, mustBeCalledWithObject, valueContainer, actualArgs, name));
+    settledResultsRecorder.record(returnTheCorrectFakeValue(state, actualArgs, name));
 
   const functionSpy = getMockAdapter().createMockFn(dispatch, name);
 
@@ -145,16 +165,20 @@ export function createFunctionSpy<FunctionType extends Func>(name: string): AddS
   getObservableSupport()?.addToFunctionSpy(functionSpy, valueContainer);
 
   const spy = decorate(functionSpy, {
-    calledWith: (...calledWithArgs: unknown[]): CalledWithObject => addMethodsToCalledWith(calledWithObject, calledWithArgs),
-    mustBeCalledWith: (...calledWithArgs: unknown[]): CalledWithObject => addMethodsToCalledWith(mustBeCalledWithObject, calledWithArgs),
+    calledWith: (...calledWithArgs: unknown[]): CalledWithObject =>
+      addMethodsToCalledWith(ensureCalledWithObject(state, 'calledWith'), calledWithArgs),
+    mustBeCalledWith: (...calledWithArgs: unknown[]): CalledWithObject =>
+      addMethodsToCalledWith(ensureCalledWithObject(state, 'mustBeCalledWith'), calledWithArgs),
   });
 
   // `resetAutoSpy` reverts this spy's configuration; the state lives in these
   // closures, so the host runner's own reset can't reach it. Clearing the
   // container in place keeps the reference the mock implementation closed over.
   attachConfigReset(spy, () => {
-    resetCalledWithObject(calledWithObject);
-    resetCalledWithObject(mustBeCalledWithObject);
+    // Dropping the chains reverts the configuration *and* releases the argument maps a configured
+    // spy allocated, so a reset spy costs exactly what a fresh one costs.
+    delete state.calledWith;
+    delete state.mustBeCalledWith;
     valueContainer.value = undefined;
     delete valueContainer._isRejectedPromise;
     delete valueContainer.valuesPerCalls;
