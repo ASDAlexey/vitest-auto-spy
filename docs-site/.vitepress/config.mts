@@ -6,8 +6,7 @@ const OG_IMAGE = `${HOSTNAME}og-image.png`;
 // https://vitepress.dev/reference/site-config
 export default defineConfig({
   title: 'vitest-auto-spy',
-  description:
-    'Automatic, fully-typed test spies from a class — runtime-agnostic across Vitest, Bun and node:test.',
+  description: 'Automatic, fully-typed test spies from a class — runtime-agnostic across Vitest, Bun and node:test.',
 
   // Served from https://asdalexey.github.io/vitest-auto-spy/ — required for asset/link paths.
   // If you add a custom domain (CNAME), change this to '/'.
@@ -35,7 +34,8 @@ export default defineConfig({
         content:
           'vitest, auto spy, auto-spies, vitest-auto-spy, jest-auto-spies, test spies, typed mocks, ' +
           'createSpyFromClass, createAutoMock, mockDeep, deep mock, resolveWith, calledWith, mustBeCalledWith, ' +
-          'bun test, node:test, angular testing, nestjs, react, vue, pinia, svelte, rxjs, mocking, typescript',
+          'bun test, node:test, angular testing, renderShallow, shallow rendering, zoneless, signal testing, ' +
+          'nestjs, react, vue, pinia, svelte, rxjs, eslint plugin, mocking, typescript',
       },
     ],
     ['meta', { property: 'og:type', content: 'website' }],
@@ -101,6 +101,8 @@ export default defineConfig({
           { text: 'createSpyFromClass', link: '/core/create-spy-from-class' },
           { text: 'Control helpers', link: '/core/control-helpers' },
           { text: 'Auto-mock by type', link: '/core/auto-mock-by-type' },
+          { text: 'Observable assertions', link: '/core/observable-assertions' },
+          { text: 'Bridging Spy<T> and T', link: '/core/spy-typing' },
         ],
       },
       {
@@ -116,7 +118,11 @@ export default defineConfig({
       {
         text: 'Utilities',
         collapsed: false,
-        items: [{ text: 'Console spies', link: '/utilities/console' }],
+        items: [
+          { text: 'Console spies', link: '/utilities/console' },
+          { text: 'Test-run hygiene', link: '/utilities/setup' },
+          { text: 'ESLint plugin', link: '/utilities/eslint-plugin' },
+        ],
       },
       {
         text: 'Adapters',

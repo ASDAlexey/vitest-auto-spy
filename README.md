@@ -45,6 +45,9 @@ identical API, with **RxJS** spies and **Angular / NestJS / React / Vue·Pinia /
 - 📡 First-class RxJS `Observable` spying (`nextWith`, `nextWithValues`, `throwWith`, …)
 - ⚙️ Getter / setter spies via `accessorSpies`
 - 🧰 DI & mocking utilities — `provideAutoSpy` / `injectSpy` (Angular, NestJS, Vue), `createFunctionSpy`, `mockReadonlyProp` for signals
+- ⚡ Angular speed & zoneless helpers — `renderShallow` (**1.7×** on real component specs), `createWithAutoSpies`, `stable` / `flushEffects`, `toHaveSignalValue`, per-file `TestBed` timings
+- 📡 Observable assertions that fail on silence — `expectEmission` / `expectEmissions` / `expectNoEmission`, no rxjs required
+- 📏 Lint rules and one-line test-run hygiene — `vitest-auto-spy/eslint-plugin`, `setupAutoSpy()`
 - 🔇 Console spies — `import { consoleInfoSpy } from 'vitest-auto-spy/console'` silences `console` and asserts its calls
 - 🟢 100% test coverage, **zero runtime dependencies** (in-tree arg serializer, no `javascript-stringify`)
 
@@ -125,6 +128,7 @@ them only for the matching entry point. The package itself has **zero runtime de
 | `vitest-auto-spy` · `vitest-auto-spy/rxjs` · `vitest-auto-spy/angular` | ✅ **Published** |
 | `vitest-auto-spy/bun` · `vitest-auto-spy/node`                         | ✅ **Published** |
 | `vitest-auto-spy/nestjs` · `/react` · `/vue` · `/svelte` · `/console`  | ✅ **Published** |
+| `vitest-auto-spy/setup` · `vitest-auto-spy/eslint-plugin`              | ✅ **Published** |
 
 ## Quick start
 
@@ -966,7 +970,9 @@ One line per spec file: how much of its wall clock went into `TestBed` (module c
 template compilation, component creation) versus plain logic, and how many components it created.
 That is the list of rewrite candidates, and the number that says whether a rewrite helped. Pass
 `report` to collect the timings yourself, `minTestBedMs` to stay quiet about cheap files, and call
-`disableTestBedDiagnostics()` to put the untouched `TestBed` back.
+`disableTestBedDiagnostics()` to put the untouched `TestBed` back. `instrumentTestBed()`,
+`getTestBedTiming()`, `formatSpecTiming()` and `reportSpecTiming()` are the pieces underneath, for a
+suite that wants the numbers without the per-file line.
 
 The clock is captured at import time, so a spec using `vi.useFakeTimers()` is still measured
 honestly rather than reported as free.

@@ -23,6 +23,8 @@ Staged for the next release (see the root `CHANGELOG.md` for the canonical text)
 - **Added** `registerSignalMatchers()`, `asInstance()` / `asSpy()`, `createSpyClass()`,
   `countMockedProps()`; the `mock*Prop` helpers are exported from the core entry too.
 - **Added** README section "How to mock" — one recipe per thing a spec stands in for.
+- **Added** docs-site pages for every new helper (Observable assertions, Spy/T bridging, test-run
+  hygiene, the ESLint plugin) and an Angular page rewritten around them.
 - **Fixed** three bugs the helpers found in themselves while being pointed at a real suite: the
   diagnostics measured on a faked clock, their report was swallowed by the library's own console
   spies, and `renderShallow` rejected `EnvironmentProviders`.

@@ -58,6 +58,10 @@ The latest released version here must always match the one published on
 - README gained a **"How to mock"** section: one recipe per thing a spec stands in for — a service
   behind DI, a service without DI, reading a spy back from DI, a whole class's dependencies, a
   readonly property or signal, an Observable, a component's children, a `new`-ed class, a pipe.
+- The documentation site gained pages for everything above: **Observable assertions** and
+  **Bridging `Spy<T>` and `T`** under Core, **Test-run hygiene** and **ESLint plugin** under
+  Utilities, and an Angular page that now covers `renderShallow` (with the measured numbers),
+  `createWithAutoSpies`, zoneless waiting, the signal matcher and the `TestBed` diagnostics.
 
 ### Fixed
 
