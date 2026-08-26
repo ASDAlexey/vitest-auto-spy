@@ -35,6 +35,14 @@ jobs:
       - name: Type-check
         run: npm run typecheck
 
+      # Neither was enforced anywhere, which is how `src/lib/observable-spy.ts` sat unformatted in
+      # the repository. `format:check` covers the scope the `format` script owns (`src/**/*.ts`).
+      - name: Lint
+        run: npm run lint
+
+      - name: Format
+        run: npm run format:check
+
       - name: Test + coverage
         run: npm run test:coverage
 

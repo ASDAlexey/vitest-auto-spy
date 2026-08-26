@@ -213,9 +213,13 @@ export function createObservablePropSpy<T>(): AddObservableSpyMethods<T> & Obser
   // `nextWithValues` keep operating on a real Subject.
   let published$: Observable<T> = providedSubject;
   const observableSpy: Observable<T> = defer(() => published$);
-  addObservableHelpers(observableSpy, () => providedSubject, (configuredSubject) => {
-    published$ = configuredSubject;
-  });
+  addObservableHelpers(
+    observableSpy,
+    () => providedSubject,
+    (configuredSubject) => {
+      published$ = configuredSubject;
+    },
+  );
 
   // `addObservableHelpers` attaches the `AddObservableSpyMethods<T>` helpers onto
   // `observableSpy` at runtime; the assertion re-exposes those dynamically-attached
