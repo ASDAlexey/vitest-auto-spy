@@ -1,5 +1,5 @@
 /**
- * Side-effect module: register the default Vitest {@link MockAdapter} on import.
+ * Register the default Vitest {@link MockAdapter}.
  *
  * Every public entry that runs on Vitest — the core (`vitest-auto-spy`) and the
  * `angular` / `nestjs` / `react` / `vue` / `svelte` recipes — needs the Vitest
@@ -7,12 +7,15 @@
  * imported on its own (the framework `provideAutoSpy` helpers build spies
  * without the core), so the registration cannot live only in `index.ts`.
  *
- * Importing this module once performs that registration, so every Vitest entry
- * reduces to a single `import './lib/use-vitest-adapter';` instead of repeating
- * the registry wiring (and its rationale) in six places. The Bun and `node:test`
- * entries register their own adapter and deliberately do not import this.
+ * Calling this once is what an entry does instead of repeating the registry wiring
+ * (and its rationale). It is a function rather than a bare side-effect import
+ * because `sideEffects` in `package.json` lists entry files only, and a bundler
+ * drops a bare import of a module it believes to be pure. The Bun and `node:test`
+ * entries register their own adapter and deliberately do not call this.
  */
 import { registerMockAdapter } from './mock-adapter';
 import { vitestMockAdapter } from './vitest-adapter';
 
-registerMockAdapter(vitestMockAdapter);
+export function useVitestAdapter(): void {
+  registerMockAdapter(vitestMockAdapter);
+}

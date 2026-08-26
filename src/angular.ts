@@ -2,29 +2,37 @@
  * `vitest-auto-spy/angular` — optional Angular TestBed helpers.
  *
  * ```ts
- * import { provideAutoSpy, injectSpy } from 'vitest-auto-spy/angular';
+ * import { provideAutoSpy, injectSpy, renderShallow, stable } from 'vitest-auto-spy/angular';
  * ```
  *
- * This entry pulls in `@angular/core/testing`; import it only from Angular test
- * suites. The core (`vitest-auto-spy`) stays framework-agnostic and never
- * references Angular.
+ * This entry pulls in `@angular/core/testing`; import it only from Angular test suites. The core
+ * (`vitest-auto-spy`) stays framework-agnostic and never references Angular.
+ *
+ * Everything here wraps the standard `TestBed` / `ComponentFixture` API rather than replacing it:
+ * `renderShallow` hands back a real `ComponentFixture`, `createWithAutoSpies` builds the class
+ * through Angular DI, `stable` awaits `fixture.whenStable()`. Nothing stops a spec from dropping
+ * back to `@angular/core/testing` for the step a helper does not cover.
  */
-import { registerMockAdapter } from './lib/mock-adapter';
-import { vitestMockAdapter } from './lib/vitest-adapter';
+import { useVitestAdapter } from './lib/use-vitest-adapter';
 
-// Angular suites run on Vitest, and this entry may be imported without the core
-// (`provideAutoSpy` builds spies on its own), so register the default adapter here too.
-registerMockAdapter(vitestMockAdapter);
+useVitestAdapter();
+
+export { injectSpy, provideAutoSpy, type AngularValueProvider } from './lib/angular';
 
 export {
-  injectSpy,
   mockAccessorsProp,
   mockReadonlyProp,
   mockReadonlyPropGetter,
   mockValueProp,
-  provideAutoSpy,
   restoreMockedProps,
   type AccessorImplementations,
-  type AngularValueProvider,
   type RestoreProp,
-} from './lib/angular';
+} from './lib/prop-mock';
+
+export { renderShallow, type ComponentInputs, type RenderShallowOptions, type ShallowRender } from './lib/render-shallow';
+export {
+  createWithAutoSpies,
+  type AutoSpiedInstance,
+  type CreateWithAutoSpiesOptions,
+  type SpyRegistry,
+} from './lib/create-with-auto-spies';
