@@ -141,3 +141,15 @@ export { clearAutoSpy, resetAutoSpy } from './lib/reset-auto-spy';
 
 // mustBeCalledWith error reporting
 export { errorHandler } from './lib/error-handler';
+
+// Property mocking (framework-agnostic; also re-exported from the Angular entry, where it started)
+export {
+  countMockedProps,
+  mockAccessorsProp,
+  mockReadonlyProp,
+  mockReadonlyPropGetter,
+  mockValueProp,
+  restoreMockedProps,
+  type AccessorImplementations,
+  type RestoreProp,
+} from './lib/prop-mock';
