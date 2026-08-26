@@ -10,6 +10,20 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+### Changed
+
+- **A "How it works" page** _(docs site)_ — the two ideas the library rests on, spelled out for
+  someone deciding whether to trust it with their suite. The runtime half: the prototype-chain walk
+  that discovers method names, why it stops before `Object.prototype`, why names come from property
+  descriptors rather than from reading them (a getter would execute), and why the class is never
+  constructed — which is what makes a service with five constructor dependencies mockable without
+  mocking any of them. The type half: the conditional type that reads a method's return type to
+  decide whether it gets `resolveWith`, `nextWith` or `mockReturnValue`. It also names the single
+  `as` in the core and explains why it cannot be removed. Sits in Core between `Installation` and
+  `createSpyFromClass`; the README's short "How it works (and what it won't spy)" links to it.
+
+## [1.12.0] - 2026-08-26
+
 ### Added
 
 - **`vitest-auto-spy/bun-angular`** _(new entry)_ — Angular's `TestBed` under `bun test`. Angular has
@@ -71,16 +85,6 @@ The latest released version here must always match the one published on
   "where another library is the better answer" section, and dependency counts checked against npm.
   Every page now carries `title` / `description` frontmatter, so canonical links and OpenGraph tags
   are no longer empty.
-
-- **A "How it works" page** _(docs site)_ — the two ideas the library rests on, spelled out for
-  someone deciding whether to trust it with their suite. The runtime half: the prototype-chain walk
-  that discovers method names, why it stops before `Object.prototype`, why names come from property
-  descriptors rather than from reading them (a getter would execute), and why the class is never
-  constructed — which is what makes a service with five constructor dependencies mockable without
-  mocking any of them. The type half: the conditional type that reads a method's return type to
-  decide whether it gets `resolveWith`, `nextWith` or `mockReturnValue`. It also names the single
-  `as` in the core and explains why it cannot be removed. Sits in Core between `Installation` and
-  `createSpyFromClass`; the README's short "How it works (and what it won't spy)" links to it.
 
 ### Fixed
 
@@ -500,7 +504,8 @@ The latest released version here must always match the one published on
   `mockAccessorsProp`.
 - Dual ESM + CJS build with type declarations; 100% test coverage.
 
-[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v1.11.0...HEAD
+[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v1.12.0...HEAD
+[1.12.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v1.11.0...v1.12.0
 [1.11.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v1.10.0...v1.11.0
 [1.10.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v1.9.3...v1.10.0
 [1.9.3]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v1.9.2...v1.9.3
