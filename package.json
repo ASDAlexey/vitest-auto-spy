@@ -73,9 +73,14 @@
       "default": "./dist/bun-angular.js"
     },
     "./node": {
-      "types": "./dist/node.d.ts",
-      "import": "./dist/node.js",
-      "require": "./dist/node.cjs"
+      "import": {
+        "types": "./dist/node.d.ts",
+        "default": "./dist/node.js"
+      },
+      "require": {
+        "types": "./dist/node.d.cts",
+        "default": "./dist/node.cjs"
+      }
     },
     "./rxjs": {
       "types": "./dist/rxjs.d.ts",
@@ -118,9 +123,14 @@
       "default": "./dist/setup.js"
     },
     "./eslint-plugin": {
-      "types": "./dist/eslint-plugin.d.ts",
-      "import": "./dist/eslint-plugin.js",
-      "require": "./dist/eslint-plugin.cjs"
+      "import": {
+        "types": "./dist/eslint-plugin.d.ts",
+        "default": "./dist/eslint-plugin.js"
+      },
+      "require": {
+        "types": "./dist/eslint-plugin.d.cts",
+        "default": "./dist/eslint-plugin.cjs"
+      }
     }
   },
   "files": [
