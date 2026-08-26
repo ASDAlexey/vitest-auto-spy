@@ -99,6 +99,7 @@ export {
   type SpyRegistry,
 } from './lib/create-with-auto-spies';
 export { flushEffects, stable } from './lib/zoneless';
+export { runEffect } from './lib/run-effect';
 
 // The pieces a project with its own preload can reuse instead of this entry's defaults.
 export { inlineAngularResources, type AngularResourceInlinerOptions } from './lib/angular-resource-inliner';

@@ -37,6 +37,8 @@ export {
   type SpyRegistry,
 } from './lib/create-with-auto-spies';
 export { flushEffects, stable } from './lib/zoneless';
+export { mockSignalProp } from './lib/signal-prop';
+export { runEffect } from './lib/run-effect';
 export { registerSignalMatchers, type SignalLike } from './lib/signal-matchers';
 
 export {

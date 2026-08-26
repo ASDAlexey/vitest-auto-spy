@@ -87,21 +87,21 @@ TypeScript state actually reads.
 
 ### What it saves, measured
 
-On `the reference suite` (784 specs, Angular 22 zoneless, the AOT `@angular/build:unit-test` builder),
-three of its most expensive component specs were converted and the ten-file batch re-run three
-times — medians, same batch, same machine:
+On a private Angular 22 zoneless suite (784 specs, the AOT `@angular/build:unit-test` builder), three
+of its most expensive component specs were converted and the ten-file batch re-run three times —
+medians, same batch, same machine:
 
-| Spec (479 tests in the batch, all still green)             | Before | After  | Change   |
-| ---------------------------------------------------------- | ------ | ------ | -------- |
-| `access-container.component.spec.ts` (34 tests)            | 129 ms | 61 ms  | **2.1×** |
-| `whats-here-intersections.component.spec.ts` (58 fixtures) | 133 ms | 75 ms  | **1.8×** |
-| `slide-minimap-tab.component.spec.ts` (20 tests)           | 29 ms  | 38 ms  | **0.8×** |
-| the three together                                         | 291 ms | 174 ms | **1.7×** |
+| Spec (479 tests in the batch, all still green)     | Before | After  | Change   |
+| --------------------------------------------------- | ------ | ------ | -------- |
+| a container with a deep child tree (34 tests)      | 129 ms | 61 ms  | **2.1×** |
+| a list rendering 58 fixtures                       | 133 ms | 75 ms  | **1.8×** |
+| a small leaf component (20 tests)                  | 29 ms  | 38 ms  | **0.8×** |
+| the three together                                 | 291 ms | 174 ms | **1.7×** |
 
-The third row is the honest half of the result: `slide-minimap-tab` renders a small leaf component,
-where the per-test `overrideComponent` costs more than the subtree it removes. **Shallow rendering
-pays where there is a real child tree to skip.** Use [the diagnostics](#where-a-spec-spends-its-time)
-to find the files worth converting rather than guessing.
+The third row is the honest half of the result: a leaf component has almost no subtree to remove, so
+the per-test `overrideComponent` costs more than it saves. **Shallow rendering pays where there is a
+real child tree to skip.** Use [the diagnostics](#where-a-spec-spends-its-time) to find the files
+worth converting rather than guessing.
 
 ## Building a class with auto-spied dependencies
 
@@ -150,6 +150,39 @@ effects, so an assertion right after it reads state that has not finished comput
 app the state that matters is signal-derived and effects are what move it forward. `stable` does
 both, in the right order; `flushEffects` prefers `TestBed.tick()` (Angular ≥ 20) and falls back to
 `ApplicationRef.tick()`.
+
+## Running one effect on demand
+
+`flushEffects()` asks the scheduler to run everything currently dirty. Sometimes a spec needs one
+specific effect to run *now* — typically because its trigger has been replaced with a static signal,
+so it will never become dirty on its own:
+
+```ts
+import { mockReadonlyProp, runEffect } from 'vitest-auto-spy/angular';
+
+mockReadonlyProp(component, 'state', signal(State.Selected));
+
+runEffect(component.highlightEffect);
+
+expect(component.icon()).toBe('starFilled');
+```
+
+`runEffect` runs the body with the signal values as they stand, cleanup registration intact, without
+marking the effect clean — a later flush still behaves normally.
+
+::: warning Do not reach for `vi.mock('@angular/core')` instead
+The instinct is to replace `effect()` with the identity function so the callback becomes something
+the spec holds. Under the Angular unit-test builder that is not available: specs are bundled,
+`@angular/core` lands in a chunk other chunks already depend on, and substituting it re-enters that
+chunk mid-initialisation. The run dies with `Cannot access '__vi_import_N__' before initialization`,
+which says nothing about mocking. The same applies to `vi.mock()` with a relative path — once
+bundled there is no module boundary left to replace.
+:::
+
+It reads Angular's reactive node off the `EffectRef`, so it is tied to an internal-by-convention
+detail. If a future Angular moves the effect body, `runEffect` throws with a message saying to assert
+the effect's **result** instead — set the signals it reads, `await stable(fixture)`, check what came
+out. That is the more durable shape wherever it is practical.
 
 ## Asserting a signal
 
