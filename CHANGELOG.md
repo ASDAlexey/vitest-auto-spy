@@ -10,7 +10,78 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+### Added
+
+- **`setupAutoSpy({ strayTimers: true })`** _(`/setup`)_ — cancel timeouts, intervals and animation
+  frames that outlive the file that scheduled them. Under `isolate: false` a `setTimeout` a component
+  never clears fires while a **later** file is mid-test, so the runner blames innocent code; the
+  zoneless half is worse, because Angular's scheduler races a timeout against a frame callback and
+  what surfaces is `Schedulers cannot synchronously execute watches while scheduling` or `signal read
+  during notification phase`, again against the wrong file. The option wraps the four schedulers once
+  per worker and sweeps in `afterAll`. `trackStrayTimers()` (idempotent, returns the undo),
+  `cancelStrayTimers()` (returns how many it cancelled) and `countStrayTimers()` are exported for a
+  suite that would rather fail on a leak than tidy it away; each takes an optional host, so a test can
+  contain a stand-in instead of the real globals.
+- **`runEffect(effectRef)`** _(`/angular`, `/bun-angular`)_ — run one `effect()` body on demand, with
+  the signal values as they stand and without marking the effect clean. The alternative a project
+  reaches for is replacing `effect()` via `vi.mock('@angular/core')`, which cannot work under the
+  Angular unit-test builder: specs are bundled, `@angular/core` lands in a shared chunk, and
+  substituting it re-enters that chunk mid-initialisation (`Cannot access '__vi_import_N__' before
+  initialization`). Complements `flushEffects()`, which runs everything currently dirty — `runEffect`
+  is for the effect whose trigger a spec replaced with a static signal, so it never becomes dirty. It
+  reads Angular's reactive node, so it throws with "assert the result instead" if a future version
+  moves the effect body.
+
+- **Documentation written for AI agents**, because most tests are now written with one in the loop and
+  a library an agent has to infer costs tokens on every task and produces the same mistakes each time:
+  - **`AGENTS.md`, shipped inside the npm tarball** — readable at
+    `node_modules/vitest-auto-spy/AGENTS.md` with no network, in the version actually installed. It is
+    the compressed form of the docs, not a second copy of the README: entry-point table, the
+    factory decision tree, the helper-per-return-type table, the configuration semantics (that
+    `methodsToSpyOn` restricts while `instanceMethodsToSpyOn` adds), an **error→fix table**, and a
+    do-not-write-this list covering the mistakes agents actually make — `let s: T = createSpyFromClass(T)`,
+    `expect()` inside `subscribe()`, `Object.defineProperty` in a spec, `toBeTruthy()` on a signal.
+  - **`llms.txt` and `llms-full.txt`** on the docs site
+    ([`/llms.txt`](https://asdalexey.github.io/vitest-auto-spy/llms.txt),
+    [`/llms-full.txt`](https://asdalexey.github.io/vitest-auto-spy/llms-full.txt)) — the
+    [llmstxt.org](https://llmstxt.org) convention a crawler looks for at a docs root, so an agent
+    fetches one page instead of scraping ten. Generated from the VitePress sidebar by
+    `scripts/generate-llms-txt.mjs`, so a page missing from the sidebar is a **build error** rather
+    than a silent omission, and checked in CI so the committed pair cannot go stale.
+  - **A Claude Code skill and plugin** — `skills/vitest-auto-spy/SKILL.md` ships in the tarball, and
+    the repository doubles as a plugin marketplace (`/plugin marketplace add ASDAlexey/vitest-auto-spy`).
+    The manifests are version-synced to `package.json` by the `version` lifecycle script, so a bump
+    cannot leave the skill advertising a release it does not describe.
+  - **A "For AI agents" docs page** and a README section covering all of the above.
+- **A "Spec patterns" page** _(docs site)_ — what a large Angular 22 zoneless suite (~370 spec files,
+  on this library since early versions) actually converged on, with the frequencies, because the
+  distribution is nothing like the API reference implies: `provideAutoSpy` in 371 files, `injectSpy`
+  in 308, `mockReadonlyProp` in 127, `instanceMethodsToSpyOn` in 103, `observablePropsToSpyOn` in 79
+  — and bare `createSpyFromClass` in only 41. It documents the canonical service spec, which signal
+  helper to use for a dependency versus the class under test, the property-vs-method distinction for
+  observables, and four traps that only appear at scale: reaching a **component-level** provider that
+  `injectSpy` cannot see, why `vi.mock('@angular/core')` cannot work under the Angular unit-test
+  builder, what an ngrx `rxMethod` needs beyond a bare mock, and timers that outlive their file under
+  `isolate: false` and are then reported against an innocent one.
+- **`@example` blocks on 38 public exports**, so the surface an agent reads most — `dist/*.d.ts`, on
+  hover or on disk — teaches the call rather than only naming it.
+- **`AGENTS.md` and the skill were reordered around that same measurement.** They led with
+  `createSpyFromClass`, which is the least-used entry point in an Angular app; they now lead with the
+  DI shape, promote `instanceMethodsToSpyOn` from a footnote to a top-5 option, and carry six more
+  error→fix rows for the failures above — including the two that are reported against the wrong file
+  (`Schedulers cannot synchronously execute watches while scheduling`, `signal read during
+  notification phase`).
+
 ### Changed
+
+- **Every error and warning now ends with `Docs: <url>`** — a stack trace is read far more often than
+  a README, by a person at 2am and by an agent on every failed run, and a message that names its own
+  fix is the difference between repairing the test and guessing at it. Covers the missing mock
+  adapter, the missing rxjs layer, a method not found on the prototype, `advanceTimers()` without
+  fake timers, a `bun-angular` preload with no DOM package, an unresolvable `templateUrl`, a
+  `mustBeCalledWith` violation and the duplicate-install report. The unknown-method warning also now
+  points at `instanceMethodsToSpyOn`, which is what it usually means. Costs ~0.4 kB minzipped on a
+  dev-only dependency.
 
 - **A "How it works" page** _(docs site)_ — the two ideas the library rests on, spelled out for
   someone deciding whether to trust it with their suite. The runtime half: the prototype-chain walk
@@ -103,7 +174,7 @@ The latest released version here must always match the one published on
   `imports`, a blank template and no styles), as one call that returns a real `ComponentFixture`.
   Options: `providers` (incl. `EnvironmentProviders`), `imports`, `inputs` (signal inputs take the
   value), `keepTemplate`, `keepChildren`, `template`, `beforeCreate`, `detectChanges`.
-  Measured on `the reference suite`: converting three of its most expensive component specs took them from
+  Measured on a private Angular 22 zoneless suite: converting three of its most expensive component specs took them from
   291 ms to 174 ms (1.7× overall; 2.1× and 1.8× on the two with a real child tree, 0.8× — slower —
   on a leaf component, where the per-test `overrideComponent` costs more than the subtree it removes).
 - **`createWithAutoSpies(Class, options?)`** _(`/angular`)_ — build a service, store or pipe through
