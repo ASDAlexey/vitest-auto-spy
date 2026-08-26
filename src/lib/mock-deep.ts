@@ -75,6 +75,14 @@ function createDeepNode(name: string, overrides: object): unknown {
 /**
  * Create a recursively-mocked `T` from its type alone (no class). Nested object
  * access auto-creates chainable spies; seed concrete values via `overrides`.
+ *
+ * @example
+ * ```ts
+ * const api = mockDeep<Api>();
+ *
+ * api.repo.user.find.calledWith(1).resolveWith({ id: 1 });
+ * await expect(api.repo.user.find(1)).resolves.toEqual({ id: 1 });
+ * ```
  */
 export function mockDeep<T>(overrides: Partial<T> = {}): DeepMockProxy<T> {
   // The proxy tree assembles `T`'s deep spy surface lazily from runtime-accessed

@@ -71,6 +71,14 @@ function installMethodSpy(method: SpiedConsoleMethod): ConsoleMethodSpy {
 /**
  * Replace the spied console methods with silent typed spies. Idempotent:
  * repeated calls return the already-installed bag.
+ *
+ * @example
+ * ```ts
+ * const spies = installConsoleSpies();
+ *
+ * service.doWork();
+ * expect(spies.warn).toHaveBeenCalledWith('deprecated');
+ * ```
  */
 export function installConsoleSpies(): ConsoleSpies {
   if (installedSpies) {
@@ -91,7 +99,14 @@ export function installConsoleSpies(): ConsoleSpies {
   return installedSpies;
 }
 
-/** Clear the recorded calls of every installed console spy (the spies stay installed). */
+/**
+ * Clear the recorded calls of every installed console spy (the spies stay installed).
+ *
+ * @example
+ * ```ts
+ * resetConsoleSpies(); // recorded calls dropped, the spies stay installed
+ * ```
+ */
 export function resetConsoleSpies(): void {
   const adapter = getMockAdapter();
 
@@ -100,7 +115,14 @@ export function resetConsoleSpies(): void {
   }
 }
 
-/** Put the original console methods back and forget the installed spies. */
+/**
+ * Put the original console methods back and forget the installed spies.
+ *
+ * @example
+ * ```ts
+ * restoreConsole(); // the real console methods are back
+ * ```
+ */
 export function restoreConsole(): void {
   for (const [method, original] of originalMethods) {
     setConsoleMethod(method, original);

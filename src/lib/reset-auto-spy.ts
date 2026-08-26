@@ -58,7 +58,14 @@ function collectMocks(spy: object): MockFn[] {
   return [...mocks, ...collectAccessorMocks(spy)];
 }
 
-/** Clear recorded calls on every spy inside `spy` (configured return values are kept). */
+/**
+ * Clear recorded calls on every spy inside `spy` (configured return values are kept).
+ *
+ * @example
+ * ```ts
+ * clearAutoSpy(users); // recorded calls dropped; calledWith / resolveWith config kept
+ * ```
+ */
 export function clearAutoSpy(spy: object): void {
   const adapter = getMockAdapter();
 
@@ -68,7 +75,14 @@ export function clearAutoSpy(spy: object): void {
   });
 }
 
-/** Reset every spy inside `spy`: clears recorded calls and reverts all `calledWith`/return-value configuration. */
+/**
+ * Reset every spy inside `spy`: clears recorded calls and reverts all `calledWith`/return-value configuration.
+ *
+ * @example
+ * ```ts
+ * resetAutoSpy(users); // calls AND config dropped — every method returns undefined again
+ * ```
+ */
 export function resetAutoSpy(spy: object): void {
   const adapter = getMockAdapter();
 

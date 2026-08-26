@@ -88,6 +88,11 @@ function restorePatch({ object, property, descriptor }: PatchedProp): void {
  * always the case under Vitest's `isolate: false`, where the next file inherits the environment.
  * Wire it into a global `afterEach`/`afterAll` in your setup file, or call `setupAutoSpy()`
  * (`vitest-auto-spy/setup`), which does it for you.
+ *
+ * @example
+ * ```ts
+ * restoreMockedProps(); // undoes every mock*Prop patch — vi.restoreAllMocks() does not
+ * ```
  */
 export function restoreMockedProps(): void {
   const patchedProps = getPatchedProps();
@@ -98,12 +103,27 @@ export function restoreMockedProps(): void {
   patchedProps.length = 0;
 }
 
-/** How many `mock*Prop` patches are still applied — the signal `setupAutoSpy()`'s hygiene reports on. */
+/**
+ * How many `mock*Prop` patches are still applied — the signal `setupAutoSpy()`'s hygiene reports on.
+ *
+ * @example
+ * ```ts
+ * afterEach(() => expect(countMockedProps()).toBe(0));
+ * ```
+ */
 export function countMockedProps(): number {
   return getPatchedProps().length;
 }
 
-/** Override a readonly property (incl. `signal()` / `computed()`) with a static value. */
+/**
+ * Override a readonly property (incl. `signal()` / `computed()`) with a static value.
+ *
+ * @example
+ * ```ts
+ * mockReadonlyProp(service, 'isReady', true);
+ * mockReadonlyProp(service, 'count', signal(3)); // signals too
+ * ```
+ */
 export function mockReadonlyProp<T, K extends keyof T>(object: T, property: K, value: T[K]): RestoreProp;
 /** Escape hatch for members the public type does not describe — `#private` fields, ad-hoc keys. */
 export function mockReadonlyProp<T>(object: T, property: PropertyKey, value: unknown): RestoreProp;
@@ -115,7 +135,17 @@ export function mockReadonlyProp<T>(object: T, property: PropertyKey, value: unk
   return restore;
 }
 
-/** Override a readonly property with a dynamic getter. */
+/**
+ * Override a readonly property with a dynamic getter.
+ *
+ * @example
+ * ```ts
+ * let label = 'A';
+ *
+ * mockReadonlyPropGetter(service, 'label', () => label);
+ * label = 'B'; // service.label is now 'B'
+ * ```
+ */
 export function mockReadonlyPropGetter<T, K extends keyof T>(object: T, property: K, getter: () => unknown): RestoreProp;
 /** Escape hatch for members the public type does not describe — `#private` fields, ad-hoc keys. */
 export function mockReadonlyPropGetter<T>(object: T, property: PropertyKey, getter: () => unknown): RestoreProp;
@@ -130,6 +160,12 @@ export function mockReadonlyPropGetter<T>(object: T, property: PropertyKey, gett
 /**
  * Override a property with a plain writable value — the counterpart of {@link mockReadonlyProp} for
  * members the code under test assigns to, and the way to stub a method on a real (non-spy) instance.
+ *
+ * @example
+ * ```ts
+ * mockValueProp(service, 'retries', 3);
+ * mockValueProp(globalThis, 'BackgroundWorker', createSpyClass(BackgroundWorker));
+ * ```
  */
 export function mockValueProp<T, K extends keyof T>(object: T, property: K, value: T[K]): RestoreProp;
 /** Escape hatch for members the public type does not describe — `#private` fields, ad-hoc keys. */
@@ -146,6 +182,15 @@ export function mockValueProp<T>(object: T, property: PropertyKey, value: unknow
  * Replace a property with spied `get`/`set` accessors (host-runner mocks). Pass `accessors` to give
  * either side a real implementation — the spy still records every read and write, which is what a
  * DOM property backed by an attribute (`input.valueAsNumber`, …) needs.
+ *
+ * @example
+ * ```ts
+ * const restore = mockAccessorsProp(service, 'theme');
+ *
+ * service.theme = 'dark';
+ * expect(service.accessorSpies.setters.theme).toHaveBeenCalledWith('dark');
+ * restore();
+ * ```
  */
 export function mockAccessorsProp<T, K extends keyof T>(object: T, property: K, accessors?: AccessorImplementations): RestoreProp;
 /** Escape hatch for members the public type does not describe — `#private` fields, ad-hoc keys. */

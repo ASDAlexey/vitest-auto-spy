@@ -9,6 +9,7 @@
  * attempt to use observable spies without it fails with a clear, actionable
  * error instead of a cryptic `undefined is not a function`.
  */
+import { DOCS_LINKS, withDocs } from './docs-links';
 import type { CalledWithObject, ReturnValueContainer } from './internal-types';
 
 /** The observable helpers the `/rxjs` entry plugs into the core. */
@@ -41,9 +42,11 @@ export function resetObservableSupport(): void {
   registeredSupport = undefined;
 }
 
-const MISSING_RXJS_SUPPORT =
+const MISSING_RXJS_SUPPORT = withDocs(
   "Observable spies require rxjs. Import 'vitest-auto-spy/rxjs' once (e.g. in your test setup) " +
-  'to enable observablePropsToSpyOn / nextWith / nextWithValues / throwWith / complete / returnSubject.';
+    'to enable observablePropsToSpyOn / nextWith / nextWithValues / throwWith / complete / returnSubject.',
+  DOCS_LINKS.rxjs,
+);
 
 /** Like {@link getObservableSupport}, but throws the import hint when unavailable. */
 export function requireObservableSupport(): ObservableSupport {

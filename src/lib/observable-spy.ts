@@ -187,7 +187,14 @@ export function addObservableHelpersToCalledWithObject(calledWithObject: CalledW
   });
 }
 
-/** Build a standalone Observable that emits the provided value configs. */
+/**
+ * Build a standalone Observable that emits the provided value configs.
+ *
+ * @example
+ * ```ts
+ * const source$ = createObservableWithValues([{ value: 'a' }, { value: 'b', delay: 100 }, { complete: true }]);
+ * ```
+ */
 export function createObservableWithValues<T>(valuesConfigs: ValueConfig<T>[]): Observable<T>;
 export function createObservableWithValues<T>(
   valuesConfigs: ValueConfig<T>[],

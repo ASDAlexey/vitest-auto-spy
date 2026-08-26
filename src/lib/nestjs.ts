@@ -22,7 +22,16 @@ export interface NestModuleRef {
   get(token: unknown): unknown;
 }
 
-/** Shorthand NestJS provider: `{ provide, useValue: createSpyFromClass(...) }`. */
+/**
+ * Shorthand NestJS provider: `{ provide, useValue: createSpyFromClass(...) }`.
+ *
+ * @example
+ * ```ts
+ * const moduleRef = await Test.createTestingModule({
+ *   providers: [AuthService, provideAutoSpy(UserService)],
+ * }).compile();
+ * ```
+ */
 export function provideAutoSpy<T>(
   ObjectClass: ClassType<T>,
   methodsToSpyOnOrConfig?: ClassSpyConfiguration<T> | OnlyMethodKeysOf<T>[],
@@ -33,7 +42,16 @@ export function provideAutoSpy<T>(
   };
 }
 
-/** Resolve a provider from a NestJS `TestingModule`, already typed as `Spy<T>`. */
+/**
+ * Resolve a provider from a NestJS `TestingModule`, already typed as `Spy<T>`.
+ *
+ * @example
+ * ```ts
+ * const users = injectSpy(moduleRef, UserService); // the module reference comes FIRST
+ *
+ * users.findByEmail.resolveWith({ id: 1 });
+ * ```
+ */
 export function injectSpy<T>(moduleRef: NestModuleRef, token: ClassType<T> | (abstract new (...args: never[]) => T)): Spy<T> {
   // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- `moduleRef.get`'s structural signature returns `unknown`, and Nest hands back the real instance `T`, not the augmented `Spy<T>` we registered via `useValue`; the assertion bridges the lookup result to the spy surface.
   const injected = moduleRef.get(token) as Spy<T>;

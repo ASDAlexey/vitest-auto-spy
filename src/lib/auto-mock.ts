@@ -32,6 +32,14 @@ import type { Func, Spy } from './types';
  *
  * @returns A {@link Spy} of `T`: every accessed method key lazily becomes a
  *   decorated function spy (same helpers as `createSpyFromClass`), cached by key.
+ *
+ * @example
+ * ```ts
+ * const users = createAutoMock<UserService>();
+ *
+ * users.getName.calledWith(1).mockReturnValue('Ada');
+ * users.load.resolveWith({ id: 1 });
+ * ```
  */
 export function createAutoMock<T>(overrides: Partial<T> = {}): Spy<T> {
   // Backing store: seeded overrides up-front, lazily-created spies thereafter.

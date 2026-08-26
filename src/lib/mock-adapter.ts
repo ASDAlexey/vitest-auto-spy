@@ -13,6 +13,7 @@
  * their own adapter over the very same core. This is the same refactor spirit as
  * the rxjs decouple in `observable-support.ts`.
  */
+import { DOCS_LINKS, withDocs } from './docs-links';
 import { registerPackageCopy } from './package-identity';
 import type { Func } from './types';
 
@@ -85,9 +86,12 @@ export function resetMockAdapter(): void {
   registeredAdapter = undefined;
 }
 
-const MISSING_MOCK_ADAPTER =
+const MISSING_MOCK_ADAPTER = withDocs(
   'No mock adapter registered. Import a runtime entry once before creating spies — ' +
-  "'vitest-auto-spy' (default, Vitest) or a runtime variant such as 'vitest-auto-spy/bun'.";
+    "'vitest-auto-spy' (default, Vitest) or a runtime variant such as 'vitest-auto-spy/bun' / 'vitest-auto-spy/node'. " +
+    'Importing the entry is what registers the adapter, so it has to happen before the first spy is built.',
+  DOCS_LINKS.installation,
+);
 
 /** The active mock adapter, throwing an actionable hint if no entry registered one. */
 export function getMockAdapter(): MockAdapter {

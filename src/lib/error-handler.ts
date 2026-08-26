@@ -2,6 +2,7 @@
  * Error reporting for `mustBeCalledWith` — thrown when a spy configured with
  * required arguments is called with anything else.
  */
+import { DOCS_LINKS, withDocs } from './docs-links';
 import { serializeValue } from './serialize-args';
 
 const MUST_BE_CALLED_WITH_PREAMBLE = (functionName: string): string =>
@@ -19,6 +20,6 @@ const actualArgumentsMessage = (actualArgs: unknown[]): string => {
 export const errorHandler = {
   throwArgumentsError(actualArgs: unknown[], functionName: string): never {
     const detail = actualArgs.length === 0 ? NO_ARGUMENTS_MESSAGE : actualArgumentsMessage(actualArgs);
-    throw new Error(MUST_BE_CALLED_WITH_PREAMBLE(functionName) + detail);
+    throw new Error(withDocs(MUST_BE_CALLED_WITH_PREAMBLE(functionName) + detail, DOCS_LINKS.controlHelpers));
   },
 };

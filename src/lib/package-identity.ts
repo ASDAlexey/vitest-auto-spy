@@ -12,6 +12,7 @@
  * (`vitest-auto-spy` + `vitest-auto-spy/angular`) is a single copy, and `vi.resetModules()`
  * re-instantiating this module registers the same copy again. Neither is a duplicate.
  */
+import { DOCS_LINKS } from './docs-links';
 
 /**
  * Registered copies, keyed by identity and valued by package root, kept on `globalThis` so that
@@ -46,7 +47,14 @@ export function registerPackageCopy(moduleUrl: string = import.meta.url): void {
   getCopies().set(`${root} (${toModuleFormat(moduleUrl)})`, root);
 }
 
-/** Every copy seen so far, as `<package root> (<format>)`. */
+/**
+ * Every copy seen so far, as `<package root> (<format>)`.
+ *
+ * @example
+ * ```ts
+ * expect(getPackageCopies()).toHaveLength(1);
+ * ```
+ */
 export function getPackageCopies(): string[] {
   return [...getCopies().keys()];
 }
@@ -59,6 +67,15 @@ export function resetPackageCopies(): void {
 /**
  * A ready-to-print explanation when more than one copy is loaded, or `undefined` when the process
  * holds exactly one. `setupAutoSpy()` turns this into a thrown error (or a warning).
+ *
+ * @example
+ * ```ts
+ * const report = describeDuplicateCopies();
+ *
+ * if (report) {
+ *   throw new Error(report);
+ * }
+ * ```
  */
 export function describeDuplicateCopies(): string | undefined {
   const copies = getCopies();
@@ -73,7 +90,14 @@ export function describeDuplicateCopies(): string | undefined {
       ? `vitest-auto-spy is loaded ${copies.size} times from different installs:`
       : `vitest-auto-spy is loaded ${copies.size} times from one install, in both module formats:`;
 
-  return [cause, ...getPackageCopies().map((copy) => `  - ${copy}`), '', ...remedyFor(distinctRoots.size > 1)].join('\n');
+  return [
+    cause,
+    ...getPackageCopies().map((copy) => `  - ${copy}`),
+    '',
+    ...remedyFor(distinctRoots.size > 1),
+    '',
+    `Docs: ${DOCS_LINKS.setup}`,
+  ].join('\n');
 }
 
 function remedyFor(separateInstalls: boolean): string[] {

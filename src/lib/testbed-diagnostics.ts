@@ -96,18 +96,45 @@ function instrument(method: string, counter: 'components' | 'configurations' | u
   });
 }
 
-/** Wrap the `TestBed` entry points. Idempotent, and safe on Angular versions missing one of them. */
+/**
+ * Wrap the `TestBed` entry points. Idempotent, and safe on Angular versions missing one of them.
+ *
+ * @example
+ * ```ts
+ * instrumentTestBed(); // start measuring; pair with getTestBedTiming() in an afterAll
+ * ```
+ */
 export function instrumentTestBed(): void {
   INSTRUMENTED.forEach(({ method, counter }) => instrument(method, counter));
 }
 
-/** Undo the instrumentation, putting the original `TestBed` methods back. */
+/**
+ * Undo the instrumentation, putting the original `TestBed` methods back.
+ *
+ * @example
+ * ```ts
+ * disableTestBedDiagnostics(); // put the untouched TestBed back
+ * ```
+ */
 export function disableTestBedDiagnostics(): void {
   originals.forEach((original, method) => Reflect.set(TestBed, method, original));
   originals.clear();
 }
 
-/** The timing accumulated so far in the current file. */
+/**
+ * The timing accumulated so far in the current file.
+ *
+ * @example
+ * ```ts
+ * afterAll(() => {
+ *   const timing = getTestBedTiming();
+ *
+ *   if (timing.testBedMs > 200) {
+ *     reportSpecTiming(timing);
+ *   }
+ * });
+ * ```
+ */
 export function getTestBedTiming(): SpecTiming {
   const totalMs = now() - fileStartedAt;
   const state: { testPath?: string } = expect.getState();
@@ -122,7 +149,14 @@ export function getTestBedTiming(): SpecTiming {
   };
 }
 
-/** One human-readable line: what the file cost and how much of it was `TestBed`. */
+/**
+ * One human-readable line: what the file cost and how much of it was `TestBed`.
+ *
+ * @example
+ * ```ts
+ * process.stdout.write(`${formatSpecTiming(getTestBedTiming())}\n`);
+ * ```
+ */
 export function formatSpecTiming(timing: SpecTiming): string {
   const share = timing.totalMs > 0 ? Math.round((timing.testBedMs / timing.totalMs) * 100) : 0;
 
@@ -141,6 +175,11 @@ export function formatSpecTiming(timing: SpecTiming): string {
  *
  * Exported as the default `report`: a project that wants both its own bookkeeping and the printed
  * line can call it from a custom reporter.
+ *
+ * @example
+ * ```ts
+ * reportSpecTiming(getTestBedTiming()); // one line to process.stdout, not console.info
+ * ```
  */
 export function reportSpecTiming(timing: SpecTiming): void {
   const line = `${formatSpecTiming(timing)}\n`;

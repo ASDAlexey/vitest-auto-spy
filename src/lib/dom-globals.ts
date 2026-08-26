@@ -10,6 +10,7 @@
  * loader, so this module stays free of optional peers (`jsdom`, `@happy-dom/global-registrator`),
  * runs under Vitest against fakes, and lets a consumer supply its own DOM in the same shape.
  */
+import { DOCS_LINKS, withDocs } from './docs-links';
 
 /** A named strategy that installs browser globals, or throws if its implementation is missing. */
 export interface DomRegistrar {
@@ -42,6 +43,14 @@ function describeError(error: unknown): string {
  * @returns the name of the registrar that installed it, or `undefined` when a DOM already existed.
  * @throws when every registrar failed — the message names each one and why, because the fix is
  *   always "install the package you meant to use".
+ *
+ * @example
+ * ```ts
+ * // in a bun test preload
+ * const installed = await registerDomGlobals();
+ *
+ * // installed === 'happy-dom' | 'jsdom' | undefined (a DOM was already present)
+ * ```
  */
 export async function registerDomGlobals(options: RegisterDomGlobalsOptions = {}): Promise<string | undefined> {
   const hasDom = options.hasDom ?? defaultHasDom;
@@ -64,9 +73,12 @@ export async function registerDomGlobals(options: RegisterDomGlobalsOptions = {}
   }
 
   throw new Error(
-    `vitest-auto-spy: no DOM could be installed, so Angular's TestBed cannot run.\n` +
-      `Install one of the supported implementations (\`bun add -d @happy-dom/global-registrator\` or \`bun add -d jsdom\`).\n` +
-      `Tried:\n${failures.join('\n') || '  - (no registrars were configured)'}`,
+    withDocs(
+      `vitest-auto-spy: no DOM could be installed, so Angular's TestBed cannot run.\n` +
+        `Install one of the supported implementations (\`bun add -d @happy-dom/global-registrator\` or \`bun add -d jsdom\`).\n` +
+        `Tried:\n${failures.join('\n') || '  - (no registrars were configured)'}`,
+      DOCS_LINKS.bunAngular,
+    ),
   );
 }
 
@@ -77,6 +89,11 @@ export async function registerDomGlobals(options: RegisterDomGlobalsOptions = {}
  * no value yet, so a runtime built-in (`fetch`, `URL`, `AbortController`) keeps its native
  * implementation. A property the target refuses to accept is skipped rather than fatal — a locked
  * global is not worth failing a whole test run over.
+ *
+ * @example
+ * ```ts
+ * copyWindowGlobals(dom.window as unknown as Record<string, unknown>, globalThis as Record<string, unknown>);
+ * ```
  */
 export function copyWindowGlobals(source: Record<string, unknown>, target: Record<string, unknown>): void {
   const keys = [...FORCED_GLOBALS, ...Object.getOwnPropertyNames(source)];
@@ -115,7 +132,16 @@ export interface JsdomRegistrarOptions {
   url?: string;
 }
 
-/** A {@link DomRegistrar} backed by `jsdom`, the implementation Vitest's `environment: 'jsdom'` uses. */
+/**
+ * A {@link DomRegistrar} backed by `jsdom`, the implementation Vitest's `environment: 'jsdom'` uses.
+ *
+ * @example
+ * ```ts
+ * await registerDomGlobals({
+ *   registrars: [createJsdomRegistrar({ load: () => import('jsdom'), target: globalThis, url: 'https://app.test/' })],
+ * });
+ * ```
+ */
 export function createJsdomRegistrar(options: JsdomRegistrarOptions): DomRegistrar {
   return {
     name: 'jsdom',
@@ -145,6 +171,13 @@ export interface GlobalRegistratorOptions {
 /**
  * A {@link DomRegistrar} backed by a self-registering module — the shape
  * `@happy-dom/global-registrator` exposes, and Bun's own documented way to get a DOM.
+ *
+ * @example
+ * ```ts
+ * await registerDomGlobals({
+ *   registrars: [createGlobalRegistratorRegistrar({ load: () => import('@happy-dom/global-registrator') })],
+ * });
+ * ```
  */
 export function createGlobalRegistratorRegistrar(options: GlobalRegistratorOptions): DomRegistrar {
   return {

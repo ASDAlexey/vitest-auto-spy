@@ -26,6 +26,11 @@ export function asInstance<T>(spy: Spy<T>): T {
 /**
  * View an instance as its spy surface — for a dependency that was provided as a spy but comes back
  * from an API typed against the real class (`TestBed.inject`, `injector.get`, a `viewChild`).
+ *
+ * @example
+ * ```ts
+ * asSpy(TestBed.inject(CartService)).checkout.resolveWith({ ok: true });
+ * ```
  */
 export function asSpy<T>(instance: T): Spy<T> {
   // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- the caller asserts this instance was provided as a spy; the cast exposes the helpers that `T` does not describe.

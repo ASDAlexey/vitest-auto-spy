@@ -28,7 +28,16 @@ interface MatcherResult {
   expected?: unknown;
 }
 
-/** Register {@link toHaveSignalValue} with the runner. Call once, from your setup file. */
+/**
+ * Register {@link toHaveSignalValue} with the runner. Call once, from your setup file.
+ *
+ * @example
+ * ```ts
+ * registerSignalMatchers(); // once, in the setup file
+ *
+ * expect(component.total).toHaveSignalValue(3);
+ * ```
+ */
 export function registerSignalMatchers(): void {
   expect.extend({
     toHaveSignalValue(received: unknown, expected: unknown): MatcherResult {

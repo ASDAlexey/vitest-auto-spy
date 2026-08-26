@@ -20,6 +20,8 @@
 import { readFileSync } from 'node:fs';
 import { dirname, extname, resolve } from 'node:path';
 
+import { DOCS_LINKS, withDocs } from './docs-links';
+
 /** How {@link inlineAngularResources} reads resources and which stylesheets it keeps. */
 export interface AngularResourceInlinerOptions {
   /** Read a resource file. Defaults to a UTF-8 `readFileSync`; injected in tests. */
@@ -61,6 +63,11 @@ function defaultReadResource(path: string): string {
  *
  * @param source Contents of the module being loaded.
  * @param modulePath Absolute path of that module — resource URLs resolve relative to its directory.
+ *
+ * @example
+ * ```ts
+ * const source = inlineAngularResources(rawSource, modulePath, { inlineStyleExtensions: ['.css', '.scss'] });
+ * ```
  */
 export function inlineAngularResources(
   source: string,
@@ -85,7 +92,14 @@ export function inlineAngularResources(
     try {
       return readResource(path);
     } catch (cause) {
-      throw new Error(`vitest-auto-spy: cannot read "${url}" referenced by ${modulePath} (resolved to ${path}).`, { cause });
+      throw new Error(
+        withDocs(
+          `vitest-auto-spy: cannot read "${url}" referenced by ${modulePath} (resolved to ${path}). ` +
+            `The path is resolved relative to the component file, not to the project root.`,
+          DOCS_LINKS.bunAngular,
+        ),
+        { cause },
+      );
     }
   };
 

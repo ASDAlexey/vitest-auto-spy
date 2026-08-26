@@ -16,6 +16,12 @@ import { type ComponentFixture, TestBed } from '@angular/core/testing';
  *
  * Prefers `TestBed.tick()` (Angular ≥ 20), which also refreshes fixture views that were never
  * attached to the `ApplicationRef`; older versions fall back to `ApplicationRef.tick()`.
+ *
+ * @example
+ * ```ts
+ * store.filter.set('open');
+ * flushEffects(); // the no-fixture half of `stable()` — services, stores, runInInjectionContext
+ * ```
  */
 export function flushEffects(): void {
   const testBed: { tick?: () => void } = TestBed;

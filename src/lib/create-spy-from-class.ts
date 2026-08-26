@@ -4,6 +4,7 @@
  * observable properties and getter/setter accessors.
  */
 import { createAccessorsSpies } from './accessor-spy';
+import { DOCS_LINKS, withDocs } from './docs-links';
 import { createFunctionSpy } from './function-spy';
 import { requireObservableSupport } from './observable-support';
 import type { ClassSpyConfiguration, ClassType, OnlyMethodKeysOf, Spy } from './types';
@@ -141,8 +142,13 @@ function warnOnUnknownMethods(ObjectClass: ClassType<unknown>, requested: string
   // repo's `no-console` lint rule is stricter than that policy, so disable it here.
   // eslint-disable-next-line no-console -- intentional dev-time misconfiguration warning; console.warn is allowed per CLAUDE.md.
   console.warn(
-    `[vitest-auto-spy] createSpyFromClass(${ObjectClass.name}): requested method(s) not found on the class prototype: ` +
-      `${unknown.join(', ')}. A spy was still created, but the real code will never call it — check for typos.`,
+    withDocs(
+      `[vitest-auto-spy] createSpyFromClass(${ObjectClass.name}): requested method(s) not found on the class prototype: ` +
+        `${unknown.join(', ')}. A spy was still created, but the real code will never call it — check for typos. ` +
+        `A callable that lives on the instance (an arrow property, a signal() field, an ngrx signalStore() method) ` +
+        `is invisible to prototype discovery: list it in \`instanceMethodsToSpyOn\` instead.`,
+      DOCS_LINKS.createSpyFromClass,
+    ),
   );
 }
 
@@ -197,7 +203,20 @@ function resolveConfiguration<T>(methodsToSpyOnOrConfig?: ClassSpyConfiguration<
   };
 }
 
-/** Generate a fully-typed auto-spy from a class. */
+/**
+ * Generate a fully-typed auto-spy from a class.
+ *
+ * @example
+ * ```ts
+ * const users: Spy<UserService> = createSpyFromClass(UserService);
+ *
+ * users.getName.mockReturnValue('Ada');
+ * users.load.calledWith(1).resolveWith({ id: 1 });
+ *
+ * // a callable that is an instance field, not on the prototype
+ * createSpyFromClass(TaskStore, { instanceMethodsToSpyOn: ['reload'] });
+ * ```
+ */
 export function createSpyFromClass<T>(
   ObjectClass: ClassType<T>,
   methodsToSpyOnOrConfig?: ClassSpyConfiguration<T> | OnlyMethodKeysOf<T>[],

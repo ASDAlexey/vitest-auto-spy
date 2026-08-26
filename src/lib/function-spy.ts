@@ -112,7 +112,17 @@ function resetCalledWithObject(calledWithObject: CalledWithObject): void {
   calledWithObject.argsToValuesMap = new ArgsMap();
 }
 
-/** Create a single host-runner-backed function spy with all return-type helpers attached. */
+/**
+ * Create a single host-runner-backed function spy with all return-type helpers attached.
+ *
+ * @example
+ * ```ts
+ * const load = createFunctionSpy<(id: number) => Promise<string>>('load');
+ *
+ * load.calledWith(1).resolveWith('value');
+ * await expect(load(1)).resolves.toBe('value');
+ * ```
+ */
 export function createFunctionSpy<FunctionType extends Func>(name: string): AddSpyMethodsByReturnTypes<FunctionType> {
   const calledWithObject = createCalledWithObject();
   const mustBeCalledWithObject = createCalledWithObject();

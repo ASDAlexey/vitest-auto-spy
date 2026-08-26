@@ -32,7 +32,16 @@ function withLazyDefault<T>(methodsToSpyOnOrConfig?: ClassSpyConfiguration<T> | 
   return { ...methodsToSpyOnOrConfig, lazySpies: methodsToSpyOnOrConfig.lazySpies ?? true };
 }
 
-/** Shorthand Angular provider: `{ provide, useValue: createSpyFromClass(...) }` (lazy spies by default). */
+/**
+ * Shorthand Angular provider: `{ provide, useValue: createSpyFromClass(...) }` (lazy spies by default).
+ *
+ * @example
+ * ```ts
+ * TestBed.configureTestingModule({
+ *   providers: [provideAutoSpy(MyService), provideAutoSpy(ApiService, { methodsToSpyOn: ['get'] })],
+ * });
+ * ```
+ */
 export function provideAutoSpy<T>(
   ObjectClass: ClassType<T>,
   methodsToSpyOnOrConfig?: ClassSpyConfiguration<T> | OnlyMethodKeysOf<T>[],
@@ -43,7 +52,16 @@ export function provideAutoSpy<T>(
   };
 }
 
-/** Inject a service from Angular's `TestBed`, already typed as `Spy<T>`. */
+/**
+ * Inject a service from Angular's `TestBed`, already typed as `Spy<T>`.
+ *
+ * @example
+ * ```ts
+ * const users = injectSpy(UserService); // Spy<UserService>
+ *
+ * users.load.resolveWith({ id: 1 });
+ * ```
+ */
 export function injectSpy<T>(token: ClassType<T> | (abstract new (...args: never[]) => T)): Spy<T> {
   // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- `TestBed.inject`'s overloads do not accept our broadened `ClassType<T> | abstract ctor` token union, and it returns the real instance `T`, not the augmented `Spy<T>`; both assertions bridge the public token/return types to the spy surface.
   const injected = TestBed.inject(token as never) as Spy<T>;

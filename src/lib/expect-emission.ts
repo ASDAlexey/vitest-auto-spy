@@ -135,7 +135,15 @@ function completedError(values: unknown[], expected: number, options: EmissionOp
   );
 }
 
-/** Await the first value of `source$`, failing loudly when it never arrives. */
+/**
+ * Await the first value of `source$`, failing loudly when it never arrives.
+ *
+ * @example
+ * ```ts
+ * await expect(expectEmission(component.visible$)).resolves.toEqual([task]);
+ * await expectEmission(saved$, { label: 'saved$', timeout: 2_000 });
+ * ```
+ */
 export function expectEmission<T>(source$: SubscribableLike<T>, options?: EmissionOptions): Promise<T> {
   return expectEmissions(source$, 1, options).then((values) => firstOf(values));
 }
@@ -146,7 +154,14 @@ function firstOf<T>(values: T[]): T {
   return values[0] as T;
 }
 
-/** Await the first `count` values of `source$` as an array. */
+/**
+ * Await the first `count` values of `source$` as an array.
+ *
+ * @example
+ * ```ts
+ * await expect(expectEmissions(source$, 3)).resolves.toEqual([1, 2, 3]);
+ * ```
+ */
 export function expectEmissions<T>(source$: SubscribableLike<T>, count: number, options?: EmissionOptions): Promise<T[]> {
   return new Promise<T[]>((resolve, reject) => {
     subscribeAndCollect(
@@ -159,7 +174,14 @@ export function expectEmissions<T>(source$: SubscribableLike<T>, count: number, 
   });
 }
 
-/** Assert that `source$` stays silent for `timeout` ms (default 0 — one macrotask). */
+/**
+ * Assert that `source$` stays silent for `timeout` ms (default 0 — one macrotask).
+ *
+ * @example
+ * ```ts
+ * await expectNoEmission(source$, { timeout: 50 });
+ * ```
+ */
 export function expectNoEmission<T>(source$: SubscribableLike<T>, options?: EmissionOptions): Promise<void> {
   const quietFor = options?.timeout ?? 0;
 
