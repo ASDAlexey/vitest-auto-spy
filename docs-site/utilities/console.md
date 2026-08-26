@@ -1,3 +1,8 @@
+---
+title: Console spies
+description: Silent, typed spies over the global console — installed on import, restored on demand.
+---
+
 # Console spies
 
 Console spying lives behind the `vitest-auto-spy/console` subpath. Importing the entry (in a test

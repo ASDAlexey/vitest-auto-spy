@@ -1,3 +1,8 @@
+---
+title: ESLint plugin
+description: Five flat-config lint rules that steer a suite onto the auto-spy helpers, versioned with the API they recommend.
+---
+
 # ESLint plugin
 
 ```js

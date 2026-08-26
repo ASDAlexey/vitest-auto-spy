@@ -1,3 +1,8 @@
+---
+title: node:test
+description: Run vitest-auto-spy on Node's built-in test runner — a runnable example and how node:test's native mock surface differs.
+---
+
 # node:test
 
 The `vitest-auto-spy/node` entry runs the same core on `node:test`'s `mock.fn()`.
@@ -6,13 +11,81 @@ The `vitest-auto-spy/node` entry runs the same core on `node:test`'s `mock.fn()`
 import { createSpyFromClass } from 'vitest-auto-spy/node'; // node:test
 ```
 
-The public API is identical to the Vitest entry. With `node:test`, native mock methods are the
-runner's own — for example `spy.method.mock.mockImplementation` — while the auto-spy helpers
-(`calledWith`, `resolveWith`, `nextWith`, …) are normalised. Importing the entry registers the
-`node:test` adapter.
+The public API is identical to the Vitest entry. Importing the entry registers the `node:test`
+adapter; the auto-spy helpers (`calledWith`, `resolveWith`, `nextWith`, …) are normalised, while
+native mock methods stay the runner's own.
+
+## A runnable example
+
+`node:test` ships no `expect`, so pair it with `node:assert` — the spy surface is the same either
+way.
+
+```js
+// user.test.mjs
+import assert from 'node:assert/strict';
+import { describe, it } from 'node:test';
+import { createSpyFromClass } from 'vitest-auto-spy/node';
+
+class UserService {
+  getName(id) {
+    return `user-${id}`;
+  }
+
+  async load(id) {
+    return `loaded-${id}`;
+  }
+}
+
+describe('UserService spy', () => {
+  it('returns per-argument values and resolves promises', async () => {
+    const users = createSpyFromClass(UserService);
+
+    users.getName.calledWith(7).mockReturnValue('seven');
+    users.load.resolveWith('ok');
+
+    assert.equal(users.getName(7), 'seven');
+    assert.equal(await users.load(1), 'ok');
+    assert.deepEqual(users.getName.mock.calls[0].arguments, [7]);
+  });
+});
+```
+
+```bash
+node --test
+```
+
+## Where the native surface differs
+
+`node:test`'s mock is not Jest-compatible, and this is the one place that shows through. The
+auto-spy helpers hide it; reading the raw mock does not.
+
+| What you want            | Vitest / Bun                         | `node:test`                                        |
+| ------------------------ | ------------------------------------ | -------------------------------------------------- |
+| Recorded calls           | `spy.method.mock.calls[0]` → args    | `spy.method.mock.calls[0].arguments`                |
+| Replace the implementation | `spy.method.mockImplementation(fn)` | `spy.method.mock.mockImplementation(fn)`            |
+| Reset                    | `spy.method.mockReset()`             | `spy.method.mock.resetCalls()` / `restore()`        |
+| Return value             | `spy.method.mockReturnValue(v)`      | **absent** — see the note below                     |
+| Spy name in diagnostics  | set for you                          | `mock.fn()` has no name — names are absent          |
+
+The last row is the one that bites: `spy.method.mockReturnValue('x')` is a **native** Vitest/Bun
+method, and `node:test` has none, so it is `undefined` here. The library's own
+`spy.method.calledWith(...).mockReturnValue('x')` **does** work on all three runtimes — it is part of
+the normalised surface, not the runner's.
+
+```js
+users.getName.calledWith(7).mockReturnValue('seven'); // ✅ everywhere
+users.getName.mockReturnValue('seven'); // ❌ not on node:test
+```
+
+Prefer the normalised helpers (`calledWith(...).mockReturnValue(...)`, `resolveWith`, `nextWith`)
+and the differences stop mattering: they read the same on all three runtimes.
 
 `mock.settledResults` — which `node:test` does not track natively — is provided by a built-in
 polyfill, so it reads identically to Vitest (`{ type: 'fulfilled' | 'incomplete' | 'rejected', value }`).
 See [Control helpers → Inspecting promise outcomes](/core/control-helpers#settled-results).
 
-<!-- TODO: expand — add a runnable node:test example and document the native-mock surface differences. -->
+::: tip Which runtime
+`node:test` needs no dependency at all beyond Node, which makes it a good fit for a library with no
+build step. For an app suite, [Vitest](/runtimes/vitest) or [Bun](/runtimes/bun) will be less work —
+both ship `expect` and a watch mode.
+:::

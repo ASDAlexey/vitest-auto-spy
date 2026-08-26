@@ -1,15 +1,20 @@
 ---
 # https://vitepress.dev/reference/default-theme-home-page
 layout: home
+title: vitest-auto-spy
+description: Typed auto-spies from a class — one API across Vitest, Bun and node:test, with Angular's TestBed running under bun test.
 
 hero:
   name: 'vitest-auto-spy'
   text: 'Typed auto-spies from a class'
-  tagline: A drop-in, fully-typed jest-auto-spies successor — runtime-agnostic across Vitest, Bun and node:test.
+  tagline: A drop-in, fully-typed jest-auto-spies successor — one API across Vitest, Bun and node:test, and the only way to run Angular's TestBed under bun test.
   actions:
     - theme: brand
       text: Get started
       link: /core/introduction
+    - theme: alt
+      text: Angular on Bun
+      link: /runtimes/bun-angular
     - theme: alt
       text: Installation
       link: /core/installation
@@ -23,13 +28,17 @@ features:
     details: Every method becomes a typed mock with return-type-aware helpers — resolveWith for Promises, nextWith for Observables, calledWith / mustBeCalledWith for argument matching.
     link: /core/create-spy-from-class
   - icon: 🧪
-    title: Reads a real class
-    details: createSpyFromClass reads your class and spies every method — or mock straight from a type with createAutoMock and recursive mockDeep, no class required.
+    title: Class, type, or neither
+    details: createSpyFromClass reads a real class and spies every method. No class? createAutoMock<T>() and recursive mockDeep<T>() mock straight from a type — and createMock<T>() builds the spy-free data shape a test only reads.
     link: /core/auto-mock-by-type
   - icon: 🔀
-    title: Multi-runtime
-    details: One identical public API behind a MockAdapter seam — run the same core on Vitest, Bun (bun:test) or node:test.
+    title: One API, three runtimes
+    details: The core talks to your runner through a MockAdapter seam, so the same spies run on Vitest, Bun (bun:test) and node:test. Only native mock methods stay the runner's own.
     link: /runtimes/vitest
+  - icon: 🅰️
+    title: Angular TestBed on Bun
+    details: Bun ships no DOM and cannot resolve templateUrl, so Angular specs simply do not run there. One preload installs a DOM, inlines external templates and styles through a Bun.plugin hook, and boots a zoneless TestBed.
+    link: /runtimes/bun-angular
   - icon: ⚡
     title: Faster Angular specs
     details: renderShallow collapses the shallow-TestBed copy-paste into one call (1.7× on real component specs), createWithAutoSpies builds a class through DI with every unprovided token spied, and per-file diagnostics say which specs are worth converting.
@@ -38,12 +47,16 @@ features:
     title: Observables that fail on silence
     details: expectEmission / expectEmissions / expectNoEmission replace the expect() inside a subscribe callback that never runs — the assertion is the await. Duck-typed, so no rxjs is pulled in.
     link: /core/observable-assertions
+  - icon: ⏱️
+    title: Fake timers that settle
+    details: setupFakeTimers() pairs install with restore, and advanceTimers() drains the microtasks a bare advanceTimersByTime leaves pending — the gap that makes a timer assertion read like a race.
+    link: /utilities/fake-timers
   - icon: 📏
     title: Lint rules and hygiene
     details: Five ESLint rules steer a suite onto these helpers, each linking to its recipe, and setupAutoSpy() wires property restore, duplicate-copy detection and mock-registry hygiene in one line.
     link: /utilities/eslint-plugin
   - icon: 📦
     title: Zero runtime deps
-    details: An in-tree arg serializer and opt-in subpaths keep rxjs and Angular out of your runtime bundle. 100% test coverage.
+    details: An in-tree arg serializer and opt-in subpaths keep rxjs and Angular out of your runtime bundle. 100% test coverage, verified on Node 22/24/26 and Bun 1.4.
     link: /core/installation
 ---

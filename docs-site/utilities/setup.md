@@ -1,3 +1,8 @@
+---
+title: Test-run hygiene
+description: setupAutoSpy() — property restore, mock-registry reset and duplicate-copy detection in one call.
+---
+
 # Test-run hygiene
 
 ```ts

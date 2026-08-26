@@ -1,3 +1,8 @@
+---
+title: Auto-mock by type
+description: createAutoMock, mockDeep and createMock — build a double from a type or interface, with no class at runtime.
+---
+
 # Auto-mock by type
 
 `vitest-auto-spy` picks each method's helper surface from its **return type**: sync methods get
@@ -23,6 +28,30 @@ const users = createAutoMock<UserService>();
 users.getName.calledWith(1).mockReturnValue('Ada');
 users.load.resolveWith({ id: 1 });
 ```
+
+## From a type, without spies — `createMock`
+
+`createAutoMock` is built for a collaborator the code under test **calls**: every un-seeded member
+comes back as a spy. For a double it only **reads** — a DTO, a route snapshot, a config object —
+that is the wrong trade. `createMock<T>(partial?)` returns a plain `T` assembled from the fields you
+seed, with no spies anywhere.
+
+```ts
+import { createMock } from 'vitest-auto-spy';
+
+const route = createMock<ActivatedRouteSnapshot>({ data: { title: 'Report' } });
+const config = createMock<ServerConfig>({ baseUrl: 'https://example.test' });
+```
+
+|                   | `createMock<T>()`                          | `createAutoMock<T>()`                   |
+| ----------------- | ------------------------------------------ | --------------------------------------- |
+| Returns           | `T`                                        | `Spy<T>`                                |
+| Un-seeded members | `undefined`                                | a lazily created, decorated spy         |
+| Reach for it when | the double is **read** — data shapes       | the double is **called** — collaborators |
+
+`partial` is a `Partial<T>`, so the seeded fields stay type-checked: an unknown key, or a known key
+with the wrong type, is still a compile error. It is also the single place the `as` lives, so a
+suite under a `no-type-assertion` lint rule stops sprinkling `eslint-disable` over its fixtures.
 
 ## Recursive deep mocks — `mockDeep`
 

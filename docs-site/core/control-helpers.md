@@ -1,3 +1,8 @@
+---
+title: Control helpers
+description: calledWith, mustBeCalledWith, resolveWith, nextWith and the rest — the helpers each spied method earns from its return type.
+---
+
 # Control helpers
 
 Each spied method gets helpers chosen by its return type. `calledWith` / `mustBeCalledWith`
@@ -100,4 +105,64 @@ myService.getProducts$.throwWith('FAKE ERROR');           // error the stream
 myService.getProducts$.complete();                        // complete the stream
 ```
 
-<!-- TODO: expand — full nextWithValues / nextWithPerCall / returnSubject reference and a ValueConfig table. -->
+### A precise sequence — `nextWithValues`
+
+`nextWithValues(configs)` emits the entries **in order**, and stops at the first `{ complete: true }`.
+Anything pushed onto the backing subject afterwards is merged in until that completion arrives.
+
+```ts
+myService.getProducts$.nextWithValues([
+  { value: [{ name: 'Product 1' }] },
+  { value: [{ name: 'Product 2' }], delay: 100 },
+  { complete: true },
+]);
+```
+
+#### `ValueConfig`
+
+| Shape                       | Effect                                                  |
+| --------------------------- | ------------------------------------------------------- |
+| `{ value, delay? }`         | emit `value` (after `delay` ms, if given)               |
+| `{ errorValue, delay? }`    | error the stream with `errorValue` (after `delay` ms)   |
+| `{ complete?, delay? }`     | complete the stream — `complete: false` emits nothing   |
+
+`delay` is milliseconds and is applied with RxJS's own `delay()` / `timer()`, so under fake timers
+you have to advance the clock: [`advanceTimers(ms)`](/utilities/fake-timers) does that **and**
+drains the microtasks the emission queues.
+
+### A fresh stream per call — `nextWithPerCall`
+
+`nextWithPerCall(configs)` hands the **n-th call** the n-th entry, and returns one `ReplaySubject`
+per entry so a test can push more values into a specific call later.
+
+```ts
+const [first$, second$] = myService.watch$.nextWithPerCall([
+  { value: 'a' },
+  { value: 'b', doNotComplete: true },
+]);
+
+expect(await firstValueFrom(myService.watch$())).toBe('a');
+
+// the second call's stream stays open, so it can be driven further
+second$.next('b2');
+```
+
+Each per-call stream **completes after its first value** unless the entry sets
+`doNotComplete: true`. `ValueConfigPerCall` is `{ value, delay?, doNotComplete? }`.
+
+### Manual control — `returnSubject`
+
+`returnSubject()` hands back the `ReplaySubject` behind the spy, for the cases the helpers do not
+cover:
+
+```ts
+const subject = myService.getProducts$.returnSubject();
+
+subject.next([{ name: 'Product 1' }]);
+subject.error(new Error('boom'));
+```
+
+It is a `ReplaySubject`, so a subscriber that arrives late still sees the values already pushed.
+
+Full reference, plus the standalone `createObservableWithValues` builder:
+[Runtimes → RxJS](/runtimes/rxjs).

@@ -1,3 +1,8 @@
+---
+title: RxJS
+description: The opt-in observable layer — nextWith, nextWithValues, nextWithPerCall, returnSubject, and how delays behave.
+---
+
 # RxJS
 
 Observable spying lives behind the `vitest-auto-spy/rxjs` subpath, keeping `rxjs` out of the
@@ -48,4 +53,76 @@ const { values$, subject } = createObservableWithValues([{ value: 1 }], { return
 
 `ValueConfig` (for `nextWithValues`): `{ value, delay? }` | `{ errorValue, delay? }` | `{ complete?, delay? }`.
 
-<!-- TODO: expand — marble-diagram examples and delay/timing semantics. -->
+`ValueConfigPerCall` (for `nextWithPerCall`) is `{ value, delay?, doNotComplete? }`.
+
+## Reading a sequence as a marble
+
+`nextWithValues` emits its entries in order, so the config list maps one-to-one onto a marble
+diagram — `delay` is the only thing that puts space between frames.
+
+```ts
+myService.getProducts$.nextWithValues([{ value: 'a' }, { value: 'b' }, { complete: true }]);
+// (ab|)   — both values synchronously, then completion
+```
+
+```ts
+myService.getProducts$.nextWithValues([
+  { value: 'a' },
+  { value: 'b', delay: 20 },
+  { complete: true, delay: 10 },
+]);
+// a 20ms b 10ms |
+```
+
+```ts
+myService.getProducts$.nextWithValues([{ value: 'a' }, { errorValue: 'boom', delay: 20 }]);
+// a 20ms #
+```
+
+A `{ complete: false }` entry emits nothing and does not stop the stream — it is the "leave it open"
+form. Everything after the first `{ complete: true }` is dropped.
+
+## Timing
+
+- **`delay` is milliseconds**, applied with RxJS's own `delay()` (values, completion) and `timer()`
+  (errors). It is real time, not a virtual scheduler.
+- **Without a delay, emission is synchronous.** `nextWith` pushes onto a `ReplaySubject` right away,
+  so a subscriber that has already run sees the value in the same tick.
+- **The backing subject is a `ReplaySubject`**, so a subscriber that arrives *after* the emission
+  still receives it. This is what makes `spy.thing$.nextWith(v)` work regardless of whether the code
+  under test subscribed first.
+- **Under fake timers**, a delayed entry needs the clock advanced.
+  [`advanceTimers(ms)`](/utilities/fake-timers) advances **and** drains the microtasks the emission
+  queues — a bare `vi.advanceTimersByTime()` leaves the `await` continuation pending, and the
+  assertion then reads state from before the callback finished.
+
+```ts
+import { advanceTimers, setupFakeTimers } from 'vitest-auto-spy/setup';
+
+setupFakeTimers();
+
+myService.getProducts$.nextWithValues([{ value: 'a', delay: 100 }]);
+
+const seen: string[] = [];
+myService.getProducts$.subscribe((value) => seen.push(value));
+
+await advanceTimers(100);
+
+expect(seen).toEqual(['a']);
+```
+
+## Asserting instead of subscribing
+
+For the assertion side of a stream — "it emits", "it emits these three", "it stays silent" — use the
+[observable assertions](/core/observable-assertions). They are duck-typed, so they work on any
+subscribable and pull in no rxjs of their own:
+
+```ts
+import { expectEmission, expectNoEmission } from 'vitest-auto-spy';
+
+const emitted = expectEmission(myService.getProducts$);
+
+myService.getProducts$.nextWith(['x']);
+
+expect(await emitted).toEqual(['x']);
+```

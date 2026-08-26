@@ -1,3 +1,8 @@
+---
+title: Observable assertions
+description: expectEmission, expectEmissions and expectNoEmission — assertions that fail when the stream stays silent.
+---
+
 # Observable assertions
 
 `expect(...)` inside a `subscribe()` callback is the most common way to write a test that passes

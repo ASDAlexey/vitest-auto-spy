@@ -26,9 +26,13 @@ npm run preview   # preview the production build locally
 
 - `index.md` — home page (hero + feature cards)
 - `.vitepress/config.mts` — site config, nav and sidebar
-- `core/`, `runtimes/`, `adapters/` — section pages
+- `core/`, `runtimes/`, `adapters/`, `utilities/` — section pages
 - `migrating.md`, `api.md`, `comparison.md` — top-level pages
 
-Content is grounded in the root [`README.md`](../README.md) and
-[`CHANGELOG.md`](../CHANGELOG.md). Stub pages carry `<!-- TODO: expand -->` markers where
-deeper content still needs to be written.
+Content is grounded in the root [`README.md`](../README.md), [`CHANGELOG.md`](../CHANGELOG.md) and,
+for anything behavioural, the source and specs under `../src/`. Every page carries `title` and
+`description` frontmatter — `.vitepress/config.mts` turns them into the canonical link and the
+OpenGraph tags, so a page without them ships an empty description.
+
+Nothing may be documented that has not been checked against `../src/` or run: a runnable example in
+these docs is expected to be one that was actually executed.

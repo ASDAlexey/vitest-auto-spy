@@ -1,3 +1,8 @@
+---
+title: Angular
+description: provideAutoSpy, injectSpy, renderShallow, createWithAutoSpies, zoneless waiting and TestBed diagnostics — on Vitest and on bun test.
+---
+
 # Angular
 
 The `vitest-auto-spy/angular` entry adds `provideAutoSpy` — a shorthand for providing an auto-spy
@@ -25,6 +30,13 @@ beforeEach(() => {
 The spies are change-detection agnostic, so they work in **both zoneless and zone.js** Angular
 projects — nothing here touches `NgZone` or change detection. You still need the usual Vitest +
 Angular wiring (`@analogjs/vite-plugin-angular` plus a TestBed setup file).
+
+::: tip Running the same suite on Bun
+`bun test` cannot run Angular specs out of the box — Bun ships no DOM and cannot resolve
+`templateUrl`. [`vitest-auto-spy/bun-angular`](/runtimes/bun-angular) closes both from one preload
+and re-exports everything on this page except `registerSignalMatchers` and the `TestBed`
+diagnostics, which need the runner's `expect.extend` and suite-level hooks.
+:::
 
 ## Lazy spies by default
 

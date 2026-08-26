@@ -1,3 +1,8 @@
+---
+title: Migrating from jest-auto-spies
+description: A step-by-step swap from jest-auto-spies or @bugsplat/vitest-auto-spies, plus the per-runner gotchas.
+---
+
 # Migrating from jest-auto-spies
 
 The public API is intentionally identical to
@@ -37,4 +42,77 @@ it re-exports the same `jest-auto-spies` API, so the swap is identical (and you 
 Just make sure your tests run under Vitest (or Bun / `node:test` via the matching entry), and — for
 Angular — that `TestBed` is set up.
 
-<!-- TODO: expand — add a step-by-step checklist and notes on per-runner gotchas. -->
+## Step by step
+
+1. **Install and remove.**
+
+   ```bash
+   npm i -D vitest-auto-spy
+   npm rm jest-auto-spies   # or @bugsplat/vitest-auto-spies
+   ```
+
+2. **Rewrite the imports.** The core keeps its name; the Angular helpers and the observable layer
+   moved behind subpaths.
+
+   ```diff
+   - import { createSpyFromClass, provideAutoSpy } from 'jest-auto-spies';
+   + import { createSpyFromClass } from 'vitest-auto-spy';
+   + import { provideAutoSpy } from 'vitest-auto-spy/angular';
+   ```
+
+3. **Add the rxjs import once** — in the setup file, not per spec — if any spy uses `nextWith`,
+   `nextWithValues` or `observablePropsToSpyOn`:
+
+   ```ts
+   // vitest.setup.ts
+   import 'vitest-auto-spy/rxjs';
+   ```
+
+   Skipping this does not fail silently: the first observable helper throws a message naming this
+   exact import.
+
+4. **Pick the entry that matches your runner.** `vitest-auto-spy` registers Vitest's adapter,
+   `/bun` registers `bun:test`'s, `/node` registers `node:test`'s. One per run.
+
+5. **Type the variables as `Spy<T>`.** If a spec declared `let service: MyService = createSpyFromClass(...)`,
+   it will now fail to compile when the class has `#private` or `private` members — `Spy<T>` is a
+   mapped type and drops them. `let service: Spy<MyService>` is the fix, or
+   [`asInstance` / `asSpy`](/core/spy-typing) where the spy must be handed to something typed as the
+   class.
+
+6. **Run the suite.** Nothing else in the API changed, so what fails now is real.
+
+7. **Optional, but worth it once green:**
+   [`setupAutoSpy()`](/utilities/setup) in the setup file, and the
+   [ESLint rules](/utilities/eslint-plugin) that steer the suite onto the newer helpers.
+
+## Per-runner gotchas
+
+**Vitest.** Nothing beyond the import swap. If the suite runs with `isolate: false` or a shared
+environment, add `setupAutoSpy()` — Jest isolated every file, and a `mock*Prop` patch that was
+harmless there now outlives its spec.
+
+**Bun (`bun:test`).** `mockReset()` on Bun also drops the implementation (Vitest keeps the spy) —
+the adapter restores it, so auto-spies are unaffected, but a hand-rolled `mock()` in the same spec
+will behave differently. `spyOn` refuses accessor properties on Bun; the accessor spies here go
+through property redefinition and work anyway. Angular suites need
+[`vitest-auto-spy/bun-angular`](/runtimes/bun-angular).
+
+**`node:test`.** There is no `expect` — pair it with `node:assert`. And `spy.method.mockReturnValue`
+is a *native* Vitest/Bun method that `node:test` does not have; the normalised
+`spy.method.calledWith(...).mockReturnValue(...)` works everywhere. Recorded calls read as
+`mock.calls[0].arguments`, not `mock.calls[0]`. See [node:test](/runtimes/node).
+
+**Angular.** `provideAutoSpy` defaults to **lazy** spies here (`jest-auto-spies` was always eager).
+Behaviour is identical; if you depend on every spy existing before first access, pass
+`{ lazySpies: false }`.
+
+## What you gain by moving
+
+Beyond the runner swap, everything the old API did not have:
+[`createAutoMock` / `mockDeep` / `createMock`](/core/auto-mock-by-type),
+[`renderShallow` and `createWithAutoSpies`](/adapters/angular),
+[observable assertions](/core/observable-assertions),
+[fake timers that settle](/utilities/fake-timers),
+[console spies](/utilities/console), [five ESLint rules](/utilities/eslint-plugin),
+Bun and `node:test` support — and [Angular's `TestBed` under `bun test`](/runtimes/bun-angular).

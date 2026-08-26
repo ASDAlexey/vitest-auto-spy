@@ -1,3 +1,8 @@
+---
+title: Bridging Spy<T> and T
+description: Why Spy<T> is not assignable to T, and the two named views — asInstance and asSpy — that cross the gap without an `as`.
+---
+
 # Bridging `Spy<T>` and `T`
 
 `Spy<T>` is a mapped type. It drops `#private` / `private` members, so it is **not** assignable to

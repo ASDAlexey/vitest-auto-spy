@@ -34,7 +34,7 @@ export default defineConfig({
         content:
           'vitest, auto spy, auto-spies, vitest-auto-spy, jest-auto-spies, test spies, typed mocks, ' +
           'createSpyFromClass, createAutoMock, mockDeep, deep mock, resolveWith, calledWith, mustBeCalledWith, ' +
-          'bun test, node:test, angular testing, renderShallow, shallow rendering, zoneless, signal testing, ' +
+          'bun test, bun 1.4, angular on bun, node:test, angular testing, renderShallow, shallow rendering, zoneless, signal testing, ' +
           'nestjs, react, vue, pinia, svelte, rxjs, eslint plugin, mocking, typescript',
       },
     ],
@@ -111,6 +111,7 @@ export default defineConfig({
         items: [
           { text: 'Vitest', link: '/runtimes/vitest' },
           { text: 'Bun', link: '/runtimes/bun' },
+          { text: 'Angular on Bun', link: '/runtimes/bun-angular' },
           { text: 'node:test', link: '/runtimes/node' },
           { text: 'RxJS', link: '/runtimes/rxjs' },
         ],
@@ -121,6 +122,7 @@ export default defineConfig({
         items: [
           { text: 'Console spies', link: '/utilities/console' },
           { text: 'Test-run hygiene', link: '/utilities/setup' },
+          { text: 'Fake timers', link: '/utilities/fake-timers' },
           { text: 'ESLint plugin', link: '/utilities/eslint-plugin' },
         ],
       },
