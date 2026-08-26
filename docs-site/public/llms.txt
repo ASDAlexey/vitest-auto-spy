@@ -25,6 +25,7 @@ spied method earns helpers from its return type — `calledWith`/`mustBeCalledWi
 - [Auto-mock by type](https://asdalexey.github.io/vitest-auto-spy/core/auto-mock-by-type): createAutoMock, mockDeep and createMock — build a double from a type or interface, with no class at runtime.
 - [Observable assertions](https://asdalexey.github.io/vitest-auto-spy/core/observable-assertions): expectEmission, expectEmissions and expectNoEmission — assertions that fail when the stream stays silent.
 - [Bridging Spy<T> and T](https://asdalexey.github.io/vitest-auto-spy/core/spy-typing): Why Spy<T> is not assignable to T, and the two named views — asInstance and asSpy — that cross the gap without an `as`.
+- [Performance](https://asdalexey.github.io/vitest-auto-spy/core/performance): What each factory costs, which one to reach for, and why none of them is where a slow suite spends its time.
 
 ## Spec patterns
 

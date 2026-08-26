@@ -26,10 +26,14 @@ A drop-in, fully-typed jest-auto-spies successor — one API across Vitest, Bun 
 - **Class, type, or neither** — createSpyFromClass reads a real class and spies every method. No class? createAutoMock<T>() and recursive mockDeep<T>() mock straight from a type — and createMock<T>() builds the spy-free data shape a test only reads. — https://asdalexey.github.io/vitest-auto-spy/core/auto-mock-by-type
 - **One API, three runtimes** — The core talks to your runner through a MockAdapter seam, so the same spies run on Vitest, Bun (bun:test) and node:test. Only native mock methods stay the runner's own. — https://asdalexey.github.io/vitest-auto-spy/runtimes/vitest
 - **Angular TestBed on Bun** — Bun ships no DOM and cannot resolve templateUrl, so Angular specs simply do not run there. One preload installs a DOM, inlines external templates and styles through a Bun.plugin hook, and boots a zoneless TestBed. — https://asdalexey.github.io/vitest-auto-spy/runtimes/bun-angular
+- **Signals a spec can drive** — mockSignalProp replaces a signal-valued property with a real WritableSignal and hands back the writable half, so a computed downstream recomputes and an effect runs. runEffect() runs one effect body on demand when its trigger is now static. — https://asdalexey.github.io/vitest-auto-spy/adapters/angular
 - **Faster Angular specs** — renderShallow collapses the shallow-TestBed copy-paste into one call (1.7× on real component specs), createWithAutoSpies builds a class through DI with every unprovided token spied, and per-file diagnostics say which specs are worth converting. — https://asdalexey.github.io/vitest-auto-spy/adapters/angular
 - **Observables that fail on silence** — expectEmission / expectEmissions / expectNoEmission replace the expect() inside a subscribe callback that never runs — the assertion is the await. Duck-typed, so no rxjs is pulled in. — https://asdalexey.github.io/vitest-auto-spy/core/observable-assertions
 - **Fake timers that settle** — setupFakeTimers() pairs install with restore, and advanceTimers() drains the microtasks a bare advanceTimersByTime leaves pending — the gap that makes a timer assertion read like a race. — https://asdalexey.github.io/vitest-auto-spy/utilities/fake-timers
-- **Lint rules and hygiene** — Five ESLint rules steer a suite onto these helpers, each linking to its recipe, and setupAutoSpy() wires property restore, duplicate-copy detection and mock-registry hygiene in one line. — https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-plugin
+- **Lint rules that steer a suite** — Five ESLint rules point a suite at these helpers, each message linking to its recipe. Two of them catch a test being wrong rather than verbose — an expect() inside subscribe() that never runs, and an Object.defineProperty nothing restores. — https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-plugin
+- **Hygiene for a shared environment** — One setupAutoSpy() call covers what isolate false breaks — property restore, duplicate-install detection, timers and animation frames that outlive their file, fetch that keeps a green run exiting 1, and timer globals the fakes delete instead of restoring. — https://asdalexey.github.io/vitest-auto-spy/utilities/setup
+- **Observers a component builds itself** — stubIntersectionObserver, stubResizeObserver and stubMutationObserver replace the global the code under test constructs, hand the spec the instance, and are taken off again by restoreMockedProps — no static last, no stub inherited by the next file. — https://asdalexey.github.io/vitest-auto-spy/utilities/observer-stubs
+- **Readable by your agent, not just by you** — An AGENTS.md ships inside the tarball for offline reading, llms.txt and llms-full.txt sit at the docs root, a Claude Code skill installs from the repo, and every error message ends with a link to the page that explains it. — https://asdalexey.github.io/vitest-auto-spy/agents
 - **Zero runtime deps** — An in-tree arg serializer and opt-in subpaths keep rxjs and Angular out of your runtime bundle. 100% test coverage, verified on Node 22/24/26 and Bun 1.4. — https://asdalexey.github.io/vitest-auto-spy/core/installation
 
 ---
@@ -442,10 +446,10 @@ Everything else is scaffolding around those two ideas:
 
 ## One compatibility note
 
-The API is a drop-in replacement for `jest-auto-spies` — migration is a change of import. There is a
-single exception: here `methodsToSpyOn` is an **exhaustive whitelist** (give it a list and the
-prototype walk is skipped entirely), where in `jest-auto-spies` it was additive to whatever was
-discovered. See [Migrating](https://asdalexey.github.io/vitest-auto-spy/migrating).
+The API is a drop-in replacement for `jest-auto-spies` — migration is a change of import, and that
+includes `methodsToSpyOn`, which is additive here exactly as it is there. Restricting to a list is a
+separate option, `onlyMethodsToSpyOn`, so the compatible name cannot quietly mean the opposite of
+what a migrated spec expects. See [Migrating](https://asdalexey.github.io/vitest-auto-spy/migrating).
 
 ## Next
 
@@ -469,12 +473,15 @@ every method into a mock with return-type-aware helpers.
 // 1. all methods (default)
 createSpyFromClass(MyService);
 
-// 2. only these methods
-createSpyFromClass(MyService, ['getName', 'getAge']);
+// 2. the discovered methods PLUS these names
+createSpyFromClass(MyService, ['reload', 'count']);
 
-// 3. full config object
+// 3. only these methods, discovery skipped
+createSpyFromClass(MyService, { onlyMethodsToSpyOn: ['getName', 'getAge'] });
+
+// 4. full config object
 createSpyFromClass(MyService, {
-  methodsToSpyOn: ['getName'],
+  methodsToSpyOn: ['reload'],
   observablePropsToSpyOn: ['products$'], // Observable *properties*
   gettersToSpyOn: ['userName'],
   settersToSpyOn: ['userName'],
@@ -483,11 +490,13 @@ createSpyFromClass(MyService, {
 });
 ```
 
-Passing an array **restricts** spying to the listed methods (matching `jest-auto-spies`), rather
-than augmenting the auto-discovered set.
+Passing an array **adds** the listed names to the auto-discovered set, matching `jest-auto-spies`.
+Discovery already finds every prototype method, so the only names worth passing are the ones it
+cannot see. To spy on *nothing but* a list, use `onlyMethodsToSpyOn`, which skips discovery.
 
-The `ClassSpyConfiguration` keys are `methodsToSpyOn`, `instanceMethodsToSpyOn`,
-`observablePropsToSpyOn`, `gettersToSpyOn`, `settersToSpyOn`, `autoSpyAccessors` and `lazySpies`.
+The `ClassSpyConfiguration` keys are `methodsToSpyOn`, `onlyMethodsToSpyOn`,
+`instanceMethodsToSpyOn`, `observablePropsToSpyOn`, `gettersToSpyOn`, `settersToSpyOn`,
+`autoSpyAccessors` and `lazySpies`.
 
 ### `instanceMethodsToSpyOn` — callables that are not on the prototype
 
@@ -507,9 +516,10 @@ createSpyFromClass(TaskStore, {
 });
 ```
 
-Unlike `methodsToSpyOn`, this list **adds** to whatever discovery produced rather than restricting
-it, and a name here never triggers the "not found on the class prototype" warning — being absent
-from the prototype is the point.
+This list and `methodsToSpyOn` behave identically — both **add** to whatever discovery produced —
+and differ only in what their names tell a reader. Prefer this one in new code; keep
+`methodsToSpyOn` in specs carried over from `jest-auto-spies`. Neither warns about a name the
+prototype does not have: being absent from the prototype is the point.
 
 ## Lazy spies — `lazySpies`
 
@@ -616,9 +626,10 @@ special.
 **Constructor bodies never run.** The spy is assembled from the prototype; the class is never
 instantiated, so a constructor that opens a socket or reads config is not a problem.
 
-**A method the class does not have warns.** Naming an unknown method in `methodsToSpyOn` logs a
-"not found on the class prototype" warning — the usual cause of "why isn't my spy called". Use
-`instanceMethodsToSpyOn` for the callables that legitimately are not there.
+**Only a restricting list warns.** A name in `onlyMethodsToSpyOn` that the prototype does not have
+logs a warning, because there a misspelling leaves the real method unspied and the code under test
+calls something that is not there. The additive lists stay silent — naming a callable the prototype
+lacks is exactly what they are for.
 
 **No class, no problem.** [`createAutoMock<T>()`](https://asdalexey.github.io/vitest-auto-spy/core/auto-mock-by-type) builds the same surface from a
 type alone, `mockDeep<T>()` does it recursively, and `createMock<T>()` returns a plain, spy-free `T`
@@ -999,6 +1010,126 @@ It takes the same optional second argument as
 
 ---
 
+Source: https://asdalexey.github.io/vitest-auto-spy/core/performance
+
+# Performance
+
+Short version: **use `provideAutoSpy` on Angular and `createSpyFromClass` everywhere else, call it in
+`beforeEach`, and stop thinking about it.** The numbers below exist so that claim is checkable, and
+so the two settings that *do* cost something are named.
+
+## Measured
+
+`npm run bench` (Vitest bench, ten-method class, one machine — treat the ratios as the result, not
+the absolute ops/sec):
+
+| Operation | ops/sec | per call |
+| --- | ---: | ---: |
+| lazy (the default), then call 2 methods | **118 900** | ~8 µs |
+| eager (`lazySpies: false`), then call 2 methods | 34 600 | ~29 µs |
+| `createAutoMock<Service>()` + 4 accesses | 30 600 | ~33 µs |
+| `calledWith` lookup on a configured spy | 1 419 000 | ~0.7 µs |
+
+Put that against a suite: five providers across two thousand tests is ten thousand calls — under a
+tenth of a second for the entire run. Spy construction is not where a slow suite spends its time.
+`TestBed` is, which is what [`enableTestBedDiagnostics()`](https://asdalexey.github.io/vitest-auto-spy/adapters/angular#where-a-spec-spends-its-time)
+measures and [`renderShallow`](https://asdalexey.github.io/vitest-auto-spy/adapters/angular#shallow-component-rendering) usually fixes.
+
+## Why it is fast
+
+`lazySpies` is on by default for every factory: a spy is built on first access rather than for every
+method up front, so a twenty-method service a test touches twice builds two spies. `provideAutoSpy`
+was the only entry with that default until v2; now the core has it too, and the two are the same
+speed.
+
+The other half is a cache: prototype discovery (`getAllMethodNames`) is memoised per prototype in a
+`WeakMap`, so calling the factory once per test does not re-walk the chain. A class spied in 300
+tests walks its prototype once.
+
+## Memory, not just time
+
+The same benchmark shape, but holding the spies (2000 of them, a 40-method class, two methods
+touched per spy — a large spec file's worth):
+
+| | time | heap |
+| --- | ---: | ---: |
+| lazy (the default) | **27 ms** | **34.7 MB** |
+| eager (`lazySpies: false`) | 257 ms | 424.5 MB |
+
+Nine times the speed and a twelfth of the memory, because 38 of the 40 spies are never built. Each
+one that is skipped is a function, its argument map, and the promise/observable helper bundles
+attached to it.
+
+The worst case for lazy is a test that really does call every method:
+
+| | time | heap |
+| --- | ---: | ---: |
+| lazy | 243 ms | 444.0 MB |
+| eager | 232 ms | 438.5 MB |
+
+Five percent slower, one percent more memory — the price of the accessor indirection when nothing is
+saved. That asymmetry is why lazy is the default rather than an option: the common case wins an
+order of magnitude, the rare case loses a rounding error.
+
+Memory matters more than the time here. Under `isolate: false` a worker keeps everything its files
+allocated until the run ends, and it is the heap — not the clock — that ends up killing a CI job in
+a container.
+
+## Bundle size
+
+The badge says 6.2 kB min+gzip, and that is the whole core entry bundled together. What a consumer
+actually pays is less, because the package is side-effect-free per entry and every bundler shakes it:
+
+| Imported | min+gzip |
+| --- | ---: |
+| the whole core entry (what the badge measures) | 6.2 kB |
+| `createSpyFromClass` alone | **3.6 kB** |
+| `createSpyFromClass` + `createMock` | 3.6 kB |
+| the observer stubs alone | 1.4 kB |
+
+The framework adapters, rxjs layer, console spies and setup helpers live behind their own subpaths,
+so a project that never imports them never pays for them — and none of this reaches a production
+bundle in the first place, since the package is a devDependency.
+
+## What to reach for
+
+| Situation | Use | Why |
+| --- | --- | --- |
+| Angular dependency | `provideAutoSpy(Service)` | the DI provider, written for you |
+| A class, no Angular | `createSpyFromClass(Service)` | same factory, same lazy default |
+| No class at runtime — an interface, a type | `createAutoMock<T>()` | Proxy; materialises on access |
+| An ngrx `signalStore()` | `createAutoMock<T>()` | its members live on the instance, so there is no prototype to read |
+| A data shape the code only reads | `createMock<T>(partial)` | no spies at all — it is one checked assertion |
+| Nested object graph | `mockDeep<T>()` | auto-creates chainable spies down the tree |
+
+## The two settings that cost
+
+**`{ lazySpies: false }`** gives up the win above, and costs an order of magnitude in both time and
+memory on a wide class. It is worth it only when a spec inspects the spy object itself through
+property descriptors — enumeration (`Object.keys`, spread, a snapshot) already works, because the
+placeholders are enumerable accessors.
+
+**`autoSpyAccessors: true`** walks the prototype chain for getters and setters, and unlike the
+method walk that result is not cached. On a class spied once per test in a large file it is the one
+option worth replacing with an explicit `gettersToSpyOn` / `settersToSpyOn` list.
+
+Everything else — `methodsToSpyOn`, `observablePropsToSpyOn`, `calledWith`, the return-type helpers
+— is either a constant or, in `calledWith`'s case, a sub-microsecond map lookup on a serialized key.
+
+## What actually makes a suite slow
+
+In the order they are worth checking, none of which this library can fix for you:
+
+1. **`TestBed` module setup** — see the diagnostics above; a shallow render typically halves it.
+2. **The environment** — `isolate: false` shares one environment per worker and is worth far more
+   than any spy-level micro-optimisation, provided the run is clean about what it leaves behind
+   ([test-run hygiene](https://asdalexey.github.io/vitest-auto-spy/utilities/setup)).
+3. **Worker count** — with `isolate: false` more workers stop helping early, because each one
+   re-imports the whole module graph and has nobody to share that work with. Measure before raising
+   it; the curve usually flattens between four and eight.
+
+---
+
 Source: https://asdalexey.github.io/vitest-auto-spy/recipes
 
 # Spec patterns
@@ -1097,14 +1228,17 @@ mockReadonlyProp(component, 'host', signal({ nativeElement: element }));
 
 `mockReadonlyProp(target, key, signal(value))` is the workhorse — a real signal, so anything
 `computed()` downstream of it recomputes correctly, which a `vi.fn()` returning a value would not do.
-For a value that has to change during the test, keep the signal and `.set()` it:
+For a value that has to change during the test, `mockSignalProp` is that pair in one call and hands
+back the writable half:
 
 ```ts
-const selected = signal(false);
+const selected = mockSignalProp(component, 'selected', false);
 
-mockReadonlyProp(component, 'selected', selected);
 selected.set(true); // every computed reading it updates
 ```
+
+It also removes the temptation to reach for `component.selected` and call `.set` on it — `Signal<T>`
+has no `set`, so that only type-checks behind an assertion.
 
 Use `mockReadonlyPropGetter` when the value must be recomputed on each read rather than replaced, and
 `mockValueProp` for an ordinary writable field.
@@ -1212,6 +1346,36 @@ expect(component.icon()).toBe('favouritesFilled');
 so an assertion right after it reads state that has not finished computing. `flushEffects()` is the
 no-fixture half, for services and stores.
 
+When the effect will never go dirty on its own — because its trigger is now a static signal —
+`runEffect` runs that one body directly:
+
+```ts
+runEffect(component.highlightEffect); // current signal values, no scheduler involved
+```
+
+## Observers the component constructs itself
+
+`IntersectionObserver`, `ResizeObserver` and `MutationObserver` are built inside the code under test
+and kept private, so the only handle a spec has is the global constructor. Replacing it by hand goes
+wrong twice: the stub is never taken off (and the next file inherits it under `isolate: false`), and
+the instance is reached through a `static last` that outlives the spec just as badly.
+
+```ts
+import { intersectionEntry, stubIntersectionObserver } from 'vitest-auto-spy';
+
+const observers = stubIntersectionObserver();
+
+fixture.detectChanges(); // the directive constructs its observer
+
+observers.last.emit([intersectionEntry(fixture.nativeElement, true)]);
+await fixture.whenStable();
+```
+
+The stub installs through `mockValueProp`, so `restoreMockedProps()` — which `setupAutoSpy()`
+already runs — puts the real constructor back. `emit()` takes a **batch**, because a fast scroll
+delivers several entries in one call and code assuming one entry per call is a real bug worth
+reaching.
+
 ## Timers that outlive their file
 
 This one only appears at scale, and it appears as a failure in an **innocent** file.
@@ -1248,6 +1412,30 @@ afterAll(() => cancelStrayTimers()); // …or just sweep, and log the count it r
 ```
 
 If you are on `isolate: false`, assume you need this before you need it.
+
+## A green run that still exits 1
+
+happy-dom implements `fetch`; jsdom does not. Move a suite from one to the other and a component
+that pulls a remote asset starts issuing real requests. Nothing asserts on them, so every test still
+passes — and then the runner tears the environment down, the in-flight requests abort, and the
+aborts arrive as unhandled rejections *after* the summary:
+
+```text
+ Test Files  260 passed (260)
+      Tests  2257 passed (2257)
+
+Vitest caught 8 unhandled errors during the test run.
+DOMException [AbortError]: The operation was aborted.
+```
+
+Exit code 1, and no test named — because no test failed.
+
+```ts
+setupAutoSpy({ blockNetwork: true });
+```
+
+`fetch` then rejects immediately, naming the URL that was requested, and the code under test takes
+exactly the branch it would take for a failed request.
 
 ## Fake timers
 
@@ -1295,7 +1483,7 @@ and the assertion then runs against a spy that never intercepted the call.
 | `source$.subscribe(v => expect(v).toBe(1))`                    | `await expect(expectEmission(source$)).resolves.toBe(1)`       |
 | `expect(component.total).toBeTruthy()` on a signal             | `expect(component.total).toHaveSignalValue(3)`                 |
 | `configureTestingModule` inside every `it()`                   | one per `describe`                                             |
-| `methodsToSpyOn` used to *add* a method                        | omit it, or use `instanceMethodsToSpyOn`                       |
+| `methodsToSpyOn` used to *restrict* the set                    | `onlyMethodsToSpyOn` restricts; `methodsToSpyOn` adds           |
 
 The first three are enforceable — [the ESLint plugin](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-plugin) has a rule for each.
 Scope it to spec files: an object of `vi.fn()`s is perfectly reasonable in application code.
@@ -2373,7 +2561,7 @@ TestBed.configureTestingModule({
   providers: [
     provideAutoSpy(MyService),
     // accepts the same second argument as createSpyFromClass
-    provideAutoSpy(ApiService, { methodsToSpyOn: ['get', 'post'] }),
+    provideAutoSpy(ApiService, { onlyMethodsToSpyOn: ['get', 'post'] }),
   ],
 });
 
@@ -2396,20 +2584,47 @@ diagnostics, which need the runner's `expect.extend` and suite-level hooks.
 
 ## Lazy spies by default
 
-Angular tests typically spy a wide service but call only a couple of its methods per test, so
-`provideAutoSpy` defaults to **lazy** spies: each method spy is built on first access instead of
-eagerly up-front. On a wide service where a test touches two methods, spy assembly is roughly
-**4× faster** (≈8× on a 20-method service) — the unused methods never pay the full spy-construction
-cost. Everything else is unchanged: `Object.keys`, `vi.isMockFunction`, `calledWith`,
-`resetAutoSpy` / `clearAutoSpy` all behave identically.
+Angular tests spy a wide service and call a couple of its methods, so a spy is built on first
+access rather than eagerly up-front. Everything else is unchanged: `Object.keys`,
+`vi.isMockFunction`, `calledWith`, `resetAutoSpy` / `clearAutoSpy` all behave identically, because
+the placeholder is an enumerable accessor.
 
 ```ts
-provideAutoSpy(WideService); // lazy — the fast default
+provideAutoSpy(WideService); // lazy — the default
 provideAutoSpy(WideService, { lazySpies: false }); // opt out: build every spy eagerly
 ```
 
-Only `provideAutoSpy` (the Angular entry) defaults to lazy; the framework-agnostic
-`createSpyFromClass` still builds eagerly unless you pass `{ lazySpies: true }`.
+This is the **core default rather than something this entry adds** — `createSpyFromClass` behaves
+the same. Until v2 only `provideAutoSpy` turned it on, which made the Angular path quietly faster
+than the plain one for no reason anybody could see. What it buys, on a forty-method class with two
+methods touched: [27 ms and 35 MB against 257 ms and 425 MB](https://asdalexey.github.io/vitest-auto-spy/core/performance#memory-not-just-time).
+
+### Is it fast enough to call in every `beforeEach`?
+
+Yes, and it is the fastest of the three ways to build a double. Measured on the repo's own
+benchmark (`npm run bench`, a ten-method class):
+
+| Call | ops/sec | per call |
+| --- | ---: | ---: |
+| `provideAutoSpy(Service)` — lazy, the default | **118 900** | ~8 µs |
+| `createSpyFromClass(Service)` — eager | 34 600 | ~29 µs |
+| `createAutoMock<Service>()` + 4 accesses | 30 600 | ~33 µs |
+
+The gap is `lazySpies`, which `provideAutoSpy` turns on and the plain factory does not: a wide
+service where a test touches two methods builds two spies instead of twenty. Prototype discovery is
+cached per class, so calling it once per test does not re-walk the chain.
+
+At ~8 µs, five providers across two thousand tests come to under a tenth of a second for the whole
+suite. If a spec feels slow, the time is in `TestBed` — which is what
+[`enableTestBedDiagnostics()`](#where-a-spec-spends-its-time) measures, and usually what
+[`renderShallow`](#shallow-component-rendering) fixes.
+
+Two things do cost more, and both are avoidable:
+
+- **`{ lazySpies: false }`** gives up the win above. Only worth it when a spec enumerates the spy
+  object itself rather than calling methods on it.
+- **`autoSpyAccessors: true`** walks the prototype chain for getters and setters on every call, and
+  that walk is not cached. Name the accessors you need instead when a class is spied per test.
 
 ## Shallow component rendering
 
@@ -2662,7 +2877,7 @@ import { provideAutoSpy, injectSpy } from 'vitest-auto-spy/nestjs';
 const moduleRef = await Test.createTestingModule({
   providers: [
     provideAutoSpy(MyService),
-    provideAutoSpy(ApiService, { methodsToSpyOn: ['get', 'post'] }),
+    provideAutoSpy(ApiService, { onlyMethodsToSpyOn: ['get', 'post'] }),
   ],
 }).compile();
 
@@ -2910,7 +3125,7 @@ Providing more than one collaborator is a merge of the maps:
 ```ts
 const provide = {
   ...provideAutoSpy(UserServiceKey, UserService),
-  ...provideAutoSpy(CartKey, CartStore, { methodsToSpyOn: ['total', 'checkout'] }),
+  ...provideAutoSpy(CartKey, CartStore, { onlyMethodsToSpyOn: ['total', 'checkout'] }),
 };
 ```
 
@@ -3061,6 +3276,7 @@ it re-exports the same `jest-auto-spies` API, so the swap is identical (and you 
 | jest-auto-spies | vitest-auto-spy | Status |
 | --- | --- | --- |
 | `createSpyFromClass` | `createSpyFromClass` | ✅ identical |
+| `methodsToSpyOn` | `methodsToSpyOn` — additive there and additive here | ✅ identical |
 | `provideAutoSpy` | `provideAutoSpy` (from `/angular`) | ✅ identical |
 | `calledWith` / `mustBeCalledWith` | same | ✅ identical |
 | `calledWith(...).returnValue(v)` | same — `.returnValue` **and** `.mockReturnValue` both work | ✅ identical |
@@ -3073,6 +3289,13 @@ it re-exports the same `jest-auto-spies` API, so the swap is identical (and you 
 
 Just make sure your tests run under Vitest (or Bun / `node:test` via the matching entry), and — for
 Angular — that `TestBed` is set up.
+
+**Restricting is a separate option**
+Up to v1 this library read `methodsToSpyOn` as an exhaustive whitelist, which is the opposite of
+`jest-auto-spies` and the one thing that made the swap not a swap: a migrated spec listing a couple
+of names silently lost every other method, and the failure surfaced as `… is not a function` inside
+a constructor, with nothing in the stack pointing at the spec. Since v2 the option is additive, and
+the whitelist lives under its own name, `onlyMethodsToSpyOn`.
 
 ## Step by step
 
@@ -3207,8 +3430,10 @@ recorded on `mock.settledResults` (native on Vitest, polyfilled on Bun / `node:t
 
 ## Configuration
 
-**`ClassSpyConfiguration`:** `methodsToSpyOn`, `instanceMethodsToSpyOn` (callables that live on the
-instance — `signal()` fields, arrow props, `signalStore()` methods), `observablePropsToSpyOn`,
+**`ClassSpyConfiguration`:** `methodsToSpyOn` (added to the discovered methods),
+`onlyMethodsToSpyOn` (spy on nothing but these — discovery skipped), `instanceMethodsToSpyOn` (same
+behaviour as `methodsToSpyOn`, named for callables that live on the instance — `signal()` fields,
+arrow props, `signalStore()` methods), `observablePropsToSpyOn`,
 `gettersToSpyOn`, `settersToSpyOn`, `autoSpyAccessors` (auto-discover getters/setters), `lazySpies`
 (build each method spy on first access — the `provideAutoSpy` default on Angular)
 
@@ -3419,9 +3644,9 @@ These five account for the large majority of broken specs, and all five are cove
 1. **`let s: MyService = createSpyFromClass(MyService)`.** `Spy<T>` is a mapped type and drops
    private members. Declare it as `Spy<T>`, or bridge with [`asInstance` / `asSpy`](https://asdalexey.github.io/vitest-auto-spy/core/spy-typing) —
    never with `as unknown as T`.
-2. **Treating `methodsToSpyOn` as additive.** It is an exhaustive whitelist. For a callable that is
-   an instance field, the additive option is
-   [`instanceMethodsToSpyOn`](https://asdalexey.github.io/vitest-auto-spy/core/create-spy-from-class#instancemethodstospyon-callables-that-are-not-on-the-prototype).
+2. **Reaching for `methodsToSpyOn` to restrict.** It **adds** to the discovered methods, matching
+   `jest-auto-spies`. The exhaustive whitelist is
+   [`onlyMethodsToSpyOn`](https://asdalexey.github.io/vitest-auto-spy/core/create-spy-from-class), and it skips prototype discovery entirely.
 3. **Calling `nextWith` without `import 'vitest-auto-spy/rxjs'`.** The observable layer is opt-in.
 4. **Importing `vitest-auto-spy` inside a `bun test` file.** Each entry registers its own mock
    adapter on import; use [`vitest-auto-spy/bun`](https://asdalexey.github.io/vitest-auto-spy/runtimes/bun).

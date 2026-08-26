@@ -10,6 +10,55 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+### BREAKING CHANGES
+
+- **`methodsToSpyOn` now adds instead of restricting**, which is what `jest-auto-spies` always did
+  and what this library documented itself as being compatible with. Up to v1 an explicit list
+  replaced prototype discovery, so a spec that named two methods silently lost every other one. The
+  failure surfaced far from the cause — `TypeError: this.flags.readJsonFlag is not a function` inside
+  a component constructor, with no line of the stack pointing at the spy configuration in the spec.
+  In one migrated codebase a single component went from 147 failing tests out of 147 to 4 once the
+  option was reinterpreted; across two independent projects the same option had been worked around
+  739 and 572 times respectively.
+
+  The exhaustive whitelist is still available, under a name that says what it does:
+
+  ```diff
+  - createSpyFromClass(ApiService, { methodsToSpyOn: ['get', 'post'] });   // v1: only these two
+  + createSpyFromClass(ApiService, { onlyMethodsToSpyOn: ['get', 'post'] }); // v2: only these two
+  ```
+
+  **What to do.** If you migrated from `jest-auto-spies` and never thought about this option, do
+  nothing — your specs now behave the way they did under Jest. If you relied on the restriction,
+  rename the key to `onlyMethodsToSpyOn`; the array shorthand
+  (`createSpyFromClass(Service, ['a', 'b'])`) is additive too and becomes
+  `{ onlyMethodsToSpyOn: ['a', 'b'] }`. A grep for `methodsToSpyOn` finds every site, and leaving
+  one un-renamed spies on more than before rather than less — noisier, never broken.
+
+  `instanceMethodsToSpyOn` is unchanged and now behaves identically to `methodsToSpyOn`; the two
+  differ only in what their names tell a reader. Prefer it in new code.
+
+- **Lazy method spies are now the default for every factory**, not just for `provideAutoSpy`. A
+  method becomes a spy on first access instead of all of them being built up front. On a forty-method
+  class where a test touches two, holding two thousand spies costs **27 ms and 35 MB** instead of
+  **257 ms and 425 MB** — nine times the speed, a twelfth of the memory. The reverse case, a test
+  that calls every method, pays 5% in time and 1% in memory for the accessor indirection, and that
+  asymmetry is why it is a default rather than a choice.
+
+  Enumeration is unaffected — the placeholders are enumerable accessors, so `Object.keys`, spread and
+  snapshots see the same keys, and `vi.isMockFunction`, `calledWith`, `resetAutoSpy` / `clearAutoSpy`
+  all behave as before. What changes is the property *descriptor* of an untouched method: a getter
+  rather than a value. A spec asserting on `Object.getOwnPropertyDescriptor(...).value` before
+  touching the method needs `{ lazySpies: false }`.
+
+  `provideAutoSpy` no longer forces the flag on, since the core does it — the Angular entry lost a
+  wrapper function and the two paths are now the same speed.
+
+- **The unknown-method warning moved to `onlyMethodsToSpyOn`.** An additive list naming something the
+  prototype does not have is the documented way to reach an instance-assigned callable, so warning
+  about it would fire on correct code. Under a restricting list the same typo is destructive — it
+  leaves the real method unspied — so that is where the warning belongs.
+
 ### Added
 
 - **`setupAutoSpy({ strayTimers: true })`** _(`/setup`)_ — cancel timeouts, intervals and animation
