@@ -12,8 +12,13 @@ import base from './vitest.config.mts';
 export default mergeConfig(base, {
   test: {
     isolate: false,
+    // `fileParallelism: false` is what actually produces the shared environment: it forces
+    // `maxWorkers` to 1, so every file lands in the same worker and pays for jsdom + the zoneless
+    // TestBed once instead of once per file. This used to also carry
+    // `poolOptions: { threads: { singleThread: true } }` — Vitest 4 removed `test.poolOptions`
+    // entirely (it warned `was removed in Vitest 4` on every run and was silently ignored), and the
+    // top-level flag above already covers it.
     fileParallelism: false,
-    poolOptions: { threads: { singleThread: true } },
     coverage: { enabled: false },
   },
 });
