@@ -16,6 +16,7 @@ export default defineConfig({
     'src/vue.ts',
     'src/svelte.ts',
     'src/setup.ts',
+    'src/eslint-plugin.ts',
   ],
   format: ['esm', 'cjs'],
   dts: true,

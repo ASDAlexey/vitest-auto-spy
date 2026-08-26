@@ -30,6 +30,7 @@ export default defineConfig({
         'src/rxjs.ts',
         'src/angular.ts',
         'src/setup.ts',
+        'src/eslint-plugin.ts',
       ],
       thresholds: {
         lines: 100,

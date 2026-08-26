@@ -109,6 +109,11 @@
       "types": "./dist/setup.d.ts",
       "import": "./dist/setup.js",
       "require": "./dist/setup.cjs"
+    },
+    "./eslint-plugin": {
+      "types": "./dist/eslint-plugin.d.ts",
+      "import": "./dist/eslint-plugin.js",
+      "require": "./dist/eslint-plugin.cjs"
     }
   },
   "files": [
