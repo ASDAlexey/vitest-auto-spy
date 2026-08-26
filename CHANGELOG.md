@@ -10,6 +10,76 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+### Added
+
+- **`vitest-auto-spy/bun-angular`** _(new entry)_ — Angular's `TestBed` under `bun test`. Angular has
+  no Bun integration of its own: Bun ships no DOM, and `@Component({ templateUrl: './x.html' })` is
+  not an import, so the JIT compiler refuses to build the component ("Component X is not resolved").
+  One preload closes both — it installs a DOM (`@happy-dom/global-registrator`, else `jsdom`, and
+  nothing if one is already present), registers a `Bun.plugin` `onLoad` hook that inlines
+  `templateUrl` / `styleUrl` / `styleUrls`, initialises a **zoneless** `TestBed` environment that
+  resets after each test, and registers the Bun mock adapter:
+
+  ```toml
+  # bunfig.toml
+  [test]
+  preload = ["vitest-auto-spy/bun-angular"]
+  ```
+
+  `provideAutoSpy`, `injectSpy`, `renderShallow`, `createWithAutoSpies`, `stable` / `flushEffects`
+  and the whole core behave exactly as on Vitest. `registerSignalMatchers` and the TestBed
+  diagnostics family stay Vitest-only — they need the runner's `expect.extend` and suite-level hooks.
+  The entry is ESM-only (it awaits its DOM registrar at the top level, which has no CommonJS form);
+  Bun runs ESM natively, so nothing is lost. The building blocks — `registerDomGlobals`,
+  `createJsdomRegistrar`, `createGlobalRegistratorRegistrar`, `copyWindowGlobals`,
+  `inlineAngularResources` — are exported for a project that would rather compose its own preload.
+
+- **A real Bun test suite** — `src/bun-tests/` runs the published API on the actual `bun:test`
+  (core, rxjs layer, DOM registrars and Angular `TestBed`), where the Vitest suite could only drive
+  the Bun adapter against a stub. CI gained a **Bun 1.4** job that runs it three ways — unflagged
+  (one shared global), `--isolate` (Bun 1.4's fresh-global-per-file mode) and against the **built**
+  `bun-angular` bundle used as a preload — on both `1.4.0` and `latest`.
+
+- **`createMock<T>(partial?)`** _(core)_ — a plain, spy-free `T` built from the fields a test seeds,
+  for the doubles the code under test only **reads**: DTOs, route snapshots, config objects. The
+  counterpart to `createAutoMock`, which stays the answer for a collaborator you call and assert on
+  (where an un-seeded property read returning a spy is the point, not a hazard). It is also the one
+  place the `as` lives, so a suite under a `no-type-assertion` lint rule stops sprinkling
+  `eslint-disable` over its fixtures; `Partial<T>` keeps the seeded fields type-checked.
+- **`setupFakeTimers(config?)` / `advanceTimers(ms?)`** _(`/setup`)_ — the fake-timer boilerplate, and
+  the bug inside it. `setupFakeTimers` pairs `vi.useFakeTimers()` with the `afterEach` restore a
+  suite forgets — a clock left installed leaks into every later file in the same worker, surfacing as
+  an unrelated test hanging on a `setTimeout` that never fires; `config` is forwarded verbatim to
+  `vi.useFakeTimers()`. `advanceTimers` advances the clock **and** awaits the microtasks the timer
+  callbacks queued (a resolved promise, an `await` continuation, an RxJS `delay()` handing control
+  back), which a bare `vi.advanceTimersByTime()` leaves pending — the assertion then reads state from
+  before the callback finished and fails like a race in the code under test. On real timers it throws
+  a message naming the fix instead of failing deeper in with "timers are not mocked".
+
+### Changed
+
+- **The documentation site was rewritten end to end** — every `<!-- TODO: expand -->` stub is gone.
+  The landing page leads with the four runtimes and Angular-on-Bun; `Installation` gained per-runner
+  wiring (Vitest setup file, `bunfig.toml` preload, `node --test`) and a TypeScript section;
+  `node:test` gained a runnable example and a table of where its native mock surface differs (most
+  usefully: `spy.method.mockReturnValue` does **not** exist there, while
+  `calledWith(...).mockReturnValue(...)` works everywhere); `createSpyFromClass` documents the
+  `Spy<T>` shape, `accessorSpies`, `instanceMethodsToSpyOn` and the edge cases (inherited methods,
+  abstract classes, constructors never running); the RxJS page documents marble-equivalent sequences
+  and delay/timing semantics; and the React / Vue / Svelte / NestJS recipes and the migration guide
+  are full walkthroughs rather than sketches. `comparison.md` gained a feature-by-feature matrix, a
+  "where another library is the better answer" section, and dependency counts checked against npm.
+  Every page now carries `title` / `description` frontmatter, so canonical links and OpenGraph tags
+  are no longer empty.
+
+### Fixed
+
+- **`mockDeep` was unusable on `bun:test`** — every node handed its spy methods back with `this`
+  still pointing at the Proxy, and Bun's `mock()` asserts `this instanceof Mock` inside
+  `mockReturnValue` and friends, so `mock.a.b.mockReturnValue(1)` threw
+  `Expected this to be instanceof Mock`. Methods are now bound to the underlying spy. Vitest was
+  unaffected, which is why only a run on the real runtime could surface it.
+
 ## [1.11.0] - 2026-08-26
 
 ### Added
