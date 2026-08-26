@@ -26,9 +26,13 @@ dependencies**.
 | Bun        | ≥ 1.4 for `vitest-auto-spy/bun-angular`; any recent Bun for `/bun` |
 | TypeScript | ≥ 4.7 for the typed helpers (plain JS works too, just untyped)   |
 
-Ships **dual ESM + CommonJS** with bundled `.d.ts` types, so it drops into both `import`- and
-`require`-style setups. The one exception is `vitest-auto-spy/bun-angular`, which is **ESM-only**
-(it awaits its DOM registrar at the top level, and top-level `await` has no CommonJS form).
+Ships **ESM with bundled `.d.ts` types**. Two subpaths additionally ship a CommonJS build —
+`vitest-auto-spy/node` (a `node --test` suite written in CJS) and `vitest-auto-spy/eslint-plugin`
+(loaded by a CommonJS `eslint.config.cjs`). Everything else is ESM-only, because a `require()` of it
+could never have worked: Vitest itself refuses to be required (`Vitest cannot be imported in a
+CommonJS module using require()`), so every Vitest-backed entry threw on the first line of its own
+`.cjs`. Test runners load ESM natively, so nothing is lost — and dropping the unreachable output cut
+the published package roughly in half.
 
 ## Entry points
 

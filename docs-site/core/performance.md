@@ -11,15 +11,23 @@ so the two settings that *do* cost something are named.
 
 ## Measured
 
-`npm run bench` (Vitest bench, ten-method class, one machine — treat the ratios as the result, not
-the absolute ops/sec):
+`npm run bench` (Vitest bench, one machine — treat the ratios as the result, not the absolute
+times). The figures are the **`p75`** column: these cases allocate spy objects by the hundred
+thousand, so `hz` swings several-fold between runs as GC pauses land in different samples, while
+`p75` reproduces to the fourth decimal.
 
-| Operation | ops/sec | per call |
-| --- | ---: | ---: |
-| lazy (the default), then call 2 methods | **118 900** | ~8 µs |
-| eager (`lazySpies: false`), then call 2 methods | 34 600 | ~29 µs |
-| `createAutoMock<Service>()` + 4 accesses | 30 600 | ~33 µs |
-| `calledWith` lookup on a configured spy | 1 419 000 | ~0.7 µs |
+| Operation | per call (p75) |
+| --- | ---: |
+| spy a 10-method class, call 2 methods — lazy (the default) | **5.3 µs** |
+| the same, eager (`lazySpies: false`) | 18.5 µs |
+| spy a 40-method class, call 3 methods — lazy | **10.6 µs** |
+| the same, eager | 75.8 µs |
+| `createAutoMock<Service>()` + 4 accesses | 9.2 µs |
+| `calledWith` dispatch, 3 configured calls | 0.5 µs |
+
+Lazy widens as the class does, and gives it back only when a single test really calls every method
+(10 methods, all 10: 22.0 µs lazy against 20.0 µs eager — a rounding error against the order of
+magnitude it wins everywhere else). That asymmetry is why it is the default rather than an option.
 
 Put that against a suite: five providers across two thousand tests is ten thousand calls — under a
 tenth of a second for the entire run. Spy construction is not where a slow suite spends its time.
@@ -82,6 +90,23 @@ The framework adapters, rxjs layer, console spies and setup helpers live behind 
 so a project that never imports them never pays for them — and none of this reaches a production
 bundle in the first place, since the package is a devDependency.
 
+The download is smaller than it was, for a reason worth stating plainly: the package used to ship a
+CommonJS build of every entry point, and most of it could never be loaded. Vitest refuses to be
+required (`Vitest cannot be imported in a CommonJS module using require()`), so eight of the twelve
+`.cjs` files threw on their own first line; and because esbuild cannot code-split CommonJS, each
+surviving one carried its own copy of the `MockAdapter` / `ObservableSupport` registries, so even
+`require('vitest-auto-spy/rxjs')` next to `require('vitest-auto-spy/node')` failed with "Observable
+spies require rxjs" — two bundles, two disconnected registries. CommonJS now ships only where a
+`require()` actually works and needs no second entry: `vitest-auto-spy/node` and
+`vitest-auto-spy/eslint-plugin`. Folding `bun-angular` into the same ESM pass as everything else
+removed a second inlined copy of the core on top of that.
+
+| | Before | After |
+| --- | ---: | ---: |
+| `dist/` | 625 kB | **241 kB** |
+| published tarball | 187 kB | **108 kB** |
+| files in the package | 74 | **54** |
+
 ## What to reach for
 
 | Situation | Use | Why |
@@ -109,12 +134,62 @@ Everything else — `methodsToSpyOn`, `observablePropsToSpyOn`, `calledWith`, th
 
 ## What actually makes a suite slow
 
-In the order they are worth checking, none of which this library can fix for you:
+Spy construction is measured above and is not it. The two things that are, both measured on the same
+machine as the rest of this page, against a generated Angular suite where every file configures a
+`TestBed`, provides `provideAutoSpy(Service)` and renders a component with children — i.e. the shape
+of a real component-heavy spec.
 
-1. **`TestBed` module setup** — see the diagnostics above; a shallow render typically halves it.
-2. **The environment** — `isolate: false` shares one environment per worker and is worth far more
-   than any spy-level micro-optimisation, provided the run is clean about what it leaves behind
-   ([test-run hygiene](../utilities/setup)).
-3. **Worker count** — with `isolate: false` more workers stop helping early, because each one
-   re-imports the whole module graph and has nobody to share that work with. Measure before raising
-   it; the curve usually flattens between four and eight.
+### 1. One environment instead of one per file
+
+The default run gives each file its own environment. A shared one — `isolate: false` plus
+`fileParallelism: false` — pays for jsdom and the zoneless `TestBed` once for the whole run:
+
+| Suite | Default run | Shared environment | Change |
+| --- | ---: | ---: | ---: |
+| 100 files | 1.78 s | **1.12 s** | −37% |
+| 400 files | 4.90 s | **2.54 s** | −48% |
+
+Three runs per cell, spread under ±0.03 s. The saving is per file, so it grows with the suite: the
+400-file run saves twice what the 100-file run saves.
+
+Two things that measurement corrects, both worth knowing before you copy a config:
+
+- **`fileParallelism: false` is the lever, not `isolate: false`.** Flipping `isolate` alone, with the
+  default pool, measured 1.76 s against the default's 1.78 s — inside the noise. What collapses the
+  per-file cost is landing every file in one worker (`fileParallelism: false` forces `maxWorkers` to
+  1). `isolate: false` is what makes running that way *safe to leave on*, which is the whole reason
+  [`setupAutoSpy()`](../utilities/setup) exists — it is not itself the speed-up.
+- **`poolOptions: { threads: { singleThread: true } }` does nothing on Vitest 4.** `test.poolOptions`
+  was removed; Vitest logs `was removed in Vitest 4` and ignores it. The top-level
+  `fileParallelism: false` replaces it.
+
+On a suite small enough that Vitest's own startup dominates, none of this shows up in the clock —
+this library's own 39-file suite runs in ~1.03 s either way. The work still collapses, and that is
+what scales: aggregate setup 6.3 s → 0.23 s, environment 5.2 s → 0.19 s, transform 3.1 s → 0.32 s.
+
+### 2. Rendering the child subtree
+
+[`renderShallow`](../adapters/angular#shallow-component-rendering) brings the component up through
+the real `TestBed` without its children and without its template. Per render, on a component holding
+two `@for` tables whose row count is varied:
+
+| Child instances | `TestBed.createComponent` | `renderShallow` | Ratio |
+| ---: | ---: | ---: | ---: |
+| 0 | 0.65 ms | 0.55 ms | 1.2× |
+| 10 | 1.00 ms | 0.55 ms | 1.8× |
+| 100 | 2.72 ms | **0.48 ms** | 5.7× |
+| 400 | 8.52 ms | **0.53 ms** | 16.2× |
+
+The shape is the point: `renderShallow` is flat at ~0.5 ms because it never builds the subtree, while
+`createComponent` scales linearly with it. So the win is not a fixed percentage — it is however much
+markup the component under test happens to own. On a leaf component with no children there is nothing
+to save (1.2×); on a table or a dashboard it is an order of magnitude.
+
+This is only worth taking because [templates are not what a spec asserts on](../recipes). A test that
+reads component state pays for the subtree and gets nothing back for it.
+
+### 3. Worker count
+
+With a shared environment more workers stop helping early: each one re-imports the whole module graph
+and has nobody to share that work with. Measure before raising it — on the suites above, one worker
+beat the default pool outright at both sizes.

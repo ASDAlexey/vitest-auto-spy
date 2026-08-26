@@ -112,8 +112,13 @@ npm i -D vitest-auto-spy
 | Bun        | ≥ 1.4 for `vitest-auto-spy/bun-angular`; any recent Bun for `vitest-auto-spy/bun` |
 | TypeScript | ≥ 4.7 for the typed helpers (plain JS works too, just untyped) |
 
-Ships **dual ESM + CommonJS** with bundled `.d.ts` types, so it drops into both `import`- and
-`require`-style test setups.
+Ships **ESM with bundled `.d.ts` types**. Two subpaths additionally ship a CommonJS build —
+`vitest-auto-spy/node` (a `node --test` suite written in CJS) and `vitest-auto-spy/eslint-plugin`
+(loaded by a CommonJS `eslint.config.cjs`). Everything else is ESM-only, because a `require()` of it
+could never have worked: Vitest itself refuses to be required (`Vitest cannot be imported in a
+CommonJS module using require()`), so every Vitest-backed entry threw on the first line of its own
+`.cjs`. Test runners load ESM natively, so nothing is lost — and dropping the unreachable output cut
+the published package roughly in half.
 
 ### Peer dependencies
 
@@ -1265,7 +1270,7 @@ expensive to diagnose when it is missing. The first three are on by default:
    registries, so an assertion runs against a spy that never replaced the console the code under
    test called; the symptom reads as "tests fail depending on file order". The check fails the run
    with a report naming both copies and what to do about each cause — a second install, or one
-   install loaded in both its ESM and CommonJS form.
+   install resolved through two different subpaths.
 3. **Draining the runner's restore registry.** Every `vi.spyOn` adds an entry that only
    `vi.restoreAllMocks()` removes; with a shared environment that list grows for the whole run.
 4. **Timers that outlive their file.** Opt-in. Under `isolate: false` a `setTimeout` a component

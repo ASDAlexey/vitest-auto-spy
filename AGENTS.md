@@ -51,7 +51,9 @@ Three add-ons, orthogonal to the runner:
 | Console spies                   | `vitest-auto-spy/console`       | silent typed spies over the global `console`             |
 | Setup helpers                   | `vitest-auto-spy/setup`         | `setupAutoSpy()`, `setupFakeTimers()`                   |
 
-`vitest-auto-spy/bun-angular` is **ESM-only**; everything else ships dual ESM + CJS.
+The package is **ESM**. Only `vitest-auto-spy/node` and `vitest-auto-spy/eslint-plugin` also ship a
+CommonJS build; every other subpath is ESM-only (a `require()` of a Vitest-backed entry always threw —
+Vitest refuses to be required).
 
 ---
 
