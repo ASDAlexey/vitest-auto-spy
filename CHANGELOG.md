@@ -72,6 +72,52 @@ The latest released version here must always match the one published on
   (`Schedulers cannot synchronously execute watches while scheduling`, `signal read during
   notification phase`).
 
+- **Observer stubs** _(core)_ — `stubIntersectionObserver()`, `stubResizeObserver()`,
+  `stubMutationObserver()` and the generic `stubObserver(name)`, plus `intersectionEntry()` for the
+  entry itself. A component constructs its observer internally and keeps it private, so the only
+  handle a spec has is the global constructor; the version projects hand-roll goes wrong in two ways
+  that this one does not. The stub is installed through `mockValueProp`, so `restoreMockedProps()`
+  takes it off — a directly assigned `globalThis.IntersectionObserver` is inherited by the next file
+  under `isolate: false` and fails it on something unrelated. And the instances live on the returned
+  handle rather than a `static last`, which is shared mutable state that outlives the spec just like
+  the stub does. `emit()` takes a batch, because a fast scroll delivers several entries in one call
+  and code assuming one entry per call is a real bug worth reaching. Asking for `last` before the
+  code under test constructed anything throws and says which of the two mistakes it is.
+- **`mockSignalProp(object, prop, initial)`** _(`/angular`)_ — replace a signal-valued property with
+  a real `WritableSignal` and get the handle back. Prototype discovery cannot see a `signal()` field
+  (it is assigned on the instance) and `methodsToSpyOn` turns it into a function spy that answers
+  `undefined`, so suites write the `signal()` + `mockReadonlyProp` pair by hand — measured at 46
+  occurrences across three projects. The signal is Angular's own, so a `computed()` downstream
+  recomputes and an `effect()` runs; a stand-in with a `set` method would satisfy `service.count()`
+  and notify nothing, which is the failure the helper exists to prevent rather than cause.
+- **`setupAutoSpy({ blockNetwork: true })`** _(`/setup`)_ — reject every `fetch`, naming what was
+  requested. jsdom ships no `fetch`, so a component reaching for a remote asset is inert under it;
+  happy-dom implements it and the same component issues real requests. Nothing asserts on them, so
+  every test passes — and the runner aborts what is still in flight at teardown, those aborts arrive
+  as unhandled rejections, and a run with 2257 green tests exits 1 with no test named. `blockNetwork()`
+  is exported for suites that want it somewhere narrower.
+- **`restoreTimerGlobals()` / `getWatchedTimerGlobals()`** _(`/setup`)_, wired into `setupAutoSpy()`
+  by default and into `setupFakeTimers()` unconditionally.
+
+### Fixed
+
+- **`setupFakeTimers()` no longer breaks a later file.** Two bugs in one helper. Its hooks were
+  unguarded, so a suite that drives the clock itself — or a nested `describe` calling the helper
+  again — reached a second `vi.useRealTimers()`, which leaves the environment without `clearInterval`
+  and explodes during teardown of whichever file runs next. And uninstalling does not restore a
+  global that was not an own property of the global object: under happy-dom `Date` is inherited from
+  the realm, so `vi.useRealTimers()` **deletes** it, and with `isolate: false` the next file dies
+  inside Vitest's own `useFakeTimers` with `Cannot read properties of undefined (reading 'now')`,
+  naming a file that never touched a timer. Both hooks are now guarded, and the real globals —
+  captured at import time, before any spec can fake them — are put back after each test. Only what
+  went missing is restored, so a replacement a spec installed on purpose is left alone.
+- **`calledWith` no longer depends on the order an object literal was written in.** Argument matching
+  builds a serialized key, and object keys went into it in insertion order — so
+  `calledWith({ id: 1, name: 'a' })` did not match a call made with `{ name: 'a', id: 1 }`. The spy
+  answered `undefined` and nothing in the failure pointed at the cause. Keys are now sorted at every
+  depth, which also makes `mustBeCalledWith` mismatch messages stable rather than dependent on
+  construction order. Array order is untouched — there the order is the value.
+
 ### Changed
 
 - **Every error and warning now ends with `Docs: <url>`** — a stack trace is read far more often than
