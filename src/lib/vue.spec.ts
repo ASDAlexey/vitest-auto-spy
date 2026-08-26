@@ -98,8 +98,15 @@ describe('Vue / Pinia recipe — spy the store/service, not the component', () =
   it('provideAutoSpy forwards the spy configuration (string token)', () => {
     const provide = provideAutoSpy('cart', CartStore, ['itemCount']);
 
+    // The array form is additive, so the prototype methods come along with the named one.
     expect(vi.isMockFunction(provide.cart.itemCount)).toBe(true);
-    // addItem was not in the methodsToSpyOn list, so it is not spied.
+    expect(vi.isMockFunction(provide.cart.addItem)).toBe(true);
+  });
+
+  it('provideAutoSpy forwards a restricting configuration', () => {
+    const provide = provideAutoSpy('cart', CartStore, { onlyMethodsToSpyOn: ['itemCount'] });
+
+    expect(vi.isMockFunction(provide.cart.itemCount)).toBe(true);
     expect(provide.cart.addItem).toBeUndefined();
   });
 });

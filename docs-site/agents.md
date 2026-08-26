@@ -73,9 +73,9 @@ These five account for the large majority of broken specs, and all five are cove
 1. **`let s: MyService = createSpyFromClass(MyService)`.** `Spy<T>` is a mapped type and drops
    private members. Declare it as `Spy<T>`, or bridge with [`asInstance` / `asSpy`](/core/spy-typing) —
    never with `as unknown as T`.
-2. **Treating `methodsToSpyOn` as additive.** It is an exhaustive whitelist. For a callable that is
-   an instance field, the additive option is
-   [`instanceMethodsToSpyOn`](/core/create-spy-from-class#instancemethodstospyon-callables-that-are-not-on-the-prototype).
+2. **Reaching for `methodsToSpyOn` to restrict.** It **adds** to the discovered methods, matching
+   `jest-auto-spies`. The exhaustive whitelist is
+   [`onlyMethodsToSpyOn`](/core/create-spy-from-class), and it skips prototype discovery entirely.
 3. **Calling `nextWith` without `import 'vitest-auto-spy/rxjs'`.** The observable layer is opt-in.
 4. **Importing `vitest-auto-spy` inside a `bun test` file.** Each entry registers its own mock
    adapter on import; use [`vitest-auto-spy/bun`](/runtimes/bun).

@@ -16,7 +16,7 @@ TestBed.configureTestingModule({
   providers: [
     provideAutoSpy(MyService),
     // accepts the same second argument as createSpyFromClass
-    provideAutoSpy(ApiService, { methodsToSpyOn: ['get', 'post'] }),
+    provideAutoSpy(ApiService, { onlyMethodsToSpyOn: ['get', 'post'] }),
   ],
 });
 
@@ -40,20 +40,47 @@ diagnostics, which need the runner's `expect.extend` and suite-level hooks.
 
 ## Lazy spies by default
 
-Angular tests typically spy a wide service but call only a couple of its methods per test, so
-`provideAutoSpy` defaults to **lazy** spies: each method spy is built on first access instead of
-eagerly up-front. On a wide service where a test touches two methods, spy assembly is roughly
-**4× faster** (≈8× on a 20-method service) — the unused methods never pay the full spy-construction
-cost. Everything else is unchanged: `Object.keys`, `vi.isMockFunction`, `calledWith`,
-`resetAutoSpy` / `clearAutoSpy` all behave identically.
+Angular tests spy a wide service and call a couple of its methods, so a spy is built on first
+access rather than eagerly up-front. Everything else is unchanged: `Object.keys`,
+`vi.isMockFunction`, `calledWith`, `resetAutoSpy` / `clearAutoSpy` all behave identically, because
+the placeholder is an enumerable accessor.
 
 ```ts
-provideAutoSpy(WideService); // lazy — the fast default
+provideAutoSpy(WideService); // lazy — the default
 provideAutoSpy(WideService, { lazySpies: false }); // opt out: build every spy eagerly
 ```
 
-Only `provideAutoSpy` (the Angular entry) defaults to lazy; the framework-agnostic
-`createSpyFromClass` still builds eagerly unless you pass `{ lazySpies: true }`.
+This is the **core default rather than something this entry adds** — `createSpyFromClass` behaves
+the same. Until v2 only `provideAutoSpy` turned it on, which made the Angular path quietly faster
+than the plain one for no reason anybody could see. What it buys, on a forty-method class with two
+methods touched: [27 ms and 35 MB against 257 ms and 425 MB](../core/performance#memory-not-just-time).
+
+### Is it fast enough to call in every `beforeEach`?
+
+Yes, and it is the fastest of the three ways to build a double. Measured on the repo's own
+benchmark (`npm run bench`, a ten-method class):
+
+| Call | ops/sec | per call |
+| --- | ---: | ---: |
+| `provideAutoSpy(Service)` — lazy, the default | **118 900** | ~8 µs |
+| `createSpyFromClass(Service)` — eager | 34 600 | ~29 µs |
+| `createAutoMock<Service>()` + 4 accesses | 30 600 | ~33 µs |
+
+The gap is `lazySpies`, which `provideAutoSpy` turns on and the plain factory does not: a wide
+service where a test touches two methods builds two spies instead of twenty. Prototype discovery is
+cached per class, so calling it once per test does not re-walk the chain.
+
+At ~8 µs, five providers across two thousand tests come to under a tenth of a second for the whole
+suite. If a spec feels slow, the time is in `TestBed` — which is what
+[`enableTestBedDiagnostics()`](#where-a-spec-spends-its-time) measures, and usually what
+[`renderShallow`](#shallow-component-rendering) fixes.
+
+Two things do cost more, and both are avoidable:
+
+- **`{ lazySpies: false }`** gives up the win above. Only worth it when a spec enumerates the spy
+  object itself rather than calling methods on it.
+- **`autoSpyAccessors: true`** walks the prototype chain for getters and setters on every call, and
+  that walk is not cached. Name the accessors you need instead when a class is spied per test.
 
 ## Shallow component rendering
 

@@ -31,13 +31,17 @@
  * });
  * ```
  *
- * Restrict what gets spied, or add observable/getter/setter spies:
+ * Add extra callables, restrict to a list, or add observable/getter/setter spies:
  *
  * ```ts
- * createSpyFromClass(MyService, ['getName', 'getAge']);
+ * // added to the discovered prototype methods, as in `jest-auto-spies`
+ * createSpyFromClass(MyService, ['reload', 'count']);
+ *
+ * // nothing but these — prototype discovery is skipped
+ * createSpyFromClass(MyService, { onlyMethodsToSpyOn: ['getName', 'getAge'] });
  *
  * createSpyFromClass(MyService, {
- *   methodsToSpyOn: ['getName'],
+ *   methodsToSpyOn: ['reload'],
  *   observablePropsToSpyOn: ['products$'],
  *   gettersToSpyOn: ['userName'],
  *   settersToSpyOn: ['userName'],

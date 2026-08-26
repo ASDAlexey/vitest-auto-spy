@@ -14,12 +14,15 @@ every method into a mock with return-type-aware helpers.
 // 1. all methods (default)
 createSpyFromClass(MyService);
 
-// 2. only these methods
-createSpyFromClass(MyService, ['getName', 'getAge']);
+// 2. the discovered methods PLUS these names
+createSpyFromClass(MyService, ['reload', 'count']);
 
-// 3. full config object
+// 3. only these methods, discovery skipped
+createSpyFromClass(MyService, { onlyMethodsToSpyOn: ['getName', 'getAge'] });
+
+// 4. full config object
 createSpyFromClass(MyService, {
-  methodsToSpyOn: ['getName'],
+  methodsToSpyOn: ['reload'],
   observablePropsToSpyOn: ['products$'], // Observable *properties*
   gettersToSpyOn: ['userName'],
   settersToSpyOn: ['userName'],
@@ -28,11 +31,13 @@ createSpyFromClass(MyService, {
 });
 ```
 
-Passing an array **restricts** spying to the listed methods (matching `jest-auto-spies`), rather
-than augmenting the auto-discovered set.
+Passing an array **adds** the listed names to the auto-discovered set, matching `jest-auto-spies`.
+Discovery already finds every prototype method, so the only names worth passing are the ones it
+cannot see. To spy on *nothing but* a list, use `onlyMethodsToSpyOn`, which skips discovery.
 
-The `ClassSpyConfiguration` keys are `methodsToSpyOn`, `instanceMethodsToSpyOn`,
-`observablePropsToSpyOn`, `gettersToSpyOn`, `settersToSpyOn`, `autoSpyAccessors` and `lazySpies`.
+The `ClassSpyConfiguration` keys are `methodsToSpyOn`, `onlyMethodsToSpyOn`,
+`instanceMethodsToSpyOn`, `observablePropsToSpyOn`, `gettersToSpyOn`, `settersToSpyOn`,
+`autoSpyAccessors` and `lazySpies`.
 
 ### `instanceMethodsToSpyOn` — callables that are not on the prototype
 
@@ -52,9 +57,10 @@ createSpyFromClass(TaskStore, {
 });
 ```
 
-Unlike `methodsToSpyOn`, this list **adds** to whatever discovery produced rather than restricting
-it, and a name here never triggers the "not found on the class prototype" warning — being absent
-from the prototype is the point.
+This list and `methodsToSpyOn` behave identically — both **add** to whatever discovery produced —
+and differ only in what their names tell a reader. Prefer this one in new code; keep
+`methodsToSpyOn` in specs carried over from `jest-auto-spies`. Neither warns about a name the
+prototype does not have: being absent from the prototype is the point.
 
 ## Lazy spies — `lazySpies`
 
@@ -162,9 +168,10 @@ special.
 **Constructor bodies never run.** The spy is assembled from the prototype; the class is never
 instantiated, so a constructor that opens a socket or reads config is not a problem.
 
-**A method the class does not have warns.** Naming an unknown method in `methodsToSpyOn` logs a
-"not found on the class prototype" warning — the usual cause of "why isn't my spy called". Use
-`instanceMethodsToSpyOn` for the callables that legitimately are not there.
+**Only a restricting list warns.** A name in `onlyMethodsToSpyOn` that the prototype does not have
+logs a warning, because there a misspelling leaves the real method unspied and the code under test
+calls something that is not there. The additive lists stay silent — naming a callable the prototype
+lacks is exactly what they are for.
 
 **No class, no problem.** [`createAutoMock<T>()`](./auto-mock-by-type) builds the same surface from a
 type alone, `mockDeep<T>()` does it recursively, and `createMock<T>()` returns a plain, spy-free `T`

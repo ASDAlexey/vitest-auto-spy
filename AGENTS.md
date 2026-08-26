@@ -75,6 +75,19 @@ Code under test does `new Foo()`? → createSpyClass(Foo)   (a vi.fn() rejects `
 
 ---
 
+### Cost, so it stops being a question
+
+Building a spy is not a thing to optimise. Measured on a ten-method class:
+`provideAutoSpy` ~8 µs, `createSpyFromClass` ~29 µs, `createAutoMock` ~33 µs, a `calledWith`
+lookup ~0.7 µs. Five providers across two thousand tests is under a tenth of a second for the
+whole run. Call the factory in `beforeEach` and look at `TestBed` instead — that is where a slow
+spec spends its time.
+
+`provideAutoSpy` is the fastest of the three because it defaults to `lazySpies: true`. The two
+settings that do cost: `{ lazySpies: false }` gives that up, and `autoSpyAccessors: true` walks
+the prototype chain uncached on every call — name the accessors instead.
+
+---
 ## 3. The 90% recipe
 
 Measured across a ~370-file Angular suite: `provideAutoSpy` appears in 371 files, `injectSpy` in
@@ -196,10 +209,11 @@ all three. Entries are `{ type: 'fulfilled' | 'incomplete' | 'rejected', value }
 
 ```ts
 createSpyFromClass(MyService);                        // every method on the prototype chain
-createSpyFromClass(MyService, ['getName', 'getAge']); // ONLY these two
+createSpyFromClass(MyService, ['reload', 'count']);    // those two ADDED to the discovered ones
 createSpyFromClass(MyService, {
-  methodsToSpyOn: ['getName'],          // RESTRICTS to this list
-  instanceMethodsToSpyOn: ['reload'],   // ADDS non-prototype callables
+  methodsToSpyOn: ['reload'],           // ADDS (jest-auto-spies semantics)
+  onlyMethodsToSpyOn: ['getName'],      // RESTRICTS — skips prototype discovery
+  instanceMethodsToSpyOn: ['reload'],   // ADDS; same behaviour, clearer name
   observablePropsToSpyOn: ['products$'],
   gettersToSpyOn: ['userName'],
   settersToSpyOn: ['userName'],
@@ -210,8 +224,9 @@ createSpyFromClass(MyService, {
 
 | Key                      | Semantics                                                                  |
 | ------------------------ | -------------------------------------------------------------------------- |
-| `methodsToSpyOn`         | **Exhaustive whitelist.** Anything not listed is not spied. Usually just omit it. |
-| `instanceMethodsToSpyOn` | **Additive.** For callables that are not on the prototype (see below).     |
+| `methodsToSpyOn`         | **Additive**, as in `jest-auto-spies`. Same behaviour as `instanceMethodsToSpyOn`. |
+| `onlyMethodsToSpyOn`     | **Exhaustive whitelist.** Skips discovery; anything not listed is absent.  |
+| `instanceMethodsToSpyOn` | **Additive.** The name to prefer in new code (see below).                  |
 | `autoSpyAccessors`       | Merged with the explicit getter/setter lists.                              |
 | `lazySpies`              | Behaviour-identical; only changes *when* each spy is built.                |
 
@@ -231,13 +246,14 @@ provideAutoSpy(ProjectStore, { instanceMethodsToSpyOn: ['current', 'isEmpty'] })
 For an ngrx `signalStore()`, prefer `createAutoMock<T>()` over listing every member: it mocks from
 the type, needs no prototype, and the list cannot fall behind the store.
 
-The symptom of getting this wrong is **a spy that is never called and no warning at all** — a name
-in `instanceMethodsToSpyOn` is deliberately exempt from the unknown-method warning, and a name
-simply left out produces no diagnostic either.
+The symptom of getting this wrong is **a spy that is never called and no warning at all**: the
+additive lists exist precisely to name things the prototype does not have, so a typo in one cannot
+be told apart from an instance field and stays silent.
 
-Naming an unknown method in `methodsToSpyOn` logs
-`[vitest-auto-spy] createSpyFromClass(X): requested method(s) not found on the class prototype: …`.
-That warning is almost always the answer to "why isn't my spy called".
+Only `onlyMethodsToSpyOn` warns, because only a restricting list can be silently destructive — a
+misspelling there leaves the real method unspied, and the code under test then calls something that
+is not there:
+`[vitest-auto-spy] createSpyFromClass(X): onlyMethodsToSpyOn names method(s) that are not on the class prototype: …`.
 
 Also true, and worth not re-deriving:
 
@@ -667,7 +683,7 @@ packages, which a subpath export can never be.
 | `source$.subscribe(v => expect(v).toBe(1))`               | `await expect(expectEmission(source$)).resolves.toBe(1)`  |
 | `expect(component.total).toBeTruthy()` (a signal)         | `expect(component.total).toHaveSignalValue(3)`            |
 | `fixture.detectChanges()` then assert signal state        | `await stable(fixture)` then assert                       |
-| `methodsToSpyOn: [...]` "to add a method"                 | omit it, or use `instanceMethodsToSpyOn`                  |
+| `onlyMethodsToSpyOn: [...]` "to add a method"             | omit it, or use `instanceMethodsToSpyOn`                  |
 | a `vi.fn()` the code calls with `new`                     | `createSpyClass(Foo)`                                     |
 | `configureTestingModule` inside every `it()`              | one per `describe`                                        |
 | `vi.mock('@angular/core')` to neutralise `effect()`       | set the signals, `await stable(fixture)`, assert the result |

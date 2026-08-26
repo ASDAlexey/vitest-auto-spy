@@ -29,6 +29,7 @@ it re-exports the same `jest-auto-spies` API, so the swap is identical (and you 
 | jest-auto-spies | vitest-auto-spy | Status |
 | --- | --- | --- |
 | `createSpyFromClass` | `createSpyFromClass` | ✅ identical |
+| `methodsToSpyOn` | `methodsToSpyOn` — additive there and additive here | ✅ identical |
 | `provideAutoSpy` | `provideAutoSpy` (from `/angular`) | ✅ identical |
 | `calledWith` / `mustBeCalledWith` | same | ✅ identical |
 | `calledWith(...).returnValue(v)` | same — `.returnValue` **and** `.mockReturnValue` both work | ✅ identical |
@@ -41,6 +42,14 @@ it re-exports the same `jest-auto-spies` API, so the swap is identical (and you 
 
 Just make sure your tests run under Vitest (or Bun / `node:test` via the matching entry), and — for
 Angular — that `TestBed` is set up.
+
+::: tip Restricting is a separate option
+Up to v1 this library read `methodsToSpyOn` as an exhaustive whitelist, which is the opposite of
+`jest-auto-spies` and the one thing that made the swap not a swap: a migrated spec listing a couple
+of names silently lost every other method, and the failure surfaced as `… is not a function` inside
+a constructor, with nothing in the stack pointing at the spec. Since v2 the option is additive, and
+the whitelist lives under its own name, `onlyMethodsToSpyOn`.
+:::
 
 ## Step by step
 

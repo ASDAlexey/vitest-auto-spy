@@ -57,8 +57,10 @@ recorded on `mock.settledResults` (native on Vitest, polyfilled on Bun / `node:t
 
 ## Configuration
 
-**`ClassSpyConfiguration`:** `methodsToSpyOn`, `instanceMethodsToSpyOn` (callables that live on the
-instance — `signal()` fields, arrow props, `signalStore()` methods), `observablePropsToSpyOn`,
+**`ClassSpyConfiguration`:** `methodsToSpyOn` (added to the discovered methods),
+`onlyMethodsToSpyOn` (spy on nothing but these — discovery skipped), `instanceMethodsToSpyOn` (same
+behaviour as `methodsToSpyOn`, named for callables that live on the instance — `signal()` fields,
+arrow props, `signalStore()` methods), `observablePropsToSpyOn`,
 `gettersToSpyOn`, `settersToSpyOn`, `autoSpyAccessors` (auto-discover getters/setters), `lazySpies`
 (build each method spy on first access — the `provideAutoSpy` default on Angular)
 

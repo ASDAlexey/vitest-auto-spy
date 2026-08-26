@@ -16,7 +16,7 @@ identical API, with **RxJS** spies and **Angular / NestJS / React / Vue·Pinia /
 [![npm version](https://img.shields.io/npm/v/vitest-auto-spy?color=brightgreen&logo=npm)](https://www.npmjs.com/package/vitest-auto-spy)
 [![npm downloads](https://img.shields.io/npm/dm/vitest-auto-spy?color=brightgreen&logo=npm)](https://www.npmjs.com/package/vitest-auto-spy)
 [![CI](https://github.com/ASDAlexey/vitest-auto-spy/actions/workflows/ci.yml/badge.svg)](https://github.com/ASDAlexey/vitest-auto-spy/actions/workflows/ci.yml)
-[![minzipped size](https://img.shields.io/badge/minzip-5.7%20kB-brightgreen)](#install)
+[![minzipped size](https://img.shields.io/badge/minzip-6.2%20kB-brightgreen)](#install)
 [![types](https://img.shields.io/npm/types/vitest-auto-spy?logo=typescript&logoColor=white)](https://www.npmjs.com/package/vitest-auto-spy)
 [![coverage](https://img.shields.io/badge/coverage-100%25-brightgreen)](https://github.com/ASDAlexey/vitest-auto-spy/actions/workflows/ci.yml)
 [![license](https://img.shields.io/npm/l/vitest-auto-spy?color=blue)](./LICENSE)
@@ -33,7 +33,7 @@ identical API, with **RxJS** spies and **Angular / NestJS / React / Vue·Pinia /
 
 <br/>
 
-<img src="./assets/one-api-three-runtimes.svg" alt="One class-based API, three Vitest-compatible runtimes: Vitest, Bun and node:test" width="720" />
+<img src="./assets/one-api-three-runtimes.svg" alt="One class-based API — createSpyFromClass, or provideAutoSpy for Angular DI — across three Vitest-compatible runtimes: Vitest, Bun and node:test" width="720" />
 
 </div>
 
@@ -566,6 +566,7 @@ which re-exports the same `jest-auto-spies` API — the swap is identical, and y
 | jest-auto-spies                                                       | vitest-auto-spy                                            | Status       |
 | --------------------------------------------------------------------- | ---------------------------------------------------------- | ------------ |
 | `createSpyFromClass`                                                  | `createSpyFromClass`                                       | ✅ identical |
+| `methodsToSpyOn` (additive)                                           | `methodsToSpyOn` — additive since v2                       | ✅ identical |
 | `provideAutoSpy`                                                      | `provideAutoSpy`                                           | ✅ identical |
 | `calledWith` / `mustBeCalledWith`                                     | same                                                       | ✅ identical |
 | `calledWith(...).returnValue(v)`                                      | same — `.returnValue` **and** `.mockReturnValue` both work | ✅ identical |
@@ -584,13 +585,16 @@ Just make sure your tests run under Vitest, and (for Angular) that `TestBed` is 
 // 1. all methods (default)
 createSpyFromClass(MyService);
 
-// 2. only these methods
-createSpyFromClass(MyService, ['getName', 'getAge']);
+// 2. the discovered methods PLUS these names
+createSpyFromClass(MyService, ['reload', 'count']);
 
-// 3. full config object
+// 3. only these methods, discovery skipped
+createSpyFromClass(MyService, { onlyMethodsToSpyOn: ['getName', 'getAge'] });
+
+// 4. full config object
 createSpyFromClass(MyService, {
-  methodsToSpyOn: ['getName'],
-  instanceMethodsToSpyOn: ['count'], // callables that live on the instance, not the prototype
+  methodsToSpyOn: ['reload'], // added to the discovered methods (jest-auto-spies semantics)
+  instanceMethodsToSpyOn: ['count'], // the same thing, under a name that says what it is for
   observablePropsToSpyOn: ['products$'], // Observable *properties*
   gettersToSpyOn: ['userName'],
   settersToSpyOn: ['userName'],
@@ -601,11 +605,12 @@ createSpyFromClass(MyService, {
 
 `createSpyFromClass` discovers methods by walking the **prototype**, so a callable assigned on the
 instance is invisible to it — an arrow-function property, an Angular `signal()` / `computed()`
-field, a method of an ngrx `signalStore()`. Listing such a name in `methodsToSpyOn` is not the
-answer either: that option _restricts_ what gets spied, and the name is reported as a probable typo.
+field, a method of an ngrx `signalStore()`.
 
-Name them in `instanceMethodsToSpyOn` instead. They are **added** to whatever the method resolution
-produced, and never warn:
+Name them in `instanceMethodsToSpyOn`. They are **added** to whatever the method resolution
+produced, and never warn — being absent from the prototype is the point. Both lists behave
+identically: `methodsToSpyOn` is the same option under the name `jest-auto-spies` uses, kept so a
+migrated spec needs no edit.
 
 ```ts
 class SettingsService {
@@ -921,7 +926,7 @@ TestBed.configureTestingModule({
   providers: [
     provideAutoSpy(MyService),
     // accepts the same second argument as createSpyFromClass
-    provideAutoSpy(ApiService, { methodsToSpyOn: ['get', 'post'] }),
+    provideAutoSpy(ApiService, { onlyMethodsToSpyOn: ['get', 'post'] }),
   ],
 });
 
@@ -938,7 +943,7 @@ beforeEach(() => {
 > [`@analogjs/vite-plugin-angular`](https://www.npmjs.com/package/@analogjs/vite-plugin-angular)
 > plus a TestBed setup file (e.g. `@analogjs/vitest-angular`'s `setupTestBed()`).
 
-> **Lazy by default.** `provideAutoSpy` builds each method spy on first access
+> **Lazy by default, everywhere.** Every factory builds each method spy on first access
 > (`lazySpies: true`), since Angular tests typically spy a wide service but call
 > only a few of its methods — roughly **4× faster** spy assembly (≈8× on a
 > 20-method service). Behaviour is unchanged; pass `{ lazySpies: false }` to build
@@ -1111,6 +1116,19 @@ suite that wants the numbers without the per-file line.
 The clock is captured at import time, so a spec using `vi.useFakeTimers()` is still measured
 honestly rather than reported as free.
 
+### Which factory, and what it costs
+
+Reach for `provideAutoSpy` on Angular and `createSpyFromClass` everywhere else; use
+`createAutoMock<T>()` when there is no class at runtime (an interface, an ngrx `signalStore()`
+whose members live on the instance) and `createMock<T>(partial)` for a data shape the code only
+reads.
+
+None of it is worth optimising. On a ten-method class: `provideAutoSpy` ~8 µs per call,
+`createSpyFromClass` ~29 µs, `createAutoMock` ~33 µs, a `calledWith` lookup ~0.7 µs — five
+providers across two thousand tests come to under a tenth of a second for the whole suite.
+`provideAutoSpy` leads because it defaults to `lazySpies: true`, and prototype discovery is
+cached per class either way. Full numbers and the two settings that do cost something are in
+[Performance](https://asdalexey.github.io/vitest-auto-spy/core/performance).
 ## Utilities
 
 Beyond the spy factories, the package ships a set of small standalone helpers. Each one is a
@@ -1135,6 +1153,7 @@ single-purpose utility you can pick up independently — they all ride on the sa
 | `stubIntersectionObserver()` / `stubResizeObserver()` / `stubMutationObserver()` | core   | Replace an observer global with one the spec drives, restored automatically ([details](#observer-stubs))                          |
 | `intersectionEntry(target, isIntersecting, overrides?)` | core                  | Build one `IntersectionObserverEntry` without the fields nothing reads                                                           |
 | `mockSignalProp(obj, prop, initial)`               | `/angular`                    | Replace a signal-valued property with a real `WritableSignal`, and hand the writable handle back                                  |
+| `runEffect(effectRef)`                             | `/angular`                    | Run one `effect()` body on demand, for an effect whose trigger a spec replaced with a static signal                              |
 | `blockNetwork()`                                   | `/setup`                      | Reject every `fetch`, naming what was requested ([details](#test-run-hygiene))                                                    |
 | `restoreTimerGlobals()`                            | `/setup`                      | Put back timer globals that uninstalling the fakes deleted rather than restored                                                   |
 | `errorHandler`                                     | core                          | The `mustBeCalledWith` argument-mismatch reporter — swap it to customize failure output                                          |
@@ -1452,8 +1471,10 @@ also matches **asymmetric matchers** (`calledWith(expect.any(Number))`, `expect.
 **Spied Observable method / property:** `nextWith`, `nextOneTimeWith`, `nextWithValues`,
 `nextWithPerCall`, `throwWith`, `complete`, `returnSubject`
 
-**Config (`ClassSpyConfiguration`):** `methodsToSpyOn`, `instanceMethodsToSpyOn` (callables that
-live on the instance — `signal()` fields, arrow props, `signalStore()` methods), `observablePropsToSpyOn`,
+**Config (`ClassSpyConfiguration`):** `methodsToSpyOn` (added to the discovered methods),
+`onlyMethodsToSpyOn` (spy on nothing but these — discovery skipped), `instanceMethodsToSpyOn` (same
+as `methodsToSpyOn`, named for callables that live on the instance — `signal()` fields, arrow props,
+`signalStore()` methods), `observablePropsToSpyOn`,
 `gettersToSpyOn`, `settersToSpyOn`, `autoSpyAccessors` (discover every getter/setter),
 `lazySpies` (materialize method spies on first access — cheaper for wide classes; the `provideAutoSpy` default on Angular)
 

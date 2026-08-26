@@ -57,7 +57,7 @@ Providing more than one collaborator is a merge of the maps:
 ```ts
 const provide = {
   ...provideAutoSpy(UserServiceKey, UserService),
-  ...provideAutoSpy(CartKey, CartStore, { methodsToSpyOn: ['total', 'checkout'] }),
+  ...provideAutoSpy(CartKey, CartStore, { onlyMethodsToSpyOn: ['total', 'checkout'] }),
 };
 ```
 

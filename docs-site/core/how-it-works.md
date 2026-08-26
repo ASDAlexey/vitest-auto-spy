@@ -215,10 +215,10 @@ Everything else is scaffolding around those two ideas:
 
 ## One compatibility note
 
-The API is a drop-in replacement for `jest-auto-spies` — migration is a change of import. There is a
-single exception: here `methodsToSpyOn` is an **exhaustive whitelist** (give it a list and the
-prototype walk is skipped entirely), where in `jest-auto-spies` it was additive to whatever was
-discovered. See [Migrating](/migrating).
+The API is a drop-in replacement for `jest-auto-spies` — migration is a change of import, and that
+includes `methodsToSpyOn`, which is additive here exactly as it is there. Restricting to a list is a
+separate option, `onlyMethodsToSpyOn`, so the compatible name cannot quietly mean the opposite of
+what a migrated spec expects. See [Migrating](/migrating).
 
 ## Next
 

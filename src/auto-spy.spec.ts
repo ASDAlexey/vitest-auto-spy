@@ -97,13 +97,27 @@ describe('createSpyFromClass', () => {
     expect(vi.isMockFunction(spy.syncMethod)).toBe(true);
   });
 
-  // Restriction semantics (matching jest-auto-spies): when `methodsToSpyOn` is
-  // given, ONLY those methods are spied — other prototype methods are left out.
-  it('restricts spying to the listed methods only', () => {
+  // Additive semantics, matching `jest-auto-spies`: prototype discovery already finds every method,
+  // so a list only ever adds the callables discovery cannot see.
+  it('adds the listed names to the auto-discovered prototype methods', () => {
     const spy = createSpyFromClass(MyService, ['syncMethod']);
+    expect(vi.isMockFunction(spy.syncMethod)).toBe(true);
+    expect(vi.isMockFunction(spy.getObs)).toBe(true);
+    expect(vi.isMockFunction(spy.baseMethod)).toBe(true);
+  });
+
+  it('onlyMethodsToSpyOn restricts to the listed methods and drops the rest', () => {
+    const spy = createSpyFromClass(MyService, { onlyMethodsToSpyOn: ['syncMethod'] });
     expect(vi.isMockFunction(spy.syncMethod)).toBe(true);
     expect(vi.isMockFunction(spy.getObs)).toBe(false);
     expect(vi.isMockFunction(spy.baseMethod)).toBe(false);
+  });
+
+  it('onlyMethodsToSpyOn still takes the additive lists on top', () => {
+    const spy = createSpyFromClass(MyService, { onlyMethodsToSpyOn: ['syncMethod'], instanceMethodsToSpyOn: ['counter'] });
+    expect(vi.isMockFunction(spy.syncMethod)).toBe(true);
+    expect(vi.isMockFunction(spy.counter)).toBe(true);
+    expect(vi.isMockFunction(spy.getObs)).toBe(false);
   });
 
   it('accepts a config object', () => {
@@ -119,14 +133,19 @@ describe('createSpyFromClass', () => {
     expect(spy.accessorSpies.setters.theme).toBeDefined();
   });
 
-  it('warns when a requested method is absent from the prototype (but not when all exist)', () => {
+  it('warns about a name missing from the prototype only when the list restricts', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
 
-    createSpyFromClass(MyService, ['syncMethod', 'nope'] as unknown as ['syncMethod']);
+    createSpyFromClass(MyService, { onlyMethodsToSpyOn: ['syncMethod', 'nope'] as unknown as ['syncMethod'] });
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('nope'));
 
     warn.mockClear();
-    createSpyFromClass(MyService, ['syncMethod']);
+    createSpyFromClass(MyService, { onlyMethodsToSpyOn: ['syncMethod'] });
+    expect(warn).not.toHaveBeenCalled();
+
+    // An additive list naming something off the prototype is the documented way to reach an
+    // instance-assigned callable, so it must stay silent.
+    createSpyFromClass(MyService, ['syncMethod', 'nope'] as unknown as ['syncMethod']);
     expect(warn).not.toHaveBeenCalled();
 
     warn.mockRestore();
@@ -144,31 +163,30 @@ describe('createSpyFromClass', () => {
     expect(spy.counter()).toBe(42);
   });
 
-  it('instanceMethodsToSpyOn adds to an explicit methodsToSpyOn whitelist without warning', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-
-    const spy = createSpyFromClass(MyService, { methodsToSpyOn: ['syncMethod'], instanceMethodsToSpyOn: ['counter'] });
-
-    expect(vi.isMockFunction(spy.syncMethod)).toBe(true);
-    expect(vi.isMockFunction(spy.counter)).toBe(true);
-    // the whitelist still restricts the prototype side
-    expect(vi.isMockFunction(spy.getObs)).toBe(false);
-    expect(warn).not.toHaveBeenCalled();
-
-    warn.mockRestore();
-  });
-
-  it('does not warn about a name listed in both methodsToSpyOn and instanceMethodsToSpyOn', () => {
+  it('treats methodsToSpyOn and instanceMethodsToSpyOn as the same additive list', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
 
     const spy = createSpyFromClass(MyService, { methodsToSpyOn: ['counter'], instanceMethodsToSpyOn: ['counter'] });
 
     expect(vi.isMockFunction(spy.counter)).toBe(true);
+    expect(vi.isMockFunction(spy.syncMethod)).toBe(true);
     expect(warn).not.toHaveBeenCalled();
 
     warn.mockRestore();
   });
 
+  it('builds method spies lazily by default, and eagerly when asked', () => {
+    const lazy = createSpyFromClass(MyService);
+
+    // Untouched: an accessor placeholder, so nothing has been allocated for this method yet.
+    expect(Object.getOwnPropertyDescriptor(lazy, 'syncMethod')?.get).toBeTypeOf('function');
+    expect(vi.isMockFunction(lazy.syncMethod)).toBe(true);
+
+    const eager = createSpyFromClass(MyService, { lazySpies: false });
+    const descriptor = Object.getOwnPropertyDescriptor(eager, 'syncMethod');
+
+    expect(descriptor && 'value' in descriptor).toBe(true);
+  });
   it('lazySpies materializes method spies on first access, keeping enumeration', () => {
     const spy = createSpyFromClass(MyService, { lazySpies: true });
 

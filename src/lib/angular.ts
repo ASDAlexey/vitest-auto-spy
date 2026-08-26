@@ -14,26 +14,11 @@ import type { ClassSpyConfiguration, ClassType, OnlyMethodKeysOf, Spy } from './
 export type AngularValueProvider<T> = { provide: ClassType<T>; useValue: Spy<T> };
 
 /**
- * Angular tests typically spy a wide service but call only a handful of its
- * methods, so `provideAutoSpy` defaults to **lazy** spies: each method spy is
- * materialized on first access instead of eagerly up-front. On a 20-method
- * service where a test touches two, this is ~8× faster spy assembly. Any caller
- * form is honoured — pass `{ lazySpies: false }` to force the eager path.
- */
-function withLazyDefault<T>(methodsToSpyOnOrConfig?: ClassSpyConfiguration<T> | OnlyMethodKeysOf<T>[]): ClassSpyConfiguration<T> {
-  if (!methodsToSpyOnOrConfig) {
-    return { lazySpies: true };
-  }
-
-  if (Array.isArray(methodsToSpyOnOrConfig)) {
-    return { methodsToSpyOn: methodsToSpyOnOrConfig, lazySpies: true };
-  }
-
-  return { ...methodsToSpyOnOrConfig, lazySpies: methodsToSpyOnOrConfig.lazySpies ?? true };
-}
-
-/**
- * Shorthand Angular provider: `{ provide, useValue: createSpyFromClass(...) }` (lazy spies by default).
+ * Shorthand Angular provider: `{ provide, useValue: createSpyFromClass(...) }`.
+ *
+ * Method spies are lazy — materialized on first access rather than built up front — but that is the
+ * core default rather than something this wrapper adds; it used to force the flag on, and no longer
+ * needs to. Pass `{ lazySpies: false }` for the eager path.
  *
  * @example
  * ```ts
@@ -48,7 +33,7 @@ export function provideAutoSpy<T>(
 ): AngularValueProvider<T> {
   return {
     provide: ObjectClass,
-    useValue: createSpyFromClass(ObjectClass, withLazyDefault(methodsToSpyOnOrConfig)),
+    useValue: createSpyFromClass(ObjectClass, methodsToSpyOnOrConfig),
   };
 }
 

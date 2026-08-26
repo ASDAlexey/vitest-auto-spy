@@ -15,7 +15,7 @@ import { provideAutoSpy, injectSpy } from 'vitest-auto-spy/nestjs';
 const moduleRef = await Test.createTestingModule({
   providers: [
     provideAutoSpy(MyService),
-    provideAutoSpy(ApiService, { methodsToSpyOn: ['get', 'post'] }),
+    provideAutoSpy(ApiService, { onlyMethodsToSpyOn: ['get', 'post'] }),
   ],
 }).compile();
 

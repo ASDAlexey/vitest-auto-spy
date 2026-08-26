@@ -12,6 +12,7 @@ import type { ClassSpyConfiguration, ClassType, OnlyMethodKeysOf, Spy } from './
 /** All names to spy on, flattened from either form of the config argument. */
 interface ResolvedSpyConfiguration {
   methodsToSpyOn: string[];
+  onlyMethodsToSpyOn: string[];
   instanceMethodsToSpyOn: string[];
   observablePropsToSpyOn: string[];
   settersToSpyOn: string[];
@@ -28,12 +29,13 @@ interface AccessorNames {
 
 const EMPTY_CONFIGURATION: ResolvedSpyConfiguration = {
   methodsToSpyOn: [],
+  onlyMethodsToSpyOn: [],
   instanceMethodsToSpyOn: [],
   observablePropsToSpyOn: [],
   settersToSpyOn: [],
   gettersToSpyOn: [],
   autoSpyAccessors: false,
-  lazySpies: false,
+  lazySpies: true,
 };
 
 /** Own, non-getter method names of a single prototype object (excluding the constructor). */
@@ -126,12 +128,32 @@ function resolveAccessors(prototype: object, config: ResolvedSpyConfiguration): 
 }
 
 /**
- * Warn (without throwing) when a requested method name is absent from the class prototype — a
- * common "why isn't my spy called" source. Names declared as `instanceMethodsToSpyOn` are exempt:
- * they are expected to be missing from the prototype.
+ * Which names end up as method spies.
+ *
+ * `onlyMethodsToSpyOn` replaces prototype discovery; everything else adds to it. The two additive
+ * lists — `methodsToSpyOn` and `instanceMethodsToSpyOn` — behave identically and differ only in what
+ * their names tell a reader, so they are merged without ceremony.
  */
-function warnOnUnknownMethods(ObjectClass: ClassType<unknown>, requested: string[], instanceMethods: string[]): void {
-  const available = new Set([...getAllMethodNames(ObjectClass.prototype), ...instanceMethods]);
+function resolveMethodNames<T>(ObjectClass: ClassType<T>, config: ResolvedSpyConfiguration): string[] {
+  const base = config.onlyMethodsToSpyOn.length > 0 ? config.onlyMethodsToSpyOn : getAllMethodNames(ObjectClass.prototype);
+
+  // The overwhelmingly common call is `provideAutoSpy(Service)` with no lists at all, once per
+  // `beforeEach`. Returning the cached array untouched keeps that path allocation-free — building a
+  // `Set` to merge two empty arrays would undo the per-prototype cache it just read from.
+  if (config.methodsToSpyOn.length === 0 && config.instanceMethodsToSpyOn.length === 0) {
+    return base;
+  }
+
+  return [...new Set([...base, ...config.methodsToSpyOn, ...config.instanceMethodsToSpyOn])];
+}
+
+/**
+ * Warn (without throwing) when a name in a *restricting* list is absent from the class prototype.
+ * Under `onlyMethodsToSpyOn` a typo does not just add a useless spy — it leaves the real method
+ * unspied, and the code under test then calls something that is not there.
+ */
+function warnOnUnknownMethods(ObjectClass: ClassType<unknown>, requested: string[]): void {
+  const available = new Set(getAllMethodNames(ObjectClass.prototype));
   const unknown = requested.filter((name) => !available.has(name));
 
   if (unknown.length === 0) {
@@ -143,10 +165,11 @@ function warnOnUnknownMethods(ObjectClass: ClassType<unknown>, requested: string
   // eslint-disable-next-line no-console -- intentional dev-time misconfiguration warning; console.warn is allowed per CLAUDE.md.
   console.warn(
     withDocs(
-      `[vitest-auto-spy] createSpyFromClass(${ObjectClass.name}): requested method(s) not found on the class prototype: ` +
-        `${unknown.join(', ')}. A spy was still created, but the real code will never call it — check for typos. ` +
-        `A callable that lives on the instance (an arrow property, a signal() field, an ngrx signalStore() method) ` +
-        `is invisible to prototype discovery: list it in \`instanceMethodsToSpyOn\` instead.`,
+      `[vitest-auto-spy] createSpyFromClass(${ObjectClass.name}): onlyMethodsToSpyOn names method(s) that are not on ` +
+        `the class prototype: ${unknown.join(', ')}. A spy was created for each, but the real code will never call ` +
+        `it — check for typos. If the callable lives on the instance (an arrow property, a signal() field, an ngrx ` +
+        `signalStore() method), prototype discovery cannot see it: name it in \`instanceMethodsToSpyOn\`, which adds ` +
+        `to the discovered methods instead of replacing them.`,
       DOCS_LINKS.createSpyFromClass,
     ),
   );
@@ -194,12 +217,13 @@ function resolveConfiguration<T>(methodsToSpyOnOrConfig?: ClassSpyConfiguration<
 
   return {
     methodsToSpyOn: methodsToSpyOnOrConfig.methodsToSpyOn ?? [],
+    onlyMethodsToSpyOn: methodsToSpyOnOrConfig.onlyMethodsToSpyOn ?? [],
     instanceMethodsToSpyOn: methodsToSpyOnOrConfig.instanceMethodsToSpyOn ?? [],
     observablePropsToSpyOn: methodsToSpyOnOrConfig.observablePropsToSpyOn ?? [],
     settersToSpyOn: methodsToSpyOnOrConfig.settersToSpyOn ?? [],
     gettersToSpyOn: methodsToSpyOnOrConfig.gettersToSpyOn ?? [],
     autoSpyAccessors: methodsToSpyOnOrConfig.autoSpyAccessors ?? false,
-    lazySpies: methodsToSpyOnOrConfig.lazySpies ?? false,
+    lazySpies: methodsToSpyOnOrConfig.lazySpies ?? true,
   };
 }
 
@@ -223,16 +247,14 @@ export function createSpyFromClass<T>(
 ): Spy<T> {
   const config = resolveConfiguration(methodsToSpyOnOrConfig);
 
-  // When an explicit `methodsToSpyOn` list is given, restrict to it (matching
-  // `jest-auto-spies`); otherwise auto-discover every prototype method. Either way,
-  // `instanceMethodsToSpyOn` is added on top: those callables sit on the instance, so no amount of
-  // prototype walking would find them.
-  const resolvedMethods = config.methodsToSpyOn.length > 0 ? config.methodsToSpyOn : getAllMethodNames(ObjectClass.prototype);
-  const methodNames =
-    config.instanceMethodsToSpyOn.length > 0 ? [...new Set([...resolvedMethods, ...config.instanceMethodsToSpyOn])] : resolvedMethods;
+  const methodNames = resolveMethodNames(ObjectClass, config);
 
-  if (config.methodsToSpyOn.length > 0) {
-    warnOnUnknownMethods(ObjectClass, config.methodsToSpyOn, config.instanceMethodsToSpyOn);
+  // Only a restricting list can be silently wrong: a misspelled name there replaces the real method
+  // with nothing, and the failure surfaces as `… is not a function` inside the code under test. In
+  // an additive list a typo merely creates a spy nobody calls, which is what `jest-auto-spies` has
+  // always done and not worth a warning.
+  if (config.onlyMethodsToSpyOn.length > 0) {
+    warnOnUnknownMethods(ObjectClass, config.onlyMethodsToSpyOn);
   }
 
   const autoSpy: Record<string, unknown> = {};
