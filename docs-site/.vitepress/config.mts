@@ -98,6 +98,7 @@ export default defineConfig({
         items: [
           { text: 'Introduction', link: '/core/introduction' },
           { text: 'Installation', link: '/core/installation' },
+          { text: 'How it works', link: '/core/how-it-works' },
           { text: 'createSpyFromClass', link: '/core/create-spy-from-class' },
           { text: 'Control helpers', link: '/core/control-helpers' },
           { text: 'Auto-mock by type', link: '/core/auto-mock-by-type' },

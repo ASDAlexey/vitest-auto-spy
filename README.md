@@ -352,6 +352,10 @@ What it **won't** auto-discover — by design, because these aren't prototype me
   (methods), not state. To mock by type including properties, use
   [`createAutoMock`](#auto-mock-by-type-no-class-needed).
 
+For the full walkthrough of the two ideas the library is built on — the prototype-chain walk and
+the conditional types that pick helpers from a return type — see
+[How it works](https://asdalexey.github.io/vitest-auto-spy/core/how-it-works).
+
 ## Entry points & runtimes
 
 The library ships a framework-agnostic core plus runtime and framework layers, so a plain
