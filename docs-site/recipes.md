@@ -99,14 +99,17 @@ mockReadonlyProp(component, 'host', signal({ nativeElement: element }));
 
 `mockReadonlyProp(target, key, signal(value))` is the workhorse — a real signal, so anything
 `computed()` downstream of it recomputes correctly, which a `vi.fn()` returning a value would not do.
-For a value that has to change during the test, keep the signal and `.set()` it:
+For a value that has to change during the test, `mockSignalProp` is that pair in one call and hands
+back the writable half:
 
 ```ts
-const selected = signal(false);
+const selected = mockSignalProp(component, 'selected', false);
 
-mockReadonlyProp(component, 'selected', selected);
 selected.set(true); // every computed reading it updates
 ```
+
+It also removes the temptation to reach for `component.selected` and call `.set` on it — `Signal<T>`
+has no `set`, so that only type-checks behind an assertion.
 
 Use `mockReadonlyPropGetter` when the value must be recomputed on each read rather than replaced, and
 `mockValueProp` for an ordinary writable field.
@@ -215,6 +218,36 @@ expect(component.icon()).toBe('favouritesFilled');
 so an assertion right after it reads state that has not finished computing. `flushEffects()` is the
 no-fixture half, for services and stores.
 
+When the effect will never go dirty on its own — because its trigger is now a static signal —
+`runEffect` runs that one body directly:
+
+```ts
+runEffect(component.highlightEffect); // current signal values, no scheduler involved
+```
+
+## Observers the component constructs itself
+
+`IntersectionObserver`, `ResizeObserver` and `MutationObserver` are built inside the code under test
+and kept private, so the only handle a spec has is the global constructor. Replacing it by hand goes
+wrong twice: the stub is never taken off (and the next file inherits it under `isolate: false`), and
+the instance is reached through a `static last` that outlives the spec just as badly.
+
+```ts
+import { intersectionEntry, stubIntersectionObserver } from 'vitest-auto-spy';
+
+const observers = stubIntersectionObserver();
+
+fixture.detectChanges(); // the directive constructs its observer
+
+observers.last.emit([intersectionEntry(fixture.nativeElement, true)]);
+await fixture.whenStable();
+```
+
+The stub installs through `mockValueProp`, so `restoreMockedProps()` — which `setupAutoSpy()`
+already runs — puts the real constructor back. `emit()` takes a **batch**, because a fast scroll
+delivers several entries in one call and code assuming one entry per call is a real bug worth
+reaching.
+
 ## Timers that outlive their file
 
 This one only appears at scale, and it appears as a failure in an **innocent** file.
@@ -251,6 +284,30 @@ afterAll(() => cancelStrayTimers()); // …or just sweep, and log the count it r
 ```
 
 If you are on `isolate: false`, assume you need this before you need it.
+
+## A green run that still exits 1
+
+happy-dom implements `fetch`; jsdom does not. Move a suite from one to the other and a component
+that pulls a remote asset starts issuing real requests. Nothing asserts on them, so every test still
+passes — and then the runner tears the environment down, the in-flight requests abort, and the
+aborts arrive as unhandled rejections *after* the summary:
+
+```text
+ Test Files  260 passed (260)
+      Tests  2257 passed (2257)
+
+Vitest caught 8 unhandled errors during the test run.
+DOMException [AbortError]: The operation was aborted.
+```
+
+Exit code 1, and no test named — because no test failed.
+
+```ts
+setupAutoSpy({ blockNetwork: true });
+```
+
+`fetch` then rejects immediately, naming the URL that was requested, and the code under test takes
+exactly the branch it would take for a failed request.
 
 ## Fake timers
 
@@ -298,7 +355,7 @@ and the assertion then runs against a spy that never intercepted the call.
 | `source$.subscribe(v => expect(v).toBe(1))`                    | `await expect(expectEmission(source$)).resolves.toBe(1)`       |
 | `expect(component.total).toBeTruthy()` on a signal             | `expect(component.total).toHaveSignalValue(3)`                 |
 | `configureTestingModule` inside every `it()`                   | one per `describe`                                             |
-| `methodsToSpyOn` used to *add* a method                        | omit it, or use `instanceMethodsToSpyOn`                       |
+| `methodsToSpyOn` used to *restrict* the set                    | `onlyMethodsToSpyOn` restricts; `methodsToSpyOn` adds           |
 
 The first three are enforceable — [the ESLint plugin](/utilities/eslint-plugin) has a rule for each.
 Scope it to spec files: an object of `vi.fn()`s is perfectly reasonable in application code.

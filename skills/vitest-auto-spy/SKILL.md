@@ -1,6 +1,6 @@
 ---
 name: vitest-auto-spy
-description: Write or fix tests that use vitest-auto-spy — typed spies generated from a class or a type on Vitest, bun:test and node:test. Use when a spec imports `vitest-auto-spy` (or a subpath such as `/angular`, `/bun`, `/bun-angular`, `/node`, `/rxjs`, `/nestjs`, `/vue`, `/react`, `/svelte`, `/console`, `/setup`, `/eslint-plugin`), when the user mentions createSpyFromClass, createAutoMock, createMock, mockDeep, provideAutoSpy, injectSpy, renderShallow, createWithAutoSpies, expectEmission, Spy<T>, calledWith, mustBeCalledWith, resolveWith or nextWith, when migrating a suite off jest-auto-spies, or when a test fails with "No mock adapter registered", "Observable spies require rxjs", "not found on the class prototype", or "Spy<T> is not assignable".
+description: Write or fix tests that use vitest-auto-spy — typed spies generated from a class or a type on Vitest, bun:test and node:test. Use when a spec imports `vitest-auto-spy` (or a subpath such as `/angular`, `/bun`, `/bun-angular`, `/node`, `/rxjs`, `/nestjs`, `/vue`, `/react`, `/svelte`, `/console`, `/setup`, `/eslint-plugin`), when the user mentions createSpyFromClass, createAutoMock, createMock, mockDeep, provideAutoSpy, injectSpy, renderShallow, createWithAutoSpies, expectEmission, mockSignalProp, runEffect, mockReadonlyProp, stubIntersectionObserver, stubResizeObserver, stubMutationObserver, setupAutoSpy, blockNetwork, trackStrayTimers, Spy<T>, calledWith, mustBeCalledWith, onlyMethodsToSpyOn, instanceMethodsToSpyOn, observablePropsToSpyOn, resolveWith or nextWith, when migrating a suite off jest-auto-spies, or when a test fails with "No mock adapter registered", "Observable spies require rxjs", "not found on the class prototype", or "Spy<T> is not assignable".
 ---
 
 # vitest-auto-spy
@@ -94,12 +94,25 @@ it('loads', async () => {
 });
 ```
 
+## Reach for these before hand-rolling
+
+| Situation                                                   | Helper                                                     |
+| ------------------------------------------------------------ | ----------------------------------------------------------- |
+| a `signal()` / `computed()` field on the class under test    | `mockSignalProp(obj, prop, initial)` — returns the writable |
+| an `effect()` whose trigger is now a static signal           | `runEffect(effectRef)`                                      |
+| the component constructs its own `IntersectionObserver`      | `stubIntersectionObserver()` (+ `Resize` / `Mutation`)      |
+| a green run exiting 1 with `AbortError` under happy-dom      | `setupAutoSpy({ blockNetwork: true })`                      |
+| timers or frames from a previous file failing this one       | `setupAutoSpy({ strayTimers: true })`                       |
+| `Cannot read properties of undefined (reading 'now')`        | `restoreTimerGlobals` — on by default                       |
+| a spy handed to an API typed against the real class          | `asInstance()` / `asSpy()`                                  |
+
 ## Rules that prevent most of the mistakes
 
 - Declare the variable as **`Spy<T>`, never as `T`** — `Spy<T>` is a mapped type and drops private
   members. Bridge with `asInstance()` / `asSpy()`, never with `as unknown as T`.
-- **`methodsToSpyOn` is an exhaustive whitelist**, not an addition. Omitting it is usually right.
-  For a callable that is an instance field (arrow property, `signal()`, ngrx `signalStore()`), use
+- **`methodsToSpyOn` **adds** to the discovered prototype methods**, as in `jest-auto-spies`;
+  `onlyMethodsToSpyOn` is the exhaustive whitelist. Omitting both is usually right. For a callable
+  that is an instance field (arrow property, `signal()`, ngrx `signalStore()`), use
   `instanceMethodsToSpyOn` — prototype discovery cannot see it.
 - **Never `Object.defineProperty` in a spec.** Use `mockReadonlyProp` / `mockValueProp` /
   `mockAccessorsProp`, which `restoreMockedProps()` can undo (`vi.restoreAllMocks()` cannot).

@@ -39,6 +39,10 @@ features:
     title: Angular TestBed on Bun
     details: Bun ships no DOM and cannot resolve templateUrl, so Angular specs simply do not run there. One preload installs a DOM, inlines external templates and styles through a Bun.plugin hook, and boots a zoneless TestBed.
     link: /runtimes/bun-angular
+  - icon: 🧭
+    title: Signals a spec can drive
+    details: mockSignalProp replaces a signal-valued property with a real WritableSignal and hands back the writable half, so a computed downstream recomputes and an effect runs. runEffect() runs one effect body on demand when its trigger is now static.
+    link: /adapters/angular
   - icon: ⚡
     title: Faster Angular specs
     details: renderShallow collapses the shallow-TestBed copy-paste into one call (1.7× on real component specs), createWithAutoSpies builds a class through DI with every unprovided token spied, and per-file diagnostics say which specs are worth converting.
@@ -52,9 +56,21 @@ features:
     details: setupFakeTimers() pairs install with restore, and advanceTimers() drains the microtasks a bare advanceTimersByTime leaves pending — the gap that makes a timer assertion read like a race.
     link: /utilities/fake-timers
   - icon: 📏
-    title: Lint rules and hygiene
-    details: Five ESLint rules steer a suite onto these helpers, each linking to its recipe, and setupAutoSpy() wires property restore, duplicate-copy detection and mock-registry hygiene in one line.
+    title: Lint rules that steer a suite
+    details: Five ESLint rules point a suite at these helpers, each message linking to its recipe. Two of them catch a test being wrong rather than verbose — an expect() inside subscribe() that never runs, and an Object.defineProperty nothing restores.
     link: /utilities/eslint-plugin
+  - icon: 🧹
+    title: Hygiene for a shared environment
+    details: One setupAutoSpy() call covers what isolate false breaks — property restore, duplicate-install detection, timers and animation frames that outlive their file, fetch that keeps a green run exiting 1, and timer globals the fakes delete instead of restoring.
+    link: /utilities/setup
+  - icon: 👁️
+    title: Observers a component builds itself
+    details: stubIntersectionObserver, stubResizeObserver and stubMutationObserver replace the global the code under test constructs, hand the spec the instance, and are taken off again by restoreMockedProps — no static last, no stub inherited by the next file.
+    link: /utilities/observer-stubs
+  - icon: 🤖
+    title: Readable by your agent, not just by you
+    details: An AGENTS.md ships inside the tarball for offline reading, llms.txt and llms-full.txt sit at the docs root, a Claude Code skill installs from the repo, and every error message ends with a link to the page that explains it.
+    link: /agents
   - icon: 📦
     title: Zero runtime deps
     details: An in-tree arg serializer and opt-in subpaths keep rxjs and Angular out of your runtime bundle. 100% test coverage, verified on Node 22/24/26 and Bun 1.4.
