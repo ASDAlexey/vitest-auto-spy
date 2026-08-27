@@ -10,6 +10,10 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+_Nothing yet._
+
+## [3.0.0] - 2026-08-26
+
 ### BREAKING CHANGES
 
 - **The `vitest` peer range is now `>=2.1.0`** (was `>=1.0.0`). The typed
@@ -20,6 +24,81 @@ The latest released version here must always match the one published on
   shipped code changes: there are no version branches to delete, so `dist/` size, runtime and memory
   are untouched — this is the supported range catching up with what the types actually require.
   Vitest 1 users: upgrade Vitest, or stay on `vitest-auto-spy@2.0.x`.
+
+## [2.0.3] - 2026-08-26
+
+### Changed
+
+- **A spy no longer allocates its `calledWith` machinery until something configures it.** Every
+  function spy used to be born with two `calledWith` chains — an object plus an argument map each —
+  and the overwhelming majority of spies never configure either. They are now built on first use, so
+  a materialised spy sheds ~560 B: 2000 spies over a 40-method class drop from 417.3 MB to 372.7 MB
+  of heap, about 11%. Nothing changes when a spec does use `calledWith`; the chain is then built
+  exactly as before. `resetAutoSpy()` now drops the chains instead of replacing them with empty maps,
+  so a reset spy is back to a fresh spy's footprint. On the dispatch path the same change removed a
+  `{ found, value }` object that was allocated on every call of a configured spy purely to carry a
+  boolean — an object argument matches in 2.64 µs instead of 2.82 µs.
+
+### Fixed
+
+- **`require('vitest-auto-spy/node')` was handed ESM type declarations.** The two subpaths that ship
+  CommonJS listed a single `types` key for both conditions, pointing at the `.d.ts`. In a
+  `"type": "module"` package that makes TypeScript's `node16` resolution read an ESM declaration file
+  for a CommonJS import and report the types as masquerading — while the emitted `.d.cts` files were
+  published and referenced by nothing. Both subpaths now carry per-condition `types`.
+
+## [2.0.2] - 2026-08-26
+
+### Fixed
+
+- **The release workflow tagged a version it never published.** `npm version` was called inside a
+  command substitution to read the new number back, but this package defines a `version` lifecycle
+  script, so npm printed that script's banner (`> vitest-auto-spy@x.y.z version`) before the tag
+  name. The multi-line `key=value` that produced was rejected by `$GITHUB_OUTPUT` with
+  `Invalid format '> version'` — and the step failed *after* `git push --follow-tags` had already
+  run. v1.13.0, v2.0.0 and v2.0.1 were therefore tagged on GitHub while the publish and release steps
+  never ran, leaving npm on 1.12.0. The version is now read back from `package.json`, the way the
+  publish step already did.
+
+## [2.0.1] - 2026-08-26
+
+### Changed
+
+- **The published package is roughly half the size** — `dist/` 625 kB → 241 kB, tarball 187 kB →
+  108 kB, 74 files → 54. CommonJS now ships only for `vitest-auto-spy/node` and
+  `vitest-auto-spy/eslint-plugin`; every other subpath is ESM-only. Nothing that worked stopped
+  working, because the removed output could not be loaded in the first place: Vitest refuses to be
+  required (`Vitest cannot be imported in a CommonJS module using require()`), so eight of the twelve
+  `.cjs` files threw on their own first line. The four that did load were not usable together
+  either — esbuild cannot code-split CommonJS, so each `.cjs` carried a private copy of the
+  `MockAdapter` / `ObservableSupport` registries and `require('vitest-auto-spy/rxjs')` alongside
+  `require('vitest-auto-spy/node')` still failed with "Observable spies require rxjs". The two
+  survivors are the two that are self-contained and genuinely reachable: a `node --test` suite
+  written in CJS, and a CommonJS `eslint.config.cjs`. Separately, `bun-angular` moved into the same
+  ESM pass as every other entry, so it shares the emitted chunks instead of inlining its own copy of
+  the core (45 kB → 8 kB of JS, 43 kB → 7 kB of types). Subpaths that lost their `require` condition
+  resolve through `default`, so a bundler asking for `require` still finds the ESM file rather than
+  failing resolution.
+
+### Fixed
+
+- **`vitest.shared-env.config.mts` carried configuration Vitest 4 ignores.** It set
+  `poolOptions: { threads: { singleThread: true } }`; `test.poolOptions` was removed in Vitest 4,
+  which logged `was removed in Vitest 4` on every run and dropped it. The top-level
+  `fileParallelism: false` already forces `maxWorkers` to 1, so the shared-environment run was
+  correct — it just also printed a deprecation on every invocation.
+
+- **The benchmark compared the lazy spy path against itself.** `bench/auto-spy.bench.ts` wrote its
+  "eager" case as `createSpyFromClass(WideService)` with no configuration, and `lazySpies` defaults
+  to `true` — so both branches were lazy and the reported "1.79x faster than lazy" was noise
+  (±84% rme) guarding nothing. It now passes `lazySpies` explicitly on both sides and sweeps class
+  width against how many methods a test actually calls, which is the trade the default is making.
+  Measured that way, lazy wins from 1.8× (10 methods, 2 called) to 7× (40 methods, 3 called) and
+  gives back ~10% only when a single test calls every method.
+
+## [2.0.0] - 2026-08-26
+
+### BREAKING CHANGES
 
 - **`methodsToSpyOn` now adds instead of restricting**, which is what `jest-auto-spies` always did
   and what this library documented itself as being compatible with. Up to v1 an explicit list
@@ -67,6 +146,8 @@ The latest released version here must always match the one published on
   prototype does not have is the documented way to reach an instance-assigned callable, so warning
   about it would fire on correct code. Under a restricting list the same typo is destructive — it
   leaves the real method unspied — so that is where the warning belongs.
+
+## [1.13.0] - 2026-08-26
 
 ### Added
 
@@ -157,69 +238,7 @@ The latest released version here must always match the one published on
 - **`restoreTimerGlobals()` / `getWatchedTimerGlobals()`** _(`/setup`)_, wired into `setupAutoSpy()`
   by default and into `setupFakeTimers()` unconditionally.
 
-### Fixed
-
-- **`require('vitest-auto-spy/node')` was handed ESM type declarations.** The two subpaths that ship
-  CommonJS listed a single `types` key for both conditions, pointing at the `.d.ts`. In a
-  `"type": "module"` package that makes TypeScript's `node16` resolution read an ESM declaration file
-  for a CommonJS import and report the types as masquerading — while the emitted `.d.cts` files were
-  published and referenced by nothing. Both subpaths now carry per-condition `types`.
-- **`vitest.shared-env.config.mts` carried configuration Vitest 4 ignores.** It set
-  `poolOptions: { threads: { singleThread: true } }`; `test.poolOptions` was removed in Vitest 4,
-  which logged `was removed in Vitest 4` on every run and dropped it. The top-level
-  `fileParallelism: false` already forces `maxWorkers` to 1, so the shared-environment run was
-  correct — it just also printed a deprecation on every invocation.
-- **The benchmark compared the lazy spy path against itself.** `bench/auto-spy.bench.ts` wrote its
-  "eager" case as `createSpyFromClass(WideService)` with no configuration, and `lazySpies` defaults
-  to `true` — so both branches were lazy and the reported "1.79x faster than lazy" was noise
-  (±84% rme) guarding nothing. It now passes `lazySpies` explicitly on both sides and sweeps class
-  width against how many methods a test actually calls, which is the trade the default is making.
-  Measured that way, lazy wins from 1.8× (10 methods, 2 called) to 7× (40 methods, 3 called) and
-  gives back ~10% only when a single test calls every method.
-- **`setupFakeTimers()` no longer breaks a later file.** Two bugs in one helper. Its hooks were
-  unguarded, so a suite that drives the clock itself — or a nested `describe` calling the helper
-  again — reached a second `vi.useRealTimers()`, which leaves the environment without `clearInterval`
-  and explodes during teardown of whichever file runs next. And uninstalling does not restore a
-  global that was not an own property of the global object: under happy-dom `Date` is inherited from
-  the realm, so `vi.useRealTimers()` **deletes** it, and with `isolate: false` the next file dies
-  inside Vitest's own `useFakeTimers` with `Cannot read properties of undefined (reading 'now')`,
-  naming a file that never touched a timer. Both hooks are now guarded, and the real globals —
-  captured at import time, before any spec can fake them — are put back after each test. Only what
-  went missing is restored, so a replacement a spec installed on purpose is left alone.
-- **`calledWith` no longer depends on the order an object literal was written in.** Argument matching
-  builds a serialized key, and object keys went into it in insertion order — so
-  `calledWith({ id: 1, name: 'a' })` did not match a call made with `{ name: 'a', id: 1 }`. The spy
-  answered `undefined` and nothing in the failure pointed at the cause. Keys are now sorted at every
-  depth, which also makes `mustBeCalledWith` mismatch messages stable rather than dependent on
-  construction order. Array order is untouched — there the order is the value.
-
 ### Changed
-
-- **A spy no longer allocates its `calledWith` machinery until something configures it.** Every
-  function spy used to be born with two `calledWith` chains — an object plus an argument map each —
-  and the overwhelming majority of spies never configure either. They are now built on first use, so
-  a materialised spy sheds ~560 B: 2000 spies over a 40-method class drop from 417.3 MB to 372.7 MB
-  of heap, about 11%. Nothing changes when a spec does use `calledWith`; the chain is then built
-  exactly as before. `resetAutoSpy()` now drops the chains instead of replacing them with empty maps,
-  so a reset spy is back to a fresh spy's footprint. On the dispatch path the same change removed a
-  `{ found, value }` object that was allocated on every call of a configured spy purely to carry a
-  boolean — an object argument matches in 2.64 µs instead of 2.82 µs.
-
-- **The published package is roughly half the size** — `dist/` 625 kB → 241 kB, tarball 187 kB →
-  108 kB, 74 files → 54. CommonJS now ships only for `vitest-auto-spy/node` and
-  `vitest-auto-spy/eslint-plugin`; every other subpath is ESM-only. Nothing that worked stopped
-  working, because the removed output could not be loaded in the first place: Vitest refuses to be
-  required (`Vitest cannot be imported in a CommonJS module using require()`), so eight of the twelve
-  `.cjs` files threw on their own first line. The four that did load were not usable together
-  either — esbuild cannot code-split CommonJS, so each `.cjs` carried a private copy of the
-  `MockAdapter` / `ObservableSupport` registries and `require('vitest-auto-spy/rxjs')` alongside
-  `require('vitest-auto-spy/node')` still failed with "Observable spies require rxjs". The two
-  survivors are the two that are self-contained and genuinely reachable: a `node --test` suite
-  written in CJS, and a CommonJS `eslint.config.cjs`. Separately, `bun-angular` moved into the same
-  ESM pass as every other entry, so it shares the emitted chunks instead of inlining its own copy of
-  the core (45 kB → 8 kB of JS, 43 kB → 7 kB of types). Subpaths that lost their `require` condition
-  resolve through `default`, so a bundler asking for `require` still finds the ESM file rather than
-  failing resolution.
 
 - **Every error and warning now ends with `Docs: <url>`** — a stack trace is read far more often than
   a README, by a person at 2am and by an agent on every failed run, and a message that names its own
@@ -239,6 +258,26 @@ The latest released version here must always match the one published on
   decide whether it gets `resolveWith`, `nextWith` or `mockReturnValue`. It also names the single
   `as` in the core and explains why it cannot be removed. Sits in Core between `Installation` and
   `createSpyFromClass`; the README's short "How it works (and what it won't spy)" links to it.
+
+### Fixed
+
+- **`calledWith` no longer depends on the order an object literal was written in.** Argument matching
+  builds a serialized key, and object keys went into it in insertion order — so
+  `calledWith({ id: 1, name: 'a' })` did not match a call made with `{ name: 'a', id: 1 }`. The spy
+  answered `undefined` and nothing in the failure pointed at the cause. Keys are now sorted at every
+  depth, which also makes `mustBeCalledWith` mismatch messages stable rather than dependent on
+  construction order. Array order is untouched — there the order is the value.
+
+- **`setupFakeTimers()` no longer breaks a later file.** Two bugs in one helper. Its hooks were
+  unguarded, so a suite that drives the clock itself — or a nested `describe` calling the helper
+  again — reached a second `vi.useRealTimers()`, which leaves the environment without `clearInterval`
+  and explodes during teardown of whichever file runs next. And uninstalling does not restore a
+  global that was not an own property of the global object: under happy-dom `Date` is inherited from
+  the realm, so `vi.useRealTimers()` **deletes** it, and with `isolate: false` the next file dies
+  inside Vitest's own `useFakeTimers` with `Cannot read properties of undefined (reading 'now')`,
+  naming a file that never touched a timer. Both hooks are now guarded, and the real globals —
+  captured at import time, before any spec can fake them — are put back after each test. Only what
+  went missing is restored, so a replacement a spec installed on purpose is left alone.
 
 ## [1.12.0] - 2026-08-26
 
@@ -722,7 +761,13 @@ The latest released version here must always match the one published on
   `mockAccessorsProp`.
 - Dual ESM + CJS build with type declarations; 100% test coverage.
 
-[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v1.12.0...HEAD
+[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v3.0.0...HEAD
+[3.0.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v2.0.3...v3.0.0
+[2.0.3]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v2.0.2...v2.0.3
+[2.0.2]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v2.0.1...v2.0.2
+[2.0.1]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v2.0.0...v2.0.1
+[2.0.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v1.13.0...v2.0.0
+[1.13.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v1.12.0...v1.13.0
 [1.12.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v1.11.0...v1.12.0
 [1.11.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v1.10.0...v1.11.0
 [1.10.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v1.9.3...v1.10.0
