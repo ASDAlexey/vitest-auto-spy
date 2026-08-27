@@ -18,6 +18,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # tags, so the release notes can link the previous version
 
       - uses: actions/setup-node@v4
         with:
@@ -49,7 +51,9 @@ jobs:
           if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
             echo "Release ${GITHUB_REF_NAME} already exists — skipping."
           else
-            gh release create "${GITHUB_REF_NAME}" --generate-notes --latest
+            # Same notes as the auto-release path — see scripts/release-notes.mjs.
+            node scripts/release-notes.mjs "${GITHUB_REF_NAME}" --out "${RUNNER_TEMP}/release-notes.md"
+            gh release create "${GITHUB_REF_NAME}" --title "${GITHUB_REF_NAME}" --notes-file "${RUNNER_TEMP}/release-notes.md" --latest
           fi
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

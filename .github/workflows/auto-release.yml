@@ -144,7 +144,12 @@ jobs:
           if gh release view "$TAG" >/dev/null 2>&1; then
             echo "Release ${TAG} already exists — skipping."
           else
-            gh release create "$TAG" --generate-notes --latest
+            # Notes come from CHANGELOG.md. `--generate-notes` cannot help here: this repository
+            # pushes straight to master, so there are no pull requests for GitHub to list and the
+            # generated body is a bare "Full Changelog" link. The script falls back to grouped
+            # Conventional Commits when the changelog has no section for this version yet.
+            node scripts/release-notes.mjs "$TAG" --out "${RUNNER_TEMP}/release-notes.md"
+            gh release create "$TAG" --title "$TAG" --notes-file "${RUNNER_TEMP}/release-notes.md" --latest
           fi
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -170,6 +170,7 @@
     "llms:check": "node scripts/generate-llms-txt.mjs --check",
     "plugin:sync": "node scripts/sync-plugin-version.mjs",
     "plugin:sync:check": "node scripts/sync-plugin-version.mjs --check",
+    "release:notes": "node scripts/release-notes.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
