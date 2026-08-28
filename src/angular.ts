@@ -17,7 +17,11 @@ import { useVitestAdapter } from './lib/use-vitest-adapter';
 
 useVitestAdapter();
 
-export { injectSpy, provideAutoSpy, type AngularValueProvider } from './lib/angular';
+export { injectSpy, provideAutoSpy, provideAutoSpyForToken, type AngularTokenProvider, type AngularValueProvider } from './lib/angular';
+export { assertNgModuleScopes, overrideAutoSpy, overrideComponentProvider, type AutoSpyOverride } from './lib/angular-overrides';
+export { setupAngularTestEnv, type AngularTestEnvMode, type AngularTestEnvOptions } from './lib/angular-test-env';
+export { createDirectiveHost, type DirectiveHostOptions } from './lib/directive-host';
+export { registerDirectiveMatchers } from './lib/directive-matchers';
 
 export {
   mockAccessorsProp,
