@@ -1,7 +1,7 @@
 {
   "name": "vitest-auto-spy",
   "version": "3.0.0",
-  "description": "Auto-generate fully-typed test spies from a class — across Vitest, Bun and node:test, with NestJS/React/Vue/Svelte/Angular recipes. Drop-in replacement for jest-auto-spies.",
+  "description": "Auto-generate fully-typed test spies from a class \u2014 across Vitest, Bun and node:test, with NestJS/React/Vue/Svelte/Angular recipes. Drop-in replacement for jest-auto-spies.",
   "keywords": [
     "auto-mock",
     "automock",
@@ -122,6 +122,11 @@
       "import": "./dist/setup.js",
       "default": "./dist/setup.js"
     },
+    "./zone": {
+      "types": "./dist/zone.d.ts",
+      "import": "./dist/zone.js",
+      "default": "./dist/zone.js"
+    },
     "./eslint-plugin": {
       "import": {
         "types": "./dist/eslint-plugin.d.ts",
@@ -154,7 +159,8 @@
     "**/svelte.js",
     "**/rxjs.js",
     "**/console.js",
-    "**/setup.js"
+    "**/setup.js",
+    "**/zone.js"
   ],
   "engines": {
     "node": ">=18"
@@ -170,12 +176,15 @@
     "llms:check": "node scripts/generate-llms-txt.mjs --check",
     "plugin:sync": "node scripts/sync-plugin-version.mjs",
     "plugin:sync:check": "node scripts/sync-plugin-version.mjs --check",
+    "alias:sync": "node scripts/sync-alias.mjs",
+    "alias:sync:check": "node scripts/sync-alias.mjs --check",
     "release:notes": "node scripts/release-notes.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:shared-env": "vitest run --config vitest.shared-env.config.mts",
+    "test:zone": "vitest run --config vitest.zone.config.mts",
     "test:bun": "bun test ./src/bun-tests/core.bun.test.ts ./src/bun-tests/rxjs.bun.test.ts",
     "test:bun:angular": "bun test --preload ./src/bun-angular.ts ./src/bun-tests",
     "test:bun:isolate": "bun test --isolate --preload ./src/bun-angular.ts ./src/bun-tests",
@@ -185,9 +194,9 @@
     "format": "prettier -w \"src/**/*.ts\"",
     "format:check": "prettier -c \"src/**/*.ts\"",
     "jscpd": "jscpd",
-    "check": "npm run typecheck && npm run lint && npm run jscpd && npm run llms:check && npm run plugin:sync:check && npm run test && npm run test:shared-env && npm run test:bun && npm run test:bun:angular",
+    "check": "npm run typecheck && npm run lint && npm run jscpd && npm run llms:check && npm run plugin:sync:check && npm run alias:sync:check && npm run test && npm run test:shared-env && npm run test:zone && npm run test:bun && npm run test:bun:angular",
     "prepublishOnly": "npm run build",
-    "version": "node scripts/sync-plugin-version.mjs && git add .claude-plugin"
+    "version": "node scripts/sync-plugin-version.mjs && node scripts/sync-alias.mjs && git add .claude-plugin alias"
   },
   "peerDependencies": {
     "@angular/core": ">=16.0.0",
@@ -231,6 +240,7 @@
     "rxjs": "^7.8.0",
     "tsup": "^8.3.0",
     "typescript": "^5.6.0",
-    "vitest": "^4.1.9"
+    "vitest": "^4.1.9",
+    "zone.js": "^0.16.2"
   }
 }

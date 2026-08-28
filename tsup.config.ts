@@ -4,6 +4,10 @@ const EXTERNAL = [
   '@angular/compiler',
   '@angular/core',
   '@angular/core/testing',
+  // Both, not only `/testing`: `By` (from the root entry) is what a directive matcher queries with,
+  // and bundling it would inline the whole of `@angular/platform-browser` into `dist/angular.js` —
+  // a package every Angular consumer already has.
+  '@angular/platform-browser',
   '@angular/platform-browser/testing',
   '@happy-dom/global-registrator',
   'bun',
@@ -49,6 +53,7 @@ export default defineConfig([
       'src/vue.ts',
       'src/svelte.ts',
       'src/setup.ts',
+      'src/zone.ts',
       'src/eslint-plugin.ts',
     ],
     format: ['esm'] as const,
