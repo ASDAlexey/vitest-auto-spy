@@ -112,6 +112,61 @@ describe('no-expect-in-subscribe', () => {
   });
 });
 
+describe('no-shared-module-level-mock', () => {
+  it('flags an exported object holding a vi.fn()', () => {
+    expect(lint('export const ctx = { actions: { navigate: vi.fn() } };', 'no-shared-module-level-mock')).toEqual([
+      'vitest-auto-spy/no-shared-module-level-mock',
+    ]);
+  });
+
+  it('flags an exported provider whose useValue holds spies', () => {
+    expect(lint('export const provider = { provide: Cart, useValue: { total: vi.fn() } };', 'no-shared-module-level-mock')).toHaveLength(1);
+  });
+
+  it('leaves the factory form alone — that is the fix', () => {
+    expect(lint('export const createCtx = () => ({ actions: { navigate: vi.fn() } });', 'no-shared-module-level-mock')).toEqual([]);
+    expect(lint('export function createCtx() { return { navigate: vi.fn() }; }', 'no-shared-module-level-mock')).toEqual([]);
+  });
+
+  it('leaves a spy that stays inside the file alone', () => {
+    expect(lint('const ctx = { navigate: vi.fn() };', 'no-shared-module-level-mock')).toEqual([]);
+  });
+
+  it('leaves an exported value that builds no spies alone', () => {
+    expect(lint("export const routes = [{ path: '', component: Home }];", 'no-shared-module-level-mock')).toEqual([]);
+    expect(lint('export const empty = undefined;', 'no-shared-module-level-mock')).toEqual([]);
+    expect(lint('export let pending;', 'no-shared-module-level-mock')).toEqual([]);
+  });
+});
+
+describe('no-mocked-for-spy', () => {
+  it('flags a variable declared as Vitest’s Mocked<T>', () => {
+    expect(lint('let cart: Mocked<CartService>;', 'no-mocked-for-spy')).toEqual(['vitest-auto-spy/no-mocked-for-spy']);
+    expect(lint('let cart: MockedObject<CartService>;', 'no-mocked-for-spy')).toHaveLength(1);
+  });
+
+  it('leaves the right declaration, and an unrelated call, alone', () => {
+    expect(lint('let cart: Spy<CartService>;', 'no-mocked-for-spy')).toEqual([]);
+    expect(lint('const cart = vi.mocked(service);', 'no-mocked-for-spy')).toEqual([]);
+  });
+});
+
+describe('no-done-callback', () => {
+  it('flags a done parameter on a test and on a hook', () => {
+    expect(lint("it('emits', (done) => source$.subscribe(() => done()));", 'no-done-callback')).toEqual([
+      'vitest-auto-spy/no-done-callback',
+    ]);
+    expect(lint('beforeEach((done) => setup(done));', 'no-done-callback')).toHaveLength(1);
+    expect(lint("test('emits', function (done) { done(); });", 'no-done-callback')).toHaveLength(1);
+  });
+
+  it('leaves a context destructuring and a plain callback alone', () => {
+    expect(lint("it('skips', ({ task }) => task.skip());", 'no-done-callback')).toEqual([]);
+    expect(lint("it('works', () => expect(1).toBe(1));", 'no-done-callback')).toEqual([]);
+    expect(lint("it('works', async () => expect(1).toBe(1));", 'no-done-callback')).toEqual([]);
+  });
+});
+
 describe('the plugin', () => {
   it('ships every rule it recommends, wired to itself for flat config', () => {
     const recommended = Object.keys(plugin.configs.recommended.rules).map((id) => id.replace('vitest-auto-spy/', ''));

@@ -27,6 +27,15 @@ export interface EsProperty extends EsNode {
   computed: boolean;
 }
 
+export interface EsVariableDeclarator extends EsNode {
+  init: EsNode | null;
+}
+
+/** A function expression or arrow, as the second argument of a test or hook. */
+export interface EsFunction extends EsNode {
+  params: EsNode[];
+}
+
 export interface EsObjectExpression extends EsNode {
   properties: EsNode[];
 }
@@ -132,4 +141,43 @@ function isFnOf(callee: EsMemberExpression): boolean {
   const property = callee.property as EsIdentifier;
 
   return (object.name === 'vi' || object.name === 'jest') && property.name === 'fn';
+}
+
+/** Node types whose body is a *later* evaluation — the boundary the module-scope search stops at. */
+const FUNCTION_TYPES = new Set(['ArrowFunctionExpression', 'FunctionDeclaration', 'FunctionExpression']);
+
+/** Whether a value read off a node is itself a node (ESTree marks every one with a `type`). */
+function isNode(value: unknown): value is EsNode {
+  return typeof value === 'object' && value !== null && typeof Reflect.get(value, 'type') === 'string';
+}
+
+/**
+ * Whether the subtree of `node` builds a `vi.fn()` **at module evaluation time**.
+ *
+ * The walk deliberately stops at every function boundary: a `vi.fn()` inside an arrow is created
+ * per call, which is the shape the rule steers towards, and descending into it would flag the fix
+ * along with the problem. Generic over the node shape rather than selector-based, because "not
+ * inside a function" is not something an esquery selector can say.
+ */
+export function buildsRunnerFnAtModuleScope(node: EsNode): boolean {
+  if (FUNCTION_TYPES.has(node.type)) {
+    return false;
+  }
+
+  if (isRunnerFnCall(node)) {
+    return true;
+  }
+
+  return Object.entries(node).some(([key, value]) => {
+    // `parent` points back up the tree; following it would walk the whole program, twice.
+    if (key === 'parent') {
+      return false;
+    }
+
+    if (Array.isArray(value)) {
+      return value.some((item: unknown) => isNode(item) && buildsRunnerFnAtModuleScope(item));
+    }
+
+    return isNode(value) && buildsRunnerFnAtModuleScope(value);
+  });
 }

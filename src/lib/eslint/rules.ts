@@ -10,12 +10,15 @@
  * replacement, so `--fix`-less autopilot is still safe to leave on in CI.
  */
 import {
+  type EsFunction,
   type EsNode,
   type EsObjectExpression,
   type EsProperty,
+  type EsVariableDeclarator,
   type RuleContext,
   type RuleListener,
   type RuleModule,
+  buildsRunnerFnAtModuleScope,
   findProperty,
   isObjectExpression,
   isRunnerFnCall,
@@ -142,6 +145,57 @@ const noExpectInSubscribe = defineRule({
   }),
 });
 
+/** `export const fixture = { m: vi.fn() }` → `export const createFixture = () => ({ m: vi.fn() })`. */
+const noSharedModuleLevelMock = defineRule({
+  anchor: '-a-double-more-than-one-spec-uses',
+  description: 'Export a factory that builds the shared double, not a module-level object holding vi.fn()s',
+  messages: {
+    noSharedModuleLevelMock:
+      'This exported double is built once per module, not once per test. Under `isolate: false` every importing spec shares the same spies and subjects, `clearMocks` reaches only the file that imported first, and the failure lands in whichever file happens to run next. Export a **factory** that returns it.',
+  },
+  create: (context) => ({
+    'ExportNamedDeclaration > VariableDeclaration > VariableDeclarator': (node: EsVariableDeclarator): void => {
+      if (node.init && buildsRunnerFnAtModuleScope(node.init)) {
+        context.report({ node, messageId: 'noSharedModuleLevelMock' });
+      }
+    },
+  }),
+});
+
+/** `let s: Mocked<Cart>` → `let s: Spy<Cart>`. */
+const noMockedForSpy = defineRule({
+  anchor: '-reading-a-spy-back-from-di',
+  description: 'Declare a spy as Spy<T>, not as Vitest’s Mocked<T>',
+  messages: {
+    noMockedForSpy:
+      '`Mocked<T>` keeps `T`’s private members, so assigning a spy to it fails with "is missing the following properties: _zone, _queries, …" — a list of private field names that says nothing about the real problem, which is the declaration. Declare `Spy<T>`.',
+  },
+  create: (context) => ({
+    'VariableDeclarator > Identifier > TSTypeAnnotation > TSTypeReference > Identifier[name=/^Mocked(Object)?$/]': (node: EsNode): void =>
+      context.report({ node, messageId: 'noMockedForSpy' }),
+  }),
+});
+
+/** `it('x', (done) => …)` → `async` + an awaited assertion. */
+const noDoneCallback = defineRule({
+  anchor: '-an-observable',
+  description: 'Vitest has no done callback — the first parameter of a test or hook is its TestContext',
+  messages: {
+    noDoneCallback:
+      'Vitest passes a `TestContext` here, not a `done` callback: calling it throws `TestContext is not a function` inside a promise nobody awaits, so the test **passes** having run almost none of its body. Make the callback `async` and await the result (`firstValueFrom`, `expectEmission`), or destructure the context (`({ task })`) if that is what you meant.',
+  },
+  create: (context) => ({
+    'CallExpression[callee.name=/^(it|test|beforeAll|beforeEach|afterAll|afterEach)$/] > :matches(ArrowFunctionExpression, FunctionExpression)':
+      (node: EsFunction): void => {
+        // An identifier parameter, not a destructuring pattern: Vitest's own fixtures must be
+        // destructured, so a plain name here is a `done` carried over from Jest.
+        if (node.params[0]?.type === 'Identifier') {
+          context.report({ node: node.params[0], messageId: 'noDoneCallback' });
+        }
+      },
+  }),
+});
+
 /** Every rule the plugin ships, keyed by the name used in an ESLint config. */
 export const rules: Record<string, RuleModule> = {
   'prefer-provide-auto-spy': preferProvideAutoSpy,
@@ -149,4 +203,7 @@ export const rules: Record<string, RuleModule> = {
   'prefer-inject-spy': preferInjectSpy,
   'no-object-define-property': noObjectDefineProperty,
   'no-expect-in-subscribe': noExpectInSubscribe,
+  'no-shared-module-level-mock': noSharedModuleLevelMock,
+  'no-mocked-for-spy': noMockedForSpy,
+  'no-done-callback': noDoneCallback,
 };
