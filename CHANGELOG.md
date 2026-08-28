@@ -10,6 +10,20 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+### Changed
+
+- **The `vitest-auto-spies` alias is published by CI**, from both release paths, right after the
+  canonical package reaches npm (`.github/workflows/publish-alias.yml`). The step re-checks that the
+  generated directory matches `package.json`, refuses to publish before the package the alias
+  depends on is on npm, and skips a version that is already there — so it is safe to re-run, and it
+  can be run on its own to catch up a version released before it existed. Publishing by hand is what
+  let the alias sit at 1.9.3, two majors and four entry points behind.
+- **CI runs `npm run test:zone` and `npm run alias:sync:check`.** `vitest-auto-spy/zone` is the only
+  entry that touches zone.js and no other suite loads any of it, so `fakeAsync` / `waitForAsync` were
+  verified locally and nowhere else.
+
+## [3.1.0] - 2026-08-28
+
 Everything below comes from one source: a 1688-spec Angular monorepo moving from Jest to Vitest
 under the native `@angular/build:unit-test` builder. Each item is something that had to be written
 by hand there, in more than one place, by more than one person.
@@ -991,7 +1005,8 @@ by hand there, in more than one place, by more than one person.
   `mockAccessorsProp`.
 - Dual ESM + CJS build with type declarations; 100% test coverage.
 
-[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v3.0.0...HEAD
+[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v3.1.0...HEAD
+[3.1.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v3.0.0...v3.1.0
 [3.0.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v2.0.3...v3.0.0
 [2.0.3]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v2.0.2...v2.0.3
 [2.0.2]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v2.0.1...v2.0.2
