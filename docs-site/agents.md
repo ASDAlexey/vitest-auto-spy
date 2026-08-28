@@ -10,7 +10,7 @@ API from costs tokens on every task and produces the same handful of mistakes ea
 package ships a second, compressed form of its documentation written for a machine reader: the
 decision tree, the configuration semantics, an error→fix table and the anti-patterns.
 
-## The four entry points
+## The five entry points
 
 | What                                                             | Where                                                        | Best for                                                  |
 | ---------------------------------------------------------------- | ------------------------------------------------------------ | --------------------------------------------------------- |
@@ -49,7 +49,23 @@ your project files:
 ```
 
 The skill's description lists the library's exports and its four most common error messages, so it
-loads when a task is actually about this package and stays out of the way otherwise.
+loads when a task is actually about this package and stays out of the way otherwise. Its body is a
+short decision tree plus a "reach for this before hand-rolling" table keyed by the *symptom* — the
+error text or the failing shape — because that is what an agent has in hand when it starts.
+
+## Point it at the subpath, not only at the package
+
+Each entry registers its own mock adapter on import, and three of them are opt-in on purpose. An
+agent that knows only the bare specifier writes a spec that throws at the first helper:
+
+| Subpath                     | Needed for                                                               |
+| --------------------------- | ------------------------------------------------------------------------ |
+| `vitest-auto-spy/rxjs`      | `nextWith`, `observablePropsToSpyOn`, `throwWith` — imported once, in setup |
+| `vitest-auto-spy/bun`       | any spec run by `bun test` (`/bun-angular` for Angular's TestBed there)  |
+| `vitest-auto-spy/node`      | a `node --test` suite, ESM or CJS                                         |
+| `vitest-auto-spy/angular`   | `provideAutoSpy`, `injectSpy`, `renderShallow`, the override helpers      |
+| `vitest-auto-spy/setup`     | `setupAutoSpy`, the clock helpers, `installPerTest`, focus matchers       |
+| [`vitest-auto-spy/zone`](/utilities/zone) | `fakeAsync` / `waitForAsync` on Vitest — zone.js stays out of every other entry |
 
 ## Errors that name their own fix
 
@@ -68,7 +84,8 @@ without fake timers, a `bun-angular` preload with no DOM package, an unresolvabl
 
 ## What agents get wrong most often
 
-These five account for the large majority of broken specs, and all five are covered in `AGENTS.md`:
+These account for the large majority of broken specs, and every one of them is covered in
+`AGENTS.md`:
 
 1. **`let s: MyService = createSpyFromClass(MyService)`.** `Spy<T>` is a mapped type and drops
    private members. Declare it as `Spy<T>`, or bridge with [`asInstance` / `asSpy`](/core/spy-typing) —
@@ -82,3 +99,17 @@ These five account for the large majority of broken specs, and all five are cove
 5. **`expect()` inside a `subscribe()` callback.** A silent stream makes it a green test that
    asserted nothing — use [`expectEmission`](/core/observable-assertions), where the assertion is
    the `await`.
+6. **`vi.fn().mockImplementation(() => instance)` for something the code calls with `new`.** The
+   Jest idiom does not port: Vitest only forwards `new` to a constructible implementation, so an
+   arrow records the call, skips the body and hands back an empty object — or throws
+   `X is not a constructor` from inside production code. Use
+   [`mockConstructor` / `stubConstructor`](/utilities/constructor-doubles).
+7. **An exported `const` holding `vi.fn()`s, shared between spec files.** Under `isolate: false` a
+   module is evaluated once per worker, so that is one set of spies for every file that imports it.
+   A fixture is a factory; a spec file exports nothing at all.
+8. **`it('x', (done) => …)`.** Vitest passes a `TestContext`, so `done()` throws inside a promise
+   nobody awaits and the test **passes** having run almost none of its body. The lint rule
+   `no-done-callback` catches it; the fix is `await`.
+9. **`await Promise.resolve()` to wait out a dynamic `import()` under fake timers.** It never
+   advances one, and `setTimeout` is the fake one — use
+   [`settleDynamicImport` / `flushEventLoop`](/utilities/event-loop).

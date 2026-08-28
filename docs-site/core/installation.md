@@ -9,6 +9,12 @@ description: Install vitest-auto-spy, pick the entry point that matches your run
 npm i -D vitest-auto-spy
 ```
 
+::: tip The plural name is an alias
+[`vitest-auto-spies`](https://www.npmjs.com/package/vitest-auto-spies) is a thin alias package that
+re-exports this one, entry point for entry point — a typo installs the same code. Prefer the
+singular name; the alias is generated from it and only ever follows it.
+:::
+
 Peer dependencies are all **provided by your project**; `rxjs` and `@angular/core` are **optional**
 — install them only for the matching entry point. The package itself has **zero runtime
 dependencies**.

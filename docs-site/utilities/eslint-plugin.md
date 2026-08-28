@@ -1,6 +1,6 @@
 ---
 title: ESLint plugin
-description: Five flat-config lint rules that steer a suite onto the auto-spy helpers, versioned with the API they recommend.
+description: Eight flat-config lint rules that steer a suite onto the auto-spy helpers, versioned with the API they recommend.
 ---
 
 # ESLint plugin
@@ -29,11 +29,39 @@ which a subpath export of this package can never be.
 | `prefer-inject-spy`            |   `warn`    | `vi.spyOn(TestBed.inject(X), 'm')` → `injectSpy(X)`                                   |
 | `no-object-define-property`    |   `error`   | `Object.defineProperty` in a spec → `mockReadonlyProp` / `mockValueProp`              |
 | `no-expect-in-subscribe`       |   `error`   | `expect()` inside a `subscribe()` callback → `expectEmission`                         |
+| `no-shared-module-level-mock`  |   `error`   | an **exported** value holding `vi.fn()`s → export a factory that returns it           |
+| `no-mocked-for-spy`            |   `warn`    | `let s: Mocked<T>` → `Spy<T>`                                                        |
+| `no-done-callback`             |   `error`   | `it('x', (done) => …)` → `async` + an awaited assertion                               |
 
-The two `error` rules are the ones that catch a test being _wrong_ rather than verbose:
+The three `error` rules are the ones that catch a test being _wrong_ rather than verbose.
 `Object.defineProperty` leaves no way back — nothing restores the original descriptor, so the patch
-leaks into the next file under `isolate: false` — and an `expect()` inside `subscribe()` never runs
-if the stream stays silent, leaving a green test that asserted nothing.
+leaks into the next file under `isolate: false`. An `expect()` inside `subscribe()` never runs if
+the stream stays silent, leaving a green test that asserted nothing.
+
+And an exported double is built once per **module**, not once per test:
+
+```ts
+// ❌ every importing spec shares these spies, for the whole worker
+export const commandContext = { actions: { navigateToChannel: vi.fn() } };
+
+// ✅ one set per caller
+export const createCommandContext = () => ({ actions: { navigateToChannel: vi.fn() } });
+```
+
+Under `isolate: false` a module is evaluated once per worker, the spies are registered against
+whichever file imported first, and every other file's `clearMocks` never reaches them. The rule
+stops at every function boundary, so the factory form — the fix — is not flagged along with the
+problem. Scope it to fixture modules and spec files alike; a spec file
+[should export nothing at all](/utilities/setup#shared-fixtures-are-functions-not-constants).
+
+And a `done` parameter is not a style question. Vitest passes a `TestContext` there, so calling it
+throws `TestContext is not a function` — inside a promise nobody awaits, which means the test
+**passes** having run almost none of its body. Four such tests sat green for years in the suite this
+rule came from; nothing but a type-checker ever noticed, and only indirectly.
+
+`no-mocked-for-spy` is a `warn` because `Mocked<T>` has legitimate uses next to `vi.mocked()`; what
+it flags is the declaration form, where the assignment then fails with a list of private field names
+that says nothing about the real cause.
 
 ## Picking rules by hand
 

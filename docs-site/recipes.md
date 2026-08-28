@@ -344,6 +344,35 @@ expect(consoleErrorSpy).toHaveBeenCalledWith(expect.stringContaining('parse'));
 Never add a second `vi.spyOn(console, 'error')` on top: whichever patch wins depends on import order,
 and the assertion then runs against a spy that never intercepted the call.
 
+## An array assertion that says nothing
+
+```ts
+import { diffByField } from 'vitest-auto-spy';
+
+const sent = analytics.send.mock.calls.map(([event]) => event);
+
+expect(diffByField(sent, expectedEvents)).toBeUndefined();
+```
+
+Comparing collected records against an expected list is the ordinary shape of a test for anything
+that accumulates — an analytics queue, an audit log, a command history. And the ordinary cause of a
+mismatch is not "the wrong element" but "one field moved in all of them": a timestamp, an id, a
+counter.
+
+That is the failure the reporter renders worst. It collapses the objects, so what arrives is
+`expected [ { event_timestamp: 1, …(5) }, …(8) ] to deeply equal [ { …(6) }, … ]` — nine elements,
+one changed field, nothing on screen to say which, and a `console.dir(…, { depth: null })` and two
+more runs to find out. `diffByField` answers it directly:
+
+```text
+9 of 9 elements differ.
+  `event_timestamp` differs in all 9: actual 1 everywhere, expected 2, 3, 4, 5, 6, 7, …
+```
+
+"Everywhere" against a run of expected values is the tell: under fake timers every `Date.now()`
+inside one test answers the same, so a spec about **order** or **duration** needs
+[`useCountingClock()`](/utilities/event-loop#usecountingclock-options) rather than a frozen clock.
+
 ## What not to do
 
 | ❌                                                          | ✅                                                            |

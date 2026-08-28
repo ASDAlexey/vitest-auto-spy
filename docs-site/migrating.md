@@ -26,22 +26,46 @@ This also covers migrating from
 it re-exports the same `jest-auto-spies` API, so the swap is identical (and you gain Bun /
 `node:test`, `createAutoMock`, framework recipes and console spies on top).
 
-| jest-auto-spies | vitest-auto-spy | Status |
-| --- | --- | --- |
-| `createSpyFromClass` | `createSpyFromClass` | ✅ identical |
-| `methodsToSpyOn` | `methodsToSpyOn` — additive there and additive here | ✅ identical |
-| `provideAutoSpy` | `provideAutoSpy` (from `/angular`) | ✅ identical |
-| `calledWith` / `mustBeCalledWith` | same | ✅ identical |
-| `calledWith(...).returnValue(v)` | same — `.returnValue` **and** `.mockReturnValue` both work | ✅ identical |
-| `resolveWith` / `rejectWith` / `resolveWithPerCall` | same | ✅ identical |
-| `nextWith` / `nextOneTimeWith` / `nextWithValues` / `nextWithPerCall` | same | ✅ identical |
-| `throwWith` / `complete` / `returnSubject` | same | ✅ identical |
-| `accessorSpies.getters/setters` | same | ✅ identical |
-| `createObservableWithValues` | same (from `/rxjs`) | ✅ identical |
-| underlying mock | `jest.fn()` → `vi.fn()` | 🔁 swapped |
+| jest-auto-spies                                                       | vitest-auto-spy                                            | Status       |
+| --------------------------------------------------------------------- | ---------------------------------------------------------- | ------------ |
+| `createSpyFromClass`                                                  | `createSpyFromClass`                                       | ✅ identical |
+| `methodsToSpyOn`                                                      | `methodsToSpyOn` — additive there and additive here        | ✅ identical |
+| `provideAutoSpy`                                                      | `provideAutoSpy` (from `/angular`)                         | ✅ identical |
+| `calledWith` / `mustBeCalledWith`                                     | same                                                       | ✅ identical |
+| `calledWith(...).returnValue(v)`                                      | same — `.returnValue` **and** `.mockReturnValue` both work | ✅ identical |
+| `resolveWith` / `rejectWith` / `resolveWithPerCall`                   | same                                                       | ✅ identical |
+| `nextWith` / `nextOneTimeWith` / `nextWithValues` / `nextWithPerCall` | same                                                       | ✅ identical |
+| `throwWith` / `complete` / `returnSubject`                            | same                                                       | ✅ identical |
+| `accessorSpies.getters/setters`                                       | same                                                       | ✅ identical |
+| `createObservableWithValues`                                          | same (from `/rxjs`)                                        | ✅ identical |
+| underlying mock                                                       | `jest.fn()` → `vi.fn()`                                    | 🔁 swapped   |
 
 Just make sure your tests run under Vitest (or Bun / `node:test` via the matching entry), and — for
 Angular — that `TestBed` is set up.
+
+### The `jest.*` calls that have no `vi.*` twin
+
+A mechanical `jest.` → `vi.` rename produces calls that do not exist, and the resulting
+`TypeError: vi.requireMock is not a function` reads as "the runner broke". These are the ones worth
+knowing before the rename, because for each of them the honest answer is a different design, not a
+different name.
+
+| Jest                                                    | Vitest                | What to do instead                                                                                    |
+| ------------------------------------------------------- | --------------------- | ----------------------------------------------------------------------------------------------------- |
+| `jest.requireMock(id)`                                  | **none**              | provide the double through the TestBed / the container, or pass it as an argument                     |
+| `jest.requireActual(id)`                                | `vi.importActual(id)` | `await`ed, and only inside a `vi.mock` factory                                                        |
+| `jest.fn().mockImplementation(() => o)` used with `new` | **not constructible** | [`mockConstructor` / `stubConstructor`](/utilities/constructor-doubles)                               |
+| `jest.spyOn(global, 'Date')`                            | **throws**            | `mockSystemTime(iso)` — fake timers already own `Date`                                                |
+| `jest.replaceProperty(obj, key, value)`                 | **none**              | `mockValueProp(obj, key, value)` — and it restores itself                                             |
+| `fakeTimers: { enableGlobally: true }`                  | **no setting**        | `setupAutoSpy({ globalFakeTimers: true })`                                                            |
+| `jest.mock('some-barrel')`                              | `vi.mock(…)`          | a **silent no-op** once the specs are bundled — the module boundary it would replace no longer exists |
+
+That last row is the one that costs the most, because nothing reports it. Under a bundling test
+builder — and under `isolate: false`, where the module may already be in the worker's graph — a
+`vi.mock()` of a workspace barrel, of `@angular/core`, or of a relative path either does nothing or
+does something only on some runs. If a mock "works in a narrow run and not in a wide one", this is
+why: replace the mock with a real seam (a provider, an argument, `vi.hoisted()` for a package that
+genuinely must be replaced).
 
 ::: tip Restricting is a separate option
 Up to v1 this library read `methodsToSpyOn` as an exhaustive whitelist, which is the opposite of
@@ -108,7 +132,7 @@ through property redefinition and work anyway. Angular suites need
 [`vitest-auto-spy/bun-angular`](/runtimes/bun-angular).
 
 **`node:test`.** There is no `expect` — pair it with `node:assert`. And `spy.method.mockReturnValue`
-is a *native* Vitest/Bun method that `node:test` does not have; the normalised
+is a _native_ Vitest/Bun method that `node:test` does not have; the normalised
 `spy.method.calledWith(...).mockReturnValue(...)` works everywhere. Recorded calls read as
 `mock.calls[0].arguments`, not `mock.calls[0]`. See [node:test](/runtimes/node).
 
@@ -125,3 +149,48 @@ Beyond the runner swap, everything the old API did not have:
 [fake timers that settle](/utilities/fake-timers),
 [console spies](/utilities/console), [five ESLint rules](/utilities/eslint-plugin),
 Bun and `node:test` support — and [Angular's `TestBed` under `bun test`](/runtimes/bun-angular).
+
+## Did the migration lose a test?
+
+```ts
+import { compareTestRuns, formatTestRunComparison } from 'vitest-auto-spy';
+
+const diff = compareTestRuns(JSON.parse(before), JSON.parse(after), '/my-repo/');
+
+expect(diff.missing).toEqual([]);
+process.stdout.write(formatTestRunComparison(diff));
+```
+
+Counters do not answer this. Under `isolate: false` a file can lose a whole suite — an exported spec
+file imported by its neighbour loses its own `describe` — and, in the same run, a flaky test
+elsewhere can start passing. The totals match, the run looks identical, and a suite is silently gone.
+
+The question is about **which** tests ran, so the answer is the symmetric difference of two sets of
+`file::full name`. Both runners write the same JSON shape (`--reporter=json`), so the baseline may
+come from Jest and the current run from Vitest; the optional third argument cuts everything above a
+shared path root, so a report from CI compares against one from a laptop.
+
+A renamed test appears in both `missing` and `added` — which is the honest answer, since from the
+outside a rename and a delete-plus-add are the same event.
+
+::: tip What this actually caught
+On the migration this comes from, the comparison after seven agents' worth of edits showed exactly
+one test gone — it asserted on a config key that had been deleted six months earlier in an unrelated
+commit — and nothing else lost silently. That is the only way that sentence could have been said.
+:::
+
+## A codemod that edits globs is verified by matching, not by diffing
+
+The natural check on a codemod is "did the file change the way I meant?". For a codemod that rewrites
+**globs** that check passes while the result is broken, because an empty `include` is a legal
+`tsconfig.json` and TypeScript says nothing about it.
+
+This is not hypothetical. A migration codemod removing `jest.config.ts` from `include` used a greedy
+pattern that also ate `/**/*`, so `src/**/*.spec.ts` became `src*.spec.ts` — syntactically valid, and
+matching no file. Of 152 spec tsconfigs, **nine** still covered their specs. Nothing failed:
+`tsc --noEmit` reported zero errors because there was nothing to check, and the only person who found
+out was one who opened a spec in an editor and saw `Cannot find name 'vi'`.
+
+So the check is: **does the resulting pattern match at least one file that exists?** And print the
+resulting `include` in full rather than a count — "fixed: 152" hides the case where the replacement
+produced two different wrong shapes, which is what happened on the first attempt at the repair.

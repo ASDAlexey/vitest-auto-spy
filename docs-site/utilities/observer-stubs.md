@@ -65,14 +65,14 @@ observers.last; // the newest — the usual case, where a component builds exact
 
 Each instance exposes what a spec asserts on and what it drives:
 
-| Member         | What it is                                                                |
-| -------------- | ------------------------------------------------------------------------- |
-| `targets`      | everything passed to `observe`, with `unobserve`/`disconnect` applied      |
-| `observe`      | the spy — for asserting *that* something was observed, and with what       |
-| `unobserve`    | the spy                                                                    |
-| `disconnect`   | the spy                                                                    |
-| `disconnected` | whether teardown ran — the readable form of asserting on `disconnect`      |
-| `emit(entries)` | invoke the callback with one batch, exactly as the browser delivers it    |
+| Member          | What it is                                                             |
+| --------------- | ---------------------------------------------------------------------- |
+| `targets`       | everything passed to `observe`, with `unobserve`/`disconnect` applied  |
+| `observe`       | the spy — for asserting _that_ something was observed, and with what   |
+| `unobserve`     | the spy                                                                |
+| `disconnect`    | the spy                                                                |
+| `disconnected`  | whether teardown ran — the readable form of asserting on `disconnect`  |
+| `emit(entries)` | invoke the callback with one batch, exactly as the browser delivers it |
 
 `emit` takes an array rather than a single entry on purpose. A fast scroll or a resize storm
 delivers several at once, and code that assumes one entry per call is a real bug this makes
@@ -106,11 +106,11 @@ observers.last.emit([{ contentRect: { width: 320 } } as ResizeObserverEntry]);
 
 ## The installers
 
-| Function                     | Global replaced          |
-| ---------------------------- | ------------------------ |
-| `stubIntersectionObserver()` | `IntersectionObserver`   |
-| `stubResizeObserver()`       | `ResizeObserver`         |
-| `stubMutationObserver()`     | `MutationObserver`       |
+| Function                     | Global replaced           |
+| ---------------------------- | ------------------------- |
+| `stubIntersectionObserver()` | `IntersectionObserver`    |
+| `stubResizeObserver()`       | `ResizeObserver`          |
+| `stubMutationObserver()`     | `MutationObserver`        |
 | `stubObserver(name)`         | any of the three, by name |
 
 All four are exported from the core entry — nothing here is Angular-specific, and the spies come
@@ -121,3 +121,67 @@ from whichever [runtime adapter](../runtimes/vitest) is registered, so they work
 `emit` runs the component's callback synchronously; the change detection it schedules does not.
 Follow it with `await fixture.whenStable()` or [`stable(fixture)`](../adapters/angular#zoneless-waiting).
 :::
+
+## Install it in `beforeEach`, never in `beforeAll`
+
+A shared setup file's root `beforeEach` runs **after** a file's `beforeAll`. So a stub installed in
+`beforeAll` is overwritten by the setup file's default observer before the first test even starts,
+and the symptom is `expected "vi.fn()" to be called 2 times, but got 0 times` in a file where the
+mock class sits ten lines above the assertion.
+
+The rule that pairs with "do not assign `globalThis.IntersectionObserver` by hand" is therefore: and
+do not install it in `beforeAll` either.
+
+## `autoEmit` — everything is visible, immediately
+
+```ts
+stubIntersectionObserver({ autoEmit: true });
+```
+
+The default stub is inert, which is right when the spec wants to choose the moment of intersection.
+It is wrong for a suite carried over from Jest, where the global mock fired its callback with
+`isIntersecting: true` synchronously from `observe()`, so lazily-loading shelves and cards fetched
+their data during `detectChanges()`. Against an inert observer those specs quietly assert on a
+component that never loaded anything, and fail with something unrelated to intersection — one option
+here instead of rewriting every spec.
+
+`stubObserver` takes the general form, where the entry is yours to build:
+
+```ts
+stubObserver<ResizeObserverEntry, Element>('ResizeObserver', {
+  autoEmit: (target) => resizeEntry(target, { width: 320 }),
+});
+```
+
+## `options` — what the constructor was given
+
+```ts
+new IntersectionObserver(callback, { rootMargin: '-20% 0px -70% 0px' });
+
+expect(observers.last.options).toEqual({ rootMargin: '-20% 0px -70% 0px' });
+```
+
+A component that builds one observer per configuration is asserting a contract — "one observer per
+unique root margin" — and without this the only thing a spec can count is the number of
+constructions, which is a weaker statement about a different thing.
+
+## Building entries
+
+```ts
+import { intersectionEntry, mutationRecord, resizeEntry } from 'vitest-auto-spy';
+
+observers.last.emit([intersectionEntry(element, true)]);
+observers.last.emit([mutationRecord(host, { addedNodes: [span] })]);
+observers.last.emit([resizeEntry(host, { width: 320, height: 200 })]);
+```
+
+`IntersectionObserverEntry` has seven required fields of which production code usually reads one, and
+the types cannot be narrowed away — parameter contravariance blocks it, so the alternative is a
+double type assertion in every spec.
+
+`MutationRecord` is worse: it cannot be written as an object literal at all, because `addedNodes` and
+`removedNodes` are `NodeList`s. The obvious construction — append the nodes to a `DocumentFragment`
+and take its `childNodes` — is the one to avoid, because appending **moves** a node: a spec that
+passes an element it had just rendered silently tears that element out of the fixture, and the
+assertion that follows fails on a DOM the test itself broke. `mutationRecord()` builds a list that
+supports indexing, `item()`, `forEach`, `for…of`, `entries`/`keys`/`values` — and moves nothing.

@@ -60,11 +60,21 @@ alongside it:
 - [Observable assertions](/core/observable-assertions) that fail when the stream stays silent,
   duck-typed so they pull in no rxjs.
 - [`setupFakeTimers()` / `advanceTimers()`](/utilities/fake-timers) — an advance that also drains the
-  microtasks a bare `advanceTimersByTime()` leaves pending.
-- [Five ESLint rules](/utilities/eslint-plugin) versioned together with the API they recommend, and
+  microtasks a bare `advanceTimersByTime()` leaves pending, and
+  [`flushEventLoop` / `settleDynamicImport`](/utilities/event-loop) for the queue the clock does not
+  reach at all.
+- [`mockConstructor` / `stubConstructor`](/utilities/constructor-doubles) — a double the code under
+  test can call with `new`, which a runner's own `vi.fn(() => instance)` is not.
+- [`fakeAsync` and `waitForAsync` on Vitest](/utilities/zone) — `zone.js/testing` installs its
+  ProxyZone through Jasmine and Jest hooks only, so both throw until this patch is imported.
+- [`assertMocked` / `moduleNamespace`](/utilities/module-mocks) — proof that a `vi.mock()` actually
+  applied under a bundler, instead of a spec quietly asserting on the real module.
+- [Eight ESLint rules](/utilities/eslint-plugin) versioned together with the API they recommend, and
   [`setupAutoSpy()`](/utilities/setup) for the test-run hygiene a shared environment needs.
 - [Per-file `TestBed` diagnostics](/adapters/angular#where-a-spec-spends-its-time) — which specs
   actually pay for `TestBed`, and by how much.
+- [`compareTestRuns`](/migrating) — whether the migration that brought you here lost a test, from
+  the two sets of names rather than from two totals that happen to match.
 
 ## Where another library is the better answer
 

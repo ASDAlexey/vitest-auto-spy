@@ -25,11 +25,11 @@ hero:
 features:
   - icon: 🎯
     title: Fully typed spies
-    details: Every method becomes a typed mock with return-type-aware helpers — resolveWith for Promises, nextWith for Observables, calledWith / mustBeCalledWith for argument matching.
+    details: Every method becomes a typed mock with return-type-aware helpers — resolveWith for Promises, nextWith for Observables, calledWith / mustBeCalledWith for argument matching. Overloaded methods included — a generated API client no longer forces the last signature, the one nobody calls.
     link: /core/create-spy-from-class
   - icon: 🧪
     title: Class, type, or neither
-    details: createSpyFromClass reads a real class and spies every method. No class? createAutoMock<T>() and recursive mockDeep<T>() mock straight from a type — and createMock<T>() builds the spy-free data shape a test only reads.
+    details: createSpyFromClass reads a real class and spies every method. No class? createAutoMock<T>() and recursive mockDeep<T>() mock straight from a type — and createMock<T>() builds the spy-free data shape a test only reads, from a deep partial that is still checked at every level.
     link: /core/auto-mock-by-type
   - icon: 🔀
     title: One API, three runtimes
@@ -47,32 +47,60 @@ features:
     title: Faster Angular specs
     details: renderShallow collapses the shallow-TestBed copy-paste into one call (1.7× on real component specs), createWithAutoSpies builds a class through DI with every unprovided token spied, and per-file diagnostics say which specs are worth converting.
     link: /adapters/angular
+  - icon: 🧱
+    title: The providers a testing module cannot reach
+    details: overrideComponentProvider replaces a dependency a component declares in its own providers — where overrideProvider(X, provideAutoSpy(X)) is a silent no-op. assertNgModuleScopes names the module an AOT bundle stripped, createDirectiveHost compiles a host that is correct for both the compiler and the TestBed, and provideAutoSpyForToken covers a dependency behind an InjectionToken.
+    link: /adapters/angular
   - icon: 📡
     title: Observables that fail on silence
     details: expectEmission / expectEmissions / expectNoEmission replace the expect() inside a subscribe callback that never runs — the assertion is the await. Duck-typed, so no rxjs is pulled in.
     link: /core/observable-assertions
+  - icon: 🏗️
+    title: Doubles for what the code builds itself
+    details: Vitest only forwards new to a constructible implementation, so the Jest idiom vi.fn(() => instance) records the call, skips the body and returns an empty object. mockConstructor / stubConstructor stay full runner mocks, collect instances, and refuse to be called without new.
+    link: /utilities/constructor-doubles
+  - icon: ⏳
+    title: Waiting and the clock
+    details: flushEventLoop and settleDynamicImport give a real event-loop turn while the timers stay faked, flushEventLoopUntil replaces a tuned sleep with a budgeted condition, and mockSystemTime / useCountingClock survive fake timers being re-installed around every test.
+    link: /utilities/event-loop
   - icon: ⏱️
     title: Fake timers that settle
     details: setupFakeTimers() pairs install with restore, and advanceTimers() drains the microtasks a bare advanceTimersByTime leaves pending — the gap that makes a timer assertion read like a race.
     link: /utilities/fake-timers
+  - icon: 🌀
+    title: fakeAsync on Vitest
+    details: zone.js/testing installs its ProxyZone through Jasmine and Jest hooks only, so fakeAsync and waitForAsync throw on Vitest. One import of vitest-auto-spy/zone patches them in — behind its own specifier, so a zoneless project never sees zone.js.
+    link: /utilities/zone
+  - icon: 🧩
+    title: Module mocks that prove they applied
+    details: Under a bundler a vi.mock() with an unmatched specifier does nothing at all, and the spec asserts on the real module. assertMocked fails loudly instead, and moduleNamespace gives a factory the shape an interop probe recognises — no more "No default export is defined on the mock".
+    link: /utilities/module-mocks
+  - icon: 🧾
+    title: Fixtures without casts
+    details: narrow() says which branch of a union a test got, and prints the shape it actually had when it is wrong. withOverrides() builds a fixture from a model whose getters a spread would drop. asInstances() bridges a whole argument list at once, instead of one asInstance per tsc run.
+    link: /utilities/fixtures
+  - icon: 👁️
+    title: The DOM the runner does not ship
+    details: stubIntersectionObserver / stubResizeObserver / stubMutationObserver replace the global the code under test constructs and hand the spec the instance. stubMediaElement makes a <video> play and report a duration, stubAbortController fixes addEventListener(…, { signal }) — and restoreMockedProps takes all of it off again.
+    link: /utilities/observer-stubs
   - icon: 📏
     title: Lint rules that steer a suite
-    details: Five ESLint rules point a suite at these helpers, each message linking to its recipe. Two of them catch a test being wrong rather than verbose — an expect() inside subscribe() that never runs, and an Object.defineProperty nothing restores.
+    details: Eight ESLint rules point a suite at these helpers, each message linking to its recipe. Four of them catch a test being wrong rather than verbose — an expect() inside subscribe(), an Object.defineProperty nothing restores, a module-level mock shared across files, and a done callback that makes a test pass having run almost none of its body.
     link: /utilities/eslint-plugin
   - icon: 🧹
     title: Hygiene for a shared environment
-    details: One setupAutoSpy() call covers what isolate false breaks — property restore, duplicate-install detection, timers and animation frames that outlive their file, fetch that keeps a green run exiting 1, and timer globals the fakes delete instead of restoring.
+    details: One setupAutoSpy() call covers what isolate false breaks — property restore, duplicate-install detection, timers and animation frames that outlive their file, fetch that keeps a green run exiting 1, and timer globals the fakes delete instead of restoring. installPerTest re-installs a stub for every test, and guardGlobals names the file that sealed a global.
     link: /utilities/setup
-  - icon: 👁️
-    title: Observers a component builds itself
-    details: stubIntersectionObserver, stubResizeObserver and stubMutationObserver replace the global the code under test constructs, hand the spec the instance, and are taken off again by restoreMockedProps — no static last, no stub inherited by the next file.
-    link: /utilities/observer-stubs
+  - icon: 🚚
+    title: A migration you can verify
+    details: Counters cannot answer whether a port lost a test — a file can lose a whole suite while a flake elsewhere starts passing, and the totals match. compareTestRuns diffs the two sets of names from the JSON report both runners write, and diffByField turns a collapsed "…(8) to deeply equal" into the field that actually differs.
+    link: /migrating
   - icon: 🤖
     title: Readable by your agent, not just by you
     details: An AGENTS.md ships inside the tarball for offline reading, llms.txt and llms-full.txt sit at the docs root, a Claude Code skill installs from the repo, and every error message ends with a link to the page that explains it.
     link: /agents
   - icon: 📦
     title: Zero runtime deps
-    details: An in-tree arg serializer and opt-in subpaths keep rxjs and Angular out of your runtime bundle. 100% test coverage, verified on Node 22/24/26 and Bun 1.4.
+    details: An in-tree arg serializer and opt-in subpaths keep rxjs, zone.js and Angular out of your runtime bundle. 100% test coverage, verified on Node 22/24/26 and Bun 1.4.
     link: /core/installation
 ---

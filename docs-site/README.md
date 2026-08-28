@@ -27,7 +27,10 @@ npm run preview   # preview the production build locally
 - `index.md` — home page (hero + feature cards)
 - `.vitepress/config.mts` — site config, nav and sidebar
 - `core/`, `runtimes/`, `adapters/`, `utilities/` — section pages
-- `migrating.md`, `api.md`, `comparison.md` — top-level pages
+- `recipes.md`, `migrating.md`, `api.md`, `comparison.md`, `agents.md` — top-level pages
+- `public/llms.txt`, `public/llms-full.txt` — generated from the sidebar by
+  `../scripts/generate-llms-txt.mjs` (it runs on `build`, and `npm run llms:check` fails CI on
+  drift). Adding a page means adding it to the sidebar, not to these files.
 
 Content is grounded in the root [`README.md`](../README.md), [`CHANGELOG.md`](../CHANGELOG.md) and,
 for anything behavioural, the source and specs under `../src/`. Every page carries `title` and

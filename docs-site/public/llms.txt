@@ -42,10 +42,16 @@ spied method earns helpers from its return type — `calledWith`/`mustBeCalledWi
 ## Utilities
 
 - [Console spies](https://asdalexey.github.io/vitest-auto-spy/utilities/console): Silent, typed spies over the global console — installed on import, restored on demand.
-- [Test-run hygiene](https://asdalexey.github.io/vitest-auto-spy/utilities/setup): setupAutoSpy() — property restore, mock-registry reset and duplicate-copy detection in one call.
+- [Test-run hygiene](https://asdalexey.github.io/vitest-auto-spy/utilities/setup): setupAutoSpy() — property restore, mock-registry reset, duplicate-copy detection and global-patch guarding in one call.
 - [Fake timers](https://asdalexey.github.io/vitest-auto-spy/utilities/fake-timers): setupFakeTimers pairs install with restore, and advanceTimers drains the microtasks a bare advance leaves pending.
 - [Observer stubs](https://asdalexey.github.io/vitest-auto-spy/utilities/observer-stubs): stubIntersectionObserver and friends — replace an observer the component constructs itself with one the spec drives, and get the real global back automatically.
-- [ESLint plugin](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-plugin): Five flat-config lint rules that steer a suite onto the auto-spy helpers, versioned with the API they recommend.
+- [Constructor doubles](https://asdalexey.github.io/vitest-auto-spy/utilities/constructor-doubles): mockConstructor and stubConstructor — a test double the code under test can call with `new`, because a vi.fn() cannot be one.
+- [Media element stub](https://asdalexey.github.io/vitest-auto-spy/utilities/media-element): stubMediaElement — a <video> / <audio> that plays, reports a duration and fires the events a component listens for, which jsdom does not.
+- [Module mocks](https://asdalexey.github.io/vitest-auto-spy/utilities/module-mocks): assertMocked and moduleNamespace — prove a vi.mock() applied under a bundler, and give its factory the shape an interop probe recognises.
+- [Fixtures without casts](https://asdalexey.github.io/vitest-auto-spy/utilities/fixtures): createMock’s deep partial, narrow() for a union a test knows the branch of, and withOverrides() for a model whose getters a spread would drop.
+- [fakeAsync on Vitest](https://asdalexey.github.io/vitest-auto-spy/utilities/zone): vitest-auto-spy/zone — the ProxyZone patch zone.js/testing does not ship for Vitest, behind its own specifier so a zoneless project never sees it.
+- [Waiting and the clock](https://asdalexey.github.io/vitest-auto-spy/utilities/event-loop): flushEventLoop, flushEventLoopUntil, settleDynamicImport, mockSystemTime and useCountingClock — four pending queues, and the tool that drives each.
+- [ESLint plugin](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-plugin): Eight flat-config lint rules that steer a suite onto the auto-spy helpers, versioned with the API they recommend.
 
 ## Adapters
 

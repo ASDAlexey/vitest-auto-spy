@@ -56,3 +56,76 @@ WorkerSpy.instances[0].postMessage.mockReturnValue(undefined);
 
 It takes the same optional second argument as
 [`createSpyFromClass`](./create-spy-from-class), so each instance can be configured the usual way.
+
+## Which error means which direction
+
+The compiler reports the `Spy<T>` / `T` mismatch in four different ways, and none of them contains
+both the words "spy" and "instance" — which is why the fix is hard to find from the message alone,
+and why the usual repair is a double assertion that also hides real mismatches.
+
+| Message                                                                              | Direction | Fix                               |
+| ------------------------------------------------------------------------------------ | --------- | --------------------------------- |
+| `TS2352: … 'accessorSpies' is missing in type 'Router'`                              | `T` → spy | `asSpy(TestBed.inject(Router))`   |
+| `TS2739` / `TS2740: Type 'Spy<X>' is missing the following properties from type 'X'` | spy → `T` | `asInstance(spy)`                 |
+| `TS2345: Argument of type 'Spy<X>' is not assignable to parameter of type 'X'`       | spy → `T` | `asInstance(spy)`                 |
+| `is missing the following properties: _modalOpened, body, …` (private names)         | —         | declare `Spy<T>`, not `Mocked<T>` |
+
+`TS2352` is the one a migrated suite hits everywhere at once: `TestBed.inject(X) as Spy<X>` is the
+`jest-auto-spies` idiom and is in every guide, and it only starts failing once the specs are
+compiled by the same toolchain as production code — a `ts-jest` setup with isolated-module semantics
+never type-checked it.
+
+The last row is its own trap. Vitest's own `Mocked<T>` keeps `T`'s **private** members, so the error
+lists private field names and reads as "the double is incomplete". It is not; the declaration is
+wrong. `Spy<T>` covers the public surface on purpose.
+
+## A generic class needs its type argument
+
+`TestBed.inject` infers from the constructor, so `FeatureFlagService<T = FeatureFlagDefaults>`
+comes back as `FeatureFlagService<any>`. The `any` then spreads through `Spy<>` and surfaces as a
+mismatch between `AddPromiseSpyMethods<unknown>` and `WithMockReturnValue<…>`, eight levels deep,
+with nothing in the message about a missing type parameter.
+
+```ts
+const config = asSpy<FeatureFlagService>(TestBed.inject(FeatureFlagService));
+const config = injectSpy<FeatureFlagService>(FeatureFlagService); // same, in Angular
+```
+
+## `asInstances(...)` — a whole argument list at once
+
+```ts
+factory = webSsoAuthCheckFactory(...asInstances(account, authCheck, domainEvents, storage), document);
+```
+
+One wrapper per argument is not merely longer, it is *discovered* one argument at a time: TypeScript
+stops checking a call at the first argument that does not fit, so a factory taking five spies reports
+one `TS2345`, and the next only after the previous is fixed and `tsc` is run again. A non-spy in the
+list passes through unchanged, so a call that mixes spies with real values does not have to be split.
+
+## Overloads: `Parameters` reads the **last** signature
+
+```ts
+const cinemas = asSpy<VenuesService, { overload: 'first' }>(TestBed.inject(VenuesService));
+const client = createSpyFromClass<VenuesService, { overload: 'first' }>(VenuesService);
+```
+
+`Parameters<F>` and `ReturnType<F>` — and therefore the helpers a spy attaches — read the last
+overload of a method. On a generated API client (`ng-openapi-gen`, `openapi-generator`) that is
+`observe: 'events'`, the signature nobody calls: `nextWith(body)` then stops compiling, demanding an
+`HttpEvent<T>`, with nothing in the message about overload order.
+
+`{ overload: 'first' }` types the spy against the first signature instead. For a single method there
+is also `Overload<Client['get'], 0>`, which is what to put in a `MockInstance<…>` or a `vi.fn<…>()`.
+
+## `Spy<T>`, not `Mocked<T>`
+
+```ts
+let modal: Spy<KdsModalService>; // ✅
+let modal: Mocked<KdsModalService>; // ❌
+```
+
+`Mocked<T>` is Vitest's own type and it intersects with `T` *completely*, private members included.
+Assigning a spy to it fails with `Type 'Spy<…>' is missing the following properties: _modalOpened,
+body, rendererFactory, …` — a list of private field names, from which it is impossible to guess that
+the **declaration** is what is wrong rather than the spy. The
+[`no-mocked-for-spy`](/utilities/eslint-plugin) rule catches it mechanically.

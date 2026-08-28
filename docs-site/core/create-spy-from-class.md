@@ -176,3 +176,45 @@ lacks is exactly what they are for.
 **No class, no problem.** [`createAutoMock<T>()`](./auto-mock-by-type) builds the same surface from a
 type alone, `mockDeep<T>()` does it recursively, and `createMock<T>()` returns a plain, spy-free `T`
 for a data shape the code only reads.
+
+## `returns` — the value, where the spy is built
+
+```ts
+providers: [provideAutoSpy(ProductsService, { returns: { getProducts: of([]) } })];
+```
+
+The alternative is a second statement in every `beforeEach` (`injectSpy(X).m.mockReturnValue(…)`),
+and the shortcut people take instead is an exported `const` provider carrying the values — which,
+under `isolate: false`, is one set of spies shared by every file that imports it.
+
+It installs an implementation, exactly as `mockReturnValue` does, so a `calledWith(…)` chain
+configured **afterwards** on the same method no longer decides the value. Use one or the other per
+method.
+
+## `gettersToSpyOn` accepts a signal-valued getter
+
+```ts
+createSpyFromClass(LayoutStateService, { gettersToSpyOn: ['isKidMode', 'shelvesLoaded'] });
+```
+
+Whether a member is a getter is a fact about its **descriptor**, not about the type of the value it
+returns — and a getter returning `Signal<T>` is callable, so a list filtered by "not callable"
+rejected exactly the shape Angular's signal-based services are made of. For a service whose readonly
+state is all signals that left no nameable getter at all, and the failure read
+`Type 'string' is not assignable to type 'never'`, with nothing in it about signals.
+
+Any string key may now be named. What is checked instead is the case that is unambiguously a mistake:
+naming a **method** installs a spied accessor over it, so the method is no longer callable on the
+spy, and that is reported at runtime.
+
+For a signal, prefer `mockSignalProp` (`/angular`) over a spied getter — see
+[Angular](/adapters/angular#patching-a-property-of-a-spy).
+
+## A method whose return type is `never`
+
+A generic method with a conditional return type — `get<K extends keyof T>(k: K): T[K] extends
+Stringified<infer R> ? R : never`, the shape of every typed configuration service — used to turn the
+**whole** spy member into `never`, reported as `Property 'mockReturnValue' does not exist on type
+'never'` with nothing connecting it to the method it came from. Fixed in the type: the helper bundle
+falls back to the synchronous one instead of annihilating the member, and every return-type
+comparison is non-distributive.
