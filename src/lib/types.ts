@@ -274,13 +274,29 @@ export type PropStubValue<V> = V extends (...args: infer Args) => infer Return ?
  * route snapshot — a tree the test reads one leaf of — has to name the type of every nested level
  * and build it with its own call. What it buys over `as T` is what must survive: a key that `T` does
  * not have, or that a refactor removed, is still rejected at any depth.
+ *
+ * **Every level also accepts the real value**, which is the `T |` in the object branch. Without it a
+ * deep partial stops accepting the object it is a partial *of*: `{@link BuiltIn}` lists the values
+ * that must be handed back untouched, but it can only list types from ECMAScript — naming `Node` or
+ * `NodeList` here would put `lib: ["DOM"]` into the published `.d.ts`, and this package is imported
+ * from `/node`, `/nestjs` and `/bun` as well. So a host object was mapped over instead, and a real
+ * `NodeList` stopped being assignable to the mapping of itself:
+ *
+ * ```ts
+ * createMock<MutationRecord>({ addedNodes: nodeList, target: element });
+ * //                           ^ Type 'NodeList' is not assignable to type '{ readonly baseURI?: … }'
+ * ```
+ *
+ * The union costs nothing at the check that matters: excess-property checking against a union
+ * accepts a key present in *some* member, and both members here have exactly the keys of `T`, so a
+ * key `T` does not have is still rejected — at any depth.
  */
 export type DeepPartial<T> = T extends BuiltIn
   ? T
   : T extends readonly (infer Element)[]
     ? DeepPartial<Element>[]
     : T extends object
-      ? { [K in keyof T]?: DeepPartial<T[K]> }
+      ? T | { [K in keyof T]?: DeepPartial<T[K]> }
       : T;
 
 /**

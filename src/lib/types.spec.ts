@@ -140,4 +140,29 @@ describe('deep partial fixtures', () => {
 
     expect(partial.issuedAt).toBeInstanceOf(Date);
   });
+
+  it('accepts a real host object where the field is typed as one', () => {
+    const fragment = document.createDocumentFragment();
+    fragment.append(document.createElement('span'));
+
+    // `BuiltIn` cannot name `Node` or `NodeList` — that would put `lib: ["DOM"]` into the published
+    // `.d.ts`, and this package is imported from `/node`, `/nestjs` and `/bun` too. So host objects
+    // were mapped over, and a deep partial stopped accepting the object it is a partial of:
+    // `Type 'NodeList' is not assignable to type '{ readonly baseURI?: … }'`, followed by ten
+    // screens of a recursive type ending on `parentElement.shadowRoot.adoptedStyleSheets`.
+    const record = createMock<MutationRecord>({ addedNodes: fragment.childNodes, target: document.body });
+
+    expect(record.addedNodes).toHaveLength(1);
+    expect(record.target).toBe(document.body);
+  });
+
+  it('still rejects a key the model does not have inside a host-typed branch', () => {
+    // The union added for the case above must not cost the check that makes a deep partial worth
+    // having: excess-property checking against a union accepts a key present in *some* member, and
+    // both members carry exactly the keys of `T`.
+    // @ts-expect-error `nodeTypo` is not on `Node`.
+    const wrong = createMock<MutationRecord>({ target: { nodeTypo: 1 } });
+
+    expect(wrong).toBeDefined();
+  });
 });
