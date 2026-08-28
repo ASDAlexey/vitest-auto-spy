@@ -164,3 +164,23 @@ describe('stray-timer containment (opted in)', () => {
     expect(globalThis.setTimeout).toBe(scheduler);
   });
 });
+
+describe('setupAutoSpy({ globalFakeTimers })', () => {
+  setupAutoSpy({ duplicateCopies: 'off', globalFakeTimers: { toFake: ['Date'] } });
+
+  it('installs fake timers for the first test', () => {
+    expect(vi.isFakeTimers()).toBe(true);
+  });
+
+  it('installs them again for the next one, without a double uninstall in between', () => {
+    expect(vi.isFakeTimers()).toBe(true);
+  });
+});
+
+describe('setupAutoSpy({ globalFakeTimers: true })', () => {
+  setupAutoSpy({ duplicateCopies: 'off', globalFakeTimers: true });
+
+  it('accepts the boolean shorthand', () => {
+    expect(vi.isFakeTimers()).toBe(true);
+  });
+});

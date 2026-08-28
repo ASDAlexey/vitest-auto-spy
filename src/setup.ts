@@ -23,6 +23,18 @@ import { useVitestAdapter } from './lib/use-vitest-adapter';
 useVitestAdapter();
 
 export { setupAutoSpy, type DuplicateCopiesReaction, type SetupAutoSpyOptions } from './lib/setup-auto-spy';
+export { guardGlobalPatches, type GlobalPatchReaction } from './lib/global-patch-guard';
+export { installPerTest, type PerTestHandle } from './lib/install-per-test';
+export {
+  mockNow,
+  mockSystemTime,
+  useCountingClock,
+  withSystemTime,
+  type CountingClock,
+  type CountingClockOptions,
+  type SystemTime,
+} from './lib/clock';
+export { registerFocusMatchers } from './lib/focus-matchers';
 export { advanceTimers, setupFakeTimers, type FakeTimersConfig } from './lib/fake-timers';
 export { describeDuplicateCopies, getPackageCopies } from './lib/package-identity';
 export { cancelStrayTimers, countStrayTimers, trackStrayTimers, type SchedulerHost, type StopTrackingTimers } from './lib/stray-timers';

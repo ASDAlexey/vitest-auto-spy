@@ -14,6 +14,8 @@
  */
 import { afterAll, afterEach, beforeEach, vi } from 'vitest';
 
+import { type FakeTimersConfig, setupFakeTimers } from './fake-timers';
+import { type GlobalPatchReaction, guardGlobalPatches } from './global-patch-guard';
 import { blockNetwork } from './network-stub';
 import { describeDuplicateCopies } from './package-identity';
 import { restoreMockedProps } from './prop-mock';
@@ -49,6 +51,30 @@ export interface SetupAutoSpyOptions {
    * an otherwise green run with no test named. See {@link blockNetwork}.
    */
   blockNetwork?: boolean;
+  /**
+   * Install fake timers around **every** test in the run — Jest's `fakeTimers.enableGlobally`,
+   * which Vitest has no setting for. Default `false`.
+   *
+   * A suite ported from a Jest project that had it on was written against a frozen clock
+   * throughout, and turning it back on file by file is a thousand edits. Pass `true` for the
+   * defaults, or a `vi.useFakeTimers()` config (`{ toFake: ['setTimeout', 'Date'] }`) to narrow it.
+   *
+   * Installation is guarded on both ends, which is the part a hand-written pair of hooks gets
+   * wrong: a spec that drives the clock itself would otherwise hit a second `vi.useRealTimers()`,
+   * and that one leaves the environment without `clearInterval` — which then explodes during
+   * teardown of whichever file happens to run next.
+   */
+  globalFakeTimers?: FakeTimersConfig | boolean;
+  /**
+   * Report a test that redefines a property of `globalThis` / `document` / `navigator` as
+   * **non-configurable**, which nothing can undo. Default `'off'`.
+   *
+   * The patch itself is ordinary Jest-era code — `Object.defineProperty(document, 'cookie', { value })`
+   * defaults `configurable` to `false` — and under per-file isolation it was harmless. Under
+   * `isolate: false` the leftover belongs to every later file in the worker, and what fails is some
+   * library, intermittently, with nothing naming the file that did it. See {@link guardGlobalPatches}.
+   */
+  guardGlobals?: GlobalPatchReaction;
   /**
    * Put back timer globals that uninstalling the fakes removed rather than restored. Default `true`:
    * it only ever replaces a global that has gone missing, so it cannot overwrite anything a spec
@@ -107,6 +133,12 @@ export function setupAutoSpy(options: SetupAutoSpyOptions = {}): void {
       cancelStrayTimers();
     });
   }
+
+  if (options.globalFakeTimers) {
+    setupFakeTimers(options.globalFakeTimers === true ? undefined : options.globalFakeTimers);
+  }
+
+  guardGlobalPatches(options.guardGlobals ?? 'off');
 
   if (options.blockNetwork ?? false) {
     // Per test rather than once: the stub is registered as a property patch, so `restoreProps`
