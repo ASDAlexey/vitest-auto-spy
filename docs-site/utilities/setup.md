@@ -188,7 +188,7 @@ import { installPerTest } from 'vitest-auto-spy/setup';
 
 const observers = installPerTest(() => stubIntersectionObserver({ autoEmit: true }));
 
-it('loads the shelf once it scrolls into view', () => {
+it('loads the section once it scrolls into view', () => {
   fixture.detectChanges();
 
   expect(observers().last.targets).toEqual([host]);
@@ -251,10 +251,10 @@ a 30-second timeout in a different file on each run.
 
 ```ts
 // ❌ a constant: one set of spies for the whole worker
-export const mockCommandContext = { actions: { navigateToChannel: vi.fn() } };
+export const mockActionContext = { actions: { navigateToSection: vi.fn() } };
 
 // ✅ a factory: one set per caller
-export const createCommandContext = () => ({ actions: { navigateToChannel: vi.fn() } });
+export const createActionContext = () => ({ actions: { navigateToSection: vi.fn() } });
 ```
 
 The same applies to a shared provider fixture — `{ provide: X, useValue: { load: vi.fn() } }` is a

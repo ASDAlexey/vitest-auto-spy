@@ -389,10 +389,10 @@ when the resulting `undefined` is swallowed by a `catch`).
 
 ```ts
 // ❌ a constant: one set of spies for the whole worker
-export const commandContext = { actions: { navigateToChannel: vi.fn() } };
+export const actionContext = { actions: { navigateToSection: vi.fn() } };
 
 // ✅ a factory: one set per caller
-export const createCommandContext = () => ({ actions: { navigateToChannel: vi.fn() } });
+export const createActionContext = () => ({ actions: { navigateToSection: vi.fn() } });
 ```
 
 Under `isolate: false` a module is evaluated **once per worker**, so an exported object holding

@@ -500,10 +500,10 @@ entry that reads as if something were deliberately silenced.
 ## Patching a property of a spy
 
 ```ts
-const epg = injectSpy(ScheduleStateService);
+const playback = injectSpy(PlaybackStateService);
 
-mockSignalProp(epg, 'navigationState', 'idle'); // a real, writable signal
-mockReadonlyProp(epg, 'playingChannel', signal(channel));
+mockSignalProp(playback, 'navigationState', 'idle'); // a real, writable signal
+mockReadonlyProp(playback, 'currentItem', signal(item));
 ```
 
 The `mock*Prop` helpers accept the `Spy<T>` that `injectSpy` / `asSpy` returns, and check the value

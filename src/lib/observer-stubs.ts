@@ -221,7 +221,7 @@ export interface IntersectionObserverStubOptions {
    * Report every observed target as fully in view, synchronously, from `observe()`.
    *
    * The mode a suite carried over from Jest needs: there the global mock fired its callback with
-   * `isIntersecting: true` right away, so lazily-loading shelves and cards fetched their data
+   * `isIntersecting: true` right away, so lazily-loading sections and cards fetched their data
    * during `detectChanges()`. Against the default inert observer those specs assert on an empty
    * component and fail with something unrelated to intersection.
    */

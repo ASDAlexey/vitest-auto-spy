@@ -204,7 +204,7 @@ by hand there, in more than one place, by more than one person.
   either.
 - **`gettersToSpyOn` / `settersToSpyOn` could not name a signal-valued getter — which is most of
   them.** The element type was "keys whose value is not callable", and `Signal<T>` is
-  `(() => T) & { … }`: callable. For a service whose readonly state is all signals (`get isKidMode():
+  `(() => T) & { … }`: callable. For a service whose readonly state is all signals (`get isCompactMode():
   Signal<boolean>`) the list had *no* valid member, and the failure read `Type 'string' is not
   assignable to type 'never'` — 34 of one shard's 51 type errors. Whether a member is an accessor is
   a fact about its descriptor, not about the type of the value, so any string key may now be named.

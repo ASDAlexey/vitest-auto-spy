@@ -48,7 +48,7 @@ export type OnlyPropsOf<ObjectType> = Extract<
  * Whether a member is a getter is a property of the *descriptor*, not of the value: a getter
  * returning a function is still a getter. Filtering by "not callable" (as {@link OnlyPropsOf} does)
  * therefore rejects exactly the case Angular's signal-based services are made of —
- * `get isKidMode(): Signal<boolean>`, where `Signal<T>` is `(() => T) & { … }` and so *is* callable.
+ * `get isCompactMode(): Signal<boolean>`, where `Signal<T>` is `(() => T) & { … }` and so *is* callable.
  * For a service whose readonly state is all signals, that leaves no nameable getter at all and the
  * element type collapses to `never`, reported as `Type 'string' is not assignable to type 'never'`
  * — a message with nothing in it about signals.

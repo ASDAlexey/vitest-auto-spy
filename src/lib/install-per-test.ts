@@ -15,7 +15,7 @@
  * ```ts
  * const observers = installPerTest(() => stubIntersectionObserver({ autoEmit: true }));
  *
- * it('loads the shelf once it scrolls into view', () => {
+ * it('loads the section once it scrolls into view', () => {
  *   fixture.detectChanges();
  *   expect(observers().last.targets).toEqual([host]);
  * });

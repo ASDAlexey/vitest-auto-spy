@@ -140,7 +140,7 @@ stubIntersectionObserver({ autoEmit: true });
 
 The default stub is inert, which is right when the spec wants to choose the moment of intersection.
 It is wrong for a suite carried over from Jest, where the global mock fired its callback with
-`isIntersecting: true` synchronously from `observe()`, so lazily-loading shelves and cards fetched
+`isIntersecting: true` synchronously from `observe()`, so lazily-loading sections and cards fetched
 their data during `detectChanges()`. Against an inert observer those specs quietly assert on a
 component that never loaded anything, and fail with something unrelated to intersection — one option
 here instead of rewriting every spec.

@@ -682,7 +682,7 @@ method.
 ## `gettersToSpyOn` accepts a signal-valued getter
 
 ```ts
-createSpyFromClass(LayoutStateService, { gettersToSpyOn: ['isKidMode', 'shelvesLoaded'] });
+createSpyFromClass(LayoutStateService, { gettersToSpyOn: ['isCompactMode', 'sectionsLoaded'] });
 ```
 
 Whether a member is a getter is a fact about its **descriptor**, not about the type of the value it
@@ -2633,7 +2633,7 @@ import { installPerTest } from 'vitest-auto-spy/setup';
 
 const observers = installPerTest(() => stubIntersectionObserver({ autoEmit: true }));
 
-it('loads the shelf once it scrolls into view', () => {
+it('loads the section once it scrolls into view', () => {
   fixture.detectChanges();
 
   expect(observers().last.targets).toEqual([host]);
@@ -2696,10 +2696,10 @@ a 30-second timeout in a different file on each run.
 
 ```ts
 // ❌ a constant: one set of spies for the whole worker
-export const mockCommandContext = { actions: { navigateToChannel: vi.fn() } };
+export const mockActionContext = { actions: { navigateToSection: vi.fn() } };
 
 // ✅ a factory: one set per caller
-export const createCommandContext = () => ({ actions: { navigateToChannel: vi.fn() } });
+export const createActionContext = () => ({ actions: { navigateToSection: vi.fn() } });
 ```
 
 The same applies to a shared provider fixture — `{ provide: X, useValue: { load: vi.fn() } }` is a
@@ -2938,7 +2938,7 @@ stubIntersectionObserver({ autoEmit: true });
 
 The default stub is inert, which is right when the spec wants to choose the moment of intersection.
 It is wrong for a suite carried over from Jest, where the global mock fired its callback with
-`isIntersecting: true` synchronously from `observe()`, so lazily-loading shelves and cards fetched
+`isIntersecting: true` synchronously from `observe()`, so lazily-loading sections and cards fetched
 their data during `detectChanges()`. Against an inert observer those specs quietly assert on a
 component that never loaded anything, and fail with something unrelated to intersection — one option
 here instead of rewriting every spec.
@@ -3648,10 +3648,10 @@ And an exported double is built once per **module**, not once per test:
 
 ```ts
 // ❌ every importing spec shares these spies, for the whole worker
-export const commandContext = { actions: { navigateToChannel: vi.fn() } };
+export const actionContext = { actions: { navigateToSection: vi.fn() } };
 
 // ✅ one set per caller
-export const createCommandContext = () => ({ actions: { navigateToChannel: vi.fn() } });
+export const createActionContext = () => ({ actions: { navigateToSection: vi.fn() } });
 ```
 
 Under `isolate: false` a module is evaluated once per worker, the spies are registered against
@@ -4192,10 +4192,10 @@ entry that reads as if something were deliberately silenced.
 ## Patching a property of a spy
 
 ```ts
-const epg = injectSpy(ScheduleStateService);
+const playback = injectSpy(PlaybackStateService);
 
-mockSignalProp(epg, 'navigationState', 'idle'); // a real, writable signal
-mockReadonlyProp(epg, 'playingChannel', signal(channel));
+mockSignalProp(playback, 'navigationState', 'idle'); // a real, writable signal
+mockReadonlyProp(playback, 'currentItem', signal(item));
 ```
 
 The `mock*Prop` helpers accept the `Spy<T>` that `injectSpy` / `asSpy` returns, and check the value

@@ -183,7 +183,7 @@ function warnOnUnknownMethods(ObjectClass: ClassType<unknown>, requested: string
  *
  * The type no longer rejects a name by the type of its value — it cannot, because "is an accessor"
  * is a fact about the descriptor, and filtering by "not callable" is exactly what made every
- * signal-valued getter (`get isKidMode(): Signal<boolean>`) unnameable. What is left to check is
+ * signal-valued getter (`get isCompactMode(): Signal<boolean>`) unnameable. What is left to check is
  * the one case that is unambiguously a mistake rather than a style: naming a method installs a
  * spied accessor *over* it, so the method is no longer there to call.
  *

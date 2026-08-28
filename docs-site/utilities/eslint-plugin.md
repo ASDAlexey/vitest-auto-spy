@@ -42,10 +42,10 @@ And an exported double is built once per **module**, not once per test:
 
 ```ts
 // ❌ every importing spec shares these spies, for the whole worker
-export const commandContext = { actions: { navigateToChannel: vi.fn() } };
+export const actionContext = { actions: { navigateToSection: vi.fn() } };
 
 // ✅ one set per caller
-export const createCommandContext = () => ({ actions: { navigateToChannel: vi.fn() } });
+export const createActionContext = () => ({ actions: { navigateToSection: vi.fn() } });
 ```
 
 Under `isolate: false` a module is evaluated once per worker, the spies are registered against

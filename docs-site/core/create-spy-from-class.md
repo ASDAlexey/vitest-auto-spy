@@ -194,7 +194,7 @@ method.
 ## `gettersToSpyOn` accepts a signal-valued getter
 
 ```ts
-createSpyFromClass(LayoutStateService, { gettersToSpyOn: ['isKidMode', 'shelvesLoaded'] });
+createSpyFromClass(LayoutStateService, { gettersToSpyOn: ['isCompactMode', 'sectionsLoaded'] });
 ```
 
 Whether a member is a getter is a fact about its **descriptor**, not about the type of the value it

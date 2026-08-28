@@ -522,12 +522,12 @@ by every file that imports it, registered against whichever file got there first
 
 ```ts
 // ❌ __mocks__/context.ts
-export const mockCommandContext = { actions: { navigateToChannel: vi.fn() } };
-export const purchaseProvider = { provide: PurchaseState, useValue: { load: vi.fn() } };
+export const mockActionContext = { actions: { navigateToSection: vi.fn() } };
+export const checkoutProvider = { provide: CheckoutState, useValue: { load: vi.fn() } };
 
 // ✅
-export const createCommandContext = () => ({ actions: { navigateToChannel: vi.fn() } });
-export const createPurchaseProvider = () => ({ provide: PurchaseState, useValue: { load: vi.fn() } });
+export const createActionContext = () => ({ actions: { navigateToSection: vi.fn() } });
+export const createCheckoutProvider = () => ({ provide: CheckoutState, useValue: { load: vi.fn() } });
 ```
 
 A spec file must **export nothing**: under `isolate: false` an exported spec file is imported by its
@@ -786,7 +786,7 @@ observers.last.emit([resizeEntry(host, { width: 320 })]);
 ```
 
 `autoEmit` is the mode a suite ported from Jest needs: there the global mock fired its callback with
-`isIntersecting: true` immediately, so lazily-loading shelves fetched their data during
+`isIntersecting: true` immediately, so lazily-loading sections fetched their data during
 `detectChanges()`. Against the default inert observer those specs assert on an empty component and
 fail with something that has nothing to do with intersection.
 
