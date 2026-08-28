@@ -132,6 +132,139 @@ repo at all.
 Sources: <https://github.blog/changelog/2026-07-31-restricting-npm-bypass-2fa-granular-access-tokens/>,
 <https://docs.npmjs.com/trusted-publishers>
 
+## Claude Code plugin directory — submission (future)
+
+The repo is already its own marketplace: `.claude-plugin/marketplace.json` +
+`.claude-plugin/plugin.json` + `skills/vitest-auto-spy/SKILL.md`, all on `master`,
+public, installable by anyone with
+
+```
+/plugin marketplace add ASDAlexey/vitest-auto-spy
+/plugin install vitest-auto-spy@vitest-auto-spy
+```
+
+Getting into the **official directory** (`anthropics/claude-plugins-official`,
+installed as `claude-plugin-directory`) is a separate, optional step — it only
+buys discoverability via `/plugin > Discover`.
+
+- **Not a PR.** `.github/workflows/close-external-prs.yml` auto-closes any pull
+      request from an author without write access and replies with the
+      submission link. The only channel is the form:
+      <https://clau.de/plugin-directory-submission>.
+- **Entry shape.** The directory stores third-party plugins under
+      `external_plugins/<name>/` with just `.claude-plugin/plugin.json` (plus
+      `.mcp.json` where relevant), and lists them in the root `marketplace.json`
+      with `source: "./external_plugins/<name>"`, a `category`, and sometimes a
+      `tags: ["community-managed"]` marker. Content is copied in by Anthropic —
+      our repo is not referenced as a git source, so a directory entry would
+      have to be re-synced on every release.
+- **Known risk.** All 13 current external entries are MCP-server wrappers; none
+      is a skill-only plugin. A skills-only submission may simply not fit what
+      they curate today. Re-check the directory before spending time on the form.
+- **Before submitting** — what a reviewer would look at:
+      - `plugin.json` / `marketplace.json` version in lockstep with
+        `package.json` (already automated by `scripts/sync-plugin-version.mjs`
+        on `npm version`).
+      - `SKILL.md` frontmatter passes their
+        `.github/scripts/validate-frontmatter.ts` (`name` + `description`;
+        values containing YAML special chars must be quoted).
+      - a `README.md` in the plugin root — their documented plugin layout
+        expects one; ours currently lives only at repo root.
+      - LICENSE (MIT) and `SECURITY.md` — both already present.
+
+## Migration wishlist — what remains, and the mechanism that stops it
+
+Everything asked for by the 1688-spec migration is now implemented except the items below. Each one
+names the thing that actually prevents it — a version, an API, a check — rather than a judgement.
+
+- [~] **`mockModule('x', factory)` — one call doing `vi.hoisted` + `vi.mock`.** Re-checked against
+      Vitest 4.1.9 rather than from memory. The mechanism: `vi.mock` is not a function call at
+      runtime, it is a **transform**. `@vitest/mocker`'s `hoistMocks` walks the module's AST and
+      moves *literal* `vi.mock(...)` / `vi.hoisted(...)` calls above every import; the matcher keys
+      on the callee being the `vi` (or `vitest`) identifier with the property `mock`. A call to any
+      other function — including one this package exports — is not matched, is not hoisted, and runs
+      after the imports it was supposed to intercept. There is no runtime API to register a mock
+      factory for a specifier, so a wrapper cannot fall back to one either. What *is* possible, and
+      is shipped: `moduleNamespace(exports)` for the factory's return shape, `assertMocked(ns, …)`
+      to prove the mock applied, and the `vi.hoisted` recipe in the docs. Revisit if Vitest ever
+      exposes `mocker.register(specifier, factory)` at runtime.
+- [ ] **`prefer-as-instance` as a lint rule with an autofix.** `Spy<T>` in a position that expects
+      `T` cannot be seen in the AST: it is a *type* relationship, so the rule needs
+      `parserServices.program` — type-aware linting, which requires the consumer to set
+      `parserOptions.project` and pays a full type-check per lint run. This plugin is deliberately
+      type-free (`rule-types.ts` declares the ESTree slice it uses and imports no `eslint` or
+      `typescript` types), so adding one type-aware rule would change what the plugin needs from
+      every consumer that loads `configs.recommended`. If it is added, it belongs in a second,
+      opt-in config (`configs.typeChecked`) and needs its own test setup: `RuleTester` with a real
+      `tsconfig` and files on disk. Until then `asInstances(...)` is the answer to the cost of the
+      repair, if not to finding it.
+- [ ] **`NO_ERRORS_SCHEMA` next to a standalone component is a dead entry.** Schemas apply to a
+      testing module's `declarations`; a standalone component carries its own. Detecting it needs a
+      wrapper around `TestBed.configureTestingModule` that inspects the config — the mechanism
+      already exists here (`instrumentTestBed` wraps exactly that method), but the natural home is an
+      opt-in `enableAngularDiagnostics()` grouping it with `assertNgModuleScopes`, and that grouping
+      is the design decision, not the code. The `toHaveDirectiveApplied` failure already says it in
+      the one place people meet the problem.
+- [ ] **A `toEqualRecords` matcher on top of `diffByField`.** Unchanged from the previous pass:
+      `diffByField` is a plain function because it is reached for *after* a failure, and a matcher
+      would carry its own deep equality and compete with `toEqual` at every call site.
+- [ ] **`overrideComponentProvider` could verify that the override applied.** It queues the component
+      with the TestBed compiler, which removes the usual cause of a silent no-op, but does not assert
+      afterwards that the injector resolved the spy.
+
+### Two aliases that are deliberately absent
+
+Checked against the request rather than assumed, and both turned out to be the same thing under
+another name. Documented as such (docs → "looking for X?") instead of shipped, because a second name
+for one wait is a real cost: the reader has to decide between them.
+
+- **`settled(fixture)`** is `stable(fixture)` — flush the effects, then await the fixture. The
+  request added "and it should complain if it returned while tasks were pending", which is a
+  behaviour change to a released API rather than a new name; if it is wanted, it belongs behind an
+  option on `stable`.
+- **`ensureModuleInitialized(specifier)`** is `settleDynamicImport(() => import(specifier))`, whose
+  documentation already covers the second reason to call it (a barrel symbol reads as `undefined`
+  until its chunk has been evaluated).
+
+## `doctor` — a repository-level check for defects that never fail
+
+A CLI (`npx vitest-auto-spy doctor`, non-zero exit) grouping the checks below. What they have in
+common is that **nothing consumes them**: the run is green, and the only reader of a
+`tsconfig.spec.json` after Jest is gone is somebody's editor. Each check is independent and can be
+built and enabled on its own; the shared part is a small CLI entry (`bin` in `package.json`, a new
+published surface — which is the reason this is a plan rather than a patch).
+
+- [ ] **A spec that no tsconfig covers.** Found by a person opening a file and seeing
+      `Cannot find name 'vi'` while `tsc --noEmit` reported zero errors: a migration codemod editing
+      `include` had eaten `/**/*`, turning `src/**/*.spec.ts` into `src*.spec.ts` — a syntactically
+      valid glob that matches nothing. Nine of 152 spec tsconfigs still covered their specs. The
+      check: for every `tsconfig*.json`, expand `include` and report a pattern that matches no file.
+- [ ] **A non-spec file that imports a spec.** Under a shared environment that is a cycle, and the
+      spec loses its own suite.
+- [ ] **A spec that exports a fixture somebody imports.** The same defect from the other side.
+- [ ] **A foreign runner's pragma left in a spec** (`@jest-environment`, `@jest-config`). Vitest does
+      not read them; the environment comes from the config, so the comment looks operative and is
+      not.
+- [ ] **Orphan files referenced only by a removed runner config** — `setupFiles`, `moduleNameMapper`,
+      `snapshotSerializers`. One of the three found this way had been empty since before the
+      migration: a year as a setting that configured nothing.
+
+Two of these (the import-cycle pair) overlap with the `no-shared-module-level-mock` lint rule, and
+the overlap is not complete: the rule sees one file at a time, so it catches the *export* but not
+"and three files import it", and it cannot see a non-spec file importing a spec at all. That part
+genuinely needs a repository-level pass.
+
+## Invariants
+
+- **`zone.js` is a devDependency and only a devDependency.** Never a dependency, never a peer, not
+  even an optional one. Everything about zones lives behind `vitest-auto-spy/zone`; no other entry
+  reaches that module, even transitively, and the module imports no zone.js of its own — it reads
+  `globalThis.Zone`, which the consumer loaded. Verified after each change to the entry list:
+  `npm run build` then `grep -rl proxy-zone dist/` must name `dist/zone.js` (and its `.d.ts`) and
+  nothing else, `npm run size:badge` must not move for `dist/index.js`, and `package.json` must
+  still declare no `dependencies`. A convenient re-export from the root would hand zone.js to every
+  zoneless consumer, silently.
+
 ## Backlog (not in this pass)
 
 - [ ] **`node:test` adapter ignores the `name` argument** of

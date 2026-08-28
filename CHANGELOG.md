@@ -10,7 +10,237 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
-_Nothing yet._
+Everything below comes from one source: a 1688-spec Angular monorepo moving from Jest to Vitest
+under the native `@angular/build:unit-test` builder. Each item is something that had to be written
+by hand there, in more than one place, by more than one person.
+
+### Added
+
+- **`mockConstructor(factory, name?)` and `stubConstructor(target, key, factory)`** — a test double
+  the code under test can call with `new`. This is the single most common failure of a Jest → Vitest
+  move: `jest.fn().mockImplementation(() => instance)` served `new`, and Vitest only forwards `new`
+  to a constructible implementation, so an arrow records the call, skips the body and hands back an
+  empty object. What arrives is `TypeError: (cb) => {…} is not a constructor` with a stack in
+  production code, or a green test for the wrong reason. `mockConstructor` stays a full runner mock
+  (matchers, `mockClear`), collects `instances`, throws by name if it is ever called *without* `new`,
+  and refuses a factory that returns a primitive (which `new` would discard). `stubConstructor`
+  installs it through `mockValueProp`, so `restoreMockedProps()` puts the real constructor back.
+- **`flushEventLoop(turns?)` and `settleDynamicImport(load, turns?)`** — real event-loop turns while
+  the timers are faked, without touching the clock. `await Promise.resolve()` never advances a
+  dynamic `import()` or a native `async` function inside a dependency, and `setTimeout` is the fake
+  one; the working alternative, `vi.advanceTimersByTimeAsync(0)`, reads as "move the timers" in a
+  test that has no timers and gets deleted as noise.
+- **`stubAbortController()`** — a realm-consistent `AbortController` / `AbortSignal`, so
+  `addEventListener(…, { signal })` works under jsdom. The failure it removes,
+  `TypeError: 'addEventListener' called on an object that is not a valid instance of EventTarget`,
+  is raised by jsdom, caused by Node's fetch globals and triggered by zone.js, and names none of
+  them.
+- **`mutationRecord(target, init?)` and `resizeEntry(target, rect?)`** — the missing counterparts of
+  `intersectionEntry`. A `MutationRecord` cannot be written as an object literal at all
+  (`addedNodes` is a `NodeList`), and the obvious `DocumentFragment` construction **moves** the
+  nodes, tearing them out of the fixture under test; this one moves nothing.
+- **`stubIntersectionObserver({ autoEmit: true })`**, `stubObserver(name, { autoEmit })`, and
+  `observers.last.options`. `autoEmit` reproduces the Jest-era global mock that reported everything
+  as visible synchronously from `observe()` — without it, a whole ported suite silently asserts on
+  components that never loaded their data. `options` exposes the init object, so a spec can assert
+  "one observer per unique root margin" instead of counting constructions.
+- **`autoMocked<T>(overrides?)`** — `createAutoMock` typed as `T & Spy<T>`, for a collaborator that
+  is passed as an argument rather than injected (a logger, a reporter, a telemetry client) and has to
+  satisfy `T` at the call site and expose spy helpers at the assertion.
+- **`setupAutoSpy({ globalFakeTimers })`** — Jest's `fakeTimers.enableGlobally`, which Vitest has no
+  setting for, with both ends guarded so a spec that drives the clock itself does not hit a second
+  `vi.useRealTimers()`.
+- **`mockSystemTime`, `withSystemTime`, `mockNow`, `useCountingClock`** (from `/setup`). Clock
+  control that survives fake timers being re-installed around every test: `vi.useFakeTimers()`
+  installs a fresh `Date` each call, so a `beforeAll` patch of `Date.now` is left on an object
+  nothing reads, and the naive undo re-attaches a dead clock's `now` to the live one.
+  `useCountingClock` makes `Date.now()` count, which is the only way to express an expectation about
+  *order* or *duration* under a frozen clock.
+- **`overrideAutoSpy(Token, config?)` and `overrideComponentProvider(Component, Token, config?)`**
+  (from `/angular`) — for a dependency a component declares in its own `providers`, which a
+  testing-module provider cannot replace. They also remove two silent no-ops:
+  `overrideProvider(X, provideAutoSpy(X))` passes a provider where `{ useValue }` is expected and is
+  ignored without a warning, and `overrideProvider` never reaches a component the TestBed compiler
+  was not given.
+- **`assertNgModuleScopes(...modules)`** (from `/angular`) — names the module when an AOT test bundle
+  has stripped `ɵɵsetNgModuleScope`, so `imports: [DirectivesModule]` contributes nothing. It
+  otherwise reports as `NG0303`, `NG0301`, `NG0304` or as complete silence, none of which mentions a
+  module.
+- **`registerFocusMatchers()` / `expect(el).toHaveFocus()`** (from `/setup`) — distinguishes the
+  three causes a focus assertion actually has: the expected element does not exist, focus is still on
+  `<body>`, or focus is elsewhere. The two idioms it replaces fail with two giant DOM dumps or with
+  `expected false to deeply equal true`.
+- **`injectSpy` accepts an `InjectionToken`**, not only a class, and **warns when the injector hands
+  back a plain instance** rather than an auto-spy — a provider the spec forgot to register is
+  otherwise found when `.mockReturnValue(…)` is called on the real method, or, for a class with no
+  private members to make the types disagree, never. Once per token.
+- **`asInstances(...spies)`** — `asInstance` for a whole argument list. One wrapper per argument is
+  not merely longer, it is *discovered* one argument at a time: TypeScript stops checking a call at
+  the first argument that does not fit, so a factory taking five spies reports one `TS2345`, and the
+  next only after the previous is fixed and `tsc` is run again.
+- **`Spy<T, { overload: 'first' }>`, `asSpy<T, Options>`, `Overload<F, N>`.** `Parameters` and
+  `ReturnType` read the **last** signature of an overloaded method — on a generated API client
+  (`ng-openapi-gen`, `openapi-generator`) that is `observe: 'events'`, the one nobody calls, so
+  `nextWith(body)` stops compiling and demands an `HttpEvent<T>` with nothing in the message about
+  overload order.
+- **`createMock` / `createAutoMock` take a deep partial.** `Partial<T>` is one level, so a fixture
+  for a tree the test reads one leaf of — a config object, an account token, a route snapshot — cost
+  one call per level and the ability to name each nested type. What matters is preserved: a key `T`
+  does not have is rejected **at any depth**, which is the check `as T` throws away and the reason a
+  renamed field goes unnoticed.
+- **`returns` in the spy configuration** — `provideAutoSpy(X, { returns: { getProducts: of([]) } })`.
+  Without it the value needs a second statement in every `beforeEach`, and the shortcut people take
+  instead is an exported `const` provider, which under `isolate: false` is one set of spies shared by
+  every file that imports it. Installed through the mock adapter, so it works on all three runners.
+- **`narrow(value, guard)`, `narrow.byKey(value, key)`, `narrow.observable(value)`** — the branch of a
+  union a test knows it got. The two alternatives are an assertion (a lie the compiler then stops
+  checking) and a hand-written `if (…) else throw` per site; this one prints the shape the value
+  actually had, which is the only thing that makes it cheaper than the assertion.
+- **`withOverrides(model, overrides?)`** — a fixture from a model instance whose getters survive.
+  `{ ...model, flag: true }` drops every accessor (spread copies own enumerable properties);
+  `Object.assign(new Model(), fields)` keeps them live, so each runs against a half-filled instance
+  and throws from inside the model. This reads them once, while the model is whole.
+- **`compareTestRuns(baseline, current, root?)`** — whether a migration lost a test. Counters cannot
+  answer it: a file can lose a whole suite while a flake elsewhere starts passing, and the totals
+  match. The answer is the symmetric difference of two sets of `file::full name`, from the JSON
+  report both runners write.
+- **`createDirectiveHost({ template, scope, props })`** and
+  **`registerDirectiveMatchers()` / `toHaveDirectiveApplied`** (from `/angular`) — a host for a
+  directive under test that is correct for the compiler *and* for the TestBed. `imports` on a
+  `@Component` is resolved by AOT and baked into `ɵcmp`; `imports` on
+  `TestBed.configureTestingModule` is resolved at runtime from `ɵmod`, which a test bundle leaves
+  empty — so the same line is alive in one place and dead in the other, and a `standalone: false`
+  host declared in a spec is compiled outside any scope at all.
+- **`setupAngularTestEnv`, `installPerTest`, `guardGlobals`** — see above.
+- **Two more lint rules**: `no-mocked-for-spy` (a variable declared as Vitest's `Mocked<T>`, whose
+  assignment then fails with a list of private field names) and `no-done-callback` (Vitest passes a
+  `TestContext`, so `done()` throws inside a promise nobody awaits and the test **passes** having run
+  almost none of its body).
+- **`stubMediaElement(options?)`** — a `<video>` / `<audio>` that answers. jsdom implements the media
+  elements as a shell (`play()` throws, `duration` is `NaN` behind a setter-less accessor,
+  `canPlayType()` says `''` to everything, `readyState` never leaves 0, `error` is not on the
+  prototype), so every player, advertising or subtitle suite writes the same forty lines of
+  `Object.defineProperty` against the prototype — and leaks them into the next file. Two things the
+  hand-written version gets wrong are what this is for: the state is **per element** (one closed-over
+  `duration` reports the same length for the ad and for the content, which is the pair the spec exists
+  to tell apart), and `set()` **fires the event** the browser would (`durationchange`, `timeupdate`,
+  `ended`, `error`, `loadedmetadata`) instead of only moving the field, which leaves the component on
+  its initial state while the assertion reads the new value off the element.
+- **`assertMocked(namespace, options?)` and `moduleNamespace(exports, options?)`** — the two halves of
+  "the module mock did nothing". `vi.mock()` is the one piece of a ported suite that fails *silently*:
+  under a bundler a workspace alias or a barrel is already inlined when the mock would be installed,
+  and under `isolate: false` a module already in the worker's graph keeps whichever mock got there
+  first. `assertMocked` turns both into a failure at the line that assumed the mock, naming the
+  specifier. `moduleNamespace` produces the `{ …exports, default, __esModule }` shape that the
+  `mod.default ?? mod` interop probe of any CJS-and-ESM dependency looks for — without it the factory
+  fails as `No "default" export is defined on the mock`, thrown from inside that dependency.
+- **`flushEventLoopUntil(isDone, options?)`** — real event-loop turns until a condition holds, with a
+  budget. The shape behind every hand-rolled "settle" helper (a `resource()` leaving `loading`, a
+  chunk becoming reachable): written by hand it is a fixed turn count tuned by trial, which always
+  waits the maximum and breaks again as soon as a dependency adds a hand-off. A condition that never
+  holds fails naming what was waited for, instead of hanging until the runner's timeout blames the
+  file.
+- **`diffByField(actual, expected)`** — which field of an array of records moved, and in how many
+  elements. The runner collapses objects, so nine collected events against nine expected ones report
+  as `expected [ { event_timestamp: 1, …(5) }, …(8) ] to deeply equal [ { …(6) }, … ]` — and the
+  answer is normally "one field moved in all of them", which the message cannot say. It reports
+  `actual 1 everywhere, expected 2, 3, 4, …`, the signature of a frozen clock or a constant id.
+- **`setupAutoSpy({ guardGlobals })`** — names the test that redefined a property of `globalThis` /
+  `document` / `navigator` as **non-configurable**, which nothing can undo.
+  `Object.defineProperty(document, 'cookie', { value })` defaults `configurable` to `false`; under
+  per-file isolation that is harmless, and under `isolate: false` it is a mine that fails a *later*
+  file, in some library, every other run. Exported as `guardGlobalPatches(reaction)` too.
+- **`installPerTest(install)`** (from `/setup`) — re-installs a stub before every test of the block
+  and hands back a reader for the current handle. Every stub here is restored away after each test,
+  so one installed at `describe` level or in a `beforeAll` is gone from the second test on — and the
+  failure is an assertion about the component, with the stub ten lines above it apparently in force.
+  The same ordering bites from the other side: a setup file's root `beforeEach` runs *before* a
+  file's own hooks, so a `beforeAll` in a spec loses to it silently.
+- **`setupAngularTestEnv({ zoneless, initZone, initZoneless })`** (from `/angular`) — zone and
+  zoneless spec files in one worker. `initTestEnvironment` may be called once per platform and, under
+  `isolate: false`, the platform lives for the whole run, so a repository migrating to zoneless
+  gradually fails on the second file in the other mode with `Cannot set base providers because it has
+  already been called` — naming neither file. Vitest's `test.projects` does not help: nothing promises
+  a worker serves files of one project. The initialisers stay the caller's.
+- **A sixth lint rule, `no-shared-module-level-mock`** — an *exported* value holding `vi.fn()`s, which
+  under `isolate: false` is one set of spies for the whole worker, registered against whichever file
+  imported first and out of reach of every other file's `clearMocks`. The rule stops at every function
+  boundary, so the factory form — the fix — is not flagged along with the problem.
+
+### Changed
+
+- **The `vitest-auto-spies` alias package is generated, not hand-written** (`npm run alias:sync`,
+  checked by `npm run check`). Hand-writing it had let it drift to a release behind, with no
+  `/bun-angular`, `/setup`, `/zone` or `/eslint-plugin`, and with a `require` condition on entries
+  that are ESM-only — one that resolves to an ESM file and throws `ERR_REQUIRE_ESM` on every Node
+  below 22.12. The alias now mirrors the canonical `exports` map exactly: same subpaths, CJS only
+  for `/node` and `/eslint-plugin`, same peer ranges, same version. Publishing it stays a manual
+  step after the canonical release — see `CONTRIBUTING.md` → Releasing.
+
+### Fixed
+
+- **`Spy<T>` collapsed to `never` for a method whose return type could not be read.** A generic
+  method with a conditional return type — `get<K extends keyof this>(k: K): this[K] extends
+  Stringified<infer R> ? R : never`, which is the shape of every typed configuration service — does
+  not match `(...args: any[]) => infer ReturnType`, so the helper bundle took its false branch and
+  `Method & Mock & never` annihilated the member. What the user saw was `Property 'mockReturnValue'
+  does not exist on type 'never'`, with nothing anywhere naming the method or the return type. The
+  fallback is now the synchronous helper bundle, and every return-type comparison is made on tuples
+  (`[X] extends [Y]`) so that a return type that *does* resolve to `never` cannot distribute into one
+  either.
+- **`gettersToSpyOn` / `settersToSpyOn` could not name a signal-valued getter — which is most of
+  them.** The element type was "keys whose value is not callable", and `Signal<T>` is
+  `(() => T) & { … }`: callable. For a service whose readonly state is all signals (`get isKidMode():
+  Signal<boolean>`) the list had *no* valid member, and the failure read `Type 'string' is not
+  assignable to type 'never'` — 34 of one shard's 51 type errors. Whether a member is an accessor is
+  a fact about its descriptor, not about the type of the value, so any string key may now be named.
+  What is checked instead, at runtime, is the case that is unambiguously a mistake: naming a
+  **method**, which installs a spied accessor over it and takes the method away.
+- **The `mock*Prop` helpers rejected a real value when handed the `Spy<T>` they are meant for.**
+  `injectSpy` / `asSpy` is the documented way to reach a service, and on that object a signal-valued
+  member is typed `Signal<T> & Mock & …` — so `mockReadonlyProp(spy, 'state', signal(x))` could not
+  type-check, and the spec had to keep the instance under a second name purely to patch it. The value
+  is now checked against the member's own type.
+
+### Documentation
+
+- `AGENTS.md` gains two sections — "Waiting: four queues, and which tool drives each" and "Doubles
+  for what the code builds itself" — and thirteen new rows in the error → fix table, including the
+  `Spy<T>` ↔ `T` compiler errors by code (`TS2352` → `asSpy`, `TS2739`/`TS2740`/`TS2345` →
+  `asInstance`), `Mocked<T>` vs `Spy<T>`, and the generic-class `any` that surfaces as an
+  `AddPromiseSpyMethods` mismatch eight levels deep.
+- New guidance on patching **DOM object** properties with `mockValueProp` (the three ways the
+  hand-written `Object.defineProperty` goes wrong, including the accessor-on-the-prototype case),
+  on shared fixtures having to be **factories** under `isolate: false`, on Vitest's `afterEach`
+  ordering differing from Jest's, and on installing observer stubs in `beforeEach` rather than
+  `beforeAll`.
+- The migration guide now states plainly which `jest.*` calls have **no** Vitest equivalent
+  (`jest.requireMock`, `jest.replaceProperty`, `fakeTimers.enableGlobally`, `jest.spyOn(global,
+  'Date')`, a `jest.fn()` used with `new`) and that `vi.mock()` of a bundled barrel is a silent
+  no-op.
+- New pages: "Constructor doubles", "Waiting and the clock", "Media element stub" and "Module
+  mocks"; the "Patterns that hold up" page gains "An array assertion that says nothing".
+
+### Added — `vitest-auto-spy/zone`
+
+- **`fakeAsync` and `waitForAsync` work on Vitest.** `zone.js/testing` patches jasmine, mocha and
+  jest; Vitest is not among them, so in an Angular project on Vitest *every* `fakeAsync` fails with
+  `Expected to be running in 'ProxyZone', but it was not found`. One package does something about it
+  today (`@analogjs/vitest-angular`), which a project moving to the native `@angular/build:unit-test`
+  builder loses along with Analog. Importing `vitest-auto-spy/zone` runs every test and hook body
+  inside a forked proxy zone. It needs `test: { globals: true }` — the patch replaces the runner
+  globals, and an imported `it` is a module binding nothing can reach.
+- **zone.js is a `devDependency` of this package and nothing else** — not a dependency, not an
+  optional peer. The entry imports none of it (it reads `globalThis.Zone`, which the consumer has
+  loaded, and says so plainly when it has not), no other entry reaches the module even transitively,
+  and `dist/zone.js` is self-contained. A zoneless project gets no zone code and no zone install.
+  This is recorded as an invariant in `AGENTS.md`, because a convenient re-export from the root would
+  quietly break every zoneless consumer.
+- Three details are what make the patch not break the runner, and each was a failure in *other
+  people's files* when it was written by hand: the wrapper declares **no parameters** (Vitest reads
+  `fn.toString()` to find fixtures), it carries the original `length` and `toString`, and `it` is
+  **proxied** rather than replaced, so `it.each(table)(…)` keeps the receiver its implementation
+  reads.
 
 ## [3.0.0] - 2026-08-26
 
