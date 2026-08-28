@@ -1,4 +1,4 @@
-import { Injectable } from '@angular/core';
+import { Injectable, InjectionToken } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { Observable, ReplaySubject, of } from 'rxjs';
 import { take } from 'rxjs/operators';
@@ -13,9 +13,10 @@ import {
   mockReadonlyPropGetter,
   mockValueProp,
   provideAutoSpy,
+  provideAutoSpyForToken,
   restoreMockedProps,
 } from './angular';
-import { type Spy, createFunctionSpy, createSpyFromClass, errorHandler } from './index';
+import { type Spy, createAutoMock, createFunctionSpy, createSpyFromClass, errorHandler } from './index';
 import { createObservableWithValues } from './rxjs';
 
 // ---------------------------------------------------------------------------
@@ -148,6 +149,41 @@ describe('createSpyFromClass', () => {
     createSpyFromClass(MyService, ['syncMethod', 'nope'] as unknown as ['syncMethod']);
     expect(warn).not.toHaveBeenCalled();
 
+    warn.mockRestore();
+  });
+
+  it('installs configured return values as the spy is built', () => {
+    const spy = createSpyFromClass(MyService, { returns: { syncMethod: 'configured' } });
+
+    expect(spy.syncMethod()).toBe('configured');
+  });
+
+  it('warns when returns names something the spy does not have', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    createSpyFromClass(MyService, {
+      onlyMethodsToSpyOn: ['syncMethod'],
+      returns: { getPromise: Promise.resolve('x') },
+    });
+
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("returns names 'getPromise'"));
+    warn.mockRestore();
+  });
+
+  it('warns when a named getter/setter would shadow a method of the class', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    // The type no longer rejects a name by the type of its value — it cannot, without also
+    // rejecting every signal-valued getter — so what is left is checked here.
+    createSpyFromClass(MyService, { gettersToSpyOn: ['syncMethod'] });
+
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('are methods of the class: syncMethod'));
+
+    // A real accessor and a plain field are both legitimate, and neither is reported.
+    warn.mockClear();
+    createSpyFromClass(MyService, { gettersToSpyOn: ['userName'], settersToSpyOn: ['theme'] });
+
+    expect(warn).not.toHaveBeenCalled();
     warn.mockRestore();
   });
 
@@ -567,6 +603,64 @@ describe('provideAutoSpy / injectSpy', () => {
     const service = injectSpy(MyService);
     service.syncMethod.mockReturnValue('injected');
     expect(service.syncMethod()).toBe('injected');
+  });
+
+  it('warns when the injector hands back a real instance instead of a spy', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    // The provider is the class itself, so DI builds the real service — the mistake this catches.
+    class UnprovidedService {
+      load(): string {
+        return 'real';
+      }
+    }
+
+    TestBed.configureTestingModule({ providers: [UnprovidedService] });
+    injectSpy(UnprovidedService);
+
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('the injector returned a plain instance'));
+
+    // Once per token: the call sits in a `beforeEach`, and one warning per test would bury it.
+    warn.mockClear();
+    injectSpy(UnprovidedService);
+
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it('names an InjectionToken in that warning too', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const CONFIG = new InjectionToken<{ url: string }>('CONFIG');
+
+    TestBed.configureTestingModule({ providers: [{ provide: CONFIG, useValue: { url: '/api' } }] });
+    injectSpy(CONFIG);
+
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('InjectionToken CONFIG'));
+    warn.mockRestore();
+  });
+
+  it('provides a spy for a token whose type is an interface, with no class to read', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const PASSCODE = new InjectionToken<{ check(code: string): boolean }>('PASSCODE');
+
+    TestBed.configureTestingModule({ providers: [provideAutoSpyForToken(PASSCODE, { check: () => true })] });
+
+    const passcode = injectSpy(PASSCODE);
+
+    expect(passcode.check('1234')).toBe(true);
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it('stays quiet for a token provided with a type-based auto-mock', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const LOGGER = new InjectionToken<{ log(message: string): void }>('LOGGER');
+
+    TestBed.configureTestingModule({ providers: [{ provide: LOGGER, useValue: createAutoMock<{ log(message: string): void }>() }] });
+    injectSpy(LOGGER);
+
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
   });
 
   it('returns a { provide, useValue } shape', () => {

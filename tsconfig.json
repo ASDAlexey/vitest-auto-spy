@@ -3,7 +3,11 @@
     "target": "ES2022",
     "module": "ESNext",
     "moduleResolution": "bundler",
-    "lib": ["ES2022", "DOM"],
+    // DOM.Iterable, not just DOM: `nodeList()` builds a real `NodeList`, whose `entries` / `keys` /
+    // `values` / `Symbol.iterator` live in that lib. It was reachable implicitly through another
+    // package's ambient types, which made the declaration build disagree with the type-check the
+    // moment the dependency tree changed.
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "declaration": true,
     "esModuleInterop": true,
     "skipLibCheck": true,

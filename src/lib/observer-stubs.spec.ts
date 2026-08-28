@@ -2,7 +2,15 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 // Registers the Vitest mock adapter, which the stubs use to build their `observe` / `disconnect` spies.
 import '../index';
-import { intersectionEntry, stubIntersectionObserver, stubMutationObserver, stubObserver, stubResizeObserver } from './observer-stubs';
+import {
+  intersectionEntry,
+  mutationRecord,
+  resizeEntry,
+  stubIntersectionObserver,
+  stubMutationObserver,
+  stubObserver,
+  stubResizeObserver,
+} from './observer-stubs';
 import { restoreMockedProps } from './prop-mock';
 
 /** Stands in for the code under test: constructs the observer itself and keeps it private. */
@@ -190,5 +198,126 @@ describe('intersectionEntry', () => {
     expect(entry.target).toBe(element);
     expect(entry.boundingClientRect).toBe(rect);
     expect(entry.time).toBe(42);
+  });
+});
+
+describe('stubObserver options', () => {
+  afterEach(() => {
+    restoreMockedProps();
+  });
+
+  it('records the init object the code under test passed', () => {
+    const observers = stubIntersectionObserver();
+
+    new IntersectionObserver(() => undefined, { rootMargin: '-20% 0px -70% 0px' });
+
+    expect(observers.last.options).toEqual({ rootMargin: '-20% 0px -70% 0px' });
+  });
+
+  it('leaves `options` undefined when the constructor was given none', () => {
+    const observers = stubResizeObserver();
+
+    new ResizeObserver(() => undefined);
+
+    expect(observers.last.options).toBeUndefined();
+  });
+
+  it('reports every observed target as visible under autoEmit', () => {
+    stubIntersectionObserver({ autoEmit: true });
+
+    const directive = new RevealDirective();
+
+    directive.observe(document.createElement('div'));
+
+    // The Jest-era behaviour a ported suite depends on: visible by the time `observe()` returns.
+    expect(directive.visible).toBe(true);
+  });
+
+  it('builds the auto-emitted entry itself for the generic installer', () => {
+    const seen: number[] = [];
+
+    stubObserver<ResizeObserverEntry, Element>('ResizeObserver', {
+      autoEmit: (target: Element): ResizeObserverEntry => resizeEntry(target, { width: 320 }),
+    });
+
+    new ResizeObserver((entries) => seen.push(entries[0]?.contentRect.width ?? 0)).observe(document.createElement('div'));
+
+    expect(seen).toEqual([320]);
+  });
+});
+
+describe('mutationRecord', () => {
+  it('gives addedNodes a real NodeList without moving the nodes', () => {
+    const host = document.createElement('div');
+    const span = document.createElement('span');
+
+    document.body.append(host);
+    host.append(span);
+
+    const record = mutationRecord(host, { addedNodes: [span] });
+
+    expect(record.addedNodes.length).toBe(1);
+    expect(record.addedNodes.item(0)).toBe(span);
+    expect(record.addedNodes[0]).toBe(span);
+    expect([...record.addedNodes]).toEqual([span]);
+    expect([...record.addedNodes.values()]).toEqual([span]);
+    expect([...record.addedNodes.keys()]).toEqual([0]);
+    expect([...record.addedNodes.entries()]).toEqual([[0, span]]);
+    // The fragment-based shortcut would have torn `span` out of the fixture here.
+    expect(span.parentElement).toBe(host);
+
+    host.remove();
+  });
+
+  it('iterates with forEach, including the parent argument', () => {
+    const host = document.createElement('div');
+    const span = document.createElement('span');
+    const record = mutationRecord(host, { addedNodes: [span] });
+    const seen: [Node, number, NodeList][] = [];
+
+    record.addedNodes.forEach((node, index, parent) => seen.push([node, index, parent]));
+
+    expect(seen).toEqual([[span, 0, record.addedNodes]]);
+    expect(record.addedNodes.item(5)).toBeNull();
+  });
+
+  it('defaults to a childList mutation, and to attributes when a name is given', () => {
+    const host = document.createElement('div');
+
+    expect(mutationRecord(host).type).toBe('childList');
+    expect(mutationRecord(host, { attributeName: 'class' })).toMatchObject({ type: 'attributes', attributeName: 'class' });
+    expect(mutationRecord(host, { type: 'characterData', oldValue: 'a' })).toMatchObject({ type: 'characterData', oldValue: 'a' });
+  });
+
+  it('drives a stubbed MutationObserver end to end', () => {
+    const observers = stubMutationObserver();
+    const host = document.createElement('div');
+    const span = document.createElement('span');
+    let added = 0;
+
+    new MutationObserver((records) => {
+      added += records[0]?.addedNodes.length ?? 0;
+    });
+    observers.last.emit([mutationRecord(host, { addedNodes: [span], removedNodes: [] })]);
+
+    expect(added).toBe(1);
+    restoreMockedProps();
+  });
+});
+
+describe('resizeEntry', () => {
+  it('derives every box from the same numbers', () => {
+    const element = document.createElement('div');
+    const entry = resizeEntry(element, { width: 320, height: 200, x: 10, y: 5 });
+
+    expect(entry.target).toBe(element);
+    expect(entry.contentRect).toMatchObject({ width: 320, height: 200, left: 10, top: 5, right: 330, bottom: 205 });
+    expect(entry.contentRect.toJSON()).toEqual({ x: 10, y: 5, width: 320, height: 200 });
+    expect(entry.borderBoxSize[0]).toEqual({ blockSize: 200, inlineSize: 320 });
+    expect(entry.devicePixelContentBoxSize).toBe(entry.contentBoxSize);
+  });
+
+  it('defaults to a zero box', () => {
+    expect(resizeEntry(document.createElement('div')).contentRect).toMatchObject({ width: 0, height: 0, x: 0, y: 0 });
   });
 });

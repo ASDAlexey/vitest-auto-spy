@@ -136,7 +136,7 @@ export type * from './lib/types';
 
 // Core factories
 export { createSpyFromClass } from './lib/create-spy-from-class';
-export { createAutoMock } from './lib/auto-mock';
+export { autoMocked, createAutoMock } from './lib/auto-mock';
 export { createMock } from './lib/create-mock';
 export { mockDeep } from './lib/mock-deep';
 export { createFunctionSpy } from './lib/function-spy';
@@ -170,18 +170,64 @@ export {
 } from './lib/expect-emission';
 
 // Type bridges between `Spy<T>` and `T`, plus a construction-compatible spy
-export { asInstance, asSpy, createSpyClass, type ConstructorSpy } from './lib/spy-typing';
+export { asInstance, asInstances, asSpy, createSpyClass, type AsInstances, type ConstructorSpy } from './lib/spy-typing';
+
+// Saying which branch of a union a test got, so the failure names the shape it actually had
+export { narrow } from './lib/narrow';
+
+// A fixture built from a model instance: its getters read once, as data
+export { withOverrides } from './lib/with-overrides';
+
+// Doubles for the things production code builds with `new` — a runner mock alone cannot serve them
+export { mockConstructor, stubConstructor, type ConstructorMock } from './lib/constructor-spy';
+
+// One real event-loop turn, even under fake timers — for module loading and native async
+export { flushEventLoop, flushEventLoopUntil, settleDynamicImport, type FlushUntilOptions } from './lib/event-loop';
+
+// "All nine elements differ the same way" — the diff the runner's own reporter collapses
+export { diffByField } from './lib/record-diff';
+
+// Module mocking: proving a `vi.mock` applied, and giving its factory a shape interop recognises
+export {
+  assertMocked,
+  moduleNamespace,
+  type AssertMockedOptions,
+  type ModuleNamespace,
+  type ModuleNamespaceOptions,
+} from './lib/module-mocks';
+
+// "Did the migration lose a test?" — answered by the set of names, which counters cannot
+export {
+  compareTestRuns,
+  formatTestRunComparison,
+  summarizeTestRun,
+  type TestRunComparison,
+  type TestRunReport,
+  type TestRunSummary,
+} from './lib/compare-runs';
+
+// A `<video>` / `<audio>` that answers — jsdom implements neither beyond the element itself
+export { stubMediaElement, type MediaElementState, type MediaElementStub, type MediaElementStubOptions } from './lib/media-element-stub';
+
+// A realm-consistent AbortController, for `addEventListener(..., { signal })` under zone.js
+export { stubAbortController } from './lib/abort-controller-stub';
 
 // Observer globals a component constructs itself, replaced by ones a spec can drive
 export {
   intersectionEntry,
+  mutationRecord,
+  resizeEntry,
   stubIntersectionObserver,
   stubMutationObserver,
   stubObserver,
   stubResizeObserver,
+  type IntersectionObserverStubOptions,
+  type MutationRecordInit,
   type ObserverGlobal,
   type ObserverInstance,
   type ObserverStub,
+  type ObserverStubOptions,
+  type ResizeEntryRect,
 } from './lib/observer-stubs';
 
 // Duplicate-install detection (`setupAutoSpy()` turns this into a failed run)

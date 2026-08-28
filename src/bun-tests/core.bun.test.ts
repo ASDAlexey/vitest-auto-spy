@@ -15,10 +15,13 @@ import {
   createFunctionSpy,
   createMock,
   createSpyFromClass,
+  flushEventLoop,
+  mockConstructor,
   mockDeep,
   mockValueProp,
   resetAutoSpy,
   restoreMockedProps,
+  stubConstructor,
 } from '../bun';
 
 class UserService {
@@ -170,5 +173,57 @@ describe('property mocking on bun:test', () => {
 
     restoreMockedProps();
     expect(target.version).toBe(1);
+  });
+});
+
+describe('constructor doubles on bun:test', () => {
+  it('serves `new` and records the construction', () => {
+    const Client = mockConstructor<{ url: string }, [string]>((url) => ({ url }));
+
+    const instance = new Client('https://bun.test');
+
+    expect(instance.url).toBe('https://bun.test');
+    expect(Client.instances).toEqual([{ url: 'https://bun.test' }]);
+    expect(Client).toHaveBeenCalledWith('https://bun.test');
+  });
+
+  it('refuses a call without `new`', () => {
+    const Client = mockConstructor<{ url: string }>(() => ({ url: '' }), 'Client');
+
+    expect(() => Client()).toThrow(/called without `new`/);
+  });
+
+  it('replaces a constructor on an object and is undone by restoreMockedProps', () => {
+    const sdk: { Widget?: unknown } = {};
+    const Widget = stubConstructor<{ render: () => void }>(sdk, 'Widget', () => ({ render: (): void => undefined }));
+
+    expect(sdk.Widget).toBe(Widget);
+
+    restoreMockedProps();
+
+    expect(sdk.Widget).toBeUndefined();
+  });
+});
+
+describe('flushEventLoop on bun:test', () => {
+  it('lets a task-queue hand-off complete', async () => {
+    let settled = false;
+
+    void new Promise<void>((resolve) => {
+      const channel = new MessageChannel();
+
+      channel.port1.onmessage = (): void => {
+        channel.port1.close();
+        channel.port2.close();
+        resolve();
+      };
+      channel.port2.postMessage(undefined);
+    }).then(() => {
+      settled = true;
+    });
+
+    await flushEventLoop(2);
+
+    expect(settled).toBe(true);
   });
 });

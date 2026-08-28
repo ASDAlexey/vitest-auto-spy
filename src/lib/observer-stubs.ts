@@ -29,6 +29,14 @@ import { mockValueProp } from './prop-mock';
 
 /** One observer the code under test constructed. */
 export interface ObserverInstance<TEntry, TTarget = unknown> {
+  /**
+   * The init object the code under test passed to the constructor — `{ rootMargin, threshold }`,
+   * `{ childList, subtree }`, and so on.
+   *
+   * A component that builds one observer per configuration is asserting a contract ("one observer
+   * per unique root margin"), and without this the only thing a spec can count is constructions.
+   */
+  readonly options: unknown;
   /** Everything passed to `observe`, in order, including repeats. */
   readonly targets: TTarget[];
   /** The spy behind `observe` — for asserting *that* something was observed, and with what options. */
@@ -63,20 +71,47 @@ export interface ObserverStub<TEntry, TTarget = unknown> {
 /** Name of a global observer constructor this module can stand in for. */
 export type ObserverGlobal = 'IntersectionObserver' | 'MutationObserver' | 'ResizeObserver';
 
+/** How an installed stub behaves beyond recording — see {@link stubObserver}. */
+export interface ObserverStubOptions<TEntry, TTarget> {
+  /**
+   * Deliver an entry synchronously from every `observe(target)` call, built by this function.
+   *
+   * The default (omitted) stub is inert, which is right when the spec wants to choose the moment.
+   * It is wrong for a suite ported from Jest, where the hand-written global mock reported
+   * everything as visible immediately: with an inert observer those specs quietly assert against a
+   * component that never loaded its data, and the fix is one option here rather than a rewrite of
+   * every spec.
+   */
+  autoEmit?: (target: TTarget) => TEntry;
+}
+
 interface MutableInstance<TEntry, TTarget> extends ObserverInstance<TEntry, TTarget> {
+  options: unknown;
   targets: TTarget[];
   disconnected: boolean;
 }
 
-function createInstance<TEntry, TTarget>(callback: (entries: TEntry[], observer: unknown) => void): MutableInstance<TEntry, TTarget> {
+function createInstance<TEntry, TTarget>(
+  callback: (entries: TEntry[], observer: unknown) => void,
+  options: unknown,
+  autoEmit: ((target: TTarget) => TEntry) | undefined,
+): MutableInstance<TEntry, TTarget> {
   const adapter = getMockAdapter();
   const targets: TTarget[] = [];
 
   const instance: MutableInstance<TEntry, TTarget> = {
+    options,
     targets,
     disconnected: false,
     observe: adapter.createMockFn((target: TTarget) => {
       targets.push(target);
+
+      if (autoEmit) {
+        // Synchronously, from inside `observe` — the browser does deliver a first record for an
+        // already-visible target, and the ported suites depend on it having happened by the time
+        // `observe()` returns.
+        callback([autoEmit(target)], instance);
+      }
     }, 'observe'),
     unobserve: adapter.createMockFn((target: TTarget) => {
       const index = targets.indexOf(target);
@@ -113,7 +148,10 @@ function createInstance<TEntry, TTarget>(callback: (entries: TEntry[], observer:
  * @param name Which global to replace.
  * @returns A handle over the observers the code under test constructs from now on.
  */
-export function stubObserver<TEntry, TTarget = unknown>(name: ObserverGlobal): ObserverStub<TEntry, TTarget> {
+export function stubObserver<TEntry, TTarget = unknown>(
+  name: ObserverGlobal,
+  options: ObserverStubOptions<TEntry, TTarget> = {},
+): ObserverStub<TEntry, TTarget> {
   const instances: MutableInstance<TEntry, TTarget>[] = [];
 
   class StubObserver {
@@ -121,8 +159,8 @@ export function stubObserver<TEntry, TTarget = unknown>(name: ObserverGlobal): O
     readonly rootMargin = '';
     readonly thresholds: readonly number[] = [];
 
-    constructor(callback: (entries: TEntry[], observer: unknown) => void) {
-      const instance = createInstance<TEntry, TTarget>(callback);
+    constructor(callback: (entries: TEntry[], observer: unknown) => void, init?: unknown) {
+      const instance = createInstance<TEntry, TTarget>(callback, init, options.autoEmit);
 
       instances.push(instance);
 
@@ -170,18 +208,36 @@ export function stubObserver<TEntry, TTarget = unknown>(name: ObserverGlobal): O
  * expect(element.classList).toContain('is-visible');
  * ```
  */
-export function stubIntersectionObserver(): ObserverStub<IntersectionObserverEntry, Element> {
-  return stubObserver<IntersectionObserverEntry, Element>('IntersectionObserver');
+export function stubIntersectionObserver(options: IntersectionObserverStubOptions = {}): ObserverStub<IntersectionObserverEntry, Element> {
+  return stubObserver<IntersectionObserverEntry, Element>(
+    'IntersectionObserver',
+    options.autoEmit ? { autoEmit: (target: Element): IntersectionObserverEntry => intersectionEntry(target, true) } : {},
+  );
+}
+
+/** How {@link stubIntersectionObserver} behaves beyond recording. */
+export interface IntersectionObserverStubOptions {
+  /**
+   * Report every observed target as fully in view, synchronously, from `observe()`.
+   *
+   * The mode a suite carried over from Jest needs: there the global mock fired its callback with
+   * `isIntersecting: true` right away, so lazily-loading shelves and cards fetched their data
+   * during `detectChanges()`. Against the default inert observer those specs assert on an empty
+   * component and fail with something unrelated to intersection.
+   */
+  autoEmit?: boolean;
 }
 
 /** Stand in for `ResizeObserver`. See {@link stubObserver}. */
-export function stubResizeObserver(): ObserverStub<ResizeObserverEntry, Element> {
-  return stubObserver<ResizeObserverEntry, Element>('ResizeObserver');
+export function stubResizeObserver(
+  options?: ObserverStubOptions<ResizeObserverEntry, Element>,
+): ObserverStub<ResizeObserverEntry, Element> {
+  return stubObserver<ResizeObserverEntry, Element>('ResizeObserver', options);
 }
 
 /** Stand in for `MutationObserver`. See {@link stubObserver}. */
-export function stubMutationObserver(): ObserverStub<MutationRecord, Node> {
-  return stubObserver<MutationRecord, Node>('MutationObserver');
+export function stubMutationObserver(options?: ObserverStubOptions<MutationRecord, Node>): ObserverStub<MutationRecord, Node> {
+  return stubObserver<MutationRecord, Node>('MutationObserver', options);
 }
 
 /**
@@ -210,4 +266,120 @@ export function intersectionEntry(
 
   // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- the rect fields are left out on purpose: a component reads `isIntersecting` and occasionally `boundingClientRect`, and fabricating four `DOMRectReadOnly`s for every entry would be ceremony rather than fidelity. `overrides` supplies any field a specific component does read.
   return entry as IntersectionObserverEntry;
+}
+
+/**
+ * A `NodeList` over `nodes`, without moving them.
+ *
+ * The obvious construction — append the nodes to a `DocumentFragment` and hand back its
+ * `childNodes` — is the one to avoid: appending *moves* a node, so a spec that passes an element it
+ * had just rendered silently rips that element out of the fixture, and the assertion that follows
+ * fails on a DOM the test itself broke.
+ */
+function nodeList(nodes: readonly Node[]): NodeList {
+  const items = [...nodes];
+
+  const list: NodeList = {
+    length: items.length,
+    item: (index: number): Node | null => items[index] ?? null,
+    forEach(callback: (value: Node, key: number, parent: NodeList) => void, thisArg?: unknown): void {
+      items.forEach((node, index) => callback.call(thisArg, node, index, list));
+    },
+    entries: () => items.entries(),
+    keys: () => items.keys(),
+    values: () => items.values(),
+    [Symbol.iterator]: () => items[Symbol.iterator](),
+  };
+
+  // Indexed access (`addedNodes[0]`) is the remaining way production code reads a record, and a
+  // numeric index signature cannot be written into the literal above alongside the named members.
+  items.forEach((node, index) => Object.defineProperty(list, index, { value: node, enumerable: true }));
+
+  return list;
+}
+
+/** The parts of a `MutationRecord` a spec actually chooses. */
+export interface MutationRecordInit {
+  /** Defaults to `'childList'`, or to `'attributes'` when `attributeName` is given. */
+  type?: MutationRecordType;
+  addedNodes?: readonly Node[];
+  removedNodes?: readonly Node[];
+  attributeName?: string;
+  oldValue?: string;
+}
+
+/**
+ * Build one `MutationRecord` without hand-rolling a `NodeList`.
+ *
+ * The counterpart of {@link intersectionEntry}, and the reason it is needed is sharper: a
+ * `MutationRecord` cannot be written as an object literal at all, because `addedNodes` and
+ * `removedNodes` are `NodeList`s. Every spec that drives {@link stubMutationObserver} therefore
+ * either writes a fragment-based helper of its own or reaches for a double type assertion.
+ *
+ * ```ts
+ * const observers = stubMutationObserver();
+ *
+ * observers.last.emit([mutationRecord(host, { addedNodes: [span] })]);
+ * ```
+ *
+ * @param target The node the mutation is about.
+ * @param init Which nodes moved, and what kind of mutation it was.
+ */
+export function mutationRecord(target: Node, init: MutationRecordInit = {}): MutationRecord {
+  const record: MutationRecord = {
+    type: init.type ?? (init.attributeName === undefined ? 'childList' : 'attributes'),
+    target,
+    addedNodes: nodeList(init.addedNodes ?? []),
+    removedNodes: nodeList(init.removedNodes ?? []),
+    previousSibling: null,
+    nextSibling: null,
+    attributeName: init.attributeName ?? null,
+    attributeNamespace: null,
+    oldValue: init.oldValue ?? null,
+  };
+
+  return record;
+}
+
+/** The box a {@link resizeEntry} reports. Only the fields a component reads need supplying. */
+export interface ResizeEntryRect {
+  width?: number;
+  height?: number;
+  x?: number;
+  y?: number;
+}
+
+/**
+ * Build one `ResizeObserverEntry` from the size a component reads.
+ *
+ * `contentRect` and the three box-size arrays are all derived from the same numbers, because a
+ * browser never reports them disagreeing — a spec that sets them apart is testing a state that
+ * cannot happen.
+ */
+export function resizeEntry(target: Element, rect: ResizeEntryRect = {}): ResizeObserverEntry {
+  const width = rect.width ?? 0;
+  const height = rect.height ?? 0;
+  const x = rect.x ?? 0;
+  const y = rect.y ?? 0;
+  const size: readonly ResizeObserverSize[] = [{ blockSize: height, inlineSize: width }];
+
+  const entry: ResizeObserverEntry = {
+    target,
+    contentRect: {
+      x,
+      y,
+      width,
+      height,
+      top: y,
+      left: x,
+      right: x + width,
+      bottom: y + height,
+      toJSON: (): unknown => ({ x, y, width, height }),
+    },
+    borderBoxSize: size,
+    contentBoxSize: size,
+    devicePixelContentBoxSize: size,
+  };
+
+  return entry;
 }
