@@ -39,6 +39,25 @@ gets it wrong are all failures in *other people's files*:
 | `fn.length` and `fn.toString()` are carried over  | the runner reads both to decide how to call the callback — a wrapper of arity 0 silently changes that decision, and hides the fixtures            |
 | `it` is **proxied**, not replaced                 | `each` is a method that reads `this`; called detached it returns `undefined` and the line after it explodes. `it.skip` / `test.each` come free    |
 
+
+## One zone for the run, or one per callback
+
+```ts
+import { installProxyZonePatch } from 'vitest-auto-spy/zone';
+
+installProxyZonePatch({ scope: 'callback' });
+```
+
+`scope: 'shared'` is the default: every test and hook body of the run goes through **one** proxy
+zone. That is what Angular's own jasmine patch does, and what the ecosystem is written against — a
+component built in `beforeEach` schedules from its constructor, and the `tick()` inside the
+`fakeAsync` test has to see those timers. Fork per callback instead and the two end up in different
+zones, so the test waits on a timer nothing will ever flush.
+
+`scope: 'callback'` is that fork-per-callback shape. It is the correct one in the abstract, and the
+required one for `test.concurrent`: two callbacks are then in flight at once and would otherwise
+swap the same `ProxyZoneSpec` delegate under one another.
+
 ## Requirements
 
 **`test: { globals: true }`.** The patch works by replacing the runner globals; an `it` imported from

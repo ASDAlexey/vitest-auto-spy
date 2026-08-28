@@ -20,4 +20,4 @@ import { installProxyZonePatch } from './lib/proxy-zone';
 
 installProxyZonePatch();
 
-export { installProxyZonePatch } from './lib/proxy-zone';
+export { installProxyZonePatch, type ProxyZonePatchOptions, type ProxyZoneScope } from './lib/proxy-zone';

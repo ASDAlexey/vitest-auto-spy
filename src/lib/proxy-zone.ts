@@ -41,6 +41,32 @@ type Callable = (...args: unknown[]) => unknown;
 /** Brands a wrapper, so a callback that travels through the proxy twice is only wrapped once. */
 const ALREADY_WRAPPED = Symbol.for('vitest-auto-spy.proxy-zone');
 
+/**
+ * How many proxy zones a spec gets.
+ *
+ * - `'shared'` — one, for every callback of the run. This is what Angular's own jasmine patch does,
+ *   and what the ecosystem is written against: a component built in `beforeEach` schedules from its
+ *   constructor, and `tick()` inside a `fakeAsync` test has to see those timers.
+ * - `'callback'` — a fresh fork per callback. Correct in the abstract and required by
+ *   `test.concurrent`, where two callbacks are in flight at once and would otherwise swap the same
+ *   `ProxyZoneSpec` delegate under one another.
+ */
+export type ProxyZoneScope = 'callback' | 'shared';
+
+/** Options for {@link installProxyZonePatch}. */
+export interface ProxyZonePatchOptions {
+  /** @default 'shared' */
+  scope?: ProxyZoneScope;
+}
+
+/**
+ * The one zone of `scope: 'shared'`, forked on first use rather than at install time.
+ *
+ * Lazily, because the patch is installed from a setup file and `Zone.current` at that moment is not
+ * necessarily the zone the runner will call the callbacks in.
+ */
+let sharedProxyZone: ZoneLike | undefined;
+
 /** The runner globals whose callbacks have to run inside a proxy zone. */
 const PATCHED_GLOBALS = ['it', 'test', 'beforeEach', 'afterEach', 'beforeAll', 'afterAll'] as const;
 
@@ -90,7 +116,19 @@ function isCallable(value: unknown): value is Callable {
  * Vitest's fixture parsing, and this is the one place where the difference between the two is
  * observable.
  */
-function inProxyZone(callback: Callable): Callable {
+function proxyZoneFor(scope: ProxyZoneScope): ZoneLike {
+  const { zone, ProxyZoneSpec } = readZone();
+
+  if (scope === 'callback') {
+    return zone.fork(new ProxyZoneSpec());
+  }
+
+  sharedProxyZone ??= zone.fork(new ProxyZoneSpec());
+
+  return sharedProxyZone;
+}
+
+function inProxyZone(callback: Callable, scope: ProxyZoneScope): Callable {
   // `it.each(table)(name, fn)` reaches the collector by calling back through the same proxied `it`,
   // so an unmarked wrapper would be wrapped a second time — two nested zones for one test body.
   if (Reflect.get(callback, ALREADY_WRAPPED) === true) {
@@ -98,12 +136,10 @@ function inProxyZone(callback: Callable): Callable {
   }
 
   const wrapped = function (this: unknown): unknown {
-    const { zone, ProxyZoneSpec } = readZone();
-
     // eslint-disable-next-line prefer-rest-params -- see above: a rest parameter would be a declared parameter, and Vitest reads the wrapper's source to decide how to call it.
     const args = [...arguments];
 
-    return zone.fork(new ProxyZoneSpec()).run(callback, this, args);
+    return proxyZoneFor(scope).run(callback, this, args);
   };
 
   Object.defineProperty(wrapped, 'length', { value: callback.length, configurable: true });
@@ -122,23 +158,23 @@ function inProxyZone(callback: Callable): Callable {
  * one of them reads `this`. Replacing the global with a plain function loses them all; copying them
  * across detaches the receiver, which is how `it.each(table)(…)` comes to return `undefined`.
  */
-function proxyCallable(target: Callable): Callable {
+function proxyCallable(target: Callable, scope: ProxyZoneScope): Callable {
   return new Proxy(target, {
     apply(callee, thisArg, args): unknown {
       const result = Reflect.apply(
         callee,
         thisArg,
-        args.map((arg) => (isCallable(arg) ? inProxyZone(arg) : arg)),
+        args.map((arg) => (isCallable(arg) ? inProxyZone(arg, scope) : arg)),
       );
 
       // `it.each(table)` hands back the function that actually defines the test, so the wrapping has
       // to follow it one more hop.
-      return isCallable(result) ? proxyCallable(result) : result;
+      return isCallable(result) ? proxyCallable(result, scope) : result;
     },
     get(callee, property, receiver): unknown {
       const value: unknown = Reflect.get(callee, property, receiver);
 
-      return isCallable(value) ? proxyCallable(value) : value;
+      return isCallable(value) ? proxyCallable(value, scope) : value;
     },
   });
 }
@@ -151,15 +187,34 @@ function proxyCallable(target: Callable): Callable {
  * import 'vitest-auto-spy/zone';
  * ```
  *
- * Every test and hook body then runs inside its own forked proxy zone. One per callback rather than
- * one per spec: a zone entered in `beforeEach` does not survive the return of `beforeEach`, so
- * sharing would mean holding the zone open across the runner's own scheduling — which is what
- * `ProxyZoneSpec` exists to avoid.
+ * Every test and hook body then runs inside a proxy zone — **one and the same zone**, which is what
+ * Angular's own jasmine patch does and what the ecosystem is written against:
+ *
+ * ```ts
+ * beforeEach(() => {
+ *   fixture = TestBed.createComponent(GamificationComponent); // the constructor schedules
+ * });
+ *
+ * it('loads', fakeAsync(() => {
+ *   fixture.detectChanges();
+ *   tick(200); // must see what `beforeEach` scheduled
+ *   expect(component.levels()).toEqual(levels);
+ * }));
+ * ```
+ *
+ * With a fresh fork per callback that `tick` drives the clock of *its* zone, the timer scheduled in
+ * `beforeEach` belongs to another, and the assertion fails with `expected [] to deeply equal […]` —
+ * a message with no zone in it, in a spec that reads like every Angular spec ever written. Measured
+ * on a suite of 1688 files: per-callback forking failed 7 tests in 2 files that pass under jasmine.
+ *
+ * `scope: 'callback'` restores the per-callback fork. It is the right choice for `test.concurrent`,
+ * where two callbacks are in flight at once and would otherwise swap the same `ProxyZoneSpec`
+ * delegate under one another.
  *
  * @returns The undo, which puts the untouched globals back. Mostly useful to this library's own
  *   tests; a run that installs the patch keeps it for the whole worker.
  */
-export function installProxyZonePatch(): () => void {
+export function installProxyZonePatch({ scope = 'shared' }: ProxyZonePatchOptions = {}): () => void {
   // Read once, up front, so a missing zone.js is reported from the setup file rather than from
   // inside the first test that happens to use `fakeAsync`.
   readZone();
@@ -173,9 +228,12 @@ export function installProxyZonePatch(): () => void {
     throw new Error(MISSING_GLOBALS);
   }
 
-  patchable.forEach(({ name, value }) => Reflect.set(globalThis, name, proxyCallable(value)));
+  patchable.forEach(({ name, value }) => Reflect.set(globalThis, name, proxyCallable(value, scope)));
 
   return () => {
     originals.forEach(({ name, value }) => Reflect.set(globalThis, name, value));
+    // The shared fork is derived from the globals that were just put back; keeping it would hand a
+    // zone from the previous installation to the next one.
+    sharedProxyZone = undefined;
   };
 }
