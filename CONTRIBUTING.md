@@ -84,6 +84,31 @@ aligned if we follow one rule:
 
    Type this commit `docs(changelog): ...` so it does **not** trigger another release.
 
+### The `vitest-auto-spies` alias
+
+[`vitest-auto-spies`](https://www.npmjs.com/package/vitest-auto-spies) (plural) is a **separate npm
+package** whose entire content is one re-export stub per entry point. It is generated, never edited
+by hand:
+
+```bash
+npm run alias:sync         # regenerate alias/ from package.json
+npm run alias:sync:check   # part of `npm run check` — fails when the two drift
+```
+
+The generator reads the canonical `exports` map, so a new subpath reaches the alias automatically,
+with the same conditions (only `/node` and `/eslint-plugin` ship CJS) and the same peer ranges. The
+`version` lifecycle script runs it and stages `alias/`, so an auto-release carries the bump.
+
+**Publishing it is manual and is not part of the release workflow** — a different package name needs
+its own `npm publish`:
+
+```bash
+cd alias && npm publish   # after the canonical version is live on npm
+```
+
+Publish it *after* the canonical release, never before: the alias depends on `vitest-auto-spy` by an
+exact caret range, so an alias published first is uninstallable.
+
 ### Release checklist — these four must always match
 
 Before and after every release, verify the single source of truth lines up:
