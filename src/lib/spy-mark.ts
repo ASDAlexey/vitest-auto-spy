@@ -11,13 +11,36 @@
  */
 import type { MockFn } from './mock-adapter';
 
-const AUTO_SPY_MARK = Symbol.for('vitest-auto-spy.mock');
+/** Exported so the type-based auto-mock (a Proxy, with no members to brand) can answer to it too. */
+export const AUTO_SPY_MARK = Symbol.for('vitest-auto-spy.mock');
 const RESET_CONFIG = Symbol.for('vitest-auto-spy.resetConfig');
 const CLEAR_HOOK = Symbol.for('vitest-auto-spy.clearHook');
 
 /** Brand a mock so {@link isMarkedMock} recognises it as one this library created. */
 export function markAsMock(mock: object): void {
   Object.defineProperty(mock, AUTO_SPY_MARK, { value: true, enumerable: false, configurable: true });
+}
+
+/**
+ * Whether a value looks like an auto-spy this library assembled — the object, not one of its
+ * members.
+ *
+ * Two shapes qualify, because there are two factories: a class-based spy owns an `accessorSpies`
+ * bag, and the type-based `createAutoMock` is a Proxy with no members to brand, so it answers to
+ * {@link AUTO_SPY_MARK} directly.
+ */
+export function isAutoSpyLike(value: unknown): boolean {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+
+  if (AUTO_SPY_MARK in value) {
+    return true;
+  }
+
+  const accessorSpies: unknown = Reflect.get(value, 'accessorSpies');
+
+  return typeof accessorSpies === 'object' && accessorSpies !== null;
 }
 
 /** Whether a value is a mock this library created (a branded callable). */

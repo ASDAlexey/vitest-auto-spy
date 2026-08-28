@@ -6,7 +6,9 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 
-import { attachClearHook, attachConfigReset, isMarkedMock, markAsMock, runClearHook, runConfigReset } from './spy-mark';
+import { createAutoMock } from './auto-mock';
+import { createSpyFromClass } from './create-spy-from-class';
+import { attachClearHook, attachConfigReset, isAutoSpyLike, isMarkedMock, markAsMock, runClearHook, runConfigReset } from './spy-mark';
 
 const RESET_CONFIG = Symbol.for('vitest-auto-spy.resetConfig');
 const CLEAR_HOOK = Symbol.for('vitest-auto-spy.clearHook');
@@ -54,5 +56,29 @@ describe('spy-mark', () => {
     const clearTarget = {};
     Object.defineProperty(clearTarget, CLEAR_HOOK, { value: 42, configurable: true });
     expect(() => runClearHook(clearTarget)).not.toThrow();
+  });
+});
+
+describe('isAutoSpyLike', () => {
+  class Cart {
+    total(): number {
+      return 0;
+    }
+  }
+
+  it('recognises both factories', () => {
+    expect(isAutoSpyLike(createSpyFromClass(Cart))).toBe(true);
+    expect(isAutoSpyLike(createAutoMock<Cart>())).toBe(true);
+  });
+
+  it('does not mistake a real instance, a hand-rolled double or a primitive for one', () => {
+    expect(isAutoSpyLike(new Cart())).toBe(false);
+    expect(isAutoSpyLike({ total: vi.fn() })).toBe(false);
+    expect(isAutoSpyLike(null)).toBe(false);
+    expect(isAutoSpyLike('cart')).toBe(false);
+  });
+
+  it('is not fooled by an accessorSpies field that is not the bag', () => {
+    expect(isAutoSpyLike({ accessorSpies: 'yes' })).toBe(false);
   });
 });

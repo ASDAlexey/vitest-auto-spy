@@ -2,7 +2,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 
 import { createSpyFromClass } from './create-spy-from-class';
 import { registerMockAdapter } from './mock-adapter';
-import { asInstance, asSpy, createSpyClass } from './spy-typing';
+import { asInstance, asInstances, asSpy, createSpyClass } from './spy-typing';
 import { vitestMockAdapter } from './vitest-adapter';
 
 beforeAll(() => {
@@ -28,6 +28,20 @@ describe('asInstance / asSpy', () => {
 
     expect(instance).toBe(spy);
     expect(asSpy(instance)).toBe(spy);
+  });
+});
+
+describe('asInstances', () => {
+  it('views a whole argument list at once, leaving non-spies alone', () => {
+    const first = createSpyFromClass(BackgroundWorker);
+    const second = createSpyFromClass(BackgroundWorker);
+    const [a, b, plain] = asInstances(first, second, 'not a spy');
+
+    const worker: BackgroundWorker = a;
+
+    expect(worker).toBe(first);
+    expect(b).toBe(second);
+    expect(plain).toBe('not a spy');
   });
 });
 

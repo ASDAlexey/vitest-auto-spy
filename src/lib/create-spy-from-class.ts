@@ -6,8 +6,9 @@
 import { createAccessorsSpies } from './accessor-spy';
 import { DOCS_LINKS, withDocs } from './docs-links';
 import { createFunctionSpy } from './function-spy';
+import { getMockAdapter } from './mock-adapter';
 import { requireObservableSupport } from './observable-support';
-import type { ClassSpyConfiguration, ClassType, OnlyMethodKeysOf, Spy } from './types';
+import type { ClassSpyConfiguration, ClassType, Func, OnlyMethodKeysOf, Spy, SpyOptions } from './types';
 
 /** All names to spy on, flattened from either form of the config argument. */
 interface ResolvedSpyConfiguration {
@@ -19,6 +20,7 @@ interface ResolvedSpyConfiguration {
   gettersToSpyOn: string[];
   autoSpyAccessors: boolean;
   lazySpies: boolean;
+  returns: Record<string, unknown>;
 }
 
 /** Getter/setter accessor names discovered along a prototype chain. */
@@ -36,6 +38,7 @@ const EMPTY_CONFIGURATION: ResolvedSpyConfiguration = {
   gettersToSpyOn: [],
   autoSpyAccessors: false,
   lazySpies: true,
+  returns: {},
 };
 
 /** Own, non-getter method names of a single prototype object (excluding the constructor). */
@@ -175,6 +178,89 @@ function warnOnUnknownMethods(ObjectClass: ClassType<unknown>, requested: string
   );
 }
 
+/**
+ * Warn when `gettersToSpyOn` / `settersToSpyOn` names a **method** of the class.
+ *
+ * The type no longer rejects a name by the type of its value — it cannot, because "is an accessor"
+ * is a fact about the descriptor, and filtering by "not callable" is exactly what made every
+ * signal-valued getter (`get isKidMode(): Signal<boolean>`) unnameable. What is left to check is
+ * the one case that is unambiguously a mistake rather than a style: naming a method installs a
+ * spied accessor *over* it, so the method is no longer there to call.
+ *
+ * A plain instance field is deliberately not reported. Spying its accessors is a supported use, and
+ * a field cannot be told from a typo without constructing the class — which this library never does.
+ */
+function warnOnAccessorNamingAMethod(ObjectClass: ClassType<unknown>, config: ResolvedSpyConfiguration): void {
+  const requested = [...new Set([...config.gettersToSpyOn, ...config.settersToSpyOn])];
+
+  if (requested.length === 0) {
+    return;
+  }
+
+  const methods = new Set(getAllMethodNames(ObjectClass.prototype));
+  const shadowed = requested.filter((name) => methods.has(name));
+
+  if (shadowed.length === 0) {
+    return;
+  }
+
+  // eslint-disable-next-line no-console -- intentional dev-time misconfiguration warning; console.warn is allowed per CLAUDE.md.
+  console.warn(
+    withDocs(
+      `[vitest-auto-spy] createSpyFromClass(${ObjectClass.name}): gettersToSpyOn/settersToSpyOn name(s) that are ` +
+        `methods of the class: ${shadowed.join(', ')}. A spied accessor was installed over each, so the method is no ` +
+        `longer callable on the spy. Name it in methodsToSpyOn instead — or, if it is a signal() field read as a ` +
+        `property, patch it with mockSignalProp(service, 'x', initial), which keeps everything downstream reactive.`,
+      DOCS_LINKS.createSpyFromClass,
+    ),
+  );
+}
+
+/** Narrow an unknown member to the callable the adapter needs, without an assertion. */
+function isCallable(value: unknown): value is Func {
+  return typeof value === 'function';
+}
+
+/**
+ * Install the configured return values.
+ *
+ * Through the adapter rather than through the host mock's `mockReturnValue`, because that method is
+ * not part of every runner's surface — `node:test`'s `mock.fn()` has no such thing — and the
+ * adapter is the seam that already hides those differences from the core.
+ */
+function applyReturns(autoSpy: Record<string, unknown>, ObjectClass: ClassType<unknown>, returns: Record<string, unknown>): void {
+  const entries = Object.entries(returns);
+
+  if (entries.length === 0) {
+    // Nothing to install, and nothing to ask the registry for: a spy whose methods are never touched
+    // is buildable before any runtime entry has registered an adapter, and that stays true.
+    return;
+  }
+
+  const adapter = getMockAdapter();
+
+  entries.forEach(([name, value]) => {
+    // Reading materializes the lazy spy, which is what has to happen before it can be configured.
+    const spy: unknown = autoSpy[name];
+
+    if (!isCallable(spy)) {
+      // eslint-disable-next-line no-console -- intentional dev-time misconfiguration warning; console.warn is allowed per CLAUDE.md.
+      console.warn(
+        withDocs(
+          `[vitest-auto-spy] createSpyFromClass(${ObjectClass.name}): returns names '${name}', which is not a spied ` +
+            `method of the spy. Check the spelling, and check that a restricting onlyMethodsToSpyOn list did not leave ` +
+            `it out — a value configured for a method that is not there is silently never returned.`,
+          DOCS_LINKS.createSpyFromClass,
+        ),
+      );
+
+      return;
+    }
+
+    adapter.restoreImplementation(spy, () => value);
+  });
+}
+
 /** Replace the accessor placeholder with the plain, writable data property the spy ends up as. */
 function materializeMethodSpy(autoSpy: Record<string, unknown>, methodName: string, value: unknown): void {
   Object.defineProperty(autoSpy, methodName, { configurable: true, enumerable: true, writable: true, value });
@@ -224,6 +310,7 @@ function resolveConfiguration<T>(methodsToSpyOnOrConfig?: ClassSpyConfiguration<
     gettersToSpyOn: methodsToSpyOnOrConfig.gettersToSpyOn ?? [],
     autoSpyAccessors: methodsToSpyOnOrConfig.autoSpyAccessors ?? false,
     lazySpies: methodsToSpyOnOrConfig.lazySpies ?? true,
+    returns: methodsToSpyOnOrConfig.returns ?? {},
   };
 }
 
@@ -239,12 +326,15 @@ function resolveConfiguration<T>(methodsToSpyOnOrConfig?: ClassSpyConfiguration<
  *
  * // a callable that is an instance field, not on the prototype
  * createSpyFromClass(TaskStore, { instanceMethodsToSpyOn: ['reload'] });
+ *
+ * // a generated API client, whose useful signature is the first of four
+ * createSpyFromClass<VenuesService, { overload: 'first' }>(VenuesService);
  * ```
  */
-export function createSpyFromClass<T>(
+export function createSpyFromClass<T, Options extends SpyOptions = SpyOptions>(
   ObjectClass: ClassType<T>,
   methodsToSpyOnOrConfig?: ClassSpyConfiguration<T> | OnlyMethodKeysOf<T>[],
-): Spy<T> {
+): Spy<T, Options> {
   const config = resolveConfiguration(methodsToSpyOnOrConfig);
 
   const methodNames = resolveMethodNames(ObjectClass, config);
@@ -266,6 +356,8 @@ export function createSpyFromClass<T>(
   });
 
   const accessors = resolveAccessors(ObjectClass.prototype, config);
+
+  warnOnAccessorNamingAMethod(ObjectClass, config);
   createAccessorsSpies(autoSpy, accessors.getters, accessors.setters);
 
   // Lazy path materializes each method spy on first access (cheaper for large
@@ -279,8 +371,10 @@ export function createSpyFromClass<T>(
     }
   });
 
+  applyReturns(autoSpy, ObjectClass, config.returns);
+
   // `autoSpy` is assembled key-by-key from the runtime method/accessor names;
   // its concrete `Spy<T>` shape only exists structurally after assembly.
   // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- the spy object is built dynamically from runtime-discovered names; its `Spy<T>` shape cannot be expressed before assembly.
-  return autoSpy as Spy<T>;
+  return autoSpy as Spy<T, Options>;
 }

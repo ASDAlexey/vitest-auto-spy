@@ -7,7 +7,7 @@
  */
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 
-import { createAutoMock } from './auto-mock';
+import { autoMocked, createAutoMock } from './auto-mock';
 import { registerMockAdapter } from './mock-adapter';
 import { vitestMockAdapter } from './vitest-adapter';
 
@@ -105,5 +105,46 @@ describe('createAutoMock', () => {
       writable: true,
     });
     expect(Object.getOwnPropertyDescriptor(mock, 'absent')).toBeUndefined();
+  });
+});
+
+describe('autoMocked', () => {
+  interface LogMethods {
+    err(message: string, error: Error): void;
+    debug(message: string): void;
+  }
+
+  /** Takes the collaborator as a parameter rather than injecting it — the shape the helper is for. */
+  function detect(logger: LogMethods): void {
+    logger.err('VPN detection failed', new Error('FAKE ERROR'));
+  }
+
+  it('is accepted as `T` and asserted on as a spy, with no bridge call', () => {
+    const logger = autoMocked<LogMethods>();
+
+    detect(logger);
+
+    expect(logger.err).toHaveBeenCalledWith('VPN detection failed', expect.any(Error));
+    expect(logger.debug).not.toHaveBeenCalled();
+  });
+
+  it('seeds overrides like createAutoMock does', () => {
+    const logger = autoMocked<LogMethods>({ debug: (): void => undefined });
+
+    expect(logger.debug('x')).toBeUndefined();
+  });
+});
+
+describe('the auto-spy brand', () => {
+  it('answers to the brand without carrying it into the mock’s own keys', () => {
+    const mock = createAutoMock<{ load(): void }>({ load: () => undefined });
+    const brand = Symbol.for('vitest-auto-spy.mock');
+
+    // `injectSpy` reads it to tell a provided double from the real instance DI built instead.
+    expect(brand in mock).toBe(true);
+    expect(Reflect.get(mock, brand)).toBe(true);
+
+    // …and a spread or a snapshot of the mock must not carry it.
+    expect(Object.keys(mock)).toEqual(['load']);
   });
 });

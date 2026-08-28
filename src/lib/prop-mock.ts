@@ -7,6 +7,7 @@
  * core barrel exports them too so a React/Vue/Node suite can use the same undo bookkeeping.
  */
 import { getMockAdapter } from './mock-adapter';
+import type { PropStubValue } from './types';
 
 /** Undoes a single `mock*Prop` patch; calling it more than once is a no-op. */
 export type RestoreProp = () => void;
@@ -118,13 +119,19 @@ export function countMockedProps(): number {
 /**
  * Override a readonly property (incl. `signal()` / `computed()`) with a static value.
  *
+ * This is also the answer to `TS2540: Cannot assign to 'X' because it is a read-only property` on a
+ * **getter**; for a `readonly` *field* of an object, use {@link mockValueProp}.
+ *
+ * The object may be the `Spy<T>` that `injectSpy` / `asSpy` returns: the value is checked against
+ * the member's own type, not against the spy-decorated one, so a real signal is accepted.
+ *
  * @example
  * ```ts
  * mockReadonlyProp(service, 'isReady', true);
  * mockReadonlyProp(service, 'count', signal(3)); // signals too
  * ```
  */
-export function mockReadonlyProp<T, K extends keyof T>(object: T, property: K, value: T[K]): RestoreProp;
+export function mockReadonlyProp<T, K extends keyof T>(object: T, property: K, value: PropStubValue<T[K]>): RestoreProp;
 /** Escape hatch for members the public type does not describe — `#private` fields, ad-hoc keys. */
 export function mockReadonlyProp<T>(object: T, property: PropertyKey, value: unknown): RestoreProp;
 export function mockReadonlyProp<T>(object: T, property: PropertyKey, value: unknown): RestoreProp {
@@ -161,13 +168,18 @@ export function mockReadonlyPropGetter<T>(object: T, property: PropertyKey, gett
  * Override a property with a plain writable value — the counterpart of {@link mockReadonlyProp} for
  * members the code under test assigns to, and the way to stub a method on a real (non-spy) instance.
  *
+ * It is the answer to `TS2540: Cannot assign to 'X' because it is a read-only property` when `X` is
+ * a field: `component.account.isGuest = true` cannot be written, `mockValueProp(component.account,
+ * 'isGuest', true)` can — and records the undo. (`TS2540` on a class **getter** is
+ * {@link mockReadonlyProp}.)
+ *
  * @example
  * ```ts
  * mockValueProp(service, 'retries', 3);
  * mockValueProp(globalThis, 'BackgroundWorker', createSpyClass(BackgroundWorker));
  * ```
  */
-export function mockValueProp<T, K extends keyof T>(object: T, property: K, value: T[K]): RestoreProp;
+export function mockValueProp<T, K extends keyof T>(object: T, property: K, value: PropStubValue<T[K]>): RestoreProp;
 /** Escape hatch for members the public type does not describe — `#private` fields, ad-hoc keys. */
 export function mockValueProp<T>(object: T, property: PropertyKey, value: unknown): RestoreProp;
 export function mockValueProp<T>(object: T, property: PropertyKey, value: unknown): RestoreProp {

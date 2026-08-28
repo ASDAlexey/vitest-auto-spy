@@ -151,8 +151,7 @@ export function createFunctionSpy<FunctionType extends Func>(name: string): AddS
   // The library's dispatch: pick the configured value for the call, then record
   // its settled outcome. Captured by name so `resetAutoSpy` can re-install it,
   // discarding any host-level `mockReturnValue`/`mockImplementation` a test set.
-  const dispatch = (...actualArgs: unknown[]): unknown =>
-    settledResultsRecorder.record(returnTheCorrectFakeValue(state, actualArgs, name));
+  const dispatch = (...actualArgs: unknown[]): unknown => settledResultsRecorder.record(returnTheCorrectFakeValue(state, actualArgs, name));
 
   const functionSpy = getMockAdapter().createMockFn(dispatch, name);
 

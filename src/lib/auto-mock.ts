@@ -22,13 +22,15 @@
  *    properties through `overrides` (or assign them) when you need real values.
  */
 import { createFunctionSpy } from './function-spy';
-import type { Func, Spy } from './types';
+import { AUTO_SPY_MARK } from './spy-mark';
+import type { DeepPartial, Func, Spy, SpyOptions } from './types';
 
 /**
  * Create a fully-typed auto-mock of `T` from its type alone (no class).
  *
- * @param overrides Optional partial seed of concrete values/implementations.
- *   Seeded keys are returned as-is and are not converted into spies.
+ * @param overrides Optional partial seed of concrete values/implementations, checked against `T` at
+ *   every depth. Seeded keys are returned as-is and are not converted into spies — including a
+ *   nested object, which is stored exactly as written rather than being auto-mocked further.
  *
  * @returns A {@link Spy} of `T`: every accessed method key lazily becomes a
  *   decorated function spy (same helpers as `createSpyFromClass`), cached by key.
@@ -41,19 +43,28 @@ import type { Func, Spy } from './types';
  * users.load.resolveWith({ id: 1 });
  * ```
  */
-export function createAutoMock<T>(overrides: Partial<T> = {}): Spy<T> {
+export function createAutoMock<T, Options extends SpyOptions = SpyOptions>(overrides?: DeepPartial<T>): Spy<T, Options> {
   // Backing store: seeded overrides up-front, lazily-created spies thereafter.
   // Keyed by `string | symbol` (never numeric) so `ownKeys` can return it as-is.
   const cache = new Map<string | symbol, unknown>();
 
-  for (const key of Reflect.ownKeys(overrides)) {
-    cache.set(key, Reflect.get(overrides, key));
+  const seed = overrides ?? {};
+
+  for (const key of Reflect.ownKeys(seed)) {
+    cache.set(key, Reflect.get(seed, key));
   }
 
   const handler: ProxyHandler<Record<PropertyKey, unknown>> = {
     get(_target, key): unknown {
       if (cache.has(key)) {
         return cache.get(key);
+      }
+
+      // Answered outside the cache so the brand stays out of `ownKeys`: a spread or a snapshot of
+      // the mock must not carry it. It is what lets `injectSpy` tell a provided double apart from
+      // the real instance the injector hands back when nobody registered one.
+      if (key === AUTO_SPY_MARK) {
+        return true;
       }
 
       // Never materialize a spy for runtime/JS-internal lookups (symbols such
@@ -76,7 +87,7 @@ export function createAutoMock<T>(overrides: Partial<T> = {}): Spy<T> {
     },
 
     has(_target, key): boolean {
-      return cache.has(key);
+      return key === AUTO_SPY_MARK || cache.has(key);
     },
 
     ownKeys(): (string | symbol)[] {
@@ -95,5 +106,32 @@ export function createAutoMock<T>(overrides: Partial<T> = {}): Spy<T> {
   // The Proxy assembles `T`'s spy surface lazily from runtime-accessed keys, so
   // its concrete `Spy<T>` shape only exists structurally, not statically.
   // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- the auto-mock is built dynamically from runtime-accessed keys; its `Spy<T>` shape cannot be expressed before access.
-  return new Proxy<Record<PropertyKey, unknown>>({}, handler) as Spy<T>;
+  return new Proxy<Record<PropertyKey, unknown>>({}, handler) as Spy<T, Options>;
+}
+
+/**
+ * The same auto-mock, typed as `T` *and* as its spy surface.
+ *
+ * {@link createAutoMock} returns `Spy<T>`, which is right when the double is handed to a DI
+ * container and read back through assertions. It is awkward for the other shape — an interface of
+ * uniform methods (`Logger`, `Reporter`, a telemetry client, a `ConsoleLike`) that the code under
+ * test takes as a *parameter* rather than injecting. There the same object has to satisfy `T` at
+ * the call site and expose the spy helpers at the assertion, and threading `asInstance` /
+ * `asSpy` through both reads worse than the eight `vi.fn()` lines it replaced.
+ *
+ * ```ts
+ * const logger = autoMocked<LogMethods>();
+ *
+ * detectVpnClient(url, logger);                       // accepted as LogMethods
+ * expect(logger.err).toHaveBeenCalledWith('VPN detection failed', expect.any(Error));
+ * ```
+ *
+ * Use {@link createAutoMock} when the double only ever travels as a spy; the intersection is
+ * strictly wider, and a wider type is worth asking for only when both halves are used.
+ */
+export function autoMocked<T>(overrides?: DeepPartial<T>): Spy<T> & T {
+  const mock = createAutoMock<T>(overrides);
+
+  // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- one object, two views, exactly as in `asInstance` / `asSpy`: the proxy answers every key of `T` and every key `Spy<T>` adds, and the intersection is what lets a spec pass it as `T` and assert on it as a spy without a bridge call at each site.
+  return mock as Spy<T> & T;
 }

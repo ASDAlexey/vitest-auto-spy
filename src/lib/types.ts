@@ -42,6 +42,22 @@ export type OnlyPropsOf<ObjectType> = Extract<
   string
 >;
 
+/**
+ * Keys that may name an accessor — every string key of `T`, whatever its value type.
+ *
+ * Whether a member is a getter is a property of the *descriptor*, not of the value: a getter
+ * returning a function is still a getter. Filtering by "not callable" (as {@link OnlyPropsOf} does)
+ * therefore rejects exactly the case Angular's signal-based services are made of —
+ * `get isKidMode(): Signal<boolean>`, where `Signal<T>` is `(() => T) & { … }` and so *is* callable.
+ * For a service whose readonly state is all signals, that leaves no nameable getter at all and the
+ * element type collapses to `never`, reported as `Type 'string' is not assignable to type 'never'`
+ * — a message with nothing in it about signals.
+ *
+ * Naming a member that has no accessor on the prototype is caught at runtime instead, with a
+ * warning that says so, in the same place a mistyped `onlyMethodsToSpyOn` name is.
+ */
+export type AccessorKeysOf<ObjectType> = Extract<keyof ObjectType, string>;
+
 // ---------------------------------------------------------------------------
 // Value configs (sequences of emissions for observable/promise spies)
 // ---------------------------------------------------------------------------
@@ -112,17 +128,94 @@ export type AddCalledWithPromise<Method extends Func, P> = {
   mustBeCalledWith(...args: Parameters<Method>): AddPromiseSpyMethods<P>;
 };
 
-/** Wrap a method's spy with the helper bundle chosen by its return type. */
+/**
+ * The zero-argument `mockReturnValue()` a `void` method should accept.
+ *
+ * The runner's own `Mock` types the argument as `any`, which is not `void`, so
+ * `spy.dispose.mockReturnValue()` fails with `TS2554: Expected 1 arguments, but got 0` on a method
+ * whose whole point is that it returns nothing. This is an *added* overload, not a replacement: a
+ * call that does pass a value still resolves against the runner's signature first and keeps its
+ * chainable return type.
+ */
+export interface AddVoidReturnHelpers {
+  mockReturnValue(value?: undefined): void;
+  returnValue(value?: undefined): void;
+}
+
+/**
+ * Wrap a method's spy with the helper bundle chosen by its return type.
+ *
+ * Two details here are load-bearing rather than stylistic, and both come from the same bug report:
+ * a spy member that silently became `never`, reported as
+ * `Property 'mockReturnValue' does not exist on type 'never'` with nothing connecting it to the
+ * method it came from.
+ *
+ * 1. **The fallback is the sync bundle, not `never`.** A generic method with a conditional return
+ *    type — `get<K extends keyof this>(k: K): this[K] extends Stringified<infer R> ? R : never`, the
+ *    shape of every typed configuration service — does *not* match
+ *    `(...args: any[]) => infer ReturnType`: the return type cannot be inferred to anything
+ *    concrete, so the conditional takes its false branch. Annihilating the member there threw away
+ *    every helper it should have had.
+ * 2. **Each comparison is on tuples** (`[X] extends [Y]`), which switches distribution off. A bare
+ *    `ReturnType extends Promise<…>` distributes over the `infer`-bound parameter, and distributing
+ *    over `never` yields `never` — the same collapse by a different route, for a method whose
+ *    return type does resolve, to `never`.
+ */
 export type AddSpyMethodsByReturnTypes<Method extends Func> = Method &
   Mock &
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the `(...args: any[]) => infer ReturnType` conditional only extracts the return type; the parameter shape is irrelevant here and a narrower signature would fail to match arbitrary methods.
   (Method extends (...args: any[]) => infer ReturnType
-    ? ReturnType extends Promise<infer P>
+    ? [ReturnType] extends [Promise<infer P>]
       ? AddCalledWithPromise<Method, P> & AddPromiseSpyMethods<P>
-      : ReturnType extends Observable<infer O>
+      : [ReturnType] extends [Observable<infer O>]
         ? AddCalledWithObservable<Method, O> & AddObservableSpyMethods<O>
-        : AddCalledWithSpyMethods<Method>
-    : never);
+        : [ReturnType] extends [void]
+          ? AddCalledWithSpyMethods<Method> & AddVoidReturnHelpers
+          : AddCalledWithSpyMethods<Method>
+    : AddCalledWithSpyMethods<Method>);
+
+// ---------------------------------------------------------------------------
+// Overload selection
+// ---------------------------------------------------------------------------
+
+/**
+ * Every call signature of `F`, in declaration order.
+ *
+ * `Parameters<F>` and `ReturnType<F>` read the **last** overload, which for a generated API client
+ * is the one nobody calls: `ng-openapi-gen` and `openapi-generator` emit `observe: 'body'` first and
+ * `observe: 'events'` last, so `Spy<VenuesService>` types a method against `HttpEvent<T>` and
+ * `nextWith(body)` stops compiling — with no hint that overload order is what happened.
+ *
+ * Four signatures is the practical ceiling (the generated `observe` clients have three or four);
+ * a function with fewer matches the same pattern, with the extra slots repeating what it has.
+ */
+export type Overloads<F> = F extends {
+  (...args: infer A1): infer R1;
+  (...args: infer A2): infer R2;
+  (...args: infer A3): infer R3;
+  (...args: infer A4): infer R4;
+}
+  ? [(...args: A1) => R1, (...args: A2) => R2, (...args: A3) => R3, (...args: A4) => R4]
+  : never;
+
+/** One call signature of an overloaded function, by index — `Overload<Client['get'], 0>`. */
+export type Overload<F, N extends 0 | 1 | 2 | 3> = Overloads<F>[N];
+
+/** How {@link Spy} should read a method that has more than one call signature. */
+export interface SpyOptions {
+  /**
+   * Which overload the spy's helpers are typed against. Default `'last'`, which is what
+   * `Parameters` / `ReturnType` do on their own and therefore what every existing `Spy<T>` means.
+   */
+  overload?: 'first' | 'last';
+}
+
+/** Apply {@link SpyOptions.overload} to one method type. */
+type SelectOverload<Method extends Func, Options extends SpyOptions> = Options extends { overload: 'first' }
+  ? Overload<Method, 0> extends Func
+    ? Overload<Method, 0>
+    : Method
+  : Method;
 
 // ---------------------------------------------------------------------------
 // Accessor spies + the assembled `Spy<T>`
@@ -145,18 +238,71 @@ export type DeepMockProxy<T> = {
   [K in keyof T]: T[K] extends Func ? AddSpyMethodsByReturnTypes<T[K]> : T[K] extends object ? DeepMockProxy<T[K]> : T[K];
 };
 
-/** Fully-typed spy of `T`. */
-export type Spy<T> = AddAccessorsSpies<T> & {
+/**
+ * Fully-typed spy of `T`.
+ *
+ * ```ts
+ * let cart: Spy<CartService>;
+ * // a generated client whose useful overload is the first one:
+ * let cinemas: Spy<VenuesService, { overload: 'first' }>;
+ * ```
+ */
+export type Spy<T, Options extends SpyOptions = SpyOptions> = AddAccessorsSpies<T> & {
   [K in keyof T]: T[K] extends Func
-    ? AddSpyMethodsByReturnTypes<T[K]>
+    ? AddSpyMethodsByReturnTypes<SelectOverload<T[K], Options>>
     : T[K] extends Observable<infer O>
       ? AddObservableSpyMethods<O> & T[K]
       : T[K];
 };
 
+/**
+ * What a `mock*Prop` helper accepts as the stand-in for a member typed `V`.
+ *
+ * Exactly `V`, except that a **callable** member also accepts a bare function of the same shape.
+ * The reason is `Spy<T>`: the recommended way to reach a service in an Angular spec is
+ * `injectSpy(X)` / `asSpy(TestBed.inject(X))`, and on that object a signal-valued member is typed
+ * `Signal<T> & Mock & …`. Requiring the exact member type would mean no real signal could ever be
+ * written into it — so the spec would have to keep the instance under a second name purely to patch
+ * it, which is what this avoids.
+ */
+export type PropStubValue<V> = V extends (...args: infer Args) => infer Return ? V | ((...args: Args) => Return) : V;
+
+/**
+ * A partial `T` that stays partial all the way down.
+ *
+ * `Partial<T>` is one level deep, so a fixture for a configuration object, an account token or a
+ * route snapshot — a tree the test reads one leaf of — has to name the type of every nested level
+ * and build it with its own call. What it buys over `as T` is what must survive: a key that `T` does
+ * not have, or that a refactor removed, is still rejected at any depth.
+ */
+export type DeepPartial<T> = T extends BuiltIn
+  ? T
+  : T extends readonly (infer Element)[]
+    ? DeepPartial<Element>[]
+    : T extends object
+      ? { [K in keyof T]?: DeepPartial<T[K]> }
+      : T;
+
+/**
+ * Values {@link DeepPartial} must hand back untouched.
+ *
+ * Mapping over a `Date` or a `Map` would turn it into an object of optional methods — accepted by
+ * the compiler, useless at runtime, and impossible to write a fixture against.
+ */
+type BuiltIn = Date | Error | Func | Promise<unknown> | ReadonlyMap<unknown, unknown> | ReadonlySet<unknown> | RegExp;
+
 // ---------------------------------------------------------------------------
 // Configuration
 // ---------------------------------------------------------------------------
+
+/**
+ * Return values for a spy's methods, keyed by method name.
+ *
+ * Written as part of the configuration so that a provider needs no second statement — which is what
+ * pushes a shared double into module scope in the first place, where under `isolate: false` every
+ * importing file then shares its spies.
+ */
+export type MethodReturns<T> = { [K in OnlyMethodKeysOf<T>]?: T[K] extends Func ? ReturnType<T[K]> : never };
 
 /** Restricts/extends what `createSpyFromClass` spies on. */
 export interface ClassSpyConfiguration<T> {
@@ -192,10 +338,36 @@ export interface ClassSpyConfiguration<T> {
    */
   instanceMethodsToSpyOn?: OnlyMethodKeysOf<T>[];
   observablePropsToSpyOn?: OnlyObservablePropsOf<T>[];
-  settersToSpyOn?: OnlyPropsOf<T>[];
-  gettersToSpyOn?: OnlyPropsOf<T>[];
+  /**
+   * Getters to replace with a spied accessor.
+   *
+   * Any string key of `T` may be named: whether a member is an accessor is decided by its
+   * descriptor on the prototype, not by the type of the value it returns — and a name that has no
+   * accessor there is reported at runtime, with the reason. For a **signal-valued** getter prefer
+   * `mockSignalProp(service, 'state', initial)` (`/angular`): a spied getter returns `undefined`
+   * until it is configured, while a real signal keeps everything downstream of it reactive.
+   */
+  gettersToSpyOn?: AccessorKeysOf<T>[];
+  /** Setters to replace with a spied accessor. See {@link gettersToSpyOn}. */
+  settersToSpyOn?: AccessorKeysOf<T>[];
   /** Auto-discover and spy every getter/setter on the prototype chain (merged with the explicit lists). */
   autoSpyAccessors?: boolean;
+  /**
+   * What each named method returns, applied as the spy is built.
+   *
+   * ```ts
+   * providers: [provideAutoSpy(ProductsService, { returns: { getProducts: of([]) } })];
+   * ```
+   *
+   * The alternative is a second statement in every `beforeEach` — `injectSpy(X).m.mockReturnValue(…)`
+   * — and the shortcut people take instead is an exported `const` provider carrying the values,
+   * which under `isolate: false` is one set of spies shared by every file that imports it.
+   *
+   * This installs an implementation, exactly as `mockReturnValue` does, so a `calledWith(…)` chain
+   * configured **afterwards** on the same method no longer decides the value. Configure one or the
+   * other per method, not both.
+   */
+  returns?: MethodReturns<T>;
   /**
    * Materialize each method spy on first access instead of building all of them up front.
    *
