@@ -3,7 +3,7 @@
 /*
  * ESLint config for the `vitest-auto-spy` library.
  *
- * Distilled from the strict ruleset of the the second reference suite project,
+ * Distilled from the strict ruleset of a production Angular application,
  * keeping ONLY the rules that make sense for a framework-light TypeScript
  * library: the @typescript-eslint rules, rxjs hygiene, eslint-comments
  * discipline, regex optimisation and import de-duplication.
