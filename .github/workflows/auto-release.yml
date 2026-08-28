@@ -31,6 +31,9 @@ concurrency:
 jobs:
   release:
     runs-on: ubuntu-latest
+    outputs:
+      bump: ${{ steps.bump.outputs.bump }}
+      version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -153,3 +156,14 @@ jobs:
           fi
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # The `vitest-auto-spies` alias is a second npm package, generated from this one — see
+  # .github/workflows/publish-alias.yml. It goes out after the canonical package is on npm, because
+  # it depends on it by an exact caret range.
+  publish-alias:
+    needs: release
+    if: needs.release.outputs.bump != 'none'
+    uses: ./.github/workflows/publish-alias.yml
+    with:
+      ref: ${{ needs.release.outputs.version }}
+    secrets: inherit

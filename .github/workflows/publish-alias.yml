@@ -1,0 +1,81 @@
+name: Publish alias
+
+# Publishes the `vitest-auto-spies` alias package (the `alias/` directory).
+#
+# It is a second npm package, so it needs its own `npm publish` — but nothing about it is a
+# judgement call: the directory is generated from the canonical `package.json`
+# (`scripts/sync-alias.mjs`, run by the `version` lifecycle script), so by the time a release commit
+# exists the alias already carries the right version and the right entry points. Publishing it by
+# hand is what let it sit at 1.9.3 for two majors, without `/bun-angular`, `/setup`, `/zone` or
+# `/eslint-plugin`.
+#
+# Called by `auto-release.yml` and `release.yml` after the canonical package is on npm. Also
+# runnable on its own (Actions → Publish alias → Run workflow) to catch up a version that was
+# released before this workflow existed — publishing an already-published version is a no-op.
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: Commit, tag or branch to publish from. Defaults to the caller's ref.
+        type: string
+        required: false
+        default: ''
+    secrets:
+      NPM_TOKEN:
+        required: true
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write # npm provenance
+
+# The alias must never be published twice concurrently, and never while the canonical one is mid-flight.
+concurrency:
+  group: publish-alias
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24 # latest LTS
+          registry-url: https://registry.npmjs.org
+
+      - name: Pin npm
+        run: npm i -g npm@11
+
+      # The stubs and the exports map are generated. A hand edit that never went through the
+      # generator would publish a package that disagrees with the canonical one — catch it here
+      # rather than on someone's `import`.
+      - name: Alias is in sync with package.json
+        run: node scripts/sync-alias.mjs --check
+
+      - name: Publish to npm (skip if the version already exists)
+        working-directory: alias
+        run: |
+          VERSION="$(node -p "require('./package.json').version")"
+
+          if npm view "vitest-auto-spies@${VERSION}" version >/dev/null 2>&1; then
+            echo "vitest-auto-spies@${VERSION} is already published — nothing to do."
+            exit 0
+          fi
+
+          # The alias depends on the canonical package by an exact caret range, so publishing it
+          # first would put an uninstallable version on npm.
+          CANONICAL="$(node -p "require('./package.json').dependencies['vitest-auto-spy'].replace(/^\^/, '')")"
+
+          if ! npm view "vitest-auto-spy@${CANONICAL}" version >/dev/null 2>&1; then
+            echo "::error::vitest-auto-spy@${CANONICAL} is not on npm yet — publish the canonical package first."
+            exit 1
+          fi
+
+          npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

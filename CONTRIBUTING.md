@@ -59,8 +59,10 @@ Conventional Commits since the last tag and, if there is anything releasable:
 | only `chore` / `docs` / `refactor` / `test` / `ci` / … | no release |
 
 The workflow then bumps `package.json`, creates the `vX.Y.Z` commit and tag,
-publishes to npm (with provenance) and opens a GitHub Release with generated
-notes. **You never bump the version or tag by hand** — just land good commits.
+publishes to npm (with provenance), publishes the `vitest-auto-spies` alias
+(see [below](#the-vitest-auto-spies-alias)) and opens a GitHub Release with
+generated notes. **You never bump the version or tag by hand** — just land good
+commits.
 
 > Maintainers: this requires an `NPM_TOKEN` repo secret. Pushing a `v*` tag
 > manually still triggers the standalone [`Release`](./.github/workflows/release.yml)
@@ -99,15 +101,20 @@ The generator reads the canonical `exports` map, so a new subpath reaches the al
 with the same conditions (only `/node` and `/eslint-plugin` ship CJS) and the same peer ranges. The
 `version` lifecycle script runs it and stages `alias/`, so an auto-release carries the bump.
 
-**Publishing it is manual and is not part of the release workflow** — a different package name needs
-its own `npm publish`:
+**Publishing is automatic too.** `.github/workflows/publish-alias.yml` runs after the canonical
+package reaches npm — from both release paths, with the same `NPM_TOKEN` and the same provenance —
+so there is nothing to do by hand. It re-checks `alias:sync:check`, skips a version that is already
+published, and refuses to publish before the canonical package is on npm (the alias depends on it by
+an exact caret range, so an alias published first would be uninstallable).
 
-```bash
-cd alias && npm publish   # after the canonical version is live on npm
-```
+Two cases still need a human:
 
-Publish it *after* the canonical release, never before: the alias depends on `vitest-auto-spy` by an
-exact caret range, so an alias published first is uninstallable.
+- **Catching up a version released before that workflow existed** — Actions → *Publish alias* →
+  *Run workflow* on `master`. It publishes whatever version `alias/package.json` carries, and is a
+  no-op if that one is already on npm.
+- **npm is down or the token is rejected** — the fallback is `cd alias && npm publish`, which needs
+  a local login (`npm login`; a stale `~/.npmrc` token fails as a **404 on PUT**, not as a 401,
+  because npm hides unauthorised writes behind "not found").
 
 ### Release checklist — these four must always match
 

@@ -57,3 +57,11 @@ jobs:
           fi
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Same second package as in the auto-release path — see .github/workflows/publish-alias.yml.
+  publish-alias:
+    needs: publish
+    uses: ./.github/workflows/publish-alias.yml
+    with:
+      ref: ${{ github.ref_name }}
+    secrets: inherit
