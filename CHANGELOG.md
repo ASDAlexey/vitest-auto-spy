@@ -10,6 +10,17 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+### Added
+
+- **`setupFakeTimers(config?, { betweenTests })`** — keeps the clock fake in the gaps between tests,
+  not only during them, which is what Jest's `fakeTimers.enableGlobally` did. Arming in `beforeEach`
+  alone does not reproduce it: a `beforeAll` inside a **nested** `describe` runs after the previous
+  test's `afterEach`, so a block that prepares its samples there — driving an animation clock with
+  `vi.advanceTimersByTimeAsync`, say — fails with `A function to advance timers was called but the
+  timers APIs are not mocked`, in a set whose own tests never touch a timer. Off by default, because
+  a scoped call belongs to its `describe`; `setupAutoSpy({ globalFakeTimers })` turns it on, and the
+  fakes come off in `afterAll` so they never outlive the file.
+
 ### Changed
 
 - **The `vitest-auto-spies` alias is published by CI**, from both release paths, right after the
@@ -21,6 +32,18 @@ The latest released version here must always match the one published on
 - **CI runs `npm run test:zone` and `npm run alias:sync:check`.** `vitest-auto-spy/zone` is the only
   entry that touches zone.js and no other suite loads any of it, so `fakeAsync` / `waitForAsync` were
   verified locally and nowhere else.
+- **`installProxyZonePatch({ scope })`** — `'shared'` (the new default) runs every test and hook body
+  of the run through one proxy zone, which is what Angular's own jasmine patch does: a component
+  built in `beforeEach` schedules from its constructor, and the `tick()` inside the `fakeAsync` test
+  has to see those timers. `'callback'` keeps the previous fork-per-callback behaviour, which is what
+  `test.concurrent` needs — two callbacks in flight would otherwise swap the same `ProxyZoneSpec`
+  delegate under one another.
+- **`DeepPartial<T>` accepts the real value at every level**, not only a partial of it. The type is a
+  mapping over host objects as well — `BuiltIn` can only list ECMAScript types, since naming `Node`
+  or `NodeList` would put `lib: ["DOM"]` into the published `.d.ts` for `/node`, `/nestjs` and
+  `/bun` — and a real `NodeList` had stopped being assignable to the mapping of itself
+  (`createMock<MutationRecord>({ addedNodes: nodeList })`). Excess-property checking is unaffected: a
+  key `T` does not have is still rejected at any depth.
 
 ## [3.1.0] - 2026-08-28
 

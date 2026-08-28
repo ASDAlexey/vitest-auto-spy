@@ -1226,7 +1226,7 @@ single-purpose utility you can pick up independently — they all ride on the sa
 | `mockValueProp(obj, prop, value)`                                                    | `/angular`                    | Overwrite a property with a plain **writable** value                                                                             |
 | `mockAccessorsProp(obj, prop, accessors?)`                                           | `/angular`                    | Redefine a property with spied `get` + `set`, optionally backed by real implementations                                          |
 | `restoreMockedProps()`                                                               | `/angular`                    | Undo every patch the `mock*Prop` helpers applied — one call in `afterEach` (each helper also returns the undo for its own patch) |
-| `setupFakeTimers(config?)`                                                           | `/setup`                      | `vi.useFakeTimers()` / `vi.useRealTimers()` as one paired `beforeEach` + `afterEach` ([details](#fake-timers))                   |
+| `setupFakeTimers(config?, opts?)`                                                    | `/setup`                      | `vi.useFakeTimers()` / `vi.useRealTimers()` as one paired `beforeEach` + `afterEach`; `{ betweenTests: true }` between them ([details](#fake-timers)) |
 | `advanceTimers(ms?)`                                                                 | `/setup`                      | Advance the fake clock **and** settle the microtasks the callbacks queued ([details](#fake-timers))                              |
 | `stubIntersectionObserver()` / `stubResizeObserver()` / `stubMutationObserver()`     | core                          | Replace an observer global with one the spec drives, restored automatically ([details](#observer-stubs))                         |
 | `intersectionEntry(target, isIntersecting, overrides?)`                              | core                          | Build one `IntersectionObserverEntry` without the fields nothing reads                                                           |
@@ -1246,7 +1246,7 @@ single-purpose utility you can pick up independently — they all ride on the sa
 | `provideAutoSpyForToken(TOKEN, overrides?)`                                          | `/angular`                    | The provider for a dependency behind an `InjectionToken` — no stand-in class to write                                           |
 | `createDirectiveHost({ template, scope, props })`                                    | `/angular`                    | A standalone host for a directive under test, with its scope where the compiler reads it                                        |
 | `registerDirectiveMatchers()`                                                        | `/angular`                    | Adds `expect(fixture).toHaveDirectiveApplied(Directive, selector?)`                                                             |
-| `installProxyZonePatch()`                                                            | `/zone`                       | `fakeAsync` / `waitForAsync` on Vitest — the patch `zone.js/testing` does not ship                                              |
+| `installProxyZonePatch(opts?)`                                                       | `/zone`                       | `fakeAsync` / `waitForAsync` on Vitest — the patch `zone.js/testing` does not ship; `scope: 'callback'` per callback             |
 | `autoMocked<T>(overrides?)`                                                          | core                          | `createAutoMock` typed as `T & Spy<T>`, for a collaborator passed as an argument rather than injected                            |
 | `mockSystemTime(time)` / `withSystemTime(time, fn)`                                  | `/setup`                      | Freeze the clock whether or not fake timers are already running                                                                  |
 | `mockNow(source)` / `useCountingClock(opts?)`                                        | `/setup`                      | A `Date.now` that survives fake timers being re-installed around every test; counts ticks instead of telling the time            |
@@ -1392,10 +1392,21 @@ expensive to diagnose when it is missing. The first three are on by default:
 | `restoreMocks`        | `false`   | `vi.restoreAllMocks()` in a global `afterEach` — turn on for `isolate: false` |
 | `strayTimers`         | `false`   | Cancel timeouts, intervals and frames that outlive their file                 |
 | `blockNetwork`        | `false`   | Reject every `fetch`, so a unit run cannot reach the network                  |
+| `guardGlobals`        | `'off'`   | Report a test that redefines a global property as non-configurable            |
+| `globalFakeTimers`    | `false`   | Fake timers for every test **and between them** — Jest's `enableGlobally`     |
 | `restoreTimerGlobals` | `true`    | Put back timer globals that uninstalling the fakes deleted                    |
 
 `restoreMocks` is off by default because it also drops `vi.spyOn` stubs a suite installed in
 `beforeAll`; it is the knob to reach for when the run shares one environment across files.
+
+Whatever is turned on, the hooks belong to the spec file whose collection imported the setup module.
+Vitest re-imports setup files per spec file, so that is normally invisible — until something keeps
+the module in the cache across files, and then only the **first** file of each worker gets any of
+them: no property restore, no `blockNetwork`, no stray-timer cancellation, no global fake timers,
+and no report that they are missing. The case seen in the wild is `@angular/build:unit-test` with
+coverage, where each test file is served as a wrapper around the built bundle and the setup module
+is never re-evaluated. Run that with `--isolate`, or call `setupAutoSpy()` from something evaluated
+per file.
 
 ## Fake timers
 
@@ -1420,6 +1431,15 @@ Two pieces of boilerplate, and the one bug that hides in them.
 clock left behind leaks into every later file in the same worker, where it surfaces as an unrelated
 test hanging on a `setTimeout` that never fires. The optional `config` is forwarded verbatim to
 `vi.useFakeTimers()` (`{ toFake: ['setTimeout'] }`, `shouldAdvanceTime`, `now`, …).
+
+**`setupFakeTimers(config?, options?)`** takes `{ betweenTests: true }` as its second argument, which
+keeps the clock fake in the gaps between tests as well — Jest's `fakeTimers.enableGlobally`. Arming
+in `beforeEach` alone does not reproduce that: a `beforeAll` inside a **nested** `describe` runs
+*after* the previous test's `afterEach`, so a block preparing its samples there meets real timers and
+fails with "the timers APIs are not mocked", in a set whose own tests never touch a timer. With the
+option the fakes are re-armed after every test and taken off for good in `afterAll`, so they never
+outlive the file. For a whole run, `setupAutoSpy({ globalFakeTimers: true })` turns it on from the
+setup file.
 
 **`advanceTimers(ms?)`** is `vi.advanceTimersByTime()` plus the step that is easy to miss.
 Advancing runs the timer callbacks synchronously, but whatever they _queue_ — a resolved promise, an

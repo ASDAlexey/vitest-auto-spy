@@ -113,3 +113,9 @@ These account for the large majority of broken specs, and every one of them is c
 9. **`await Promise.resolve()` to wait out a dynamic `import()` under fake timers.** It never
    advances one, and `setTimeout` is the fake one — use
    [`settleDynamicImport` / `flushEventLoop`](/utilities/event-loop).
+10. **Assuming a setup file's hooks reach every spec file.** They belong to the file whose
+    collection imported the module, and a runner that keeps that module cached across files —
+    `@angular/build:unit-test` under `--coverage` is the case seen in the wild — gives them to the
+    first file of each worker and to no other. Nothing reports it; the symptom is a leaked global or
+    real timers in a spec that passes on its own. Run coverage with `--isolate`, or call
+    [`setupAutoSpy()`](/utilities/setup) from something evaluated per file.

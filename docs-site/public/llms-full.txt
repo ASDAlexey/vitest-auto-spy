@@ -32,13 +32,13 @@ A drop-in, fully-typed jest-auto-spies successor — one API across Vitest, Bun 
 - **Observables that fail on silence** — expectEmission / expectEmissions / expectNoEmission replace the expect() inside a subscribe callback that never runs — the assertion is the await. Duck-typed, so no rxjs is pulled in. — https://asdalexey.github.io/vitest-auto-spy/core/observable-assertions
 - **Doubles for what the code builds itself** — Vitest only forwards new to a constructible implementation, so the Jest idiom vi.fn(() => instance) records the call, skips the body and returns an empty object. mockConstructor / stubConstructor stay full runner mocks, collect instances, and refuse to be called without new. — https://asdalexey.github.io/vitest-auto-spy/utilities/constructor-doubles
 - **Waiting and the clock** — flushEventLoop and settleDynamicImport give a real event-loop turn while the timers stay faked, flushEventLoopUntil replaces a tuned sleep with a budgeted condition, and mockSystemTime / useCountingClock survive fake timers being re-installed around every test. — https://asdalexey.github.io/vitest-auto-spy/utilities/event-loop
-- **Fake timers that settle** — setupFakeTimers() pairs install with restore, and advanceTimers() drains the microtasks a bare advanceTimersByTime leaves pending — the gap that makes a timer assertion read like a race. — https://asdalexey.github.io/vitest-auto-spy/utilities/fake-timers
-- **fakeAsync on Vitest** — zone.js/testing installs its ProxyZone through Jasmine and Jest hooks only, so fakeAsync and waitForAsync throw on Vitest. One import of vitest-auto-spy/zone patches them in — behind its own specifier, so a zoneless project never sees zone.js. — https://asdalexey.github.io/vitest-auto-spy/utilities/zone
+- **Fake timers that settle** — setupFakeTimers() pairs install with restore, and advanceTimers() drains the microtasks a bare advanceTimersByTime leaves pending — the gap that makes a timer assertion read like a race. betweenTests keeps the clock fake between the tests as well, which is what Jest fakeTimers.enableGlobally did and what a nested beforeAll needs. — https://asdalexey.github.io/vitest-auto-spy/utilities/fake-timers
+- **fakeAsync on Vitest** — zone.js/testing installs its ProxyZone through Jasmine and Jest hooks only, so fakeAsync and waitForAsync throw on Vitest. One import of vitest-auto-spy/zone patches them in — behind its own specifier, so a zoneless project never sees zone.js. One proxy zone serves the whole run, as Angular own jasmine patch does, so a component built in beforeEach and a tick() in the test share their timers. — https://asdalexey.github.io/vitest-auto-spy/utilities/zone
 - **Module mocks that prove they applied** — Under a bundler a vi.mock() with an unmatched specifier does nothing at all, and the spec asserts on the real module. assertMocked fails loudly instead, and moduleNamespace gives a factory the shape an interop probe recognises — no more "No default export is defined on the mock". — https://asdalexey.github.io/vitest-auto-spy/utilities/module-mocks
 - **Fixtures without casts** — narrow() says which branch of a union a test got, and prints the shape it actually had when it is wrong. withOverrides() builds a fixture from a model whose getters a spread would drop. asInstances() bridges a whole argument list at once, instead of one asInstance per tsc run. — https://asdalexey.github.io/vitest-auto-spy/utilities/fixtures
 - **The DOM the runner does not ship** — stubIntersectionObserver / stubResizeObserver / stubMutationObserver replace the global the code under test constructs and hand the spec the instance. stubMediaElement makes a <video> play and report a duration, stubAbortController fixes addEventListener(…, { signal }) — and restoreMockedProps takes all of it off again. — https://asdalexey.github.io/vitest-auto-spy/utilities/observer-stubs
 - **Lint rules that steer a suite** — Eight ESLint rules point a suite at these helpers, each message linking to its recipe. Four of them catch a test being wrong rather than verbose — an expect() inside subscribe(), an Object.defineProperty nothing restores, a module-level mock shared across files, and a done callback that makes a test pass having run almost none of its body. — https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-plugin
-- **Hygiene for a shared environment** — One setupAutoSpy() call covers what isolate false breaks — property restore, duplicate-install detection, timers and animation frames that outlive their file, fetch that keeps a green run exiting 1, and timer globals the fakes delete instead of restoring. installPerTest re-installs a stub for every test, and guardGlobals names the file that sealed a global. — https://asdalexey.github.io/vitest-auto-spy/utilities/setup
+- **Hygiene for a shared environment** — One setupAutoSpy() call covers what isolate false breaks — property restore, duplicate-install detection, timers and animation frames that outlive their file, fetch that keeps a green run exiting 1, and timer globals the fakes delete instead of restoring. installPerTest re-installs a stub for every test, and guardGlobals names the file that sealed a global. The one thing to know — those hooks belong to the spec file whose collection imported the setup module, so a runner that caches it across files leaves every file but the first without them. — https://asdalexey.github.io/vitest-auto-spy/utilities/setup
 - **A migration you can verify** — Counters cannot answer whether a port lost a test — a file can lose a whole suite while a flake elsewhere starts passing, and the totals match. compareTestRuns diffs the two sets of names from the JSON report both runners write, and diffByField turns a collapsed "…(8) to deeply equal" into the field that actually differs. — https://asdalexey.github.io/vitest-auto-spy/migrating
 - **Readable by your agent, not just by you** — An AGENTS.md ships inside the tarball for offline reading, llms.txt and llms-full.txt sit at the docs root, a Claude Code skill installs from the repo, and every error message ends with a link to the page that explains it. — https://asdalexey.github.io/vitest-auto-spy/agents
 - **Zero runtime deps** — An in-tree arg serializer and opt-in subpaths keep rxjs, zone.js and Angular out of your runtime bundle. 100% test coverage, verified on Node 22/24/26 and Bun 1.4. — https://asdalexey.github.io/vitest-auto-spy/core/installation
@@ -2663,6 +2663,7 @@ each test: a stub installed for the previous test is exactly what must not still
 | `strayTimers`         | `false`   | Track and cancel timeouts, intervals and frames that outlive their file       |
 | `blockNetwork`        | `false`   | Reject every `fetch`, so a unit run cannot reach the network                  |
 | `guardGlobals`        | `'off'`   | Report a test that redefines a global property as non-configurable            |
+| `globalFakeTimers`    | `false`   | Fake timers for every test **and between them** — see below                   |
 | `restoreTimerGlobals` | `true`    | Put back timer globals that uninstalling the fakes deleted                    |
 
 `restoreMocks` is off by default because it also drops `vi.spyOn` stubs a suite installed in
@@ -2686,6 +2687,13 @@ Both ends are guarded, which is the half a hand-written pair of hooks gets wrong
 the clock itself would otherwise reach a second `vi.useRealTimers()`, and under happy-dom that one
 leaves the environment without `clearInterval` — which explodes during teardown of whichever file
 runs next, blaming it.
+
+It also keeps the clock fake **between** tests, which is the half of `enableGlobally` a
+`beforeEach`-only pair misses: a `beforeAll` inside a nested `describe` runs *after* the previous
+test's `afterEach`, so a block that prepares its samples there would otherwise meet real timers and
+fail with `the timers APIs are not mocked` — in a set whose own tests never touch a timer. The fakes
+come off for good in `afterAll`, so they never outlive the file. For one `describe` rather than the
+whole run, that is [`setupFakeTimers(config, { betweenTests: true })`](https://asdalexey.github.io/vitest-auto-spy/utilities/fake-timers).
 
 ## Shared fixtures are functions, not constants
 
@@ -2717,6 +2725,28 @@ in declaration order. In a ported suite where a spec's `afterEach` depends on so
 file installed, the setup file's teardown now runs first and the spec's hook operates on an
 already-restored environment. `sequence: { hooks: 'list' }` in the Vitest config restores the Jest
 ordering.
+
+## The hooks belong to the file this call ran in
+
+Everything `setupAutoSpy()` installs is a `beforeEach` / `afterEach` / `afterAll`, and a hook
+registered while a setup file is imported belongs to the spec file whose collection imported it.
+Vitest re-imports the setup files for every spec file, so normally none of that is visible.
+
+It becomes visible when something keeps the setup module in the module cache across files: the call
+runs once, and every file after the first in that worker has none of the hooks — no property
+restore, no `blockNetwork`, no stray-timer cancellation, no `restoreTimerGlobals`, no global fake
+timers. Nothing reports it, and the symptom lands somewhere else entirely — a leaked global, or
+`A function to advance timers was called but the timers APIs are not mocked` in a spec that is green
+when it runs on its own.
+
+The case seen in the wild is `@angular/build:unit-test` **with coverage**. The builder then serves
+each test file as a wrapper that imports the built bundle, the setup module stays resolved in the
+shared environment, and its top level never runs again; without coverage the same run is fine, which
+is what makes it read as "coverage broke the tests".
+
+Two ways out: run coverage with per-file isolation (`ng test <project> --coverage --isolate`, or
+`isolate: true` in the config for that case alone), or call `setupAutoSpy()` from something that is
+evaluated per file rather than from a module the runner can cache.
 
 ---
 
@@ -2766,6 +2796,31 @@ signature so it tracks whatever the installed version accepts:
 ```ts
 setupFakeTimers({ toFake: ['setTimeout'] }); // leave Date and queueMicrotask real
 ```
+
+## Between the tests as well — `betweenTests`
+
+```ts
+setupFakeTimers(undefined, { betweenTests: true });
+```
+
+Off by default, because a scoped call belongs to its `describe` and has to leave the clock as it
+found it. Turned on, the clock stays fake in the gaps *between* tests too — which is what Jest's
+`fakeTimers.enableGlobally` did, and what a suite ported from it was written against.
+
+Arming in `beforeEach` alone does not reproduce that, and the gap is not hypothetical: a `beforeAll`
+inside a **nested** `describe` runs *after* the previous test's `afterEach`, so it meets whatever
+that hook left behind. A block that prepares its samples there — driving an animation clock with
+`vi.advanceTimersByTimeAsync`, say — fails with `A function to advance timers was called but the
+timers APIs are not mocked`, in a set whose own tests never touch a timer.
+
+So the fakes are re-armed in `afterEach` right after they come off, and taken off for good in
+`afterAll` — the boundary that matters under `isolate: false`, where a clock outliving its file
+would meet the next one's imports. Every test still starts fresh: the uninstall discards whatever
+the previous one scheduled.
+
+For a whole run, [`setupAutoSpy({ globalFakeTimers: true })`](https://asdalexey.github.io/vitest-auto-spy/utilities/setup#fake-timers-for-the-whole-run)
+turns this on from the setup file — that option exists for exactly this case and passes
+`betweenTests` itself.
 
 ## `advanceTimers(ms?)`
 
@@ -3426,6 +3481,24 @@ gets it wrong are all failures in *other people's files*:
 | the wrapper declares **no** parameters            | Vitest reads `fn.toString()` to find fixtures; `function (...args)` fails every file with `FixtureParseError: … must use object destructuring`    |
 | `fn.length` and `fn.toString()` are carried over  | the runner reads both to decide how to call the callback — a wrapper of arity 0 silently changes that decision, and hides the fixtures            |
 | `it` is **proxied**, not replaced                 | `each` is a method that reads `this`; called detached it returns `undefined` and the line after it explodes. `it.skip` / `test.each` come free    |
+
+## One zone for the run, or one per callback
+
+```ts
+import { installProxyZonePatch } from 'vitest-auto-spy/zone';
+
+installProxyZonePatch({ scope: 'callback' });
+```
+
+`scope: 'shared'` is the default: every test and hook body of the run goes through **one** proxy
+zone. That is what Angular's own jasmine patch does, and what the ecosystem is written against — a
+component built in `beforeEach` schedules from its constructor, and the `tick()` inside the
+`fakeAsync` test has to see those timers. Fork per callback instead and the two end up in different
+zones, so the test waits on a timer nothing will ever flush.
+
+`scope: 'callback'` is that fork-per-callback shape. It is the correct one in the abstract, and the
+required one for `test.concurrent`: two callbacks are then in flight at once and would otherwise
+swap the same `ProxyZoneSpec` delegate under one another.
 
 ## Requirements
 
@@ -4836,7 +4909,7 @@ The exported surface of `vitest-auto-spy` and its subpaths.
 | `asInstance(spy)` / `asSpy(instance)`                                                                        | The two named views between `Spy<T>` and `T`, instead of `as any`                                   |
 | `createSpyClass(Class, config?)`                                                                             | A spy that can be called with `new`; records `calls` and `instances`                                |
 | `setupAutoSpy(opts?)`                                                                                        | Property restore + duplicate-copy detection + mock-registry hygiene, in one call (`/setup`)         |
-| `setupFakeTimers(config?)` / `advanceTimers(ms?)`                                                            | Paired fake-timer install/restore, and an advance that settles queued microtasks (`/setup`)         |
+| `setupFakeTimers(config?, opts?)` / `advanceTimers(ms?)`                                                     | Paired fake-timer install/restore, and an advance that settles queued microtasks (`/setup`)         |
 | `stubIntersectionObserver()` / `stubResizeObserver()` / `stubMutationObserver()` / `stubObserver(name)`      | Replace an observer global with one the spec drives; restored by `restoreMockedProps()`             |
 | `intersectionEntry(target, isIntersecting, overrides?)`                                                      | Build one `IntersectionObserverEntry` without the fields nothing reads                              |
 | `mockSignalProp(object, prop, initial)`                                                                      | Replace a signal-valued property with a real writable signal, and hand back the handle (`/angular`) |
@@ -4856,7 +4929,7 @@ The exported surface of `vitest-auto-spy` and its subpaths.
 | `narrow(value, predicate)` / `narrow.byKey` / `narrow.observable`                                            | The branch of a union a test knows it got, failing with the shape the value actually had           |
 | `withOverrides(model, overrides?)`                                                                           | A fixture from a model instance: its getters read once, as data                                    |
 | `compareTestRuns(a, b, root?)` / `formatTestRunComparison(diff)` / `summarizeTestRun(report, root?)`         | Whether a migration lost a test — the set of names, which counters cannot answer                   |
-| `installProxyZonePatch()`                                                                                    | `fakeAsync` / `waitForAsync` on Vitest (`/zone`, which installs it on import)                      |
+| `installProxyZonePatch(opts?)`                                                                               | `fakeAsync` / `waitForAsync` on Vitest (`/zone`, which installs it on import)                       |
 | `restoreTimerGlobals()` / `getWatchedTimerGlobals()`                                                         | Put back timer globals the fakes deleted / the names captured (`/setup`)                            |
 | `renderShallow(Component, opts?)`                                                                            | `TestBed` component without its children and (by default) its template (`/angular`)                 |
 | `createWithAutoSpies(Class, opts?)`                                                                          | Build a class through Angular DI with every unprovided token auto-spied (`/angular`)                |
@@ -4923,7 +4996,8 @@ type earns one.
 
 **`DeepPartial<T>`** — what `createMock` / `createAutoMock` take: partial at every depth, and a key
 `T` does not have is still rejected at every depth. Built-ins (`Date`, `Map`, `Promise`, functions)
-pass through untouched.
+pass through untouched. A real value is accepted wherever a partial is, so a host object such as
+a `NodeList` stays assignable to the mapping of itself.
 
 **`ClassSpyConfiguration<T>`**, **`ValueConfig<T>`**, `NextValueConfig`, `ErrorValueConfig`,
 `CompleteValueConfig`, `ValueConfigPerCall`, `OnlyMethodKeysOf<T>`, `OnlyObservablePropsOf<T>`,
@@ -5168,3 +5242,9 @@ These account for the large majority of broken specs, and every one of them is c
 9. **`await Promise.resolve()` to wait out a dynamic `import()` under fake timers.** It never
    advances one, and `setTimeout` is the fake one — use
    [`settleDynamicImport` / `flushEventLoop`](https://asdalexey.github.io/vitest-auto-spy/utilities/event-loop).
+10. **Assuming a setup file's hooks reach every spec file.** They belong to the file whose
+    collection imported the module, and a runner that keeps that module cached across files —
+    `@angular/build:unit-test` under `--coverage` is the case seen in the wild — gives them to the
+    first file of each worker and to no other. Nothing reports it; the symptom is a leaked global or
+    real timers in a spec that passes on its own. Run coverage with `--isolate`, or call
+    [`setupAutoSpy()`](https://asdalexey.github.io/vitest-auto-spy/utilities/setup) from something evaluated per file.

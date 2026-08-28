@@ -218,6 +218,7 @@ each test: a stub installed for the previous test is exactly what must not still
 | `strayTimers`         | `false`   | Track and cancel timeouts, intervals and frames that outlive their file       |
 | `blockNetwork`        | `false`   | Reject every `fetch`, so a unit run cannot reach the network                  |
 | `guardGlobals`        | `'off'`   | Report a test that redefines a global property as non-configurable            |
+| `globalFakeTimers`    | `false`   | Fake timers for every test **and between them** — see below                   |
 | `restoreTimerGlobals` | `true`    | Put back timer globals that uninstalling the fakes deleted                    |
 
 `restoreMocks` is off by default because it also drops `vi.spyOn` stubs a suite installed in
@@ -241,6 +242,13 @@ Both ends are guarded, which is the half a hand-written pair of hooks gets wrong
 the clock itself would otherwise reach a second `vi.useRealTimers()`, and under happy-dom that one
 leaves the environment without `clearInterval` — which explodes during teardown of whichever file
 runs next, blaming it.
+
+It also keeps the clock fake **between** tests, which is the half of `enableGlobally` a
+`beforeEach`-only pair misses: a `beforeAll` inside a nested `describe` runs *after* the previous
+test's `afterEach`, so a block that prepares its samples there would otherwise meet real timers and
+fail with `the timers APIs are not mocked` — in a set whose own tests never touch a timer. The fakes
+come off for good in `afterAll`, so they never outlive the file. For one `describe` rather than the
+whole run, that is [`setupFakeTimers(config, { betweenTests: true })`](./fake-timers).
 
 ## Shared fixtures are functions, not constants
 
@@ -272,3 +280,25 @@ in declaration order. In a ported suite where a spec's `afterEach` depends on so
 file installed, the setup file's teardown now runs first and the spec's hook operates on an
 already-restored environment. `sequence: { hooks: 'list' }` in the Vitest config restores the Jest
 ordering.
+
+## The hooks belong to the file this call ran in
+
+Everything `setupAutoSpy()` installs is a `beforeEach` / `afterEach` / `afterAll`, and a hook
+registered while a setup file is imported belongs to the spec file whose collection imported it.
+Vitest re-imports the setup files for every spec file, so normally none of that is visible.
+
+It becomes visible when something keeps the setup module in the module cache across files: the call
+runs once, and every file after the first in that worker has none of the hooks — no property
+restore, no `blockNetwork`, no stray-timer cancellation, no `restoreTimerGlobals`, no global fake
+timers. Nothing reports it, and the symptom lands somewhere else entirely — a leaked global, or
+`A function to advance timers was called but the timers APIs are not mocked` in a spec that is green
+when it runs on its own.
+
+The case seen in the wild is `@angular/build:unit-test` **with coverage**. The builder then serves
+each test file as a wrapper that imports the built bundle, the setup module stays resolved in the
+shared environment, and its top level never runs again; without coverage the same run is fine, which
+is what makes it read as "coverage broke the tests".
+
+Two ways out: run coverage with per-file isolation (`ng test <project> --coverage --isolate`, or
+`isolate: true` in the config for that case alone), or call `setupAutoSpy()` from something that is
+evaluated per file rather than from a module the runner can cache.

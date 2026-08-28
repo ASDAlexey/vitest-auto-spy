@@ -65,11 +65,11 @@ features:
     link: /utilities/event-loop
   - icon: ⏱️
     title: Fake timers that settle
-    details: setupFakeTimers() pairs install with restore, and advanceTimers() drains the microtasks a bare advanceTimersByTime leaves pending — the gap that makes a timer assertion read like a race.
+    details: setupFakeTimers() pairs install with restore, and advanceTimers() drains the microtasks a bare advanceTimersByTime leaves pending — the gap that makes a timer assertion read like a race. betweenTests keeps the clock fake between the tests as well, which is what Jest fakeTimers.enableGlobally did and what a nested beforeAll needs.
     link: /utilities/fake-timers
   - icon: 🌀
     title: fakeAsync on Vitest
-    details: zone.js/testing installs its ProxyZone through Jasmine and Jest hooks only, so fakeAsync and waitForAsync throw on Vitest. One import of vitest-auto-spy/zone patches them in — behind its own specifier, so a zoneless project never sees zone.js.
+    details: zone.js/testing installs its ProxyZone through Jasmine and Jest hooks only, so fakeAsync and waitForAsync throw on Vitest. One import of vitest-auto-spy/zone patches them in — behind its own specifier, so a zoneless project never sees zone.js. One proxy zone serves the whole run, as Angular own jasmine patch does, so a component built in beforeEach and a tick() in the test share their timers.
     link: /utilities/zone
   - icon: 🧩
     title: Module mocks that prove they applied
@@ -89,7 +89,7 @@ features:
     link: /utilities/eslint-plugin
   - icon: 🧹
     title: Hygiene for a shared environment
-    details: One setupAutoSpy() call covers what isolate false breaks — property restore, duplicate-install detection, timers and animation frames that outlive their file, fetch that keeps a green run exiting 1, and timer globals the fakes delete instead of restoring. installPerTest re-installs a stub for every test, and guardGlobals names the file that sealed a global.
+    details: One setupAutoSpy() call covers what isolate false breaks — property restore, duplicate-install detection, timers and animation frames that outlive their file, fetch that keeps a green run exiting 1, and timer globals the fakes delete instead of restoring. installPerTest re-installs a stub for every test, and guardGlobals names the file that sealed a global. The one thing to know — those hooks belong to the spec file whose collection imported the setup module, so a runner that caches it across files leaves every file but the first without them.
     link: /utilities/setup
   - icon: 🚚
     title: A migration you can verify

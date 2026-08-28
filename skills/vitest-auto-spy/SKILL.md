@@ -110,6 +110,9 @@ it('loads', async () => {
 | waiting for a dynamic `import()` under fake timers                 | `settleDynamicImport(() => import('…'))` / `flushEventLoop()`     |
 | `addEventListener(…, { signal })` throwing about `EventTarget`     | `stubAbortController()`                                           |
 | a suite ported from Jest's `fakeTimers.enableGlobally`             | `setupAutoSpy({ globalFakeTimers: true })`                        |
+| a nested `describe`'s `beforeAll` landing on real timers           | `setupFakeTimers(cfg, { betweenTests: true })`                    |
+| setup hooks applying to the first spec file of a worker only       | the setup module is cached — run coverage with `--isolate`        |
+| `fakeAsync` inside `test.concurrent`                               | `installProxyZonePatch({ scope: 'callback' })`                    |
 | an assertion containing a date                                     | `mockSystemTime(iso)` — never `vi.spyOn(globalThis, 'Date')`      |
 | a spec asserting on tick _order_ under a frozen clock              | `useCountingClock()`                                              |
 | a dependency declared in the component's own `providers`           | `overrideComponentProvider(Cmp, Token)`                           |

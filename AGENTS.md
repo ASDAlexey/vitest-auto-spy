@@ -474,6 +474,18 @@ Both ends are guarded, which is the half a hand-written pair of hooks gets wrong
 the clock itself would otherwise reach a second `vi.useRealTimers()`, and that one leaves the
 environment without `clearInterval` — which explodes during teardown of whichever file runs next.
 
+`globalFakeTimers` also keeps the clock fake **between** tests, and that half is not decoration: a
+`beforeAll` inside a nested `describe` runs after the previous test's `afterEach`, so a
+`beforeEach`-only pair leaves it on real timers and the block fails with `the timers APIs are not
+mocked` without touching a timer itself. For one `describe` instead of the whole run:
+`setupFakeTimers(config, { betweenTests: true })`.
+
+Whatever you turn on, the hooks belong to the spec file whose collection imported the setup module.
+If something keeps that module in the cache across files — `@angular/build:unit-test` under
+`--coverage` serves every test file as a wrapper around the built bundle, so the setup module is
+never re-evaluated — only the first file of each worker gets them, and the rest fail somewhere
+unrelated. Run coverage with `--isolate`, or call `setupAutoSpy()` from something evaluated per file.
+
 ### Freezing and counting the clock
 
 ```ts
@@ -1030,6 +1042,12 @@ fails with `Expected to be running in 'ProxyZone', but it was not found`. Needs
 `test: { globals: true }`: the patch replaces the runner globals, and an imported `it` is a module
 binding nothing can reach.
 
+One proxy zone serves the whole run (`scope: 'shared'`, the default), because that is what Angular's
+jasmine patch does and what the ecosystem expects: a component built in `beforeEach` schedules from
+its constructor, and `tick()` in the `fakeAsync` test has to see those timers. Use
+`installProxyZonePatch({ scope: 'callback' })` for `test.concurrent`, where two callbacks are in
+flight at once and would otherwise swap the same `ProxyZoneSpec` delegate under one another.
+
 **Invariant of this package, not a detail of one release:** `zone.js` is a **devDependency and only a
 devDependency** — never a dependency, never a peer, not even an optional one. Everything about zones
 lives behind this one subpath; no other entry reaches it, even transitively, and the module imports
@@ -1104,6 +1122,8 @@ packages, which a subpath export can never be.
 | `requested method(s) not found on the class prototype`                               | typo, or an instance-field callable                                 | fix the name, or move it to `instanceMethodsToSpyOn`                              |
 | `was configured with 'mustBeCalledWith'`                                             | the code called the spy with other arguments                        | that is the assertion firing — fix the code, or relax to `calledWith`             |
 | `advanceTimers() requires fake timers`                                               | no fake timers installed                                            | `setupFakeTimers()` or `vi.useFakeTimers()` first                                 |
+| `the timers APIs are not mocked` in a nested `describe`'s `beforeAll`                | fakes armed in `beforeEach` only; Jest armed them for the whole file | `setupFakeTimers(cfg, { betweenTests: true })` / `setupAutoSpy({ globalFakeTimers: true })` |
+| setup-file hooks reaching only the first spec file of a worker                       | the setup module stayed cached (Angular unit-test builder + coverage) | run coverage with `--isolate`, or call `setupAutoSpy()` from a per-file module    |
 | `no DOM could be installed`                                                          | `bun-angular` preload with no DOM package                           | `bun add -d @happy-dom/global-registrator` (or `jsdom`)                           |
 | `cannot read "…" referenced by …`                                                    | a `templateUrl` / `styleUrls` path does not resolve                 | fix the path, relative to the component file                                      |
 | duplicate-copy report from `setupAutoSpy()`                                          | two installs, or one loaded as both ESM and CJS                     | dedupe the dependency; `setupAutoSpy({ duplicateCopies: 'warn' })` to downgrade   |

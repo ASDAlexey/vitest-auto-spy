@@ -24,7 +24,7 @@ The exported surface of `vitest-auto-spy` and its subpaths.
 | `asInstance(spy)` / `asSpy(instance)`                                                                        | The two named views between `Spy<T>` and `T`, instead of `as any`                                   |
 | `createSpyClass(Class, config?)`                                                                             | A spy that can be called with `new`; records `calls` and `instances`                                |
 | `setupAutoSpy(opts?)`                                                                                        | Property restore + duplicate-copy detection + mock-registry hygiene, in one call (`/setup`)         |
-| `setupFakeTimers(config?)` / `advanceTimers(ms?)`                                                            | Paired fake-timer install/restore, and an advance that settles queued microtasks (`/setup`)         |
+| `setupFakeTimers(config?, opts?)` / `advanceTimers(ms?)`                                                     | Paired fake-timer install/restore, and an advance that settles queued microtasks (`/setup`)         |
 | `stubIntersectionObserver()` / `stubResizeObserver()` / `stubMutationObserver()` / `stubObserver(name)`      | Replace an observer global with one the spec drives; restored by `restoreMockedProps()`             |
 | `intersectionEntry(target, isIntersecting, overrides?)`                                                      | Build one `IntersectionObserverEntry` without the fields nothing reads                              |
 | `mockSignalProp(object, prop, initial)`                                                                      | Replace a signal-valued property with a real writable signal, and hand back the handle (`/angular`) |
@@ -44,7 +44,7 @@ The exported surface of `vitest-auto-spy` and its subpaths.
 | `narrow(value, predicate)` / `narrow.byKey` / `narrow.observable`                                            | The branch of a union a test knows it got, failing with the shape the value actually had           |
 | `withOverrides(model, overrides?)`                                                                           | A fixture from a model instance: its getters read once, as data                                    |
 | `compareTestRuns(a, b, root?)` / `formatTestRunComparison(diff)` / `summarizeTestRun(report, root?)`         | Whether a migration lost a test — the set of names, which counters cannot answer                   |
-| `installProxyZonePatch()`                                                                                    | `fakeAsync` / `waitForAsync` on Vitest (`/zone`, which installs it on import)                      |
+| `installProxyZonePatch(opts?)`                                                                               | `fakeAsync` / `waitForAsync` on Vitest (`/zone`, which installs it on import)                       |
 | `restoreTimerGlobals()` / `getWatchedTimerGlobals()`                                                         | Put back timer globals the fakes deleted / the names captured (`/setup`)                            |
 | `renderShallow(Component, opts?)`                                                                            | `TestBed` component without its children and (by default) its template (`/angular`)                 |
 | `createWithAutoSpies(Class, opts?)`                                                                          | Build a class through Angular DI with every unprovided token auto-spied (`/angular`)                |
@@ -111,7 +111,8 @@ type earns one.
 
 **`DeepPartial<T>`** — what `createMock` / `createAutoMock` take: partial at every depth, and a key
 `T` does not have is still rejected at every depth. Built-ins (`Date`, `Map`, `Promise`, functions)
-pass through untouched.
+pass through untouched. A real value is accepted wherever a partial is, so a host object such as
+a `NodeList` stays assignable to the mapping of itself.
 
 **`ClassSpyConfiguration<T>`**, **`ValueConfig<T>`**, `NextValueConfig`, `ErrorValueConfig`,
 `CompleteValueConfig`, `ValueConfigPerCall`, `OnlyMethodKeysOf<T>`, `OnlyObservablePropsOf<T>`,
