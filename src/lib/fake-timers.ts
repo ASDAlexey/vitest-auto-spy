@@ -13,7 +13,7 @@
  * restoring them leaks a frozen clock into every later file in the same worker, so the two belong
  * in one call rather than in two hooks a suite can half-write.
  */
-import { afterEach, beforeEach, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, vi } from 'vitest';
 
 import { DOCS_LINKS, withDocs } from './docs-links';
 import { restoreTimerGlobals } from './timer-globals';
@@ -43,25 +43,71 @@ export type FakeTimersConfig = Parameters<typeof vi.useFakeTimers>[0];
  *
  * @param config Optional `vi.useFakeTimers()` config — e.g. `{ toFake: ['setTimeout'] }` to leave
  *   `Date` and `queueMicrotask` real.
+ * @param options `betweenTests: true` keeps the clock fake in the gaps between tests as well — see
+ *   {@link SetupFakeTimersOptions.betweenTests}. Off by default, because a scoped call belongs to
+ *   its `describe` and must leave the clock as it found it.
  */
-export function setupFakeTimers(config?: FakeTimersConfig): void {
-  // Both hooks are guarded, because installing or uninstalling twice does not round-trip: a suite
+export function setupFakeTimers(config?: FakeTimersConfig, { betweenTests = false }: SetupFakeTimersOptions = {}): void {
+  // Both halves are guarded, because installing or uninstalling twice does not round-trip: a suite
   // that drives the clock itself, or a nested `describe` that calls this helper again, reaches a
   // second `vi.useRealTimers()` — and that one leaves the environment without `clearInterval`,
   // which then explodes during teardown of whichever file happens to run next.
-  beforeEach(() => {
+  const install = (): void => {
     if (!vi.isFakeTimers()) {
       vi.useFakeTimers(config);
     }
-  });
+  };
 
-  afterEach(() => {
+  const uninstall = (): void => {
     if (vi.isFakeTimers()) {
       vi.useRealTimers();
     }
 
     restoreTimerGlobals();
+  };
+
+  if (betweenTests) {
+    // Covers a `beforeAll` that runs before any test of the file has — the root one, and the first
+    // one of every nested `describe` reached before the first test.
+    beforeAll(install);
+  }
+
+  beforeEach(install);
+
+  afterEach(() => {
+    uninstall();
+
+    if (betweenTests) {
+      install();
+    }
   });
+
+  if (betweenTests) {
+    // The boundary that matters under `isolate: false`: the fakes must not outlive the file, or the
+    // next one evaluates its imports against a frozen clock it never asked for.
+    afterAll(uninstall);
+  }
+}
+
+/** Options for {@link setupFakeTimers}. */
+export interface SetupFakeTimersOptions {
+  /**
+   * Keep the clock fake between tests, not only during them — Jest's `fakeTimers.enableGlobally`.
+   *
+   * Arming in `beforeEach` alone does not reproduce it, and the gap is not hypothetical: a
+   * `beforeAll` inside a **nested** `describe` runs *after* the previous test's `afterEach`, so it
+   * meets whatever that hook left behind. A suite that prepares its samples there — driving an
+   * animation clock with `vi.advanceTimersByTimeAsync`, say — then fails with `A function to advance
+   * timers was called but the timers APIs are not mocked`, in a set whose own tests never touch a
+   * timer.
+   *
+   * So the fakes are re-armed in `afterEach` right after they come off, and taken off for good in
+   * `afterAll`. The clock is still fresh for every test: the uninstall discards whatever the
+   * previous one scheduled.
+   *
+   * @default false
+   */
+  betweenTests?: boolean;
 }
 
 /**

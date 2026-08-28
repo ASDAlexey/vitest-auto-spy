@@ -3,7 +3,7 @@
  * the outside: a patched property is undone after the test that made it, a `vi.spyOn` stub is gone
  * when asked for, and a second install of the library stops the run instead of corrupting it.
  */
-import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import '../index';
 import { getPackageCopies, registerPackageCopy, resetPackageCopies } from './package-identity';
@@ -182,5 +182,33 @@ describe('setupAutoSpy({ globalFakeTimers: true })', () => {
 
   it('accepts the boolean shorthand', () => {
     expect(vi.isFakeTimers()).toBe(true);
+  });
+
+  it('runs a test before the nested block below, so its beforeAll meets an afterEach', () => {
+    expect(vi.isFakeTimers()).toBe(true);
+  });
+
+  /**
+   * The gap that arming in `beforeEach` alone leaves: a nested `beforeAll` runs *after* the previous
+   * test's `afterEach`, so it meets whatever that hook left behind. A suite preparing its samples
+   * there — an animation clock driven with `vi.advanceTimersByTimeAsync`, say — failed with
+   * `A function to advance timers was called but the timers APIs are not mocked`, in a set whose own
+   * tests never touch a timer.
+   */
+  describe('a nested block whose beforeAll drives the clock', () => {
+    let advanced = false;
+
+    beforeAll(() => {
+      expect(vi.isFakeTimers()).toBe(true);
+
+      setTimeout(() => {
+        advanced = true;
+      }, 10);
+      vi.advanceTimersByTime(10);
+    });
+
+    it('found the clock already fake', () => {
+      expect(advanced).toBe(true);
+    });
   });
 });

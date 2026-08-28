@@ -135,7 +135,7 @@ export function setupAutoSpy(options: SetupAutoSpyOptions = {}): void {
   }
 
   if (options.globalFakeTimers) {
-    setupFakeTimers(options.globalFakeTimers === true ? undefined : options.globalFakeTimers);
+    setupFakeTimers(options.globalFakeTimers === true ? undefined : options.globalFakeTimers, { betweenTests: true });
   }
 
   guardGlobalPatches(options.guardGlobals ?? 'off');

@@ -48,6 +48,31 @@ signature so it tracks whatever the installed version accepts:
 setupFakeTimers({ toFake: ['setTimeout'] }); // leave Date and queueMicrotask real
 ```
 
+## Between the tests as well — `betweenTests`
+
+```ts
+setupFakeTimers(undefined, { betweenTests: true });
+```
+
+Off by default, because a scoped call belongs to its `describe` and has to leave the clock as it
+found it. Turned on, the clock stays fake in the gaps *between* tests too — which is what Jest's
+`fakeTimers.enableGlobally` did, and what a suite ported from it was written against.
+
+Arming in `beforeEach` alone does not reproduce that, and the gap is not hypothetical: a `beforeAll`
+inside a **nested** `describe` runs *after* the previous test's `afterEach`, so it meets whatever
+that hook left behind. A block that prepares its samples there — driving an animation clock with
+`vi.advanceTimersByTimeAsync`, say — fails with `A function to advance timers was called but the
+timers APIs are not mocked`, in a set whose own tests never touch a timer.
+
+So the fakes are re-armed in `afterEach` right after they come off, and taken off for good in
+`afterAll` — the boundary that matters under `isolate: false`, where a clock outliving its file
+would meet the next one's imports. Every test still starts fresh: the uninstall discards whatever
+the previous one scheduled.
+
+For a whole run, [`setupAutoSpy({ globalFakeTimers: true })`](./setup#fake-timers-for-the-whole-run)
+turns this on from the setup file — that option exists for exactly this case and passes
+`betweenTests` itself.
+
 ## `advanceTimers(ms?)`
 
 `vi.advanceTimersByTime()` plus the step that is easy to miss.
