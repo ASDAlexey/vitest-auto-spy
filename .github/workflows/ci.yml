@@ -53,6 +53,12 @@ jobs:
       - name: Plugin manifests match package.json
         run: npm run plugin:sync:check
 
+      # `alias/` is generated from this package.json and published as a second npm package, so a new
+      # subpath that never reached it — or a hand edit that bypassed the generator — ships two
+      # packages that disagree about what they export.
+      - name: Alias package matches package.json
+        run: npm run alias:sync:check
+
       - name: Test + coverage
         run: npm run test:coverage
 
@@ -60,6 +66,11 @@ jobs:
       # or a registry left behind by one file surfaces here and nowhere else.
       - name: Test (shared environment, isolate false)
         run: npm run test:shared-env
+
+      # `vitest-auto-spy/zone` is the only entry that touches zone.js, and the runs above deliberately
+      # load none of it — so `fakeAsync` / `waitForAsync` are covered here or nowhere.
+      - name: Test (fakeAsync under zone.js)
+        run: npm run test:zone
 
       - name: Build
         run: npm run build
