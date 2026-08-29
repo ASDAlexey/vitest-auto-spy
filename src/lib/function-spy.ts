@@ -10,7 +10,7 @@ import type { CalledWithObject, ReturnValueContainer } from './internal-types';
 import { getMockAdapter } from './mock-adapter';
 import { getObservableSupport } from './observable-support';
 import { addPromiseHelpersToCalledWithObject, addPromiseHelpersToFunctionSpy } from './promise-spy';
-import { installSettledResultsPolyfill } from './settled-results';
+import { type SettledResultsRecorder, installSettledResultsPolyfill } from './settled-results';
 import { decorate } from './spy-decoration';
 import { attachClearHook, attachConfigReset, markAsMock } from './spy-mark';
 import type { AddSpyMethodsByReturnTypes, Func } from './types';
@@ -148,17 +148,31 @@ export function createFunctionSpy<FunctionType extends Func>(name: string): AddS
   const valueContainer: ReturnValueContainer = { value: undefined };
   const state: SpyState = { valueContainer };
 
+  // Declared before `dispatch` closes over it, and mutable, because the two cannot both come
+  // first: the recorder needs the host mock, and the host mock is built *from* `dispatch`. As a
+  // `const` assigned afterwards this is a temporal dead zone that only stays quiet while no
+  // adapter calls the implementation at creation time — one that warms it would get a
+  // `ReferenceError` out of the spy factory rather than an unrecorded call.
+  let settledResultsRecorder: SettledResultsRecorder | undefined = undefined;
+
   // The library's dispatch: pick the configured value for the call, then record
   // its settled outcome. Captured by name so `resetAutoSpy` can re-install it,
   // discarding any host-level `mockReturnValue`/`mockImplementation` a test set.
-  const dispatch = (...actualArgs: unknown[]): unknown => settledResultsRecorder.record(returnTheCorrectFakeValue(state, actualArgs, name));
+  const dispatch = (...actualArgs: unknown[]): unknown => {
+    const returned = returnTheCorrectFakeValue(state, actualArgs, name);
+
+    return settledResultsRecorder ? settledResultsRecorder.record(returned) : returned;
+  };
 
   const functionSpy = getMockAdapter().createMockFn(dispatch, name);
 
   // Bun / node:test don't track `mock.settledResults`; polyfill it so the typed
   // `spy.method.mock.settledResults` surface works on every runtime (Vitest keeps
   // its native array — the recorder is then a no-op).
-  const settledResultsRecorder = installSettledResultsPolyfill(functionSpy);
+  // A second, definitely-assigned binding: the clear hook below runs long after this point, so it
+  // should not carry a presence check that can never fail.
+  const recorder = installSettledResultsPolyfill(functionSpy);
+  settledResultsRecorder = recorder;
 
   addPromiseHelpersToFunctionSpy(functionSpy, valueContainer);
   getObservableSupport()?.addToFunctionSpy(functionSpy, valueContainer);
@@ -187,7 +201,7 @@ export function createFunctionSpy<FunctionType extends Func>(name: string): AddS
   });
   // Empties the polyfilled `settledResults` on `clearAutoSpy`/`resetAutoSpy`
   // (a no-op on Vitest, where the host clears its native array).
-  attachClearHook(spy, () => settledResultsRecorder.clear());
+  attachClearHook(spy, () => recorder.clear());
   markAsMock(spy);
 
   return exposeAsSpy<FunctionType>(spy);
