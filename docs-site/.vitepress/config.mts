@@ -36,15 +36,26 @@ export default defineConfig({
           'createSpyFromClass, createAutoMock, mockDeep, deep mock, resolveWith, calledWith, mustBeCalledWith, ' +
           'bun test, bun 1.4, angular on bun, node:test, angular testing, renderShallow, shallow rendering, zoneless, signal testing, ' +
           'nestjs, react, vue, pinia, svelte, rxjs, eslint plugin, mocking, typescript, ' +
-          'llms.txt, AGENTS.md, ai agent, claude code skill, cursor, copilot',
+          'vitest mock class, mock interface typescript, replace jest-auto-spies, vitest auto spies, ' +
+          'webstorm eslint inspections, vs code extension, anti-patterns, spy typing, ' +
+          'llms.txt, AGENTS.md, ai agent, claude code skill, openai codex, glm z.ai, cursor, copilot, gemini cli',
       },
     ],
+    // max-image-preview:large is what lets Google and Yandex use the OG image in a result card.
+    ['meta', { name: 'robots', content: 'index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1' }],
     ['meta', { property: 'og:type', content: 'website' }],
     ['meta', { property: 'og:site_name', content: 'vitest-auto-spy' }],
     ['meta', { property: 'og:image', content: OG_IMAGE }],
+    ['meta', { property: 'og:image:width', content: '1200' }],
+    ['meta', { property: 'og:image:height', content: '630' }],
+    ['meta', { property: 'og:image:alt', content: 'vitest-auto-spy — fully-typed test spies from a class, on Vitest, Bun and node:test' }],
     ['meta', { name: 'twitter:card', content: 'summary_large_image' }],
     ['meta', { name: 'twitter:image', content: OG_IMAGE }],
     ['link', { rel: 'icon', href: '/vitest-auto-spy/favicon.svg', type: 'image/svg+xml' }],
+    // The documentation as plain text, announced the way a feed is. An agent that honours the
+    // convention takes one fetch instead of scraping the rendered HTML of thirty-six pages.
+    ['link', { rel: 'alternate', type: 'text/plain', href: `${HOSTNAME}llms.txt`, title: 'llms.txt — documentation index for LLMs' }],
+    ['link', { rel: 'alternate', type: 'text/plain', href: `${HOSTNAME}llms-full.txt`, title: 'llms-full.txt — the entire documentation' }],
     // JSON-LD structured data — helps Google show a rich result for the package.
     [
       'script',
@@ -60,6 +71,57 @@ export default defineConfig({
         license: 'https://opensource.org/licenses/MIT',
         author: { '@type': 'Person', name: 'Alexey Popov' },
         url: HOSTNAME,
+      }),
+    ],
+    // A second graph, for the "what is this thing and what does it run on" question a search engine
+    // answers in a knowledge panel and an assistant answers in a sentence. No ratings are claimed —
+    // an invented aggregateRating is the fastest way to lose a rich result entirely.
+    [
+      'script',
+      { type: 'application/ld+json' },
+      JSON.stringify({
+        '@context': 'https://schema.org',
+        '@graph': [
+          {
+            '@type': 'WebSite',
+            '@id': `${HOSTNAME}#website`,
+            name: 'vitest-auto-spy',
+            url: HOSTNAME,
+            inLanguage: 'en-US',
+            publisher: { '@id': `${HOSTNAME}#author` },
+          },
+          {
+            '@type': 'Person',
+            '@id': `${HOSTNAME}#author`,
+            name: 'Alexey Popov',
+            url: 'https://github.com/ASDAlexey',
+            sameAs: ['https://github.com/ASDAlexey', 'https://www.npmjs.com/~asdalexey'],
+          },
+          {
+            '@type': 'SoftwareApplication',
+            name: 'vitest-auto-spy',
+            applicationCategory: 'DeveloperApplication',
+            applicationSubCategory: 'Testing library',
+            operatingSystem: 'Node.js, Bun, any browser test runner',
+            softwareRequirements: 'Vitest >= 2.1, or bun test, or node --test',
+            downloadUrl: 'https://www.npmjs.com/package/vitest-auto-spy',
+            installUrl: 'https://www.npmjs.com/package/vitest-auto-spy',
+            license: 'https://opensource.org/licenses/MIT',
+            author: { '@id': `${HOSTNAME}#author` },
+            url: HOSTNAME,
+            description:
+              'Generate fully-typed test spies from a class, an interface or nothing at all. One API across Vitest, Bun and node:test, with Angular, NestJS, React, Vue and Svelte recipes, RxJS observable spies and eleven ESLint rules. A drop-in replacement for jest-auto-spies.',
+            featureList: [
+              'Typed spies generated from a class prototype',
+              'createAutoMock<T>() — a mock from a type alone, no class required',
+              'One mock adapter core across Vitest, bun:test and node:test',
+              'Angular TestBed helpers: provideAutoSpy, injectSpy, renderShallow',
+              'Observable assertions that fail on silence',
+              'Eleven ESLint rules and editor diagnostics for WebStorm and VS Code',
+            ],
+            offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' },
+          },
+        ],
       }),
     ],
   ],
@@ -141,6 +203,7 @@ export default defineConfig({
           { text: 'fakeAsync on Vitest', link: '/utilities/zone' },
           { text: 'Waiting and the clock', link: '/utilities/event-loop' },
           { text: 'ESLint plugin', link: '/utilities/eslint-plugin' },
+          { text: 'Editor diagnostics', link: '/utilities/editor-diagnostics' },
         ],
       },
       {

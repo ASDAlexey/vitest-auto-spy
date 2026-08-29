@@ -89,7 +89,7 @@ features:
     link: /utilities/observer-stubs
   - icon: 📏
     title: Lint rules that steer a suite
-    details: Nine ESLint rules point a suite at these helpers, each message linking to its recipe. Five of them catch a test being wrong rather than verbose — an expect() inside subscribe(), an expect() in a .then() nobody awaits, an Object.defineProperty nothing restores, a module-level mock shared across files, and a done callback that makes a test pass having run almost none of its body.
+    details: Twelve ESLint rules point a suite at these helpers, each message linking to its recipe. Five of them catch a test being wrong rather than verbose — an expect() inside subscribe(), an expect() in a .then() nobody awaits, an Object.defineProperty nothing restores, a module-level mock shared across files, and a done callback that makes a test pass having run almost none of its body.
     link: /utilities/eslint-plugin
   - icon: 🧹
     title: Hygiene for a shared environment
@@ -99,9 +99,13 @@ features:
     title: A migration you can verify
     details: Counters cannot answer whether a port lost a test — a file can lose a whole suite while a flake elsewhere starts passing, and the totals match. compareTestRuns diffs the two sets of names from the JSON report both runners write, and diffByField turns a collapsed "…(8) to deeply equal" into the field that actually differs.
     link: /migrating
+  - icon: 🩺
+    title: The anti-patterns, underlined as you type
+    details: A spy declared as the class, an expect() inside subscribe(), a done callback Vitest never calls — every one of them passes, so finding them in CI is an hour too late. The twelve rules ship with the package and need no editor plugin of their own — WebStorm and the other JetBrains IDEs run them natively, VS Code, Cursor and Windsurf through the ESLint extension.
+    link: /utilities/editor-diagnostics
   - icon: 🤖
     title: Readable by your agent, not just by you
-    details: An AGENTS.md ships inside the tarball for offline reading, llms.txt and llms-full.txt sit at the docs root, a Claude Code skill installs from the repo, and every error message ends with a link to the page that explains it.
+    details: An AGENTS.md ships inside the tarball for offline reading, llms.txt and llms-full.txt sit at the docs root, a Claude Code skill installs from the repo, and every error message ends with a link to the page that explains it. Claude Code, OpenAI Codex, GLM/z.ai, Cursor, Copilot, Gemini CLI and the rest each get the exact file to point at.
     link: /agents
   - icon: 📦
     title: Zero runtime deps
