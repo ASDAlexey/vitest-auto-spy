@@ -224,6 +224,69 @@ arguments, but got 0` — four of them in one file on the suite above. Mechanica
 callable. Type 'TestContext' has no call signatures.` — text the rule's own description shares
   no words with.
 
+- [~] **Nothing in this repository tests the types it exports, and that is what shipped the
+  `expectEmission` regression.** `npm run typecheck` is `tsc --noEmit` over the sources: it proves
+  the library compiles, never what it _infers_ for a caller. The single-signature
+  `expectEmission<T>(source$: SubscribableLike<T>)` paired with rxjs 7's trailing positional
+  overload and inferred `unknown`; every internal test passed, because `resolves.toBe(1)` passes on
+  a `Promise<unknown>` too. The consumer found it — 48 `TS2339`/`TS2488` errors that failed a CI
+  job — and the fix (a leading callback-shaped overload) is already in. What is still missing is the
+  thing that would have caught it here: `expectTypeOf` / `assertType` cases under Vitest's
+  `typecheck` mode. A grep for either across `src/` returns **zero** hits today. The set worth
+  pinning is small and mechanical — `expectTypeOf(expectEmission(of(1))).resolves.toBeNumber()`,
+  the same for `expectEmissions`, `expectError`, `expectCompletion`, plus `Spy<T>` assignability
+  and the `Mock<(a: A) => R>` argument order — and it belongs in `npm run check`, next to the
+  coverage gate.
+
+  **Done, partly.** `src/type-tests/{emission,spy}.test-d.ts` now pin the emission helpers (both
+  shapes the regression took: reading a field off the awaited value, and destructuring it) and
+  `createSpyFromClass` / `asInstance` / `createAutoMock`; `vitest.types.config.mts` and
+  `tsconfig.types.json` run them, `npm run test:types` is in `npm run check`, and
+  `CONTRIBUTING.md` says a helper whose value is its type needs one. 14 cases, no type errors.
+  They live outside `src/lib/**` on purpose — inside it they would land in `coverage.include`
+  and fail the 100% threshold with files that are never executed.
+
+  **Still open:** the rest of the surface has none — `mockDeep` / `DeepMockProxy` assignability,
+  `provideAutoSpy` and `injectSpy` on the Angular entries, `calledWith`, `Mutable<T>`, and the
+  `Spy<T>`-in-argument-position case `no-mocked-for-spy` exists to rescue. Worth adding one case
+  per helper as each is touched, rather than in one sweep.
+
+- [ ] **A spied method accepts arguments the real one would reject.** Found while writing the type
+      tests above, and it is the opposite of what `Spy<T>` is for. The declared signature survives —
+      the member's type reads `AddSpyMethodsByReturnTypes<(key: string) => string | null>` — but the
+      call is unchecked: with `read(key: string)` on the class, both of these compile on the double
+      under `strict`, and neither compiles on an instance.
+
+      ```ts
+      const spy = createSpyFromClass(Storage);
+
+      spy.read(1); // no error
+      spy.read('ok', 'extra'); // no error
+      ```
+
+      The mock surface presumably contributes a call signature wide enough to swallow anything, and
+      an intersection accepts a call that matches *either* member. Two consequences, both quiet: a
+      spec can call the double the way production code never could and stay green, and
+      `expectTypeOf(spy.method).parameters` resolves to `never`, so the obvious way to pin this in a
+      type test does not work either (the tests added in `src/type-tests/spy.test-d.ts` assert
+      through calls instead, and say why). Worth deciding deliberately: if the widening is the price
+      of the mock surface, `AGENTS.md` should say so next to `Spy<T>`; if it is not, the argument
+      tuple is the one thing a typed-double library should never lose.
+
+- [ ] **`no-overridden-provider` earns a suggestion for the exact-duplicate case.** First field data
+      for it: 20 hits across an 8 673-file workspace on its first run there, and they split in two.
+      Most are literal duplicates — `[provideAutoSpy(KidsModeService), …, provideAutoSpy(KidsModeService)]`
+      — where deleting the earlier one cannot change behaviour, since Angular already ignored it. The
+      rest are the interesting kind: an earlier `provideAutoSpy(AccountService, { … })` carrying
+      `gettersToSpyOn` and `instanceMethodsToSpyOn`, overridden by a later bare
+      `provideAutoSpy(AccountService)`, so the
+      double the spec configured is not the double it got, and the assertions run against a poorer spy.
+      The rule reports both identically today. Worth splitting: a suggestion (not a `--fix` — deletion
+      is not safe unattended) for the textually identical pair, and wording for the other that says the
+      surviving provider is the _barer_ one, because that is the case where the test is quietly
+      checking something else. The existing message names the token; naming which of the two survives
+      is what makes it actionable.
+
 - [ ] **A rule for the spread that only fails under a bundler: `no-import-time-spread`.** Same suite,
       three days later: `Spread syntax requires ...iterable[Symbol.iterator] to be a function`, a
       `TypeError` thrown while the spec bundle loads, on a tree whose every test passes. The shape is
@@ -364,13 +427,52 @@ import cost.
       `getOwnPropertyDescriptor` removes the documented reason to reach for `lazySpies: false`.
       Target consumers are the wide generated clients — orval / ng-openapi-gen services, ngrx
       facades.
-- [ ] **`node.d.cts` → a type-only re-export.** It is 1 473 lines with 117 declarations and shares
-      no chunk, because the CJS pass is a second tsup config object and `rollup-dts` inlines
-      everything again; **66.7% of its content lines are byte-identical to `bun.d.ts`** (~43 kB
-      duplicated), and its ESM twin does the same job in 7 lines. A `.d.cts` resolving `./node.js`
-      lands on `node.d.ts`, and type-only re-exports cross the CJS/ESM boundary freely:
-      **72 225 B → ~300 B raw, −23.5 kB gzip, −11.9% of the published tarball.** Verify under
-      `moduleResolution: node16`/`nodenext` and `verbatimModuleSyntax`.
+- [x] **`node.d.cts` → a thin re-export of its own ESM twin.** Shipped in
+      `scripts/thin-node-cts.mjs`, run from `npm run build` after `tsup`. It had grown to
+      **~94 kB / 1 829 lines** since the finding was written — the largest file in the package by a
+      wide margin — because the CJS pass is a second tsup config object and `rollup-dts` inlines the
+      whole surface again, where `dist/node.d.ts` says the same thing in seven re-export lines by
+      sharing the emitted chunks. Now **3.9 kB**. Measured against published 3.7.0 and including
+      everything else added this cycle: `dist` 712 → 640 kB, tarball **260 → 238 kB**; on the same
+      export surface it was 232 kB, i.e. −10.8% against the −11.9% predicted.
+
+      **The proposed shape does not compile, and neither does the obvious alternative** — measured
+      with a `.cts` consumer that uses both a value and a type:
+
+      | shape | result |
+      | --- | --- |
+      | `export * from './node.js'` | TS1479 — a CJS file cannot `require` an ESM one |
+      | `export type * from './node.js'` | TS1479 as well, with no `resolution-mode` |
+      | `import type * as N` + `export = N` | values fine, **every type alias lost** (TS2305 on `Spy`) |
+      | `export type * … with { 'resolution-mode': 'import' }` | types fine, **values become type-only** (TS1362) |
+
+      "Type-only re-exports cross the boundary freely" is true and is only half a declaration file:
+      a CJS consumer calling `createSpyFromClass` needs the *value*. What works is both halves at
+      once — one `export type *` carrying every type, and the values re-declared by name against the
+      same namespace (`export declare const x: typeof Entry.x`), the list read from the built ESM
+      module's own runtime exports so it cannot drift from what `node.cjs` provides. Verified clean
+      on `node16` **and** `nodenext`, with `verbatimModuleSyntax` off **and** on, plus a real
+      `require('./dist/node.cjs')` round-trip.
+
+      `eslint-plugin.d.cts` was measured and deliberately left alone: 5 906 B, no external imports,
+      and a default-only export whose CJS interop is not worth disturbing for 5 kB.
+- [x] **What the published bundle-size number actually measures — recorded so the next scare is
+      short.** bundlephobia's version chart makes 3.7.0 look like a step change; it is not. Measured
+      from the published tarballs with bundlephobia's own method (esbuild, minify, gzip, peers
+      external): **3.4.0 10.8 kB → 3.5.0 12.5 → 3.6.0 12.5 → 3.7.0 12.7 kB gzip.** The one real step
+      is 3.4.0 → 3.5.0, and 3.7.0 adds 0.2 kB.
+
+      More to the point, **that number is the whole barrel and nobody imports the whole barrel.**
+      Bundling a consumer that imports only `createSpyFromClass` against the shipped `dist/index.js`
+      costs **5.1 kB gzip / 14.8 kB raw, 19 modules** — the root entry tree-shakes, and every module
+      left in the minimal path is one the factory genuinely needs. Adding `createAutoMock` moves it
+      by nothing. The 12.7 kB figure is `export *`, which is the shape bundlephobia measures and no
+      spec writes.
+
+      And this is a **devDependency**: none of it reaches a production bundle, which is why
+      `tsup.config.ts` refuses to minify in the first place. The two costs that are real are install
+      weight (addressed above — tarball is now 232 kB) and per-spec import time (the item below).
+
 - [ ] **De-chunk `dist/index.js` and `dist/angular.js` only.** Importing the root entry costs
       **5.9 ms per spec file** (150 identical trivial specs, `isolate: true`, single worker:
       full 1.88–2.03 s vs base 1.06–1.07 s), and the cost is **module count, not code volume** — the
@@ -587,14 +689,16 @@ default value, and needs **one microtask plus one tick** to reach `resolved`. A 
 with an async loader is different again: tick + microtask is not enough, `await
 ApplicationRef.whenStable()` is. Two waits for one concept — which is the argument for one name.
 
-- [ ] **`mockResourceProp(object, property, initialValue)` — M.** Drive a resource without HTTP at
-      all. Returns `{ set(value), fail(error), loading(), reload: Spy<() => boolean> }`. It is
-      `lib/signal-prop.ts` with three more signals (`status`, `error`, `hasValue`) plus a spied
-      `reload`, reusing `mockReadonlyProp` and undone by `restoreMockedProps()` like every other
-      patch. Stays `@angular/core`-optional-peer clean: `ResourceRef` is a type, the value is
-      hand-built `signal()`s. **Sidesteps the deadlock entirely** — nothing is ever in flight.
-      Ranked first because it is the shallow answer, the one that fits a suite which already refuses
-      to test templates.
+- [x] **`mockResourceProp(object, property, initialValue)` — shipped** in `lib/resource-prop.ts`,
+      exported from `/angular`. Returns `{ set, fail, loading, reload, resource }` and installs a
+      double built from real `signal()`s, so a `computed()` downstream recomputes exactly as it does
+      against a real resource. Two shape decisions worth recording: `isLoading` is a `computed()`
+      rather than a plain arrow, because Angular's `Signal<T>` is branded and a bare function is not
+      assignable to it; and the double deliberately omits `asReadonly` / `destroy` / `update`, which
+      a *consumer* never calls — a double that answers a call nobody should make is how a typo
+      survives a run. `resource` is exposed beyond the four members the finding named, because
+      asserting on the installed double is the other half of driving it. Starts `'resolved'` at
+      `initialValue`; `fail()` takes a string or an `Error`.
 - [x] **`settleResource(resource, { turns = 20, label })` — S.** Shipped in
       `lib/settle-resource.ts`, exported from `/angular` and `/bun-angular`. Duck-typed on
       `{ status(): string }`, so `@angular/core` stays an optional peer and a hand-built double
@@ -623,11 +727,15 @@ ApplicationRef.whenStable()` is. Two waits for one concept — which is the argu
       which is **not a peer today** — a second optional peer (`@angular/common`). The precedent and
       the lazy-load strategy both exist, but it is a scope decision, which is why it ranks below the
       three items that need nothing new.
-- [ ] **`registerResourceMatchers()` — S.** `toBeLoading` / `toHaveResourceValue` /
-      `toHaveResourceError`. Exactly the `toHaveSignalValue` argument one level up: asserting
-      `component.products.value()` loses the name in the failure and says nothing about `status()`,
-      and asserting `status()` separately is a second expectation people forget. Duck-typed on
-      `{ status, value, error }`, same construction as `lib/signal-matchers.ts`.
+- [x] **`registerResourceMatchers()` — shipped** in `lib/resource-matchers.ts`, exported from
+      `/angular`. The load-bearing behaviour is one the finding did not name: `toHaveResourceValue`
+      **fails a resource that has not resolved even when its default value matches**, which is the
+      assertion the whole family exists to stop passing, and the failure says which status it was in
+      and names the flush. `toHaveResourceError` takes an optional substring or `RegExp`.
+      Duck-typed on `{ status, value, error }` with `error` optional, so a hand-built double works;
+      anything that is not a resource gets its own message rather than a `TypeError`, because the
+      two ways to get there — passing `products.value()` instead of `products`, and passing a
+      property that was never a resource — are both silent.
 - [ ] **`enableAngularDiagnostics()` — M.** The grouping the earlier `NO_ERRORS_SCHEMA` item left
       open now has four members, which settles it: `ngModuleScopes` (apply `assertNgModuleScopes`
       automatically), `deadSchemas` (a `NO_ERRORS_SCHEMA` next to a standalone component is a dead
@@ -1040,12 +1148,26 @@ with zoneless support: a `./zoneless` entry added in 19.2.0 on 2026-03-17.
 function` — blaming the spy rather than the test. Biggest payoff exactly where this library is
       strongest: a wide service where one of forty methods was left unstubbed and `undefined`
       surfaces three frames later.
-- [ ] **`captureArg<T>()` — S.** The one matcher shape both live competitors ship that cannot be
-      expressed here (`captor()` in mock-extended, `td.matchers.captor()`). `expect.any` tells you
-      the kind; a captor hands you the value — the difference between "a callback was passed" and
-      "call the callback that was passed". No new machinery: a captor is an object with
-      `asymmetricMatch` that records and returns `true`, so it already routes through
-      `ArgsMap#findByMatcher`. Runtime-neutral.
+- [x] **`captureArg<T>()` — shipped** in `lib/capture-arg.ts`, exported from the root entry.
+      Runtime-neutral as predicted; two things the finding had wrong, both found by testing rather
+      than reasoning.
+
+      **It must be a class, not an object literal.** Accessors in a literal are enumerable own
+      properties, and the runner walks those when it serialises the expected side of an assertion —
+      which read `.value` on a captor that had matched nothing and replaced a readable assertion
+      failure with this helper's own throw. On a class the accessors sit on the prototype and are
+      not enumerable, so a captor can be printed, diffed and logged without being read.
+
+      **It does not belong in `calledWith`, and the types already say so.** The finding's "already
+      routes through `ArgsMap#findByMatcher`" is true of the mechanism and wrong as a use: a captor
+      matches every value, so `spy.load.calledWith(captor)` configures a return for *every* call —
+      which is `mockReturnValue`, spelled less clearly. `calledWith` is typed to the method's own
+      parameters, so it does not compile. `expect.any` type-checks there only because it returns
+      `any`. Documented as assertion-only.
+
+      Also: the last capture is boxed (`{ value: T } | undefined`) rather than read off the end of
+      the array, so that capturing an actual `undefined` argument stays distinct from never having
+      matched — without the non-null assertion the index access would otherwise need.
 - [ ] **`createSpyFromInstance(instance, config)` — M.** The one structural capability three live
       competitors have and this package does not: `vi.mockObject(obj)`, `sinon.createStubInstance`,
       `td.replace(obj, 'method')`. Every factory here _constructs_ the double; there is no way to

@@ -12,6 +12,34 @@ The latest released version here must always match the one published on
 
 ### Added
 
+- **`mockResourceProp(object, property, initialValue)` on `/angular` — drive an Angular resource
+  with no HTTP at all.** `settleResource` is the answer when the request is the point; this is the
+  answer when it is not. The property is replaced by a double the spec moves directly —
+  `set(value)`, `fail(error)`, `loading()`, plus a spied `reload` — so nothing is ever in flight:
+  no tick, no `HttpTestingController`, no budget, and no way to assert against a resource's default
+  value by accident. The double is built from real `signal()`s, so a `computed()` reading
+  `products.value()` recomputes and an `effect()` watching `products.status()` runs, exactly as
+  against a real `httpResource`. Undone by `restoreMockedProps()` like every other property patch.
+
+- **`registerResourceMatchers()` on `/angular` — `toBeLoading` / `toHaveResourceValue` /
+  `toHaveResourceError`.** A resource carries a value *and* a status, and the two only mean
+  something together: `expect(component.products.value()).toEqual([])` passes just as happily
+  against a resource still `loading` with its default value as against one that genuinely resolved
+  to nothing. **`toHaveResourceValue` fails an unresolved resource even when the value matches**,
+  and says which status it was in and which flush is missing. Duck-typed on `{ status, value,
+  error }`, so `httpResource`, `resource`, `rxResource` and a `mockResourceProp` double all work;
+  handed something that is not a resource, each matcher says so instead of throwing a `TypeError`.
+
+- **`captureArg<T>()` — take hold of an argument the code under test built, instead of describing
+  it.** `expect.any(Function)` answers *what kind of thing* was passed; a captor hands back the
+  value, which is the difference between "a callback was passed" and "call the callback that was
+  passed and see what it does". Written by hand it is a reach into `mock.calls` by index into a
+  tuple position with a cast at the end — four chances to be wrong about a call that already
+  happened. It is an asymmetric matcher, so `toHaveBeenCalledWith` and its whole family consult it
+  on Vitest, Bun and `node:test` alike with no runner API involved. Assertion-only by design: a
+  captor matches every value, so using one in `calledWith` would configure a return for every call
+  — the types stop that line from compiling.
+
 - **`settleResource(resource, { turns, label })` on `/angular` and `/bun-angular` — one wait for
   `httpResource()`, `resource()` and `rxResource()`.** Angular's resource primitives need a
   different wait each, and no library in the Angular world had an answer: measured on 21.2.17
@@ -44,6 +72,18 @@ The latest released version here must always match the one published on
   do not work" (flat config only, scope the block to spec files yourself, `⌥⏎` is where the fixes
   and suggestions live), a table of what gets underlined and why, and the reason a native JetBrains
   plugin is not planned. Summarised in the README as **Editor diagnostics — WebStorm & VS Code**.
+
+### Changed
+
+- **`dist/node.d.cts` is 3.9 kB instead of 94 kB — the published tarball drops over 20 kB.** It was
+  the largest file in the package by a wide margin: the CJS build is a second tsup config object, so
+  `rollup-dts` ran over it separately and inlined the entire type surface a second time, where
+  `dist/node.d.ts` says the same thing in seven lines by sharing the emitted chunks. A post-build
+  step (`scripts/thin-node-cts.mjs`) now rewrites it as a re-export of that twin. Measured against
+  the published 3.7.0 and *including* everything added in this release, `dist` is 712 → 640 kB and
+  the tarball 260 → 238 kB. No type or value changed hands — verified with a CommonJS consumer that
+  uses both, under `module`/`moduleResolution` `node16` **and** `nodenext`, with
+  `verbatimModuleSyntax` off **and** on, plus a real `require('vitest-auto-spy/node')` round-trip.
 
 ### Fixed
 
