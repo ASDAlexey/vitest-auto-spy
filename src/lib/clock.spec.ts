@@ -52,6 +52,42 @@ describe('mockSystemTime', () => {
 
     expect(vi.isFakeTimers()).toBe(false);
   });
+
+  it('leaves alone a set of fakes the suite installed after it', () => {
+    const restore = mockSystemTime(0);
+
+    vi.useRealTimers();
+    vi.useFakeTimers();
+
+    restore();
+
+    // Not this call's fakes any more: uninstalling them would unfreeze the rest of the file.
+    expect(vi.isFakeTimers()).toBe(true);
+  });
+
+  it('puts `Date` back when uninstalling the fakes deleted it', () => {
+    const restore = mockSystemTime(0);
+    const realUseRealTimers = vi.useRealTimers.bind(vi);
+
+    // The happy-dom failure, reproduced by hand because this file does not run under it: there
+    // `Date` is inherited from the realm rather than owned by `globalThis`, so `@sinonjs/fake-timers`
+    // deletes it on uninstall and the next file dies inside Vitest's own `useFakeTimers`.
+    vi.useRealTimers = () => {
+      const result = realUseRealTimers();
+      Reflect.deleteProperty(globalThis, 'Date');
+
+      return result;
+    };
+
+    try {
+      restore();
+    } finally {
+      vi.useRealTimers = realUseRealTimers;
+    }
+
+    expect(globalThis.Date).toBeDefined();
+    expect(new Date(0).toISOString()).toBe('1970-01-01T00:00:00.000Z');
+  });
 });
 
 describe('withSystemTime', () => {

@@ -22,6 +22,7 @@
 import { afterEach, beforeEach, vi } from 'vitest';
 
 import { type RestoreProp, mockValueProp } from './prop-mock';
+import { restoreTimerGlobals } from './timer-globals';
 
 /** Anything `vi.setSystemTime` accepts. */
 export type SystemTime = Date | number | string;
@@ -43,7 +44,8 @@ export type SystemTime = Date | number | string;
  * `new Date()` and the test starts failing on its own, some days after it was written — a failure
  * that looks like a regression and is not one.
  *
- * @returns An undo. It uninstalls the fakes only if this call installed them.
+ * @returns An undo. It uninstalls the fakes only if this call installed them and they are still the
+ *   ones running.
  */
 export function mockSystemTime(time: SystemTime): RestoreProp {
   if (vi.isFakeTimers()) {
@@ -56,10 +58,23 @@ export function mockSystemTime(time: SystemTime): RestoreProp {
   vi.useFakeTimers({ toFake: ['Date'] });
   vi.setSystemTime(time);
 
+  // The fake `Date` this call installed, kept by identity. `vi.isFakeTimers()` answers "someone has
+  // fakes on", not "mine are still on": a suite that installed its own set in between would have it
+  // torn off here, which is what the docblock above promises never to do. Identity answers the
+  // question that was actually asked, and makes a second undo a no-op for free.
+  const ownFake = globalThis.Date;
+
   return (): void => {
-    if (vi.isFakeTimers()) {
-      vi.useRealTimers();
+    if (globalThis.Date !== ownFake) {
+      return;
     }
+
+    vi.useRealTimers();
+
+    // Under a DOM environment `useRealTimers()` *deletes* `Date` instead of putting it back, and the
+    // next file in the worker then dies inside Vitest's own `useFakeTimers` — the whole story is in
+    // `timer-globals.ts`.
+    restoreTimerGlobals();
   };
 }
 

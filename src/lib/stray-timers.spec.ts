@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { type SchedulerHost, cancelStrayTimers, countStrayTimers, trackStrayTimers } from './stray-timers';
+import { type ScheduledCallback, type SchedulerHost, cancelStrayTimers, countStrayTimers, trackStrayTimers } from './stray-timers';
 
 /**
  * A stand-in scheduler: handles are plain numbers, and every call is recorded, so a test can assert
@@ -47,6 +47,41 @@ function createHost(options: { frames?: boolean } = {}): SchedulerHost & {
   return host;
 }
 
+/**
+ * A stand-in whose callbacks are fired by hand, so a test can watch a handle leave the set at the
+ * moment the timer runs instead of waiting for a real clock.
+ */
+function createManualHost(): SchedulerHost & { fire(handle: unknown, ...args: unknown[]): void; pending: number } {
+  let next = 1;
+  const pending = new Map<unknown, ScheduledCallback>();
+
+  const schedule = (callback: ScheduledCallback): number => {
+    const handle = next++;
+    pending.set(handle, callback);
+
+    return handle;
+  };
+
+  const cancel = (handle: unknown): void => {
+    pending.delete(handle);
+  };
+
+  return {
+    setTimeout: schedule,
+    setInterval: schedule,
+    clearTimeout: cancel,
+    clearInterval: cancel,
+    requestAnimationFrame: schedule,
+    cancelAnimationFrame: cancel,
+    get pending(): number {
+      return pending.size;
+    },
+    fire(handle: unknown, ...args: unknown[]): void {
+      pending.get(handle)?.(...args);
+    },
+  };
+}
+
 describe('stray timers', () => {
   const stops: (() => void)[] = [];
 
@@ -74,18 +109,32 @@ describe('stray timers', () => {
     expect([timeout, interval, frame]).toEqual([1, 2, 3]);
   });
 
-  it('passes the arguments through and returns the original handle', () => {
+  it('passes the delay through, and the callback its own arguments', () => {
     const host = createHost();
-    const callback = (): void => undefined;
+    const callback = vi.fn();
 
-    const original = vi.fn(() => 42);
+    const original = vi.fn((scheduled: ScheduledCallback, ms: number) => {
+      void scheduled;
+      void ms;
+
+      return 42;
+    });
 
     host.setTimeout = original as unknown as SchedulerHost['setTimeout'];
     track(host);
 
-    // `host.setTimeout` is the wrapper now; the spy is the original it delegates to.
-    expect((host.setTimeout as (cb: unknown, ms: number) => number)(callback, 300)).toBe(42);
-    expect(original).toHaveBeenCalledWith(callback, 300);
+    // `host.setTimeout` is the wrapper now; the spy is the original it delegates to. The callback
+    // reaches it wrapped — that is how a fired timeout forgets its own handle — so what the test
+    // pins down is that everything else arrives unchanged and that the wrapper stays transparent.
+    expect(host.setTimeout(callback, 300)).toBe(42);
+
+    const [scheduled, ms] = original.mock.calls[0] ?? [];
+
+    expect(ms).toBe(300);
+
+    scheduled?.('a', 2);
+
+    expect(callback).toHaveBeenCalledWith('a', 2);
   });
 
   it('cancels every outstanding handle with both clears, and reports how many', () => {
@@ -156,6 +205,77 @@ describe('stray timers', () => {
 
   it('counting an untracked host says what is missing', () => {
     expect(() => countStrayTimers(createHost())).toThrow(/needs trackStrayTimers\(\) to have run first/);
+  });
+
+  it('forgets a timeout once it has fired', () => {
+    const host = createManualHost();
+    const ran = vi.fn();
+
+    track(host);
+
+    const handle = host.setTimeout(ran);
+
+    expect(countStrayTimers(host)).toBe(1);
+
+    host.fire(handle, 'payload');
+
+    expect(ran).toHaveBeenCalledWith('payload');
+    expect(countStrayTimers(host)).toBe(0);
+  });
+
+  it('keeps an interval after it fires, because it will fire again', () => {
+    const host = createManualHost();
+
+    track(host);
+    host.fire(host.setInterval(() => undefined));
+
+    expect(countStrayTimers(host)).toBe(1);
+  });
+
+  it('forgets a frame once it has run', () => {
+    const host = createManualHost();
+
+    track(host);
+    host.fire(host.requestAnimationFrame?.(() => undefined));
+
+    expect(countStrayTimers(host)).toBe(0);
+  });
+
+  it('forgets a handle the code under test cancelled itself', () => {
+    const host = createManualHost();
+
+    track(host);
+
+    host.clearTimeout(host.setTimeout(() => undefined));
+    host.clearInterval(host.setInterval(() => undefined));
+    host.cancelAnimationFrame?.(host.requestAnimationFrame?.(() => undefined) ?? 0);
+
+    // Cancelling has to reach the real schedulers as well, or the callbacks still run.
+    expect(host.pending).toBe(0);
+    expect(countStrayTimers(host)).toBe(0);
+  });
+
+  it('restores the cancellers along with the schedulers', () => {
+    const host = createManualHost();
+    const originals = [host.clearTimeout, host.clearInterval, host.cancelAnimationFrame];
+
+    const stop = track(host);
+
+    stop();
+
+    expect([host.clearTimeout, host.clearInterval, host.cancelAnimationFrame]).toEqual(originals);
+  });
+
+  it('leaves a non-function handler untouched — the legacy string form of setTimeout', () => {
+    const host = createHost();
+    const original = vi.fn(() => 42);
+
+    host.setTimeout = original as unknown as SchedulerHost['setTimeout'];
+    track(host);
+
+    host.setTimeout('doThing()' as unknown as ScheduledCallback, 300);
+
+    expect(original).toHaveBeenCalledWith('doThing()', 300);
   });
 
   it('defaults to the real globals', () => {

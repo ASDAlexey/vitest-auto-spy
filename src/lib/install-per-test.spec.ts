@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it } from 'vitest';
 
 import { installPerTest } from './install-per-test';
 
@@ -35,5 +35,31 @@ describe('installPerTest, read too early', () => {
 
   it('says which mistake was made', () => {
     expect(readTooEarly).toMatchObject({ message: expect.stringContaining('nothing is installed yet') });
+  });
+});
+
+describe('installPerTest, read after the test it belongs to', () => {
+  let readAfterTheLastTest: unknown;
+
+  describe('a block whose stub must not outlive its test', () => {
+    const handle = installPerTest(() => 'stub');
+
+    it('hands back the stub while the test runs', () => {
+      expect(handle()).toBe('stub');
+    });
+
+    // `afterAll` of this block runs once its `afterEach` has already dropped the handle — the only
+    // place from which "the last test's stub is gone" is observable.
+    afterAll(() => {
+      try {
+        handle();
+      } catch (error) {
+        readAfterTheLastTest = error;
+      }
+    });
+  });
+
+  it('drops the last test’s stub instead of holding it to the end of the run', () => {
+    expect(readAfterTheLastTest).toMatchObject({ message: expect.stringContaining('nothing is installed yet') });
   });
 });

@@ -24,7 +24,7 @@
  * It lives in `vitest-auto-spy/setup` rather than the main entry because it registers a runner
  * hook, and the core has to stay importable from Bun and `node:test` without pulling Vitest in.
  */
-import { beforeEach } from 'vitest';
+import { afterEach, beforeEach } from 'vitest';
 
 /** Reads the handle belonging to the current test. */
 export type PerTestHandle<T> = () => T;
@@ -46,11 +46,21 @@ export function installPerTest<T>(install: () => T): PerTestHandle<T> {
     current = { value: install() };
   });
 
+  // Dropping the handle is what keeps the *last* test's stub from outliving the file. `current` is
+  // a closure variable of the spec module, and under `isolate: false` that module is never
+  // unloaded — so an `ObserverStub` left there holds its `targets` (live fixture DOM) and its
+  // callback (the component instance) for the rest of the worker's life, one subtree per file.
+  // It also makes the reader's promise true after the last test, not only before the first one.
+  afterEach(() => {
+    current = undefined;
+  });
+
   return () => {
     if (!current) {
       throw new Error(
         '[vitest-auto-spy] installPerTest: nothing is installed yet. Call the handle inside a test (or in a hook that ' +
-          'runs after the one this registered) — at `describe` body time the stub for the first test does not exist yet.',
+          'runs after the one this registered): at `describe` body time the stub for the first test does not exist ' +
+          'yet, and once a test has finished its stub is dropped rather than kept around for the next reader.',
       );
     }
 

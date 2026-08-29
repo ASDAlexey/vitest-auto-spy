@@ -13,13 +13,24 @@
  * Angular-internal complaint — a scheduler running watches while scheduling, or a signal read in
  * the notification phase — again attributed to the wrong file.
  *
- * The containment is deliberately dumb: wrap the four schedulers so every handle they hand out is
- * remembered, then cancel whatever is still outstanding at the end of the file. Nothing here tries
- * to decide whether a callback *should* still run — by `afterAll` the answer is always no.
+ * The containment is deliberately dumb: wrap the schedulers so every handle they hand out is
+ * remembered, drop it again the moment the callback fires or something cancels it, then cancel
+ * whatever is still outstanding at the end of the file. Nothing here tries to decide whether a
+ * callback *should* still run — by `afterAll` the answer is always no.
  *
  * Under `isolate: true` this is close to a no-op: the environment is discarded per file anyway.
  */
 import { DOCS_LINKS, withDocs } from './docs-links';
+
+/**
+ * The callback half of a scheduler call, spelled out so a wrapper can pass it along and — for a
+ * one-shot scheduler — call it itself.
+ *
+ * `unknown[]` parameters, because a callback sits in a *parameter* position: it is the wrapper that
+ * has to be accepted by the real scheduler, not the other way round, and only a callback tolerating
+ * whatever it is handed — a frame timestamp, a timeout's extra arguments — is.
+ */
+export type ScheduledCallback = (...args: unknown[]) => void;
 
 /**
  * The subset of the global scheduler surface this module touches. Declared structurally so a test
@@ -29,11 +40,11 @@ export interface SchedulerHost {
   // Method syntax throughout, deliberately: its parameters are compared bivariantly, which is what
   // lets the real `globalThis` — whose `setTimeout` carries the DOM *and* Node overload sets, and
   // whose handle type differs between them — satisfy this interface with no assertion anywhere.
-  setTimeout(...args: never[]): unknown;
-  setInterval(...args: never[]): unknown;
+  setTimeout(callback: ScheduledCallback, ...args: unknown[]): unknown;
+  setInterval(callback: ScheduledCallback, ...args: unknown[]): unknown;
   clearTimeout(handle: unknown): void;
   clearInterval(handle: unknown): void;
-  requestAnimationFrame?(callback: never): number;
+  requestAnimationFrame?(callback: ScheduledCallback): number;
   cancelAnimationFrame?(handle: number): void;
 }
 
@@ -41,7 +52,10 @@ export interface SchedulerHost {
 export type StopTrackingTimers = () => void;
 
 interface Tracking {
-  /** Handles from `setTimeout` / `setInterval`. Both clears accept either, so the kind is not worth storing. */
+  /**
+   * Handles from `setTimeout` / `setInterval` that have neither fired nor been cancelled. Both
+   * clears accept either kind, so which scheduler produced one is not worth storing.
+   */
   readonly handles: Set<unknown>;
   readonly frames: Set<number>;
   readonly stop: StopTrackingTimers;
@@ -68,33 +82,83 @@ function defaultHost(): SchedulerHost {
 }
 
 /**
- * Replace `setTimeout` / `setInterval` with recording wrappers.
+ * Install `value` in place of `host[name]`, and hand back nothing.
  *
  * `Object.defineProperty` rather than assignment: the wrapper cannot reproduce the overload set of
  * the DOM and Node declarations at once, and this package does not allow the type assertion that
  * would paper over it.
  */
-function wrapTimerScheduler(host: SchedulerHost, name: 'setInterval' | 'setTimeout', handles: Set<unknown>): () => void {
-  const original = host[name];
-
-  Object.defineProperty(host, name, {
-    configurable: true,
-    writable: true,
-    value: (...args: never[]): unknown => {
-      const handle = original(...args);
-      handles.add(handle);
-
-      return handle;
-    },
-  });
-
-  return () => {
-    Object.defineProperty(host, name, { configurable: true, writable: true, value: original });
-  };
+function defineScheduler(host: SchedulerHost, name: keyof SchedulerHost, value: unknown): void {
+  Object.defineProperty(host, name, { configurable: true, writable: true, value });
 }
 
 /**
- * Replace `requestAnimationFrame` with a recording wrapper.
+ * Schedule through `schedule`, remember the handle, and — for a one-shot scheduler — forget it again
+ * the moment the callback fires.
+ *
+ * A timeout or a frame stops being cancellable once it has run, so a handle left in the set would
+ * make {@link countStrayTimers} report what the file *scheduled* rather than what is still pending,
+ * and the check its own docblock recommends could never pass. An interval keeps firing until
+ * something cancels it, so its handle stays.
+ *
+ * The wrapper reads the handle out of the enclosing binding instead of capturing it, because the
+ * handle exists only once `schedule` has returned — which always happens before a callback can run.
+ * A handler that is not a function (the legacy string form of `setTimeout`) is passed through
+ * untouched: wrapping it would change what it means.
+ */
+function scheduleTracked<THandle>(
+  schedule: (callback: ScheduledCallback) => THandle,
+  callback: ScheduledCallback,
+  handles: Set<THandle>,
+  oneShot: boolean,
+): THandle {
+  // eslint-disable-next-line prefer-const -- read by the closure below and assigned after it; `const` cannot express a binding whose reader is created first.
+  let handle: THandle;
+
+  const forgetting = (...args: unknown[]): void => {
+    handles.delete(handle);
+    callback(...args);
+  };
+
+  handle = schedule(oneShot && typeof callback === 'function' ? forgetting : callback);
+  handles.add(handle);
+
+  return handle;
+}
+
+/** Replace `setTimeout` / `setInterval` with recording wrappers. */
+function wrapTimerScheduler(host: SchedulerHost, name: 'setInterval' | 'setTimeout', handles: Set<unknown>): () => void {
+  const original = host[name];
+  // Only a timeout is one-shot; an interval outlives its first run.
+  const oneShot = name === 'setTimeout';
+
+  defineScheduler(host, name, (callback: ScheduledCallback, ...rest: unknown[]): unknown =>
+    scheduleTracked((tracked) => original(tracked, ...rest), callback, handles, oneShot),
+  );
+
+  return () => defineScheduler(host, name, original);
+}
+
+/**
+ * Replace `clearTimeout` / `clearInterval` with wrappers that drop the handle from the set.
+ *
+ * The symmetric half of the recording above, and the reason {@link countStrayTimers} can mean "still
+ * pending": a timer the code under test cancelled itself has nothing left to leak, and counting it
+ * would report every suite that cleans up properly as a leak.
+ */
+function wrapTimerCanceller(host: SchedulerHost, name: 'clearInterval' | 'clearTimeout', handles: Set<unknown>): () => void {
+  const original = host[name];
+
+  defineScheduler(host, name, (handle: unknown): void => {
+    handles.delete(handle);
+    original(handle);
+  });
+
+  return () => defineScheduler(host, name, original);
+}
+
+/**
+ * Replace `requestAnimationFrame` / `cancelAnimationFrame` with recording wrappers.
  *
  * Plain assignment here, unlike the timers above. A DOM environment installs the window's globals
  * on `globalThis` as accessor pairs that forward to the window object; defining a data property
@@ -104,20 +168,28 @@ function wrapTimerScheduler(host: SchedulerHost, name: 'setInterval' | 'setTimeo
  */
 function wrapFrameScheduler(host: SchedulerHost, frames: Set<number>): () => void {
   const original = host.requestAnimationFrame;
+  const originalCancel = host.cancelAnimationFrame;
 
   if (!original) {
     return () => undefined;
   }
 
-  host.requestAnimationFrame = (callback: never): number => {
-    const handle = original(callback);
-    frames.add(handle);
+  host.requestAnimationFrame = (callback: ScheduledCallback): number =>
+    scheduleTracked((tracked) => original(tracked), callback, frames, true);
 
-    return handle;
-  };
+  if (originalCancel) {
+    host.cancelAnimationFrame = (handle: number): void => {
+      frames.delete(handle);
+      originalCancel(handle);
+    };
+  }
 
   return () => {
     host.requestAnimationFrame = original;
+
+    if (originalCancel) {
+      host.cancelAnimationFrame = originalCancel;
+    }
   };
 }
 
@@ -151,6 +223,8 @@ export function trackStrayTimers(host: SchedulerHost = defaultHost()): StopTrack
   const undo = [
     wrapTimerScheduler(host, 'setTimeout', handles),
     wrapTimerScheduler(host, 'setInterval', handles),
+    wrapTimerCanceller(host, 'clearTimeout', handles),
+    wrapTimerCanceller(host, 'clearInterval', handles),
     wrapFrameScheduler(host, frames),
   ];
 
@@ -166,7 +240,7 @@ export function trackStrayTimers(host: SchedulerHost = defaultHost()): StopTrack
 }
 
 /**
- * Cancel everything scheduled since the last call and forget it.
+ * Cancel everything still outstanding and forget it.
  *
  * Belongs in `afterAll`, where "is this callback still wanted?" always answers no. Returns how many
  * handles it had to cancel, which is the number worth logging when a suite wants to know whether it
@@ -214,6 +288,10 @@ export function cancelStrayTimers(host: SchedulerHost = defaultHost()): number {
 /**
  * How many scheduled callbacks are currently outstanding — the assertion a suite reaches for when
  * it wants a leak to fail the run rather than be cleaned up quietly.
+ *
+ * A timeout leaves the count when it fires, a frame when it runs, and either kind of timer when
+ * something clears it; an interval stays until it is cancelled, which is what makes an uncancelled
+ * one worth reporting.
  *
  * @example
  * ```ts
