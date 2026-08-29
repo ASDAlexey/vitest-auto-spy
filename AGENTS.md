@@ -12,6 +12,12 @@ node_modules/vitest-auto-spy/AGENTS.md
 
 Working on the library's own source instead? Read `CONTRIBUTING.md` in the repository.
 
+Setting this up for a team? The README section
+[Using this library with an AI agent](https://github.com/ASDAlexey/vitest-auto-spy#using-this-library-with-an-ai-agent)
+names the instruction file each agent reads — `AGENTS.md` for OpenAI Codex, Cursor, Copilot and most
+of the field, `CLAUDE.md` for Claude Code and for GLM (z.ai) or Kimi running inside it, `GEMINI.md`
+for Gemini CLI — and gives the two commands that install this pointer for all of them.
+
 | Resource                | Where                                                                |
 | ----------------------- | -------------------------------------------------------------------- |
 | Spec patterns at scale  | <https://asdalexey.github.io/vitest-auto-spy/recipes>                |
@@ -1663,12 +1669,13 @@ export default [{ files: ['**/*.spec.ts'], ...autoSpy.configs.recommended }];
 | `prefer-inject-spy`            | `warn`  | suggest   | `vi.spyOn(TestBed.inject(X), 'm')`, inline or via a `const` → `injectSpy(X).m` |
 | `no-shared-module-level-mock`  | `error` | —         | an **exported** value holding `vi.fn()`s → export a factory instead      |
 | `no-mocked-for-spy`            | `warn`  | `--fix`   | `Mocked<T>` in any type position → `Spy<T>`, import and all              |
+| `prefer-as-spy`                | `warn`  | `--fix`   | `TestBed.inject(X) as Spy<X>` → `asSpy<X>(TestBed.inject(X))`, import and all |
 | `no-done-callback`             | `error` | —         | `it('x', (done) => …)` → `async` + an awaited assertion                  |
 | `no-floating-assertion`        | `error` | —         | `expect()` in a `.then()` nobody awaits → `expect(await promise)`        |
 | `no-overridden-provider`       | `error` | —         | two providers for one token in one array → the earlier one never runs   |
 | `no-inject-before-override`    | `warn`  | —         | `TestBed.inject()` in a hook, in a suite that still calls `override*`    |
 
-Eleven rules; one fixes on its own, three offer suggestions. `no-mocked-for-spy` only ever touches a
+Twelve rules; two fix on their own, three offer suggestions. `no-mocked-for-spy` only ever touches a
 **type position**, where a wrong rewrite is a compile error rather than a test that quietly changed
 meaning — so `--fix` renames the type, adds `import type { Spy } from 'vitest-auto-spy'` and drops
 the orphaned `Mocked` import. Every type position, not only a `let`: a factory's return type, a
@@ -1676,6 +1683,17 @@ helper's parameter, and `as unknown as Mocked<T>`, which in one batch stood next
 in all eight reports — fix one and leave the other and the file says both. It declines where it
 cannot prove the rename (a `Mocked` the file declares itself, a `Spy` that is already something
 else, `Mocked<{ a: Mock }>` rather than a named type) and reports without a fix.
+
+`prefer-as-spy` is the same licence from the other end, and the one a migration meets in bulk: a
+`jest-auto-spies` suite writes `TestBed.inject(X) as Spy<X>` once per injected double, and that cast
+fails here with `TS2352` — `Spy<T>` adds `accessorSpies` and the per-method helpers, so neither type
+sufficiently overlaps the other. `asSpy` is a typed identity function, so `--fix` keeps the
+assertion the developer already made, carries the type arguments across (inference answers
+`Spy<Service<any>>` for a generic class), adds the `asSpy` import and removes a `Spy` import the
+rewrite orphans. A cast that hops through `unknown` is left alone — the hop says the value is not a
+`T` — except after `TestBed.inject(X)`, where the container returns `X` by construction and the hop
+was only silencing `TS2352`. Neither rule is for the object under test: a service the spec
+exercises is not a double, and typing it as the class is the repair there.
 
 `no-expect-in-subscribe` reports one shape and **three different edits**, and says which: the
 subscription is the last thing the test does (invert it into `await firstValueFrom`); something

@@ -29,7 +29,7 @@ identical API, with **RxJS** spies and **Angular / NestJS / React / Vue·Pinia /
 
 📚 [**Documentation**](https://asdalexey.github.io/vitest-auto-spy/) · 🧭 [**Spec patterns**](https://asdalexey.github.io/vitest-auto-spy/recipes) · 📦 [**npm**](https://www.npmjs.com/package/vitest-auto-spy) · 🐙 [**GitHub**](https://github.com/ASDAlexey/vitest-auto-spy) · 🔖 [**Changelog**](./CHANGELOG.md)
 
-🤖 [**AGENTS.md**](./AGENTS.md) · 🔤 [**llms.txt**](https://asdalexey.github.io/vitest-auto-spy/llms.txt) · 📄 [**llms-full.txt**](https://asdalexey.github.io/vitest-auto-spy/llms-full.txt) — see [Using this library with an AI agent](#using-this-library-with-an-ai-agent)
+🤖 [**AGENTS.md**](./AGENTS.md) · 🔤 [**llms.txt**](https://asdalexey.github.io/vitest-auto-spy/llms.txt) · 📄 [**llms-full.txt**](https://asdalexey.github.io/vitest-auto-spy/llms-full.txt) — works with [Claude Code, OpenAI Codex, GLM, Cursor, Copilot, Gemini CLI and the rest](#which-file-your-agent-reads)
 
 <br/>
 
@@ -57,48 +57,78 @@ identical API, with **RxJS** spies and **Angular / NestJS / React / Vue·Pinia /
 - 🧩 Module mocks that prove they applied — `assertMocked`, `moduleNamespace`, for a `vi.mock()` a bundler quietly ignored
 - 🧾 Fixtures without casts — deep-partial `createMock`, `narrow()`, `withOverrides()`, `asInstances()`
 - 🚚 A migration you can verify — `compareTestRuns` on the two JSON reports, `diffByField` for the assertion the reporter collapses
-- 📏 Lint rules and one-line test-run hygiene — eleven rules in `vitest-auto-spy/eslint-plugin` (one `--fix`, three suggestions), `setupAutoSpy()`
+- 📏 Lint rules and one-line test-run hygiene — twelve rules in `vitest-auto-spy/eslint-plugin` (two `--fix`, three suggestions), `setupAutoSpy()`
+- 🩺 [Editor diagnostics](#editor-diagnostics--webstorm--vs-code) — the same anti-patterns underlined while you type: native ESLint inspections in **WebStorm** and the other JetBrains IDEs, the ESLint extension in **VS Code**, no extra plugin either way
 - 🔇 Console spies — `import { consoleInfoSpy } from 'vitest-auto-spy/console'` silences `console` and asserts its calls
 - 🧭 [**Spec patterns**](https://asdalexey.github.io/vitest-auto-spy/recipes) — the shapes a ~370-file Angular suite converged on, and the traps that only surface at scale
-- 🤖 Built for AI agents too — an offline [`AGENTS.md`](#using-this-library-with-an-ai-agent) inside the package, `llms.txt` on the docs site, a Claude Code skill, and errors that name their own fix
+- 🤖 Built for AI agents too — an offline [`AGENTS.md`](#using-this-library-with-an-ai-agent) inside the package, a [per-agent map](#which-file-your-agent-reads) for **Claude Code**, **OpenAI Codex**, **GLM/z.ai**, **Cursor**, **Copilot**, **Gemini CLI** and the rest, `llms.txt` on the docs site, a Claude Code skill, and errors that name their own fix
 - 🟢 100% test coverage, **zero runtime dependencies** (in-tree arg serializer, no `javascript-stringify`)
 
 ## Table of contents
 
 - [Install](#install)
+  - [Requirements](#requirements)
+  - [Peer dependencies](#peer-dependencies)
 - [Using this library with an AI agent](#using-this-library-with-an-ai-agent)
+  - [Point your agent at it once](#point-your-agent-at-it-once)
+  - [Which file your agent reads](#which-file-your-agent-reads)
+  - [Install it in your agent](#install-it-in-your-agent)
+  - [OpenAI Codex](#openai-codex)
+  - [GLM (z.ai), Kimi K2 and other Claude-compatible models](#glm-zai-kimi-k2-and-other-claude-compatible-models)
+  - [Gemini CLI](#gemini-cli)
+  - [Claude Code plugin](#claude-code-plugin)
 - [Availability](#availability)
 - [Quick start](#quick-start)
 - [How to mock](#how-to-mock)
+  - [A service behind Angular DI](#how-to-mock-a-service-behind-angular-di)
+  - [A service without DI](#how-to-mock-a-service-without-di)
+  - [Reading a spy back from DI](#how-to-mock-reading-a-spy-back-from-di)
+  - [A whole class's dependencies at once](#how-to-mock-a-whole-classs-dependencies-at-once)
+  - [A readonly property or a signal](#how-to-mock-a-readonly-property-or-a-signal)
+  - [An Observable](#how-to-mock-an-observable)
+  - [A promise a test forgets to await](#how-to-mock-a-promise-a-test-forgets-to-await)
+  - [A component's children](#how-to-mock-a-components-children)
+  - [A class the code under test builds with `new`](#how-to-mock-a-class-the-code-under-test-builds-with-new)
+  - [A double more than one spec uses](#how-to-mock-a-double-more-than-one-spec-uses)
+  - [A pipe](#how-to-mock-a-pipe)
 - [Why](#why)
 - [How it works (and what it won't spy)](#how-it-works-and-what-it-wont-spy)
 - [Entry points & runtimes](#entry-points--runtimes)
+  - [Runtimes](#runtimes)
 - [Angular on Bun (`bun:test`)](#angular-on-bun-buntest)
 - [Comparison](#comparison)
 - [Migrating from jest-auto-spies](#migrating-from-jest-auto-spies)
 - [Configuration](#configuration)
+  - [Spying instance-assigned callables (`signal()`, arrow props, `signalStore()`)](#spying-instance-assigned-callables-signal-arrow-props-signalstore)
 - [Auto-mock by type (no class needed)](#auto-mock-by-type-no-class-needed)
 - [Synchronous methods](#synchronous-methods)
 - [Promise-returning methods](#promise-returning-methods)
 - [Observable methods & properties](#observable-returning-methods--observable-properties)
+  - [Standalone observable builder](#standalone-observable-builder)
 - [Getters & setters](#getters--setters)
 - [Framework adapters](#framework-adapters)
-  - [NestJS](#nestjs)
-  - [React (Testing Library)](#react-testing-library)
-  - [Vue / Pinia](#vue--pinia)
-  - [Svelte](#svelte)
   - [Angular](#angular)
+    - [Signal / readonly property mocking (bonus)](#signal--readonly-property-mocking-bonus)
     - [Shallow component rendering](#shallow-component-rendering)
     - [Building a class with auto-spied dependencies](#building-a-class-with-auto-spied-dependencies)
     - [Zoneless waiting](#zoneless-waiting)
     - [Asserting a signal's value](#asserting-a-signals-value)
     - [Where a spec spends its time](#where-a-spec-spends-its-time)
+  - [NestJS](#nestjs)
+  - [React (Testing Library)](#react-testing-library)
+  - [Vue / Pinia](#vue--pinia)
+  - [Svelte](#svelte)
+  - [Which factory, and what it costs](#which-factory-and-what-it-costs)
 - [Utilities](#utilities)
+  - [Console spies — `vitest-auto-spy/console`](#console-spies--vitest-auto-spyconsole)
 - [Observable assertions](#observable-assertions)
 - [Test-run hygiene](#test-run-hygiene)
 - [Fake timers](#fake-timers)
 - [Observer stubs](#observer-stubs)
 - [ESLint plugin](#eslint-plugin)
+- [Editor diagnostics — WebStorm & VS Code](#editor-diagnostics--webstorm--vs-code)
+  - [WebStorm and the other JetBrains IDEs](#webstorm-and-the-other-jetbrains-ides)
+  - [VS Code, Cursor, Windsurf, VSCodium](#vs-code-cursor-windsurf-vscodium)
 - [Bridging `Spy<T>` and `T`](#bridging-spyt-and-t)
 - [API reference](#api-reference)
 - [FAQ & troubleshooting](#faq--troubleshooting)
@@ -170,18 +200,183 @@ the decision tree, the configuration semantics, an error→fix table and the ant
 | [`AGENTS.md`](./AGENTS.md)                                                   | `node_modules/vitest-auto-spy/AGENTS.md`               | any agent, **offline** — it ships inside the npm tarball |
 | [`llms.txt`](https://asdalexey.github.io/vitest-auto-spy/llms.txt)           | the docs site root                                     | a crawler picking the one page it needs                  |
 | [`llms-full.txt`](https://asdalexey.github.io/vitest-auto-spy/llms-full.txt) | the docs site root                                     | reading the entire documentation in one fetch            |
-| A Claude Code skill                                                          | `skills/vitest-auto-spy/SKILL.md`, also in the tarball | Claude Code, loaded on demand                            |
+| A Claude Code skill                                                          | `skills/vitest-auto-spy/SKILL.md`, also in the tarball | Claude Code — and any client that *is* it, GLM included  |
 | Runtime error messages                                                       | every thrown error ends with `Docs: <url>`             | reading a stack trace instead of guessing                |
 
 ### Point your agent at it once
 
-Add this to your project's `CLAUDE.md`, `AGENTS.md`, `.cursorrules` or equivalent:
+Add this to the instruction file your agent actually reads — the table below says which one that is:
 
 ```md
 When writing or fixing tests that use `vitest-auto-spy`, first read
 `node_modules/vitest-auto-spy/AGENTS.md`. It is the authoritative reference for the API,
 the configuration semantics and the common mistakes.
 ```
+
+The text is the same everywhere; only the filename changes. **Two files cover the whole field: a
+root `AGENTS.md` and a root `CLAUDE.md`.** Put the identical block in both and every agent below is
+served — including the ones your teammates use and you do not.
+
+### Which file your agent reads
+
+| Agent                                                               | Instruction file it reads                                                                                                                                                               | Reads `AGENTS.md`?                                                |
+| ------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| **Claude Code**                                                     | `CLAUDE.md` — project, `.claude/CLAUDE.md` and `~/.claude/CLAUDE.md`, all concatenated                                                                                                   | **No.** Bridge with an `@AGENTS.md` import line, or a symlink      |
+| **OpenAI Codex** — the `codex` CLI, the IDE extension, Codex cloud  | `AGENTS.md`, one per directory from the git root down to the cwd ([below](#openai-codex))                                                                                                | native                                                             |
+| **GLM (z.ai coding plan)**, **Kimi K2**                             | whatever their client reads — inside Claude Code that is `CLAUDE.md` ([below](#glm-zai-kimi-k2-and-other-claude-compatible-models))                                                      | through the client                                                 |
+| **Cursor**                                                          | root `AGENTS.md`; `.cursor/rules/*.mdc` for glob-scoped rules                                                                                                                            | native — and it applies a root `CLAUDE.md` the same always-on way  |
+| **GitHub Copilot**                                                  | root `AGENTS.md`; `.github/copilot-instructions.md`                                                                                                                                      | native, coding agent included                                      |
+| **OpenCode**                                                        | `AGENTS.md`, then `CLAUDE.md`, per directory upwards                                                                                                                                     | native                                                             |
+| **Cline**                                                           | root `AGENTS.md`; the `.clinerules/` directory                                                                                                                                           | native                                                             |
+| **Windsurf / Cascade**                                              | root `AGENTS.md`; `.windsurf/rules/*.md` (`.devin/rules/*.md` when present)                                                                                                              | yes                                                                |
+| **Zed**                                                             | **first match wins, no merging**: `.rules` → `.cursorrules` → `.windsurfrules` → `.clinerules` → `.github/copilot-instructions.md` → `AGENT.md` → `AGENTS.md` → `CLAUDE.md` → `GEMINI.md` | yes — only if nothing earlier in that list exists                  |
+| **Gemini CLI**                                                      | `GEMINI.md` ([below](#gemini-cli))                                                                                                                                                       | **not by default**                                                 |
+| **Qwen Code**                                                       | `QWEN.md`                                                                                                                                                                                | native fallback                                                    |
+| **Roo Code**                                                        | root `AGENTS.md`; `.roo/rules/`                                                                                                                                                          | yes                                                                |
+| **Junie**                                                           | root `AGENTS.md` — note that `.junie/AGENTS.md` replaces it outright                                                                                                                     | yes                                                                |
+| **Aider**                                                           | nothing implicitly — list the file: `read: [AGENTS.md]` in `.aider.conf.yml`                                                                                                             | on request                                                         |
+| **Jules, Factory, goose, Amp, Warp, Devin, Kilo, Augment, VS Code** | root `AGENTS.md`                                                                                                                                                                         | native                                                             |
+
+**Do not create `.rules`, `.cursorrules`, `.windsurfrules` or `.clinerules` just to hold this
+snippet.** Zed resolves that list first-match-wins with no merging, so a newly created legacy file
+silently shadows the `AGENTS.md` the rest of the project relies on. Append to one only if it
+already exists.
+
+### Install it in your agent
+
+Two commands at the repository root cover every tool in that table:
+
+```bash
+# 1 — AGENTS.md: Codex, Cursor, Copilot, Cline, Windsurf, Zed, OpenCode, Qwen, Roo, Junie, Aider…
+cat >> AGENTS.md <<'MD'
+
+## Tests that use `vitest-auto-spy`
+
+When writing or fixing tests that use `vitest-auto-spy`, first read
+`node_modules/vitest-auto-spy/AGENTS.md`. It is the authoritative reference for the API,
+the configuration semantics and the common mistakes.
+MD
+
+# 2 — CLAUDE.md: Claude Code, and GLM / Kimi running inside it. One line, no second copy to maintain
+printf '\n@AGENTS.md\n' >> CLAUDE.md
+```
+
+`@AGENTS.md` is Claude Code's own import syntax, so the instructions live in exactly one file. A
+symlink (`ln -s AGENTS.md CLAUDE.md`) does the same job if you would rather not have the second file
+at all.
+
+Then, per tool — everything in the right-hand column is optional on top of those two files:
+
+| Agent                                       | Install                                                                                                                                              |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Claude Code**                             | `/plugin marketplace add ASDAlexey/vitest-auto-spy`, then `/plugin install vitest-auto-spy@vitest-auto-spy` — [the skill](#claude-code-plugin), no project files touched |
+| **OpenAI Codex**                            | nothing more; optionally `~/.codex/config.toml` from [below](#openai-codex)                                                                          |
+| **GLM (z.ai)**, **Kimi K2**                 | identical to Claude Code — same client, same plugin command                                                                                          |
+| **Cursor**                                  | `.cursor/rules/vitest-auto-spy.mdc` to load it only for spec files (see below)                                                                       |
+| **GitHub Copilot**                          | `.github/instructions/vitest-auto-spy.instructions.md` (see below)                                                                                   |
+| **Cline**                                   | `.clinerules/vitest-auto-spy.md` — the same three lines, plus `paths: ["**/*.spec.ts","**/*.test.ts"]`                                                |
+| **Windsurf / Cascade**                      | `.windsurf/rules/vitest-auto-spy.md` with `trigger: glob` (see below)                                                                                |
+| **Roo Code**                                | `.roo/rules/vitest-auto-spy.md` — always on, so keep it to the three-line pointer                                                                     |
+| **Gemini CLI**                              | `GEMINI.md`, or the `.gemini/settings.json` patch from [below](#gemini-cli)                                                                           |
+| **Aider**                                   | `.aider.conf.yml`: `read: [AGENTS.md]`                                                                                                               |
+| **Zed, OpenCode, Qwen Code, Junie, Jules…** | nothing — the root `AGENTS.md` is the whole install                                                                                                  |
+
+The glob-scoped variants, for the three tools whose format is not plain Markdown. Each body is the
+same pointer; only the frontmatter differs:
+
+```md
+<!-- .cursor/rules/vitest-auto-spy.mdc -->
+---
+description: How to write tests with vitest-auto-spy
+globs: **/*.spec.ts, **/*.spec.tsx, **/*.test.ts, **/*.test.tsx
+alwaysApply: false
+---
+
+Read `node_modules/vitest-auto-spy/AGENTS.md` before writing or fixing a spec that uses
+`vitest-auto-spy` — the API, the configuration semantics and the common mistakes.
+```
+
+```md
+<!-- .github/instructions/vitest-auto-spy.instructions.md -->
+---
+applyTo: '**/*.spec.ts,**/*.spec.tsx,**/*.test.ts,**/*.test.tsx'
+---
+
+Read `node_modules/vitest-auto-spy/AGENTS.md` before writing or fixing a spec that uses
+`vitest-auto-spy`.
+```
+
+```md
+<!-- .windsurf/rules/vitest-auto-spy.md — .devin/rules/ when that directory exists -->
+---
+trigger: glob
+globs: **/*.spec.ts, **/*.test.ts
+---
+
+Read `node_modules/vitest-auto-spy/AGENTS.md` before writing or fixing a spec that uses
+`vitest-auto-spy`.
+```
+
+Cursor's `globs` is a **comma-separated string, not a YAML array**, and a Windsurf rule file is
+capped at 12 000 characters — both are reasons the rule points at the reference instead of copying
+it.
+
+### OpenAI Codex
+
+Codex — the `codex` CLI, the IDE extension and Codex cloud — reads the open `AGENTS.md` convention,
+so a root `AGENTS.md` is the whole integration. Two details decide whether it reaches the model at
+all:
+
+- **The chain is git-root→cwd, at most one file per directory** (`AGENTS.override.md` wins over
+  `AGENTS.md`), concatenated. In a monorepo, put the block in the package's own `AGENTS.md` too when
+  that package runs a different runner — it is the only way to say "this one is `bun test`, the one
+  next door is Vitest", which is exactly the distinction that decides which entry point gets
+  imported.
+- **The whole chain is capped** by `project_doc_max_bytes`, **32 768 bytes by default**; anything
+  over budget is truncated with a warning. If your `AGENTS.md` is already long, keep the pointer
+  near the top of it.
+
+For a repo that keeps its instructions in `CLAUDE.md`, teach Codex to fall back — this is global
+config on your own machine, nothing to commit:
+
+```toml
+# ~/.codex/config.toml
+project_doc_fallback_filenames = ["CLAUDE.md"]   # per directory, when no AGENTS.md is there
+project_doc_max_bytes = 65536                    # raise the 32 KB budget for a monorepo chain
+```
+
+Codex cloud reads the same root `AGENTS.md`, and its agent has **no internet access by default** —
+which is exactly why this reference ships inside the tarball rather than only on the docs site.
+`node_modules/vitest-auto-spy/AGENTS.md` is on disk the moment the setup script has installed
+dependencies, so nothing has to be fetched.
+
+### GLM (z.ai), Kimi K2 and other Claude-compatible models
+
+GLM is a **model**, not an agent — the thing that reads files is the client you run it in.
+
+The z.ai coding plan runs GLM **inside Claude Code**, by pointing `ANTHROPIC_BASE_URL` (with
+`ANTHROPIC_AUTH_TOKEN`) at z.ai's Anthropic-compatible endpoint. File discovery is untouched by
+that: `CLAUDE.md`, `.claude/skills/` and the [plugin](#claude-code-plugin) below behave exactly as
+they do on Claude, because it is the same client. Kimi K2 driven through Claude Code is the same
+story — and there the skill and the plugin are worth more than a pasted snippet, because they load
+only when a spec actually mentions the library and cost no context the rest of the time.
+
+Run GLM through a different client and that client decides: OpenCode, Cline, Roo Code and Kilo Code
+all read the root `AGENTS.md`. Moonshot's own `kimi-cli` reads its own `AGENTS.md` chain, including
+`.kimi/AGENTS.md`.
+
+### Gemini CLI
+
+Gemini CLI reads `GEMINI.md` and does **not** read `AGENTS.md` by default. Either paste the snippet
+into `GEMINI.md`, or name both files once:
+
+```json
+// .gemini/settings.json
+{ "context": { "fileName": ["GEMINI.md", "AGENTS.md"] } }
+```
+
+Qwen Code is derived from Gemini CLI and takes the same `context.fileName` setting, but already
+falls back to `AGENTS.md` on its own.
 
 ### Claude Code plugin
 
@@ -194,7 +389,7 @@ project files:
 ```
 
 The skill loads only when a spec actually mentions the library, so it costs nothing the rest of
-the time.
+the time. It works in any client that *is* Claude Code — the z.ai and Kimi setups above included.
 
 ## Availability
 
@@ -894,132 +1089,6 @@ None of them pull the framework into this package; they're recipes over the same
 > ([Availability](#availability)). Each is a thin recipe over the same core, so you can equally copy it
 > using the core `vitest-auto-spy` import directly.
 
-### NestJS
-
-Use `provideAutoSpy` to register a fully-mocked service in a `TestingModule`, then `injectSpy` to
-pull it back out already typed as `Spy<T>`. `@nestjs/common` / `@nestjs/testing` are your own
-(optional) peers — the helper imports neither:
-
-```ts
-import { Test, type TestingModule } from '@nestjs/testing';
-import { beforeEach, expect, it } from 'vitest';
-import { injectSpy, provideAutoSpy } from 'vitest-auto-spy/nestjs';
-
-import { AuthService } from './auth.service';
-import { UserService } from './user.service';
-
-let moduleRef: TestingModule;
-let userServiceSpy: Spy<UserService>;
-
-beforeEach(async () => {
-  moduleRef = await Test.createTestingModule({
-    providers: [AuthService, provideAutoSpy(UserService)],
-  }).compile();
-
-  userServiceSpy = injectSpy(moduleRef, UserService);
-});
-
-it('logs in a known user', () => {
-  userServiceSpy.findByEmail.mockReturnValue({ id: 1, name: 'Ada' });
-
-  const auth = moduleRef.get(AuthService);
-  expect(auth.login('ada@example.com')).toBeTruthy();
-  expect(userServiceSpy.findByEmail).toHaveBeenCalledWith('ada@example.com');
-});
-```
-
-### React (Testing Library)
-
-React has no DI container, so there's no `provide*` helper — the recipe is: **spy the classes you
-own** (services, stores, API clients, hook deps), then pass the spy into a Context provider or hook.
-The spy is a plain object of spied functions, so it drops straight into `value={...}`:
-
-```tsx
-import { render, screen } from '@testing-library/react';
-import { createSpyFromClass, type Spy } from 'vitest-auto-spy/react';
-import { CartContext, Cart } from './cart';
-
-class CartStore {
-  getItemCount(): number { return 0; }
-  checkout(token: string): Promise<{ orderId: string }> { /* ... */ }
-}
-
-let cart: Spy<CartStore>;
-
-beforeEach(() => {
-  cart = createSpyFromClass(CartStore); // every method is now a spy
-});
-
-it('shows the item count from the injected store', () => {
-  cart.getItemCount.mockReturnValue(3);
-
-  render(
-    <CartContext.Provider value={cart}>
-      <Cart />
-    </CartContext.Provider>,
-  );
-
-  expect(screen.getByText('3 items')).toBeInTheDocument();
-});
-
-it('drives async deps and asserts the component called them', async () => {
-  cart.checkout.resolveWith({ orderId: 'ord_42' });
-  // ...trigger checkout in the UI...
-  expect(cart.checkout).toHaveBeenCalledWith('tok_abc');
-});
-```
-
-### Vue / Pinia
-
-`provideAutoSpy(token, Class)` returns a `{ [token]: Spy<T> }` map you can spread into
-`@vue/test-utils`' `global.provide`; for a class-based Pinia store, spy it directly:
-
-```ts
-// (a) class-based service injected via provide / global.provide
-import { UserService, UserServiceKey } from '@/services/user.service';
-// (b) class-based Pinia store — every action becomes a spy
-import { CartStore } from '@/stores/cart.store';
-import { mount } from '@vue/test-utils';
-import { createSpyFromClass, provideAutoSpy } from 'vitest-auto-spy/vue';
-
-const provide = provideAutoSpy(UserServiceKey, UserService); // { [UserServiceKey]: Spy<UserService> }
-provide[UserServiceKey].getName.mockReturnValue('Fake Name');
-
-const wrapper = mount(UserBadge, { global: { provide } });
-expect(provide[UserServiceKey].getName).toHaveBeenCalled();
-
-const store = createSpyFromClass(CartStore);
-store.itemCount.mockReturnValue(3); // sync action/getter
-store.checkout.resolveWith({ orderId: 'ord_42' }); // async action (Promise)
-await store.checkout('tok_abc');
-expect(store.checkout).toHaveBeenCalledWith('tok_abc');
-```
-
-### Svelte
-
-Svelte has no class-based DI, so it's a recipe: keep your logic in plain class-based
-services/stores, spy the class, and hand the spy to the component the same way it receives the real
-one (props, context, or a mocked module):
-
-```ts
-import { render } from '@testing-library/svelte';
-import { createSpyFromClass } from 'vitest-auto-spy/svelte';
-
-import Cart from './Cart.svelte';
-import { CartStore } from './cart-store';
-
-it('shows the cart total from the store', () => {
-  const cartStore = createSpyFromClass(CartStore); // every method is a spy
-
-  cartStore.total.mockReturnValue(42);
-  cartStore.priceOf.calledWith('apple').mockReturnValue(7);
-
-  render(Cart, { props: { store: cartStore } });
-
-  expect(cartStore.total).toHaveBeenCalled();
-});
-```
-
 ### Angular
 
 <div align="center">
@@ -1226,6 +1295,132 @@ suite that wants the numbers without the per-file line.
 
 The clock is captured at import time, so a spec using `vi.useFakeTimers()` is still measured
 honestly rather than reported as free.
+
+### NestJS
+
+Use `provideAutoSpy` to register a fully-mocked service in a `TestingModule`, then `injectSpy` to
+pull it back out already typed as `Spy<T>`. `@nestjs/common` / `@nestjs/testing` are your own
+(optional) peers — the helper imports neither:
+
+```ts
+import { Test, type TestingModule } from '@nestjs/testing';
+import { beforeEach, expect, it } from 'vitest';
+import { injectSpy, provideAutoSpy } from 'vitest-auto-spy/nestjs';
+
+import { AuthService } from './auth.service';
+import { UserService } from './user.service';
+
+let moduleRef: TestingModule;
+let userServiceSpy: Spy<UserService>;
+
+beforeEach(async () => {
+  moduleRef = await Test.createTestingModule({
+    providers: [AuthService, provideAutoSpy(UserService)],
+  }).compile();
+
+  userServiceSpy = injectSpy(moduleRef, UserService);
+});
+
+it('logs in a known user', () => {
+  userServiceSpy.findByEmail.mockReturnValue({ id: 1, name: 'Ada' });
+
+  const auth = moduleRef.get(AuthService);
+  expect(auth.login('ada@example.com')).toBeTruthy();
+  expect(userServiceSpy.findByEmail).toHaveBeenCalledWith('ada@example.com');
+});
+```
+
+### React (Testing Library)
+
+React has no DI container, so there's no `provide*` helper — the recipe is: **spy the classes you
+own** (services, stores, API clients, hook deps), then pass the spy into a Context provider or hook.
+The spy is a plain object of spied functions, so it drops straight into `value={...}`:
+
+```tsx
+import { render, screen } from '@testing-library/react';
+import { createSpyFromClass, type Spy } from 'vitest-auto-spy/react';
+import { CartContext, Cart } from './cart';
+
+class CartStore {
+  getItemCount(): number { return 0; }
+  checkout(token: string): Promise<{ orderId: string }> { /* ... */ }
+}
+
+let cart: Spy<CartStore>;
+
+beforeEach(() => {
+  cart = createSpyFromClass(CartStore); // every method is now a spy
+});
+
+it('shows the item count from the injected store', () => {
+  cart.getItemCount.mockReturnValue(3);
+
+  render(
+    <CartContext.Provider value={cart}>
+      <Cart />
+    </CartContext.Provider>,
+  );
+
+  expect(screen.getByText('3 items')).toBeInTheDocument();
+});
+
+it('drives async deps and asserts the component called them', async () => {
+  cart.checkout.resolveWith({ orderId: 'ord_42' });
+  // ...trigger checkout in the UI...
+  expect(cart.checkout).toHaveBeenCalledWith('tok_abc');
+});
+```
+
+### Vue / Pinia
+
+`provideAutoSpy(token, Class)` returns a `{ [token]: Spy<T> }` map you can spread into
+`@vue/test-utils`' `global.provide`; for a class-based Pinia store, spy it directly:
+
+```ts
+// (a) class-based service injected via provide / global.provide
+import { UserService, UserServiceKey } from '@/services/user.service';
+// (b) class-based Pinia store — every action becomes a spy
+import { CartStore } from '@/stores/cart.store';
+import { mount } from '@vue/test-utils';
+import { createSpyFromClass, provideAutoSpy } from 'vitest-auto-spy/vue';
+
+const provide = provideAutoSpy(UserServiceKey, UserService); // { [UserServiceKey]: Spy<UserService> }
+provide[UserServiceKey].getName.mockReturnValue('Fake Name');
+
+const wrapper = mount(UserBadge, { global: { provide } });
+expect(provide[UserServiceKey].getName).toHaveBeenCalled();
+
+const store = createSpyFromClass(CartStore);
+store.itemCount.mockReturnValue(3); // sync action/getter
+store.checkout.resolveWith({ orderId: 'ord_42' }); // async action (Promise)
+await store.checkout('tok_abc');
+expect(store.checkout).toHaveBeenCalledWith('tok_abc');
+```
+
+### Svelte
+
+Svelte has no class-based DI, so it's a recipe: keep your logic in plain class-based
+services/stores, spy the class, and hand the spy to the component the same way it receives the real
+one (props, context, or a mocked module):
+
+```ts
+import { render } from '@testing-library/svelte';
+import { createSpyFromClass } from 'vitest-auto-spy/svelte';
+
+import Cart from './Cart.svelte';
+import { CartStore } from './cart-store';
+
+it('shows the cart total from the store', () => {
+  const cartStore = createSpyFromClass(CartStore); // every method is a spy
+
+  cartStore.total.mockReturnValue(42);
+  cartStore.priceOf.calledWith('apple').mockReturnValue(7);
+
+  render(Cart, { props: { store: cartStore } });
+
+  expect(cartStore.total).toHaveBeenCalled();
+});
+```
 
 ### Which factory, and what it costs
 
@@ -1616,6 +1811,7 @@ export can never be.
 | `no-expect-in-subscribe`       |   `error`   | suggest   | `expect()` inside a `subscribe()` callback → `expectEmission` / `firstValueFrom`      |
 | `no-shared-module-level-mock`  |   `error`   | —         | an **exported** value holding `vi.fn()`s → export a factory that returns it           |
 | `no-mocked-for-spy`            |   `warn`    | `--fix`   | `Mocked<T>` in any type position → `Spy<T>`, import and all                            |
+| `prefer-as-spy`                |   `warn`    | `--fix`   | `TestBed.inject(X) as Spy<X>` → `asSpy<X>(TestBed.inject(X))`, import and all           |
 | `no-done-callback`             |   `error`   | —         | `it('x', (done) => …)` → `async` + an awaited assertion                               |
 | `no-floating-assertion`        |   `error`   | —         | `expect()` in a `.then()` nobody awaits → `expect(await promise)`                     |
 | `no-overridden-provider`       |   `error`   | —         | two providers for one token in one array → the earlier one never runs                 |
@@ -1625,13 +1821,18 @@ Every message ends with a link to the matching [recipe](#how-to-mock): a rule th
 "don't" moves the problem rather than solving it. Rules travel with the API they recommend, so they
 are versioned together and stop being re-written in every project that installs the package.
 
-**One of the eleven fixes on its own, three offer suggestions**, and the split is not about how hard
+**Two of the twelve fix on their own, three offer suggestions**, and the split is not about how hard
 the rewrite is. `no-mocked-for-spy` touches a *declaration*: get it wrong and the file stops
 compiling, which is the loudest, cheapest failure there is — so `--fix` rewrites the type, adds
 `import type { Spy } from 'vitest-auto-spy'` and drops the `Mocked` import once nothing else uses
 it. It stands back where it cannot prove the rename is Vitest's `Mocked` (a `Mocked` the file
 declares itself, a `Spy` that already means something else, an argument that is not a named type)
-and reports without a fix. The other two change *behaviour* — whether `injectSpy(X)` finds a spy
+and reports without a fix. `prefer-as-spy` earns the same licence from the other end: the cast it
+reports is the developer's own assertion that the value is a `Spy<X>`, and `asSpy` is a typed
+identity function — so the rewrite keeps that assertion whole, changes nothing but how it is
+spelled, and cannot reach run time. It arrives in batches, because `TestBed.inject(X) as Spy<X>`
+is written once per injected double in a `jest-auto-spies` suite and fails with `TS2352` here.
+The other two change *behaviour* — whether `injectSpy(X)` finds a spy
 depends on a `provideAutoSpy(X)` that usually lives in another file, and `mockValueProp` leaves the
 property writable and configurable — so they are offered as editor suggestions and applied by a
 human — as is `no-expect-in-subscribe`, which rewrites the whole
@@ -1639,6 +1840,48 @@ human — as is `no-expect-in-subscribe`, which rewrites the whole
 `firstValueFrom`. The remaining five replace one shape with several statements, or with a shape
 whose arguments the source does not contain (`createSpyFromClass` needs the class the object
 literal never names), and no per-node edit can do that.
+
+## Editor diagnostics — WebStorm & VS Code
+
+The rules above are worth more while the cursor is still on the line than they are in CI, because
+every shape they catch **passes**. They are ESLint rules, so no editor needs a plugin of this
+package's own — it needs its ESLint integration switched on.
+
+### WebStorm and the other JetBrains IDEs
+
+No plugin to install: WebStorm, IntelliJ IDEA Ultimate, PhpStorm, PyCharm Professional and RubyMine
+all run ESLint natively, so the twelve rules appear inline, in the **Problems** tool window, and
+under **Code → Inspect Code** for the whole project.
+
+```js
+// eslint.config.js — flat config, at the repository root
+import autoSpy from 'vitest-auto-spy/eslint-plugin';
+
+export default [{ files: ['**/*.spec.ts', '**/*.test.ts'], ...autoSpy.configs.recommended }];
+```
+
+Then **Settings → Languages & Frameworks → JavaScript → Code Quality Tools → ESLint → Automatic
+ESLint configuration**. Three things that otherwise read as "the rules do not work": flat config
+only (the legacy `.eslintrc` `plugins: [...]` form can never resolve a subpath export, and WebStorm
+has supported flat config since 2023.3); scope the block to spec files yourself; and `⌥⏎` is where
+the fixes and suggestions live.
+
+A native JetBrains plugin is **not** planned — it would duplicate an integration the IDE already has
+and then keep a second copy of twelve rules, in Kotlin, in step with the TypeScript ones.
+
+### VS Code, Cursor, Windsurf, VSCodium
+
+The same flat config, plus the [ESLint extension](https://marketplace.visualstudio.com/items?itemName=dbaeumer.vscode-eslint) —
+the rules then appear inline and in the Problems panel exactly as they do in WebStorm, and
+`source.fixAll.eslint` applies the one auto-fixable rule on save:
+
+```jsonc
+// .vscode/settings.json
+{ "editor.codeActionsOnSave": { "source.fixAll.eslint": "explicit" } }
+```
+
+Full details, including what each rule catches and why, in
+[Editor diagnostics](https://asdalexey.github.io/vitest-auto-spy/utilities/editor-diagnostics).
 
 ## Bridging `Spy<T>` and `T`
 
