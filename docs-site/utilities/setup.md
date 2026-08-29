@@ -1,6 +1,6 @@
 ---
 title: Test-run hygiene
-description: setupAutoSpy() — property restore, mock-registry reset, duplicate-copy detection and global-patch guarding in one call.
+description: setupAutoSpy() — property restore, mock-registry reset, duplicate-copy detection, stray timers and rejections, and global-patch guarding in one call.
 ---
 
 # Test-run hygiene
@@ -163,7 +163,7 @@ Opt-in, and it answers a question that is otherwise answered by grepping the rep
 `Object.defineProperty(document, 'cookie', { value, writable: true })` is the Jest-era way to stub a
 browser global, and `configurable` defaults to `false`. Under per-file isolation that is harmless —
 the environment is discarded anyway. Under `isolate: false` the property can no longer be redefined
-*or* deleted, so every later file in that worker inherits it, and what fails is some library, every
+_or_ deleted, so every later file in that worker inherits it, and what fails is some library, every
 other run, with nothing pointing back at the file that did it.
 
 ```ts
@@ -178,8 +178,82 @@ non-configurable own property, so nothing can put it back — not `restoreMocked
 ```
 
 `globalThis`, `document` and `navigator` are compared before and after every test; only properties
-that appeared *and* cannot be removed are reported. `guardGlobalPatches(reaction)` is exported for a
+that appeared _and_ cannot be removed are reported. `guardGlobalPatches(reaction)` is exported for a
 suite that wants the check somewhere narrower.
+
+## 8. Failing on a rejection zone.js swallowed
+
+Opt-in, and the one switch on this page that changes whether a green run is telling the truth.
+
+zone.js replaces the global `Promise`. A rejected `ZoneAwarePromise` nobody handled is drained in
+`api.microtaskDrainDone()` and reported through `api.onUnhandledError` — which is a
+`console.error` and nothing else. It never reaches `process.on('unhandledRejection')`, the channel
+Vitest listens on, so the runner is never told: a file that rejected a hundred promises still exits 0.
+
+What that hides is ordinary code:
+
+```ts
+it('renders once compiled', () => {
+  TestBed.compileComponents().then(() => expect(component.ready).toBe(true)); // never runs
+});
+```
+
+The test is over before the callback runs, so the assertion settles after the test it belongs to was
+already reported green — and when it fails, the failure _is_ a rejection nothing handled. The same
+goes for an `async` helper called without `await`, and for a `TypeError` thrown inside an
+`import('…').then(…)` in production code. In one migrated Angular monorepo — 1688 spec files,
+11 587 tests, green, exit 0 — six real defects were sitting behind exactly this, two of them
+assertions that were simply false.
+
+```ts
+setupAutoSpy({ strayRejections: true });
+```
+
+The rejection then fails the test the runner was in when zone.js gave up on it:
+
+```text
+[vitest-auto-spy] 1 promise rejection(s) went unhandled and zone.js swallowed each one into console.error:
+  - AssertionError: expected false to be true — attributed to TaskListComponent > renders once compiled
+An assertion that settles after its test has finished cannot fail it: the test it belongs to was
+reported green without ever running it. … return or await the promise so the assertion lands inside
+the test.
+```
+
+"Attributed to" rather than "thrown by", because a rejection created by one file's test routinely
+surfaces during a later one; and the closing advice changes with the kind — a failed matcher and a
+thrown error are different bugs.
+
+Two deliberate limits. zone.js has to be loaded already: this package never imports it — a zoneless
+project must not pull it in — so `import 'zone.js';` at the top of the setup file, or the
+`@angular/build:unit-test` builder's own entry point, is what puts it there, and without it the call
+**throws** rather than quietly watching nothing. And no `process.on('unhandledRejection')` listener
+is installed: Vitest's own handler bails out as soon as a second listener exists, so adding one would
+_silence_ the native rejections the runner already reports and fails runs for. Native rejections are
+not the gap; the zone-swallowed ones are.
+
+The pieces are exported for a suite that wants the check somewhere narrower, or wants the captures
+themselves:
+
+```ts
+import { countStrayRejections, flushStrayRejections, trackStrayRejections } from 'vitest-auto-spy/setup';
+
+const stop = trackStrayRejections(); // idempotent; returns the undo, which restores the previous handler
+
+afterEach(() => {
+  const stray = flushStrayRejections(); // { reason, assertion, testName }[], and starts again from empty
+
+  expect(stray).toEqual([]);
+});
+```
+
+Each takes the same optional host as the stray-timer trackers, defaulting to the real globals.
+`countStrayRejections()` throws when nothing is tracking the host — asking for a count that is
+always `0` because nothing is watching is the failure mode worth being loud about — while
+`flushStrayRejections()` returns an empty array instead, so a teardown left behind after the option
+is turned off does not throw at the suite.
+
+The [`no-floating-assertion`](/utilities/eslint-plugin) rule catches the commonest shape statically,
+before it ever runs.
 
 ## Reinstalling a stub for every test
 
@@ -216,6 +290,7 @@ each test: a stub installed for the previous test is exactly what must not still
 | `restoreProps`        | `true`    | `restoreMockedProps()` in a global `afterEach`                                |
 | `restoreMocks`        | `false`   | `vi.restoreAllMocks()` in a global `afterEach` — turn on for `isolate: false` |
 | `strayTimers`         | `false`   | Track and cancel timeouts, intervals and frames that outlive their file       |
+| `strayRejections`     | `false`   | Fail the test a rejection zone.js swallowed surfaced in — needs zone.js       |
 | `blockNetwork`        | `false`   | Reject every `fetch`, so a unit run cannot reach the network                  |
 | `guardGlobals`        | `'off'`   | Report a test that redefines a global property as non-configurable            |
 | `globalFakeTimers`    | `false`   | Fake timers for every test **and between them** — see below                   |
@@ -244,7 +319,7 @@ leaves the environment without `clearInterval` — which explodes during teardow
 runs next, blaming it.
 
 It also keeps the clock fake **between** tests, which is the half of `enableGlobally` a
-`beforeEach`-only pair misses: a `beforeAll` inside a nested `describe` runs *after* the previous
+`beforeEach`-only pair misses: a `beforeAll` inside a nested `describe` runs _after_ the previous
 test's `afterEach`, so a block that prepares its samples there would otherwise meet real timers and
 fail with `the timers APIs are not mocked` — in a set whose own tests never touch a timer. The fakes
 come off for good in `afterAll`, so they never outlive the file. For one `describe` rather than the

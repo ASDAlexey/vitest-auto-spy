@@ -12,6 +12,33 @@ The latest released version here must always match the one published on
 
 ### Added
 
+- **`setupAutoSpy({ strayRejections: true })`** — turns a promise rejection zone.js swallowed into a
+  failed test. zone.js replaces the global `Promise`, and a rejected `ZoneAwarePromise` nobody
+  handled is drained into `console.error` and no further: it never reaches
+  `process.on('unhandledRejection')`, the channel Vitest listens on, so the runner is never told and
+  the file still exits 0. An assertion that dies inside a `.then()` therefore prints to stderr and
+  leaves its test green — as does an `async` helper called without `await`, and a `TypeError` thrown
+  inside an `import('…').then(…)` in production code. In the migrated Angular monorepo this came
+  from — 1688 spec files, 11 587 tests, green, exit 0 — that one shape was hiding **six real
+  defects**, two of them assertions that were simply false. The option claims the hook zone.js
+  leaves free under Node and jsdom (`Zone[Zone.__symbol__('unhandledPromiseRejectionHandler')]`),
+  chaining to whatever was already there rather than replacing it, and fails the test the runner was
+  in when the rejection surfaced. Off by default, because it needs zone.js already loaded — this
+  package never imports it, so a zoneless project is untouched and the call throws rather than
+  pretending to watch. Deliberately **not** a `process.on('unhandledRejection')` listener: Vitest's
+  own handler bails out as soon as a second listener exists, so adding one would *silence* the
+  native rejections the runner already fails a run for. `trackStrayRejections()`,
+  `countStrayRejections()` and `flushStrayRejections()` are exported for a suite that wants the
+  check somewhere narrower.
+- **`no-floating-assertion`** — a ninth ESLint rule, `error` in `configs.recommended`, and the
+  static half of the same failure. It flags an `expect()` inside a `.then()` / `.catch()` /
+  `.finally()` callback whose chain is a bare expression statement: nothing awaits it, returns it,
+  assigns it or passes it on, so the test ends before the callback runs and the assertion never runs
+  at all — the test passes whatever it claimed, including claims that are false. It walks to the top
+  of the chain before deciding, so the first callback of `p.then(a).catch(b)` is not cleared by the
+  second having a consumer, and it reads only the *immediately* enclosing callback: awaiting the
+  chain revives an `expect` sitting directly in the `.then()`, but not one parked in a
+  `subscribe()` inside it, and reporting only what the fix repairs keeps the message honest.
 - **`setupFakeTimers(config?, { betweenTests })`** — keeps the clock fake in the gaps between tests,
   not only during them, which is what Jest's `fakeTimers.enableGlobally` did. Arming in `beforeEach`
   alone does not reproduce it: a `beforeAll` inside a **nested** `describe` runs after the previous
