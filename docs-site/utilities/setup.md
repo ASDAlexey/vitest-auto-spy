@@ -180,7 +180,7 @@ passes is resting on nothing listening on that port.
 `WebSocket` and `EventSource` are deliberately left alone. Their failure is an event on an object
 the code keeps and reconnects, so there is no answer a blanket stub could give that is not a
 behaviour change of its own;
-[`stubConstructor`](/utilities/doubles) is the tool for a spec that has one.
+[`stubConstructor`](/utilities/constructor-doubles) is the tool for a spec that has one.
 
 ## 6. Putting back timer globals the fakes took with them
 

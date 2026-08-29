@@ -667,7 +667,7 @@ object:
 provideAutoSpyForToken(LOGGER, { channel: vi.fn().mockReturnThis() });
 ```
 
-For a chain more than one link long, [`mockDeep<T>()`](/core/factories) is the double that answers
+For a chain more than one link long, [`mockDeep<T>()`](/core/auto-mock-by-type#recursive-deep-mocks-%E2%80%94-mockdeep) is the double that answers
 at every level.
 
 ## `injectSpy` says when it got the real thing
