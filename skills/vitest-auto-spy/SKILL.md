@@ -1,6 +1,6 @@
 ---
 name: vitest-auto-spy
-description: Write or fix tests that use vitest-auto-spy — typed spies generated from a class or a type on Vitest, bun:test and node:test. Use when a spec imports `vitest-auto-spy` (or a subpath such as `/angular`, `/bun`, `/bun-angular`, `/node`, `/rxjs`, `/nestjs`, `/vue`, `/react`, `/svelte`, `/console`, `/setup`, `/zone`, `/eslint-plugin`), when the user mentions createSpyFromClass, createAutoMock, autoMocked, createMock, mockDeep, provideAutoSpy, provideAutoSpyForToken, injectSpy, renderShallow, createWithAutoSpies, overrideComponentProvider, assertNgModuleScopes, setupAngularTestEnv, createDirectiveHost, toHaveDirectiveApplied, expectEmission, mockSignalProp, runEffect, mockReadonlyProp, stubIntersectionObserver, stubResizeObserver, stubMutationObserver, stubMediaElement, stubAbortController, mockConstructor, stubConstructor, flushEventLoop, settleDynamicImport, mockSystemTime, useCountingClock, registerFocusMatchers, toHaveFocus, assertMocked, moduleNamespace, diffByField, installPerTest, asInstances, narrow, withOverrides, compareTestRuns, installProxyZonePatch, setupAutoSpy, blockNetwork, trackStrayTimers, trackStrayRejections, Spy<T>, calledWith, mustBeCalledWith, onlyMethodsToSpyOn, instanceMethodsToSpyOn, observablePropsToSpyOn, resolveWith or nextWith, when migrating a suite off jest-auto-spies, or when a test fails with "No mock adapter registered", "Observable spies require rxjs", "not found on the class prototype", "is not a constructor", "Expected to be running in 'ProxyZone'" or "Spy<T> is not assignable".
+description: Write or fix tests that use vitest-auto-spy — typed spies generated from a class or a type on Vitest, bun:test and node:test. Use when a spec imports `vitest-auto-spy` (or a subpath such as `/angular`, `/bun`, `/bun-angular`, `/node`, `/rxjs`, `/nestjs`, `/vue`, `/react`, `/svelte`, `/console`, `/setup`, `/zone`, `/eslint-plugin`), when the user mentions createSpyFromClass, createAutoMock, autoMocked, createMock, mockDeep, provideAutoSpy, provideAutoSpyForToken, injectSpy, renderShallow, createWithAutoSpies, overrideComponentProvider, assertNgModuleScopes, setupAngularTestEnv, createDirectiveHost, toHaveDirectiveApplied, expectEmission, expectCompletion, mockSignalProp, runEffect, mockReadonlyProp, stubIntersectionObserver, stubResizeObserver, stubMutationObserver, stubMediaElement, stubAbortController, mockConstructor, stubConstructor, flushEventLoop, settleDynamicImport, mockSystemTime, useCountingClock, registerFocusMatchers, toHaveFocus, assertMocked, moduleNamespace, diffByField, installPerTest, asInstances, narrow, withOverrides, compareTestRuns, installProxyZonePatch, setupAutoSpy, blockNetwork, trackStrayTimers, trackStrayRejections, Spy<T>, calledWith, mustBeCalledWith, onlyMethodsToSpyOn, instanceMethodsToSpyOn, observablePropsToSpyOn, resolveWith or nextWith, when migrating a suite off jest-auto-spies, or when a test fails with "No mock adapter registered", "Observable spies require rxjs", "not found on the class prototype", "is not a constructor", "Expected to be running in 'ProxyZone'" or "Spy<T> is not assignable".
 ---
 
 # vitest-auto-spy
@@ -102,6 +102,7 @@ it('loads', async () => {
 | an `effect()` whose trigger is now a static signal                 | `runEffect(effectRef)`                                             |
 | the component constructs its own `IntersectionObserver`            | `stubIntersectionObserver()` (+ `Resize` / `Mutation`)             |
 | a green run exiting 1 with `AbortError` under happy-dom            | `setupAutoSpy({ blockNetwork: true })`                             |
+| a real request going out of a unit run (`fetch`, XHR, `sendBeacon`) | `setupAutoSpy({ blockNetwork: true })` — `{ xhr: 'empty' }` for pings |
 | timers or frames from a previous file failing this one             | `setupAutoSpy({ strayTimers: true })`                              |
 | an assertion error in stderr, every test green and the run at 0    | `setupAutoSpy({ strayRejections: true })` — zone.js swallowed it   |
 | a run getting slower the longer it goes, on `isolate: false`       | `setupAutoSpy({ pruneMockRegistry: true })` — the mock registry    |
@@ -153,6 +154,13 @@ it('loads', async () => {
   `mockAccessorsProp`, which `restoreMockedProps()` can undo (`vi.restoreAllMocks()` cannot).
 - **Never `expect()` inside a `subscribe()` callback** — a silent stream makes it a green test that
   asserted nothing. Use `expectEmission` / `expectEmissions` / `expectNoEmission` and `await`.
+  Measured: the same false assertion written four ways against four streams leaves **every**
+  `subscribe` form green — see `core/observable-assertions#measured-four-forms-against-four-streams`.
+  `firstValueFrom` fixes three of the four; only `expectEmission` names the stream in the fourth.
+  `expectCompletion` is the one for a stream whose value is not the point (an `Observable<void>`,
+  a save, a purge) — `firstValueFrom` rejects that one with rxjs's `EmptyError`. For the **error**
+  branch use `firstValueFrom(...).rejects` instead: these helpers wrap the failure in a new `Error`,
+  so `rejects.toBe(originalError)` cannot pass.
 - **Never leave an `expect()` in a `.then()` nobody awaits** — a promise chain that is a statement
   of its own runs its callback after the test has finished, so the assertion cannot fail it, and
   under zone.js the rejection is swallowed into `console.error` rather than reported.

@@ -57,10 +57,15 @@ export {
 } from './lib/testbed-diagnostics';
 
 export {
+  expectCompletion,
   expectEmission,
   expectEmissions,
+  expectError,
   expectNoEmission,
+  setEmissionTimeout,
+  type CallbackSubscribable,
   type EmissionObserver,
   type EmissionOptions,
+  type EmissionSource,
   type SubscribableLike,
 } from './lib/expect-emission';

@@ -136,9 +136,9 @@ export type * from './lib/types';
 
 // Core factories
 export { createSpyFromClass } from './lib/create-spy-from-class';
-export { autoMocked, createAutoMock } from './lib/auto-mock';
+export { autoMocked, createAutoMock, type AutoMockConfiguration } from './lib/auto-mock';
 export { createMock } from './lib/create-mock';
-export { mockDeep } from './lib/mock-deep';
+export { mockDeep, type MockDeepOptions } from './lib/mock-deep';
 export { createFunctionSpy } from './lib/function-spy';
 
 // Reset helpers
@@ -161,11 +161,16 @@ export {
 
 // Observable assertions that fail when the stream stays silent
 export {
+  expectCompletion,
   expectEmission,
   expectEmissions,
+  expectError,
   expectNoEmission,
+  setEmissionTimeout,
+  type CallbackSubscribable,
   type EmissionObserver,
   type EmissionOptions,
+  type EmissionSource,
   type SubscribableLike,
 } from './lib/expect-emission';
 
