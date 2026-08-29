@@ -36,6 +36,38 @@ npm ci
   automation bumps the version and publishes, but it does **not** write the changelog — so if
   you skip this, the changelog silently falls behind npm. See [Releasing](#releasing).
 
+## Every surface a feature has to reach
+
+A feature is not shipped when its code is merged; it is shipped when somebody can find it. This
+package has more surfaces than most, because half of its audience is a coding agent that will
+never open the README. **Walk this table on every user-facing change** — the ones with a command
+are checked in CI, the rest are not, and the ones that are not are the ones that rot.
+
+| Surface | Where | Checked by |
+| --- | --- | --- |
+| Changelog | `CHANGELOG.md`, under `## [Unreleased]` | — |
+| README bullet | the feature list at the top | — |
+| README section | a `##` section, and its line in the table of contents | — |
+| Docs page | `docs-site/<area>/<page>.md` | — |
+| Docs sidebar | `docs-site/.vitepress/config.mts` — a page missing here is also missing from `llms.txt` | `npm run llms:check` |
+| Landing | the `features:` cards in `docs-site/index.md` | — |
+| Agent reference | `AGENTS.md` — the file an agent reads instead of the README | — |
+| Claude Code skill | `skills/vitest-auto-spy/SKILL.md` | — |
+| Agent guide | `docs-site/agents.md`, when the change is about how an agent uses the package | — |
+| LLM files | `docs-site/public/llms.txt`, `llms-full.txt` — regenerate with `npm run llms` | `npm run llms:check` |
+| Plugin manifest | `.claude-plugin/` | `npm run plugin:sync:check` |
+| Alias package | `alias/` — a new **entry point** must appear there | `npm run alias:sync:check` |
+| Size badge | the `minzip` badge, when the main entry grew | `npm run size:badge:check` |
+| TODO | `TODO.md` — mark what shipped, and record what it deliberately did **not** ship | — |
+
+Two habits that keep this cheap:
+
+- **Write the docs page before the last commit, not after the release.** A page written later
+  documents what you remember, which is never the same as what you built.
+- **Say what was left out.** A `TODO.md` entry that records the three things a feature does not do
+  is worth more than one that says it is done — the next person reads it before re-deriving the
+  same three trade-offs.
+
 ## Commit messages
 
 This project uses [Conventional Commits](https://www.conventionalcommits.org/):
