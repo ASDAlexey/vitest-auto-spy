@@ -12,9 +12,86 @@ The latest released version here must always match the one published on
 
 ### Added
 
+- **`docs-site/utilities/editor-diagnostics.md` — the lint rules, in the editor.** They are
+  worth more while the cursor is still on the line than in CI, because every shape they catch
+  *passes*. No editor needs a plugin of this package's own: WebStorm, IntelliJ IDEA Ultimate,
+  PhpStorm, PyCharm Professional and RubyMine all run ESLint natively — inline, in the Problems tool
+  window and under **Code → Inspect Code** — and VS Code, Cursor and Windsurf need only the ESLint
+  extension. The page carries the setup for both, the three things that otherwise read as "the rules
+  do not work" (flat config only, scope the block to spec files yourself, `⌥⏎` is where the fixes
+  and suggestions live), a table of what gets underlined and why, and the reason a native JetBrains
+  plugin is not planned. Summarised in the README as **Editor diagnostics — WebStorm & VS Code**.
+
+### Fixed
+
+- **The docs site builds again.** Two dead links (`/core/factories` in `adapters/angular.md`,
+  `/utilities/doubles` in `utilities/setup.md`) pointed at pages that do not exist, and VitePress
+  fails the build on a dead link — so the GitHub Pages deploy had been failing, and nothing
+  published since had reached the site. They now point at
+  `/core/auto-mock-by-type#recursive-deep-mocks-—-mockdeep` and `/utilities/constructor-doubles`.
+
+### Discoverability
+
+- **The Open Graph image exists.** The meta tags had referenced `og-image.png` since the site went
+  up; the file was never created, so every shared link rendered without a card. It is generated from
+  a checked-in SVG, and `meta robots` now carries `max-image-preview:large`, without which neither
+  Google nor Yandex will use it.
+
+- **IndexNow, on every docs deploy.** A new job in `docs.yml` reads the freshly published
+  `sitemap.xml` and submits every URL to `api.indexnow.org`, which Yandex, Bing, Seznam and Naver
+  consume — the closest thing to a "reindex now" button for Yandex, and it needs no account. The key
+  file is served from `docs-site/public/`; the job is `continue-on-error`, so a submission failure
+  never fails a deploy that already succeeded.
+
+- **A second JSON-LD graph** (`WebSite` + `Person` with `sameAs` + `SoftwareApplication` with its
+  runtime requirements and feature list), `robots.txt` naming the sitemap and both llms files, and
+  `<link rel="alternate" type="text/plain">` announcing `llms.txt` / `llms-full.txt` the way a feed
+  is announced. Keyword metadata widened to the terms this package can win — `vitest mock class`,
+  `replace jest-auto-spies`, `webstorm eslint inspections`, `openai codex`, `glm z.ai`.
+
+### Documentation
+
+- **Every mainstream coding agent now gets a named file, not "or equivalent".** The README section
+  and `docs-site/agents.md` gained a per-agent table — which instruction file each tool actually
+  reads and whether it honours `AGENTS.md` — covering **OpenAI Codex** (the `codex` CLI, the IDE
+  extension and Codex cloud) second only to Claude Code, **GLM (z.ai coding plan)** and **Kimi K2**,
+  Cursor, GitHub Copilot, OpenCode, Cline, Windsurf/Cascade, Zed, Gemini CLI, Qwen Code, Roo Code,
+  Junie and Aider. Codex gets the `~/.codex/config.toml` fallback keys and the 32 768-byte chain
+  budget that silently truncates a long `AGENTS.md`; GLM gets the point that matters — it is a
+  model, not an agent, and inside Claude Code the whole `CLAUDE.md` / skill / plugin path works
+  unchanged. A new **Install it in your agent** subsection gives the two commands that cover the
+  field, plus the glob-scoped rule files for Cursor, Copilot and Windsurf. The Zed hazard is called
+  out: never create `.rules` / `.cursorrules` / `.windsurfrules` / `.clinerules` just to hold a
+  pointer — Zed resolves that list first-match-wins and the new file shadows everything.
+
+- **Angular leads the framework adapters**, in the README section order, the table of contents and
+  the package description — it is the framework this library is exercised on hardest.
+
+- **A complete table of contents.** It listed only top-level sections plus Angular's; it now covers
+  the `How to mock:` recipes, `Runtimes`, `Spying instance-assigned callables`, `Standalone
+  observable builder`, `Which factory, and what it costs`, `Console spies` and the new agent
+  subsections.
+
+### Added
+
 - **`countMockedProps()`** — how many `mock*Prop` patches are still in place, the counterpart of
   `countStrayTimers()` / `countStrayRejections()`. It answers one question: did the teardown
   actually run? `afterEach(() => expect(countMockedProps()).toBe(0))`.
+
+- **A twelfth rule: `prefer-as-spy`** (`warn`, and the second that runs under `--fix`) —
+  `TestBed.inject(X) as Spy<X>` becomes `asSpy<X>(TestBed.inject(X))`, with the `asSpy` import added
+  and a `Spy` import the rewrite orphans taken out. That cast is written once per injected double in
+  a `jest-auto-spies` suite and fails here with `TS2352`: `Spy<T>` adds `accessorSpies` and the
+  per-method helpers, so neither type sufficiently overlaps the other. It is the most common compile
+  error a migrated Angular suite produces, and it arrives in batches — which is what makes it worth a
+  fix rather than a suggestion. It qualifies for one because the developer has already asserted
+  `Spy<X>` in the file being linted: `asSpy` is a typed identity function, so the rewrite keeps that
+  assertion whole, decides nothing the cast had not decided, and cannot reach run time — a wrong fix
+  fails to compile. The type arguments are carried across rather than left to inference, which
+  answers `Spy<Service<any>>` for a generic class. A `Spy` the file declares itself and a cast that
+  hops through `unknown` are left alone — the hop says the value is not a `T`, so the call would not
+  compile — except for `TestBed.inject(X) as unknown as Spy<X>`, where the container returns `X` by
+  construction and the hop was only silencing `TS2352`.
 
 - **An eleventh rule: `no-inject-before-override`** (`warn`) — the trap this plugin's own advice
   sets. `TestBed.inject()` and `TestBed.createComponent()` **instantiate** the testing module, and
