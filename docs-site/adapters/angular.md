@@ -350,6 +350,80 @@ finishes the whole budget having issued zero requests, then fails saying the con
 met. Its docstring used to claim this exact use case; it never worked.
 :::
 
+### Skipping the request entirely — `mockResourceProp`
+
+Everything above is the answer when the request *is* the point. Often it is not: the spec is about a
+component's own logic, it never wanted an `HttpTestingController`, and the value it needs is one it
+picked in advance. `mockResourceProp` replaces the property with a double the spec moves directly.
+
+```ts
+import { mockResourceProp } from 'vitest-auto-spy/angular';
+
+const service = injectSpy(ProductService);
+const products = mockResourceProp(service, 'products', []);
+
+expect(component.emptyState()).toBe(true);
+
+products.set([product]); // status → 'resolved'
+expect(component.emptyState()).toBe(false);
+
+products.loading(); // status → 'loading', hasValue() → false
+expect(component.spinner()).toBe(true);
+
+products.fail('offline'); // status → 'error', error() → Error('offline')
+expect(component.errorMessage()).toBe('offline');
+```
+
+Nothing is ever in flight, so there is nothing to wait for — no tick, no flush, no budget, and no
+way for the test to pass against a default value by accident. The resource starts `'resolved'` at
+the initial value, because that is the state most assertions want and the one that would otherwise
+have to be arranged.
+
+Reactivity is genuine: the double is built from real `signal()`s, so a `computed()` reading
+`products.value()` recomputes and an `effect()` watching `products.status()` runs, exactly as
+against a real `httpResource`. A plain object with the same keys would satisfy every read and notify
+nothing.
+
+| Member                | What it is                                                             |
+| --------------------- | ---------------------------------------------------------------------- |
+| `set(value)`          | resolve with a value; clears any error                                 |
+| `fail(error)`         | fail with an `Error` or a message string                               |
+| `loading()`           | put it back in flight                                                  |
+| `reload`              | the spied `reload()` — assert the call, nothing is re-issued           |
+| `resource`            | the installed double, for asserting on it directly                     |
+
+Undone by `restoreMockedProps()` like every other property patch, so a suite running `setupAutoSpy()`
+needs no teardown of its own.
+
+## Asserting a resource
+
+`registerResourceMatchers()` adds three matchers that read the value **and** the status, because
+either one alone is misleading.
+
+```ts
+registerResourceMatchers(); // once, in the setup file
+
+expect(component.products).toBeLoading();
+
+httpTesting.expectOne('/api/products').flush([product]);
+await settleResource(component.products);
+
+expect(component.products).toHaveResourceValue([product]);
+expect(other.products).toHaveResourceError(/503/);
+```
+
+The one that earns its place is `toHaveResourceValue`: it **fails a resource that has not resolved
+even when its default value matches**. That is precisely the assertion this family exists to stop
+passing — `expect(products.value()).toEqual([])` is just as happy against a resource still loading
+with its default `[]` as against one that genuinely resolved to nothing. The failure names the
+status it was actually in and the flush that is missing.
+
+Duck-typed on `{ status, value, error }` with `error` optional, so `httpResource`, `resource`,
+`rxResource` and a `mockResourceProp` double all work. Handed something that is not a resource, each
+matcher says so rather than throwing a `TypeError` — the two ways to get there are passing
+`products.value()` instead of `products`, and passing a property that was never a resource, and both
+are silent otherwise.
+
 ## Running one effect on demand
 
 `flushEffects()` asks the scheduler to run everything currently dirty. Sometimes a spec needs one

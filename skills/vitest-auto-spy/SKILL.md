@@ -1,6 +1,6 @@
 ---
 name: vitest-auto-spy
-description: Write or fix tests that use vitest-auto-spy — typed spies generated from a class or a type on Vitest, bun:test and node:test. Use when a spec imports `vitest-auto-spy` (or a subpath such as `/angular`, `/bun`, `/bun-angular`, `/node`, `/rxjs`, `/nestjs`, `/vue`, `/react`, `/svelte`, `/console`, `/setup`, `/zone`, `/eslint-plugin`), when the user mentions createSpyFromClass, createAutoMock, autoMocked, createMock, mockDeep, provideAutoSpy, provideAutoSpyForToken, injectSpy, renderShallow, createWithAutoSpies, stable, settleResource, overrideComponentProvider, assertNgModuleScopes, setupAngularTestEnv, createDirectiveHost, toHaveDirectiveApplied, expectEmission, expectCompletion, mockSignalProp, runEffect, mockReadonlyProp, stubIntersectionObserver, stubResizeObserver, stubMutationObserver, stubMediaElement, stubAbortController, mockConstructor, stubConstructor, flushEventLoop, settleDynamicImport, mockSystemTime, useCountingClock, registerFocusMatchers, toHaveFocus, assertMocked, moduleNamespace, diffByField, installPerTest, asInstances, narrow, withOverrides, compareTestRuns, installProxyZonePatch, setupAutoSpy, blockNetwork, trackStrayTimers, trackStrayRejections, Spy<T>, calledWith, mustBeCalledWith, onlyMethodsToSpyOn, instanceMethodsToSpyOn, observablePropsToSpyOn, resolveWith or nextWith, when migrating a suite off jest-auto-spies, or when a test fails with "No mock adapter registered", "Observable spies require rxjs", "not found on the class prototype", "is not a constructor", "Expected to be running in 'ProxyZone'" or "Spy<T> is not assignable".
+description: Write or fix tests that use vitest-auto-spy — typed spies generated from a class or a type on Vitest, bun:test and node:test. Use when a spec imports `vitest-auto-spy` (or a subpath such as `/angular`, `/bun`, `/bun-angular`, `/node`, `/rxjs`, `/nestjs`, `/vue`, `/react`, `/svelte`, `/console`, `/setup`, `/zone`, `/eslint-plugin`), when the user mentions createSpyFromClass, captureArg, mockResourceProp, registerResourceMatchers, createAutoMock, autoMocked, createMock, mockDeep, provideAutoSpy, provideAutoSpyForToken, injectSpy, renderShallow, createWithAutoSpies, stable, settleResource, overrideComponentProvider, assertNgModuleScopes, setupAngularTestEnv, createDirectiveHost, toHaveDirectiveApplied, expectEmission, expectCompletion, mockSignalProp, runEffect, mockReadonlyProp, stubIntersectionObserver, stubResizeObserver, stubMutationObserver, stubMediaElement, stubAbortController, mockConstructor, stubConstructor, flushEventLoop, settleDynamicImport, mockSystemTime, useCountingClock, registerFocusMatchers, toHaveFocus, assertMocked, moduleNamespace, diffByField, installPerTest, asInstances, narrow, withOverrides, compareTestRuns, installProxyZonePatch, setupAutoSpy, blockNetwork, trackStrayTimers, trackStrayRejections, Spy<T>, calledWith, mustBeCalledWith, onlyMethodsToSpyOn, instanceMethodsToSpyOn, observablePropsToSpyOn, resolveWith or nextWith, when migrating a suite off jest-auto-spies, or when a test fails with "No mock adapter registered", "Observable spies require rxjs", "not found on the class prototype", "is not a constructor", "Expected to be running in 'ProxyZone'" or "Spy<T> is not assignable".
 ---
 
 # vitest-auto-spy
@@ -76,7 +76,9 @@ test. Use `mockReadonlyProp(component, 'selected', signal(true))` for the signal
 test, `await stable(fixture)` before asserting zoneless state, `renderShallow` for components. For an
 `httpResource()` / `resource()`: `flushEffects()` (the request is issued there, not on creation),
 flush it, then `await settleResource(r)` — asserting earlier reads the resource's default value and
-passes emptily.
+passes emptily. When the request is not what the spec is about, skip it: `mockResourceProp(service,
+'products', [])` gives a double whose `set` / `fail` / `loading` move it directly, with nothing in
+flight to await.
 
 ## Skeleton — anything else
 
@@ -102,6 +104,9 @@ it('loads', async () => {
 | Situation                                                          | Helper                                                             |
 | ------------------------------------------------------------------ | ------------------------------------------------------------------ |
 | a `signal()` / `computed()` field on the class under test          | `mockSignalProp(obj, prop, initial)` — returns the writable        |
+| a resource field, when the HTTP round trip is not the point        | `mockResourceProp(obj, prop, initial)` — `set` / `fail` / `loading` |
+| asserting a resource's value *and* status together                 | `registerResourceMatchers()` → `toHaveResourceValue` / `toBeLoading` |
+| a callback or config object the code under test built              | `captureArg<T>()` in the assertion, then read `.value`             |
 | an `effect()` whose trigger is now a static signal                 | `runEffect(effectRef)`                                             |
 | the component constructs its own `IntersectionObserver`            | `stubIntersectionObserver()` (+ `Resize` / `Mutation`)             |
 | a green run exiting 1 with `AbortError` under happy-dom            | `setupAutoSpy({ blockNetwork: true })`                             |
@@ -171,6 +176,11 @@ it('loads', async () => {
   the ones already in a suite into failures.
 - **Never assert a signal with `toBeTruthy()`** — every signal is truthy. Use
   `toHaveSignalValue(v)` after `registerSignalMatchers()`.
+- **Never assert a resource with `expect(r.value()).toEqual(...)` alone** — an unresolved resource
+  still holds its *default*, so that passes while proving nothing. `toHaveResourceValue(v)` after
+  `registerResourceMatchers()` fails unless the resource actually resolved.
+- **Never put `captureArg()` in `calledWith`** — it matches every value, so it configures a return
+  for every call. It belongs in `toHaveBeenCalledWith`; the types enforce this.
 - **Never `vi.mock('@angular/core')`** (or any relative path) under the Angular unit-test builder —
   the specs are bundled, so it fails with `Cannot access '__vi_import_N__' before initialization`.
   To control an `effect()`, set the signals it reads and assert what it produced.

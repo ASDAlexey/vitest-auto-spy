@@ -45,7 +45,7 @@ features:
     link: /adapters/angular
   - icon: 🧵
     title: Resources that settle, or say why not
-    details: Angular's httpResource() and resource() need a different wait each — measured on 21.2.17, an httpResource settles one tick plus one microtask after its response is flushed, a plain resource() takes two rounds, and neither has issued a request at all until something ticks. Get it wrong and nothing fails — the spec asserts the resource's default value and passes. settleResource() is the one wait both converge under, with a budget and a failure that names the resource and the flush it is missing. No library in the Angular world had an answer.
+    details: Angular's httpResource() and resource() need a different wait each — measured on 21.2.17, an httpResource settles one tick plus one microtask after its response is flushed, a plain resource() takes two rounds, and neither has issued a request at all until something ticks. Get it wrong and nothing fails — the spec asserts the resource's default value and passes. settleResource() is the one wait both converge under, with a budget and a failure that names the resource and the flush it is missing. When the request is not the point at all, mockResourceProp drives a resource with no HTTP at all — set, fail and loading move it directly, so nothing is ever in flight. And toHaveResourceValue refuses to compare an unresolved resource even when its default happens to match — the assertion the whole family exists to stop passing. No library in the Angular world had an answer.
     link: /adapters/angular#resources-httpresource-and-resource
   - icon: ⚡
     title: Faster Angular specs
@@ -85,7 +85,7 @@ features:
     link: /utilities/module-mocks
   - icon: 🧾
     title: Fixtures without casts
-    details: narrow() says which branch of a union a test got, and prints the shape it actually had when it is wrong. withOverrides() builds a fixture from a model whose getters a spread would drop. asInstances() bridges a whole argument list at once, instead of one asInstance per tsc run.
+    details: narrow() says which branch of a union a test got, and prints the shape it actually had when it is wrong. withOverrides() builds a fixture from a model whose getters a spread would drop. asInstances() bridges a whole argument list at once, instead of one asInstance per tsc run. captureArg() takes hold of a callback or config the code under test built — expect.any tells you the kind, a captor hands you the value, which is the difference between "a callback was passed" and "call the callback that was passed".
     link: /utilities/fixtures
   - icon: 👁️
     title: The DOM the runner does not ship

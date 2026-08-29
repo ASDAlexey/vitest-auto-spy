@@ -369,6 +369,27 @@ const subject = feed.items$.returnSubject(); // ReplaySubject, for anything the 
 `mock.settledResults` is native on Vitest and polyfilled on Bun / `node:test`, so it is identical on
 all three. Entries are `{ type: 'fulfilled' | 'incomplete' | 'rejected', value }`.
 
+When the argument worth asserting on is one the **code under test built** — a callback, a config
+object, an `AbortSignal` — describing its shape is the wrong tool. `expect.any(Function)` says a
+function was passed; `captureArg` hands it to you so the test can call it:
+
+```ts
+import { captureArg } from 'vitest-auto-spy';
+
+const onDone = captureArg<() => void>();
+
+expect(notifier.subscribe).toHaveBeenCalledWith('ready', onDone);
+
+onDone.value(); // and now exercise what was passed
+expect(component.finished()).toBe(true);
+```
+
+`.values` holds every match, oldest first; `.captured` asks without triggering the "nothing was
+captured" throw; `.reset()` lets one captor serve two phases. **Assertions only** — a captor matches
+every value, so putting one in `calledWith` would configure a return for every call, which is
+`mockReturnValue` spelled less clearly, and `calledWith` is typed to the method's own parameters so
+it will not compile anyway.
+
 **The observable helpers are backed by a `ReplaySubject(1)` that belongs to the spy, and it is
 configuration — so it must be reset with the rest of it.** Two failures used to come out of that
 buffer outliving the test that filled it, and both were silent:
@@ -1489,9 +1510,20 @@ flushEffects(); // an httpResource issues NO request until something ticks
 httpTesting.expectOne('/api/products').flush([product]);
 await settleResource(products, { label: 'the product resource' });
 
+// ...or skip the request entirely when it is not what the spec is about
+const products = mockResourceProp(service, 'products', []);
+products.set([product]); // 'resolved'   products.loading()   products.fail('offline')
+expect(products.reload).toHaveBeenCalled(); // reload is spied, and re-issues nothing
+
 // signal assertions
 registerSignalMatchers(); // once, in the setup file
 expect(component.total).toHaveSignalValue(3);
+
+// resource assertions — value AND status, which is the whole point
+registerResourceMatchers(); // once, in the setup file
+expect(component.products).toBeLoading();
+expect(component.products).toHaveResourceValue([product]);
+expect(component.products).toHaveResourceError(/503/);
 ```
 
 Two zoneless traps:
@@ -1506,6 +1538,13 @@ with its **default** value until a tick _and_ a microtask after its response is 
 that asserts too early asserts the default and passes. `settleResource` fails instead of passing
 emptily. Note the order — `flushEffects()` first (the request is issued there, not on creation),
 then the flush, then the wait.
+
+`toHaveResourceValue` is the matcher form of that trap and the reason to prefer it over
+`expect(products.value()).toEqual(...)`: it **fails an unresolved resource even when the default
+value matches**, and names the status it was in. And when the request is not what the spec is about
+at all, do not arrange one — `mockResourceProp(service, 'products', [])` replaces the property with
+a double whose `set` / `fail` / `loading` move it directly, built from real `signal()`s so a
+`computed()` downstream still recomputes. Nothing is in flight, so there is nothing to await.
 
 Per-file timing, to find which specs actually pay for `TestBed`:
 
@@ -1528,8 +1567,10 @@ if (process.env['SPEC_TIMING']) {
 preload = ["vitest-auto-spy/bun-angular"]
 ```
 
-It re-exports everything in this section except `registerSignalMatchers` and the TestBed
-diagnostics, which need the runner's `expect.extend` and suite-level hooks.
+It re-exports everything in this section except `registerSignalMatchers`,
+`registerResourceMatchers`, `mockSignalProp` / `mockResourceProp` and the TestBed diagnostics — the
+matchers and diagnostics need the runner's `expect.extend` and suite-level hooks, and the `mock*Prop`
+family is not re-exported there either.
 
 ---
 

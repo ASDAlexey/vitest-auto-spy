@@ -16,7 +16,7 @@ identical API, with **RxJS** spies and **Angular / NestJS / React / Vue·Pinia /
 [![npm version](https://img.shields.io/npm/v/vitest-auto-spy?color=brightgreen&logo=npm)](https://www.npmjs.com/package/vitest-auto-spy)
 [![npm downloads](https://img.shields.io/npm/dm/vitest-auto-spy?color=brightgreen&logo=npm)](https://www.npmjs.com/package/vitest-auto-spy)
 [![CI](https://github.com/ASDAlexey/vitest-auto-spy/actions/workflows/ci.yml/badge.svg)](https://github.com/ASDAlexey/vitest-auto-spy/actions/workflows/ci.yml)
-[![minzipped size](https://img.shields.io/badge/minzip-12.7%20kB-brightgreen)](#install)
+[![minzipped size](https://img.shields.io/badge/minzip-13.0%20kB-brightgreen)](#install)
 [![types](https://img.shields.io/npm/types/vitest-auto-spy?logo=typescript&logoColor=white)](https://www.npmjs.com/package/vitest-auto-spy)
 [![coverage](https://img.shields.io/badge/coverage-100%25-brightgreen)](https://github.com/ASDAlexey/vitest-auto-spy/actions/workflows/ci.yml)
 [![license](https://img.shields.io/npm/l/vitest-auto-spy?color=blue)](./LICENSE)
@@ -55,7 +55,7 @@ identical API, with **RxJS** spies and **Angular / NestJS / React / Vue·Pinia /
 - ⏳ Waiting that is not a guess — `flushEventLoop`, `settleDynamicImport`, `flushEventLoopUntil`, and a clock that survives fake timers (`mockSystemTime`, `useCountingClock`)
 - 🌀 `fakeAsync` / `waitForAsync` on Vitest — one import of `vitest-auto-spy/zone`; zone.js stays out of every other entry
 - 🧩 Module mocks that prove they applied — `assertMocked`, `moduleNamespace`, for a `vi.mock()` a bundler quietly ignored
-- 🧾 Fixtures without casts — deep-partial `createMock`, `narrow()`, `withOverrides()`, `asInstances()`
+- 🧾 Fixtures without casts — deep-partial `createMock`, `narrow()`, `withOverrides()`, `asInstances()`, `captureArg()`
 - 🚚 A migration you can verify — `compareTestRuns` on the two JSON reports, `diffByField` for the assertion the reporter collapses
 - 📏 Lint rules and one-line test-run hygiene — twelve rules in `vitest-auto-spy/eslint-plugin` (two `--fix`, three suggestions), `setupAutoSpy()`
 - 🩺 [Editor diagnostics](#editor-diagnostics--webstorm--vs-code) — the same anti-patterns underlined while you type: native ESLint inspections in **WebStorm** and the other JetBrains IDEs, the ESLint extension in **VS Code**, no extra plugin either way
@@ -712,7 +712,7 @@ Node / Bun / React / Vue project pulls **neither rxjs nor Angular into its runti
 | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------- | :----: |
 | `vitest-auto-spy`               | `createSpyFromClass`, `createAutoMock`, `createFunctionSpy`, sync + promise + accessor spies, `errorHandler`, types                                           | `vitest`                    |   ✅   |
 | `vitest-auto-spy/rxjs`          | observable spies (`nextWith`, `nextWithValues`, `observablePropsToSpyOn`, …) + `createObservableWithValues`                                                   | `rxjs`                      |   ✅   |
-| `vitest-auto-spy/angular`       | `provideAutoSpy`, `injectSpy`, `renderShallow`, `createWithAutoSpies`, `stable`/`flushEffects`, `settleResource`, the `mock*Prop` helpers, signal matchers, TestBed diagnostics | `@angular/core`             |   ✅   |
+| `vitest-auto-spy/angular`       | `provideAutoSpy`, `injectSpy`, `renderShallow`, `createWithAutoSpies`, `stable`/`flushEffects`, `settleResource`, `mockResourceProp`, the `mock*Prop` helpers, signal & resource matchers, TestBed diagnostics | `@angular/core`             |   ✅   |
 | `vitest-auto-spy/bun`           | the same core, driven by Bun's `bun:test` mocks                                                                                                               | `bun:test`                  |   ✅   |
 | `vitest-auto-spy/bun-angular`   | Angular's `TestBed` under `bun test` — DOM, JIT `templateUrl` resolution and a zoneless environment, from one preload                                         | `bun:test`, `@angular/core` |   ✅   |
 | `vitest-auto-spy/node`          | the same core, driven by `node:test`'s `mock.fn()`                                                                                                            | `node:test`                 |   ✅   |
@@ -1285,6 +1285,31 @@ resource and the flush it is missing.
 `flushEventLoopUntil` cannot do this: it takes real event-loop turns and never ticks, so a resource
 awaited through it finishes the budget having issued zero requests.
 
+#### Driving a resource with no HTTP at all
+
+```ts
+import { mockResourceProp, registerResourceMatchers } from 'vitest-auto-spy/angular';
+
+const products = mockResourceProp(service, 'products', []);
+
+products.set([product]); // 'resolved'
+products.loading(); // back in flight
+products.fail('offline'); // 'error', error() is Error('offline')
+
+expect(products.reload).toHaveBeenCalled(); // reload is spied and re-issues nothing
+```
+
+Everything above is the answer when the request _is_ the point. Often it is not — the spec is about
+the component's own logic and the value was chosen in advance. `mockResourceProp` replaces the
+property with a double the spec moves directly, so nothing is ever in flight: no tick, no
+`HttpTestingController`, no budget. It is built from real `signal()`s, so a `computed()` reading
+`products.value()` still recomputes and an `effect()` still runs. Undone by `restoreMockedProps()`.
+
+And `registerResourceMatchers()` adds `toBeLoading` / `toHaveResourceValue` / `toHaveResourceError`,
+which read the value **and** the status. `toHaveResourceValue` is the one that earns its place: it
+fails an unresolved resource **even when its default value matches**, which is exactly the assertion
+`expect(products.value()).toEqual([])` lets through.
+
 #### Asserting a signal's value
 
 ```ts
@@ -1498,12 +1523,15 @@ single-purpose utility you can pick up independently — they all ride on the sa
 | `assertMocked(namespace, opts?)`                                                     | core                          | Fail when the `vi.mock()` a spec relies on silently did not apply (a bundled alias, `isolate: false`)                                                 |
 | `moduleNamespace(exports, opts?)`                                                    | core                          | The `vi.mock` factory result an interop probe recognises — `default` + `__esModule` in place                                                          |
 | `diffByField(actual, expected)`                                                      | core                          | Which field of an array of records moved, and in how many elements — the diff the reporter collapses                                                  |
+| `captureArg<T>()`                                                                    | core                          | Take hold of a callback or config the code under test built, instead of describing its shape — assertions only, never `calledWith` |
 | `asInstances(...spies)`                                                              | core                          | `asInstance` for a whole argument list — one edit against one compiler error, not five                                                                |
 | `narrow(value, guard)` / `narrow.byKey` / `narrow.observable`                        | core                          | The branch of a union a test knows it got, failing with the shape the value actually had                                                              |
 | `withOverrides(model, overrides?)`                                                   | core                          | A fixture from a model instance: its getters read once, as data — a spread drops them                                                                 |
 | `compareTestRuns(a, b, root?)`                                                       | core                          | Whether a migration lost a test — the set of `file::name`, which matching counters cannot answer                                                      |
 | `provideAutoSpyForToken(TOKEN, overrides?)`                                          | `/angular`                    | The provider for a dependency behind an `InjectionToken` — no stand-in class to write                                                                 |
 | `createDirectiveHost({ template, scope, props })`                                    | `/angular`                    | A standalone host for a directive under test, with its scope where the compiler reads it                                                              |
+| `mockResourceProp(obj, prop, initial)`                                               | `/angular`                    | Drive a resource with no HTTP — `set` / `fail` / `loading`, plus a spied `reload` |
+| `registerResourceMatchers()`                                                         | `/angular`                    | Adds `toBeLoading` / `toHaveResourceValue` / `toHaveResourceError`; the value matcher fails an unresolved resource |
 | `registerDirectiveMatchers()`                                                        | `/angular`                    | Adds `expect(fixture).toHaveDirectiveApplied(Directive, selector?)`                                                                                   |
 | `installProxyZonePatch(opts?)`                                                       | `/zone`                       | `fakeAsync` / `waitForAsync` on Vitest — the patch `zone.js/testing` does not ship; `scope: 'callback'` per callback                                  |
 | `autoMocked<T>(overrides?)`                                                          | core                          | `createAutoMock` typed as `T & Spy<T>`, for a collaborator passed as an argument rather than injected                                                 |
