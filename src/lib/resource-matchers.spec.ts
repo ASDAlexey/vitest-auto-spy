@@ -13,7 +13,11 @@ beforeAll(() => {
 });
 
 /** A resource double built from signals, in the shape the matchers duck-type on. */
-function resourceOf(status: string, value: unknown, error?: Error): { status: () => string; value: () => unknown; error: () => Error | undefined } {
+function resourceOf(
+  status: string,
+  value: unknown,
+  error?: Error,
+): { status: () => string; value: () => unknown; error: () => Error | undefined } {
   const statusSignal = signal(status);
 
   return { status: (): string => statusSignal(), value: (): unknown => value, error: (): Error | undefined => error };
@@ -77,7 +81,9 @@ describe('toHaveResourceError', () => {
   });
 
   it('fails when the resource did not fail at all', () => {
-    expect(() => expect(resourceOf('resolved', [])).toHaveResourceError()).toThrow(/expected the resource to have failed, status was.+resolved/s);
+    expect(() => expect(resourceOf('resolved', [])).toHaveResourceError()).toThrow(
+      /expected the resource to have failed, status was.+resolved/s,
+    );
   });
 
   it('reports the negated no-argument case', () => {
