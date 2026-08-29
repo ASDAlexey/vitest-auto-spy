@@ -8,6 +8,22 @@ _Last released: **v3.1.0** (2026-08-28)._
 
 ## Added
 
+- **`setupAutoSpy({ pruneMockRegistry: true })`** — keeps `@vitest/spy`'s registry of every mock ever
+  created down to the mocks that outlive a file. `vi.fn()` and `vi.spyOn()` add what they create to
+  one module-level `Set`, because that is what `vi.clearAllMocks()` walks, and no API takes anything
+  out of it again: with `isolate: false` it is created once per worker and only grows, so
+  `clearMocks: true` walks every mock of every file already run **before every single test** and the
+  worker holds all of them at once — recorded arguments included, and through them whole component
+  trees. The set is not exposed, so it is taken from the one thing that iterates it (`Set.forEach`
+  hands its receiver to the callback) and verified against a probe mock — without a match nothing is
+  pruned. The half that is easy to get wrong is what must **not** go: drop the module-level `vi.fn()`
+  in a shared `*.mock.ts` that six spec files import and nothing clears it any more, so the file that
+  happens to run second fails on calls its predecessor made. So the split is drawn where it is
+  observable — what exists when a file's hooks start was created while the module graph was being
+  evaluated and is kept, everything added afterwards belongs to that file. `trackMockRegistry()`
+  installs it on its own, `keepMockRegistered(mock)` marks the one case the split misses (a module
+  loaded by a dynamic `import()` inside a test), and `getMockRegistrySize()` reports what is left.
+  Off by default: it reaches into a set the runner does not expose.
 - **`setupAutoSpy({ strayRejections: true })`** — fails the test a promise rejection zone.js
   swallowed surfaced in. zone.js drains a rejection nobody handled into `console.error` and stops
   there, so it never reaches the channel Vitest listens on and the run still exits 0: an assertion
