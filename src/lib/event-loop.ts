@@ -48,8 +48,9 @@ function scheduleMacrotask(resume: () => void): void {
  * Give the runtime `turns` real event-loop turns, whatever the timers are doing.
  *
  * Reach for it when the thing being awaited crosses out of the zone / out of the test's own
- * promise chain: a dynamic `import()` triggered by production code, an Angular `httpResource()` /
- * `resource()` delivering its first value, a native `async` function inside a dependency.
+ * promise chain: a dynamic `import()` triggered by production code, a native `async` function
+ * inside a dependency, a stub that resolves a turn later. Not an Angular `httpResource()` /
+ * `resource()` — those need a *tick*, which is `settleResource()`, not this.
  *
  * ```ts
  * component.openModal();          // production code does `await import('./modal')`
@@ -82,18 +83,24 @@ export interface FlushUntilOptions {
 /**
  * Take real event-loop turns until `isDone()` says so, then stop — or fail saying it never did.
  *
- * The shape behind every hand-rolled "settle" helper: an Angular `httpResource()` / `resource()` /
- * `rxResource` leaving `loading`, a lazily-loaded chunk becoming reachable, an SDK reporting itself
- * ready. Written by hand it is a fixed number of turns, tuned by trial until the suite goes green —
- * which is both slower than it needs to be (it always waits the maximum) and quietly fragile (one
- * more hand-off in a dependency and the number is wrong again).
+ * The shape behind every hand-rolled "settle" helper: a lazily-loaded chunk becoming reachable, an
+ * SDK reporting itself ready, a queue draining. Written by hand it is a fixed number of turns, tuned
+ * by trial until the suite goes green — which is both slower than it needs to be (it always waits
+ * the maximum) and quietly fragile (one more hand-off in a dependency and the number is wrong
+ * again).
  *
  * ```ts
- * const products = TestBed.runInInjectionContext(() => httpResource(() => '/api/products'));
+ * client.warmUp();
  *
- * await flushEventLoopUntil(() => products.status() !== 'loading', { label: 'the product resource' });
- * expect(products.value()).toEqual([product]);
+ * await flushEventLoopUntil(() => client.isReady(), { label: 'the SDK handshake' });
+ * expect(client.session()).toBeDefined();
  * ```
+ *
+ * **Not for an Angular resource** — use `settleResource()` from `vitest-auto-spy/angular` for that.
+ * This helper takes real event-loop turns and never *ticks*, and an `httpResource()` issues no
+ * request at all until something does: measured, a resource awaited here finishes the whole budget
+ * having made zero requests, then fails saying the condition was never met. The docstring used to
+ * claim that use case and show it as the example; it never worked.
  *
  * The budget is what separates this from a `while (true)`: a condition that never becomes true is
  * the normal way for this to be used wrongly — the request was never made, the stub never resolved

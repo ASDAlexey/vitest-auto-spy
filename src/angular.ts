@@ -34,16 +34,11 @@ export {
   type RestoreProp,
 } from './lib/prop-mock';
 
-export { renderShallow, type ComponentInputs, type RenderShallowOptions, type ShallowRender } from './lib/render-shallow';
-export {
-  createWithAutoSpies,
-  type AutoSpiedInstance,
-  type CreateWithAutoSpiesOptions,
-  type SpyRegistry,
-} from './lib/create-with-auto-spies';
-export { flushEffects, stable } from './lib/zoneless';
+// The half of the Angular surface `vitest-auto-spy/bun-angular` publishes verbatim — see the module
+// for why it is one file rather than two identical lists.
+export * from './lib/angular-portable';
+
 export { mockSignalProp } from './lib/signal-prop';
-export { runEffect } from './lib/run-effect';
 export { registerSignalMatchers, type SignalLike } from './lib/signal-matchers';
 
 export {

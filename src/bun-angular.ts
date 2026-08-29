@@ -91,15 +91,8 @@ if (Reflect.get(globalThis, BUN_ANGULAR_SETUP) !== true) {
 export * from './bun';
 
 export { injectSpy, provideAutoSpy, type AngularValueProvider } from './lib/angular';
-export { renderShallow, type ComponentInputs, type RenderShallowOptions, type ShallowRender } from './lib/render-shallow';
-export {
-  createWithAutoSpies,
-  type AutoSpiedInstance,
-  type CreateWithAutoSpiesOptions,
-  type SpyRegistry,
-} from './lib/create-with-auto-spies';
-export { flushEffects, stable } from './lib/zoneless';
-export { runEffect } from './lib/run-effect';
+// The same portable Angular surface `vitest-auto-spy/angular` publishes — one list, two entries.
+export * from './lib/angular-portable';
 
 // The pieces a project with its own preload can reuse instead of this entry's defaults.
 export { inlineAngularResources, type AngularResourceInlinerOptions } from './lib/angular-resource-inliner';
