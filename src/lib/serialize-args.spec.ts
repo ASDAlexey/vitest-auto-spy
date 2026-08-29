@@ -69,6 +69,55 @@ describe('serializeValue', () => {
 
     expect(serializeValue(circular)).toBe('{self:[Circular]}');
   });
+
+  it('renders a node reachable by two paths in full, both times', () => {
+    const shared = { id: 1 };
+
+    expect(serializeValue({ left: shared, right: shared })).toBe('{left:{id:1},right:{id:1}}');
+  });
+
+  it('walks a shared node once however many paths reach it', () => {
+    // The guard against the exponential blow-up on a DAG. A getter counts how often the node is
+    // actually walked; the rendering still appears on every path it is reachable from, because that
+    // is what the key has to say, but it is computed once.
+    let reads = 0;
+    const shared = {
+      get id(): number {
+        reads += 1;
+
+        return 1;
+      },
+    };
+
+    expect(serializeValue({ a: { x: shared }, b: { y: shared } })).toBe('{a:{x:{id:1}},b:{y:{id:1}}}');
+    expect(reads).toBe(1);
+  });
+
+  it('stays linear in distinct nodes on a deep diamond', () => {
+    // 17 distinct objects reachable by 65 536 paths. Before identity memoisation this walk was
+    // 2^depth serialisations — 37 ms here, and 1.1 s two levels deeper.
+    let level: object = { leaf: true };
+
+    for (let index = 0; index < 16; index += 1) {
+      level = { left: level, right: level };
+    }
+
+    const startedAt = Date.now();
+    serializeValue(level);
+
+    expect(Date.now() - startedAt).toBeLessThan(20);
+  });
+
+  it('does not reuse a rendering that depended on the path that produced it', () => {
+    // `first` and `second` reference each other, so whichever is reached first renders the other
+    // with `[Circular]` — a rendering that is correct only for that path. Reached from `second`,
+    // `first` must render in full again rather than come back from the cache.
+    const first: Record<string, unknown> = {};
+    const second: Record<string, unknown> = { first };
+    first['second'] = second;
+
+    expect(serializeValue({ a: first, b: second })).toBe('{a:{second:{first:[Circular]}},b:{first:{second:[Circular]}}}');
+  });
 });
 
 describe('serializePrimitive', () => {

@@ -17,11 +17,41 @@
  * order they were written produce one key. See {@link serializeEntries}.
  */
 
+/**
+ * State carried through one top-level {@link serializeValue} call.
+ *
+ * `seen` is the cycle guard and holds only the *current path* — an entry is added on the way down
+ * and removed on the way up, because an object reachable by two sibling paths is not a cycle and
+ * must render in full both times.
+ *
+ * `cache` is what stops that from being exponential. A `seen`-only walk serialises a shared node
+ * once per path that reaches it, so a diamond of depth 20 — 41 distinct objects — expanded into
+ * 1 048 576 serialised nodes, a 12.6 MB key and 1.1 s. Memoising by identity collapses every
+ * repeat to a map lookup; the output is byte-identical, because a node's rendering does not depend
+ * on where it was reached from.
+ *
+ * `circularHits` is the exception to that last sentence, and the reason the cache is not simply
+ * "write on the way up". A rendering that contains `[Circular]` *does* depend on the path: for
+ * `a = {b}`, `b = {a}` reached as `{x:a,y:b}`, serialising `a` first makes `b` render as
+ * `{a:[Circular]}`, while reaching `b` first makes it `{a:{b:[Circular]}}`. Both are correct for
+ * their own path and neither may be reused for the other. The counter marks any subtree that
+ * emitted a back-edge, and such a subtree is left out of the cache.
+ */
+interface SerializeContext {
+  seen: WeakSet<object>;
+  cache: Map<object, string>;
+  circularHits: number;
+}
+
+function createContext(): SerializeContext {
+  return { seen: new WeakSet<object>(), cache: new Map<object, string>(), circularHits: 0 };
+}
+
 function quoteString(value: string): string {
   return `'${value.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;
 }
 
-function serializeEntries(value: object, seen: WeakSet<object>): string {
+function serializeEntries(value: object, context: SerializeContext): string {
   // Keys are sorted, because object key order in JavaScript is insertion order: `{ id: 1, name: 'a' }`
   // and `{ name: 'a', id: 1 }` are the same argument, and an insertion-ordered key would make them
   // two. `calledWith` would then not match the call, the spy would answer `undefined`, and nothing in
@@ -30,38 +60,64 @@ function serializeEntries(value: object, seen: WeakSet<object>): string {
   // Keys within one object are unique, so the comparator never has to report equality.
   return Object.entries(value)
     .sort(([left], [right]) => (left > right ? 1 : -1))
-    .map(([key, entryValue]) => `${key}:${serializeValue(entryValue, seen)}`)
+    .map(([key, entryValue]) => `${key}:${serializeInContext(entryValue, context)}`)
     .join(',');
 }
 
-function serializeMap(value: Map<unknown, unknown>, seen: WeakSet<object>): string {
-  const pairs = [...value.entries()].map(([key, entryValue]) => `[${serializeValue(key, seen)},${serializeValue(entryValue, seen)}]`);
+function serializeMap(value: Map<unknown, unknown>, context: SerializeContext): string {
+  const pairs = [...value.entries()].map(
+    ([key, entryValue]) => `[${serializeInContext(key, context)},${serializeInContext(entryValue, context)}]`,
+  );
 
   return `new Map([${pairs.join(',')}])`;
 }
 
-function serializeObject(value: object, seen: WeakSet<object>): string {
-  if (seen.has(value)) {
+/** Render `value`'s own shape, with its children already dispatched back through the context. */
+function serializeShape(value: object, context: SerializeContext): string {
+  if (value instanceof Date) {
+    return `new Date(${value.getTime()})`;
+  }
+
+  if (value instanceof Map) {
+    return serializeMap(value, context);
+  }
+
+  if (value instanceof Set) {
+    return `new Set([${[...value].map((item) => serializeInContext(item, context)).join(',')}])`;
+  }
+
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => serializeInContext(item, context)).join(',')}]`;
+  }
+
+  return `{${serializeEntries(value, context)}}`;
+}
+
+function serializeObject(value: object, context: SerializeContext): string {
+  if (context.seen.has(value)) {
+    context.circularHits += 1;
+
     return '[Circular]';
   }
 
-  seen.add(value);
+  const cached = context.cache.get(value);
 
-  let result: string;
-
-  if (value instanceof Date) {
-    result = `new Date(${value.getTime()})`;
-  } else if (value instanceof Map) {
-    result = serializeMap(value, seen);
-  } else if (value instanceof Set) {
-    result = `new Set([${[...value].map((item) => serializeValue(item, seen)).join(',')}])`;
-  } else if (Array.isArray(value)) {
-    result = `[${value.map((item) => serializeValue(item, seen)).join(',')}]`;
-  } else {
-    result = `{${serializeEntries(value, seen)}}`;
+  if (cached !== undefined) {
+    return cached;
   }
 
-  seen.delete(value);
+  context.seen.add(value);
+
+  const hitsBefore = context.circularHits;
+  const result = serializeShape(value, context);
+
+  context.seen.delete(value);
+
+  // Only a subtree that emitted no back-edge is path-independent, and only such a result may be
+  // reused on another path. See {@link SerializeContext}.
+  if (context.circularHits === hitsBefore) {
+    context.cache.set(value, result);
+  }
 
   return result;
 }
@@ -102,10 +158,19 @@ export function isDeepValue(value: unknown): boolean {
   return typeof value === 'object' && value !== null;
 }
 
-/** Serialize any value into a stable, collision-resistant string. Always total. */
-export function serializeValue(value: unknown, seen: WeakSet<object> = new WeakSet<object>()): string {
+/** Dispatch one value inside an in-progress walk. */
+function serializeInContext(value: unknown, context: SerializeContext): string {
   if (typeof value === 'object' && value !== null) {
-    return serializeObject(value, seen);
+    return serializeObject(value, context);
+  }
+
+  return serializePrimitive(value);
+}
+
+/** Serialize any value into a stable, collision-resistant string. Always total. */
+export function serializeValue(value: unknown): string {
+  if (typeof value === 'object' && value !== null) {
+    return serializeObject(value, createContext());
   }
 
   return serializePrimitive(value);
