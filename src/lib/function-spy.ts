@@ -168,9 +168,8 @@ export function createFunctionSpy<FunctionType extends Func>(name: string): AddS
 
   // Bun / node:test don't track `mock.settledResults`; polyfill it so the typed
   // `spy.method.mock.settledResults` surface works on every runtime (Vitest keeps
-  // its native array — the recorder is then a no-op).
-  // A second, definitely-assigned binding: the clear hook below runs long after this point, so it
-  // should not carry a presence check that can never fail.
+  // its native array — the recorder is then a no-op). Also held in a second, definitely-assigned
+  // binding, so the clear hook below carries no presence check that could never fail.
   const recorder = installSettledResultsPolyfill(functionSpy);
   settledResultsRecorder = recorder;
 
