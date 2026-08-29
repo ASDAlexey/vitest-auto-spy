@@ -6,6 +6,7 @@
  * `vitest-auto-spy/angular` re-exports them because that is where they were introduced, and the
  * core barrel exports them too so a React/Vue/Node suite can use the same undo bookkeeping.
  */
+import { DOCS_LINKS, withDocs } from './docs-links';
 import { getMockAdapter } from './mock-adapter';
 import type { PropStubValue } from './types';
 
@@ -23,6 +24,8 @@ interface PatchedProp {
   object: object;
   property: PropertyKey;
   descriptor: PropertyDescriptor | undefined;
+  /** Set by the patch's own undo, so the sweep skips it — see {@link rememberProp}. */
+  undone: boolean;
 }
 
 /**
@@ -51,20 +54,20 @@ function rememberProp<T>(object: T, property: PropertyKey): RestoreProp {
     object: object as object,
     property,
     descriptor: Object.getOwnPropertyDescriptor(object, property),
+    undone: false,
   };
 
   getPatchedProps().push(patch);
 
   return () => {
-    const patchedProps = getPatchedProps();
-    const index = patchedProps.indexOf(patch);
-
-    // Already undone (directly or by `restoreMockedProps`) — a second call must stay a no-op.
-    if (index === -1) {
+    // Marked rather than spliced out of the journal: `indexOf` + `splice` is linear in the number of
+    // patches taken so far, which turns a spec that stubs in a loop into quadratic work. A second
+    // call (directly, or after `restoreMockedProps` swept the journal) must stay a no-op either way.
+    if (patch.undone) {
       return;
     }
 
-    patchedProps.splice(index, 1);
+    patch.undone = true;
     restorePatch(patch);
   };
 }
@@ -81,6 +84,23 @@ function restorePatch({ object, property, descriptor }: PatchedProp): void {
 }
 
 /**
+ * One message for everything a sweep could not put back.
+ *
+ * Every failure is reported rather than the first: they are independent patches, and a suite that
+ * seals two properties needs to see both to know how much of its teardown is a lie.
+ */
+function describeRestoreFailures(failures: readonly string[]): string {
+  return withDocs(
+    `[vitest-auto-spy] restoreMockedProps() could not put ${failures.length} of the patched properties back:\n${failures.join('\n')}\n` +
+      'A property that was redefined as non-configurable can never be restored — `Object.defineProperty` defaults ' +
+      '`configurable` to `false`, so a plain redefinition of an already-mocked property seals it for the rest of the worker. ' +
+      "`setupAutoSpy({ guardGlobals: 'throw' })` names the test that does it. Every other patch of this sweep was restored, and " +
+      'the journal is empty either way — nothing here is replayed against a descriptor that has since moved on.',
+    DOCS_LINKS.setup,
+  );
+}
+
+/**
  * Undo every patch the `mock*Prop` helpers applied since the last call, newest first.
  *
  * Nothing calls this for you: `vi.restoreAllMocks()` knows about spies, not about properties these
@@ -94,14 +114,39 @@ function restorePatch({ object, property, descriptor }: PatchedProp): void {
  * ```ts
  * restoreMockedProps(); // undoes every mock*Prop patch — vi.restoreAllMocks() does not
  * ```
+ *
+ * @throws if a patch cannot be undone (the property was later redefined as non-configurable). The
+ *   other patches are restored first, and the journal is emptied whatever happens.
  */
 export function restoreMockedProps(): void {
   const patchedProps = getPatchedProps();
+  // A copy, walked newest first: the same property may have been patched more than once, and only
+  // the descriptor recorded first is the original one. Reversing the journal in place would leave it
+  // back-to-front for the next call if a restore throws mid-way, silently inverting that invariant.
+  const pending = [...patchedProps].reverse();
+  const failures: string[] = [];
 
-  // Reverse order: the same property may have been patched more than once, and only the descriptor
-  // recorded first is the original one.
-  patchedProps.reverse().forEach(restorePatch);
+  // Emptied before anything is put back, so a patch is attempted once even if it throws: replaying
+  // it against a descriptor the failure left in place is how one broken restore becomes many.
   patchedProps.length = 0;
+
+  for (const patch of pending) {
+    if (patch.undone) {
+      continue;
+    }
+
+    patch.undone = true;
+
+    try {
+      restorePatch(patch);
+    } catch (error) {
+      failures.push(`  - ${String(patch.property)}: ${String(error)}`);
+    }
+  }
+
+  if (failures.length > 0) {
+    throw new Error(describeRestoreFailures(failures));
+  }
 }
 
 /**
@@ -113,7 +158,7 @@ export function restoreMockedProps(): void {
  * ```
  */
 export function countMockedProps(): number {
-  return getPatchedProps().length;
+  return getPatchedProps().filter((patch) => !patch.undone).length;
 }
 
 /**
