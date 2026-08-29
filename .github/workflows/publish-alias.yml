@@ -76,6 +76,13 @@ jobs:
             exit 1
           fi
 
-          npm publish --provenance --access public
+          # A bare `npm publish` failure here is a 403 with no hint about which of the two packages
+          # the token is missing, and the run reads as "the release broke" rather than "one secret
+          # needs one more package on its allow-list". The canonical package publishing fine while
+          # this one 403s is the signature of a granular token scoped to `vitest-auto-spy` alone.
+          if ! npm publish --provenance --access public; then
+            echo "::error title=Alias not published::npm refused the publish. If the log above shows \`403 Forbidden - PUT https://registry.npmjs.org/vitest-auto-spies\`, NPM_TOKEN cannot write this package — it is a granular token scoped to vitest-auto-spy only. Fix: npmjs.com -> Access Tokens -> the token used as NPM_TOKEN -> add vitest-auto-spies with read and write, or issue a new token covering both packages and update the repository secret. Then re-run Actions -> Publish alias."
+            exit 1
+          fi
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
