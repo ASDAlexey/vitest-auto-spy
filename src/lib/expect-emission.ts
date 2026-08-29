@@ -199,12 +199,12 @@ export function expectNoEmission<T>(source$: SubscribableLike<T>, options?: Emis
       () => undefined,
     );
 
+    // No `values.length === 0` guard: an emission settles the promise as a rejection, and the
+    // `finally` below cancels this timer in the microtask that follows — before a macrotask can
+    // run. So reaching this callback *is* the proof that the window stayed quiet.
     quietWindow = setTimer(() => {
       collector.stop();
-
-      if (collector.values.length === 0) {
-        resolve();
-      }
+      resolve();
     }, quietFor);
   }).finally(() => {
     // An emission or a source error settles the promise before the window is up, and a settled
