@@ -62,6 +62,30 @@ and differ only in what their names tell a reader. Prefer this one in new code; 
 `methodsToSpyOn` in specs carried over from `jest-auto-spies`. Neither warns about a name the
 prototype does not have: being absent from the prototype is the point.
 
+Angular's own classes are in this list too. `Router.currentNavigation` became
+`currentNavigation = this.navigationTransitions.currentNavigation.asReadonly()` in Angular 20, so
+`provideAutoSpy(Router)` alone does not produce it:
+
+```ts
+provideAutoSpy(Router, { instanceMethodsToSpyOn: ['currentNavigation'] });
+```
+
+#### The error you actually see
+
+```
+TypeError: Cannot read properties of undefined (reading 'mockReturnValue')
+```
+
+The member is simply not on the spy, so the next line reads `undefined` and configuring it throws.
+There is no better message to be had at runtime, and the reason is worth knowing rather than looking
+like an oversight: instance fields do not exist until a constructor has run, and this factory never
+constructs the class — which is exactly what makes it safe to build a spy from a service whose
+constructor opens a socket. The only alternative would be to answer an unknown member with
+*something*, and that something would be truthy, so `if (service.optionalThing)` in the code under
+test would take the wrong branch — silently, in a different file. That is the failure mode the
+[protocol deny-list](/core/auto-mock-by-type) exists to remove, and a loud `TypeError` on the spec's
+own line is the better of the two.
+
 ### `fillMissing` — a partially abstract class
 
 A **fully** abstract class needs nothing: its prototype names nothing at all, so the factory hands
@@ -173,6 +197,18 @@ expect(settings.accessorSpies.setters.theme).toHaveBeenCalledWith('light');
 
 The property itself reads and writes normally — `accessorSpies` is where the mock lives, so
 `settings.theme` stays typed as `string`, not as a mock.
+
+### Naming one half gets the pair
+
+`gettersToSpyOn: ['theme']` on a class that declares **both** halves installs both spies, and the
+same is true the other way round. Mirroring reads the prototype descriptor, so it only ever adds
+what the class already has: a read-only member stays read-only.
+
+Before 3.5.0 only the named half was spied, and the double came out poorer than the original exactly
+where the code under test expects symmetry. The assignment `service.manualSwitchKidMode = false`
+landed on the no-op setter the spy scaffolding installs, so the write vanished *and* there was
+nothing to assert on — `accessorSpies.setters.manualSwitchKidMode` was `undefined`, and the failure
+read `Cannot read properties of undefined` several steps from the configuration that caused it.
 
 ## A single function — `createFunctionSpy`
 

@@ -680,6 +680,59 @@ describe('accessor spies', () => {
 // createObservableWithValues
 // ---------------------------------------------------------------------------
 
+describe('accessor pairs', () => {
+  class LayoutStateService {
+    private kid = false;
+
+    get manualSwitchKidMode(): boolean {
+      return this.kid;
+    }
+
+    set manualSwitchKidMode(value: boolean) {
+      this.kid = value;
+    }
+
+    get version(): number {
+      return 1;
+    }
+  }
+
+  it('spies the setter too when the prototype declares one', () => {
+    // Naming only the getter used to leave the double poorer than the original exactly where the
+    // code under test expects symmetry: the assignment landed on the no-op setter the scaffolding
+    // installs, so the write vanished and `accessorSpies.setters.x` was `undefined` — the failure
+    // read `Cannot read properties of undefined`, three steps from the configuration behind it.
+    const service = createSpyFromClass(LayoutStateService, { gettersToSpyOn: ['manualSwitchKidMode'] });
+
+    service.manualSwitchKidMode = false;
+
+    expect(service.accessorSpies.setters.manualSwitchKidMode).toHaveBeenCalledWith(false);
+  });
+
+  it('keeps the getter spy working alongside it', () => {
+    const service = createSpyFromClass(LayoutStateService, { gettersToSpyOn: ['manualSwitchKidMode'] });
+
+    service.accessorSpies.getters.manualSwitchKidMode.mockReturnValue(true);
+
+    expect(service.manualSwitchKidMode).toBe(true);
+  });
+
+  it('mirrors the other way too, from a named setter to its getter', () => {
+    const service = createSpyFromClass(LayoutStateService, { settersToSpyOn: ['manualSwitchKidMode'] });
+
+    service.accessorSpies.getters.manualSwitchKidMode.mockReturnValue(true);
+
+    expect(service.manualSwitchKidMode).toBe(true);
+  });
+
+  it('adds nothing the prototype does not declare', () => {
+    // Mirroring reads the descriptor; it never guesses. A read-only member stays read-only.
+    const service = createSpyFromClass(LayoutStateService, { gettersToSpyOn: ['version'] });
+
+    expect(Object.keys(service.accessorSpies.setters)).toEqual([]);
+  });
+});
+
 describe('createObservableWithValues', () => {
   it('builds a completing observable from value configs', async () => {
     const obs = createObservableWithValues<number>([{ value: 1 }, { value: 2, delay: 1 }, { complete: true }]);
@@ -870,6 +923,49 @@ describe('provideAutoSpy / injectSpy', () => {
     // Still a spy — which is what seeding it through `overrides` would have thrown away.
     await expect(collect(products.getProducts())).resolves.toMatchObject({ values: [['a']] });
     expect(products.getProducts).toHaveBeenCalled();
+  });
+
+  it('builds observable property spies behind a token, not function spies', async () => {
+    interface FavoritesFacade {
+      favorites$: Observable<number[]>;
+      reload(): void;
+    }
+
+    const FAVORITES = new InjectionToken<FavoritesFacade>('FAVORITES');
+
+    // With only a type at runtime, a method key and a property key are indistinguishable — so
+    // without this option `favorites$` is a *function* spy, the code under test subscribes to a
+    // function, and the failure lands nowhere near the double.
+    TestBed.configureTestingModule({
+      providers: [provideAutoSpyForToken(FAVORITES, undefined, { observablePropsToSpyOn: ['favorites$'] })],
+    });
+
+    const favorites = injectSpy(FAVORITES);
+    const emitted = collect(favorites.favorites$);
+
+    favorites.favorites$.nextOneTimeWith([1]);
+
+    await expect(emitted).resolves.toMatchObject({ values: [[1]], completed: true });
+    // Not a function spy — which is what the same double answers for every unnamed key.
+    expect(vi.isMockFunction(favorites.favorites$)).toBe(false);
+    expect(vi.isMockFunction(favorites.reload)).toBe(true);
+  });
+
+  it('lets an `overrides` seed win over the observable-prop list', () => {
+    interface FavoritesFacade {
+      favorites$: Observable<number[]>;
+    }
+
+    const FAVORITES = new InjectionToken<FavoritesFacade>('FAVORITES');
+    const seeded = new ReplaySubject<number[]>(1);
+
+    TestBed.configureTestingModule({
+      providers: [provideAutoSpyForToken(FAVORITES, { favorites$: seeded }, { observablePropsToSpyOn: ['favorites$'] })],
+    });
+
+    // The seed is the more specific statement, and handing the double a real Subject the spec drives
+    // itself is what it is for. Same precedence as on the class-based factory.
+    expect(injectSpy(FAVORITES).favorites$).toBe(seeded);
   });
 
   it('takes an abstract class — the standard Angular DI-token shape', () => {

@@ -137,17 +137,43 @@ function getAllAccessorNames(prototype: object): AccessorNames {
   return result;
 }
 
-/** Merge explicitly-listed accessors with auto-discovered ones (de-duplicated) when `autoSpyAccessors` is on. */
+/**
+ * Decide which accessors to spy: the explicit lists, plus everything discovered when
+ * `autoSpyAccessors` is on — and, either way, **the other half of a pair the prototype declares**.
+ *
+ * That last part is the rule worth stating. `gettersToSpyOn: ['manualSwitchKidMode']` on a class
+ * that declares both a getter and a setter used to install the getter spy alone, and the double
+ * came out poorer than the original exactly where the code under test expects symmetry: the
+ * assignment `service.manualSwitchKidMode = false` landed on the no-op setter the spy scaffolding
+ * installs, so the write vanished *and* there was nothing to assert on —
+ * `accessorSpies.setters.manualSwitchKidMode` was `undefined`, and the failure said
+ * `Cannot read properties of undefined`, three steps from the configuration that caused it.
+ *
+ * Mirroring is the whole of the fix, and it only ever adds what the class already has: a name is
+ * promoted to the other list when the *prototype descriptor* carries that half, never on a guess.
+ */
 function resolveAccessors(prototype: object, config: ResolvedSpyConfiguration): AccessorNames {
-  if (!config.autoSpyAccessors) {
-    return { getters: config.gettersToSpyOn, setters: config.settersToSpyOn };
+  if (!config.autoSpyAccessors && config.gettersToSpyOn.length === 0 && config.settersToSpyOn.length === 0) {
+    // The overwhelmingly common call names no accessors at all. Return before touching the
+    // prototype chain, so `provideAutoSpy(Service)` stays as cheap as it was.
+    return { getters: [], setters: [] };
   }
 
   const discovered = getAllAccessorNames(prototype);
 
+  if (config.autoSpyAccessors) {
+    return {
+      getters: [...new Set([...config.gettersToSpyOn, ...discovered.getters])],
+      setters: [...new Set([...config.settersToSpyOn, ...discovered.setters])],
+    };
+  }
+
+  const declaredGetters = new Set(discovered.getters);
+  const declaredSetters = new Set(discovered.setters);
+
   return {
-    getters: [...new Set([...config.gettersToSpyOn, ...discovered.getters])],
-    setters: [...new Set([...config.settersToSpyOn, ...discovered.setters])],
+    getters: [...new Set([...config.gettersToSpyOn, ...config.settersToSpyOn.filter((name) => declaredGetters.has(name))])],
+    setters: [...new Set([...config.settersToSpyOn, ...config.gettersToSpyOn.filter((name) => declaredSetters.has(name))])],
   };
 }
 
