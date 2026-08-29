@@ -209,9 +209,7 @@ describe('prefer-create-spy-from-class', () => {
   });
 
   it('leaves a vi.mock factory alone — its exports are DI tokens, not a service double', () => {
-    expect(
-      lint("vi.mock('@acme/ui', () => ({ DialogRef: vi.fn(), ToastService: vi.fn() }));", 'prefer-create-spy-from-class'),
-    ).toEqual([]);
+    expect(lint("vi.mock('@acme/ui', () => ({ DialogRef: vi.fn(), ToastService: vi.fn() }));", 'prefer-create-spy-from-class')).toEqual([]);
     expect(lint("vi.doMock('x', () => ({ A: vi.fn(), B: vi.fn() }));", 'prefer-create-spy-from-class')).toEqual([]);
     expect(lint("register('x', () => ({ A: vi.fn(), B: vi.fn() }));", 'prefer-create-spy-from-class')).toHaveLength(1);
   });
