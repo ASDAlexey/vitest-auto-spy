@@ -55,6 +55,10 @@ features:
     title: Observables that fail on silence
     details: expectEmission / expectEmissions / expectNoEmission replace the expect() inside a subscribe callback that never runs — the assertion is the await. Duck-typed, so no rxjs is pulled in.
     link: /core/observable-assertions
+  - icon: 🫥
+    title: When a green suite is lying
+    details: zone.js replaces the global Promise, and a rejection nobody handled is drained into console.error and no further — it never reaches the channel Vitest listens on, so the runner is never told and the file still exits 0. An expect() inside a .then(), an async helper called without await, a TypeError thrown inside an import() in production code — every one of them is a passing test with a line of stderr behind it. The strayRejections option fails the test the rejection surfaced in, and the no-floating-assertion lint rule catches the commonest shape before it ever runs. One migrated suite of 11 587 tests, green, was hiding six real defects of that shape — two of them assertions that were simply false.
+    link: /utilities/setup#_8-failing-on-a-rejection-zone-js-swallowed
   - icon: 🏗️
     title: Doubles for what the code builds itself
     details: Vitest only forwards new to a constructible implementation, so the Jest idiom vi.fn(() => instance) records the call, skips the body and returns an empty object. mockConstructor / stubConstructor stay full runner mocks, collect instances, and refuse to be called without new.

@@ -69,6 +69,10 @@ alongside it:
   ProxyZone through Jasmine and Jest hooks only, so both throw until this patch is imported.
 - [`assertMocked` / `moduleNamespace`](/utilities/module-mocks) — proof that a `vi.mock()` actually
   applied under a bundler, instead of a spec quietly asserting on the real module.
+- [`setupAutoSpy({ strayRejections: true })`](/utilities/setup#_8-failing-on-a-rejection-zone-js-swallowed) —
+  the promise rejections zone.js drains into `console.error` and no further, turned into failed
+  tests. Nothing else on this list looks there: a swallowed rejection never reaches the channel
+  Vitest watches, so a spec that asserts inside a `.then()` nobody awaits stays green and exits 0.
 - [Nine ESLint rules](/utilities/eslint-plugin) versioned together with the API they recommend, and
   [`setupAutoSpy()`](/utilities/setup) for the test-run hygiene a shared environment needs.
 - [Per-file `TestBed` diagnostics](/adapters/angular#where-a-spec-spends-its-time) — which specs
