@@ -18,15 +18,15 @@ thousand, so `hz` swings several-fold between runs as GC pauses land in differen
 
 | Operation | per call (p75) |
 | --- | ---: |
-| spy a 10-method class, call 2 methods — lazy (the default) | **5.3 µs** |
-| the same, eager (`lazySpies: false`) | 18.5 µs |
-| spy a 40-method class, call 3 methods — lazy | **10.6 µs** |
-| the same, eager | 75.8 µs |
-| `createAutoMock<Service>()` + 4 accesses | 9.2 µs |
+| spy a 10-method class, call 2 methods — lazy (the default) | **5.4 µs** |
+| the same, eager (`lazySpies: false`) | 17.5 µs |
+| spy a 40-method class, call 3 methods — lazy | **10.3 µs** |
+| the same, eager | 68.6 µs |
+| `createAutoMock<Service>()` + 4 accesses | 7.8 µs |
 | `calledWith` dispatch, 3 configured calls | 0.5 µs |
 
 Lazy widens as the class does, and gives it back only when a single test really calls every method
-(10 methods, all 10: 22.0 µs lazy against 20.0 µs eager — a rounding error against the order of
+(10 methods, all 10: 20.7 µs lazy against 19.2 µs eager — a rounding error against the order of
 magnitude it wins everywhere else). That asymmetry is why it is the default rather than an option.
 
 Put that against a suite: five providers across two thousand tests is ten thousand calls — under a
@@ -168,9 +168,14 @@ Vitest 4 at all (see [Installation](./installation)).
 ::: details Why `npm run bench` is not the source for this table
 The cross-version numbers here come from a standalone harness, not from the repo's Vitest bench.
 Vitest bench was tried first and rejected: consecutive runs of the same case on the same version
-returned 0.0090 ms and 5.06 ms — GC pauses land in different samples and swamp a 10% difference
-between runtimes. `npm run bench` stays the right tool for what it guards (ratios between two
-options inside one run); it cannot compare two runtimes.
+returned 0.0090 ms and 5.06 ms — GC pauses landed in different samples and swamped a 10% difference
+between runtimes. That particular swing has since been traced and fixed at the source: `@vitest/spy`
+keeps every mock it ever creates in a module-level strong `Set`, so nothing a bench case allocated
+was collectable and each case ran into the heap the previous one had left. `bench/auto-spy.bench.ts`
+now calls this package's own `pruneMockRegistry()` at the end of every case, and the table above
+reproduces within 1.0–1.2× across consecutive runs. `npm run bench` still cannot compare two
+runtimes — a separate process per version, with the runner outside the measurement, is the only
+honest way to do that — but it is no longer the GC it was measuring.
 :::
 
 ## What to reach for
@@ -191,9 +196,11 @@ memory on a wide class. It is worth it only when a spec inspects the spy object 
 property descriptors — enumeration (`Object.keys`, spread, a snapshot) already works, because the
 placeholders are enumerable accessors.
 
-**`autoSpyAccessors: true`** walks the prototype chain for getters and setters, and unlike the
-method walk that result is not cached. On a class spied once per test in a large file it is the one
-option worth replacing with an explicit `gettersToSpyOn` / `settersToSpyOn` list.
+**`autoSpyAccessors: true`** walks the prototype chain for getters and setters. That walk is
+memoised per prototype in a `WeakMap`, exactly like the method walk, so a class spied in 300 tests
+pays for it once — this page said otherwise until v3.6.0 and was simply out of date. What the option
+still costs per spy is the accessor indirection itself, measured above at five percent; reach for an
+explicit `gettersToSpyOn` / `settersToSpyOn` list when you want a smaller surface, not for speed.
 
 Everything else — `methodsToSpyOn`, `observablePropsToSpyOn`, `calledWith`, the return-type helpers
 — is either a constant or, in `calledWith`'s case, a sub-microsecond map lookup on a serialized key.

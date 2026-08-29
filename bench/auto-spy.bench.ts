@@ -17,12 +17,45 @@
  * a GC pause lands in some samples and not in others: `hz` for one case swings several-fold between
  * runs — and Vitest's "N x faster" summary swings with it — while `p75` reproduces to the fourth
  * decimal. The numbers published in `docs-site/core/performance.md` are `p75`.
+ *
+ * **Every case ends with {@link dropCreatedMocks}, and without it these numbers measured the
+ * garbage collector.** `@vitest/spy` keeps every mock it ever created in a module-level *strong*
+ * `Set` — that set is what `vi.clearAllMocks()` walks — so nothing a bench case allocates is ever
+ * collectable: 20 000 eager 10-method spies retained 972 MB, and forcing a GC after dropping every
+ * reference released **0.0%** of it. Each case therefore allocated into a monotonically growing
+ * heap it inherited from the case before, and `p75` reported whether a major GC happened to land
+ * inside the sample. Two consecutive unmodified runs moved `createAutoMock + 4 accesses` **569×**
+ * (5.0680 ms → 0.0089 ms), and one of them announced "eager 272.67× faster than lazy" for the case
+ * the docs publish as a 7× *lazy* win.
+ *
+ * Vitest calls no hooks in benchmark mode — `beforeAll`, `beforeEach` and `afterAll` inside a
+ * `describe` are all silently skipped, and `bench()`'s options are tinybench's `Options`, not its
+ * per-task `FnOptions` — so the prune has to happen inside the timed body. It is charged to the
+ * case that created the mocks, which is the honest place for it: the registry never holds more than
+ * one iteration's worth, so the cost is a `Set.delete` per mock created (~50 ns) against the ~1.9 µs
+ * this library spends creating each one, and it is the same fraction whatever the case allocates.
  */
 import { bench, describe } from 'vitest';
 
 // Import the public entry (not `src/lib/*` directly) so the default Vitest mock
 // adapter registers as a side effect — the same wiring real consumers get.
 import { createAutoMock, createSpyFromClass } from '../src/index';
+import { captureMockRegistry, pruneMockRegistry } from '../src/setup';
+
+// Captured once, at module scope: the capture works by calling `vi.clearAllMocks()` under a briefly
+// patched `Set.prototype.forEach`, which is far too expensive to repeat per iteration — and by the
+// time the first case runs there is nothing in the registry worth keeping anyway.
+captureMockRegistry();
+
+/**
+ * Release the mocks this iteration created, so the next one starts from the same heap as this one.
+ *
+ * Nothing here is long-lived: every spy a case creates dies with the iteration, so an unconditional
+ * prune is exactly right. Call it last in every bench body — see the file header.
+ */
+function dropCreatedMocks(): void {
+  pruneMockRegistry();
+}
 
 /** A class with `methodCount` prototype methods — the width is what the method walk and its cache pay for. */
 function makeWideClass(methodCount: number): ClassWithMethods {
@@ -51,6 +84,8 @@ function spyAndCall(WideClass: ClassWithMethods, lazySpies: boolean, callCount: 
   for (let index = 0; index < callCount; index += 1) {
     spy[`m${index}`]();
   }
+
+  dropCreatedMocks();
 }
 
 const WIDE = makeWideClass(10);
@@ -78,6 +113,7 @@ describe('createSpyFromClass', () => {
   // exercises the per-prototype method-name cache.
   bench('spy a wide class (repeated, same class)', () => {
     createSpyFromClass(WIDE);
+    dropCreatedMocks();
   });
 });
 
@@ -103,10 +139,14 @@ describe('createAutoMock (type-only, lazy Proxy)', () => {
     mock.m1();
     mock.m2();
     mock.m3();
+
+    dropCreatedMocks();
   });
 });
 
 describe('calledWith dispatch', () => {
+  // The one case whose spy outlives its iterations: it is created here, at module scope, and the
+  // body only calls it. Nothing inside the body allocates a mock, so there is nothing to prune.
   const spy = createSpyFromClass(WIDE);
 
   spy.m2.calledWith(1).mockReturnValue(11);
