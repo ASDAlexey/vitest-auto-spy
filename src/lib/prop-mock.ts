@@ -101,6 +101,23 @@ function describeRestoreFailures(failures: readonly string[]): string {
 }
 
 /**
+ * How many `mock*Prop` patches are still in place.
+ *
+ * The counterpart of `countStrayTimers()` / `countStrayRejections()`, and it answers one question:
+ * did the teardown actually run? A patch that outlives its test is silent — the next test reads a
+ * value somebody else installed, and the failure surfaces wherever that value happens to matter,
+ * which is routinely a different `describe` and an error message about something else entirely.
+ *
+ * @example
+ * ```ts
+ * afterEach(() => expect(countMockedProps()).toBe(0));
+ * ```
+ */
+export function countMockedProps(): number {
+  return getPatchedProps().filter((patch) => !patch.undone).length;
+}
+
+/**
  * Undo every patch the `mock*Prop` helpers applied since the last call, newest first.
  *
  * Nothing calls this for you: `vi.restoreAllMocks()` knows about spies, not about properties these
@@ -147,18 +164,6 @@ export function restoreMockedProps(): void {
   if (failures.length > 0) {
     throw new Error(describeRestoreFailures(failures));
   }
-}
-
-/**
- * How many `mock*Prop` patches are still applied — the signal `setupAutoSpy()`'s hygiene reports on.
- *
- * @example
- * ```ts
- * afterEach(() => expect(countMockedProps()).toBe(0));
- * ```
- */
-export function countMockedProps(): number {
-  return getPatchedProps().filter((patch) => !patch.undone).length;
 }
 
 /**

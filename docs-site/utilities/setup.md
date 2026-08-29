@@ -24,6 +24,34 @@ redefined. Under `isolate: false` an un-restored patch on a global, a prototype 
 leaks straight into the next file. `setupAutoSpy()` registers `restoreMockedProps()` in a global
 `afterEach`.
 
+**And in an `onTestFinished` net behind it**, because the `afterEach` is not guaranteed to run.
+Vitest calls `afterEach` hooks in **reverse** registration order, so the one a setup file registers
+is the *last*, and any hook the spec file registered — which therefore runs first — takes the chain
+down with it when it throws:
+
+```ts
+// in the spec file, and therefore running before the library's hook
+afterEach(() => vi.restoreAllMocks()); // ← throws, and the cleanup below it never happens
+```
+
+That is not hypothetical. One spec kept exactly that line for years; migrating it to
+`provideAutoSpy(LayoutStateService, { gettersToSpyOn: [...] })` made the restored getter return
+`undefined`, `ngOnDestroy` called it as a signal, and the resulting `TypeError` aborted the hook.
+The patch travelled, and the failure surfaced in a **different `describe`** as a template error
+about a null profile. With the hand-rolled `vi.fn()` it replaced, the restored getter was still
+callable, so the mine had been sitting there invisible the whole time.
+
+`onTestFinished` runs after the `afterEach` chain and runs whatever that chain did, so the net puts
+the properties back and warns — naming the count and the cause, at the test where it happened rather
+than two tests later. It costs one boolean on the ordinary path: it does nothing unless the hook was
+skipped.
+
+`countMockedProps()` is exported for suites that would rather assert it:
+
+```ts
+afterEach(() => expect(countMockedProps()).toBe(0));
+```
+
 ## 2. One copy of the library in the process
 
 Two copies keep two sets of console spies and two registries, so an assertion runs against a spy

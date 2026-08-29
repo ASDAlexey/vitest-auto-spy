@@ -12,7 +12,7 @@
  *  3. **Draining the runner's restore registry.** Every `vi.spyOn` adds an entry that only
  *     `vi.restoreAllMocks()` removes; with a shared environment that list grows for the whole run.
  */
-import { afterAll, afterEach, beforeEach, vi } from 'vitest';
+import { afterAll, afterEach, beforeEach, onTestFinished, vi } from 'vitest';
 
 import { DOCS_LINKS, withDocs } from './docs-links';
 import { type FakeTimersConfig, setupFakeTimers } from './fake-timers';
@@ -20,7 +20,7 @@ import { type GlobalPatchReaction, type GlobalSnapshot, checkSealedAdditions, sn
 import { trackMockRegistry } from './mock-registry';
 import { type BlockNetworkOptions, blockNetwork } from './network-stub';
 import { describeDuplicateCopies } from './package-identity';
-import { restoreMockedProps } from './prop-mock';
+import { countMockedProps, restoreMockedProps } from './prop-mock';
 import { type StrayRejection, flushStrayRejections, trackStrayRejections } from './stray-rejections';
 import { cancelStrayTimers, trackStrayTimers } from './stray-timers';
 import { restoreTimerGlobals } from './timer-globals';
@@ -386,32 +386,100 @@ export function setupAutoSpy(options: SetupAutoSpyOptions = {}): void {
 
   // The diagnostics come first because they are the steps that throw on purpose; every restore
   // after them runs regardless. See {@link runTeardown} for why the two live in one hook.
-  const steps: TeardownStep[] = [
+  // The diagnostics are the steps that throw on purpose; the restores are the ones that put the
+  // environment back. The split is not cosmetic — the net below re-runs the restores and must not
+  // re-run a check that has already reported.
+  const diagnostics: TeardownStep[] = [
     ...watchGlobalPatches(options.guardGlobals ?? 'off'),
     ...watchStrayRejections(options.strayRejections ?? false),
   ];
+  const restores: TeardownStep[] = [];
 
   if (options.restoreProps ?? true) {
-    steps.push(restoreMockedProps);
+    restores.push(restoreMockedProps);
   }
 
   if (options.restoreMocks ?? false) {
-    steps.push(restoreRunnerMocks);
+    restores.push(restoreRunnerMocks);
   }
 
   if (options.resetConsoleSpies ?? true) {
-    steps.push(resetInstalledConsoleSpies);
+    restores.push(resetInstalledConsoleSpies);
   }
 
   // Last of the restores: whatever came before may have uninstalled fake timers, and under happy-dom
   // that removes a timer global rather than putting it back.
   if (options.restoreTimerGlobals ?? true) {
-    steps.push(restoreTimerGlobals);
+    restores.push(restoreTimerGlobals);
   }
 
+  const steps = [...diagnostics, ...restores];
+
   if (steps.length > 0) {
-    afterEach((context) => {
-      runTeardown(steps, context);
-    });
+    installTeardown(steps, restores);
   }
+}
+
+/**
+ * The teardown hook, and the net that catches the run where it never happened.
+ *
+ * Vitest runs `afterEach` hooks in **reverse** registration order, so the hook a setup file
+ * registers is the *last* to run — and a hook the spec file registered, which therefore runs first,
+ * takes the whole chain down with it when it throws. Nothing here runs, the patches stay in place,
+ * and the next test reads values somebody else installed.
+ *
+ * That is neither hypothetical nor loud. One spec kept a long-standing
+ * `afterEach(() => vi.restoreAllMocks())`; migrating it to
+ * `provideAutoSpy(LayoutStateService, { gettersToSpyOn: [...] })` made the restored getter return
+ * `undefined`, `ngOnDestroy` called it as a signal, the `TypeError` aborted the hook — and the
+ * failure surfaced in a different `describe` as a template error about a null profile. With the
+ * hand-rolled `vi.fn()` it replaced, the restored getter was still callable, so the mine had been
+ * sitting there invisible.
+ *
+ * `onTestFinished` is the answer because Vitest runs it after the `afterEach` chain and runs it
+ * whatever that chain did — measured in both orderings rather than assumed. It is registered per
+ * test from a `beforeEach`, and does nothing at all unless the hook was skipped, so the ordinary
+ * path costs one boolean.
+ */
+function installTeardown(steps: readonly TeardownStep[], restores: readonly TeardownStep[]): void {
+  let teardownRan = false;
+
+  beforeEach(() => {
+    teardownRan = false;
+
+    onTestFinished(() => {
+      if (teardownRan) {
+        return;
+      }
+
+      const leaked = countMockedProps();
+
+      runTeardown(restores);
+
+      // eslint-disable-next-line no-console -- the test has already failed on whatever threw, and a second thrown error would bury the first; this is the sentence that explains it.
+      console.warn(describeSkippedTeardown(leaked));
+    });
+  });
+
+  afterEach((context) => {
+    try {
+      runTeardown(steps, context);
+    } finally {
+      // In a `finally`, because `runTeardown` rethrows what a step threw and the restores have run
+      // by then regardless — the net's job is the hook that never started, not the one that failed.
+      teardownRan = true;
+    }
+  });
+}
+
+/** What the net says when it finds a teardown that never ran. */
+function describeSkippedTeardown(leaked: number): string {
+  return withDocs(
+    `[vitest-auto-spy] setupAutoSpy()'s afterEach did not run for this test, so ${leaked} mock*Prop patch(es) were still in ` +
+      'place; they have been put back now. Vitest runs `afterEach` hooks in reverse registration order, which makes the one a ' +
+      'setup file registers the last to run — so any hook the spec file registered that throws takes this one with it. Look for ' +
+      "the hook that threw in this test's output; without this net the patches would have travelled into the next test, and the " +
+      'failure would have surfaced in some later test that never touched them.',
+    DOCS_LINKS.setup,
+  );
 }

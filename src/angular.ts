@@ -28,6 +28,7 @@ export {
   mockReadonlyProp,
   mockReadonlyPropGetter,
   mockValueProp,
+  countMockedProps,
   restoreMockedProps,
   type AccessorImplementations,
   type RestoreProp,

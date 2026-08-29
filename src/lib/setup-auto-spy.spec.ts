@@ -107,6 +107,45 @@ describe('runner mock restoration (opted in)', () => {
   });
 });
 
+describe('the teardown net, for the run where the hook never happened', () => {
+  // Vitest runs `afterEach` in reverse registration order, so this one — registered *after*
+  // `setupAutoSpy()` — runs *first*, and taking it down takes the library's hook with it. That is
+  // the shape that let a patch travel: a long-standing `afterEach(() => vi.restoreAllMocks())`
+  // started throwing once a restored getter came back `undefined` and `ngOnDestroy` called it.
+  const target = { cookie: 'real' };
+
+  setupAutoSpy({ duplicateCopies: 'off' });
+
+  afterEach(() => {
+    if (target.cookie === 'patched') {
+      throw new Error('the hook that runs first, and throws');
+    }
+  });
+
+  const warnings: string[] = [];
+
+  it.fails('leaves a patch behind when the hook above the library throws', () => {
+    vi.spyOn(console, 'warn').mockImplementation((message: unknown) => {
+      warnings.push(String(message));
+    });
+    mockValueProp(target, 'cookie', 'patched');
+
+    expect(countMockedProps()).toBe(1);
+  });
+
+  it('finds it put back all the same, and says why it had to be', () => {
+    vi.restoreAllMocks();
+
+    // Without `onTestFinished` this would still read `patched`, and the failure would have surfaced
+    // in whichever later test happened to care.
+    expect(target.cookie).toBe('real');
+    expect(countMockedProps()).toBe(0);
+    // The net says what happened, because the symptom is two tests away from the cause.
+    expect(warnings.join('\n')).toMatch(/afterEach did not run for this test, so 1 mock\*Prop patch/);
+    expect(warnings.join('\n')).toContain('reverse registration order');
+  });
+});
+
 describe('network blocking (opted in)', () => {
   setupAutoSpy({ duplicateCopies: 'off', blockNetwork: true });
 
