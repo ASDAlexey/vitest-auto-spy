@@ -169,7 +169,7 @@
     "access": "public"
   },
   "scripts": {
-    "build": "tsup",
+    "build": "tsup && node scripts/thin-node-cts.mjs",
     "size:badge": "node scripts/size-badge.mjs",
     "size:badge:check": "node scripts/size-badge.mjs --check",
     "llms": "node scripts/generate-llms-txt.mjs",
