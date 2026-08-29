@@ -56,6 +56,7 @@ function fakeGlobals(): { calls: unknown[][] } {
     each(this: typeof definer, table: unknown[]) {
       return (name: string, body: (...args: unknown[]) => unknown): unknown => this(name, body, table);
     },
+    skip: (...args: unknown[]): unknown => collector.it(...args),
     concurrent: true,
   });
 
@@ -66,6 +67,17 @@ function fakeGlobals(): { calls: unknown[][] } {
   mockValueProp(globalThis, beforeEachKey, definer);
 
   return { calls };
+}
+
+/** Run every test body the fake collector has recorded so far, and forget them. */
+function runRecorded(globals: { calls: unknown[][] }): void {
+  for (const call of globals.calls.splice(0)) {
+    const wrapped = call[1];
+
+    if (typeof wrapped === 'function') {
+      wrapped();
+    }
+  }
 }
 
 describe('installProxyZonePatch', () => {
@@ -191,6 +203,49 @@ describe('installProxyZonePatch', () => {
     expect(zone.forks).toBe(1);
 
     undo();
+  });
+
+  it('hands back the same view of a member every time, so identity survives', () => {
+    fakeZone().install();
+    fakeGlobals();
+
+    const undo = installProxyZonePatch();
+    const patchedIt: { each: unknown; skip: unknown } = Reflect.get(globalThis, 'it');
+
+    // A fresh Proxy per property read makes `it.skip !== it.skip`, and every comparison by identity
+    // or `WeakMap` keyed by a member of the runner API quietly changes meaning under the patch.
+    expect(patchedIt.skip).toBe(patchedIt.skip);
+    expect(patchedIt.each).toBe(patchedIt.each);
+
+    undo();
+  });
+
+  it('drops its cached views with the shared fork, so the next installation gets its own scope', () => {
+    const zone = fakeZone();
+    zone.install();
+
+    // One and the same `it` is patched twice here — which is exactly what a cache keyed by the
+    // target would hand back, scope and all, if the undo did not empty it.
+    const globals = fakeGlobals();
+    const undoShared = installProxyZonePatch();
+    const sharedIt: (...args: unknown[]) => unknown = Reflect.get(globalThis, 'it');
+
+    sharedIt('first', vi.fn());
+    runRecorded(globals);
+    undoShared();
+
+    const undoPerCallback = installProxyZonePatch({ scope: 'callback' });
+    const perCallbackIt: (...args: unknown[]) => unknown = Reflect.get(globalThis, 'it');
+
+    perCallbackIt('second', vi.fn());
+    perCallbackIt('third', vi.fn());
+    runRecorded(globals);
+
+    // One fork for the shared installation and one per callback for the second: a view left over
+    // from the first would still be sharing a single zone, and this would be 2.
+    expect(zone.forks).toBe(3);
+
+    undoPerCallback();
   });
 
   it('passes a non-callable member through untouched', () => {

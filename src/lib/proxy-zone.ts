@@ -151,6 +151,17 @@ function inProxyZone(callback: Callable, scope: ProxyZoneScope): Callable {
 }
 
 /**
+ * One view per target, so identity survives the patch.
+ *
+ * Without it every property read builds another Proxy and `it.skip !== it.skip`: a comparison by
+ * identity, a `WeakMap` keyed by a member of the runner API, a memoised `it.each(table)` — all of
+ * them start behaving differently under the patch than without it, and nothing points at the patch.
+ * Keyed by the target alone: `scope` is fixed when the patch is installed, and the undo drops the
+ * cache along with the shared fork, so a reinstall under the other scope starts from nothing.
+ */
+let proxyCache = new WeakMap<Callable, Callable>();
+
+/**
  * A view of `target` whose calls run their callbacks in a proxy zone, and whose sub-APIs do too.
  *
  * A Proxy rather than a copy, because the runner's `it` is a callable object with a dozen members
@@ -159,7 +170,13 @@ function inProxyZone(callback: Callable, scope: ProxyZoneScope): Callable {
  * across detaches the receiver, which is how `it.each(table)(…)` comes to return `undefined`.
  */
 function proxyCallable(target: Callable, scope: ProxyZoneScope): Callable {
-  return new Proxy(target, {
+  const cached = proxyCache.get(target);
+
+  if (cached) {
+    return cached;
+  }
+
+  const proxied = new Proxy(target, {
     apply(callee, thisArg, args): unknown {
       const result = Reflect.apply(
         callee,
@@ -177,6 +194,10 @@ function proxyCallable(target: Callable, scope: ProxyZoneScope): Callable {
       return isCallable(value) ? proxyCallable(value, scope) : value;
     },
   });
+
+  proxyCache.set(target, proxied);
+
+  return proxied;
 }
 
 /**
@@ -233,7 +254,9 @@ export function installProxyZonePatch({ scope = 'shared' }: ProxyZonePatchOption
   return () => {
     originals.forEach(({ name, value }) => Reflect.set(globalThis, name, value));
     // The shared fork is derived from the globals that were just put back; keeping it would hand a
-    // zone from the previous installation to the next one.
+    // zone from the previous installation to the next one — and a cached view would hand it the
+    // scope of that installation too.
     sharedProxyZone = undefined;
+    proxyCache = new WeakMap();
   };
 }
