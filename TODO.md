@@ -287,6 +287,41 @@ callable. Type 'TestContext' has no call signatures.` — text the rule's own de
       checking something else. The existing message names the token; naming which of the two survives
       is what makes it actionable.
 
+- [ ] **`no-mocked-for-spy --fix` leaves the file uncompilable when the double is a `vi.fn()`
+      literal.** The rule rewrites the _declaration_ — `Mocked<T>` → `Spy<T>` — and stops there, but
+      the creation site a few lines below is often an object literal the new type does not accept:
+
+      ```ts
+      let register: Spy<Pick<Registry, 'metrics'>> & { contentType: string };
+      register = { contentType: '…', metrics: vi.fn().mockResolvedValue(payload) };
+      // TS2322: Type 'Mock<Procedure>' is not assignable to type
+      //   'AddSpyMethodsByReturnTypes<() => Promise<string>>'
+      ```
+
+      Ran into it on a real file: `eslint --fix` reported clean, and the type gate then failed. That
+      is the worst shape for an autofix — the rule's own check passes, so nothing points back at it.
+      `meta.fixable` is documented in `lib/eslint/rules.ts:12-19` as "decidable from the declaration
+      in the same file", and this case shows the declaration alone is not enough: whether the fix
+      compiles depends on where the value comes from. Two ways out, and the second is probably right:
+      make the fix a **suggestion** whenever the initialiser in scope is not a library factory, or
+      teach it to rewrite the creation site too (`createAutoMock<T>()` for a literal of spies), which
+      is the edit a person makes anyway. Either way the rule should not be able to hand back code
+      that does not type-check.
+
+- [ ] **`globalFakeTimers` fakes `setImmediate`, and that turns an Express 404 into a 30 s hang.**
+      Found while chasing an unrelated flake, and the symptom points nowhere near the cause. Express's
+      router ends an unmatched request through `setImmediate(done, layerError)`
+      (`router/index.js:203`); with the fake clock installed that callback is queued and never
+      drained, so a request that should come back `404` sits until the test times out. Nobody reading
+      `Test timed out in 30000ms` on an HTTP call goes looking for a routing mistake — the natural
+      reading is a hung socket.
+
+      Not a defect in the option, which fakes the right set for the reason it documents, but a gap in
+      what it says about itself. Three things close it: name `setImmediate` as the one whose absence
+      is felt outside timer code; say that a suite driving a real HTTP handler wants it out of
+      `toFake`; and give the recipe next to that, because the alternative people reach for first —
+      `vi.useRealTimers()` inside the file — is exactly what the guarded arming exists to prevent.
+
 - [ ] **A rule for the spread that only fails under a bundler: `no-import-time-spread`.** Same suite,
       three days later: `Spread syntax requires ...iterable[Symbol.iterator] to be a function`, a
       `TypeError` thrown while the spec bundle loads, on a tree whose every test passes. The shape is
