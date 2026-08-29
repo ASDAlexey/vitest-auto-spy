@@ -8,7 +8,7 @@
  * a named, documented view instead of an assertion scattered through the suite.
  */
 import { createSpyFromClass } from './create-spy-from-class';
-import type { ClassSpyConfiguration, ClassType, Spy, SpyOptions } from './types';
+import type { ClassSpyConfiguration, ClassType, DeepMockProxy, Spy, SpyOptions } from './types';
 
 /**
  * View a spy as the class it stands for, for APIs typed against `T`.
@@ -30,9 +30,17 @@ import type { ClassSpyConfiguration, ClassType, Spy, SpyOptions } from './types'
  *
  * Do not silence them with a double assertion: that also hides a genuine mismatch, and this
  * function is the narrow, reviewed version of the same step.
+ *
+ * **A `mockDeep` result goes through here too.** `DeepMockProxy<T>` is a different mapped type — it
+ * has no `accessorSpies` bag — so it did not fit the `Spy<T>` parameter, and a deep mock had
+ * nowhere to go: §2 sends you to `mockDeep` when the calls chain, and then the result could not be
+ * handed to anything expecting `T`. The runtime story is identical to `createAutoMock`'s (a Proxy
+ * that answers every member), so the bridge is the same one.
  */
-export function asInstance<T>(spy: Spy<T>): T {
-  // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- one object, two views: `Spy<T>` adds the control helpers and drops the private members a mapped type cannot see; at runtime this *is* the stand-in for `T`.
+export function asInstance<T>(spy: Spy<T>): T;
+export function asInstance<T>(spy: DeepMockProxy<T>): T;
+export function asInstance<T>(spy: DeepMockProxy<T> | Spy<T>): T {
+  // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- one object, two views: the spy types add the control helpers and drop the private members a mapped type cannot see; at runtime this *is* the stand-in for `T`.
   return spy as T;
 }
 

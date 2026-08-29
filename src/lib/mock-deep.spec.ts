@@ -8,7 +8,7 @@ import { beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { registerMockAdapter } from './mock-adapter';
 import { mockDeep } from './mock-deep';
-import { asSpy } from './spy-typing';
+import { asInstance, asSpy } from './spy-typing';
 import { vitestMockAdapter } from './vitest-adapter';
 
 beforeAll(() => {
@@ -188,5 +188,29 @@ describe('mockDeep({ selfReturning: true })', () => {
     logger.channel.calledWith('audit').mockReturnValue(logger);
 
     expect(logger.channel('audit')).toBe(logger);
+  });
+});
+
+describe('handing a deep mock to something that wants the real type', () => {
+  interface AppLogger {
+    channel(name: string): AppLogger;
+    info(message: string): void;
+  }
+
+  /** The API under test: it wants an `AppLogger`, not a double. */
+  function boot(logger: AppLogger): void {
+    logger.channel('app').info('started');
+  }
+
+  it('goes through `asInstance`, the same bridge a class spy uses', () => {
+    const logger = mockDeep<AppLogger>({}, { selfReturning: true });
+
+    // `DeepMockProxy<T>` has no `accessorSpies` bag, so it did not fit `asInstance`'s `Spy<T>`
+    // parameter — and a deep mock had nowhere to go: the decision tree sends you here when the
+    // calls chain, and then the result could not be handed to anything expecting `T`.
+    boot(asInstance(logger));
+
+    expect(logger.channel).toHaveBeenCalledWith('app');
+    expect(asSpy<AppLogger>(logger.channel('app')).info).toHaveBeenCalledWith('started');
   });
 });

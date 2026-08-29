@@ -30,6 +30,7 @@ import {
   describeStoredProp,
   dropStoredProp,
   isDeletedProp,
+  isProtocolKey,
   readStoredAccessor,
   storeDefinedProp,
   writeStoredAccessor,
@@ -135,8 +136,9 @@ function createDeepNode(name: string, overrides: object, selfReturning: boolean)
         return store.values.get(key);
       }
 
-      // Not thenable: awaiting a node must not treat it as a Promise.
-      if (key === 'then') {
+      // Not thenable, and not a scheduler / Observable either: awaiting a node must not treat it as
+      // a Promise, and `of(node)` must not eat it as a scheduler. See `isProtocolKey`.
+      if (key === 'then' || isProtocolKey(key)) {
         return undefined;
       }
 
