@@ -1,7 +1,7 @@
 import { Subject, of } from 'rxjs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { expectEmission, expectEmissions, expectNoEmission } from './expect-emission';
+import { type SubscribableLike, expectEmission, expectEmissions, expectNoEmission } from './expect-emission';
 
 /** Emit `value` on the next macrotask, the shape of a stream fed by an async source. */
 function later<T>(value: T, delay = 1): Subject<T> {
@@ -112,11 +112,44 @@ describe('expectNoEmission', () => {
 
   it('rejects, printing the value, when the stream does emit', async () => {
     await expect(expectNoEmission(of({ id: 1 }), { timeout: 5, label: 'saved$' })).rejects.toThrow(
-      'saved$ emitted {"id":1} but was expected to stay silent.',
+      'saved$ emitted {id:1} but was expected to stay silent.',
     );
+  });
 
-    // Let the quiet-window timer fire on a stream that already emitted.
-    await new Promise((resolve) => setTimeout(resolve, 10));
+  it('prints a value that references itself, instead of dying on it', async () => {
+    const node: { id: number; self?: unknown } = { id: 1 };
+    node.self = node;
+
+    // A component, a DOM node or a store slice — the values a spec actually asserts silence on.
+    await expect(expectNoEmission(of(node), { timeout: 5, label: 'saved$' })).rejects.toThrow(
+      'saved$ emitted {id:1,self:[Circular]} but was expected to stay silent.',
+    );
+  });
+
+  it('cancels the quiet window when the source settles the promise first', async () => {
+    let unsubscribes = 0;
+
+    const source$: SubscribableLike<number> = {
+      subscribe: (observer) => {
+        observer.next?.(1);
+
+        return {
+          unsubscribe: () => {
+            unsubscribes += 1;
+          },
+        };
+      },
+    };
+
+    await expect(expectNoEmission(source$, { timeout: 5 })).rejects.toThrow(/stay silent/);
+
+    const settled = unsubscribes;
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    // An uncancelled window would stop the collector a second time here — and in a real suite it
+    // would do that inside whichever file happened to be running by then.
+    expect(unsubscribes).toBe(settled);
   });
 
   it('defaults the quiet window to a single macrotask', async () => {

@@ -62,6 +62,14 @@ describe('narrow.byKey', () => {
     expect(() => narrow.byKey(42, 'params')).toThrow(/the value is number 42/);
   });
 
+  it('describes the primitives JSON.stringify throws on or drops', () => {
+    function handler(): void {}
+
+    expect(() => narrow.byKey(10n, 'params')).toThrow(/the value is bigint 10n/);
+    expect(() => narrow.byKey(handler, 'params')).toThrow(/the value is function \[Function: handler]/);
+    expect(() => narrow.byKey(Symbol('id'), 'params')).toThrow(/the value is symbol Symbol\(id\)/);
+  });
+
   it('lists at most twelve keys', () => {
     const wide = Object.fromEntries(Array.from({ length: 20 }, (_, index) => [`key${index}`, index]));
 
