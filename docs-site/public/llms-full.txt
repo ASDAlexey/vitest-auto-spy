@@ -38,10 +38,11 @@ A drop-in, fully-typed jest-auto-spies successor — one API across Vitest, Bun 
 - **Module mocks that prove they applied** — Under a bundler a vi.mock() with an unmatched specifier does nothing at all, and the spec asserts on the real module. assertMocked fails loudly instead, and moduleNamespace gives a factory the shape an interop probe recognises — no more "No default export is defined on the mock". — https://asdalexey.github.io/vitest-auto-spy/utilities/module-mocks
 - **Fixtures without casts** — narrow() says which branch of a union a test got, and prints the shape it actually had when it is wrong. withOverrides() builds a fixture from a model whose getters a spread would drop. asInstances() bridges a whole argument list at once, instead of one asInstance per tsc run. — https://asdalexey.github.io/vitest-auto-spy/utilities/fixtures
 - **The DOM the runner does not ship** — stubIntersectionObserver / stubResizeObserver / stubMutationObserver replace the global the code under test constructs and hand the spec the instance. stubMediaElement makes a <video> play and report a duration, stubAbortController fixes addEventListener(…, { signal }) — and restoreMockedProps takes all of it off again. — https://asdalexey.github.io/vitest-auto-spy/utilities/observer-stubs
-- **Lint rules that steer a suite** — Nine ESLint rules point a suite at these helpers, each message linking to its recipe. Five of them catch a test being wrong rather than verbose — an expect() inside subscribe(), an expect() in a .then() nobody awaits, an Object.defineProperty nothing restores, a module-level mock shared across files, and a done callback that makes a test pass having run almost none of its body. — https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-plugin
+- **Lint rules that steer a suite** — Twelve ESLint rules point a suite at these helpers, each message linking to its recipe. Five of them catch a test being wrong rather than verbose — an expect() inside subscribe(), an expect() in a .then() nobody awaits, an Object.defineProperty nothing restores, a module-level mock shared across files, and a done callback that makes a test pass having run almost none of its body. — https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-plugin
 - **Hygiene for a shared environment** — One setupAutoSpy() call covers what isolate false breaks — property restore, duplicate-install detection, timers and animation frames that outlive their file, fetch that keeps a green run exiting 1, promise rejections zone.js prints and then swallows, and timer globals the fakes delete instead of restoring. installPerTest re-installs a stub for every test, and guardGlobals names the file that sealed a global. The one thing to know — those hooks belong to the spec file whose collection imported the setup module, so a runner that caches it across files leaves every file but the first without them. — https://asdalexey.github.io/vitest-auto-spy/utilities/setup
 - **A migration you can verify** — Counters cannot answer whether a port lost a test — a file can lose a whole suite while a flake elsewhere starts passing, and the totals match. compareTestRuns diffs the two sets of names from the JSON report both runners write, and diffByField turns a collapsed "…(8) to deeply equal" into the field that actually differs. — https://asdalexey.github.io/vitest-auto-spy/migrating
-- **Readable by your agent, not just by you** — An AGENTS.md ships inside the tarball for offline reading, llms.txt and llms-full.txt sit at the docs root, a Claude Code skill installs from the repo, and every error message ends with a link to the page that explains it. — https://asdalexey.github.io/vitest-auto-spy/agents
+- **The anti-patterns, underlined as you type** — A spy declared as the class, an expect() inside subscribe(), a done callback Vitest never calls — every one of them passes, so finding them in CI is an hour too late. The twelve rules ship with the package and need no editor plugin of their own — WebStorm and the other JetBrains IDEs run them natively, VS Code, Cursor and Windsurf through the ESLint extension. — https://asdalexey.github.io/vitest-auto-spy/utilities/editor-diagnostics
+- **Readable by your agent, not just by you** — An AGENTS.md ships inside the tarball for offline reading, llms.txt and llms-full.txt sit at the docs root, a Claude Code skill installs from the repo, and every error message ends with a link to the page that explains it. Claude Code, OpenAI Codex, GLM/z.ai, Cursor, Copilot, Gemini CLI and the rest each get the exact file to point at. — https://asdalexey.github.io/vitest-auto-spy/agents
 - **Zero runtime deps** — An in-tree arg serializer and opt-in subpaths keep rxjs, zone.js and Angular out of your runtime bundle. 100% test coverage, verified on Node 22/24/26 and Bun 1.4. — https://asdalexey.github.io/vitest-auto-spy/core/installation
 
 ---
@@ -3129,7 +3130,7 @@ passes is resting on nothing listening on that port.
 `WebSocket` and `EventSource` are deliberately left alone. Their failure is an event on an object
 the code keeps and reconnects, so there is no answer a blanket stub could give that is not a
 behaviour change of its own;
-[`stubConstructor`](https://asdalexey.github.io/vitest-auto-spy/utilities/doubles) is the tool for a spec that has one.
+[`stubConstructor`](https://asdalexey.github.io/vitest-auto-spy/utilities/constructor-doubles) is the tool for a spec that has one.
 
 ## 6. Putting back timer globals the fakes took with them
 
@@ -4410,6 +4411,7 @@ which a subpath export of this package can never be.
 | `prefer-provide-auto-spy`      |   `warn`    | —         | a hand-rolled `useValue` **or** `useFactory` → `provideAutoSpy(Class)` / `provideAutoSpyForToken(TOKEN)` |
 | `prefer-create-spy-from-class` |   `warn`    | —         | an object literal of two or more `vi.fn()`s → `createSpyFromClass` / `createAutoMock`, unless it is a factory's own seed |
 | `prefer-inject-spy`            |   `warn`    | suggest   | `vi.spyOn(TestBed.inject(X), 'm')`, inline or via a `const` → `injectSpy(X).m`         |
+| `prefer-as-spy`                |   `warn`    | `--fix`   | `TestBed.inject(X) as Spy<X>` → `asSpy(TestBed.inject(X))`, import and all             |
 | `no-object-define-property`    |   `error`   | suggest   | `Object.defineProperty` in a spec → `mockReadonlyProp` / `mockValueProp`              |
 | `no-expect-in-subscribe`       |   `error`   | suggest   | `expect()` inside a `subscribe()` callback → `expectEmission` / `firstValueFrom`      |
 | `no-shared-module-level-mock`  |   `error`   | —         | an **exported** value holding `vi.fn()`s → export a factory that returns it           |
@@ -4462,6 +4464,12 @@ which catches at runtime what no selector can see.
 `no-mocked-for-spy` is a `warn` because `Mocked<T>` has legitimate uses next to `vi.mocked()`; what
 it flags is the declaration form, where the assignment then fails with a list of private field names
 that says nothing about the real cause.
+
+`prefer-as-spy` is the same question one line down, and it is the one a migration meets in bulk:
+`devicesService = TestBed.inject(DeviceListService) as Spy<DeviceListService>` is written once per injected
+double in a `jest-auto-spies` suite, and every one of them fails with `TS2352` under this library —
+[the most common compile error a migrated Angular suite produces](https://asdalexey.github.io/vitest-auto-spy/migrating#reading-a-spy-back-out-of-the-container).
+`asSpy(...)` is the same assertion without the cast, so the rule fixes it under `--fix`.
 
 ## Two things these rules learned the hard way
 
@@ -4620,12 +4628,12 @@ call, and it only ever looked at object literals.
 
 ## Which rules fix, and why so few
 
-One of the eleven rewrites the source on its own, three offer the rewrite as a suggestion, and the
+Two of the twelve rewrite the source on their own, three offer the rewrite as a suggestion, and the
 split is about what a wrong guess costs rather than about how hard the rewrite is.
 
 `no-mocked-for-spy` touches nothing but a **declaration**. Get it wrong and the file stops
-compiling — the loudest and cheapest failure a codebase has — so it is the one rule that runs under
-`--fix`, and it does the whole edit:
+compiling — the loudest and cheapest failure a codebase has — so it is one of the two rules that run
+under `--fix`, and it does the whole edit:
 
 ```ts
 // before
@@ -4642,6 +4650,36 @@ specifier, out of the braces when it was not. And the rule stands back where it 
 rename: a `Mocked` the file declares itself is not Vitest's, a `Spy` already bound to something
 else is not free, and `Mocked<{ total: Mock }>` asks a different question of the type system than
 `Spy<T>` answers. Those are still reported, without a fix.
+
+`prefer-as-spy` earns the same licence from the other end: the cast it reports is the developer's own
+assertion that this value is a `Spy<X>`, and `asSpy` is a typed identity function — so the rewrite
+keeps that assertion whole, changes nothing but how it is spelled, and lives entirely at the level of
+types. Nothing has to be known about another file, because the rule decides nothing: the cast decided
+it, and a wrong fix fails to compile.
+
+```ts
+// before
+devicesService = TestBed.inject(DeviceListService) as Spy<DeviceListService>;
+
+// after --fix
+import { asSpy } from 'vitest-auto-spy';
+devicesService = asSpy<DeviceListService>(TestBed.inject(DeviceListService));
+```
+
+The type arguments are carried across rather than left to inference. `Spy<T, Options>` and
+`asSpy<T, Options>` take the same parameter list, so moving them is a transposition and the line
+after the fix asserts exactly what the line before it did — including `Spy<Cinemas, { overload:
+'first' }>`, which inference would silently drop. It also keeps the one case where inference is
+actively wrong: on a **generic** class `TestBed.inject` answers `Service<any>`, and that `any`
+surfaces eight levels down as a mismatch between `AddPromiseSpyMethods<unknown>` and
+`WithMockReturnValue<…>`, with nothing in the message pointing at the spec.
+
+Two shapes are left alone on purpose. A `Spy` the file declares itself is not this library's type,
+and a cast that hops through `unknown` — `{} as unknown as Spy<CartService>` — says outright that the
+value is *not* a `CartService`, so `asSpy<CartService>(...)` could not compile; that shape wants a
+real double (`createAutoMock<T>()`), not a rename. The one exception is
+`TestBed.inject(X) as unknown as Spy<X>`, where the container returns `X` by construction and the
+`as unknown` was only there to silence `TS2352` — that one is fixed, hop and all.
 
 The other three change **behaviour**, which is exactly what they are for, and that is why they only
 suggest. Whether `injectSpy(X)` finds a spy at all is decided by a `provideAutoSpy(X)` that usually
@@ -4867,6 +4905,121 @@ Every message ends with a link to the matching recipe in the README's
 says "don't" moves the problem rather than solving it. The rules travel with the API they
 recommend, so they are versioned together and stop being re-written in every project that installs
 the package.
+
+---
+
+Source: https://asdalexey.github.io/vitest-auto-spy/utilities/editor-diagnostics
+
+# Editor diagnostics
+
+A rule that fires in CI arrives an hour late. The shapes this library warns about — a spy declared
+as the class, an `expect()` inside `subscribe()`, a `done` callback Vitest never calls — are all
+cheap to fix while the cursor is still on the line and expensive to find afterwards, because every
+one of them **passes**.
+
+There is one channel, and it is already in the package:
+[`vitest-auto-spy/eslint-plugin`](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-plugin). Twelve rules over a real syntax tree,
+with a fix or a suggestion where the rewrite is decidable — the same rules in the editor and in CI,
+so nothing passes locally and fails on the build. No editor needs a plugin of this package's own;
+it needs its ESLint integration switched on, which every IDE below has.
+
+## WebStorm and the other JetBrains IDEs
+
+WebStorm, IntelliJ IDEA Ultimate, PhpStorm, PyCharm Professional and RubyMine all run ESLint
+natively, so the rules light up **inline, with no plugin to install** — the same twelve checks, in
+the editor, in the Problems tool window, and under **Code → Inspect Code** for the whole project.
+
+Install and configure once:
+
+```bash
+npm i -D vitest-auto-spy eslint
+```
+
+```js
+// eslint.config.js — flat config, at the repository root
+import autoSpy from 'vitest-auto-spy/eslint-plugin';
+
+export default [
+  {
+    files: ['**/*.spec.ts', '**/*.spec.tsx', '**/*.test.ts', '**/*.test.tsx'],
+    ...autoSpy.configs.recommended,
+  },
+];
+```
+
+Then in **Settings → Languages & Frameworks → JavaScript → Code Quality Tools → ESLint**, pick
+**Automatic ESLint configuration** — WebStorm finds `eslint.config.js` and the local `eslint`
+itself. Choose **Manual** only when the config lives outside the project root; there the fields that
+matter are *ESLint package* (`node_modules/eslint`) and *Configuration file*.
+
+Three things worth knowing, because each one looks like "the rules do not work":
+
+- **Flat config only.** The legacy `.eslintrc` `plugins: ['vitest-auto-spy']` form resolves plugin
+  names to `eslint-plugin-*` packages, which a subpath export of this package can never be. WebStorm
+  supports flat config from 2023.3; on an older build, upgrade the IDE rather than the config.
+- **Scope the block to spec files yourself.** `Object.defineProperty` and an object of `vi.fn()`s are
+  perfectly reasonable in application code — every rule here is about test code.
+- **The quick fixes are ESLint's.** `⌥⏎` on a highlighted line offers *ESLint: Fix current file* and,
+  where a rule ships a suggestion, the individual rewrite. `no-mocked-for-spy` and `prefer-as-spy`
+  fix on their own — both touch a type, so the worst a wrong one can do is fail to compile. The rest
+  suggest, because the replacement changes behaviour and should be read before it is accepted.
+
+Prefer to see everything at once during a migration? **Code → Inspect Code…** with the scope set to
+the test sources lists every finding grouped by rule, which is the shape a "how much of this suite
+still hand-rolls its doubles" question actually needs.
+
+**A native JetBrains plugin is not planned**
+A plugin in the JetBrains Marketplace would duplicate an integration the IDE already has, and would
+then have to keep a second copy of twelve rules — in Kotlin — in step with the TypeScript ones.
+Where the ESLint route genuinely cannot reach (a repository with no ESLint at all), the honest fix
+is four lines of `eslint.config.js`, not a second implementation.
+
+## VS Code, Cursor, Windsurf, VSCodium
+
+Install the [ESLint extension](https://marketplace.visualstudio.com/items?itemName=dbaeumer.vscode-eslint)
+and the flat config above is enough: the same twelve rules, inline and in the Problems panel.
+
+```jsonc
+// .vscode/settings.json
+{
+  // Applies the two rules that fix on their own — `no-mocked-for-spy` and `prefer-as-spy` — when
+  // the file is saved. The rest offer their rewrite as a suggestion on ⌘. instead, because each one
+  // changes behaviour and should be read before it is accepted.
+  "editor.codeActionsOnSave": { "source.fixAll.eslint": "explicit" },
+
+  // Flat config is the default from ESLint 9; this line only matters on an older ESLint.
+  "eslint.useFlatConfig": true
+}
+```
+
+Cursor, Windsurf and VSCodium install that ESLint extension from Open VSX and read the same
+`.vscode/settings.json`, so nothing about the setup changes there.
+
+## What gets underlined
+
+| Shape                                                  | Why it is wrong                                                                        | Rule                          |
+| -------------------------------------------------------- | ---------------------------------------------------------------------------------------- | ------------------------------- |
+| `expect()` inside `subscribe()`                        | a silent stream never runs the callback — the test passes having asserted nothing       | `no-expect-in-subscribe`      |
+| `it('x', (done) => …)`                                 | Vitest passes a `TestContext`; the test passes having run almost none of its body       | `no-done-callback`            |
+| a `.then()` chain that asserts and is never awaited    | the assertion lands after the test has finished, where nothing fails                    | `no-floating-assertion`       |
+| `{ provide: X, useValue: { m: vi.fn() } }`             | `provideAutoSpy(X)` stays in step when the class grows a method                         | `prefer-provide-auto-spy`     |
+| an object of `vi.fn()`s standing in for a class        | `createSpyFromClass(X)` reads the prototype instead of a list that goes stale            | `prefer-create-spy-from-class` |
+| `TestBed.inject<X>()`, or a cast on the way out        | `injectSpy(X)` returns `Spy<X>` with no generic and no assertion                        | `prefer-inject-spy`           |
+| `vi.mocked()` over something that is already a spy     | `Mocked<T>` loses `calledWith`, `resolveWith` and `nextWith` — auto-fixed                | `no-mocked-for-spy`           |
+| `TestBed.inject(X) as Spy<X>`                          | the cast a `jest-auto-spies` suite carries everywhere stops compiling here — `asSpy(…)` makes the same claim without one, and is auto-fixed | `prefer-as-spy` |
+| `Object.defineProperty` in a spec                      | nothing records the undo — `mockReadonlyProp` / `mockValueProp` do                      | `no-object-define-property`   |
+| an exported module-level object of `vi.fn()`s          | under `isolate: false` every spec file shares one set of spies                          | `no-shared-module-level-mock` |
+| the same token provided twice in one array             | the second provider silently replaces the first                                          | `no-overridden-provider`      |
+| `TestBed.inject()` before an `override*` in the suite  | injecting instantiates the module, and every later override throws                       | `no-inject-before-override`   |
+
+Each message ends with a link to the README recipe that shows the replacement, so the rule never
+only says "don't". The full descriptions, severities and the reasoning behind which rules fix and
+which only suggest are in [ESLint plugin](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-plugin).
+
+The shapes ESLint cannot see are covered where they surface instead: importing the wrong entry point
+for the runner, or calling `nextWith` without `import 'vitest-auto-spy/rxjs'`, both throw at run time
+with a message that names the fix and links the page — see
+[Errors that name their own fix](https://asdalexey.github.io/vitest-auto-spy/agents#errors-that-name-their-own-fix).
 
 ---
 
@@ -5533,7 +5686,7 @@ object:
 provideAutoSpyForToken(LOGGER, { channel: vi.fn().mockReturnThis() });
 ```
 
-For a chain more than one link long, [`mockDeep<T>()`](https://asdalexey.github.io/vitest-auto-spy/core/factories) is the double that answers
+For a chain more than one link long, [`mockDeep<T>()`](https://asdalexey.github.io/vitest-auto-spy/core/auto-mock-by-type#recursive-deep-mocks-%E2%80%94-mockdeep) is the double that answers
 at every level.
 
 ## `injectSpy` says when it got the real thing
@@ -5976,6 +6129,69 @@ it re-exports the same `jest-auto-spies` API, so the swap is identical (and you 
 Just make sure your tests run under Vitest (or Bun / `node:test` via the matching entry), and — for
 Angular — that `TestBed` is set up.
 
+### Reading a spy back out of the container
+
+`Spy<T>` is stricter here than it was in `jest-auto-spies`, so the cast a migrated suite is full of
+stops compiling:
+
+```ts
+// jest-auto-spies
+devicesService = TestBed.inject(DeviceListService) as Spy<DeviceListService>;
+// TS2352: Conversion of type 'DeviceListService' to type 'Spy<DeviceListService>'
+//         may be a mistake because neither type sufficiently overlaps with the other.
+
+// vitest-auto-spy
+devicesService = asSpy(TestBed.inject(DeviceListService));
+```
+
+`asSpy` is a typed identity — it asserts what `provideAutoSpy` already put in the container, without
+the cast. `injectSpy(DeviceListService)` is the same thing with the `TestBed.inject` folded in. This is
+the most common compile error a migrated Angular suite produces, and it produces one per injected
+double, so it is worth a global search before the first run.
+
+Or leave the search to [`prefer-as-spy`](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-plugin), which reports every one of those
+casts and rewrites them under `--fix`, import and all.
+
+### The type names
+
+`vi` is a global, so the only thing a migrated spec imports from `vitest` is types. Three of the four
+renames are plain, and the fourth quietly means the opposite of what it did:
+
+| Jest                  | Vitest              | Import                                         |
+| --------------------- | ------------------- | ---------------------------------------------- |
+| `jest.Mocked<T>`      | `Mocked<T>`         | `import type { Mocked } from 'vitest'`         |
+| `jest.MockedFunction` | `MockedFunction`    | `import type { MockedFunction } from 'vitest'` |
+| `jest.SpyInstance`    | `MockInstance`      | `import type { MockInstance } from 'vitest'`   |
+| `jest.Mock<R, [A]>`   | `Mock<(a: A) => R>` | `import type { Mock } from 'vitest'`           |
+
+**`jest.Mock` reorders its own generics**
+Jest writes the **return type first and the arguments second**; Vitest's `Mock` takes a single call
+signature. A rename that leaves the arguments where they were compiles cleanly into a type meaning
+the reverse, and nothing fails until a call site disagrees with it:
+
+```ts
+// jest — returns void, takes one AdjustedSubscriptionDetails
+let callBack: jest.Mock<void, [AdjustedSubscriptionDetails]>;
+
+// vitest — the same intent, written as the call signature
+let callBack: Mock<(details: AdjustedSubscriptionDetails) => void>;
+```
+
+The bare `jest.Mock` with no generics is the safe case: `Mock` on its own means the same thing.
+
+For anything this library produced, declare `Spy<T>` rather than `Mocked<T>` —
+[`no-mocked-for-spy`](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-plugin) explains why, and is one of the two rules that fix
+themselves.
+
+Put the `vitest` type import in the external-packages group with everything else. Placing it above
+the framework imports is tempting, because it is the only line in the file that is not really a
+dependency — and `eslint-plugin-import` then has an opinion about every spec in the suite:
+
+```
+error  There should be at least one empty line between import groups        import/order
+error  `vitest` type import should occur after import of `@angular/router`  import/order
+```
+
 ### The `jest.*` calls that have no `vi.*` twin
 
 A mechanical `jest.` → `vi.` rename produces calls that do not exist, and the resulting
@@ -5983,15 +6199,18 @@ A mechanical `jest.` → `vi.` rename produces calls that do not exist, and the 
 knowing before the rename, because for each of them the honest answer is a different design, not a
 different name.
 
-| Jest                                                    | Vitest                | What to do instead                                                                                    |
-| ------------------------------------------------------- | --------------------- | ----------------------------------------------------------------------------------------------------- |
-| `jest.requireMock(id)`                                  | **none**              | provide the double through the TestBed / the container, or pass it as an argument                     |
-| `jest.requireActual(id)`                                | `vi.importActual(id)` | `await`ed, and only inside a `vi.mock` factory                                                        |
-| `jest.fn().mockImplementation(() => o)` used with `new` | **not constructible** | [`mockConstructor` / `stubConstructor`](https://asdalexey.github.io/vitest-auto-spy/utilities/constructor-doubles)                               |
-| `jest.spyOn(global, 'Date')`                            | **throws**            | `mockSystemTime(iso)` — fake timers already own `Date`                                                |
-| `jest.replaceProperty(obj, key, value)`                 | **none**              | `mockValueProp(obj, key, value)` — and it restores itself                                             |
-| `fakeTimers: { enableGlobally: true }`                  | **no setting**        | `setupAutoSpy({ globalFakeTimers: true })`                                                            |
-| `jest.mock('some-barrel')`                              | `vi.mock(…)`          | a **silent no-op** once the specs are bundled — the module boundary it would replace no longer exists |
+| Jest                                                    | Vitest                | What to do instead                                                                                         |
+| ------------------------------------------------------- | --------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `jest.requireMock(id)`                                  | **none**              | provide the double through the TestBed / the container, or pass it as an argument                          |
+| `jest.requireActual(id)`                                | `vi.importActual(id)` | `await`ed, and only inside a `vi.mock` factory                                                             |
+| `jest.fn().mockImplementation(() => o)` used with `new` | **not constructible** | [`mockConstructor` / `stubConstructor`](https://asdalexey.github.io/vitest-auto-spy/utilities/constructor-doubles)                                    |
+| `jest.spyOn(global, 'Date')`                            | **throws**            | `mockSystemTime(iso)` — fake timers already own `Date`                                                     |
+| `jest.replaceProperty(obj, key, value)`                 | **none**              | `mockValueProp(obj, key, value)` — and it restores itself                                                  |
+| `fakeTimers: { enableGlobally: true }`                  | **no setting**        | `setupAutoSpy({ globalFakeTimers: true })`                                                                 |
+| `jest.mock('some-barrel')`                              | `vi.mock(…)`          | a **silent no-op** once the specs are bundled — the module boundary it would replace no longer exists      |
+| `jest.spyOn(barrel, 'exported')`                        | **throws**            | `TypeError: Cannot redefine property` — a bundled export is not configurable; same answer as the row above |
+| `jest.fn().mockImplementation()` with no argument       | **requires one**      | `mockImplementation(() => undefined)` — Jest installed the no-op for you                                   |
+| `xit` / `xdescribe`                                     | **none**              | `it.skip` / `describe.skip`; the rename fails as `TS2304: Cannot find name 'xit'`                          |
 
 That last row is the one that costs the most, because nothing reports it. Under a bundling test
 builder — and under `isolate: false`, where the module may already be in the worker's graph — a
@@ -6068,11 +6287,11 @@ let source$ = new Subject<Page>();
 
 const api = createSpyFromClass(Api);
 
-api.load.mockReturnValue(source$);        // ❌ pinned to the subject that existed on this line
+api.load.mockReturnValue(source$); // ❌ pinned to the subject that existed on this line
 api.load.mockImplementation(() => source$); // ✅ re-read on every call
 
 source$.error(new Error('boom'));
-source$ = new Subject<Page>();            // the double still hands out the dead one, above
+source$ = new Subject<Page>(); // the double still hands out the dead one, above
 ```
 
 In one spec that meant the service received a completed subject and silently skipped the modal it
@@ -6397,7 +6616,7 @@ alongside it:
   of, kept to the mocks that outlive a file. On `isolate: false` it is what makes `clearMocks` cost
   more with every test already run, and what keeps a whole run's recorded arguments — and the
   component trees behind them — alive in one worker.
-- [Nine ESLint rules](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-plugin) versioned together with the API they recommend, and
+- [Twelve ESLint rules](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-plugin) versioned together with the API they recommend, and
   [`setupAutoSpy()`](https://asdalexey.github.io/vitest-auto-spy/utilities/setup) for the test-run hygiene a shared environment needs.
 - [Per-file `TestBed` diagnostics](https://asdalexey.github.io/vitest-auto-spy/adapters/angular#where-a-spec-spends-its-time) — which specs
   actually pay for `TestBed`, and by how much.
@@ -6442,7 +6661,9 @@ Both files are generated from this site's sidebar and checked in CI, so they can
 
 ## Point your agent at it once
 
-The single highest-leverage line, in your project's `CLAUDE.md` / `AGENTS.md` / `.cursorrules`:
+The single highest-leverage line, in the instruction file your agent actually reads — a root
+`AGENTS.md` for Codex, Cursor, Copilot and most of the field, `CLAUDE.md` for Claude Code and for
+GLM or Kimi running inside it:
 
 ```md
 When writing or fixing tests that use `vitest-auto-spy`, first read
@@ -6453,6 +6674,171 @@ the configuration semantics and the common mistakes.
 That file is already on disk in every project that installs the package, so the agent pays no
 network round-trip and gets the version it actually has installed rather than whatever the web
 returned.
+
+## Which file your agent reads
+
+The snippet above is the same for every tool; only the filename changes. **Two files cover the whole
+field: a root `AGENTS.md` and a root `CLAUDE.md`.** Put the identical block in both and every agent
+in this table is served — including the ones your teammates use and you do not.
+
+| Agent                                                               | Instruction file it reads                                                                                                                                                               | Reads `AGENTS.md`?                                                |
+| --------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| **Claude Code**                                                     | `CLAUDE.md` — project, `.claude/CLAUDE.md` and `~/.claude/CLAUDE.md`, all concatenated                                                                                                   | **No.** Bridge with an `@AGENTS.md` import line, or a symlink      |
+| **OpenAI Codex** — the `codex` CLI, the IDE extension, Codex cloud  | `AGENTS.md`, one per directory from the git root down to the cwd ([below](#openai-codex))                                                                                               | native                                                             |
+| **GLM (z.ai coding plan)**, **Kimi K2**                             | whatever their client reads — inside Claude Code that is `CLAUDE.md` ([below](#glm-z-ai-kimi-k2-and-other-claude-compatible-models))                                                     | through the client                                                 |
+| **Cursor**                                                          | root `AGENTS.md`; `.cursor/rules/*.mdc` for glob-scoped rules                                                                                                                            | native — and it applies a root `CLAUDE.md` the same always-on way  |
+| **GitHub Copilot**                                                  | root `AGENTS.md`; `.github/copilot-instructions.md`                                                                                                                                      | native, coding agent included                                      |
+| **OpenCode**                                                        | `AGENTS.md`, then `CLAUDE.md`, per directory upwards                                                                                                                                     | native                                                             |
+| **Cline**                                                           | root `AGENTS.md`; the `.clinerules/` directory                                                                                                                                           | native                                                             |
+| **Windsurf / Cascade**                                              | root `AGENTS.md`; `.windsurf/rules/*.md` (`.devin/rules/*.md` when present)                                                                                                              | yes                                                                |
+| **Zed**                                                             | **first match wins, no merging**: `.rules` → `.cursorrules` → `.windsurfrules` → `.clinerules` → `.github/copilot-instructions.md` → `AGENT.md` → `AGENTS.md` → `CLAUDE.md` → `GEMINI.md` | yes — only if nothing earlier in that list exists                  |
+| **Gemini CLI**                                                      | `GEMINI.md` ([below](#gemini-cli))                                                                                                                                                       | **not by default**                                                 |
+| **Qwen Code**                                                       | `QWEN.md`                                                                                                                                                                                | native fallback                                                    |
+| **Roo Code**                                                        | root `AGENTS.md`; `.roo/rules/`                                                                                                                                                          | yes                                                                |
+| **Junie**                                                           | root `AGENTS.md` — note that `.junie/AGENTS.md` replaces it outright                                                                                                                     | yes                                                                |
+| **Aider**                                                           | nothing implicitly — list the file: `read: [AGENTS.md]` in `.aider.conf.yml`                                                                                                             | on request                                                         |
+| **Jules, Factory, goose, Amp, Warp, Devin, Kilo, Augment, VS Code** | root `AGENTS.md`                                                                                                                                                                         | native                                                             |
+
+**Never create a legacy rules file just to hold the snippet**
+Zed resolves `.rules` → `.cursorrules` → `.windsurfrules` → `.clinerules` → … **first-match-wins,
+with no merging**, so a newly created legacy file silently shadows the `AGENTS.md` the rest of the
+project relies on. Append to one only if it already exists.
+
+## Install it in your agent
+
+Two commands at the repository root cover every tool in that table:
+
+```bash
+# 1 — AGENTS.md: Codex, Cursor, Copilot, Cline, Windsurf, Zed, OpenCode, Qwen, Roo, Junie, Aider…
+cat >> AGENTS.md <<'MD'
+
+## Tests that use `vitest-auto-spy`
+
+When writing or fixing tests that use `vitest-auto-spy`, first read
+`node_modules/vitest-auto-spy/AGENTS.md`. It is the authoritative reference for the API,
+the configuration semantics and the common mistakes.
+MD
+
+# 2 — CLAUDE.md: Claude Code, and GLM / Kimi running inside it. One line, no second copy to maintain
+printf '\n@AGENTS.md\n' >> CLAUDE.md
+```
+
+`@AGENTS.md` is Claude Code's own import syntax, so the instructions live in exactly one file. A
+symlink (`ln -s AGENTS.md CLAUDE.md`) does the same job if you would rather not have the second file
+at all.
+
+Then, per tool — everything in the right-hand column is optional on top of those two files:
+
+| Agent                                       | Install                                                                                                                                                                 |
+| --------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Claude Code**                             | `/plugin marketplace add ASDAlexey/vitest-auto-spy`, then `/plugin install vitest-auto-spy@vitest-auto-spy` — [the skill](#claude-code-plugin), no project files touched |
+| **OpenAI Codex**                            | nothing more; optionally `~/.codex/config.toml` from [below](#openai-codex)                                                                                             |
+| **GLM (z.ai)**, **Kimi K2**                 | identical to Claude Code — same client, same plugin command                                                                                                             |
+| **Cursor**                                  | `.cursor/rules/vitest-auto-spy.mdc` to load it only for spec files (see below)                                                                                          |
+| **GitHub Copilot**                          | `.github/instructions/vitest-auto-spy.instructions.md` (see below)                                                                                                      |
+| **Cline**                                   | `.clinerules/vitest-auto-spy.md` — the same three lines, plus `paths: ["**/*.spec.ts","**/*.test.ts"]`                                                                   |
+| **Windsurf / Cascade**                      | `.windsurf/rules/vitest-auto-spy.md` with `trigger: glob` (see below)                                                                                                   |
+| **Roo Code**                                | `.roo/rules/vitest-auto-spy.md` — always on, so keep it to the three-line pointer                                                                                       |
+| **Gemini CLI**                              | `GEMINI.md`, or the `.gemini/settings.json` patch from [below](#gemini-cli)                                                                                             |
+| **Aider**                                   | `.aider.conf.yml`: `read: [AGENTS.md]`                                                                                                                                  |
+| **Zed, OpenCode, Qwen Code, Junie, Jules…** | nothing — the root `AGENTS.md` is the whole install                                                                                                                     |
+
+The glob-scoped variants, for the three tools whose format is not plain Markdown. Each body is the
+same pointer; only the frontmatter differs:
+
+```md
+<!-- .cursor/rules/vitest-auto-spy.mdc -->
+---
+description: How to write tests with vitest-auto-spy
+globs: **/*.spec.ts, **/*.spec.tsx, **/*.test.ts, **/*.test.tsx
+alwaysApply: false
+---
+
+Read `node_modules/vitest-auto-spy/AGENTS.md` before writing or fixing a spec that uses
+`vitest-auto-spy` — the API, the configuration semantics and the common mistakes.
+```
+
+```md
+<!-- .github/instructions/vitest-auto-spy.instructions.md -->
+---
+applyTo: '**/*.spec.ts,**/*.spec.tsx,**/*.test.ts,**/*.test.tsx'
+---
+
+Read `node_modules/vitest-auto-spy/AGENTS.md` before writing or fixing a spec that uses
+`vitest-auto-spy`.
+```
+
+```md
+<!-- .windsurf/rules/vitest-auto-spy.md — .devin/rules/ when that directory exists -->
+---
+trigger: glob
+globs: **/*.spec.ts, **/*.test.ts
+---
+
+Read `node_modules/vitest-auto-spy/AGENTS.md` before writing or fixing a spec that uses
+`vitest-auto-spy`.
+```
+
+Cursor's `globs` is a **comma-separated string, not a YAML array**, and a Windsurf rule file is
+capped at 12 000 characters — both are reasons the rule points at the reference instead of copying
+it.
+
+## OpenAI Codex
+
+Codex — the `codex` CLI, the IDE extension and Codex cloud — reads the open `AGENTS.md` convention,
+so a root `AGENTS.md` is the whole integration. Two details decide whether it reaches the model at
+all:
+
+- **The chain is git-root→cwd, at most one file per directory** (`AGENTS.override.md` wins over
+  `AGENTS.md`), concatenated. In a monorepo, put the block in the package's own `AGENTS.md` as well
+  when that package runs a different runner — it is the only way to say "this one is `bun test`, the
+  one next door is Vitest", which is exactly the distinction that decides
+  [which entry point](#point-it-at-the-subpath-not-only-at-the-package) the agent imports.
+- **The whole chain is capped** by `project_doc_max_bytes`, **32 768 bytes by default**; anything
+  over budget is truncated with a warning. If your `AGENTS.md` is already long, keep the pointer near
+  the top of it.
+
+For a repo that keeps its instructions in `CLAUDE.md`, teach Codex to fall back. This is global
+config on your own machine, so there is nothing to commit:
+
+```toml
+# ~/.codex/config.toml
+project_doc_fallback_filenames = ["CLAUDE.md"]   # per directory, when no AGENTS.md is there
+project_doc_max_bytes = 65536                    # raise the 32 KB budget for a monorepo chain
+```
+
+Codex cloud reads the same root `AGENTS.md`, and its agent has **no internet access by default** —
+which is precisely why the reference ships inside the tarball rather than only on this site.
+`node_modules/vitest-auto-spy/AGENTS.md` is on disk the moment the setup script has installed
+dependencies, so nothing has to be fetched.
+
+## GLM (z.ai), Kimi K2 and other Claude-compatible models
+
+GLM is a **model**, not an agent — the thing that reads files is the client you run it in.
+
+The z.ai coding plan runs GLM **inside Claude Code**, by pointing `ANTHROPIC_BASE_URL` (with
+`ANTHROPIC_AUTH_TOKEN`) at z.ai's Anthropic-compatible endpoint. File discovery is untouched by
+that: `CLAUDE.md`, `.claude/skills/` and the [plugin](#claude-code-plugin) below behave exactly as
+they do on Claude, because it is the same client. Kimi K2 driven through Claude Code is the same
+story — and there the skill and the plugin are worth more than a pasted snippet, because they load
+only when a spec actually mentions the library and cost no context the rest of the time.
+
+Run GLM through a different client and that client decides: OpenCode, Cline, Roo Code and Kilo Code
+all read the root `AGENTS.md`. Moonshot's own `kimi-cli` reads its own `AGENTS.md` chain, including
+`.kimi/AGENTS.md`.
+
+## Gemini CLI
+
+Gemini CLI reads `GEMINI.md` and does **not** read `AGENTS.md` by default. Either paste the snippet
+into `GEMINI.md`, or name both files once:
+
+```json
+// .gemini/settings.json
+{ "context": { "fileName": ["GEMINI.md", "AGENTS.md"] } }
+```
+
+Qwen Code is derived from Gemini CLI and takes the same `context.fileName` setting, but already
+falls back to `AGENTS.md` on its own.
 
 ## Claude Code plugin
 
