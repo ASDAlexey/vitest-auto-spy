@@ -26,6 +26,7 @@
 import { createFunctionSpy } from './function-spy';
 import {
   NOT_STORED,
+  type ProxyPropStore,
   createProxyPropStore,
   describeStoredProp,
   dropStoredProp,
@@ -36,6 +37,7 @@ import {
   writeStoredAccessor,
   writeStoredValue,
 } from './proxy-props';
+import { DEEP_CHILDREN } from './spy-mark';
 import type { DeepMockProxy, Func } from './types';
 
 /**
@@ -115,53 +117,76 @@ function readSpyMember(target: Func, key: PropertyKey, receiver: unknown, boundS
   return bound;
 }
 
+/** Everything one deep-mock node owns, gathered so the `get` trap can be a function rather than a closure. */
+interface DeepNodeState {
+  name: string;
+  selfReturning: boolean;
+  children: Map<PropertyKey, unknown>;
+  boundSpyMethods: Map<PropertyKey, Func>;
+  store: ProxyPropStore;
+}
+
+/** The `get` trap: seeds, then the reset seam, then the spy surface, then a materialised child. Order is the contract. */
+function readNodeMember(state: DeepNodeState, target: Func, key: string | symbol, receiver: unknown): unknown {
+  // Seeds and `mock*Prop` patches win over everything, including the spy surface: a spec that
+  // patched a member has said what that member is.
+  const patched = readStoredAccessor(state.store, key, receiver);
+
+  if (patched !== NOT_STORED) {
+    return patched;
+  }
+
+  if (state.store.values.has(key)) {
+    return state.store.values.get(key);
+  }
+
+  // The reset helpers' way in. Answered before the protocol and symbol guards below, which would
+  // otherwise hand back `undefined` like they do for every other symbol.
+  if (key === DEEP_CHILDREN) {
+    return state.children;
+  }
+
+  // Not thenable, and not a scheduler / Observable either: awaiting a node must not treat it as
+  // a Promise, and `of(node)` must not eat it as a scheduler. See `isProtocolKey`.
+  if (key === 'then' || isProtocolKey(key)) {
+    return undefined;
+  }
+
+  // Real spy surface (calledWith / mock / mockReturnValue / …) wins over a child — and nothing
+  // beyond it. The test used to be `key in target`, which also covers everything a function
+  // carries anyway, so a mocked member named `name`, `length`, `call`, `bind`, `apply`,
+  // `constructor` or `toString` never materialised at all.
+  if (getSpySurfaceKeys().has(key)) {
+    return readSpyMember(target, key, receiver, state.boundSpyMethods);
+  }
+
+  // Never spawn children for JS-internal symbol protocols, nor for a key a spec deleted —
+  // without that tombstone `delete node.m` would be undone by the very next read.
+  if (typeof key === 'symbol' || isDeletedProp(state.store, key)) {
+    return undefined;
+  }
+
+  if (!state.children.has(key)) {
+    state.children.set(key, createDeepNode(`${state.name}.${String(key)}`, {}, state.selfReturning));
+  }
+
+  return state.children.get(key);
+}
+
 /** Build one deep-mock node: a function spy wrapped in a child-materializing Proxy. */
 function createDeepNode(name: string, overrides: object, selfReturning: boolean): unknown {
   const spy = createFunctionSpy<Func>(name);
-  const children = new Map<PropertyKey, unknown>();
-  const boundSpyMethods = new Map<PropertyKey, Func>();
-  const store = createProxyPropStore(overrides);
+  const state: DeepNodeState = {
+    name,
+    selfReturning,
+    children: new Map<PropertyKey, unknown>(),
+    boundSpyMethods: new Map<PropertyKey, Func>(),
+    store: createProxyPropStore(overrides),
+  };
+  const { store } = state;
 
   const handler: ProxyHandler<Func> = {
-    get(target, key, receiver): unknown {
-      // Seeds and `mock*Prop` patches win over everything, including the spy surface: a spec that
-      // patched a member has said what that member is.
-      const patched = readStoredAccessor(store, key, receiver);
-
-      if (patched !== NOT_STORED) {
-        return patched;
-      }
-
-      if (store.values.has(key)) {
-        return store.values.get(key);
-      }
-
-      // Not thenable, and not a scheduler / Observable either: awaiting a node must not treat it as
-      // a Promise, and `of(node)` must not eat it as a scheduler. See `isProtocolKey`.
-      if (key === 'then' || isProtocolKey(key)) {
-        return undefined;
-      }
-
-      // Real spy surface (calledWith / mock / mockReturnValue / …) wins over a child — and nothing
-      // beyond it. The test used to be `key in target`, which also covers everything a function
-      // carries anyway, so a mocked member named `name`, `length`, `call`, `bind`, `apply`,
-      // `constructor` or `toString` never materialised at all.
-      if (getSpySurfaceKeys().has(key)) {
-        return readSpyMember(target, key, receiver, boundSpyMethods);
-      }
-
-      // Never spawn children for JS-internal symbol protocols, nor for a key a spec deleted —
-      // without that tombstone `delete node.m` would be undone by the very next read.
-      if (typeof key === 'symbol' || isDeletedProp(store, key)) {
-        return undefined;
-      }
-
-      if (!children.has(key)) {
-        children.set(key, createDeepNode(`${name}.${String(key)}`, {}, selfReturning));
-      }
-
-      return children.get(key);
-    },
+    get: (target, key, receiver): unknown => readNodeMember(state, target, key, receiver),
 
     set(_target, key, value, receiver): boolean {
       if (!writeStoredAccessor(store, key, value, receiver)) {

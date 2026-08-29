@@ -7,12 +7,13 @@
  *  - {@link resetAutoSpy} also reverts every `calledWith`/return-value config to
  *    pristine.
  *
- * Works on both `createSpyFromClass` spies and `createAutoMock` proxies: mocks
- * are found by their brand ({@link isMarkedMock}), never by invoking live
- * accessors — so collecting them records no spurious calls.
+ * Works on `createSpyFromClass` spies, `createAutoMock` proxies and `mockDeep` trees: mocks are
+ * found by their brand ({@link isMarkedMock}), never by invoking live accessors — so collecting
+ * them records no spurious calls. A `mockDeep` node is followed to its materialised children, so a
+ * `calledWith` seeded three levels down does not outlive the test that set it.
  */
 import { type MockFn, getMockAdapter } from './mock-adapter';
-import { isMarkedMock, runClearHook, runConfigReset } from './spy-mark';
+import { isMarkedMock, readDeepChildren, runClearHook, runConfigReset } from './spy-mark';
 
 /** The `accessorSpies` bag attached to class-based spies. */
 interface AccessorSpiesBag {
@@ -36,8 +37,8 @@ function collectAccessorMocks(spy: object): MockFn[] {
   return [...Object.values(bag.getters), ...Object.values(bag.setters)].filter(isMarkedMock);
 }
 
-/** Every branded mock inside `spy`: method spies (by value) plus accessor spies (from the bag). */
-function collectMocks(spy: object): MockFn[] {
+/** The mocks held directly by an assembled spy: method spies (by value) plus accessor spies (from the bag). */
+function collectOwnMocks(spy: object): MockFn[] {
   const mocks: MockFn[] = [];
 
   Object.keys(spy).forEach((key) => {
@@ -56,6 +57,46 @@ function collectMocks(spy: object): MockFn[] {
   });
 
   return [...mocks, ...collectAccessorMocks(spy)];
+}
+
+/**
+ * Every branded mock reachable from `spy`, descending through `mockDeep` children.
+ *
+ * Two kinds of value take part, and they are walked differently. An *assembled spy* — a
+ * `createSpyFromClass` result, a `createAutoMock` proxy — is a container: its mocks are its own
+ * keys. A *mock* is a leaf, except when it is a `mockDeep` node, which is a spy and a container at
+ * once and keeps its children out of `Object.keys` on purpose.
+ *
+ * Descending into those children is the difference between `resetAutoSpy(api)` resetting nothing
+ * and resetting the tree: a `mockDeep` root is a function, so the own-key walk found no mocks at
+ * all, and a `calledWith` seeded on `api.repo.user.find` outlived the test that set it.
+ * `vitest-mock-extended`'s `mockReset` recurses, and a nested double surviving a reset reads as a
+ * bug wherever the expectation came from.
+ */
+function collectMocks(spy: object): MockFn[] {
+  const mocks: MockFn[] = [];
+  const seen = new Set<object>();
+
+  const visit = (value: object): void => {
+    if (seen.has(value)) {
+      return;
+    }
+
+    seen.add(value);
+
+    if (isMarkedMock(value)) {
+      mocks.push(value);
+      readDeepChildren(value).forEach(visit);
+
+      return;
+    }
+
+    collectOwnMocks(value).forEach(visit);
+  };
+
+  visit(spy);
+
+  return mocks;
 }
 
 /**

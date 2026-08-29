@@ -10,6 +10,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { createAutoMock } from './auto-mock';
 import { createSpyFromClass } from './create-spy-from-class';
 import { registerMockAdapter } from './mock-adapter';
+import { mockDeep } from './mock-deep';
 import { clearAutoSpy, resetAutoSpy } from './reset-auto-spy';
 import { vitestMockAdapter } from './vitest-adapter';
 
@@ -106,5 +107,45 @@ describe('resetAutoSpy', () => {
 
     expect(() => resetAutoSpy(spy)).not.toThrow();
     expect(spy.a).toHaveBeenCalledTimes(0);
+  });
+
+  it('resets a spy reachable under two names once, rather than twice', () => {
+    const spy = createSpyFromClass(Svc, { lazySpies: false });
+    // An alias is how the same mock ends up reachable twice — a spec that hands one method around
+    // under a second name, or a factory that seeds one. Visiting it twice is harmless for a reset
+    // and would not be for a shape that closed a loop, which is what the visitor's guard is for.
+    const aliased: Record<string, unknown> = spy;
+    aliased['alias'] = spy.a;
+
+    spy.a(1);
+
+    resetAutoSpy(spy);
+
+    expect(spy.a).toHaveBeenCalledTimes(0);
+  });
+
+  it('reaches a nested mockDeep child, not just the root node', () => {
+    const api = mockDeep<{ repo: { user: { find(id: number): string } } }>();
+    api.repo.user.find.calledWith(1).mockReturnValue('found');
+
+    expect(api.repo.user.find(1)).toBe('found');
+
+    resetAutoSpy(api);
+
+    // Both halves matter: the call history of a node three levels down, and the `calledWith`
+    // configuration that only this library's own reset hook can revert.
+    expect(api.repo.user.find).toHaveBeenCalledTimes(0);
+    expect(api.repo.user.find(1)).toBeUndefined();
+  });
+
+  it('clears a nested mockDeep child while keeping its configuration', () => {
+    const api = mockDeep<{ repo: { load(): string } }>();
+    api.repo.load.mockReturnValue('cached');
+    api.repo.load();
+
+    clearAutoSpy(api);
+
+    expect(api.repo.load).toHaveBeenCalledTimes(0);
+    expect(api.repo.load()).toBe('cached');
   });
 });

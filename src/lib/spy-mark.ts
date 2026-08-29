@@ -16,6 +16,17 @@ export const AUTO_SPY_MARK = Symbol.for('vitest-auto-spy.mock');
 const RESET_CONFIG = Symbol.for('vitest-auto-spy.resetConfig');
 const CLEAR_HOOK = Symbol.for('vitest-auto-spy.clearHook');
 
+/**
+ * Key under which a deep-mock node hands out its materialised children.
+ *
+ * A `mockDeep` node keeps its children in a closure and deliberately does not publish them as own
+ * keys — `getOwnPropertyDescriptor` falls through to the underlying function spy, so `Object.keys`
+ * on a node answers with nothing. That is right for the mock's own surface and wrong for the reset
+ * helpers, which walk own keys and therefore reset nothing at any depth. This is the one seam that
+ * lets them recurse without making the children visible to a spec.
+ */
+export const DEEP_CHILDREN = Symbol.for('vitest-auto-spy.deepChildren');
+
 /** Brand a mock so {@link isMarkedMock} recognises it as one this library created. */
 export function markAsMock(mock: object): void {
   Object.defineProperty(mock, AUTO_SPY_MARK, { value: true, enumerable: false, configurable: true });
@@ -46,6 +57,23 @@ export function isAutoSpyLike(value: unknown): boolean {
 /** Whether a value is a mock this library created (a branded callable). */
 export function isMarkedMock(value: unknown): value is MockFn {
   return typeof value === 'function' && AUTO_SPY_MARK in value;
+}
+
+/**
+ * A deep-mock node's materialised children, or nothing for any other value.
+ *
+ * Reads through the node's own `get` trap, so it never materialises a child that no test touched.
+ * Every child is itself a node and every node is a function spy behind a Proxy, so the callable
+ * check is a narrowing rather than a filter — nothing a deep mock stores as a child can fail it.
+ */
+export function readDeepChildren(value: object): MockFn[] {
+  const children: unknown = Reflect.get(value, DEEP_CHILDREN);
+
+  if (!(children instanceof Map)) {
+    return [];
+  }
+
+  return [...children.values()].filter(isMarkedMock);
 }
 
 /** Attach a hook that clears a function spy's `calledWith`/return-value configuration. */
