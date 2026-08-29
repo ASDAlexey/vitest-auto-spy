@@ -36,11 +36,12 @@ export interface AutoSpyEslintPlugin {
 
 const PLUGIN_NAME = 'vitest-auto-spy';
 
-/** Everything on: the four "there is a helper for this" rules plus the seven guards. */
+/** Everything on: the five "there is a helper for this" rules plus the seven guards. */
 const recommendedRules: Record<string, RuleSeverity> = {
   [`${PLUGIN_NAME}/prefer-provide-auto-spy`]: 'warn',
   [`${PLUGIN_NAME}/prefer-create-spy-from-class`]: 'warn',
   [`${PLUGIN_NAME}/prefer-inject-spy`]: 'warn',
+  [`${PLUGIN_NAME}/prefer-as-spy`]: 'warn',
   [`${PLUGIN_NAME}/no-object-define-property`]: 'error',
   [`${PLUGIN_NAME}/no-expect-in-subscribe`]: 'error',
   [`${PLUGIN_NAME}/no-shared-module-level-mock`]: 'error',

@@ -43,6 +43,70 @@ it re-exports the same `jest-auto-spies` API, so the swap is identical (and you 
 Just make sure your tests run under Vitest (or Bun / `node:test` via the matching entry), and — for
 Angular — that `TestBed` is set up.
 
+### Reading a spy back out of the container
+
+`Spy<T>` is stricter here than it was in `jest-auto-spies`, so the cast a migrated suite is full of
+stops compiling:
+
+```ts
+// jest-auto-spies
+devicesService = TestBed.inject(DeviceListService) as Spy<DeviceListService>;
+// TS2352: Conversion of type 'DeviceListService' to type 'Spy<DeviceListService>'
+//         may be a mistake because neither type sufficiently overlaps with the other.
+
+// vitest-auto-spy
+devicesService = asSpy(TestBed.inject(DeviceListService));
+```
+
+`asSpy` is a typed identity — it asserts what `provideAutoSpy` already put in the container, without
+the cast. `injectSpy(DeviceListService)` is the same thing with the `TestBed.inject` folded in. This is
+the most common compile error a migrated Angular suite produces, and it produces one per injected
+double, so it is worth a global search before the first run.
+
+Or leave the search to [`prefer-as-spy`](/utilities/eslint-plugin), which reports every one of those
+casts and rewrites them under `--fix`, import and all.
+
+### The type names
+
+`vi` is a global, so the only thing a migrated spec imports from `vitest` is types. Three of the four
+renames are plain, and the fourth quietly means the opposite of what it did:
+
+| Jest                  | Vitest              | Import                                         |
+| --------------------- | ------------------- | ---------------------------------------------- |
+| `jest.Mocked<T>`      | `Mocked<T>`         | `import type { Mocked } from 'vitest'`         |
+| `jest.MockedFunction` | `MockedFunction`    | `import type { MockedFunction } from 'vitest'` |
+| `jest.SpyInstance`    | `MockInstance`      | `import type { MockInstance } from 'vitest'`   |
+| `jest.Mock<R, [A]>`   | `Mock<(a: A) => R>` | `import type { Mock } from 'vitest'`           |
+
+::: warning `jest.Mock` reorders its own generics
+Jest writes the **return type first and the arguments second**; Vitest's `Mock` takes a single call
+signature. A rename that leaves the arguments where they were compiles cleanly into a type meaning
+the reverse, and nothing fails until a call site disagrees with it:
+
+```ts
+// jest — returns void, takes one AdjustedSubscriptionDetails
+let callBack: jest.Mock<void, [AdjustedSubscriptionDetails]>;
+
+// vitest — the same intent, written as the call signature
+let callBack: Mock<(details: AdjustedSubscriptionDetails) => void>;
+```
+
+The bare `jest.Mock` with no generics is the safe case: `Mock` on its own means the same thing.
+:::
+
+For anything this library produced, declare `Spy<T>` rather than `Mocked<T>` —
+[`no-mocked-for-spy`](/utilities/eslint-plugin) explains why, and is one of the two rules that fix
+themselves.
+
+Put the `vitest` type import in the external-packages group with everything else. Placing it above
+the framework imports is tempting, because it is the only line in the file that is not really a
+dependency — and `eslint-plugin-import` then has an opinion about every spec in the suite:
+
+```
+error  There should be at least one empty line between import groups        import/order
+error  `vitest` type import should occur after import of `@angular/router`  import/order
+```
+
 ### The `jest.*` calls that have no `vi.*` twin
 
 A mechanical `jest.` → `vi.` rename produces calls that do not exist, and the resulting
@@ -50,15 +114,18 @@ A mechanical `jest.` → `vi.` rename produces calls that do not exist, and the 
 knowing before the rename, because for each of them the honest answer is a different design, not a
 different name.
 
-| Jest                                                    | Vitest                | What to do instead                                                                                    |
-| ------------------------------------------------------- | --------------------- | ----------------------------------------------------------------------------------------------------- |
-| `jest.requireMock(id)`                                  | **none**              | provide the double through the TestBed / the container, or pass it as an argument                     |
-| `jest.requireActual(id)`                                | `vi.importActual(id)` | `await`ed, and only inside a `vi.mock` factory                                                        |
-| `jest.fn().mockImplementation(() => o)` used with `new` | **not constructible** | [`mockConstructor` / `stubConstructor`](/utilities/constructor-doubles)                               |
-| `jest.spyOn(global, 'Date')`                            | **throws**            | `mockSystemTime(iso)` — fake timers already own `Date`                                                |
-| `jest.replaceProperty(obj, key, value)`                 | **none**              | `mockValueProp(obj, key, value)` — and it restores itself                                             |
-| `fakeTimers: { enableGlobally: true }`                  | **no setting**        | `setupAutoSpy({ globalFakeTimers: true })`                                                            |
-| `jest.mock('some-barrel')`                              | `vi.mock(…)`          | a **silent no-op** once the specs are bundled — the module boundary it would replace no longer exists |
+| Jest                                                    | Vitest                | What to do instead                                                                                         |
+| ------------------------------------------------------- | --------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `jest.requireMock(id)`                                  | **none**              | provide the double through the TestBed / the container, or pass it as an argument                          |
+| `jest.requireActual(id)`                                | `vi.importActual(id)` | `await`ed, and only inside a `vi.mock` factory                                                             |
+| `jest.fn().mockImplementation(() => o)` used with `new` | **not constructible** | [`mockConstructor` / `stubConstructor`](/utilities/constructor-doubles)                                    |
+| `jest.spyOn(global, 'Date')`                            | **throws**            | `mockSystemTime(iso)` — fake timers already own `Date`                                                     |
+| `jest.replaceProperty(obj, key, value)`                 | **none**              | `mockValueProp(obj, key, value)` — and it restores itself                                                  |
+| `fakeTimers: { enableGlobally: true }`                  | **no setting**        | `setupAutoSpy({ globalFakeTimers: true })`                                                                 |
+| `jest.mock('some-barrel')`                              | `vi.mock(…)`          | a **silent no-op** once the specs are bundled — the module boundary it would replace no longer exists      |
+| `jest.spyOn(barrel, 'exported')`                        | **throws**            | `TypeError: Cannot redefine property` — a bundled export is not configurable; same answer as the row above |
+| `jest.fn().mockImplementation()` with no argument       | **requires one**      | `mockImplementation(() => undefined)` — Jest installed the no-op for you                                   |
+| `xit` / `xdescribe`                                     | **none**              | `it.skip` / `describe.skip`; the rename fails as `TS2304: Cannot find name 'xit'`                          |
 
 That last row is the one that costs the most, because nothing reports it. Under a bundling test
 builder — and under `isolate: false`, where the module may already be in the worker's graph — a
@@ -136,11 +203,11 @@ let source$ = new Subject<Page>();
 
 const api = createSpyFromClass(Api);
 
-api.load.mockReturnValue(source$);        // ❌ pinned to the subject that existed on this line
+api.load.mockReturnValue(source$); // ❌ pinned to the subject that existed on this line
 api.load.mockImplementation(() => source$); // ✅ re-read on every call
 
 source$.error(new Error('boom'));
-source$ = new Subject<Page>();            // the double still hands out the dead one, above
+source$ = new Subject<Page>(); // the double still hands out the dead one, above
 ```
 
 In one spec that meant the service received a completed subject and silently skipped the modal it

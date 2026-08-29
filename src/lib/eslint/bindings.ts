@@ -27,6 +27,9 @@ import {
   isVariableDeclarator,
 } from './rule-types';
 
+/** The package every fix imports from, spelled once. */
+export const PACKAGE = 'vitest-auto-spy';
+
 /** What stands in the way of a fix that wants to use a name. */
 export type BindingState =
   /** Nothing claims it — the fix has to add the import itself. */

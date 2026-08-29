@@ -11,15 +11,31 @@
  *
  * **Fix or suggestion.** A rule applies a fix on its own only where the rewrite is decidable from
  * the file in front of it; everything else is offered as a suggestion, which an editor shows and a
- * human accepts. `no-mocked-for-spy` is the one fix here: a declaration is the only thing it
+ * human accepts. `no-mocked-for-spy` is the first fix here: a declaration is the only thing it
  * touches, and the worst a wrong one can do is fail to compile — it can never change what the test
  * does at run time. `prefer-inject-spy` cannot make that claim (whether the token really is
  * provided with `provideAutoSpy` is usually decided in another file) and neither can
  * `no-object-define-property` (`mockValueProp` leaves the property writable and configurable, which
  * is the point of the change and still a change), so both suggest.
+ *
+ * `prefer-as-spy` is the second fix, and it passes the same test from the other end: the developer
+ * has *already* asserted `Spy<X>` in the file being linted. The rewrite keeps that assertion whole
+ * and changes only how it is written — `asSpy` is a typed identity function, so the two lines are
+ * the same object and the same claim — which puts the whole change at the level of types, where a
+ * wrong fix fails to compile and can reach nothing at run time. Nothing has to be known about
+ * another file, because nothing is being decided here: the cast decided it.
+ *
+ * It is a rule of its own rather than a fix branch inside `prefer-inject-spy`, and the two are
+ * adjacent rather than the same. `prefer-inject-spy` reports `vi.spyOn` over an injected instance —
+ * a run-time defect (one method replaced, the rest left real) whose repair is a provider in another
+ * file. This one reports a correct intention spelled in a way that no longer compiles, and repairs
+ * it in place. Fusing them would also cost the honesty of `meta.fixable`, which ESLint reads per
+ * rule: `prefer-inject-spy` would then advertise a fix for the shape it can only ever suggest one
+ * for, and `--fix` over a suite would look as though it had left its own reports behind.
  */
 import { type EsPromiseExecutor, type EsSubscribeCall, awaitedRewriteFor } from './await-emission';
-import { bindingState, dropNamedImport, findBinding, initializerOf, insertImport } from './bindings';
+import { PACKAGE, bindingState, dropNamedImport, findBinding, initializerOf, insertImport } from './bindings';
+import { type EsSpyCast, asSpyFixes, assertedValue, injectedFromVariable, isTestBedInject } from './injected-spy';
 import { overriddenProviders } from './overridden-provider';
 import { propHelperSuggestion } from './prop-helpers';
 import {
@@ -57,9 +73,6 @@ import { type EsNamedCall, type SubscribeRepair, enclosingSubscribe, helperAsser
 import { breaksAnOverride } from './testbed-order';
 
 const README = 'https://github.com/ASDAlexey/vitest-auto-spy#how-to-mock';
-
-/** The package the fixes import from, spelled once. */
-const PACKAGE = 'vitest-auto-spy';
 
 /** Build a rule, appending the recipe link to every message so the fix is one click away. */
 function defineRule(options: {
@@ -332,20 +345,6 @@ const preferCreateSpyFromClass = defineRule({
   }),
 });
 
-/** Whether a node is `TestBed.inject(...)`, the call whose result should have been read with `injectSpy`. */
-function isTestBedInject(node: EsNode): node is EsCallExpression {
-  if (
-    !isCallExpression(node) ||
-    !isMemberExpression(node.callee) ||
-    !isIdentifier(node.callee.object) ||
-    !isIdentifier(node.callee.property)
-  ) {
-    return false;
-  }
-
-  return node.callee.object.name === 'TestBed' && node.callee.property.name === 'inject';
-}
-
 /** The string a literal argument spells, when it is one and it can be written after a dot. */
 function memberName(node: EsNode | undefined): string | undefined {
   const value: unknown = node?.type === 'Literal' ? Reflect.get(node, 'value') : undefined;
@@ -417,17 +416,6 @@ const preferInjectSpy = defineRule({
     },
   }),
 });
-
-/** The `TestBed.inject()` behind a plain name, when the name is one and it holds one. */
-function injectedFromVariable(context: RuleContext, target: EsNode): EsCallExpression | undefined {
-  if (!isIdentifier(target)) {
-    return undefined;
-  }
-
-  const initializer = initializerOf(context.sourceCode.getScope(target), target);
-
-  return initializer && isTestBedInject(initializer) ? initializer : undefined;
-}
 
 /** `Object.defineProperty(obj, 'x', …)` → `mockReadonlyProp` / `mockValueProp`. */
 const noObjectDefineProperty = defineRule({
@@ -676,6 +664,43 @@ const noMockedForSpy = defineRule({
   }),
 });
 
+/** `TestBed.inject(X) as Spy<X>` → `asSpy(TestBed.inject(X))`. */
+const preferAsSpy = defineRule({
+  anchor: '-reading-a-spy-back-from-di',
+  description: 'Read a spy back out of the container with asSpy(), not with a cast to Spy<T>',
+  fixable: true,
+  messages: {
+    preferAsSpy:
+      'A cast is not how a spy comes back out of a container. `TestBed.inject(X) as Spy<X>` is the line a `jest-auto-spies` suite carries in every file, and it stops compiling here: `Spy<T>` adds `accessorSpies` and the per-method helpers, so neither type sufficiently overlaps the other and the line fails with `TS2352: Conversion of type ‘X’ to type ‘Spy<X>’ may be a mistake`. `asSpy(...)` makes exactly the same assertion as a typed identity function — the same object at run time, the same claim, no cast — and `injectSpy(X)` is that with the `TestBed.inject` folded in. Neither is for the object under test: a service a spec exercises is not a double, and typing it as the class is the repair there.',
+  },
+  create: (context) => ({
+    'TSAsExpression[typeAnnotation.type="TSTypeReference"][typeAnnotation.typeName.name="Spy"]': (node: EsSpyCast): void => {
+      const spy = findBinding(context.sourceCode.getScope(node), 'Spy');
+
+      // A `Spy` the file declares itself is not this library's, whatever it is called — and unlike
+      // `no-mocked-for-spy`, which reports a `Mocked<T>` it cannot rewrite because the *declaration*
+      // is wrong either way, there is nothing to say about a cast to somebody else's type.
+      if (spy && !spy.defs.some((definition) => definition.type === 'ImportBinding')) {
+        return;
+      }
+
+      const value = assertedValue(node);
+
+      if (!value) {
+        return;
+      }
+
+      const rewritable = bindingState(context.sourceCode.getScope(node), 'asSpy') !== 'taken';
+
+      context.report(
+        rewritable
+          ? { node, messageId: 'preferAsSpy', fix: (fixer: EsFixer): EsFix[] => asSpyFixes(context, fixer, node, value, spy) }
+          : { node, messageId: 'preferAsSpy' },
+      );
+    },
+  }),
+});
+
 /** `it('x', (done) => …)` → `async` + an awaited assertion. */
 const noDoneCallback = defineRule({
   anchor: '-an-observable',
@@ -770,6 +795,7 @@ export const rules: Record<string, RuleModule> = {
   'no-expect-in-subscribe': noExpectInSubscribe,
   'no-shared-module-level-mock': noSharedModuleLevelMock,
   'no-mocked-for-spy': noMockedForSpy,
+  'prefer-as-spy': preferAsSpy,
   'no-done-callback': noDoneCallback,
   'no-floating-assertion': noFloatingAssertion,
   'no-overridden-provider': noOverriddenProvider,

@@ -49,6 +49,21 @@ _Last released: **v3.1.0** (2026-08-28)._
   and throws if it is not, and it installs no `process.on('unhandledRejection')` listener, which
   would silence the native rejections Vitest already reports. `trackStrayRejections()`,
   `countStrayRejections()` and `flushStrayRejections()` are exported for a narrower check.
+- **`prefer-as-spy`** — a twelfth ESLint rule, `warn` in `configs.recommended` and the second one
+  that runs under `--fix`: `TestBed.inject(X) as Spy<X>` becomes `asSpy<X>(TestBed.inject(X))`, with
+  the `asSpy` import added and a `Spy` import the rewrite orphans taken out. That cast is written
+  once per injected double in a `jest-auto-spies` suite and fails with `TS2352` under this library —
+  the most common compile error a migrated Angular suite produces — so it arrives in batches, which
+  is what makes it worth a fix rather than a suggestion. It qualifies for one because the developer
+  has already asserted `Spy<X>` in the file being linted: `asSpy` is a typed identity function, so
+  the rewrite keeps that assertion whole, decides nothing the cast had not decided, and cannot reach
+  run time — a wrong fix fails to compile. The type arguments are carried across rather than left to
+  inference, because `Spy<T, Options>` and `asSpy<T, Options>` take the same parameter list and
+  inference answers `Spy<Service<any>>` for a generic class. A `Spy` the file declares itself and a
+  cast that hops through `unknown` are left alone — the hop says the value is not a `T`, so the call
+  would not compile — except for `TestBed.inject(X) as unknown as Spy<X>`, where the container
+  returns `X` by construction and the hop was only silencing `TS2352`.
+
 - **`no-floating-assertion`** — a ninth ESLint rule, `error` in `configs.recommended`: an
   `expect()` in a `.then()` / `.catch()` / `.finally()` callback whose chain nobody awaits,
   returns, assigns or passes on. The test ends first, the assertion never runs, and the test passes

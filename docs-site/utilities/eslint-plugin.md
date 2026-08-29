@@ -1,6 +1,6 @@
 ---
 title: ESLint plugin
-description: Eleven flat-config lint rules that steer a suite onto the auto-spy helpers, versioned with the API they recommend.
+description: Twelve flat-config lint rules that steer a suite onto the auto-spy helpers, versioned with the API they recommend.
 ---
 
 # ESLint plugin
@@ -27,6 +27,7 @@ which a subpath export of this package can never be.
 | `prefer-provide-auto-spy`      |   `warn`    | —         | a hand-rolled `useValue` **or** `useFactory` → `provideAutoSpy(Class)` / `provideAutoSpyForToken(TOKEN)` |
 | `prefer-create-spy-from-class` |   `warn`    | —         | an object literal of two or more `vi.fn()`s → `createSpyFromClass` / `createAutoMock`, unless it is a factory's own seed |
 | `prefer-inject-spy`            |   `warn`    | suggest   | `vi.spyOn(TestBed.inject(X), 'm')`, inline or via a `const` → `injectSpy(X).m`         |
+| `prefer-as-spy`                |   `warn`    | `--fix`   | `TestBed.inject(X) as Spy<X>` → `asSpy(TestBed.inject(X))`, import and all             |
 | `no-object-define-property`    |   `error`   | suggest   | `Object.defineProperty` in a spec → `mockReadonlyProp` / `mockValueProp`              |
 | `no-expect-in-subscribe`       |   `error`   | suggest   | `expect()` inside a `subscribe()` callback → `expectEmission` / `firstValueFrom`      |
 | `no-shared-module-level-mock`  |   `error`   | —         | an **exported** value holding `vi.fn()`s → export a factory that returns it           |
@@ -79,6 +80,12 @@ which catches at runtime what no selector can see.
 `no-mocked-for-spy` is a `warn` because `Mocked<T>` has legitimate uses next to `vi.mocked()`; what
 it flags is the declaration form, where the assignment then fails with a list of private field names
 that says nothing about the real cause.
+
+`prefer-as-spy` is the same question one line down, and it is the one a migration meets in bulk:
+`devicesService = TestBed.inject(DeviceListService) as Spy<DeviceListService>` is written once per injected
+double in a `jest-auto-spies` suite, and every one of them fails with `TS2352` under this library —
+[the most common compile error a migrated Angular suite produces](/migrating#reading-a-spy-back-out-of-the-container).
+`asSpy(...)` is the same assertion without the cast, so the rule fixes it under `--fix`.
 
 ## Two things these rules learned the hard way
 
@@ -237,12 +244,12 @@ call, and it only ever looked at object literals.
 
 ## Which rules fix, and why so few
 
-One of the eleven rewrites the source on its own, three offer the rewrite as a suggestion, and the
+Two of the twelve rewrite the source on their own, three offer the rewrite as a suggestion, and the
 split is about what a wrong guess costs rather than about how hard the rewrite is.
 
 `no-mocked-for-spy` touches nothing but a **declaration**. Get it wrong and the file stops
-compiling — the loudest and cheapest failure a codebase has — so it is the one rule that runs under
-`--fix`, and it does the whole edit:
+compiling — the loudest and cheapest failure a codebase has — so it is one of the two rules that run
+under `--fix`, and it does the whole edit:
 
 ```ts
 // before
@@ -259,6 +266,36 @@ specifier, out of the braces when it was not. And the rule stands back where it 
 rename: a `Mocked` the file declares itself is not Vitest's, a `Spy` already bound to something
 else is not free, and `Mocked<{ total: Mock }>` asks a different question of the type system than
 `Spy<T>` answers. Those are still reported, without a fix.
+
+`prefer-as-spy` earns the same licence from the other end: the cast it reports is the developer's own
+assertion that this value is a `Spy<X>`, and `asSpy` is a typed identity function — so the rewrite
+keeps that assertion whole, changes nothing but how it is spelled, and lives entirely at the level of
+types. Nothing has to be known about another file, because the rule decides nothing: the cast decided
+it, and a wrong fix fails to compile.
+
+```ts
+// before
+devicesService = TestBed.inject(DeviceListService) as Spy<DeviceListService>;
+
+// after --fix
+import { asSpy } from 'vitest-auto-spy';
+devicesService = asSpy<DeviceListService>(TestBed.inject(DeviceListService));
+```
+
+The type arguments are carried across rather than left to inference. `Spy<T, Options>` and
+`asSpy<T, Options>` take the same parameter list, so moving them is a transposition and the line
+after the fix asserts exactly what the line before it did — including `Spy<Cinemas, { overload:
+'first' }>`, which inference would silently drop. It also keeps the one case where inference is
+actively wrong: on a **generic** class `TestBed.inject` answers `Service<any>`, and that `any`
+surfaces eight levels down as a mismatch between `AddPromiseSpyMethods<unknown>` and
+`WithMockReturnValue<…>`, with nothing in the message pointing at the spec.
+
+Two shapes are left alone on purpose. A `Spy` the file declares itself is not this library's type,
+and a cast that hops through `unknown` — `{} as unknown as Spy<CartService>` — says outright that the
+value is *not* a `CartService`, so `asSpy<CartService>(...)` could not compile; that shape wants a
+real double (`createAutoMock<T>()`), not a rename. The one exception is
+`TestBed.inject(X) as unknown as Spy<X>`, where the container returns `X` by construction and the
+`as unknown` was only there to silence `TS2352` — that one is fixed, hop and all.
 
 The other three change **behaviour**, which is exactly what they are for, and that is why they only
 suggest. Whether `injectSpy(X)` finds a spy at all is decided by a `provideAutoSpy(X)` that usually
