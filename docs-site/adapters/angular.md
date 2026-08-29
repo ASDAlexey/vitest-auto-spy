@@ -119,6 +119,26 @@ prefer either over a second statement is not brevity — the shortcut people tak
 exported `const` provider carrying the values, and under `isolate: false` that is one set of spies
 shared by every file that imports it.
 
+### Observable properties behind a token
+
+`observablePropsToSpyOn` is the third option both forms now share, and it matters more on the token
+path than on the class one. A class tells the factory which members are methods; a type does not, so
+every unnamed key of a token-driven double is a **function** spy — an `Observable` property included,
+which the code under test then subscribes to as if it were a function, with the failure surfacing
+far from the double.
+
+```ts
+provideAutoSpyForToken(FAVORITES, undefined, { observablePropsToSpyOn: ['favorites$'] });
+// …
+injectSpy(FAVORITES).favorites$.nextWith([{ id: 1 }]);
+```
+
+A member also named in `overrides` keeps its seed — hand the double a real `Subject` there when the
+spec drives the stream itself, and name it here when `nextWith` is what the spec wants; the class
+factory resolves the same contradiction the same way. Until 3.5.0 the option existed only on the
+class path, so a token with observable members sent people back to a hand-written double — which is
+what `prefer-provide-auto-spy` and `prefer-create-spy-from-class` exist to steer them away from.
+
 ## Do not write a local `injectSpy`
 
 A wrapper of the shape `TestBed.inject(token as never) as Spy<T>`, typed
@@ -416,6 +436,21 @@ than reported as free, and the report goes to `process.stdout` — not `console.
 component declares in its own `@Component({ providers: [...] })` — route-scoped services,
 per-component stores, `provideX()` helpers. Nothing reports the loss: the spec configures a spy, the
 component keeps the real service, and the assertion fails two steps away from the cause.
+
+How far away is worth spelling out, because this is one of the most-reported traps in the whole
+library. `@Component({ providers: [DeleteAccountService] })` with a module-level
+`provideAutoSpy(DeleteAccountService)` builds the **real** service, and what fails is whatever that
+service touches first — in one observed case a logger, with
+`TypeError: Cannot read properties of undefined (reading 'pipe')`. That message names neither the
+component, nor the provider, nor the spy.
+
+There are two fixes and the choice is about intent. Use `overrideComponentProvider` when the spec
+wants a double at the component level; use `TestBed.overrideComponent(..., { remove: { providers } })`
+when the module already provides the spy and the component's own declaration is simply in the way:
+
+```ts
+TestBed.overrideComponent(ProfileComponent, { remove: { providers: [DeleteAccountService] } });
+```
 
 ```ts
 import { overrideAutoSpy, overrideComponentProvider } from 'vitest-auto-spy/angular';

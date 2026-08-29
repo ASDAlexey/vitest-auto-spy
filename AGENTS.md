@@ -106,8 +106,21 @@ logger.channel('app').info('started');
 expect(logger.channel('app').info).toHaveBeenCalledWith('started');
 ```
 
-What a self-returning call hands back is typed as the *declared* return type, not as a spy; bridge
-it with `asSpy<T>(...)` when the helpers are needed.
+Both bridges exist, and which one you need depends on the direction. What a self-returning **call**
+hands back is typed as the *declared* return type, not as a spy — `asSpy<T>(…)` when the helpers are
+needed. The **whole mock** is a `DeepMockProxy<T>`, which is not assignable to `T` for the same
+reason `Spy<T>` is not (a mapped type cannot see private members) — `asInstance(…)` when it has to
+go somewhere typed against the real thing:
+
+```ts
+const logger = mockDeep<AppLogger>({}, { selfReturning: true });
+
+boot(asInstance(logger)); //           → AppLogger, for the API under test
+asSpy<AppLogger>(logger.channel('app')).info.mockReturnValue(undefined); // → the helpers
+```
+
+`asInstance` did not take a deep mock before 3.5.0, which left it with nowhere to go: this tree
+sends you to `mockDeep` when the calls chain, and the result then fitted nothing that expected `T`.
 
 **An `abstract class` is a class.** `abstract class LocalStorage extends AbstractStorage {}`,
 provided in production as `{ provide: LocalStorage, useClass: BrowserLocalStorage }`, is the
@@ -159,6 +172,52 @@ these two factories. So a spec that installs a double by **copying it onto a rea
 every other call goes to the real implementation, silently. Use `createSpyFromClass` there: it
 returns an ordinary object whose method keys are enumerable (lazy accessors, but enumerable), so
 the copy is complete.
+
+### It answers everything, so it must not answer *these*
+
+The same premise cuts the other way. A library that is handed an object and has to decide **what
+kind of thing it is** asks by probing a key — and a double that answers every property answers the
+probe too, at which point it stops being a double of `T` and becomes whatever was being looked for.
+Four names are therefore answered with `undefined` unless the spec seeds them, alongside `then` and
+every symbol, which always were:
+
+| Key            | Probed by                                     | The double became   |
+| -------------- | --------------------------------------------- | ------------------- |
+| `schedule`     | `popScheduler` in `of` / `from` / `merge` / … | a scheduler         |
+| `lift`         | `isObservable`, with `subscribe`              | an Observable       |
+| `@@observable` | `isInteropObservable` in `innerFrom`          | an interop stream   |
+| `getReader`    | `isReadableStreamLike` in `innerFrom`         | a ReadableStream    |
+
+The one that cost an afternoon reads like nothing at all:
+
+```ts
+of(autoMocked<AnimationItem>()); // an Observable that never emits
+```
+
+`of(...)` takes its **last argument** for a scheduler when `typeof x.schedule === 'function'`, so
+the whole double was eaten as one, `of()` was left with an empty argument list, and the emission was
+scheduled onto a spy that does nothing. The component under test kept its `null`, and what failed
+was an assertion about an unrelated `emit()` three concerns away — nothing in the failure mentions
+`of`. The workaround people find is `from([double])`; it is not needed any more.
+
+**`subscribe` is deliberately not on that list.** It is an ordinary method name — a store, an
+Angular `OutputEmitterRef`, an event bus — and `expect(store.subscribe).toHaveBeenCalledWith(cb)` is
+a real assertion. Denying `lift` and `@@observable` already breaks the impersonation, so `subscribe`
+on its own fools nothing: `from(double)` now fails with rxjs's own *"You provided an invalid object
+where a stream was expected"*, loudly and in the right file.
+
+If your type genuinely has one of the four, say so once and it comes back — the list is consulted
+after the seed store:
+
+```ts
+createAutoMock<TaskScheduler>({ schedule: vi.fn() });
+```
+
+That is the trade the deny-list makes: without a seed the member is absent and the failure is an
+immediate `TypeError: … is not a function` at the call site, instead of a silent one in another
+file. A key is only added to that list with an observed mechanic behind it — never because the name
+sounds protocol-ish — because every entry costs somebody the ability to mock a member of that name
+without seeding it.
 
 The tree asks whether the double is *called*, and there is a second question worth asking: whether
 the code under test **writes to it**. `createAutoMock` is a proxy with a `set` trap over the same
@@ -304,6 +363,31 @@ const subject = feed.items$.returnSubject(); // ReplaySubject, for anything the 
 `mock.settledResults` is native on Vitest and polyfilled on Bun / `node:test`, so it is identical on
 all three. Entries are `{ type: 'fulfilled' | 'incomplete' | 'rejected', value }`.
 
+**The observable helpers are backed by a `ReplaySubject(1)` that belongs to the spy, and it is
+configuration — so it must be reset with the rest of it.** Two failures used to come out of that
+buffer outliving the test that filled it, and both were silent:
+
+```ts
+// test 1
+service.createSeamlessTransition.nextWith(uri); // buffered
+
+// test 2 — the failure path is the point of this test
+service.createSeamlessTransition.throwWith(error); // subscriber gets `uri` FIRST, then the error
+```
+
+The code under test therefore ran the **success** branch on stale data, and the error branch arrived
+one emission late. The second: `error()` and `complete()` close a Subject permanently, so a later
+`nextWith` on that spy pushed into a dead subject and emitted nothing at all. Both are fixed —
+`resetAutoSpy(spy)` now drops the subject, and a terminated one is replaced on the next
+configuration.
+
+What that does **not** change: `vi.clearAllMocks()` and `clearMocks: true` still cannot reach it,
+for the same reason they cannot reach a `calledWith` chain — that state lives in this library's
+closures, not on the runner's mock. So when a spy outlives a test — a TestBed built in `beforeAll`,
+a spy hoisted to `describe` scope — put `resetAutoSpy(spy)` in `beforeEach`. Inside one test the
+sequence `nextWith(a)` then `throwWith(e)` still means "emit a, then fail"; only a reset or a
+terminal call starts a new stream.
+
 ---
 
 ## 5. `createSpyFromClass` configuration
@@ -340,11 +424,29 @@ the reference suite). Method discovery walks the _prototype chain_; a callable a
 - an Angular `signal()` / `computed()` field — the dominant case in a signals codebase
 - an arrow-function property — `readonly reload = (): void => {}`
 - anything on an ngrx `signalStore()`, which puts **everything** on the instance
+- **members Angular's own classes moved onto the instance** — `Router.currentNavigation` in
+  Angular 20 is `currentNavigation = this.navigationTransitions.currentNavigation.asReadonly()`
 
 ```ts
 createSpyFromClass(TaskStore, { instanceMethodsToSpyOn: ['count', 'reload'] });
 provideAutoSpy(ProjectStore, { instanceMethodsToSpyOn: ['current', 'isEmpty'] });
+provideAutoSpy(Router, { instanceMethodsToSpyOn: ['currentNavigation'] });
 ```
+
+**The failure this produces says nothing about any of it.** The member is simply not on the spy, so
+the next line reads `undefined` and configuring it throws:
+
+```
+TypeError: Cannot read properties of undefined (reading 'mockReturnValue')
+```
+
+There is no better message to be had at runtime, and it is worth saying why rather than leaving it
+looking like an oversight. Instance fields do not exist until a constructor has run, and this
+library never constructs the class — that is what makes a spy safe to build from a service whose
+constructor talks to the network. The only alternative would be to answer an unknown member with
+*something*, and that something would be truthy: `if (service.optionalThing)` in the code under test
+would then take the wrong branch, silently, which is the exact failure mode the protocol deny-list
+in §2 exists to remove. A loud `TypeError` on the spec's own line is the better of the two.
 
 For an ngrx `signalStore()`, prefer `createAutoMock<T>()` over listing every member: it mocks from
 the type, needs no prototype, and the list cannot fall behind the store.
@@ -399,6 +501,13 @@ expect(settings.theme).toBe('dark'); // the property itself stays typed as `stri
 settings.theme = 'light';
 expect(settings.accessorSpies.setters.theme).toHaveBeenCalledWith('light');
 ```
+
+**Naming one half gets you the pair, when the class declares a pair.** `gettersToSpyOn: ['theme']`
+on a class with both a getter and a setter installs both spies — mirroring reads the prototype
+descriptor, so it only ever adds what the class already has, and a read-only member stays read-only.
+Before 3.5.0 the assignment landed on the no-op setter the scaffolding installs: the write vanished,
+`accessorSpies.setters.theme` was `undefined`, and the failure read
+`Cannot read properties of undefined` three steps from the configuration behind it.
 
 Only spy a getter when the spec asserts that it was **read**. To make one *answer* something, on a
 spy that already exists, the pair above is one line — and it needs no `gettersToSpyOn` at the
@@ -679,6 +788,16 @@ setupAutoSpy(); // { duplicateCopies: 'throw', restoreProps: true, restoreMocks:
 `setupAutoSpy()` does three things: `restoreMockedProps()` in a global `afterEach`, a duplicate-install
 check that fails the run, and (opt-in) `vi.restoreAllMocks()`. Turn on `restoreMocks: true` when the
 suite runs with `isolate: false`.
+
+**The restore also runs from an `onTestFinished` net**, because the `afterEach` is not guaranteed
+to. Vitest calls `afterEach` hooks in *reverse* registration order, so the setup file's is the last
+one, and a hook the spec file registered takes the chain down with it when it throws — the patches
+then travel into the next test and the failure surfaces somewhere that never touched them. One spec
+kept `afterEach(() => vi.restoreAllMocks())`; migrating it to `gettersToSpyOn` made the restored
+getter return `undefined`, `ngOnDestroy` called it as a signal, the `TypeError` aborted the hook,
+and a template error about a null profile appeared in a different `describe`. The net puts the
+properties back and warns with the count and the cause. `countMockedProps()` is exported if you
+would rather assert it: `afterEach(() => expect(countMockedProps()).toBe(0))`.
 
 **The one that only bites at scale:** with `isolate: false`, a `setTimeout` or
 `requestAnimationFrame` a component schedules and never clears keeps running after its file is done,
@@ -1096,6 +1215,23 @@ statement is not brevity: the shortcut people take instead is an exported `const
 the values, and under `isolate: false` that is one set of spies shared by every file that imports
 it.
 
+**`observablePropsToSpyOn` works on a token too**, and matters more there than on a class. A class
+tells the factory which members are methods; a type does not, so *every* unnamed key of a
+token-driven double is a function spy — including an `Observable` property, which the code under
+test then subscribes to as if it were a function, failing far from the double:
+
+```ts
+provideAutoSpyForToken(FAVORITES, undefined, { observablePropsToSpyOn: ['favorites$'] });
+// …
+injectSpy(FAVORITES).favorites$.nextWith([{ id: 1 }]);
+```
+
+A member also named in `overrides` keeps its seed — hand the double a real `Subject` there when the
+spec drives the stream itself, and name it here when `nextWith` is what the spec wants. That is the
+same precedence the class-based factory uses. Before 3.5.0 this option existed only on the class
+path, and reaching a token with observable members meant going back to a hand-written double —
+which is exactly what `prefer-provide-auto-spy` and `prefer-create-spy-from-class` exist to prevent.
+
 **Do not write a local `injectSpy`.** A wrapper of the shape
 `TestBed.inject(token as never) as Spy<T>` — a double assertion, typed
 `<T>(token: abstract new (...args: never[]) => T)` — is a common thing to find already in a
@@ -1184,6 +1320,32 @@ fail with something that has nothing to do with intersection.
 `mutationRecord()` exists because a `MutationRecord` cannot be written as an object literal at all —
 `addedNodes` is a `NodeList`. Do not build one from a `DocumentFragment`: appending **moves** the
 nodes, so the helper silently rips the element out of the fixture it was just asserted on.
+
+### A component's own `providers` win, and the symptom is nowhere near the cause
+
+Worth reading before the rest of this section: it has now come up twice in one migration wave, and
+both times the failure landed in a different file from its cause.
+
+`@Component({ providers: [DeleteAccountService] })` declares the provider on the **element**
+injector, and a module-level `provideAutoSpy(DeleteAccountService)` in `configureTestingModule`
+loses to it — so the component builds the **real** service. Nothing warns. What fails is whatever
+the real service touches first: in the observed case a logger, with
+`TypeError: Cannot read properties of undefined (reading 'pipe')`, which names neither the component
+nor the provider nor the spy.
+
+Two things fix it, and which one depends on whether the double is wanted:
+
+```ts
+// keep a double, but put it where the component will look
+const menu = overrideComponentProvider(CatalogPageComponent, NavigationBuilderService);
+
+// or take the component's own provider away, so the module-level one is reached again
+TestBed.overrideComponent(ProfileComponent, { remove: { providers: [DeleteAccountService] } });
+```
+
+`overrideComponentProvider` is the one to reach for by default — it also queues the component with
+the TestBed compiler, which `overrideProvider` alone does not do. Reach for the `remove` form when
+the module already provides the spy and the component's declaration is simply in the way.
 
 ### `injectSpy` cannot reach a component-level provider
 
@@ -1503,8 +1665,10 @@ export default [{ files: ['**/*.spec.ts'], ...autoSpy.configs.recommended }];
 | `no-mocked-for-spy`            | `warn`  | `--fix`   | `Mocked<T>` in any type position → `Spy<T>`, import and all              |
 | `no-done-callback`             | `error` | —         | `it('x', (done) => …)` → `async` + an awaited assertion                  |
 | `no-floating-assertion`        | `error` | —         | `expect()` in a `.then()` nobody awaits → `expect(await promise)`        |
+| `no-overridden-provider`       | `error` | —         | two providers for one token in one array → the earlier one never runs   |
+| `no-inject-before-override`    | `warn`  | —         | `TestBed.inject()` in a hook, in a suite that still calls `override*`    |
 
-Nine rules; one fixes on its own, three offer suggestions. `no-mocked-for-spy` only ever touches a
+Eleven rules; one fixes on its own, three offer suggestions. `no-mocked-for-spy` only ever touches a
 **type position**, where a wrong rewrite is a compile error rather than a test that quietly changed
 meaning — so `--fix` renames the type, adds `import type { Spy } from 'vitest-auto-spy'` and drops
 the orphaned `Mocked` import. Every type position, not only a `let`: a factory's return type, a
@@ -1559,6 +1723,20 @@ The variable is resolved through the scope manager, so it has to be a `const`/`l
 from `TestBed.inject(...)` and never assigned again — a name bound by an import, a parameter, or a
 `let` that is reassigned is left alone.
 
+`no-inject-before-override` catches the trap this plugin's own advice sets. `TestBed.inject()` in a
+`beforeEach` — the line you write once `provideAutoSpy(X)` has taken away the literal you used to
+configure — instantiates the module, and every `TestBed.override*` afterwards throws, including one
+written above it inside a `createComponent` helper. Configure the double after the overrides
+(`injectSpy(X)` in the test), or keep the access lazy: `const api = () => injectSpy(Api)`. The check
+is order-free by design, since a helper declared above the hook still runs after it.
+
+`no-overridden-provider` is the one that catches a defect rather than a habit. Angular keeps the
+last provider for a token, so `[provideAutoSpy(X), { provide: X, useValue: mockX }]` is not an
+auto-spy with configuration — the auto-spy is dead and the hand-rolled double is what DI hands out.
+Found on eight tokens of one file. It reads both spellings in either order, compares tokens as
+source text, and offers no fix: deleting either line is a valid repair and they mean opposite
+things.
+
 The legacy `.eslintrc` `plugins: []` form cannot work — it resolves names to `eslint-plugin-*`
 packages, which a subpath export can never be.
 
@@ -1607,6 +1785,8 @@ packages, which a subpath export can never be.
 | a third-party library failing every other run, no test named                         | a test sealed a global with `Object.defineProperty` (non-configurable) | `setupAutoSpy({ guardGlobals: 'throw' })` names the file; then `mockValueProp`              |
 | `expected [ { at: 1, …(5) }, …(8) ] to deeply equal [ { …(6) }, … ]`                 | one field moved in every element — usually a frozen clock or an id     | `expect(diffByField(actual, expected)).toBeUndefined()`                                     |
 | a hand-tuned number of turns waiting for a `resource()` to load                      | the hand-off count depends on the dependency, not on the spec          | `await flushEventLoopUntil(() => r.status() !== 'loading', { label })`                      |
+| `flushEventLoopUntil` timing out on the **first** such test only, the rest green | a cold dynamic `import()` outran the turn budget; later tests hit the module cache | `await settleDynamicImport(() => import('…'))` — await the module, do not count turns |
+| a template error in a `describe` that never patched anything                          | a spec `afterEach` threw and skipped `setupAutoSpy`'s, so a `mock*Prop` patch travelled | upgrade — an `onTestFinished` net restores it and names the cause (§10)                    |
 | `Property 'mockReturnValue' does not exist on type 'never'`                          | a generic method with a conditional return type; the spy collapsed     | upgrade — fixed in the types; the member now keeps its sync helper bundle                   |
 | `Type 'string' is not assignable to type 'never'` on `gettersToSpyOn`                | the list used to reject callable values, i.e. every `Signal<T>`        | upgrade — any string key is nameable; prefer `mockSignalProp` for a signal                  |
 | `Expected to be running in 'ProxyZone', but it was not found`                        | `zone.js/testing` patches jasmine/mocha/jest, not Vitest               | `import 'vitest-auto-spy/zone'` after zone.js, with `globals: true` (§14)                   |
@@ -1614,6 +1794,11 @@ packages, which a subpath export can never be.
 | a spy that cannot take a real `signal()` in `mockReadonlyProp`                       | the value was typed against `Spy<T>[K]`, not against `T[K]`            | upgrade — the `mock*Prop` helpers accept a `Spy<T>` and check against `T`                   |
 | `NG0303` / `NG0304` / nothing at all, from a directive spec                          | the host is `standalone: false`, or the module is in the TestBed       | `createDirectiveHost({ template, scope: [Module] })` (§13)                                  |
 | `TS2540: Cannot assign to 'X' because it is a read-only property`                    | a `readonly` field of an object under test                             | `mockValueProp(obj, 'X', value)` — on a class **getter**, `mockReadonlyProp`                |
+| `TypeError: Cannot read properties of undefined (reading 'mockReturnValue')`          | the member is an **instance field**, not on the prototype — `Router.currentNavigation` since Angular 20 | `provideAutoSpy(Router, { instanceMethodsToSpyOn: ['currentNavigation'] })` (§5)             |
+| a stream built with `of(double)` that never emits                                     | the double answered `schedule`, so rxjs ate it as the scheduler        | upgrade — `schedule` / `lift` / `@@observable` / `getReader` are answered `undefined` (§2)   |
+| `throwWith` reaching the success branch first, with the previous test's value         | the spy's `ReplaySubject(1)` outlived the test that filled it          | upgrade; and `resetAutoSpy(spy)` in `beforeEach` when the TestBed is built in `beforeAll`    |
+| `nextWith` emitting nothing, on a spy an earlier test completed or errored             | `error()`/`complete()` close a Subject for good                        | upgrade — the next configuration starts a new stream                                         |
+| `accessorSpies.setters.X` is `undefined` after `gettersToSpyOn: ['X']`                 | only the named half was spied                                          | upgrade — the declared other half is mirrored (§5)                                            |
 | `TS2540` on a `Spy<T>` / `createAutoMock` member, which the runtime writes fine       | `Spy<T>` is homomorphic, so it keeps the `readonly` of an abstract getter | `Mutable<Spy<T>>` for direct assignment, or `mockValueProp` for a patch that is undone      |
 | a `mock*Prop` patch on a `createAutoMock` double that changes nothing                 | the Proxy had no `defineProperty` trap before 3.5.0                    | upgrade — nothing to change in the spec                                                     |
 | `delete mock.optionalMethod` leaving the member present and truthy                    | the Proxy had no `deleteProperty` trap before 3.5.0                    | upgrade; before that, `mock.optionalMethod = undefined`                                     |
@@ -1646,6 +1831,10 @@ packages, which a subpath export can never be.
 | hold the promise, `vi.runAllTimers()`, then await                    | `expectEmission(source$, { advance: () => vi.runAllTimers() })` |
 | `injectSpy(X)` then a `mockReturnValue` per method in `beforeEach`   | `provideAutoSpy(X, { returns: { … }, overrides: { … } })`      |
 | a local `injectSpy` wrapper with `as never` + `as Spy<T>`            | the library's — it also takes an `InjectionToken`             |
+| a hand-written double for a token with `Observable` members          | `provideAutoSpyForToken(T, undefined, { observablePropsToSpyOn: […] })` |
+| `mockDeep<T>() as unknown as T` to satisfy an API typed against `T`  | `asInstance(mockDeep<T>())`                                   |
+| `from([double])` to stop `of(double)` swallowing the double          | `of(double)` — `schedule` is no longer answered (§2)          |
+| `spy.instanceField.mockReturnValue(…)` on a member Angular moved     | `provideAutoSpy(X, { instanceMethodsToSpyOn: ['…'] })` (§5)   |
 | `expect(component.total).toBeTruthy()` (a signal)                    | `expect(component.total).toHaveSignalValue(3)`                |
 | `fixture.detectChanges()` then assert signal state                   | `await stable(fixture)` then assert                           |
 | `onlyMethodsToSpyOn: [...]` "to add a method"                        | omit it, or use `instanceMethodsToSpyOn`                      |
@@ -1670,7 +1859,18 @@ packages, which a subpath export can never be.
 | `vi.mock('@angular/core')` to neutralise `effect()`                  | set the signals, `await stable(fixture)`, assert the result   |
 | a second `vi.spyOn(console, 'error')`                                | `consoleErrorSpy` from `vitest-auto-spy/console`              |
 | `mockReadonlyProp(c, 'items', vi.fn(() => []))`                      | `mockReadonlyProp(c, 'items', signal([]))` — a real signal    |
+| `spy.m.mockReturnValue(subject$)` for a `vi.fn(() => subject$)` | `spy.m.mockImplementation(() => subject$)` — the variable is re-read |
 
+
+**The one mechanical rename in a migration that is not equivalent.** `vi.fn(() => x)` reads `x`
+when the double is *called*; `mockReturnValue(x)` freezes the value `x` had when the double was
+*configured*. They are indistinguishable until the test reassigns `x` — and the commonest reason to
+do that is a fresh `Subject` after the previous one has been `error()`ed or completed, which is
+exactly the case a suite is testing when it reassigns. The double then keeps handing out the dead
+one: in one spec the service received a completed subject and silently skipped the modal it was
+meant to show, with the test still green. Carry `vi.fn(() => x)` over as
+`mockImplementation(() => x)`, and keep `mockReturnValue` for a literal. Worth saying out loud to
+anyone writing a codemod, because the rename looks like the safest edit in the file.
 ---
 
 ## 19. Before you report success

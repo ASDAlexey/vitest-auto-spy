@@ -57,7 +57,7 @@ identical API, with **RxJS** spies and **Angular / NestJS / React / Vue·Pinia /
 - 🧩 Module mocks that prove they applied — `assertMocked`, `moduleNamespace`, for a `vi.mock()` a bundler quietly ignored
 - 🧾 Fixtures without casts — deep-partial `createMock`, `narrow()`, `withOverrides()`, `asInstances()`
 - 🚚 A migration you can verify — `compareTestRuns` on the two JSON reports, `diffByField` for the assertion the reporter collapses
-- 📏 Lint rules and one-line test-run hygiene — nine rules in `vitest-auto-spy/eslint-plugin` (one `--fix`, three suggestions), `setupAutoSpy()`
+- 📏 Lint rules and one-line test-run hygiene — eleven rules in `vitest-auto-spy/eslint-plugin` (one `--fix`, three suggestions), `setupAutoSpy()`
 - 🔇 Console spies — `import { consoleInfoSpy } from 'vitest-auto-spy/console'` silences `console` and asserts its calls
 - 🧭 [**Spec patterns**](https://asdalexey.github.io/vitest-auto-spy/recipes) — the shapes a ~370-file Angular suite converged on, and the traps that only surface at scale
 - 🤖 Built for AI agents too — an offline [`AGENTS.md`](#using-this-library-with-an-ai-agent) inside the package, `llms.txt` on the docs site, a Claude Code skill, and errors that name their own fix
@@ -1618,12 +1618,14 @@ export can never be.
 | `no-mocked-for-spy`            |   `warn`    | `--fix`   | `Mocked<T>` in any type position → `Spy<T>`, import and all                            |
 | `no-done-callback`             |   `error`   | —         | `it('x', (done) => …)` → `async` + an awaited assertion                               |
 | `no-floating-assertion`        |   `error`   | —         | `expect()` in a `.then()` nobody awaits → `expect(await promise)`                     |
+| `no-overridden-provider`       |   `error`   | —         | two providers for one token in one array → the earlier one never runs                 |
+| `no-inject-before-override`    |   `warn`    | —         | `TestBed.inject()` in a hook, in a suite that still calls `override*`                  |
 
 Every message ends with a link to the matching [recipe](#how-to-mock): a rule that only says
 "don't" moves the problem rather than solving it. Rules travel with the API they recommend, so they
 are versioned together and stop being re-written in every project that installs the package.
 
-**One of the nine fixes on its own, three offer suggestions**, and the split is not about how hard
+**One of the eleven fixes on its own, three offer suggestions**, and the split is not about how hard
 the rewrite is. `no-mocked-for-spy` touches a *declaration*: get it wrong and the file stops
 compiling, which is the loudest, cheapest failure there is — so `--fix` rewrites the type, adds
 `import type { Spy } from 'vitest-auto-spy'` and drops the `Mocked` import once nothing else uses
@@ -1658,7 +1660,7 @@ Both are the same object at runtime; only the view changes.
 | Export                                                                                                       | Description                                                                                                                                         |
 | ------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `createSpyFromClass(Class, methodsOrConfig?)`                                                                | Build a fully-typed `Spy<T>` from a class                                                                                                           |
-| `createAutoMock<T>(overrides?, config?)`                                                                     | Build a `Spy<T>` from a **type/interface** alone (Proxy, no class); `{ returns }` seeds method results                                              |
+| `createAutoMock<T>(overrides?, config?)`                                                                     | Build a `Spy<T>` from a **type/interface** alone (Proxy, no class); `{ returns, observablePropsToSpyOn }` configure it                              |
 | `createMock<T>(partial?)`                                                                                    | Build a plain, spy-free `T` from the fields a test seeds — for data shapes the code under test reads                                                |
 | `mockDeep<T>(overrides?, options?)`                                                                          | Build a **recursive** auto-mock — `mock.repo.user.find()` chains without seeding; `{ selfReturning: true }` chains through calls too                |
 | `resetAutoSpy(spy)` / `clearAutoSpy(spy)`                                                                    | Reset every spy in an auto-spy at once — `reset` also reverts return-value config (`calledWith` **and** a bare `mockReturnValue`); `clear` keeps it |
@@ -1672,7 +1674,7 @@ Both are the same object at runtime; only the view changes.
 | `expectEmission(source$, opts?)` / `expectEmissions(source$, n, opts?)` / `expectNoEmission(source$, opts?)` | Assert an Observable without a `subscribe` callback that may never run; the emitted type is inferred                                                |
 | `expectCompletion(source$, opts?)` / `expectError(source$, opts?)`                                           | Assert that a stream terminates; await the error it fails with, unwrapped                                                                           |
 | `setEmissionTimeout(ms)`                                                                                     | Change the process-wide default wait of the emission helpers                                                                                        |
-| `asInstance(spy)` / `asSpy(instance)`                                                                        | The two named views between `Spy<T>` and `T`, instead of `as any`                                                                                   |
+| `asInstance(spy)` / `asSpy(instance)`                                                                        | The two named views between `Spy<T>` / `DeepMockProxy<T>` and `T`, instead of `as any`                                                              |
 | `createSpyClass(Class, config?)`                                                                             | A spy that can be called with `new`; records `calls` and `instances`                                                                                |
 | `mockConstructor(factory, name?)` / `stubConstructor(obj, key, factory)`                                     | A runner mock that is also a constructor — for a global or an SDK with no class at runtime                                                          |
 | `stubAbortController()`                                                                                      | A realm-consistent `AbortController` / `AbortSignal` for jsdom + zone.js                                                                            |

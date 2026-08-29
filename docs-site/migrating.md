@@ -125,6 +125,29 @@ the whitelist lives under its own name, `onlyMethodsToSpyOn`.
 environment, add `setupAutoSpy()` — Jest isolated every file, and a `mock*Prop` patch that was
 harmless there now outlives its spec.
 
+**`vi.fn(() => x)` is not `mockReturnValue(x)`.** The one rename in a migration that looks safest
+and is not equivalent. A factory reads `x` when the double is **called**; `mockReturnValue` freezes
+the value `x` had when the double was **configured**. Nothing tells them apart until the test
+reassigns `x` — and the commonest reason to do that is a fresh `Subject` after the previous one was
+`error()`ed or completed, which is precisely what a suite is exercising when it reassigns:
+
+```ts
+let source$ = new Subject<Page>();
+
+const api = createSpyFromClass(Api);
+
+api.load.mockReturnValue(source$);        // ❌ pinned to the subject that existed on this line
+api.load.mockImplementation(() => source$); // ✅ re-read on every call
+
+source$.error(new Error('boom'));
+source$ = new Subject<Page>();            // the double still hands out the dead one, above
+```
+
+In one spec that meant the service received a completed subject and silently skipped the modal it
+was meant to show, with the test green throughout. Carry `vi.fn(() => x)` over as
+`mockImplementation(() => x)` and keep `mockReturnValue` for a literal — and if you are writing a
+codemod, this is the rewrite to special-case.
+
 **Bun (`bun:test`).** `mockReset()` on Bun also drops the implementation (Vitest keeps the spy) —
 the adapter restores it, so auto-spies are unaffected, but a hand-rolled `mock()` in the same spec
 will behave differently. `spyOn` refuses accessor properties on Bun; the accessor spies here go
