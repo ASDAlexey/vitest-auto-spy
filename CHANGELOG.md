@@ -12,6 +12,38 @@ The latest released version here must always match the one published on
 
 ### Added
 
+- **`npx vitest-auto-spy doctor` — a repository-level check for defects that never fail anything.**
+  Every check shares one property: nothing consumes the result. The suite is green, `tsc --noEmit`
+  reports zero errors, and the only reader of the stale thing is whoever opens the file. It reports
+  a `tsconfig` `include` pattern that matches no file — the one that motivated the tool, where a
+  migration codemod had eaten a `/**` and turned `src/**/*.spec.ts` into `src*.spec.ts`, a valid
+  glob matching nothing, leaving nine of 152 spec tsconfigs actually covering their specs — a
+  `files` entry that is gone, a production module importing a `*.spec.ts` (a cycle under a shared
+  environment, and the spec loses its own suite), a spec importing another spec, a
+  `@jest-environment` pragma the runner never reads, configuration for a runner that is no longer
+  installed together with the setup files only it referenced, and `@angular/build` in
+  `[22.1.5, 22.1.7)`, where the unit-test bundle is built with code splitting off and `--coverage`
+  grows by hundreds of megabytes with no plateau. Read-only: there is no `--fix`. Exit code 1 when
+  anything above a note was found, so it is one line in CI.
+
+- **`npx vitest-auto-spy init` — the pointer every coding agent in the repository actually reads.**
+  No agent scans dependencies for instructions, so the `AGENTS.md` and the skill shipped in this
+  package's tarball are never discovered on their own. `init` writes a managed block into
+  `AGENTS.md`, `CLAUDE.md` and `GEMINI.md`, a Claude Code skill stub whose frontmatter is copied
+  verbatim from the shipped skill over a body that only points at `node_modules` (so it cannot go
+  stale), and a glob-scoped rule file for each tool whose own directory already exists — Cursor,
+  Copilot, Windsurf, Devin, Cline, Roo. It never creates `.rules`, `.cursorrules`, `.windsurfrules`
+  or `.clinerules`: Zed resolves instructions first-match-wins over a list ending in `AGENTS.md`,
+  so creating one silently shadows the whole project's instructions. Unlike the paste-able snippet
+  in the README, the block is **specialised** — the subpath that matches this runner, the adapter
+  that matches this framework, the real path of the setup file that needs
+  `import 'vitest-auto-spy/rxjs'`, and no rxjs bullet at all when rxjs is absent. Everything sits
+  between `<!-- vitest-auto-spy:begin … -->` markers and is regenerated in full on each run, with
+  text outside them never read or reformatted; `--check` is the CI form, `--dry-run` prints the
+  plan, `--uninstall` puts the files back. The block stays under 1.6 kB because Codex caps the
+  whole root→cwd `AGENTS.md` chain at 32 768 bytes and truncates past it in silence — `init` warns
+  when the file it appended to crosses that line.
+
 - **`mockResourceProp(object, property, initialValue)` on `/angular` — drive an Angular resource
   with no HTTP at all.** `settleResource` is the answer when the request is the point; this is the
   answer when it is not. The property is replaced by a double the spec moves directly —
