@@ -10,6 +10,7 @@
  * dependency and the helpers work with rxjs `Observable`s, Angular `toObservable()` results, signals
  * wrapped in `toObservable`, or a hand-rolled subscribable.
  */
+import { serializeValue } from './serialize-args';
 
 /** Minimal observer accepted by {@link SubscribableLike}. */
 export interface EmissionObserver<T> {
@@ -184,6 +185,7 @@ export function expectEmissions<T>(source$: SubscribableLike<T>, count: number, 
  */
 export function expectNoEmission<T>(source$: SubscribableLike<T>, options?: EmissionOptions): Promise<void> {
   const quietFor = options?.timeout ?? 0;
+  let quietWindow: ReturnType<typeof setTimer> | undefined = undefined;
 
   return new Promise<void>((resolve, reject) => {
     const collector = subscribeAndCollect<T>(
@@ -197,16 +199,25 @@ export function expectNoEmission<T>(source$: SubscribableLike<T>, options?: Emis
       () => undefined,
     );
 
-    setTimer(() => {
+    quietWindow = setTimer(() => {
       collector.stop();
 
       if (collector.values.length === 0) {
         resolve();
       }
     }, quietFor);
+  }).finally(() => {
+    // An emission or a source error settles the promise before the window is up, and a settled
+    // promise ignores whatever the timer does next — but the timer itself does not go away. It
+    // outlives the test, and under `isolate: false` fires inside a *later* file, which is exactly
+    // the kind of stray this package exists to catch.
+    clearTimer(quietWindow);
   });
 }
 
 function unexpectedEmissionError(values: unknown[], options: EmissionOptions | undefined): Error {
-  return new Error(`${describeSource(options)} emitted ${JSON.stringify(values[0])} but was expected to stay silent.`);
+  // `serializeValue`, not `JSON.stringify`: what a spec asserts stays silent is routinely a
+  // component, a DOM node or a store slice with back-references, and stringifying one throws
+  // `Converting circular structure to JSON` — losing the value the message exists to show.
+  return new Error(`${describeSource(options)} emitted ${serializeValue(values[0])} but was expected to stay silent.`);
 }

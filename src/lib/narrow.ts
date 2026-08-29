@@ -13,6 +13,7 @@
  * actually had, which is the only thing that makes the failure cheaper than the assertion it
  * replaces.
  */
+import { serializeValue } from './serialize-args';
 import type { Func } from './types';
 
 /** A one-line description of what a value actually is — the part a failed narrowing must show. */
@@ -22,7 +23,10 @@ function describe(value: unknown): string {
   }
 
   if (typeof value !== 'object') {
-    return `${typeof value} ${JSON.stringify(value)}`;
+    // `serializeValue`, not `JSON.stringify`: the latter throws on a `BigInt` and answers
+    // `undefined` for a function or a symbol — turning the one line that explains the failure into
+    // a second, unrelated failure.
+    return `${typeof value} ${serializeValue(value)}`;
   }
 
   const keys = Object.keys(value);
