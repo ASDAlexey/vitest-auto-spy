@@ -37,6 +37,14 @@ export {
 export { registerFocusMatchers } from './lib/focus-matchers';
 export { advanceTimers, setupFakeTimers, type FakeTimersConfig } from './lib/fake-timers';
 export { describeDuplicateCopies, getPackageCopies } from './lib/package-identity';
+export {
+  countStrayRejections,
+  flushStrayRejections,
+  trackStrayRejections,
+  type RejectionHost,
+  type StopTrackingRejections,
+  type StrayRejection,
+} from './lib/stray-rejections';
 export { cancelStrayTimers, countStrayTimers, trackStrayTimers, type SchedulerHost, type StopTrackingTimers } from './lib/stray-timers';
 export { getWatchedTimerGlobals, restoreTimerGlobals } from './lib/timer-globals';
 export { BLOCKED_FETCH_MESSAGE, blockNetwork } from './lib/network-stub';

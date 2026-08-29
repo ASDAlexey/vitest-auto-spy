@@ -8,7 +8,8 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest
 import '../index';
 import { getPackageCopies, registerPackageCopy, resetPackageCopies } from './package-identity';
 import { countMockedProps, mockValueProp, restoreMockedProps } from './prop-mock';
-import { setupAutoSpy } from './setup-auto-spy';
+import { describeStrayRejections, reportStrayRejections, setupAutoSpy } from './setup-auto-spy';
+import { type StrayRejection, flushStrayRejections } from './stray-rejections';
 import { countStrayTimers, trackStrayTimers } from './stray-timers';
 
 const DUPLICATE = 'file:///app/node_modules/other/node_modules/vitest-auto-spy/dist/index.js';
@@ -162,6 +163,82 @@ describe('stray-timer containment (opted in)', () => {
     setupAutoSpy({ duplicateCopies: 'off', restoreProps: false, strayTimers: true });
 
     expect(globalThis.setTimeout).toBe(scheduler);
+  });
+});
+
+/**
+ * A stand-in for zone.js, on the globals for exactly as long as the option below needs it.
+ *
+ * `setupAutoSpy({ strayRejections: true })` refuses to arm without zone.js — deliberately, since a
+ * silent no-op would read as "the check is on" — and this repository's suite is zoneless. Vitest
+ * runs every suite factory *after* the file body, so the stub cannot be taken off between the two
+ * describes; it comes off in the file's own `afterAll`, which is late enough for the option under
+ * test and early enough that nothing outside this file ever sees a `Zone`.
+ */
+const zoneStub = Object.assign(() => undefined, { __symbol__: (name: string): string => `__zone_symbol__${name}` });
+const rejectionSlot = zoneStub.__symbol__('unhandledPromiseRejectionHandler');
+
+Object.defineProperty(globalThis, 'Zone', { configurable: true, writable: true, value: zoneStub });
+
+afterAll(() => {
+  Reflect.deleteProperty(globalThis, 'Zone');
+});
+
+/** What zone.js does after its `console.error`, minus zone.js. */
+function fireRejection(error: unknown): void {
+  const handler = Reflect.get(zoneStub, rejectionSlot);
+
+  handler(error);
+}
+
+describe('stray-rejection containment (opted in)', () => {
+  // Claims the handler slot immediately and registers the per-test check. Every test here has to
+  // hand back what it fired, because that check's job is to fail the test it runs after.
+  setupAutoSpy({ duplicateCopies: 'off', restoreProps: false, strayRejections: true });
+
+  it('captures what zone.js would have swallowed into console.error', () => {
+    const reason = new Error('nobody awaited me');
+
+    fireRejection({ rejection: reason, zone: { name: 'ProxyZone' }, task: { source: 'Promise.then' } });
+
+    expect(flushStrayRejections().map((rejection) => rejection.reason)).toEqual([reason]);
+  });
+
+  it('turns one into a failure that names the assertion and the test it belongs to', () => {
+    fireRejection(Object.assign(new Error('expected 1 to be 2'), { matcherResult: { pass: false } }));
+
+    expect(() => reportStrayRejections()).toThrow(/expected 1 to be 2[\s\S]*attributed to .*names the assertion/);
+  });
+
+  it('is not claimed twice when setupAutoSpy runs again', () => {
+    const claimed: unknown = Reflect.get(zoneStub, rejectionSlot);
+
+    setupAutoSpy({ duplicateCopies: 'off', restoreProps: false, strayRejections: true });
+
+    expect(Reflect.get(zoneStub, rejectionSlot)).toBe(claimed);
+  });
+});
+
+describe('the report a captured rejection turns into', () => {
+  const rejection = (overrides: Partial<StrayRejection>): StrayRejection => ({
+    reason: new Error('boom'),
+    assertion: false,
+    testName: 'a suite > a test',
+    ...overrides,
+  });
+
+  it('points a late assertion at the missing await', () => {
+    const message = describeStrayRejections([rejection({ assertion: true })]);
+
+    expect(message).toContain('Error: boom — attributed to a suite > a test');
+    expect(message).toMatch(/cannot fail it[\s\S]*without `await`/);
+  });
+
+  it('says something else for an error nothing handled, and for a reason that is not one', () => {
+    const message = describeStrayRejections([rejection({ reason: 'a bare string', testName: '' })]);
+
+    expect(message).toContain('rejected with a bare string — attributed to no test');
+    expect(message).toMatch(/never asserted on[\s\S]*rejects\.toThrow/);
   });
 });
 
