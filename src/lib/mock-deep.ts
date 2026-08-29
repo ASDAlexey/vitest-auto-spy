@@ -20,19 +20,38 @@ import { createFunctionSpy } from './function-spy';
 import type { DeepMockProxy, Func } from './types';
 
 /**
- * The property names any function carries by itself — `length`, `name`, `prototype`. Read off a
- * function for the same reason the spy surface below is read off a spy: so nothing here is a list
- * that can quietly go out of date. `mockDeep` is as good a sample function as any, and costs no
- * extra allocation.
+ * Every key reachable on `value`, own and inherited. The prototype chain is what makes this
+ * correct across runtimes: Vitest assigns its mock helpers as own properties of the mock, while
+ * Bun's `mock()` puts `mockReturnValue` and friends on `Mock.prototype`. An own-keys-only reading
+ * therefore misses the whole spy API on Bun, and every deep node's `mockReturnValue` materialises
+ * as a child spy instead of configuring the node.
  */
-const BARE_FUNCTION_KEYS = new Set<PropertyKey>(Reflect.ownKeys(mockDeep));
+function collectKeys(value: object): Set<PropertyKey> {
+  const keys = new Set<PropertyKey>();
+
+  for (let current: object | null = value; current !== null; current = Object.getPrototypeOf(current)) {
+    for (const key of Reflect.ownKeys(current)) {
+      keys.add(key);
+    }
+  }
+
+  return keys;
+}
+
+/**
+ * The property names any function carries by itself — `length`, `name`, `prototype`, plus
+ * everything on `Function.prototype` and `Object.prototype`. Read off a function for the same
+ * reason the spy surface below is read off a spy: so nothing here is a list that can quietly go out
+ * of date. `mockDeep` is as good a sample function as any, and costs no extra allocation.
+ */
+const BARE_FUNCTION_KEYS = collectKeys(mockDeep);
 
 let spySurfaceKeys: Set<PropertyKey> | undefined;
 
 /**
- * The keys a real function spy owns — every helper the spy factory and the active
- * {@link MockAdapter} put on it — minus the ones (`length`, `name`, `prototype`) that any function
- * carries regardless.
+ * The keys a real function spy carries — every helper the spy factory and the active
+ * {@link MockAdapter} put on it, own or inherited — minus the ones (`length`, `name`, `prototype`,
+ * `call`, `bind`, …) that any function carries regardless.
  *
  * Read off a live probe spy instead of listed by hand: the surface differs per adapter (Vitest,
  * Bun, `node:test`) and grows with every helper the factory attaches, so a hand-written list would
@@ -44,7 +63,7 @@ let spySurfaceKeys: Set<PropertyKey> | undefined;
  * adapter, and an entry registers one while this module is still being imported.
  */
 function getSpySurfaceKeys(): Set<PropertyKey> {
-  spySurfaceKeys ??= new Set(Reflect.ownKeys(createFunctionSpy<Func>('mockDeep.probe')).filter((key) => !BARE_FUNCTION_KEYS.has(key)));
+  spySurfaceKeys ??= new Set([...collectKeys(createFunctionSpy<Func>('mockDeep.probe'))].filter((key) => !BARE_FUNCTION_KEYS.has(key)));
 
   return spySurfaceKeys;
 }
