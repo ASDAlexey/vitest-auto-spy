@@ -141,6 +141,9 @@ export { createMock } from './lib/create-mock';
 export { mockDeep, type MockDeepOptions } from './lib/mock-deep';
 export { createFunctionSpy } from './lib/function-spy';
 
+// Taking hold of an argument the code under test built, rather than describing its shape
+export { captureArg, type ArgCaptor } from './lib/capture-arg';
+
 // Reset helpers
 export { clearAutoSpy, resetAutoSpy } from './lib/reset-auto-spy';
 
