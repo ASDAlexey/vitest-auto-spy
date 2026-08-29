@@ -235,10 +235,23 @@ callable. Type 'TestContext' has no call signatures.` — text the rule's own de
       neither a module nor a barrel, so nothing connects the two. An AST scan for module-level
       `SpreadElement`s whose operand is an imported identifier — skipping function bodies, which run
       later — found exactly seven sites in an 8 673-file workspace, two of them spreading a workspace
-      barrel. That is a small enough population to be worth flagging at the cursor, and it is
+      barrel. Probing all seven cleared them: none fired while the failure kept reproducing, so this
+      particular flake is not explained by any of them, and the rule is worth having on its own terms
+      rather than as a fix for it. That is a small enough population to flag at the cursor, and it is
       decidable from the imports in the same file, so it clears the bar in `lib/eslint/rules.ts:12-19`.
       It cannot carry a `--fix` (the safe rewrite depends on whether the operand is a constant that
       can be inlined or a value that must be read lazily), but it can carry a suggestion and a link.
+
+- [ ] **`isolate: false` hides missing providers, and the setup file that patches `TestBed` is why.**
+      The consumer's setup appends one DI provider to every `configureTestingModule` call, installed
+      once per worker behind a flag. Under `isolate: false` that patch outlives the file that asked
+      for it, so specs in unrelated libraries silently inherit a provider they never declared: two of
+      them passed locally for weeks and failed the moment the run isolated (`npm test`, where
+      coverage forces isolation), with `NG0201: No provider found`. The general shape — a spec that
+      only passes because a neighbour in the worker configured the container — is worth a paragraph
+      wherever this library documents running without isolation, next to the note below. Cheap check
+      to suggest there: any suite with a shared `TestBed` patch should be run isolated once before
+      it is trusted, because that is the run CI makes.
 
 - [ ] **A load-time failure under `isolate: false` is reported against every file in the worker, with
       no stack.** Worth a paragraph wherever this library documents running without isolation, because
@@ -325,11 +338,14 @@ factories together cost **13.8 ms of a 1.32 s run — 1.0% of wall clock, 0.07% 
 may be argued on suite wall time.** The arguments are memory, pathological input, and per-file
 import cost.
 
-- [ ] **Pre-serialise `calledWith` config args at `set()` time.** `ArgsMap.#valueMatches`
-      re-serialises the _config_ arg on every call, and the config arg never changes: one asymmetric
-      config whose other arg is a 200-key object costs **49.72 µs per call**, of which 24.49 µs is
-      one `serializeValue` of that object — exactly 2×. Halves the asymmetric path; output
-      unchanged. The exact map needs nothing: dispatch is flat 186–237 ns from 1 to 100 configs, and
+- [x] **Pre-serialise `calledWith` config args at `set()` time.** Shipped. `MatcherConfig` now
+      carries a `serialized` array rendered once in `set()`; positions holding an asymmetric matcher
+      stay `undefined` and dispatch to `asymmetricMatch` as before. Re-measured on this machine
+      rather than reusing the original figure — the absolute numbers differ, the ratio does not:
+      an asymmetric config whose other arg is a 200-key object went **27.32 µs → 14.26 µs per call,
+      1.92×**, which is the predicted 2×. Output unchanged, and pinned by a spec that counts config
+      reads through a getter (one read at `set()`, none across three lookups) rather than by a
+      timing assertion. Original finding: The exact map needs nothing: dispatch is flat 186–237 ns from 1 to 100 configs, and
       the `#arities` guard turns a 1 000-key object passed to a differently-shaped config into
       **145 ns** instead of 145.89 µs.
 - [ ] **Opt-in `lazySpies: 'proxy'` — one `Proxy` instead of N accessor placeholders.** Creation is

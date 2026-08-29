@@ -84,6 +84,13 @@ The latest released version here must always match the one published on
 
 ### Internal
 
+- **`calledWith` config args are serialized once, at `set()` time.** `ArgsMap` re-rendered the
+  *config* side of an asymmetric match on every invocation, and a config arg never changes after it
+  is registered — so a config holding an `expect.any(...)` beside a large object paid two deep walks
+  per call where one is enough. Measured on a 200-key object: **27.32 µs → 14.26 µs per call,
+  1.92×**. Positions holding a matcher are never serialized at all. Output and matching behaviour
+  are unchanged; the exact-map path, already flat at 186–237 ns from 1 to 100 configs, is untouched.
+
 - **`bench/auto-spy.bench.ts` was measuring the garbage collector.** `@vitest/spy` keeps every mock
   it ever creates in a module-level *strong* `Set` — that set is what `vi.clearAllMocks()` walks —
   so nothing a bench case allocated was ever collectable: 20 000 eager 10-method spies retained
