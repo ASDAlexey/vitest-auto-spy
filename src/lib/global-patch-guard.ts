@@ -9,8 +9,9 @@
  * run" with nothing pointing back at the file that did it. Finding it by hand means grepping the
  * repository for `defineProperty(` and reading every hit.
  *
- * The check is cheap — a list of own property names before and after each test — and it turns that
- * hunt into one line naming the file, the object and the property.
+ * The check is cheap — a list of own property names before and after each test, and a descriptor
+ * read only for a name that was not there before — and it turns that hunt into one line naming the
+ * file, the object and the property.
  */
 import { afterEach, beforeEach, expect } from 'vitest';
 
@@ -58,14 +59,39 @@ export function snapshotWatchedGlobals(candidates: readonly WatchedCandidate[] =
   );
 }
 
-/** Names that appeared since the snapshot and were defined as non-configurable — the irreversible ones. */
+/** Whether an own property of `object` was defined so that nothing can ever redefine or delete it. */
+function isSealed(object: object, name: string): boolean {
+  // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- `name` was read off `getOwnPropertyNames(object)` in the same synchronous call, so the `undefined` this signature allows for cannot happen; a runtime fallback for it would be a branch no test could reach, and the coverage gate here is 100%.
+  const descriptor = Object.getOwnPropertyDescriptor(object, name) as PropertyDescriptor;
+
+  return !descriptor.configurable;
+}
+
+/**
+ * Names that appeared since the snapshot and were defined as non-configurable — the irreversible ones.
+ *
+ * Names, not descriptors: `getOwnPropertyDescriptors(globalThis)` materialises ~950 descriptor
+ * objects, and it would do so after every test to find the addition that virtually never happens.
+ * A descriptor is read for the handful of names that are new, and for nothing else.
+ *
+ * The snapshot is advanced to what the test left behind rather than taken again before the next one:
+ * the work is the same either way, and this way a leftover is reported once — against the file that
+ * added it — instead of against every test that follows it.
+ */
 function sealedAdditions({ object, names }: GlobalSnapshot): string[] {
-  // Descriptors in one read rather than a lookup per name: `getOwnPropertyDescriptor` would be
-  // typed as possibly-missing for a name that provably exists, and the impossible branch is one
-  // this library's coverage gate would then demand a test for.
-  return Object.entries(Object.getOwnPropertyDescriptors(object))
-    .filter(([name, descriptor]) => !names.has(name) && !descriptor.configurable)
-    .map(([name]) => name);
+  const current = Object.getOwnPropertyNames(object);
+  const added = current.filter((name) => !names.has(name));
+
+  // `added` is exactly what `current` has and the snapshot does not, so the counts can only
+  // disagree if something was deleted as well — the one case that needs the set rebuilt.
+  if (current.length === names.size + added.length) {
+    added.forEach((name) => names.add(name));
+  } else {
+    names.clear();
+    current.forEach((name) => names.add(name));
+  }
+
+  return added.filter((name) => isSealed(object, name));
 }
 
 function report({ name }: GlobalSnapshot, added: string[]): string {
@@ -81,7 +107,8 @@ function report({ name }: GlobalSnapshot, added: string[]): string {
 }
 
 /**
- * Compare the snapshot against the current state and react to whatever cannot be undone.
+ * Compare the snapshot against the current state, react to whatever cannot be undone, and leave the
+ * snapshot describing the state the next test starts from.
  *
  * Exported alongside {@link snapshotWatchedGlobals} so the reaction can be exercised without a hook
  * failing the very test that is asserting on it.
@@ -118,13 +145,18 @@ export function guardGlobalPatches(reaction: GlobalPatchReaction): void {
     return;
   }
 
-  let before: GlobalSnapshot[] = [];
+  let watched: GlobalSnapshot[] = [];
 
   beforeEach(() => {
-    before = snapshotWatchedGlobals();
+    // Taken once for the file, not before every test: the check advances the snapshot itself, so a
+    // fresh one would only rediscover what the previous `afterEach` already recorded. `globalThis`
+    // is always there, which makes an empty list the "not taken yet" state and nothing else.
+    if (watched.length === 0) {
+      watched = snapshotWatchedGlobals();
+    }
   });
 
   afterEach(() => {
-    checkSealedAdditions(before, reaction);
+    checkSealedAdditions(watched, reaction);
   });
 }

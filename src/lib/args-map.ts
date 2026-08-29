@@ -41,6 +41,13 @@ export class ArgsMap {
   // plain own property, never walking or polluting the object prototype chain.
   readonly #map: Record<SerializedArgs, unknown> = Object.create(null);
   readonly #matcherConfigs: MatcherConfig[] = [];
+  // Argument counts present in the exact map. A call with a count nobody configured cannot be in
+  // that map — two arg lists of different lengths never serialize to the same string — so the
+  // serialization can be skipped outright. That matters because the map is consulted on *every*
+  // invocation of a spy that has any `calledWith` config: without this, `service.load(component)`
+  // on a spy configured with `calledWith(1)` walks and stringifies the whole component graph to
+  // build a key that provably cannot match, and throws it away one line later.
+  readonly #arities = new Set<number>();
 
   set(key: unknown, value: unknown): void {
     if (Array.isArray(key) && hasAsymmetricMatcher(key)) {
@@ -49,10 +56,18 @@ export class ArgsMap {
       return;
     }
 
+    if (Array.isArray(key)) {
+      this.#arities.add(key.length);
+    }
+
     this.#map[this.#serialize(key)] = value;
   }
 
   get(key: unknown): unknown {
+    if (Array.isArray(key) && !this.#arities.has(key.length)) {
+      return this.#findByMatcher(key);
+    }
+
     const serialized = this.#serialize(key);
 
     if (serialized in this.#map) {

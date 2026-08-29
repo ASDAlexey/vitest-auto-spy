@@ -68,6 +68,22 @@ describe('ArgsMap', () => {
     expect(map.get('not-an-array')).toBeUndefined();
   });
 
+  it('does not serialize a call whose arity nobody configured', () => {
+    const map = new ArgsMap();
+    map.set([1], 'one');
+
+    // Reading this property throws, so the assertion is that it is never read: a two-argument call
+    // cannot match a one-argument config, and the key is therefore never built.
+    const unserializable = {
+      get boom(): never {
+        throw new Error('serialized an argument list that cannot match');
+      },
+    };
+
+    expect(map.get([unserializable, 'second'])).toBeUndefined();
+    expect(map.get([1])).toBe('one');
+  });
+
   it('prefers an exact match over an asymmetric one', () => {
     const map = new ArgsMap();
     map.set([expect.any(Number)], 'any');

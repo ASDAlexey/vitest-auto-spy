@@ -29,6 +29,19 @@ describe('blockNetwork', () => {
     await expect(fetch(undefined as unknown as string)).rejects.toThrow(BLOCKED_FETCH_MESSAGE);
   });
 
+  it('installs one and the same stub, however many tests install it', () => {
+    blockNetwork();
+
+    const first = globalThis.fetch;
+
+    restoreMockedProps();
+    blockNetwork();
+
+    // The stub carries no state, so `setupAutoSpy({ blockNetwork: true })` allocating a fresh
+    // closure before every test of the run bought nothing.
+    expect(globalThis.fetch).toBe(first);
+  });
+
   it('gives the real fetch back through restoreMockedProps', () => {
     const real = globalThis.fetch;
 

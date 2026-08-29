@@ -109,15 +109,21 @@ export function inlineAngularResources(
     isCode(offset) ? `template: ${quote(read(url))}` : match,
   );
 
-  masked = findMaskedRanges(rewritten);
-  rewritten = rewritten.replace(STYLE_URLS, (match: string, list: string, offset: number): string =>
-    isCode(offset) ? `styles: [${collectUrls(list).map(readStyle).map(quote).join(', ')}]` : match,
-  );
+  // Both style passes are skipped outright for a file that never mentions `styleUrl`, which is most
+  // of them: their regexes cannot match, so rebuilding the mask for them is a full rescan of the
+  // file for nothing. Tested against the original source rather than the rewritten one on purpose —
+  // an inlined template is a quoted literal, so anything it introduces is masked anyway.
+  if (source.includes(STYLE_URL_MARKER)) {
+    masked = findMaskedRanges(rewritten);
+    rewritten = rewritten.replace(STYLE_URLS, (match: string, list: string, offset: number): string =>
+      isCode(offset) ? `styles: [${collectUrls(list).map(readStyle).map(quote).join(', ')}]` : match,
+    );
 
-  masked = findMaskedRanges(rewritten);
-  rewritten = rewritten.replace(STYLE_URL, (match: string, _quote: string, url: string, offset: number): string =>
-    isCode(offset) ? `styles: [${quote(readStyle(url))}]` : match,
-  );
+    masked = findMaskedRanges(rewritten);
+    rewritten = rewritten.replace(STYLE_URL, (match: string, _quote: string, url: string, offset: number): string =>
+      isCode(offset) ? `styles: [${quote(readStyle(url))}]` : match,
+    );
+  }
 
   return rewritten === source ? undefined : rewritten;
 }
@@ -144,10 +150,14 @@ function findMaskedRanges(source: string): SourceRange[] {
   const ranges: SourceRange[] = [];
   let index = 0;
 
+  // Character codes rather than `source.slice(index, index + 2)` and `charAt`: this loop visits
+  // every character of every file the Bun loader touches, and both of those allocate a string per
+  // character. On a 100 KB component that is ~300 000 throwaway strings per pass, three passes per
+  // file, on the critical path of the run.
   while (index < source.length) {
-    const pair = source.slice(index, index + 2);
+    const code = source.charCodeAt(index);
 
-    if (pair === '//') {
+    if (code === SLASH && source.charCodeAt(index + 1) === SLASH) {
       const end = source.indexOf('\n', index);
 
       ranges.push({ start: index, end: end === -1 ? source.length : end });
@@ -155,7 +165,7 @@ function findMaskedRanges(source: string): SourceRange[] {
       continue;
     }
 
-    if (pair === '/*') {
+    if (code === SLASH && source.charCodeAt(index + 1) === STAR) {
       const close = source.indexOf('*/', index + 2);
       const end = close === -1 ? source.length : close + 2;
 
@@ -164,7 +174,7 @@ function findMaskedRanges(source: string): SourceRange[] {
       continue;
     }
 
-    if (QUOTES.includes(source.charAt(index))) {
+    if (code === SINGLE_QUOTE || code === DOUBLE_QUOTE || code === BACKTICK) {
       const end = skipLiteral(source, index);
 
       ranges.push({ start: index, end });
@@ -178,7 +188,14 @@ function findMaskedRanges(source: string): SourceRange[] {
   return ranges;
 }
 
-const QUOTES: readonly string[] = ["'", '"', '`'];
+/** Substring shared by `styleUrl:` and `styleUrls:` — the cheap test for "are the style passes worth running". */
+const STYLE_URL_MARKER = 'styleUrl';
+
+const SLASH = 0x2f;
+const STAR = 0x2a;
+const SINGLE_QUOTE = 0x27;
+const DOUBLE_QUOTE = 0x22;
+const BACKTICK = 0x60;
 
 /** Advance past the string or template literal opening at `start`, honouring backslash escapes. */
 function skipLiteral(source: string, start: number): number {

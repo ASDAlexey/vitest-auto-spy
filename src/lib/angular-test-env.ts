@@ -33,7 +33,7 @@
  * dependencies of it.
  */
 import { getTestBed } from '@angular/core/testing';
-import { beforeEach, expect } from 'vitest';
+import { beforeAll, expect } from 'vitest';
 
 /** Which change-detection mode a spec file expects. */
 export type AngularTestEnvMode = 'zone' | 'zoneless';
@@ -41,14 +41,47 @@ export type AngularTestEnvMode = 'zone' | 'zoneless';
 /** What {@link setupAngularTestEnv} needs to know. */
 export interface AngularTestEnvOptions {
   /**
-   * Whether the file at `testPath` runs zoneless. Called before every test, so it must be cheap —
-   * a `startsWith` / `includes` over the path, not a filesystem lookup.
+   * Whether the file at `testPath` runs zoneless. Called once per spec file — the path is the file,
+   * and a file does not change its mind halfway through — so a `startsWith` / `includes` over the
+   * path is all it should ever need to be.
    */
   zoneless: (testPath: string) => boolean;
   /** Initialise the zone environment — `setupZoneTestEnv()`, or your own `initTestEnvironment` call. */
   initZone: () => void;
   /** Initialise the zoneless environment. */
   initZoneless: () => void;
+}
+
+/**
+ * Install what the file about to run needs, tearing the other platform down when the mode changes.
+ *
+ * Exported, and told what is installed rather than reading it from a closure, so a platform switch
+ * can be exercised in a single spec file: the hook decides once per file, and one file cannot be
+ * two files.
+ *
+ * @returns The mode that is now installed — what the next file compares itself against.
+ */
+export function installAngularTestEnv(options: AngularTestEnvOptions, installed: AngularTestEnvMode | undefined): AngularTestEnvMode {
+  const testPath = expect.getState().testPath ?? '';
+  const wanted: AngularTestEnvMode = options.zoneless(testPath) ? 'zoneless' : 'zone';
+
+  if (installed === wanted) {
+    return installed;
+  }
+
+  // Also on the first install, and deliberately: the setup file may not be the only thing that
+  // initialised a platform (a preset, an imported setup module), and `resetTestEnvironment()` on
+  // an environment nobody initialised is a no-op — while skipping it when one exists is the
+  // "already been called" failure this helper is here to remove.
+  getTestBed().resetTestEnvironment();
+
+  if (wanted === 'zoneless') {
+    options.initZoneless();
+  } else {
+    options.initZone();
+  }
+
+  return wanted;
 }
 
 /**
@@ -60,26 +93,10 @@ export interface AngularTestEnvOptions {
 export function setupAngularTestEnv(options: AngularTestEnvOptions): void {
   let installed: AngularTestEnvMode | undefined;
 
-  beforeEach(() => {
-    const testPath = expect.getState().testPath ?? '';
-    const wanted: AngularTestEnvMode = options.zoneless(testPath) ? 'zoneless' : 'zone';
-
-    if (installed === wanted) {
-      return;
-    }
-
-    // Also on the first install, and deliberately: the setup file may not be the only thing that
-    // initialised a platform (a preset, an imported setup module), and `resetTestEnvironment()` on
-    // an environment nobody initialised is a no-op — while skipping it when one exists is the
-    // "already been called" failure this helper is here to remove.
-    getTestBed().resetTestEnvironment();
-
-    if (wanted === 'zoneless') {
-      options.initZoneless();
-    } else {
-      options.initZone();
-    }
-
-    installed = wanted;
+  // `beforeAll`, not `beforeEach`: the decision is made from `expect.getState().testPath`, which is
+  // the file — it cannot change between two tests of that file, so asking again before every one of
+  // them re-ran the caller's predicate for an answer that was already known.
+  beforeAll(() => {
+    installed = installAngularTestEnv(options, installed);
   });
 }

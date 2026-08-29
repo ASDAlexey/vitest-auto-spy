@@ -90,8 +90,20 @@ function getAllMethodNames(prototype: object): string[] {
   return result;
 }
 
-/** Walk the prototype chain and collect every getter/setter name (de-duplicated), excluding the constructor. */
+// Same reasoning as `methodNamesCache`, and the same need: with `autoSpyAccessors` on, every
+// `createSpyFromClass` — that is, every `beforeEach` — walked the chain again and materialised the
+// descriptors of each level. `resolveAccessors` copies what it reads, so the cached lists are never
+// handed to a caller that could mutate them.
+const accessorNamesCache = new WeakMap<object, AccessorNames>();
+
+/** Walk the prototype chain and collect every getter/setter name (de-duplicated), excluding the constructor. Cached per prototype. */
 function getAllAccessorNames(prototype: object): AccessorNames {
+  const cached = accessorNamesCache.get(prototype);
+
+  if (cached) {
+    return cached;
+  }
+
   const getters = new Set<string>();
   const setters = new Set<string>();
 
@@ -113,7 +125,10 @@ function getAllAccessorNames(prototype: object): AccessorNames {
     });
   });
 
-  return { getters: [...getters], setters: [...setters] };
+  const result: AccessorNames = { getters: [...getters], setters: [...setters] };
+  accessorNamesCache.set(prototype, result);
+
+  return result;
 }
 
 /** Merge explicitly-listed accessors with auto-discovered ones (de-duplicated) when `autoSpyAccessors` is on. */

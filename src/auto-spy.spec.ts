@@ -264,6 +264,22 @@ describe('createSpyFromClass', () => {
     expect(spy.accessorSpies.setters.userName).toHaveBeenCalledWith('set');
   });
 
+  it('discovers the accessors once per class and still hands out separate spies', () => {
+    const first = createSpyFromClass(MyService, { autoSpyAccessors: true });
+    const second = createSpyFromClass(MyService, { autoSpyAccessors: true });
+
+    // The names come from a per-prototype cache, the way method names already do; what the cache
+    // must never do is let two spies of the same class share one accessor spy.
+    expect(Object.keys(second.accessorSpies.getters)).toEqual(Object.keys(first.accessorSpies.getters));
+    expect(second.accessorSpies.setters.userName).not.toBe(first.accessorSpies.setters.userName);
+
+    first.accessorSpies.getters.userName.mockReturnValue('first');
+    second.accessorSpies.getters.userName.mockReturnValue('second');
+
+    expect(first.userName).toBe('first');
+    expect(second.userName).toBe('second');
+  });
+
   it('calledWith matches asymmetric matchers (expect.any / objectContaining)', () => {
     const spy = createSpyFromClass(MyService);
 

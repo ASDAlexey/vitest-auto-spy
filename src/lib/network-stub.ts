@@ -30,6 +30,16 @@ import { mockValueProp } from './prop-mock';
 export const BLOCKED_FETCH_MESSAGE = '[vitest-auto-spy] fetch is stubbed in unit tests';
 
 /**
+ * The stub itself — one function for the run, not one per install.
+ *
+ * `setupAutoSpy({ blockNetwork: true })` installs it before every test, and the stub holds no state
+ * of its own: everything it reports comes from the argument it is handed.
+ */
+const blockedFetch = (input: unknown): Promise<never> => {
+  return Promise.reject(new Error(`${BLOCKED_FETCH_MESSAGE} — the code under test requested ${describeTarget(input)}`));
+};
+
+/**
  * Replace `fetch` with one that rejects, and report what the code under test asked for.
  *
  * The URL goes into the error because the usual reason to look at this message is to find out which
@@ -45,9 +55,7 @@ export const BLOCKED_FETCH_MESSAGE = '[vitest-auto-spy] fetch is stubbed in unit
  * ```
  */
 export function blockNetwork(): void {
-  mockValueProp(globalThis, 'fetch', (input: unknown): Promise<never> => {
-    return Promise.reject(new Error(`${BLOCKED_FETCH_MESSAGE} — the code under test requested ${describeTarget(input)}`));
-  });
+  mockValueProp(globalThis, 'fetch', blockedFetch);
 }
 
 /**
