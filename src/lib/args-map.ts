@@ -20,9 +20,19 @@ interface AsymmetricMatcher {
   asymmetricMatch(value: unknown): boolean;
 }
 
-/** A `calledWith` config whose args contain at least one asymmetric matcher. */
+/**
+ * A `calledWith` config whose args contain at least one asymmetric matcher.
+ *
+ * `serialized` is the per-position serialization of the *config* args, computed once at
+ * `set()` time. A config arg never changes after it is registered, so re-rendering it on
+ * every call was pure waste: an asymmetric config whose other arg is a large object paid
+ * two `serializeValue` walks per invocation where one is enough. Positions holding an
+ * asymmetric matcher are `undefined` here — they dispatch to `asymmetricMatch` and are
+ * never serialized at all.
+ */
 interface MatcherConfig {
   args: unknown[];
+  serialized: (string | undefined)[];
   value: unknown;
 }
 
@@ -51,7 +61,9 @@ export class ArgsMap {
 
   set(key: unknown, value: unknown): void {
     if (Array.isArray(key) && hasAsymmetricMatcher(key)) {
-      this.#matcherConfigs.push({ args: key, value });
+      const serialized = key.map((arg) => (isAsymmetricMatcher(arg) ? undefined : this.#serialize([arg])));
+
+      this.#matcherConfigs.push({ args: key, serialized, value });
 
       return;
     }
@@ -95,26 +107,34 @@ export class ArgsMap {
       return undefined;
     }
 
-    const match = this.#matcherConfigs.find((config) => this.#argsMatch(config.args, actualArgs));
+    const match = this.#matcherConfigs.find((config) => this.#argsMatch(config, actualArgs));
 
     return match?.value;
   }
 
   /** Whether every configured arg matches the actual arg at the same position (same length). */
-  #argsMatch(configArgs: unknown[], actualArgs: unknown[]): boolean {
-    if (configArgs.length !== actualArgs.length) {
+  #argsMatch(config: MatcherConfig, actualArgs: unknown[]): boolean {
+    if (config.args.length !== actualArgs.length) {
       return false;
     }
 
-    return configArgs.every((configArg, index) => this.#valueMatches(configArg, actualArgs[index]));
+    return config.args.every((configArg, index) => this.#valueMatches(configArg, config.serialized[index], actualArgs[index]));
   }
 
-  /** Match a single arg: asymmetric matchers delegate to `asymmetricMatch`, others compare by serialization. */
-  #valueMatches(configArg: unknown, actualArg: unknown): boolean {
+  /**
+   * Match a single arg: asymmetric matchers delegate to `asymmetricMatch`, others compare the
+   * config arg's serialization — rendered once at `set()` time — against the actual arg's.
+   *
+   * The branch is taken on `configArg` rather than on `serializedConfigArg === undefined`, even
+   * though the two are the same test by construction: the type guard is what narrows `configArg`
+   * to something with `asymmetricMatch` on it, and the alternative needs an assertion to say the
+   * same thing less safely.
+   */
+  #valueMatches(configArg: unknown, serializedConfigArg: string | undefined, actualArg: unknown): boolean {
     if (isAsymmetricMatcher(configArg)) {
       return configArg.asymmetricMatch(actualArg);
     }
 
-    return this.#serialize([configArg]) === this.#serialize([actualArg]);
+    return serializedConfigArg === this.#serialize([actualArg]);
   }
 }

@@ -100,4 +100,30 @@ describe('ArgsMap', () => {
     expect(map.get([5])).toBe('exact');
     expect(map.get([6])).toBe('any');
   });
+
+  it('serializes a config arg once at set() time, not on every lookup', () => {
+    // The config arg never changes after it is registered, so re-rendering it per call was pure
+    // waste — an asymmetric config whose other arg is a large object paid two deep walks per
+    // invocation where one is enough. A getter counts the walks the config side actually costs.
+    let configReads = 0;
+    const configArg = {
+      get id(): number {
+        configReads += 1;
+
+        return 1;
+      },
+    };
+
+    const map = new ArgsMap();
+    map.set([expect.any(Number), configArg], 'hit');
+
+    expect(configReads).toBe(1);
+
+    expect(map.get([5, { id: 1 }])).toBe('hit');
+    expect(map.get([6, { id: 1 }])).toBe('hit');
+    expect(map.get([7, { id: 2 }])).toBeUndefined();
+
+    // Still 1: three lookups, and the config side was never walked again.
+    expect(configReads).toBe(1);
+  });
 });
