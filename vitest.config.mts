@@ -27,6 +27,9 @@ export default defineConfig({
       // `bun-adapter.ts` / `node-adapter.ts`.
       include: [
         'src/lib/**/*.ts',
+        // The CLI, minus `src/cli.ts` itself: that file is three lines of process wiring around
+        // `runCli`, and the only way to execute it is to spawn a process.
+        'src/cli/**/*.ts',
         'src/auto-spy.ts',
         'src/index.ts',
         'src/rxjs.ts',

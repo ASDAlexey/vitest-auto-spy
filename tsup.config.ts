@@ -81,4 +81,24 @@ export default defineConfig([
     format: ['cjs'] as const,
     clean: false,
   },
+  {
+    ...SHARED,
+    // The `vitest-auto-spy` executable — `doctor` and `init`. Its own pass, and deliberately not
+    // part of the shared-chunk one: it imports nothing from the library core (the core loads
+    // Vitest, which refuses to be imported outside a test run), and a `bin` that resolves a chunk
+    // in a sibling directory is one more thing that can go wrong in a consumer's node_modules.
+    // No `dts`: nobody imports a bin.
+    entry: ['src/cli.ts'],
+    format: ['esm'] as const,
+    dts: false,
+    clean: false,
+    banner: { js: '#!/usr/bin/env node' },
+    // npm sets the executable bit on `bin` targets at install time, but not for a local
+    // `./dist/cli.js` or a `npm link`. One `chmod` here and both work.
+    onSuccess: async (): Promise<void> => {
+      const { chmodSync } = await import('node:fs');
+
+      chmodSync('dist/cli.js', 0o755);
+    },
+  },
 ]);

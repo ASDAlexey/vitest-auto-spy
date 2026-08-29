@@ -53,6 +53,9 @@
     "url": "https://github.com/ASDAlexey/vitest-auto-spy/issues"
   },
   "type": "module",
+  "bin": {
+    "vitest-auto-spy": "./dist/cli.js"
+  },
   "main": "./dist/index.js",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -169,7 +172,7 @@
     "access": "public"
   },
   "scripts": {
-    "build": "tsup && node scripts/thin-node-cts.mjs",
+    "build": "tsup && node scripts/thin-node-cts.mjs && node scripts/check-dist.mjs",
     "size:badge": "node scripts/size-badge.mjs",
     "size:badge:check": "node scripts/size-badge.mjs --check",
     "llms": "node scripts/generate-llms-txt.mjs",
