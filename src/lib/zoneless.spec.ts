@@ -34,6 +34,37 @@ describe('stable', () => {
 
     expect(component.seen).toContain(5);
   });
+
+  it('throws the cause when the fixture never stabilises, instead of hanging to the file timeout', async () => {
+    const { fixture } = renderShallow(EffectsComponent);
+    // A fixture whose `whenStable()` never settles is the shape of a pending HttpClient request
+    // nobody flushed. Substituting the promise is how that is reproduced without one.
+    const restore = mockValueProp(fixture, 'whenStable', () => new Promise<void>(() => undefined));
+
+    await expect(stable(fixture, { timeout: 30, label: 'the products fixture' })).rejects.toThrow(
+      /the products fixture was still unstable after 30 ms.*HttpTestingController/s,
+    );
+
+    restore();
+  });
+
+  it('names the fixture generically when no label is given', async () => {
+    const { fixture } = renderShallow(EffectsComponent);
+    const restore = mockValueProp(fixture, 'whenStable', () => new Promise<void>(() => undefined));
+
+    await expect(stable(fixture, { timeout: 20 })).rejects.toThrow(/the fixture was still unstable after 20 ms/);
+
+    restore();
+  });
+
+  it('waits without a watchdog when the timeout is disabled', async () => {
+    const { fixture, component } = renderShallow(EffectsComponent);
+
+    component.source.set(11);
+    await stable(fixture, { timeout: 0 });
+
+    expect(component.seen).toContain(11);
+  });
 });
 
 describe('flushEffects', () => {
