@@ -43,6 +43,8 @@ describe('vitest-auto-spy/console', () => {
 
   it('is idempotent and resets recorded calls via resetConsoleSpies', () => {
     expect(installConsoleSpies().consoleInfoSpy).toBe(consoleInfoSpy);
+    // How `setupAutoSpy()` reaches the reset without importing this entry: installing publishes it.
+    expect(globalThis.__vitestAutoSpyResetConsoleSpies__).toBe(resetConsoleSpies);
 
     console.warn('to be cleared');
     expect(consoleWarnSpy).toHaveBeenCalledWith('to be cleared');
@@ -61,5 +63,6 @@ describe('vitest-auto-spy/console', () => {
 
     restoreConsole();
     expect(vi.isMockFunction(console.info)).toBe(false);
+    expect(globalThis.__vitestAutoSpyResetConsoleSpies__).toBeUndefined();
   });
 });

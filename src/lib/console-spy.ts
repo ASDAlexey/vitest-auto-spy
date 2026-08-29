@@ -15,8 +15,8 @@
  *
  * The `vitest-auto-spy/console` entry calls `installConsoleSpies()` on import,
  * so importing any spy is enough. `restoreConsole()` puts the original methods
- * back; `resetConsoleSpies()` clears recorded calls between tests (Vitest's
- * `clearMocks: true` already does that — the helper covers other setups).
+ * back; `resetConsoleSpies()` clears recorded calls between tests — which
+ * `setupAutoSpy()` does for you, and Vitest's `clearMocks: true` also would.
  */
 import { createFunctionSpy } from './function-spy';
 import { getMockAdapter } from './mock-adapter';
@@ -41,6 +41,19 @@ export interface ConsoleSpies {
 }
 
 type SpiedConsoleMethod = 'debug' | 'error' | 'info' | 'log' | 'time' | 'timeEnd' | 'trace' | 'warn';
+
+/**
+ * The seam `setupAutoSpy()` clears these spies through.
+ *
+ * A slot on `globalThis` rather than an import, because the direction matters: `setupAutoSpy()` is
+ * loaded by every project and this entry by very few, so the rare side pays for the wiring. It also
+ * survives a `vi.resetModules()`, which would otherwise hand the setup file a fresh copy of this
+ * module whose `activeSpies` is empty while `console` still holds the spies from the old one.
+ */
+declare global {
+  // eslint-disable-next-line no-var -- a `globalThis` augmentation has to be declared with `var`.
+  var __vitestAutoSpyResetConsoleSpies__: (() => void) | undefined;
+}
 
 // The originals are kept as the loose `Func`: the global `console` methods are
 // overloaded (DOM + Node type merge), which no single strict signature matches.
@@ -84,6 +97,8 @@ export function installConsoleSpies(): ConsoleSpies {
   if (installedSpies) {
     return installedSpies;
   }
+
+  globalThis.__vitestAutoSpyResetConsoleSpies__ = resetConsoleSpies;
 
   installedSpies = {
     consoleDebugSpy: installMethodSpy('debug'),
@@ -131,4 +146,5 @@ export function restoreConsole(): void {
   originalMethods.clear();
   activeSpies.clear();
   installedSpies = undefined;
+  globalThis.__vitestAutoSpyResetConsoleSpies__ = undefined;
 }

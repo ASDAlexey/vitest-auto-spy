@@ -8,7 +8,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest
 import '../index';
 import { getPackageCopies, registerPackageCopy, resetPackageCopies } from './package-identity';
 import { countMockedProps, mockValueProp, restoreMockedProps } from './prop-mock';
-import { describeStrayRejections, reportStrayRejections, setupAutoSpy } from './setup-auto-spy';
+import { describeStrayRejections, reportStrayRejections, runTeardown, setupAutoSpy } from './setup-auto-spy';
 import { type StrayRejection, flushStrayRejections } from './stray-rejections';
 import { countStrayTimers, trackStrayTimers } from './stray-timers';
 
@@ -219,6 +219,68 @@ describe('stray-rejection containment (opted in)', () => {
   });
 });
 
+/**
+ * The bug this covers: the diagnostics and the restores used to be separate `afterEach`
+ * registrations, so which ran first was decided by `sequence.hooks` — and under its default
+ * `'stack'` the throwing diagnostic went first and took every restore with it. Both settings are
+ * exercised because a project that pins `'list'` is accidentally immune and would not see a
+ * regression the other half of the world does.
+ *
+ * `it.fails` is what lets the throwing hook be asserted on: the runner flips the result after the
+ * `afterEach` hooks have run, so the failure the diagnostic causes is the expected outcome here.
+ */
+describe.each(['list', 'stack'] as const)('a diagnostic that throws, with sequence.hooks: %s', (hooks) => {
+  const guarded = { value: 'real' };
+
+  setupAutoSpy({ duplicateCopies: 'off', strayRejections: true });
+
+  beforeAll(() => {
+    vi.setConfig({ sequence: { hooks } });
+  });
+
+  afterAll(() => {
+    vi.resetConfig();
+  });
+
+  it.fails('fails the test its finding is attributed to', () => {
+    mockValueProp(guarded, 'value', 'patched');
+    fireRejection(new Error('nobody awaited me'));
+  });
+
+  it('had the restores run all the same', () => {
+    expect(guarded.value).toBe('real');
+    expect(countMockedProps()).toBe(0);
+  });
+});
+
+describe('runTeardown', () => {
+  const step = (log: string[], name: string, error?: Error) => (): void => {
+    log.push(name);
+
+    if (error) {
+      throw error;
+    }
+  };
+
+  it('runs every step even after one threw, and reports the first failure', () => {
+    const ran: string[] = [];
+    const diagnostic = new Error('the finding');
+
+    expect(() => runTeardown([step(ran, 'diagnostic', diagnostic), step(ran, 'restore'), step(ran, 'late', new Error('a restore'))])).toThrow(
+      diagnostic,
+    );
+    expect(ran).toEqual(['diagnostic', 'restore', 'late']);
+  });
+
+  it('throws nothing when every step succeeded', () => {
+    const ran: string[] = [];
+
+    runTeardown([step(ran, 'restore')]);
+
+    expect(ran).toEqual(['restore']);
+  });
+});
+
 describe('the report a captured rejection turns into', () => {
   const rejection = (overrides: Partial<StrayRejection>): StrayRejection => ({
     reason: new Error('boom'),
@@ -239,6 +301,69 @@ describe('the report a captured rejection turns into', () => {
 
     expect(message).toContain('rejected with a bare string — attributed to no test');
     expect(message).toMatch(/never asserted on[\s\S]*rejects\.toThrow/);
+  });
+});
+
+describe('global-patch guard (opted in)', () => {
+  // What the guard reports is covered in `global-patch-guard.spec.ts`, on a hand-built snapshot: a
+  // finding here would mean sealing a real global, which is by definition permanent. What this pair
+  // covers is the wiring — snapshot before the test, check after it, as one of the teardown steps.
+  setupAutoSpy({ duplicateCopies: 'off', guardGlobals: 'throw' });
+
+  it('lets a patch of a global that can be undone through', () => {
+    mockValueProp(globalThis, 'aStubbedGlobal', 'stub');
+
+    expect(Reflect.get(globalThis, 'aStubbedGlobal')).toBe('stub');
+  });
+
+  it('reported nothing about it, and the patch is off again', () => {
+    expect('aStubbedGlobal' in globalThis).toBe(false);
+  });
+});
+
+describe('console-spy clearing (on by default)', () => {
+  const reset = vi.fn();
+
+  setupAutoSpy({ duplicateCopies: 'off', restoreProps: false });
+
+  beforeAll(() => {
+    // Standing in for what `vitest-auto-spy/console` registers on import: the setup entry must not
+    // pull that module in, so the hook only ever reaches it through this slot.
+    globalThis.__vitestAutoSpyResetConsoleSpies__ = reset;
+  });
+
+  afterAll(() => {
+    globalThis.__vitestAutoSpyResetConsoleSpies__ = undefined;
+  });
+
+  it('leaves the recorded calls alone while a test is running', () => {
+    expect(reset).not.toHaveBeenCalled();
+  });
+
+  it('cleared them once the test was over', () => {
+    expect(reset).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('every step opted out', () => {
+  const reset = vi.fn();
+
+  setupAutoSpy({ duplicateCopies: 'off', resetConsoleSpies: false, restoreProps: false, restoreTimerGlobals: false });
+
+  beforeAll(() => {
+    globalThis.__vitestAutoSpyResetConsoleSpies__ = reset;
+  });
+
+  afterAll(() => {
+    globalThis.__vitestAutoSpyResetConsoleSpies__ = undefined;
+  });
+
+  it('registers a first test to be followed by nothing', () => {
+    expect(reset).not.toHaveBeenCalled();
+  });
+
+  it('installed no per-test hook at all', () => {
+    expect(reset).not.toHaveBeenCalled();
   });
 });
 
