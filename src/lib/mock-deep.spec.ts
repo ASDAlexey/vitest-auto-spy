@@ -28,6 +28,13 @@ interface Root {
   apiUrl: string;
 }
 
+/** An API whose member names collide with what every function carries — `name` in particular is not exotic. */
+interface Account {
+  name(): string;
+  call(payload: string): boolean;
+  length: number;
+}
+
 describe('mockDeep', () => {
   it('auto-creates nested chainable spies without seeding', () => {
     const mock = mockDeep<Root>();
@@ -69,6 +76,45 @@ describe('mockDeep', () => {
 
     mock.apiUrl = 'https://assigned.test';
     expect(mock.apiUrl).toBe('https://assigned.test');
+  });
+
+  it('materialises members whose names collide with the function surface', () => {
+    const account = mockDeep<Account>();
+
+    account.name.calledWith().mockReturnValue('Ada');
+    account.call.mockReturnValue(true);
+
+    expect(vi.isMockFunction(account.name)).toBe(true);
+    expect(account.name()).toBe('Ada');
+    expect(account.call('payload')).toBe(true);
+    // Still one cached child per key, not a fresh node per read.
+    expect(account.name).toBe(account.name);
+  });
+
+  it('keeps the whole bare-function surface out of the way, not just `name`', () => {
+    // `length`, `prototype`, `toString`, `constructor`, `bind` and `apply` all answered on the
+    // underlying `vi.fn()` before, so none of them could be a member of the mocked type.
+    const account = mockDeep<Account>() as unknown as Record<string, unknown>;
+
+    ['length', 'prototype', 'toString', 'constructor', 'bind', 'apply'].forEach((key) => {
+      expect(vi.isMockFunction(account[key])).toBe(true);
+    });
+  });
+
+  it('keeps the spy helpers of the node itself, which is what the surface is for', () => {
+    const account = mockDeep<Account>();
+
+    account.name.mockReturnValue('Grace');
+    account.name();
+
+    expect(account.name.mock.calls).toHaveLength(1);
+  });
+
+  it('hands back the same bound spy method on every read', () => {
+    // `bind` per read allocated a fresh function each time, so `api.log.info !== api.log.info`.
+    const mock = mockDeep<Root>();
+
+    expect(mock.getName.mockReturnValue).toBe(mock.getName.mockReturnValue);
   });
 
   it('hands back spy methods bound to the spy, not to the Proxy', () => {

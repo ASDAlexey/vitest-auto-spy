@@ -19,11 +19,42 @@
 import { createFunctionSpy } from './function-spy';
 import type { DeepMockProxy, Func } from './types';
 
+/**
+ * The property names any function carries by itself — `length`, `name`, `prototype`. Read off a
+ * function for the same reason the spy surface below is read off a spy: so nothing here is a list
+ * that can quietly go out of date. `mockDeep` is as good a sample function as any, and costs no
+ * extra allocation.
+ */
+const BARE_FUNCTION_KEYS = new Set<PropertyKey>(Reflect.ownKeys(mockDeep));
+
+let spySurfaceKeys: Set<PropertyKey> | undefined;
+
+/**
+ * The keys a real function spy owns — every helper the spy factory and the active
+ * {@link MockAdapter} put on it — minus the ones (`length`, `name`, `prototype`) that any function
+ * carries regardless.
+ *
+ * Read off a live probe spy instead of listed by hand: the surface differs per adapter (Vitest,
+ * Bun, `node:test`) and grows with every helper the factory attaches, so a hand-written list would
+ * drift from all three at once. The subtraction is the part that fixes the bug — those three are
+ * own properties of *every* function, so keeping them made `mockDeep<Api>().name` answer with the
+ * mock's name rather than materialise the `name` member of the mocked API.
+ *
+ * Derived on first property access rather than at import: building a spy needs a registered mock
+ * adapter, and an entry registers one while this module is still being imported.
+ */
+function getSpySurfaceKeys(): Set<PropertyKey> {
+  spySurfaceKeys ??= new Set(Reflect.ownKeys(createFunctionSpy<Func>('mockDeep.probe')).filter((key) => !BARE_FUNCTION_KEYS.has(key)));
+
+  return spySurfaceKeys;
+}
+
 /** Build one deep-mock node: a function spy wrapped in a child-materializing Proxy. */
 function createDeepNode(name: string, overrides: object): unknown {
   const spy = createFunctionSpy<Func>(name);
   const children = new Map<PropertyKey, unknown>();
   const seeded = new Map<PropertyKey, unknown>();
+  const boundSpyMethods = new Map<PropertyKey, Func>();
 
   for (const key of Reflect.ownKeys(overrides)) {
     seeded.set(key, Reflect.get(overrides, key));
@@ -40,14 +71,32 @@ function createDeepNode(name: string, overrides: object): unknown {
         return undefined;
       }
 
-      // Real spy surface (calledWith / mock / mockReturnValue / …) wins over a child. A method is
-      // bound to the spy itself rather than handed back with `this` pointing at the Proxy: Bun's
-      // `mock()` asserts `this instanceof Mock` inside `mockReturnValue` and friends, so an
-      // unbound read would make every deep node unusable on `bun:test`.
-      if (key in target) {
+      // Real spy surface (calledWith / mock / mockReturnValue / …) wins over a child — and nothing
+      // beyond it. The test used to be `key in target`, which also covers everything a function
+      // carries anyway, so a mocked member named `name`, `length`, `call`, `bind`, `apply`,
+      // `constructor` or `toString` never materialised at all.
+      if (getSpySurfaceKeys().has(key)) {
         const value: unknown = Reflect.get(target, key, receiver);
 
-        return typeof value === 'function' ? value.bind(target) : value;
+        if (typeof value !== 'function') {
+          return value;
+        }
+
+        // A method is bound to the spy itself rather than handed back with `this` pointing at the
+        // Proxy: Bun's `mock()` asserts `this instanceof Mock` inside `mockReturnValue` and
+        // friends, so an unbound read would make every deep node unusable on `bun:test`. Cached,
+        // because binding per read allocates a function per property access — and made
+        // `api.log.info !== api.log.info`.
+        const cached = boundSpyMethods.get(key);
+
+        if (cached) {
+          return cached;
+        }
+
+        const bound: Func = value.bind(target);
+        boundSpyMethods.set(key, bound);
+
+        return bound;
       }
 
       // Never spawn children for JS-internal symbol protocols.
