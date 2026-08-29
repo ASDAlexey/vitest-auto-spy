@@ -122,6 +122,34 @@ describe('installProxyZonePatch', () => {
     expect(Reflect.get(globalThis, 'it')).toBe(Reflect.get(globalThis, 'beforeEach'));
   });
 
+  it('forks a proxy zone per callback when asked to, instead of sharing one', () => {
+    const zone = fakeZone();
+    zone.install();
+
+    const globals = fakeGlobals();
+    const undo = installProxyZonePatch({ scope: 'callback' });
+    const patchedIt: (...args: unknown[]) => unknown = Reflect.get(globalThis, 'it');
+
+    patchedIt('first', vi.fn());
+    patchedIt('second', vi.fn());
+
+    for (const call of globals.calls) {
+      const wrapped = call[1];
+
+      if (typeof wrapped === 'function') {
+        wrapped();
+      }
+    }
+
+    // The whole of the difference between the two scopes: `'shared'` memoises one fork for the run,
+    // `'callback'` does not. Counting forks is the only observable that separates them, and it is what
+    // `test.concurrent` depends on — two callbacks in flight must not swap one `ProxyZoneSpec` delegate
+    // under one another.
+    expect(zone.forks).toBe(2);
+
+    undo();
+  });
+
   it('keeps the callback’s arity and source, which is how the runner finds its fixtures', () => {
     fakeZone().install();
 
