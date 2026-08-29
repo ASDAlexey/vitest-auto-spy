@@ -119,8 +119,12 @@ export async function flushEventLoopUntil(isDone: () => boolean, options: FlushU
 
   throw new Error(
     `[vitest-auto-spy] flushEventLoopUntil: ${what} was still not ready after ${turns} real event-loop turns. ` +
-      'Either the work never started (the call under test did not run, or its stub was never configured), or it is ' +
-      'waiting on a timer rather than on the event loop — timers stay frozen here, and only `advanceTimers()` moves them.',
+      'Three causes, in the order they turn out to be true. The work started but a dynamic `import()` had not finished: a cold ' +
+      'chunk takes more turns than this budget, and the giveaway is that only the *first* such test in a file fails while the ' +
+      'rest pass off the module cache — which reads as a flake. Await the module instead of counting turns: ' +
+      '`await settleDynamicImport(() => import("./thing"))`. Or the work never started (the call under test did not run, or its ' +
+      'stub was never configured). Or it is waiting on a timer rather than on the event loop — timers stay frozen here, and ' +
+      'only `advanceTimers()` moves them.',
   );
 }
 

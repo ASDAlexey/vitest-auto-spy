@@ -76,9 +76,16 @@ failure names the `label` instead:
 
 ```text
 [vitest-auto-spy] flushEventLoopUntil: the product resource was still not ready after 20 real
-event-loop turns. Either the work never started …, or it is waiting on a timer rather than on the
-event loop — timers stay frozen here, and only `advanceTimers()` moves them.
+event-loop turns. Three causes, in the order they turn out to be true. The work started but a
+dynamic `import()` had not finished … Or the work never started …. Or it is waiting on a timer
+rather than on the event loop — timers stay frozen here, and only `advanceTimers()` moves them.
 ```
+
+The first of the three is the one that costs the most time to diagnose, which is why it is named
+first: a **cold** chunk takes more turns than the budget, and the giveaway is that only the *first*
+such test in a file fails while every later one passes off the module cache. That reads as a flake,
+and it is not — the answer is to await the module rather than count turns, with
+[`settleDynamicImport`](#settledynamicimport-load-turns) below.
 
 ## `settleDynamicImport(load, turns?)`
 

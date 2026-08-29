@@ -155,3 +155,15 @@ describe('flushEventLoopUntil', () => {
     await expect(flushEventLoopUntil(() => false, { turns: 1 })).rejects.toThrow(/the condition was still not ready/);
   });
 });
+
+describe('the flushEventLoopUntil budget message', () => {
+  it('names the cause that reads as a flake, and its fix', async () => {
+    // A cold dynamic `import()` outruns the budget; the next test in the file passes off the module
+    // cache, so only the first one fails and the whole thing looks intermittent.
+    const failure = await flushEventLoopUntil(() => false, { turns: 1, label: 'the chunk' }).catch((error: unknown) => String(error));
+
+    expect(failure).toContain('settleDynamicImport');
+    expect(failure).toContain('the chunk');
+    expect(failure).toContain('advanceTimers()');
+  });
+});
