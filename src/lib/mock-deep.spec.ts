@@ -8,6 +8,7 @@ import { beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { registerMockAdapter } from './mock-adapter';
 import { mockDeep } from './mock-deep';
+import { asSpy } from './spy-typing';
 import { vitestMockAdapter } from './vitest-adapter';
 
 beforeAll(() => {
@@ -126,5 +127,66 @@ describe('mockDeep', () => {
     mockReturnValue('bound');
 
     expect(mock.db.repo.user.find()).toBe('bound');
+  });
+});
+
+describe('mockDeep({ selfReturning: true })', () => {
+  /** The fluent shape the option exists for: a factory call, then a method on what it returned. */
+  interface AppLogger {
+    channel(name: string): AppLogger;
+    info(message: string): void;
+  }
+
+  interface QueryBuilder {
+    where(field: string): QueryBuilder;
+    limit(count: number): QueryBuilder;
+    all(): string[];
+  }
+
+  it('is off by default — a called node returns `undefined`, and that is the trap', () => {
+    const logger = mockDeep<AppLogger>();
+
+    // Documented rather than fixed silently: `DeepMockProxy<AppLogger>` types this chain perfectly,
+    // so the failure only shows up at runtime.
+    expect(logger.channel('app')).toBeUndefined();
+  });
+
+  it('chains through calls when it is on', () => {
+    const logger = mockDeep<AppLogger>({}, { selfReturning: true });
+
+    logger.channel('app').info('started');
+
+    expect(logger.channel('app').info).toHaveBeenCalledWith('started');
+  });
+
+  it('chains as many calls deep as the builder does', () => {
+    const query = mockDeep<QueryBuilder>({}, { selfReturning: true });
+    const limited = query.where('id').limit(10);
+
+    limited.all();
+
+    // Each hop lands on the node the *read* produced, so the calls are recorded down the same path
+    // the chain walked: `where`, then `where.limit`, then `where.limit.all`.
+    expect(query.where).toHaveBeenCalledWith('id');
+    expect(asSpy<QueryBuilder>(query.where('id')).limit).toHaveBeenCalledWith(10);
+    expect(asSpy<QueryBuilder>(limited).all).toHaveBeenCalled();
+  });
+
+  it('still answers with whatever the node was configured to return', () => {
+    const query = mockDeep<QueryBuilder>({}, { selfReturning: true });
+
+    // What a call hands back is typed as the declared return type (`QueryBuilder`), not as a spy —
+    // the node underneath is one, so `asSpy` is the bridge, exactly as it is for a DI-injected spy.
+    asSpy<QueryBuilder>(query.where('id')).all.mockReturnValue(['Ada']);
+
+    expect(query.where('id').all()).toEqual(['Ada']);
+  });
+
+  it('leaves a configured `calledWith` return in place', () => {
+    const logger = mockDeep<AppLogger>({}, { selfReturning: true });
+
+    logger.channel.calledWith('audit').mockReturnValue(logger);
+
+    expect(logger.channel('audit')).toBe(logger);
   });
 });

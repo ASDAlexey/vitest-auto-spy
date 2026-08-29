@@ -77,3 +77,81 @@ const seeded = mockDeep<Api>({ repo: { user: { find: () => Promise.resolve({ id:
 
 Seeded values (via `overrides` or `mock.x = …`) shadow the auto-generated child for that key.
 Nodes are intentionally **not** thenable, so awaiting a node never treats it as a promise.
+
+### What a Proxy-backed double cannot do
+
+Both `createAutoMock` and `mockDeep` build a Proxy, and a Proxy answers only the operations its
+handler traps. Three of them were missing, and each gave a **silent** wrong answer rather than an
+error — a checking test quietly becoming a non-checking one, visible only by reading the proxy's
+source. Two are fixed in 3.5.0; the third cannot be.
+
+| Operation                          | Before                                             | Now                                                      |
+| ---------------------------------- | -------------------------------------------------- | -------------------------------------------------------- |
+| `mockValueProp` and its three siblings | patch landed on the Proxy target; the double ignored it | works, and `restoreMockedProps()` undoes it          |
+| `delete mock.optionalMethod`       | deleted nothing — the next read remade the spy      | the member is absent until something writes to it again  |
+| `Object.assign(realInstance, mock)` | copies only the keys already **read**              | unchanged — see below                                    |
+
+The first was the worst of the three, because it broke the composition of two things the library
+recommends at once: the `no-object-define-property` rule sends people to `mock*Prop`, and the
+factory decision tree sends them to `createAutoMock`, and together they produced a double that
+ignored the patch. Specs that hit it ended up building the double by hand — real getters plus a
+`createFunctionSpy` per method.
+
+`ownKeys` cannot be completed: a type has no key list at runtime, which is the premise of these two
+factories in the first place. A spec that installs a double by **copying it onto a real instance**
+therefore gets whichever members happened to be read first, and every other call reaches the real
+implementation without a word. Use `createSpyFromClass` there — it returns an ordinary object whose
+method keys are enumerable, so the copy is complete.
+
+### `undefined` in `overrides` is a seed, not an omission
+
+`createAutoMock` reads its seed with `Reflect.ownKeys`, so a key written out with an explicit
+`undefined` **is** in the store and reads back as `undefined`. Leave it out and the same read
+materialises a function spy — which is *truthy*, and sends a guarded call site down the branch the
+spec was trying to close:
+
+```ts
+createAutoMock<NavigationService>({ currentFocus: undefined, navRoot: undefined, selectors: 'button, a' });
+//                                  ^ "this member is data, and there is none"
+```
+
+Write it even when it looks redundant. It is the way to say "the member exists and is empty", and
+on this double it is not the same as saying nothing.
+
+### Depth comes from property access, not from calls
+
+This is the one thing to know before reaching for `mockDeep`, and it is invisible in the types.
+`api.repo.user.find()` chains because every hop but the last is a property **read**. A node that is
+**called** returns whatever it was configured to return, and by default that is `undefined` — so a
+fluent API breaks at the second call while `DeepMockProxy<T>` types it perfectly:
+
+```ts
+const logger = mockDeep<AppLogger>();
+
+logger.channel('app').info('started'); // TypeError: Cannot read properties of undefined
+```
+
+Pass `{ selfReturning: true }` for that shape. A called node then hands itself back, so the chain
+continues down the same path the reads would have taken:
+
+```ts
+const logger = mockDeep<AppLogger>({}, { selfReturning: true });
+
+logger.channel('app').info('started');
+expect(logger.channel('app').info).toHaveBeenCalledWith('started');
+```
+
+It never takes configuration away: `mockReturnValue`, `calledWith(...).mockReturnValue(...)` and
+`resolveWith` all still win, and only an *unconfigured* call — the one that returned `undefined` —
+returns the node. The exact cost is a node deliberately configured to return `undefined`; assert on
+its calls rather than on its return value there, which is why this is opt-in.
+
+What a call hands back is typed as the declared return type, not as a spy, so bridge it with
+`asSpy<T>(...)` when the helpers are needed:
+
+```ts
+asSpy<QueryBuilder>(query.where('id')).limit.mockReturnValue(query);
+```
+
+When only one method chains, `createAutoMock<T>()` with `channel.mockReturnThis()` is the smaller
+answer.

@@ -148,3 +148,29 @@ describe('the auto-spy brand', () => {
     expect(Object.keys(mock)).toEqual(['load']);
   });
 });
+
+describe('createAutoMock returns configuration', () => {
+  interface Products {
+    getProducts(): string[];
+    label: string;
+  }
+
+  it('configures the spy rather than replacing it, which is what a seed cannot do', () => {
+    const products = createAutoMock<Products>(undefined, { returns: { getProducts: ['a'] } });
+
+    expect(products.getProducts()).toEqual(['a']);
+    // Still a spy — a seeded `{ getProducts: () => ['a'] }` would have thrown the assertion away.
+    expect(products.getProducts).toHaveBeenCalledTimes(1);
+  });
+
+  it('says so when `returns` names a member the double never spies', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    // `then` is held back on purpose so the mock is not treated as a Promise — which also means a
+    // return value configured for it could never be handed back.
+    createAutoMock<{ then(): void }>(undefined, { returns: { then: undefined } });
+
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('never turns into a spy'));
+    warn.mockRestore();
+  });
+});
