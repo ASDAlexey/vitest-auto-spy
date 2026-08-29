@@ -216,7 +216,25 @@ expect(component.icon()).toBe('favouritesFilled');
 [`stable(fixture)`](/adapters/angular#zoneless-waiting) is the one to reach for:
 `fixture.detectChanges()` runs a single change-detection pass and does **not** flush pending effects,
 so an assertion right after it reads state that has not finished computing. `flushEffects()` is the
-no-fixture half, for services and stores.
+no-fixture half, for services and stores. The wait is bounded — 2000 ms by default, then it throws
+the cause instead of leaving the runner to report a file-level timeout.
+
+### A component that loads through `httpResource()`
+
+```ts
+const products = TestBed.runInInjectionContext(() => httpResource<Product[]>(() => '/api/products'));
+
+flushEffects(); // the request is issued here — not when the resource was created
+TestBed.inject(HttpTestingController).expectOne('/api/products').flush([product]);
+await settleResource(products, { label: 'the product resource' });
+
+expect(products.value()).toEqual([product]);
+```
+
+[`settleResource`](/adapters/angular#resources-httpresource-and-resource) is one wait for
+`httpResource()`, `resource()` and `rxResource()`, which each need a different number of turns.
+Asserting before it reads the resource's _default_ value and passes, which is the failure mode worth
+knowing: a green test proving nothing until the day the default changes.
 
 When the effect will never go dirty on its own — because its trigger is now a static signal —
 `runEffect` runs that one body directly:

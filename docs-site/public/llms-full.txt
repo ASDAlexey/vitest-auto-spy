@@ -27,12 +27,13 @@ A drop-in, fully-typed jest-auto-spies successor — one API across Vitest, Bun 
 - **One API, three runtimes** — The core talks to your runner through a MockAdapter seam, so the same spies run on Vitest, Bun (bun:test) and node:test. Only native mock methods stay the runner's own. — https://asdalexey.github.io/vitest-auto-spy/runtimes/vitest
 - **Angular TestBed on Bun** — Bun ships no DOM and cannot resolve templateUrl, so Angular specs simply do not run there. One preload installs a DOM, inlines external templates and styles through a Bun.plugin hook, and boots a zoneless TestBed. — https://asdalexey.github.io/vitest-auto-spy/runtimes/bun-angular
 - **Signals a spec can drive** — mockSignalProp replaces a signal-valued property with a real WritableSignal and hands back the writable half, so a computed downstream recomputes and an effect runs. runEffect() runs one effect body on demand when its trigger is now static. — https://asdalexey.github.io/vitest-auto-spy/adapters/angular
+- **Resources that settle, or say why not** — Angular's httpResource() and resource() need a different wait each — measured on 21.2.17, an httpResource settles one tick plus one microtask after its response is flushed, a plain resource() takes two rounds, and neither has issued a request at all until something ticks. Get it wrong and nothing fails — the spec asserts the resource's default value and passes. settleResource() is the one wait both converge under, with a budget and a failure that names the resource and the flush it is missing. No library in the Angular world had an answer. — https://asdalexey.github.io/vitest-auto-spy/adapters/angular#resources-httpresource-and-resource
 - **Faster Angular specs** — renderShallow collapses the shallow-TestBed copy-paste into one call (1.7× on real component specs), createWithAutoSpies builds a class through DI with every unprovided token spied, and per-file diagnostics say which specs are worth converting. — https://asdalexey.github.io/vitest-auto-spy/adapters/angular
 - **The providers a testing module cannot reach** — overrideComponentProvider replaces a dependency a component declares in its own providers, and queues the component with the TestBed compiler so the override reaches it. assertNgModuleScopes names the module an AOT bundle stripped, createDirectiveHost compiles a host that is correct for both the compiler and the TestBed, and provideAutoSpyForToken covers a dependency behind an InjectionToken. — https://asdalexey.github.io/vitest-auto-spy/adapters/angular
 - **Observables that fail on silence** — expectEmission / expectEmissions / expectNoEmission replace the expect() inside a subscribe callback that never runs — the assertion is the await. Duck-typed, so no rxjs is pulled in. — https://asdalexey.github.io/vitest-auto-spy/core/observable-assertions
 - **When a green suite is lying** — zone.js replaces the global Promise, and a rejection nobody handled is drained into console.error and no further — it never reaches the channel Vitest listens on, so the runner is never told and the file still exits 0. An expect() inside a .then(), an async helper called without await, a TypeError thrown inside an import() in production code — every one of them is a passing test with a line of stderr behind it. The strayRejections option fails the test the rejection surfaced in, and the no-floating-assertion lint rule catches the commonest shape before it ever runs. One migrated suite of 11 587 tests, green, was hiding six real defects of that shape — two of them assertions that were simply false. — https://asdalexey.github.io/vitest-auto-spy/utilities/setup#_8-failing-on-a-rejection-zone-js-swallowed
 - **Doubles for what the code builds itself** — Vitest only forwards new to a constructible implementation, so the Jest idiom vi.fn(() => instance) records the call, skips the body and returns an empty object. mockConstructor / stubConstructor stay full runner mocks, collect instances, and refuse to be called without new. — https://asdalexey.github.io/vitest-auto-spy/utilities/constructor-doubles
-- **Waiting and the clock** — flushEventLoop and settleDynamicImport give a real event-loop turn while the timers stay faked, flushEventLoopUntil replaces a tuned sleep with a budgeted condition, and mockSystemTime / useCountingClock survive fake timers being re-installed around every test. — https://asdalexey.github.io/vitest-auto-spy/utilities/event-loop
+- **Waiting and the clock** — flushEventLoop and settleDynamicImport give a real event-loop turn while the timers stay faked, flushEventLoopUntil replaces a tuned sleep with a budgeted condition, and mockSystemTime / useCountingClock survive fake timers being re-installed around every test. Every wait here is bounded and names its own cause — including stable(fixture), which used to hand a stuck fixture to the runner's file-level timeout. — https://asdalexey.github.io/vitest-auto-spy/utilities/event-loop
 - **Fake timers that settle** — setupFakeTimers() pairs install with restore, and advanceTimers() drains the microtasks a bare advanceTimersByTime leaves pending — the gap that makes a timer assertion read like a race. betweenTests keeps the clock fake between the tests as well, which is what Jest fakeTimers.enableGlobally did and what a nested beforeAll needs. — https://asdalexey.github.io/vitest-auto-spy/utilities/fake-timers
 - **fakeAsync on Vitest** — zone.js/testing installs its ProxyZone through Jasmine and Jest hooks only, so fakeAsync and waitForAsync throw on Vitest. One import of vitest-auto-spy/zone patches them in — behind its own specifier, so a zoneless project never sees zone.js. One proxy zone serves the whole run, as Angular own jasmine patch does, so a component built in beforeEach and a tick() in the test share their timers. — https://asdalexey.github.io/vitest-auto-spy/utilities/zone
 - **Module mocks that prove they applied** — Under a bundler a vi.mock() with an unmatched specifier does nothing at all, and the spec asserts on the real module. assertMocked fails loudly instead, and moduleNamespace gives a factory the shape an interop probe recognises — no more "No default export is defined on the mock". — https://asdalexey.github.io/vitest-auto-spy/utilities/module-mocks
@@ -1628,15 +1629,15 @@ thousand, so `hz` swings several-fold between runs as GC pauses land in differen
 
 | Operation | per call (p75) |
 | --- | ---: |
-| spy a 10-method class, call 2 methods — lazy (the default) | **5.3 µs** |
-| the same, eager (`lazySpies: false`) | 18.5 µs |
-| spy a 40-method class, call 3 methods — lazy | **10.6 µs** |
-| the same, eager | 75.8 µs |
-| `createAutoMock<Service>()` + 4 accesses | 9.2 µs |
+| spy a 10-method class, call 2 methods — lazy (the default) | **5.4 µs** |
+| the same, eager (`lazySpies: false`) | 17.5 µs |
+| spy a 40-method class, call 3 methods — lazy | **10.3 µs** |
+| the same, eager | 68.6 µs |
+| `createAutoMock<Service>()` + 4 accesses | 7.8 µs |
 | `calledWith` dispatch, 3 configured calls | 0.5 µs |
 
 Lazy widens as the class does, and gives it back only when a single test really calls every method
-(10 methods, all 10: 22.0 µs lazy against 20.0 µs eager — a rounding error against the order of
+(10 methods, all 10: 20.7 µs lazy against 19.2 µs eager — a rounding error against the order of
 magnitude it wins everywhere else). That asymmetry is why it is the default rather than an option.
 
 Put that against a suite: five providers across two thousand tests is ten thousand calls — under a
@@ -1778,9 +1779,14 @@ Vitest 4 at all (see [Installation](https://asdalexey.github.io/vitest-auto-spy/
 ::: details Why `npm run bench` is not the source for this table
 The cross-version numbers here come from a standalone harness, not from the repo's Vitest bench.
 Vitest bench was tried first and rejected: consecutive runs of the same case on the same version
-returned 0.0090 ms and 5.06 ms — GC pauses land in different samples and swamp a 10% difference
-between runtimes. `npm run bench` stays the right tool for what it guards (ratios between two
-options inside one run); it cannot compare two runtimes.
+returned 0.0090 ms and 5.06 ms — GC pauses landed in different samples and swamped a 10% difference
+between runtimes. That particular swing has since been traced and fixed at the source: `@vitest/spy`
+keeps every mock it ever creates in a module-level strong `Set`, so nothing a bench case allocated
+was collectable and each case ran into the heap the previous one had left. `bench/auto-spy.bench.ts`
+now calls this package's own `pruneMockRegistry()` at the end of every case, and the table above
+reproduces within 1.0–1.2× across consecutive runs. `npm run bench` still cannot compare two
+runtimes — a separate process per version, with the runner outside the measurement, is the only
+honest way to do that — but it is no longer the GC it was measuring.
 
 ## What to reach for
 
@@ -1800,9 +1806,11 @@ memory on a wide class. It is worth it only when a spec inspects the spy object 
 property descriptors — enumeration (`Object.keys`, spread, a snapshot) already works, because the
 placeholders are enumerable accessors.
 
-**`autoSpyAccessors: true`** walks the prototype chain for getters and setters, and unlike the
-method walk that result is not cached. On a class spied once per test in a large file it is the one
-option worth replacing with an explicit `gettersToSpyOn` / `settersToSpyOn` list.
+**`autoSpyAccessors: true`** walks the prototype chain for getters and setters. That walk is
+memoised per prototype in a `WeakMap`, exactly like the method walk, so a class spied in 300 tests
+pays for it once — this page said otherwise until v3.6.0 and was simply out of date. What the option
+still costs per spy is the accessor indirection itself, measured above at five percent; reach for an
+explicit `gettersToSpyOn` / `settersToSpyOn` list when you want a smaller surface, not for speed.
 
 Everything else — `methodsToSpyOn`, `observablePropsToSpyOn`, `calledWith`, the return-type helpers
 — is either a constant or, in `calledWith`'s case, a sub-microsecond map lookup on a serialized key.
@@ -2085,7 +2093,25 @@ expect(component.icon()).toBe('favouritesFilled');
 [`stable(fixture)`](https://asdalexey.github.io/vitest-auto-spy/adapters/angular#zoneless-waiting) is the one to reach for:
 `fixture.detectChanges()` runs a single change-detection pass and does **not** flush pending effects,
 so an assertion right after it reads state that has not finished computing. `flushEffects()` is the
-no-fixture half, for services and stores.
+no-fixture half, for services and stores. The wait is bounded — 2000 ms by default, then it throws
+the cause instead of leaving the runner to report a file-level timeout.
+
+### A component that loads through `httpResource()`
+
+```ts
+const products = TestBed.runInInjectionContext(() => httpResource<Product[]>(() => '/api/products'));
+
+flushEffects(); // the request is issued here — not when the resource was created
+TestBed.inject(HttpTestingController).expectOne('/api/products').flush([product]);
+await settleResource(products, { label: 'the product resource' });
+
+expect(products.value()).toEqual([product]);
+```
+
+[`settleResource`](https://asdalexey.github.io/vitest-auto-spy/adapters/angular#resources-httpresource-and-resource) is one wait for
+`httpResource()`, `resource()` and `rxResource()`, which each need a different number of turns.
+Asserting before it reads the resource's _default_ value and passes, which is the failure mode worth
+knowing: a green test proving nothing until the day the default changes.
 
 When the effect will never go dirty on its own — because its trigger is now a static signal —
 `runEffect` runs that one body directly:
@@ -4274,23 +4300,34 @@ yields a _task_ turn, and deliberately does not run pending `setTimeout` callbac
 different task source, and a helper that fired them too would be `advanceTimersByTime` under another
 name.
 
-This is the answer for `httpResource()` / `resource()` / `rxResource` as well: their delivery
-crosses the boundary between zone-patched promises and native ones, and a fixed number of
-`await Promise.resolve()` calls is a guess that happens to hold until it does not.
+It is not the answer for `httpResource()` / `resource()` / `rxResource`, which need a
+change-detection **tick** rather than an event-loop turn —
+[`settleResource()`](https://asdalexey.github.io/vitest-auto-spy/adapters/angular#resources-httpresource-and-resource) is that wait. What this
+helper is right for is the case one step below: work whose delivery crosses the boundary between
+zone-patched promises and native ones, where a fixed number of `await Promise.resolve()` calls is a
+guess that happens to hold until it does not.
 
 ## `flushEventLoopUntil(isDone, options?)`
 
 ```ts
-const products = TestBed.runInInjectionContext(() => httpResource(() => '/api/products'));
+client.warmUp();
 
-await flushEventLoopUntil(() => products.status() !== 'loading', { label: 'the product resource' });
+await flushEventLoopUntil(() => client.isReady(), { label: 'the SDK handshake' });
 
-expect(products.value()).toEqual([product]);
+expect(client.session()).toBeDefined();
 ```
 
 Takes real turns until the condition holds, then stops — the shape behind every hand-rolled
-"settle" helper: a `resource()` leaving `loading`, a lazily-loaded chunk becoming reachable, an SDK
-reporting itself ready.
+"settle" helper: a lazily-loaded chunk becoming reachable, an SDK reporting itself ready, a queue
+draining.
+
+**Not for an Angular resource**
+This page used to show `httpResource()` here, and that example never worked. `flushEventLoopUntil`
+takes event-loop turns and never **ticks**, and an `httpResource` issues no request at all until
+something does — measured, a resource awaited this way finishes the whole budget having made zero
+requests, then fails saying the condition was never met.
+[`settleResource()`](https://asdalexey.github.io/vitest-auto-spy/adapters/angular#resources-httpresource-and-resource) from
+`vitest-auto-spy/angular` is that wait.
 
 Written by hand that is a fixed number of turns, tuned by trial until the suite goes green, which is
 both slower than it needs to be (it always waits the maximum) and quietly fragile — one more
@@ -4302,7 +4339,7 @@ configured — and a test that hangs until the runner's timeout reports the file
 failure names the `label` instead:
 
 ```text
-[vitest-auto-spy] flushEventLoopUntil: the product resource was still not ready after 20 real
+[vitest-auto-spy] flushEventLoopUntil: the SDK handshake was still not ready after 20 real
 event-loop turns. Three causes, in the order they turn out to be true. The work started but a
 dynamic `import()` had not finished … Or the work never started …. Or it is waiting on a timer
 rather than on the event loop — timers stay frozen here, and only `advanceTimers()` moves them.
@@ -5309,6 +5346,66 @@ app the state that matters is signal-derived and effects are what move it forwar
 both, in the right order; `flushEffects` prefers `TestBed.tick()` (Angular ≥ 20) and falls back to
 `ApplicationRef.tick()`.
 
+### The wait is bounded
+
+`stable` gives the fixture **2000 ms** and then throws the cause. A fixture that never stabilises —
+a real `HttpClient` request nothing completed, a `PendingTasks` entry nothing released, a
+`setInterval` running under real timers — used to hang here until Vitest reported a 5 s _file-level_
+timeout naming neither the helper nor the fixture, which blames the file for the state of one
+component.
+
+```ts
+await stable(fixture, { timeout: 5000, label: 'the products fixture' });
+```
+
+Pass `label` when a spec awaits more than one fixture, so the failure says which. Pass
+`{ timeout: 0 }` to disable the watchdog and wait indefinitely — worth it only for a deliberately
+long real-timer test. The watchdog runs on a timer captured at import, so `vi.useFakeTimers()`
+cannot stop it: a watchdog the code under test can freeze is not a watchdog.
+
+## Resources: `httpResource()` and `resource()`
+
+Angular's resource primitives need a **different wait each**, and neither is the one a spec reaches
+for. Measured on Angular 21.2.17, zoneless TestBed:
+
+| What                                              | What it needs to settle              |
+| ------------------------------------------------- | ------------------------------------ |
+| `httpResource()`, after its response is flushed   | one tick + one microtask             |
+| `resource()` with an async loader                 | two rounds of the same               |
+| `httpResource()` that has just been created       | a tick, or it makes **no request**   |
+
+Getting it wrong does not fail loudly. It asserts against the resource's _default_ value — a green
+test proving nothing, until the day the default changes. `settleResource` is the loop both converge
+under:
+
+```ts
+import { flushEffects, settleResource } from 'vitest-auto-spy/angular';
+
+const products = TestBed.runInInjectionContext(() => httpResource<Product[]>(() => '/api/products'));
+
+flushEffects(); // the request is issued here — not when the resource was created
+TestBed.inject(HttpTestingController).expectOne('/api/products').flush([product]);
+await settleResource(products, { label: 'the product resource' });
+
+expect(products.value()).toEqual([product]);
+```
+
+**That `flushEffects()` is not optional and `settleResource` cannot replace it.** An `httpResource`
+issues no request until something ticks, so there is nothing for `expectOne` to find until then —
+and awaiting first would spend the whole budget on a resource that stays `loading` for a reason no
+amount of waiting fixes. One tick to get the request out, your flush, then one wait to take
+delivery. A plain `resource()` needs no flush and so needs no tick: `await settleResource(data)` is
+the whole of it.
+
+The wait ends on any settled status, `error` and `idle` included — waiting for those would be
+waiting for something that cannot happen. On expiry it names the resource and the flush it is
+missing.
+
+**Not `flushEventLoopUntil`**
+`flushEventLoopUntil` takes real event-loop turns and never ticks. A resource awaited through it
+finishes the whole budget having issued zero requests, then fails saying the condition was never
+met. Its docstring used to claim this exact use case; it never worked.
+
 ## Running one effect on demand
 
 `flushEffects()` asks the scheduler to run everything currently dirty. Sometimes a spec needs one
@@ -5569,7 +5666,7 @@ import { setupAngularTestEnv } from 'vitest-auto-spy/angular';
 import { setupZoneTestEnv, setupZonelessTestEnv } from 'jest-preset-angular/setup-env';
 
 setupAngularTestEnv({
-  zoneless: (testPath) => testPath.includes('/libs/music/') || testPath.includes('/apps/kion-top/'),
+  zoneless: (testPath) => testPath.includes('/libs/catalog/') || testPath.includes('/apps/storefront/'),
   initZone: setupZoneTestEnv,
   initZoneless: setupZonelessTestEnv,
 });
@@ -6421,7 +6518,8 @@ The exported surface of `vitest-auto-spy` and its subpaths.
 | `restoreTimerGlobals()` / `getWatchedTimerGlobals()`                                                         | Put back timer globals the fakes deleted / the names captured (`/setup`)                                                              |
 | `renderShallow(Component, opts?)`                                                                            | `TestBed` component without its children and (by default) its template (`/angular`)                                                   |
 | `createWithAutoSpies(Class, opts?)`                                                                          | Build a class through Angular DI with every unprovided token auto-spied (`/angular`)                                                  |
-| `stable(fixture)` / `flushEffects()`                                                                         | Zoneless waiting: flush effects, then await the fixture (`/angular`)                                                                  |
+| `stable(fixture, opts?)` / `flushEffects()`                                                                  | Zoneless waiting: flush effects, then await the fixture, with a 2 s budget that names the cause (`/angular`)                          |
+| `settleResource(resource, opts?)`                                                                            | Tick until an `httpResource()` / `resource()` / `rxResource()` leaves `loading` (`/angular`)                                          |
 | `registerSignalMatchers()`                                                                                   | Adds `expect(sig).toHaveSignalValue(value)` (`/angular`)                                                                              |
 | `enableTestBedDiagnostics(opts?)`                                                                            | Per-file report of how much of a spec's time went into `TestBed` (`/angular`)                                                         |
 | `registerDomGlobals(opts?)`                                                                                  | Install a DOM into a runtime that ships none; returns the registrar used (`/bun-angular`)                                             |
@@ -6511,9 +6609,9 @@ never needs two imports from this package.
 | `vitest-auto-spy`   | — (this is the core; registers the Vitest adapter)                                                                                                                                                                                                                                                                                                     |
 | `/bun`              | — (registers the `bun:test` adapter)                                                                                                                                                                                                                                                                                                                   |
 | `/node`             | — (registers the `node:test` adapter)                                                                                                                                                                                                                                                                                                                  |
-| `/bun-angular`      | `provideAutoSpy`, `injectSpy`, `renderShallow`, `createWithAutoSpies`, `stable`, `flushEffects`, the DOM/inliner building blocks; registers the Bun adapter and boots a zoneless `TestBed`                                                                                                                                                             |
+| `/bun-angular`      | `provideAutoSpy`, `injectSpy`, `renderShallow`, `createWithAutoSpies`, `stable`, `flushEffects`, `settleResource`, the DOM/inliner building blocks; registers the Bun adapter and boots a zoneless `TestBed`                                                                                                                                                             |
 | `/rxjs`             | `createObservableWithValues` + the observable type surface; registers the observable layer                                                                                                                                                                                                                                                             |
-| `/angular`          | `provideAutoSpy`, `provideAutoSpyForToken`, `injectSpy`, `overrideAutoSpy`, `overrideComponentProvider`, `assertNgModuleScopes`, `setupAngularTestEnv`, `createDirectiveHost`, `registerDirectiveMatchers`, `renderShallow`, `createWithAutoSpies`, `stable`, `flushEffects`, `registerSignalMatchers`, the TestBed diagnostics                        |
+| `/angular`          | `provideAutoSpy`, `provideAutoSpyForToken`, `injectSpy`, `overrideAutoSpy`, `overrideComponentProvider`, `assertNgModuleScopes`, `setupAngularTestEnv`, `createDirectiveHost`, `registerDirectiveMatchers`, `renderShallow`, `createWithAutoSpies`, `stable`, `flushEffects`, `settleResource`, `registerSignalMatchers`, the TestBed diagnostics                        |
 | `/nestjs`           | `provideAutoSpy`, `injectSpy(moduleRef, token)`, `NestModuleRef`, `NestValueProvider`                                                                                                                                                                                                                                                                  |
 | `/vue`              | `provideAutoSpy`, `VueInjectionToken`, `VueProvideSpy`                                                                                                                                                                                                                                                                                                 |
 | `/react`, `/svelte` | — (the core, under a name that reads right in those suites)                                                                                                                                                                                                                                                                                            |

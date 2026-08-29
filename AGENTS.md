@@ -1067,6 +1067,7 @@ mechanisms, and a test that waits on the wrong one fails with a message that nam
 | effects + `afterNextRender` + CD              | `await stable(fixture)` (`…/angular`)              | `detectChanges()` alone                   |
 | timers, debounces, polling                    | `await advanceTimers(ms)` (`…/setup`)              | `await Promise.resolve()`                 |
 | a dynamic `import()`, native `async` in a dep | `await flushEventLoop()` / `settleDynamicImport()` | `tick()`, `flushMicrotasks()`, microtasks |
+| an `httpResource()` / `resource()` / `rxResource` | `await settleResource(r)` (`…/angular`) | `flushEventLoopUntil` — it never ticks |
 
 ```ts
 import { flushEventLoop, settleDynamicImport } from 'vitest-auto-spy';
@@ -1088,9 +1089,14 @@ Three rules worth stating outright, because each of them cost a day somewhere:
   and a non-zero exit code.
 
 `flushEventLoopUntil(isDone, { turns, label })` is the same thing with a condition and a budget —
-for a `resource()` leaving `loading`, a chunk becoming reachable, an SDK reporting itself ready. Use
-it instead of a hand-tuned turn count: the count depends on the dependency, not on the spec, and a
-condition that never holds fails naming the `label` rather than hanging until the runner's timeout.
+for a chunk becoming reachable, an SDK reporting itself ready, a queue draining. Use it instead of a
+hand-tuned turn count: the count depends on the dependency, not on the spec, and a condition that
+never holds fails naming the `label` rather than hanging until the runner's timeout.
+
+**Not for an Angular `resource()` / `httpResource()`.** Those need a change-detection _tick_, and
+this helper only takes event-loop turns — a resource awaited through it finishes the whole budget
+having issued zero requests. `settleResource(resource, { turns, label })` from
+`vitest-auto-spy/angular` is that wait.
 
 `flushEventLoop(turns?)` takes real event-loop turns even while the timers are faked, without
 touching the clock. It is the honest name for the `await vi.advanceTimersByTimeAsync(0)` trick,
@@ -1474,8 +1480,14 @@ spies.get(PricingService).total.mockReturnValue(100);
 // NOTE: Injector.create() — it does NOT accept EnvironmentProviders (provideHttpClient() etc.)
 
 // zoneless waiting
-await stable(fixture); // flush effects, then await the fixture
+await stable(fixture); // flush effects, then await the fixture; fails at 2000 ms naming the cause
+await stable(fixture, { timeout: 5000, label: 'the products fixture' });
 flushEffects(); // the no-fixture half: services, stores, runInInjectionContext
+
+// resources — one wait for httpResource(), resource() and rxResource()
+flushEffects(); // an httpResource issues NO request until something ticks
+httpTesting.expectOne('/api/products').flush([product]);
+await settleResource(products, { label: 'the product resource' });
 
 // signal assertions
 registerSignalMatchers(); // once, in the setup file
@@ -1488,6 +1500,12 @@ Two zoneless traps:
   effects. Asserting right after it reads state that has not finished computing. Use `await stable(fixture)`.
 - `expect(someSignal).toBeTruthy()` passes for **every** signal ever created — a signal is a
   function. Use `toHaveSignalValue`, which also rejects the missing-parentheses mistake.
+
+And one resource trap, which is the same shape one level up: an `httpResource()` reports `loading`
+with its **default** value until a tick _and_ a microtask after its response is flushed, so a spec
+that asserts too early asserts the default and passes. `settleResource` fails instead of passing
+emptily. Note the order — `flushEffects()` first (the request is issued there, not on creation),
+then the flush, then the wait.
 
 Per-file timing, to find which specs actually pay for `TestBed`:
 
@@ -1802,7 +1820,9 @@ packages, which a subpath export can never be.
 | a stub that works in the first test of the file and in no other                      | installed at `describe` level or in `beforeAll`, then restored away    | install it in `beforeEach`, or `installPerTest(() => stub…())`                              |
 | a third-party library failing every other run, no test named                         | a test sealed a global with `Object.defineProperty` (non-configurable) | `setupAutoSpy({ guardGlobals: 'throw' })` names the file; then `mockValueProp`              |
 | `expected [ { at: 1, …(5) }, …(8) ] to deeply equal [ { …(6) }, … ]`                 | one field moved in every element — usually a frozen clock or an id     | `expect(diffByField(actual, expected)).toBeUndefined()`                                     |
-| a hand-tuned number of turns waiting for a `resource()` to load                      | the hand-off count depends on the dependency, not on the spec          | `await flushEventLoopUntil(() => r.status() !== 'loading', { label })`                      |
+| a hand-tuned number of turns waiting for a `resource()` to load | a resource needs a change-detection **tick**, not event-loop turns; `flushEventLoopUntil` never ticks and the resource never even issues its request | `flushEffects()`, flush the request, then `await settleResource(r, { label })` |
+| a `resource()` assertion that passes but reads the **default** value | the spec asserted before the resource left `loading` | `await settleResource(r, { label })` — it fails loudly instead |
+| a spec dying on the runner's 5 s file timeout right after `await stable(fixture)` | the fixture never stabilised — an unflushed request, a real `setInterval` | `stable` now fails at 2000 ms naming the cause; raise `{ timeout }` only once neither is true |
 | `flushEventLoopUntil` timing out on the **first** such test only, the rest green | a cold dynamic `import()` outran the turn budget; later tests hit the module cache | `await settleDynamicImport(() => import('…'))` — await the module, do not count turns |
 | a template error in a `describe` that never patched anything                          | a spec `afterEach` threw and skipped `setupAutoSpy`'s, so a `mock*Prop` patch travelled | upgrade — an `onTestFinished` net restores it and names the cause (§10)                    |
 | `Property 'mockReturnValue' does not exist on type 'never'`                          | a generic method with a conditional return type; the spy collapsed     | upgrade — fixed in the types; the member now keeps its sync helper bundle                   |

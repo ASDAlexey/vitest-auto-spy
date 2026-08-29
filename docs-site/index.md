@@ -43,6 +43,10 @@ features:
     title: Signals a spec can drive
     details: mockSignalProp replaces a signal-valued property with a real WritableSignal and hands back the writable half, so a computed downstream recomputes and an effect runs. runEffect() runs one effect body on demand when its trigger is now static.
     link: /adapters/angular
+  - icon: 🧵
+    title: Resources that settle, or say why not
+    details: Angular's httpResource() and resource() need a different wait each — measured on 21.2.17, an httpResource settles one tick plus one microtask after its response is flushed, a plain resource() takes two rounds, and neither has issued a request at all until something ticks. Get it wrong and nothing fails — the spec asserts the resource's default value and passes. settleResource() is the one wait both converge under, with a budget and a failure that names the resource and the flush it is missing. No library in the Angular world had an answer.
+    link: /adapters/angular#resources-httpresource-and-resource
   - icon: ⚡
     title: Faster Angular specs
     details: renderShallow collapses the shallow-TestBed copy-paste into one call (1.7× on real component specs), createWithAutoSpies builds a class through DI with every unprovided token spied, and per-file diagnostics say which specs are worth converting.
@@ -65,7 +69,7 @@ features:
     link: /utilities/constructor-doubles
   - icon: ⏳
     title: Waiting and the clock
-    details: flushEventLoop and settleDynamicImport give a real event-loop turn while the timers stay faked, flushEventLoopUntil replaces a tuned sleep with a budgeted condition, and mockSystemTime / useCountingClock survive fake timers being re-installed around every test.
+    details: flushEventLoop and settleDynamicImport give a real event-loop turn while the timers stay faked, flushEventLoopUntil replaces a tuned sleep with a budgeted condition, and mockSystemTime / useCountingClock survive fake timers being re-installed around every test. Every wait here is bounded and names its own cause — including stable(fixture), which used to hand a stuck fixture to the runner's file-level timeout.
     link: /utilities/event-loop
   - icon: ⏱️
     title: Fake timers that settle

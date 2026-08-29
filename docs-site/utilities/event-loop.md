@@ -47,23 +47,35 @@ yields a _task_ turn, and deliberately does not run pending `setTimeout` callbac
 different task source, and a helper that fired them too would be `advanceTimersByTime` under another
 name.
 
-This is the answer for `httpResource()` / `resource()` / `rxResource` as well: their delivery
-crosses the boundary between zone-patched promises and native ones, and a fixed number of
-`await Promise.resolve()` calls is a guess that happens to hold until it does not.
+It is not the answer for `httpResource()` / `resource()` / `rxResource`, which need a
+change-detection **tick** rather than an event-loop turn —
+[`settleResource()`](../adapters/angular#resources-httpresource-and-resource) is that wait. What this
+helper is right for is the case one step below: work whose delivery crosses the boundary between
+zone-patched promises and native ones, where a fixed number of `await Promise.resolve()` calls is a
+guess that happens to hold until it does not.
 
 ## `flushEventLoopUntil(isDone, options?)`
 
 ```ts
-const products = TestBed.runInInjectionContext(() => httpResource(() => '/api/products'));
+client.warmUp();
 
-await flushEventLoopUntil(() => products.status() !== 'loading', { label: 'the product resource' });
+await flushEventLoopUntil(() => client.isReady(), { label: 'the SDK handshake' });
 
-expect(products.value()).toEqual([product]);
+expect(client.session()).toBeDefined();
 ```
 
 Takes real turns until the condition holds, then stops — the shape behind every hand-rolled
-"settle" helper: a `resource()` leaving `loading`, a lazily-loaded chunk becoming reachable, an SDK
-reporting itself ready.
+"settle" helper: a lazily-loaded chunk becoming reachable, an SDK reporting itself ready, a queue
+draining.
+
+::: warning Not for an Angular resource
+This page used to show `httpResource()` here, and that example never worked. `flushEventLoopUntil`
+takes event-loop turns and never **ticks**, and an `httpResource` issues no request at all until
+something does — measured, a resource awaited this way finishes the whole budget having made zero
+requests, then fails saying the condition was never met.
+[`settleResource()`](../adapters/angular#resources-httpresource-and-resource) from
+`vitest-auto-spy/angular` is that wait.
+:::
 
 Written by hand that is a fixed number of turns, tuned by trial until the suite goes green, which is
 both slower than it needs to be (it always waits the maximum) and quietly fragile — one more
@@ -75,7 +87,7 @@ configured — and a test that hangs until the runner's timeout reports the file
 failure names the `label` instead:
 
 ```text
-[vitest-auto-spy] flushEventLoopUntil: the product resource was still not ready after 20 real
+[vitest-auto-spy] flushEventLoopUntil: the SDK handshake was still not ready after 20 real
 event-loop turns. Three causes, in the order they turn out to be true. The work started but a
 dynamic `import()` had not finished … Or the work never started …. Or it is waiting on a timer
 rather than on the event loop — timers stay frozen here, and only `advanceTimers()` moves them.

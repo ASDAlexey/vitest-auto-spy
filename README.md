@@ -16,7 +16,7 @@ identical API, with **RxJS** spies and **Angular / NestJS / React / Vue·Pinia /
 [![npm version](https://img.shields.io/npm/v/vitest-auto-spy?color=brightgreen&logo=npm)](https://www.npmjs.com/package/vitest-auto-spy)
 [![npm downloads](https://img.shields.io/npm/dm/vitest-auto-spy?color=brightgreen&logo=npm)](https://www.npmjs.com/package/vitest-auto-spy)
 [![CI](https://github.com/ASDAlexey/vitest-auto-spy/actions/workflows/ci.yml/badge.svg)](https://github.com/ASDAlexey/vitest-auto-spy/actions/workflows/ci.yml)
-[![minzipped size](https://img.shields.io/badge/minzip-12.5%20kB-brightgreen)](#install)
+[![minzipped size](https://img.shields.io/badge/minzip-12.7%20kB-brightgreen)](#install)
 [![types](https://img.shields.io/npm/types/vitest-auto-spy?logo=typescript&logoColor=white)](https://www.npmjs.com/package/vitest-auto-spy)
 [![coverage](https://img.shields.io/badge/coverage-100%25-brightgreen)](https://github.com/ASDAlexey/vitest-auto-spy/actions/workflows/ci.yml)
 [![license](https://img.shields.io/npm/l/vitest-auto-spy?color=blue)](./LICENSE)
@@ -48,7 +48,7 @@ identical API, with **RxJS** spies and **Angular / NestJS / React / Vue·Pinia /
 - 📡 First-class RxJS `Observable` spying (`nextWith`, `nextWithValues`, `throwWith`, …)
 - ⚙️ Getter / setter spies via `accessorSpies`
 - 🧰 DI & mocking utilities — `provideAutoSpy` / `injectSpy` (Angular, NestJS, Vue), `createFunctionSpy`, `mockReadonlyProp` for signals
-- ⚡ Angular speed & zoneless helpers — `renderShallow` (**1.7×** on real component specs), `createWithAutoSpies`, `stable` / `flushEffects`, `toHaveSignalValue`, per-file `TestBed` timings
+- ⚡ Angular speed & zoneless helpers — `renderShallow` (**1.7×** on real component specs), `createWithAutoSpies`, `stable` / `flushEffects`, `settleResource` for `httpResource()`, `toHaveSignalValue`, per-file `TestBed` timings
 - 🧱 The providers a testing module cannot reach — `overrideComponentProvider`, `provideAutoSpyForToken`, `assertNgModuleScopes`, `createDirectiveHost`
 - 📡 Observable assertions that fail on silence — `expectEmission` / `expectEmissions` / `expectNoEmission` / `expectCompletion` / `expectError`, no rxjs required, Angular `output()` included
 - 🏗️ Doubles for what the code builds itself — `mockConstructor` / `stubConstructor` for `new`, plus `stubMediaElement`, `stubAbortController` and the observer stubs
@@ -112,6 +112,7 @@ identical API, with **RxJS** spies and **Angular / NestJS / React / Vue·Pinia /
     - [Shallow component rendering](#shallow-component-rendering)
     - [Building a class with auto-spied dependencies](#building-a-class-with-auto-spied-dependencies)
     - [Zoneless waiting](#zoneless-waiting)
+    - [Settling a `resource()` or `httpResource()`](#settling-a-resource-or-httpresource)
     - [Asserting a signal's value](#asserting-a-signals-value)
     - [Where a spec spends its time](#where-a-spec-spends-its-time)
   - [NestJS](#nestjs)
@@ -711,7 +712,7 @@ Node / Bun / React / Vue project pulls **neither rxjs nor Angular into its runti
 | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------- | :----: |
 | `vitest-auto-spy`               | `createSpyFromClass`, `createAutoMock`, `createFunctionSpy`, sync + promise + accessor spies, `errorHandler`, types                                           | `vitest`                    |   ✅   |
 | `vitest-auto-spy/rxjs`          | observable spies (`nextWith`, `nextWithValues`, `observablePropsToSpyOn`, …) + `createObservableWithValues`                                                   | `rxjs`                      |   ✅   |
-| `vitest-auto-spy/angular`       | `provideAutoSpy`, `injectSpy`, `renderShallow`, `createWithAutoSpies`, `stable`/`flushEffects`, the `mock*Prop` helpers, signal matchers, TestBed diagnostics | `@angular/core`             |   ✅   |
+| `vitest-auto-spy/angular`       | `provideAutoSpy`, `injectSpy`, `renderShallow`, `createWithAutoSpies`, `stable`/`flushEffects`, `settleResource`, the `mock*Prop` helpers, signal matchers, TestBed diagnostics | `@angular/core`             |   ✅   |
 | `vitest-auto-spy/bun`           | the same core, driven by Bun's `bun:test` mocks                                                                                                               | `bun:test`                  |   ✅   |
 | `vitest-auto-spy/bun-angular`   | Angular's `TestBed` under `bun test` — DOM, JIT `templateUrl` resolution and a zoneless environment, from one preload                                         | `bun:test`, `@angular/core` |   ✅   |
 | `vitest-auto-spy/node`          | the same core, driven by `node:test`'s `mock.fn()`                                                                                                            | `node:test`                 |   ✅   |
@@ -1254,6 +1255,35 @@ effects, so an assertion right after it reads state that has not finished comput
 app the state that matters is signal-derived and effects are what move it forward. `stable` does
 both, in the right order; `flushEffects` prefers `TestBed.tick()` (Angular ≥ 20) and falls back to
 `ApplicationRef.tick()`.
+
+The wait is bounded: `stable` gives the fixture **2000 ms** and then throws the cause, instead of
+letting the runner report a 5 s file-level timeout that names neither the helper nor the fixture.
+Pass `{ timeout, label }` to change either; `{ timeout: 0 }` waits indefinitely. The watchdog runs
+on a timer captured at import, so `vi.useFakeTimers()` cannot freeze it.
+
+#### Settling a `resource()` or `httpResource()`
+
+```ts
+import { flushEffects, settleResource } from 'vitest-auto-spy/angular';
+
+const products = TestBed.runInInjectionContext(() => httpResource<Product[]>(() => '/api/products'));
+
+flushEffects(); // the request is issued here — not when the resource was created
+TestBed.inject(HttpTestingController).expectOne('/api/products').flush([product]);
+await settleResource(products, { label: 'the product resource' });
+
+expect(products.value()).toEqual([product]);
+```
+
+Angular's resource primitives need a **different wait each** — measured on 21.2.17, an
+`httpResource` settles one tick + one microtask after its flush, a plain `resource()` takes two
+rounds of the same, and neither has made a request at all until something ticks. Getting it wrong
+asserts against the resource's _default_ value, which is a green test proving nothing.
+`settleResource` is the loop both converge under, with a turn budget and a failure that names the
+resource and the flush it is missing.
+
+`flushEventLoopUntil` cannot do this: it takes real event-loop turns and never ticks, so a resource
+awaited through it finishes the budget having issued zero requests.
 
 #### Asserting a signal's value
 
@@ -1931,7 +1961,8 @@ Both are the same object at runtime; only the view changes.
 | `describeDuplicateCopies()` / `getPackageCopies()`                                                           | The duplicate-install report, and the copies behind it                                                                                              |
 | `renderShallow(Component, opts?)` _(Angular)_                                                                | `TestBed` component, minus its children and (by default) its template                                                                               |
 | `createWithAutoSpies(Class, opts?)` _(Angular)_                                                              | Build a class through Angular DI with every unprovided token auto-spied                                                                             |
-| `stable(fixture)` / `flushEffects()` _(Angular)_                                                             | Zoneless waiting: flush effects, then await the fixture                                                                                             |
+| `stable(fixture, opts?)` / `flushEffects()` _(Angular)_                                                      | Zoneless waiting: flush effects, then await the fixture, with a 2 s budget that names the cause                                                      |
+| `settleResource(resource, opts?)` _(Angular)_                                                                | Tick until an `httpResource()` / `resource()` / `rxResource()` leaves `loading`                                                                      |
 | `registerSignalMatchers()` _(Angular)_                                                                       | Adds `expect(sig).toHaveSignalValue(value)`                                                                                                         |
 | `enableTestBedDiagnostics(opts?)` _(Angular)_                                                                | Per-file report of how much of a spec's time went into `TestBed`                                                                                    |
 | `setupAngularTestEnv(opts)` _(Angular)_                                                                      | Zone and zoneless spec files in one worker, switching platforms per file                                                                            |

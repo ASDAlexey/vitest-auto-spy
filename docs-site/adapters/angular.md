@@ -289,6 +289,67 @@ app the state that matters is signal-derived and effects are what move it forwar
 both, in the right order; `flushEffects` prefers `TestBed.tick()` (Angular ≥ 20) and falls back to
 `ApplicationRef.tick()`.
 
+### The wait is bounded
+
+`stable` gives the fixture **2000 ms** and then throws the cause. A fixture that never stabilises —
+a real `HttpClient` request nothing completed, a `PendingTasks` entry nothing released, a
+`setInterval` running under real timers — used to hang here until Vitest reported a 5 s _file-level_
+timeout naming neither the helper nor the fixture, which blames the file for the state of one
+component.
+
+```ts
+await stable(fixture, { timeout: 5000, label: 'the products fixture' });
+```
+
+Pass `label` when a spec awaits more than one fixture, so the failure says which. Pass
+`{ timeout: 0 }` to disable the watchdog and wait indefinitely — worth it only for a deliberately
+long real-timer test. The watchdog runs on a timer captured at import, so `vi.useFakeTimers()`
+cannot stop it: a watchdog the code under test can freeze is not a watchdog.
+
+## Resources: `httpResource()` and `resource()`
+
+Angular's resource primitives need a **different wait each**, and neither is the one a spec reaches
+for. Measured on Angular 21.2.17, zoneless TestBed:
+
+| What                                              | What it needs to settle              |
+| ------------------------------------------------- | ------------------------------------ |
+| `httpResource()`, after its response is flushed   | one tick + one microtask             |
+| `resource()` with an async loader                 | two rounds of the same               |
+| `httpResource()` that has just been created       | a tick, or it makes **no request**   |
+
+Getting it wrong does not fail loudly. It asserts against the resource's _default_ value — a green
+test proving nothing, until the day the default changes. `settleResource` is the loop both converge
+under:
+
+```ts
+import { flushEffects, settleResource } from 'vitest-auto-spy/angular';
+
+const products = TestBed.runInInjectionContext(() => httpResource<Product[]>(() => '/api/products'));
+
+flushEffects(); // the request is issued here — not when the resource was created
+TestBed.inject(HttpTestingController).expectOne('/api/products').flush([product]);
+await settleResource(products, { label: 'the product resource' });
+
+expect(products.value()).toEqual([product]);
+```
+
+**That `flushEffects()` is not optional and `settleResource` cannot replace it.** An `httpResource`
+issues no request until something ticks, so there is nothing for `expectOne` to find until then —
+and awaiting first would spend the whole budget on a resource that stays `loading` for a reason no
+amount of waiting fixes. One tick to get the request out, your flush, then one wait to take
+delivery. A plain `resource()` needs no flush and so needs no tick: `await settleResource(data)` is
+the whole of it.
+
+The wait ends on any settled status, `error` and `idle` included — waiting for those would be
+waiting for something that cannot happen. On expiry it names the resource and the flush it is
+missing.
+
+::: tip Not `flushEventLoopUntil`
+`flushEventLoopUntil` takes real event-loop turns and never ticks. A resource awaited through it
+finishes the whole budget having issued zero requests, then fails saying the condition was never
+met. Its docstring used to claim this exact use case; it never worked.
+:::
+
 ## Running one effect on demand
 
 `flushEffects()` asks the scheduler to run everything currently dirty. Sometimes a spec needs one
@@ -550,7 +611,7 @@ import { setupAngularTestEnv } from 'vitest-auto-spy/angular';
 import { setupZoneTestEnv, setupZonelessTestEnv } from 'jest-preset-angular/setup-env';
 
 setupAngularTestEnv({
-  zoneless: (testPath) => testPath.includes('/libs/music/') || testPath.includes('/apps/kion-top/'),
+  zoneless: (testPath) => testPath.includes('/libs/catalog/') || testPath.includes('/apps/storefront/'),
   initZone: setupZoneTestEnv,
   initZoneless: setupZonelessTestEnv,
 });
