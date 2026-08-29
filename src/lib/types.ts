@@ -16,9 +16,28 @@ import type { Mock } from 'vitest';
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- `Func` is the generic constraint for every spied method; `any[]`/`any` are required so `Parameters`/`ReturnType` inference (used throughout the spy types) accepts arbitrary method signatures.
 export type Func = (...args: any[]) => any;
 
-/** A constructable class (with arbitrary static members). */
+/**
+ * A class this library can read: its prototype, its name, its statics.
+ *
+ * The construct signature is **abstract**, and that is the point of the type rather than a detail.
+ * Nothing here ever calls `new` on what it is handed — `createSpyFromClass` walks the prototype
+ * chain, `createSpyClass` builds a constructor of its own — so demanding a *concrete* one bought no
+ * safety while rejecting the most common Angular DI-token shape there is:
+ *
+ * ```ts
+ * abstract class LocalStorage extends AbstractStorage {}
+ * // { provide: LocalStorage, useClass: BrowserLocalStorage } in production
+ * provideAutoSpy(LocalStorage) // used to be `Argument of type 'typeof LocalStorage' is not assignable…`
+ * ```
+ *
+ * A concrete constructor is assignable to an abstract one, so this only widens what is accepted —
+ * no existing call changes meaning. What an abstract class cannot give is *methods*: they are
+ * declared and never emitted, so its prototype is empty. That half is handled at runtime, by
+ * {@link ClassType}'s only consumer that cares — see the empty-prototype fallback in
+ * `createSpyFromClass`.
+ */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- a class may be invoked with arbitrary constructor args and expose arbitrary static members; both `any`s model that open shape for `createSpyFromClass`.
-export type ClassType<T> = { new (...args: any[]): T; [key: string]: any };
+export type ClassType<T> = (abstract new (...args: any[]) => T) & { [key: string]: any };
 
 // ---------------------------------------------------------------------------
 // Key filters — pick keys of `T` whose value matches a given type
@@ -258,14 +277,51 @@ export type Spy<T, Options extends SpyOptions = SpyOptions> = AddAccessorsSpies<
 /**
  * What a `mock*Prop` helper accepts as the stand-in for a member typed `V`.
  *
- * Exactly `V`, except that a **callable** member also accepts a bare function of the same shape.
- * The reason is `Spy<T>`: the recommended way to reach a service in an Angular spec is
- * `injectSpy(X)` / `asSpy(TestBed.inject(X))`, and on that object a signal-valued member is typed
+ * Exactly `V`, except for two deliberate widenings.
+ *
+ * A **callable** member also accepts a bare function of the same shape. The reason is `Spy<T>`: the
+ * recommended way to reach a service in an Angular spec is `injectSpy(X)` /
+ * `asSpy(TestBed.inject(X))`, and on that object a signal-valued member is typed
  * `Signal<T> & Mock & …`. Requiring the exact member type would mean no real signal could ever be
  * written into it — so the spec would have to keep the instance under a second name purely to patch
  * it, which is what this avoids.
+ *
+ * **Every** member also accepts `null` and `undefined`. "This member is absent in this test" is a
+ * normal thing for a spec to say — `mockValueProp(navigation, 'currentFocus', null)` for a service
+ * that reads the field as *has focus / has none*, `mockValueProp(window, 'AudioContext', undefined)`
+ * for an API a TV platform does not ship — and interface declarations routinely omit the `| null`
+ * the runtime has.
+ *
+ * Be clear about what that buys, because it is less than it looks: such a call *already* compiled,
+ * by falling through to the untyped escape-hatch overload each of these helpers carries. Nothing
+ * a `mock*Prop` helper is handed is ever rejected, and that is deliberate — the escape hatch is a
+ * routine tool, not a last resort (a partial fixture for a fat type, a synthetic DOM event, a
+ * `#private` field). What the widening changes is which overload answers: the checked one, whose
+ * `K extends keyof T` gives the property name completions and a spelling check. The value is not
+ * checked either way.
  */
-export type PropStubValue<V> = V extends (...args: infer Args) => infer Return ? V | ((...args: Args) => Return) : V;
+export type PropStubValue<V> = (V extends (...args: infer Args) => infer Return ? V | ((...args: Args) => Return) : V) | null | undefined;
+
+/**
+ * `T` with every `readonly` modifier removed.
+ *
+ * `Spy<T>` is a homomorphic mapped type, so it *preserves* `readonly` — and an abstract class whose
+ * useful members are getters (`abstract get pathname(): string`, the shape `createAutoMock` exists
+ * for) therefore produces a double the spec cannot assign to: `TS2540: Cannot assign to 'pathname'
+ * because it is a read-only property`, even though the Proxy's `set` trap handles the write
+ * perfectly well at runtime.
+ *
+ * ```ts
+ * const location: Mutable<Spy<PlatformLocation>> = createAutoMock<PlatformLocation>();
+ *
+ * location.pathname = '/movies';
+ * ```
+ *
+ * `mockValueProp(location, 'pathname', '/movies')` is the alternative and needs no type at all —
+ * prefer it when the patch should be undone by `restoreMockedProps()`. Reach for this when the spec
+ * assigns directly, repeatedly, and does not want the bookkeeping.
+ */
+export type Mutable<T> = { -readonly [K in keyof T]: T[K] };
 
 /**
  * A partial `T` that stays partial all the way down.
@@ -291,13 +347,15 @@ export type PropStubValue<V> = V extends (...args: infer Args) => infer Return ?
  * accepts a key present in *some* member, and both members here have exactly the keys of `T`, so a
  * key `T` does not have is still rejected — at any depth.
  */
-export type DeepPartial<T> = T extends BuiltIn
-  ? T
-  : T extends readonly (infer Element)[]
-    ? DeepPartial<Element>[]
-    : T extends object
-      ? T | { [K in keyof T]?: DeepPartial<T[K]> }
-      : T;
+export type DeepPartial<T> = T extends Func
+  ? T | ((...args: Parameters<T>) => ReturnType<T>)
+  : T extends BuiltIn
+    ? T
+    : T extends readonly (infer Element)[]
+      ? DeepPartial<Element>[]
+      : T extends object
+        ? T | { [K in keyof T]?: DeepPartial<T[K]> }
+        : T;
 
 /**
  * Values {@link DeepPartial} must hand back untouched.
@@ -369,6 +427,31 @@ export interface ClassSpyConfiguration<T> {
   /** Auto-discover and spy every getter/setter on the prototype chain (merged with the explicit lists). */
   autoSpyAccessors?: boolean;
   /**
+   * Answer a member the prototype never named with a spy, instead of leaving it absent.
+   *
+   * For a **partially abstract** class — `abstract` declarations plus at least one concrete member,
+   * the ordinary Angular DI-token shape. `abstract read(): string` is erased before it reaches a
+   * prototype, so discovery finds only the concrete members; the empty-prototype fallback that
+   * covers a *fully* abstract class does not fire, and every abstract member is missing while
+   * `Spy<T>` types it as present. The read yields `undefined` and the failure lands in production
+   * code as `… is not a function`.
+   *
+   * ```ts
+   * abstract class LocalStorage {
+   *   abstract read(key: string): string | null;
+   *   clear(): void {}
+   * }
+   *
+   * provideAutoSpy(LocalStorage, { fillMissing: true });
+   * ```
+   *
+   * Opt-in, and it has to be: TypeScript erases `abstract`, so at runtime this class and a concrete
+   * one are indistinguishable, and filling every unknown key by default would silence a genuine
+   * typo on every class in the suite. Naming the members in {@link instanceMethodsToSpyOn} stays the
+   * alternative when the list is short and worth stating.
+   */
+  fillMissing?: boolean;
+  /**
    * What each named method returns, applied as the spy is built.
    *
    * ```ts
@@ -384,6 +467,28 @@ export interface ClassSpyConfiguration<T> {
    * other per method, not both.
    */
   returns?: MethodReturns<T>;
+  /**
+   * Values for members that are **not** method results — an Observable property the code under test
+   * subscribes to, a plain field, a signal.
+   *
+   * The counterpart of {@link returns}, and the symmetry that was missing: `provideAutoSpyForToken`
+   * has taken property seeds since it was introduced, while the class-based factory took only
+   * method configuration, so a double needing both had to be provided in one statement and finished
+   * in another. Seeded last, so a member named here wins over anything discovery or
+   * `observablePropsToSpyOn` produced for the same key.
+   *
+   * ```ts
+   * provideAutoSpy(FavoritesService, {
+   *   overrides: { favoritesCacheUpdated$: of(undefined), favoriteItems: [] },
+   *   returns: { load: of([]) },
+   * });
+   * ```
+   *
+   * A seeded key is stored exactly as written and is **not** a spy — that is the difference from
+   * `returns`, which configures the spy the factory built. Seed a real `Subject` here when the spec
+   * drives the stream itself; name the method in `returns` when it should stay assertable.
+   */
+  overrides?: DeepPartial<T>;
   /**
    * Materialize each method spy on first access instead of building all of them up front.
    *

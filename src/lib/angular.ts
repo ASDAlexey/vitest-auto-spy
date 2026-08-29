@@ -8,7 +8,7 @@
 import type { InjectionToken } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 
-import { createAutoMock } from './auto-mock';
+import { type AutoMockConfiguration, createAutoMock } from './auto-mock';
 import { createSpyFromClass } from './create-spy-from-class';
 import { DOCS_LINKS, withDocs } from './docs-links';
 import { isAutoSpyLike } from './spy-mark';
@@ -59,10 +59,18 @@ export type AngularTokenProvider<T> = { provide: InjectionToken<T>; useValue: Sp
  * ```
  *
  * @param token The injection token; its type argument is what the spy is built from.
- * @param overrides Seed values for members the double must answer with rather than spy on.
+ * @param overrides Seed values for members the double must answer with rather than spy on. A seeded
+ *   key is stored verbatim and is no longer a spy — so seed data, not methods.
+ * @param config Method configuration the seeds cannot express: `{ returns: { getProducts: of([]) } }`
+ *   keeps the method a spy *and* says what it answers, which `overrides` cannot do at once. Pass
+ *   `undefined` for `overrides` when only this is needed.
  */
-export function provideAutoSpyForToken<T>(token: InjectionToken<T>, overrides?: DeepPartial<T>): AngularTokenProvider<T> {
-  return { provide: token, useValue: createAutoMock<T>(overrides) };
+export function provideAutoSpyForToken<T>(
+  token: InjectionToken<T>,
+  overrides?: DeepPartial<T>,
+  config?: AutoMockConfiguration<T>,
+): AngularTokenProvider<T> {
+  return { provide: token, useValue: createAutoMock<T>(overrides, config) };
 }
 
 /**

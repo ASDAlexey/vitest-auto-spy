@@ -38,6 +38,97 @@ and re-exports everything on this page except `registerSignalMatchers` and the `
 diagnostics, which need the runner's `expect.extend` and suite-level hooks.
 :::
 
+## An `abstract class` DI token
+
+`abstract class LocalStorage extends AbstractStorage {}`, provided in production as
+`{ provide: LocalStorage, useClass: BrowserLocalStorage }`, is the standard way to declare a
+DI token in an Angular codebase — and it used to be the one shape `provideAutoSpy` could not serve.
+It failed twice over: the bare call compiled and produced an empty double, while the config form
+that would fix it did not compile at all (`TS2345: Cannot assign an abstract constructor type to a
+non-abstract constructor type`).
+
+Both halves work now.
+
+```ts
+abstract class LocalStorage extends AbstractStorage {
+  abstract read(key: string): string | null;
+  abstract write(key: string, value: string): void;
+}
+
+TestBed.configureTestingModule({ providers: [provideAutoSpy(LocalStorage)] });
+
+const storage = injectSpy(LocalStorage);
+
+storage.read.calledWith('token').mockReturnValue('abc');
+```
+
+`ClassType<T>` now carries an **abstract** construct signature — nothing in this library ever calls
+`new` on the token, so requiring a concrete one bought no safety. At runtime the abstract members
+are erased before they reach a prototype, so there is nothing to discover; when discovery comes back
+empty the factory hands back the `createAutoMock` proxy, which answers every method of the declared
+type. `injectSpy` recognises it as an auto-spy and stays quiet, and the hand-written workaround —
+`{ provide: LocalStorage, useValue: createAutoMock<LocalStorage>() }` — is no longer needed.
+
+One concrete member changes that, and it is worth knowing which side of the line a token is on:
+
+```ts
+abstract class LocalStorage {
+  abstract read(key: string): string | null;
+  clear(): void {} // discovery is no longer empty, so the fallback does not fire
+}
+
+const storage = injectSpy(LocalStorage);
+
+storage.clear; // a spy
+storage.read; // undefined — and `Spy<T>` says it is there
+```
+
+`abstract read()` is erased before it reaches a prototype, so only `clear` is discovered and the
+abstract members are simply absent — the call then dies as `storage.read is not a function` inside
+the component, not in the spec. Nothing can detect it automatically: TypeScript erases `abstract`,
+so at runtime this class and a concrete one are the same object. Ask for it:
+
+```ts
+providers: [provideAutoSpy(LocalStorage, { fillMissing: true })];
+```
+
+See [`fillMissing`](../core/create-spy-from-class#fillmissing-a-partially-abstract-class) for what it
+does and does not fill.
+
+## Seeding the double in the provider
+
+Both factories take both halves: `returns` for what a spied **method** answers, `overrides` for a
+member that is not a method result — an Observable property, a plain field, a signal.
+
+```ts
+provideAutoSpy(FavoritesService, {
+  returns: { load: of([]) },
+  overrides: { favoritesCacheUpdated$: of(undefined), favoriteItems: [] },
+});
+
+provideAutoSpyForToken(PRODUCTS, undefined, { returns: { getProducts: of([]), getById: of(null) } });
+```
+
+Until 3.5.0 the two helpers had one half each — `provideAutoSpyForToken` took property seeds,
+`provideAutoSpy` took method configuration — so a double needing both was provided in one statement
+and finished in another, in a `beforeEach` below it.
+
+A seeded `overrides` member is stored **verbatim and is no longer a spy**, which is the line between
+the two: seed data there, and name a method in `returns` when it must stay assertable. The reason to
+prefer either over a second statement is not brevity — the shortcut people take instead is an
+exported `const` provider carrying the values, and under `isolate: false` that is one set of spies
+shared by every file that imports it.
+
+## Do not write a local `injectSpy`
+
+A wrapper of the shape `TestBed.inject(token as never) as Spy<T>`, typed
+`<T>(token: abstract new (...args: never[]) => T)`, is a common thing to find already in a
+repository. The library's is strictly wider: it accepts a `ClassType<T>`, an `InjectionToken<T>` and
+an abstract constructor, warns when the injector returns something that is not a spy, and carries no
+type assertion for the project's lint rules to argue with. Two functions with the same name and
+different signatures means the import order in each file decides which one it gets — delete the
+local one, or re-export this one under that name.
+
 ## Lazy spies by default
 
 Angular tests spy a wide service and call a couple of its methods, so a spy is built on first
@@ -336,13 +427,13 @@ const menu = overrideComponentProvider(CatalogPageComponent, NavigationBuilderSe
 TestBed.configureTestingModule({ imports: [CheckoutComponent] }).overrideProvider(PaymentMethodService, overrideAutoSpy(PaymentMethodService));
 ```
 
-Two silent failures this removes.
+`overrideProvider(X, provideAutoSpy(X))` is **not** broken, contrary to what this page used to say.
+`provideAutoSpy` returns `{ provide, useValue }`; `overrideProvider` reads `useValue` off it and
+ignores the extra `provide`, so the spy is installed. Prefer `overrideAutoSpy` because it says what
+it does and hands the spy back directly, not because the other form is a no-op.
 
-`overrideProvider(X, provideAutoSpy(X))` passes a **provider** where `{ useValue }` is expected.
-There is no error and no warning — the spy is simply not connected, and the test runs on the real
-service. `overrideAutoSpy` returns the right shape by construction.
-
-`overrideProvider` only reaches a component the TestBed compiler knows about. A standalone component
+The silent failure that is real: `overrideProvider` only reaches a component the TestBed compiler
+knows about. A standalone component
 instantiated through a parent's template is not in the testing module's `imports`, so the override
 never applies to it, and finding that out means knowing how `TestBedCompiler.queueType` works.
 `overrideComponentProvider` queues the component — as an import when it is standalone, as a
@@ -527,7 +618,22 @@ A token typed with an *interface* has no class to read, which is where the usual
 from: a `PasscodeServiceMock` written in the spec, spied, and provided — after which `Spy<Mock>` and
 `Spy<PasscodeService>` disagree about `calledWith` and somebody reaches for an assertion (or, more
 often, `TestBed.inject<any>(TOKEN)` with an `eslint-disable` at the top of the file).
-`provideAutoSpyForToken` reads the type off the token; `injectSpy` already accepts one.
+`provideAutoSpyForToken` reads the type off the token; `injectSpy` already accepts one. Note the
+name: `provideAutoSpy` reads a *class prototype*, which a token has none of, so it is not the call
+that works here.
+
+The second argument is needed more often than it looks. A spy answers `undefined` until it is told
+otherwise, which is fatal the moment the code under test **chains** off it: a constructor doing
+`inject(LOGGER).channel('auth').debug('…')` dies on the `.debug` of `undefined` before the spec's
+first line runs, because nothing in production wrote `?.` there. Seed the link that returns the
+object:
+
+```ts
+provideAutoSpyForToken(LOGGER, { channel: vi.fn().mockReturnThis() });
+```
+
+For a chain more than one link long, [`mockDeep<T>()`](/core/factories) is the double that answers
+at every level.
 
 ## `injectSpy` says when it got the real thing
 

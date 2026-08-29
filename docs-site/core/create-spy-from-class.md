@@ -37,7 +37,7 @@ cannot see. To spy on *nothing but* a list, use `onlyMethodsToSpyOn`, which skip
 
 The `ClassSpyConfiguration` keys are `methodsToSpyOn`, `onlyMethodsToSpyOn`,
 `instanceMethodsToSpyOn`, `observablePropsToSpyOn`, `gettersToSpyOn`, `settersToSpyOn`,
-`autoSpyAccessors` and `lazySpies`.
+`autoSpyAccessors`, `fillMissing`, `lazySpies`, `returns` and `overrides`.
 
 ### `instanceMethodsToSpyOn` — callables that are not on the prototype
 
@@ -61,6 +61,46 @@ This list and `methodsToSpyOn` behave identically — both **add** to whatever d
 and differ only in what their names tell a reader. Prefer this one in new code; keep
 `methodsToSpyOn` in specs carried over from `jest-auto-spies`. Neither warns about a name the
 prototype does not have: being absent from the prototype is the point.
+
+### `fillMissing` — a partially abstract class
+
+A **fully** abstract class needs nothing: its prototype names nothing at all, so the factory hands
+back the [type-driven proxy](/core/auto-mock-by-type) and every method answers. One concrete member
+is enough to leave that path — and that is the ordinary Angular DI-token shape:
+
+```ts
+abstract class LocalStorage {
+  abstract read(key: string): string | null;
+  clear(): void {} // one concrete member, and discovery is no longer empty
+}
+
+const storage = createSpyFromClass(LocalStorage);
+
+storage.clear; // a spy
+storage.read; // undefined — `abstract read()` never reached a prototype
+```
+
+`Spy<T>` types `read` as present, the read yields `undefined`, and the failure surfaces as
+`storage.read is not a function` **inside production code**, with nothing pointing at the spec.
+`fillMissing` answers a name the prototype never carried with a spy:
+
+```ts
+createSpyFromClass(LocalStorage, { fillMissing: true });
+// or: providers: [provideAutoSpy(LocalStorage, { fillMissing: true })]
+```
+
+It is opt-in, and it has to be. TypeScript erases `abstract` entirely, so at runtime a partially
+abstract class and a concrete one are the same object — filling every unknown key by default would
+silence a genuine typo on every class in the suite, which is the property that separates this
+library from the mock-everything proxies. Naming the members in `instanceMethodsToSpyOn` stays the
+alternative when the list is short and worth stating.
+
+Two things it does not change. A member the record already has is still read from the record, so a
+lazy placeholder materialises exactly as it would without the wrapper. And the protocol keys the
+surrounding machinery probes to decide *what kind of object this is* — `then`, `constructor`,
+`toJSON`, `asymmetricMatch`, `$$typeof`, `nodeType`, and every symbol — are never filled: a spy on
+`asymmetricMatch` turns every `toEqual` against the double into a matcher invocation, and one on
+`toJSON` rewrites every snapshot of it.
 
 ## Lazy spies — `lazySpies`
 

@@ -287,6 +287,167 @@ describe('createSpyFromClass', () => {
     expect(spy.syncMethod(7)).toBe('num');
     expect(spy.syncMethod('x' as unknown as number)).toBeUndefined();
   });
+
+  it('falls back to the type-driven proxy when the prototype names nothing', () => {
+    // An abstract class is the case that matters: `abstract read()` is erased, so the chain ends
+    // with an empty method set and the assembled `{}` would fail on the first call in production
+    // code rather than in the spec.
+    abstract class Storage {
+      abstract read(key: string): string | null;
+    }
+
+    const storage = createSpyFromClass(Storage);
+
+    storage.read.mockReturnValue('value');
+
+    expect(storage.read('k')).toBe('value');
+  });
+
+  it('seeds `returns` on that fallback too', () => {
+    abstract class Clock {
+      abstract now(): number;
+    }
+
+    const clock = createSpyFromClass(Clock, { returns: { now: 42 } });
+
+    expect(clock.now()).toBe(42);
+  });
+
+  it('keeps the assembled record when accessors are configured, empty prototype or not', () => {
+    // An accessor list asks for something a proxy cannot provide — the `accessorSpies` bag and a
+    // real getter/setter pair — so the record wins even with nothing on the prototype. Method lists
+    // do not have that effect: the proxy answers every name anyway.
+    abstract class Store {
+      abstract items: string[];
+    }
+
+    const store = createSpyFromClass(Store, { gettersToSpyOn: ['items'] });
+
+    store.accessorSpies.getters.items.mockReturnValue(['a']);
+
+    expect(store.items).toEqual(['a']);
+    expect(Object.keys(store)).toContain('accessorSpies');
+  });
+
+  it('keeps the assembled record when a restricting list is configured', () => {
+    // `onlyMethodsToSpyOn` asks for the opposite of what the proxy provides — "these and no others,
+    // so an unexpected call is loud" — and the proxy answers every key. Taking the fallback would
+    // discard the whitelist without a word.
+    abstract class Storage {
+      abstract read(key: string): string | null;
+      abstract write(key: string, value: string): void;
+    }
+
+    const storage = createSpyFromClass(Storage, { onlyMethodsToSpyOn: ['read'] });
+
+    storage.read.mockReturnValue('value');
+
+    expect(storage.read('k')).toBe('value');
+    expect(storage.write).toBeUndefined();
+  });
+
+  it('does not report a whitelist as a typo when the prototype names nothing', () => {
+    abstract class Storage {
+      abstract read(key: string): string | null;
+    }
+
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    createSpyFromClass(Storage, { onlyMethodsToSpyOn: ['read'] });
+
+    // Every name would be "not on the prototype" here, and none of it is evidence of a typo: the
+    // whitelist is the only way to describe an abstract class.
+    expect(warn).not.toHaveBeenCalled();
+
+    warn.mockRestore();
+  });
+
+  it('still reports a typo in a whitelist when the prototype does name something', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    createSpyFromClass(MyService, { onlyMethodsToSpyOn: ['getName', 'noSuchMethod'] as never });
+
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('noSuchMethod'));
+
+    warn.mockRestore();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// `fillMissing` — a partially abstract class
+// ---------------------------------------------------------------------------
+
+describe('fillMissing', () => {
+  abstract class LocalStorage {
+    abstract read(key: string): string | null;
+    abstract items: string[];
+    clear(): void {}
+  }
+
+  it('leaves an abstract member absent by default', () => {
+    // The empty-prototype fallback cannot fire here — `clear` is concrete, so discovery found
+    // something — and `abstract read()` never reached a prototype to be found.
+    const storage = createSpyFromClass(LocalStorage);
+
+    expect(storage.clear).toBeTypeOf('function');
+    expect(storage.read).toBeUndefined();
+  });
+
+  it('answers an abstract member with a spy when asked to', () => {
+    const storage = createSpyFromClass(LocalStorage, { fillMissing: true });
+
+    storage.read.mockReturnValue('value');
+
+    expect(storage.read('k')).toBe('value');
+    expect(storage.read).toHaveBeenCalledWith('k');
+    expect(storage.clear).toBeTypeOf('function');
+  });
+
+  it('caches the spy it minted, so two reads are the same reference', () => {
+    const storage = createSpyFromClass(LocalStorage, { fillMissing: true });
+
+    expect(storage.read).toBe(storage.read);
+  });
+
+  it('names a filled member in `Object.keys` only once it has been read', () => {
+    const storage = createSpyFromClass(LocalStorage, { fillMissing: true });
+
+    expect(Object.keys(storage)).not.toContain('read');
+
+    storage.read.mockReturnValue(null);
+
+    expect(Object.keys(storage)).toContain('read');
+  });
+
+  it('leaves the record to answer a member it already has', () => {
+    const storage = createSpyFromClass(LocalStorage, { fillMissing: true, returns: { clear: undefined } });
+
+    // Reading through the wrapper must reach the record's own spy, not mint a second one over it.
+    expect(storage.clear).toBe(storage.clear);
+    expect(Object.keys(storage)).toContain('clear');
+  });
+
+  it('never mints a spy for a protocol key', () => {
+    const storage = createSpyFromClass(LocalStorage, { fillMissing: true });
+    const probed = storage as unknown as Record<string, unknown>;
+
+    // Each of these is how some part of the machinery asks "what kind of object is this?".
+    expect(probed['then']).toBeUndefined();
+    expect(probed['toJSON']).toBeUndefined();
+    expect(probed['asymmetricMatch']).toBeUndefined();
+    expect(probed['$$typeof']).toBeUndefined();
+    expect(probed['nodeType']).toBeUndefined();
+    expect(Reflect.get(probed, Symbol.iterator)).toBeUndefined();
+    expect(probed['constructor']).toBe(Object);
+    expect(Object.keys(storage)).toEqual(['accessorSpies', 'clear']);
+  });
+
+  it('reads an inherited member from the prototype rather than shadowing it', () => {
+    const storage = createSpyFromClass(LocalStorage, { fillMissing: true });
+
+    expect(String(storage)).toBe('[object Object]');
+    expect(Object.keys(storage)).not.toContain('toString');
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -675,6 +836,69 @@ describe('provideAutoSpy / injectSpy', () => {
     TestBed.configureTestingModule({ providers: [{ provide: LOGGER, useValue: createAutoMock<{ log(message: string): void }>() }] });
     injectSpy(LOGGER);
 
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it('seeds properties and method results from the provider, in one statement', () => {
+    // `returns` configures the spy; `overrides` seeds a member that is not a method result. Without
+    // the pair, a double needing both was provided in one statement and finished in another — and
+    // the shortcut people take instead is a module-scoped `const` provider, which under
+    // `isolate: false` is one set of spies shared by every file that imports it.
+    const events$ = new ReplaySubject<number>(1);
+
+    TestBed.configureTestingModule({
+      providers: [provideAutoSpy(MyService, { overrides: { things$: events$, theme: 'dark' }, returns: { syncMethod: 'seeded' } })],
+    });
+
+    const service = injectSpy(MyService);
+
+    expect(service.syncMethod()).toBe('seeded');
+    expect(service.things$).toBe(events$);
+    expect(service.theme).toBe('dark');
+  });
+
+  it('seeds method results behind an InjectionToken too', async () => {
+    const PRODUCTS = new InjectionToken<{ getProducts(): Observable<string[]> }>('PRODUCTS');
+
+    TestBed.configureTestingModule({
+      providers: [provideAutoSpyForToken(PRODUCTS, undefined, { returns: { getProducts: of(['a']) } })],
+    });
+
+    const products = injectSpy(PRODUCTS);
+
+    // Still a spy — which is what seeding it through `overrides` would have thrown away.
+    await expect(collect(products.getProducts())).resolves.toMatchObject({ values: [['a']] });
+    expect(products.getProducts).toHaveBeenCalled();
+  });
+
+  it('takes an abstract class — the standard Angular DI-token shape', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    // Production provides `{ provide: LocalStorage, useClass: BrowserLocalStorage }`, so the token
+    // is a class with nothing on its prototype: every member is `abstract`, and `abstract` is
+    // erased before emit. Both halves used to fail — the type rejected it, and a spy read off that
+    // prototype would have been `{}`.
+    abstract class AbstractStorage {
+      abstract read(key: string): string | null;
+    }
+
+    abstract class LocalStorage extends AbstractStorage {
+      abstract write(key: string, value: string): void;
+    }
+
+    // The config form is the one that used to be a hard `TS2345 Cannot assign an abstract
+    // constructor type to a non-abstract constructor type` — i.e. the bare call compiled and was
+    // useless, and the form that fixes it did not compile at all.
+    TestBed.configureTestingModule({ providers: [provideAutoSpy(LocalStorage, { instanceMethodsToSpyOn: ['read'] })] });
+
+    const storage = injectSpy(LocalStorage);
+    storage.read.calledWith('token').mockReturnValue('abc');
+    storage.write('token', 'abc');
+
+    expect(storage.read('token')).toBe('abc');
+    expect(storage.write).toHaveBeenCalledWith('token', 'abc');
+    // The double is recognisably an auto-spy, so `injectSpy` does not report a missing provider.
     expect(warn).not.toHaveBeenCalled();
     warn.mockRestore();
   });

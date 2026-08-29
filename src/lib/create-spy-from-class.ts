@@ -4,7 +4,9 @@
  * observable properties and getter/setter accessors.
  */
 import { createAccessorsSpies } from './accessor-spy';
+import { createAutoMock } from './auto-mock';
 import { DOCS_LINKS, withDocs } from './docs-links';
+import { fillMissingMembers } from './fill-missing';
 import { createFunctionSpy } from './function-spy';
 import { getMockAdapter } from './mock-adapter';
 import { requireObservableSupport } from './observable-support';
@@ -19,8 +21,10 @@ interface ResolvedSpyConfiguration {
   settersToSpyOn: string[];
   gettersToSpyOn: string[];
   autoSpyAccessors: boolean;
+  fillMissing: boolean;
   lazySpies: boolean;
   returns: Record<string, unknown>;
+  overrides: object;
 }
 
 /** Getter/setter accessor names discovered along a prototype chain. */
@@ -37,8 +41,10 @@ const EMPTY_CONFIGURATION: ResolvedSpyConfiguration = {
   settersToSpyOn: [],
   gettersToSpyOn: [],
   autoSpyAccessors: false,
+  fillMissing: false,
   lazySpies: true,
   returns: {},
+  overrides: {},
 };
 
 /** Own, non-getter method names of a single prototype object (excluding the constructor). */
@@ -243,7 +249,7 @@ function isCallable(value: unknown): value is Func {
  * not part of every runner's surface — `node:test`'s `mock.fn()` has no such thing — and the
  * adapter is the seam that already hides those differences from the core.
  */
-function applyReturns(autoSpy: Record<string, unknown>, ObjectClass: ClassType<unknown>, returns: Record<string, unknown>): void {
+function applyReturns(autoSpy: object, ObjectClass: ClassType<unknown>, returns: Record<string, unknown>): void {
   const entries = Object.entries(returns);
 
   if (entries.length === 0) {
@@ -256,7 +262,9 @@ function applyReturns(autoSpy: Record<string, unknown>, ObjectClass: ClassType<u
 
   entries.forEach(([name, value]) => {
     // Reading materializes the lazy spy, which is what has to happen before it can be configured.
-    const spy: unknown = autoSpy[name];
+    // Through `Reflect.get` rather than an index access, because the object is either the assembled
+    // record or the `createAutoMock` Proxy the empty-prototype path returns, and both answer a read.
+    const spy: unknown = Reflect.get(autoSpy, name);
 
     if (!isCallable(spy)) {
       // eslint-disable-next-line no-console -- intentional dev-time misconfiguration warning; console.warn is allowed per CLAUDE.md.
@@ -324,8 +332,10 @@ function resolveConfiguration<T>(methodsToSpyOnOrConfig?: ClassSpyConfiguration<
     settersToSpyOn: methodsToSpyOnOrConfig.settersToSpyOn ?? [],
     gettersToSpyOn: methodsToSpyOnOrConfig.gettersToSpyOn ?? [],
     autoSpyAccessors: methodsToSpyOnOrConfig.autoSpyAccessors ?? false,
+    fillMissing: methodsToSpyOnOrConfig.fillMissing ?? false,
     lazySpies: methodsToSpyOnOrConfig.lazySpies ?? true,
     returns: methodsToSpyOnOrConfig.returns ?? {},
+    overrides: methodsToSpyOnOrConfig.overrides ?? {},
   };
 }
 
@@ -351,6 +361,59 @@ export function createSpyFromClass<T, Options extends SpyOptions = SpyOptions>(
   methodsToSpyOnOrConfig?: ClassSpyConfiguration<T> | OnlyMethodKeysOf<T>[],
 ): Spy<T, Options> {
   const config = resolveConfiguration(methodsToSpyOnOrConfig);
+  const autoSpy = assembleSpy<T, Options>(ObjectClass, config);
+
+  applyReturns(autoSpy, ObjectClass, config.returns);
+  applyOverrides(autoSpy, config.overrides);
+
+  return autoSpy;
+}
+
+/**
+ * Write the seeded members onto the finished spy.
+ *
+ * Last, and by assignment rather than by definition: on the assembled record it replaces a lazy
+ * method placeholder through its setter, and on the `createAutoMock` proxy the empty prototype path
+ * returns it lands in the same store the `get` trap reads. Both are what a seed has to do — shadow
+ * whatever the factory produced for that key.
+ */
+function applyOverrides(autoSpy: object, overrides: object): void {
+  for (const key of Reflect.ownKeys(overrides)) {
+    Reflect.set(autoSpy, key, Reflect.get(overrides, key));
+  }
+}
+
+/**
+ * Build the spy object itself — every branch except the `returns` seeding, which is shared.
+ *
+ * Split out of {@link createSpyFromClass} so the empty-prototype fallback can hand back an entirely
+ * different object (a Proxy rather than a record) while `returns` is still applied to whichever one
+ * came back.
+ */
+function assembleSpy<T, Options extends SpyOptions>(ObjectClass: ClassType<T>, config: ResolvedSpyConfiguration): Spy<T, Options> {
+  const accessors = resolveAccessors(ObjectClass.prototype, config);
+
+  if (hasNothingToRead(ObjectClass, accessors, config)) {
+    // The prototype named nothing, and the overwhelmingly common reason is that the class is
+    // `abstract`: `abstract read(key: string): string` is a declaration, erased before it reaches a
+    // prototype, so an `abstract class` DI token — the standard Angular shape,
+    // `{ provide: LocalStorage, useClass: BrowserLocalStorage }` — walks out of the chain with an
+    // empty method set. Assembling `{}` from that is worse than useless: the double is accepted by
+    // DI, and then every call the code under test makes dies on "is not a function", pointing at
+    // production code rather than at the spec.
+    //
+    // `createAutoMock<T>()` is the double for exactly this situation — it works from the *type*,
+    // materialising a spy per accessed key — so hand back that instead of an empty record. It also
+    // subsumes the workaround: naming the missing callables in `instanceMethodsToSpyOn` cannot be
+    // needed on an object that answers every key. The same fallback covers a genuinely empty
+    // concrete class, where a `{}` spy is no more useful, and `returns` is applied to it by the
+    // caller either way.
+    //
+    // Throwing here — "use createAutoMock<T>()" — was the alternative, and it is worse: it turns
+    // the single most common Angular token shape into a hard error with a manual workaround, when
+    // the workaround is a thing this library can simply do.
+    return createAutoMock<T, Options>();
+  }
 
   const methodNames = resolveMethodNames(ObjectClass, config);
 
@@ -358,7 +421,12 @@ export function createSpyFromClass<T, Options extends SpyOptions = SpyOptions>(
   // with nothing, and the failure surfaces as `… is not a function` inside the code under test. In
   // an additive list a typo merely creates a spy nobody calls, which is what `jest-auto-spies` has
   // always done and not worth a warning.
-  if (config.onlyMethodsToSpyOn.length > 0) {
+  //
+  // The second condition is what keeps it honest on an abstract class: there the prototype names
+  // nothing at all, so *every* entry would be reported and none of it would be evidence of a typo —
+  // the whitelist is the only way to describe such a class, and warning about the correct usage is
+  // worse than saying nothing.
+  if (config.onlyMethodsToSpyOn.length > 0 && getAllMethodNames(ObjectClass.prototype).length > 0) {
     warnOnUnknownMethods(ObjectClass, config.onlyMethodsToSpyOn);
   }
 
@@ -369,8 +437,6 @@ export function createSpyFromClass<T, Options extends SpyOptions = SpyOptions>(
   config.observablePropsToSpyOn.forEach((observablePropName) => {
     autoSpy[observablePropName] = requireObservableSupport().createPropSpy();
   });
-
-  const accessors = resolveAccessors(ObjectClass.prototype, config);
 
   warnOnAccessorNamingAMethod(ObjectClass, config);
   createAccessorsSpies(autoSpy, accessors.getters, accessors.setters);
@@ -386,10 +452,32 @@ export function createSpyFromClass<T, Options extends SpyOptions = SpyOptions>(
     }
   });
 
-  applyReturns(autoSpy, ObjectClass, config.returns);
-
   // `autoSpy` is assembled key-by-key from the runtime method/accessor names;
   // its concrete `Spy<T>` shape only exists structurally after assembly.
   // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- the spy object is built dynamically from runtime-discovered names; its `Spy<T>` shape cannot be expressed before assembly.
-  return autoSpy as Spy<T, Options>;
+  return (config.fillMissing ? fillMissingMembers(autoSpy) : autoSpy) as Spy<T, Options>;
+}
+
+/**
+ * Whether the prototype named nothing *and* nothing was configured that only the assembled record
+ * can provide.
+ *
+ * The method lists are deliberately not consulted: on an empty prototype they are a workaround for
+ * the very gap the fallback closes, and the proxy answers those names too. Observable props and
+ * accessors are consulted, because they are not names — they are objects the record owns (the rxjs
+ * prop spies and the `accessorSpies` bag), and a proxy has neither.
+ */
+function hasNothingToRead(ObjectClass: ClassType<unknown>, accessors: AccessorNames, config: ResolvedSpyConfiguration): boolean {
+  return (
+    getAllMethodNames(ObjectClass.prototype).length === 0 &&
+    accessors.getters.length === 0 &&
+    accessors.setters.length === 0 &&
+    config.observablePropsToSpyOn.length === 0 &&
+    // A *restricting* list asks for the opposite of what the proxy provides. `onlyMethodsToSpyOn`
+    // is documented as "spy on these and no others, so an unexpected call fails loudly", and the
+    // proxy answers every key — taking the fallback would discard the whitelist without a word and
+    // silently disable the one thing the option exists for. The additive lists have no such
+    // conflict: they ask for names to be present, which the proxy already guarantees.
+    config.onlyMethodsToSpyOn.length === 0
+  );
 }

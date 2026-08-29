@@ -49,7 +49,7 @@ features:
     link: /adapters/angular
   - icon: 🧱
     title: The providers a testing module cannot reach
-    details: overrideComponentProvider replaces a dependency a component declares in its own providers — where overrideProvider(X, provideAutoSpy(X)) is a silent no-op. assertNgModuleScopes names the module an AOT bundle stripped, createDirectiveHost compiles a host that is correct for both the compiler and the TestBed, and provideAutoSpyForToken covers a dependency behind an InjectionToken.
+    details: overrideComponentProvider replaces a dependency a component declares in its own providers, and queues the component with the TestBed compiler so the override reaches it. assertNgModuleScopes names the module an AOT bundle stripped, createDirectiveHost compiles a host that is correct for both the compiler and the TestBed, and provideAutoSpyForToken covers a dependency behind an InjectionToken.
     link: /adapters/angular
   - icon: 📡
     title: Observables that fail on silence
