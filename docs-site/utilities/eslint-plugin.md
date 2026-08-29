@@ -1,6 +1,6 @@
 ---
 title: ESLint plugin
-description: Nine flat-config lint rules that steer a suite onto the auto-spy helpers, versioned with the API they recommend.
+description: Eleven flat-config lint rules that steer a suite onto the auto-spy helpers, versioned with the API they recommend.
 ---
 
 # ESLint plugin
@@ -33,8 +33,10 @@ which a subpath export of this package can never be.
 | `no-mocked-for-spy`            |   `warn`    | `--fix`   | `Mocked<T>` in any type position → `Spy<T>`, import and all                            |
 | `no-done-callback`             |   `error`   | —         | `it('x', (done) => …)` → `async` + an awaited assertion                               |
 | `no-floating-assertion`        |   `error`   | —         | `expect()` in a `.then()` nobody awaits → `expect(await promise)`                     |
+| `no-overridden-provider`       |   `error`   | —         | two providers for one token in one array → the earlier one never runs                 |
+| `no-inject-before-override`    |   `warn`    | —         | `TestBed.inject()` in a hook, in a suite that still calls `override*`                  |
 
-The five `error` rules are the ones that catch a test being _wrong_ rather than verbose.
+The six `error` rules are the ones that catch a test being _wrong_ rather than verbose.
 `Object.defineProperty` leaves no way back — nothing restores the original descriptor, so the patch
 leaks into the next file under `isolate: false`. An `expect()` inside `subscribe()` never runs if
 the stream stays silent, leaving a green test that asserted nothing.
@@ -105,6 +107,62 @@ six of eight reports were on tokens. The rule now tells the two apart — by the
 `new InjectionToken(…)` is within the resolver's reach, by the `SCREAMING_SNAKE_CASE` spelling
 otherwise — and names `provideAutoSpyForToken(TOKEN)` for a token, while the class message mentions
 the token form too.
+
+## The trap this plugin's own advice sets
+
+`TestBed.inject()` and `TestBed.createComponent()` **instantiate** the testing module, and after
+that every `TestBed.override*` throws. Migrating to `provideAutoSpy` walks people into it: a
+hand-rolled `useValue` configured its return values inside the literal, and the replacement has
+nowhere to put them, so the line goes into `beforeEach`.
+
+```ts
+beforeEach(() => {
+  TestBed.configureTestingModule({ providers: [provideAutoSpy(Api)] });
+  asSpy(TestBed.inject(Api)).load.mockReturnValue(of(page)); // ❌ the module is now instantiated
+});
+```
+
+Every `override*` in the suite then throws — including one written *above* this line, inside a
+`createComponent` helper the tests call. Found twice independently after a migration, once for
+sixteen tests at a stroke. Two repairs, both in the message:
+
+```ts
+it('renders', () => {
+  TestBed.overrideProvider(Other, { useValue: x });
+  injectSpy(Api).load.mockReturnValue(of(page)); // ✅ configured after every override
+});
+
+const api = () => injectSpy(Api);                 // ✅ or keep the access lazy, so that
+                                                  //    instantiation happens in the first test
+```
+
+The check is deliberately **order-free**, because lexical order is not run order — the helper above
+is the case that proves it. It asks whether the suite overrides at all, with the one exemption that
+can be read off the source: an `override*` sitting in the same hook body ahead of the injection
+really does run first. A suite calling `TestBed.resetTestingModule()` is exempt outright.
+
+## Two providers, one token
+
+Angular keeps the **last** provider registered for a token, so everything above it is dead. In a
+testing module that is not tidiness:
+
+```ts
+providers: [
+  provideAutoSpy(DisplaySettingsService),                               // ❌ never runs
+  { provide: DisplaySettingsService, useValue: mockDisplaySettingsService },  // this is what DI hands out
+]
+```
+
+Eight tokens in one spec file were registered both ways at once. It misleads from both sides: the
+author believes there is an auto-spy and writes assertions against one, while the double actually
+injected is the hand-rolled object drifting from the class — and whoever later comes to replace that
+object sees `provideAutoSpy` beside it and reads the migration as already done.
+
+Tokens are compared as written, not resolved: in a `providers` array a token appears by name, once,
+next to the double it stands for, so there is nothing for a resolver to add. The rule offers no fix,
+because deleting either line is a valid repair and they mean opposite things — keeping the auto-spy
+is usually what was wanted, and only the author knows whether the hand-rolled object was carrying
+configuration that has to move into `provideAutoSpy`'s second argument first.
 
 ## `no-expect-in-subscribe` reports one shape and three different edits
 
@@ -179,7 +237,7 @@ call, and it only ever looked at object literals.
 
 ## Which rules fix, and why so few
 
-One of the nine rewrites the source on its own, three offer the rewrite as a suggestion, and the
+One of the eleven rewrites the source on its own, three offer the rewrite as a suggestion, and the
 split is about what a wrong guess costs rather than about how hard the rewrite is.
 
 `no-mocked-for-spy` touches nothing but a **declaration**. Get it wrong and the file stops
@@ -256,11 +314,19 @@ that cannot be true.
 | `prefer-create-spy-from-class` | `TypeError: cart.applyPromo is not a function` | red |
 | `prefer-provide-auto-spy` | the same, one DI hop away | red |
 | `prefer-inject-spy` | `spy.getPlans.nextWith is not a function` | red |
+| `no-inject-before-override` | `Cannot override provider when the test module has already been instantiated. Make sure you are not using \`inject\` before \`overrideProvider\`` | red |
+| `no-overridden-provider` | nothing, where the hand-rolled double happens to answer: the `provideAutoSpy` beside it is dead and the assertions pass. Read back with `injectSpy` instead, it is red — and [`injectSpy` says why](/adapters/angular#injectspy-says-when-it-got-the-real-thing) | green |
 
-The column that matters is the last one. Five rules guard against a test that is **green and wrong**,
-which is the only failure mode a suite cannot report on itself; three guard against a red test whose
+The column that matters is the last one. Six rules guard against a test that is **green and wrong**,
+which is the only failure mode a suite cannot report on itself; four guard against a red test whose
 message is already clear; one is a compiler error. Severity in `configs.recommended` follows exactly
 that split.
+
+`no-overridden-provider` is the one whose verdict depends on the rest of the file, which is why it
+is worth having as a rule rather than a runtime check. Read the token back with `injectSpy` and the
+run is red with a diagnostic naming the cause; read it back with `TestBed.inject` and assert against
+the hand-rolled double, which is what the file that prompted this rule did, and everything passes
+while the `provideAutoSpy` above it never ran.
 
 ### `no-done-callback` — what the first parameter actually is
 

@@ -20,8 +20,10 @@
  */
 import { type EsPromiseExecutor, type EsSubscribeCall, awaitedRewriteFor } from './await-emission';
 import { bindingState, dropNamedImport, findBinding, initializerOf, insertImport } from './bindings';
+import { overriddenProviders } from './overridden-provider';
 import { propHelperSuggestion } from './prop-helpers';
 import {
+  type EsArrayExpression,
   type EsCallExpression,
   type EsFix,
   type EsFixer,
@@ -52,6 +54,7 @@ import {
   propertyValue,
 } from './rule-types';
 import { type EsNamedCall, type SubscribeRepair, enclosingSubscribe, helperAssertions, repairFor } from './subscribe-repair';
+import { breaksAnOverride } from './testbed-order';
 
 const README = 'https://github.com/ASDAlexey/vitest-auto-spy#how-to-mock';
 
@@ -433,7 +436,7 @@ const noObjectDefineProperty = defineRule({
   hasSuggestions: true,
   messages: {
     noObjectDefineProperty:
-      '`Object.defineProperty` in a spec leaves no way back: nothing restores the original descriptor, and it defaults `configurable` to `false`, so the patch seals the property for the rest of the worker under `isolate: false`. Take the helper the descriptor asks for — `{ value }` holding data is `mockValueProp`; `{ value }` holding a mock the code calls with `new` (a `mockImplementation(function () { … })`, spelled with a `function` because an arrow cannot be constructed) is `stubConstructor`; `{ get }` is `mockReadonlyPropGetter`; a `get`/`set` pair is `mockAccessorsProp`; a signal-valued property is `mockReadonlyProp`. Each returns the undo and registers it with `restoreMockedProps()`. And if the property is missing because it is an instance field rather than a prototype member, the repair belongs where the spy is built — `instanceMethodsToSpyOn` / `observablePropsToSpyOn` — not here.',
+      '`Object.defineProperty` in a spec leaves no way back: nothing restores the original descriptor, and it defaults `configurable` to `false`, so the patch seals the property for the rest of the worker under `isolate: false`. Take the helper the descriptor asks for — `{ value }` holding data is `mockValueProp`; `{ value }` holding a mock the code calls with `new` (a `mockImplementation(function () { … })`, spelled with a `function` because an arrow cannot be constructed) is `stubConstructor`; `{ get }` is `mockReadonlyPropGetter`; a `get`/`set` pair is `mockAccessorsProp`; a `Signal<T>` property is `mockReadonlyProp(obj, key, signal(value))` — with a **real** `signal`, because the `vi.fn().mockReturnValue(value)` that reads identically at the call site is not one, and every `computed()` and `effect()` downstream of it stops updating the moment anything depends on it. Each returns the undo and registers it with `restoreMockedProps()`. And if the property is missing because it is an instance field rather than a prototype member, the repair belongs where the spy is built — `instanceMethodsToSpyOn` / `observablePropsToSpyOn` — not here.',
     manualRestore:
       'This property is redefined twice in the same block, which is a patch and a hand-written restore. The restore runs only if every assertion between them passes: the first red one skips it, and the patch is then live for every later test of the file — and, under `isolate: false`, for every later file of the worker. `vi.restoreAllMocks()` does not help, because it knows about spies and not about descriptors. `mockValueProp` / `mockReadonlyPropGetter` register the undo with `restoreMockedProps()`, which runs in a hook and therefore runs whatever the assertions did.',
   },
@@ -485,6 +488,40 @@ function patchKey(context: RuleContext, node: EsCallExpression): string {
 
   return `${where}:${target ? context.sourceCode.getText(target) : ''}:${key ? context.sourceCode.getText(key) : ''}`;
 }
+
+/** `TestBed.inject()` in a hook, in a suite that still overrides → the override throws. */
+const noInjectBeforeOverride = defineRule({
+  anchor: '-a-service-behind-angular-di',
+  description: 'Do not instantiate the TestBed in a hook when the suite still needs to override a provider',
+  messages: {
+    noInjectBeforeOverride:
+      'This instantiates the testing module, and this suite overrides something: every `TestBed.override*` that runs afterwards — in a test, or in a `createComponent` helper written above this line — throws `Cannot override provider when the test module has already been instantiated`. The trap is one that migrating *to* `provideAutoSpy` creates: a hand-rolled `useValue` configured its return values in the literal, and the replacement has nowhere to put them, so the line lands in `beforeEach`. Configure the double after every override instead — `injectSpy(X)` inside the test — or keep the access lazy (`const api = () => injectSpy(Api)`), which moves instantiation into the first test, after the overrides have run.',
+  },
+  create: (context) => ({
+    'CallExpression[callee.object.name="TestBed"][callee.property.name=/^(inject|createComponent)$/]': (node: EsNode): void => {
+      if (breaksAnOverride(node)) {
+        context.report({ node, messageId: 'noInjectBeforeOverride' });
+      }
+    },
+  }),
+});
+
+/** Two providers for one token in one array → the earlier one never runs. */
+const noOverriddenProvider = defineRule({
+  anchor: '-a-service-behind-angular-di',
+  description: 'Register a token once — a second provider for it in the same array silently replaces the first',
+  messages: {
+    noOverriddenProvider:
+      'Another provider for `{{token}}` follows this one in the same array, and Angular keeps the last: this one never runs. `provideAutoSpy({{token}})` sitting above `{ provide: {{token}}, useValue: … }` is not an auto-spy with extra configuration — it is a hand-rolled double, and the auto-spy is dead code. That misleads from both sides: assertions get written against a spy nothing provided, and whoever comes to replace the hand-rolled double sees the `provideAutoSpy` beside it and reads the work as done. Keep one.',
+  },
+  create: (context) => ({
+    ArrayExpression: (node: EsArrayExpression): void => {
+      overriddenProviders(context, node).forEach(({ element, token }) => {
+        context.report({ node: element, messageId: 'noOverriddenProvider', data: { token } });
+      });
+    },
+  }),
+});
 
 /** `source$.subscribe(v => expect(v)…)` → `await expectEmission(source$)`. */
 const noExpectInSubscribe = defineRule({
@@ -735,4 +772,6 @@ export const rules: Record<string, RuleModule> = {
   'no-mocked-for-spy': noMockedForSpy,
   'no-done-callback': noDoneCallback,
   'no-floating-assertion': noFloatingAssertion,
+  'no-overridden-provider': noOverriddenProvider,
+  'no-inject-before-override': noInjectBeforeOverride,
 };

@@ -401,6 +401,9 @@ it('names the helper each descriptor asks for, including the ones it will not re
   expect(message).toContain('mockReadonlyPropGetter');
   expect(message).toContain('mockAccessorsProp');
   expect(message).toContain('instanceMethodsToSpyOn');
+  // Third independent report of the same substitution: a signal replaced by a `vi.fn()` that
+  // returns the value reads identically until something puts a `computed()` downstream of it.
+  expect(message).toContain('signal(value)');
 });
 
 it('declines to suggest mockValueProp for a mock the code calls with new', () => {
@@ -910,6 +913,139 @@ describe('no-floating-assertion', () => {
     expect(lint('const check = () => { expect(1).toBe(1); };', 'no-floating-assertion')).toEqual([]);
     expect(lint('value$.subscribe(() => { expect(1).toBe(1); });', 'no-floating-assertion')).toEqual([]);
     expect(lint('load()[settle](() => { expect(1).toBe(1); });', 'no-floating-assertion')).toEqual([]);
+  });
+});
+
+describe('no-overridden-provider', () => {
+  it('flags the provider a later one for the same token replaces', () => {
+    // Eight tokens in one spec file were registered both ways at once, and every `provideAutoSpy`
+    // among them was dead code.
+    const both = 'providers: [provideAutoSpy(DisplaySettingsService), { provide: DisplaySettingsService, useValue: mockDisplaySettings }]';
+
+    expect(lint(both, 'no-overridden-provider')).toEqual(['vitest-auto-spy/no-overridden-provider']);
+    expect(firstMessage(both, 'no-overridden-provider')).toContain('`DisplaySettingsService`');
+  });
+
+  it('flags whatever the two spellings are, in either order', () => {
+    expect(lint('const p = [{ provide: A, useValue: x }, provideAutoSpy(A)];', 'no-overridden-provider')).toHaveLength(1);
+    expect(lint('const p = [provideAutoSpy(A), provideAutoSpy(A)];', 'no-overridden-provider')).toHaveLength(1);
+    expect(lint('const p = [provideAutoSpyForToken(TOKEN), { provide: TOKEN, useValue: x }];', 'no-overridden-provider')).toHaveLength(1);
+    expect(lint('const p = [{ provide: A, useValue: x }, { provide: A, useClass: B }];', 'no-overridden-provider')).toHaveLength(1);
+  });
+
+  it('reports every provider the last one buries, not just the one above it', () => {
+    expect(
+      lint('const p = [provideAutoSpy(A), { provide: A, useValue: x }, { provide: A, useValue: y }];', 'no-overridden-provider'),
+    ).toHaveLength(2);
+  });
+
+  it('leaves an array that registers each token once alone', () => {
+    expect(lint('const p = [provideAutoSpy(A), provideAutoSpy(B), { provide: C, useValue: x }];', 'no-overridden-provider')).toEqual([]);
+    // Two arrays are two scopes; only a single array can be resolved this way.
+    expect(lint('const a = [provideAutoSpy(A)];\nconst b = [provideAutoSpy(A)];', 'no-overridden-provider')).toEqual([]);
+  });
+
+  it('reads past everything in a providers array that is not a provider', () => {
+    expect(lint('const p = [provideRouter([]), provideHttpClient(), provideAutoSpy(A)];', 'no-overridden-provider')).toEqual([]);
+    expect(lint('const p = [SomeModule, ...sharedProviders, provideAutoSpy(A)];', 'no-overridden-provider')).toEqual([]);
+    expect(lint('const p = [helpers.provideAutoSpy(A), provideAutoSpy(A)];', 'no-overridden-provider')).toEqual([]);
+    expect(lint('const p = [provideAutoSpy(), provideAutoSpy()];', 'no-overridden-provider')).toEqual([]);
+    expect(lint('const p = [{ useValue: x }, { useValue: y }];', 'no-overridden-provider')).toEqual([]);
+    // A hole is not a provider either, and must not be read as one.
+    expect(lint('const p = [provideAutoSpy(A), , provideAutoSpy(B)];', 'no-overridden-provider')).toEqual([]);
+  });
+});
+
+describe('no-inject-before-override', () => {
+  /** The shape a migration to `provideAutoSpy` produces: return values configured in `beforeEach`. */
+  const suite = (hookBody: string, testBody: string): string =>
+    [
+      "describe('page', () => {",
+      '  beforeEach(() => {',
+      `    ${hookBody}`,
+      '  });',
+      '',
+      "  it('renders', () => {",
+      `    ${testBody}`,
+      '  });',
+      '});',
+    ].join('\n');
+
+  it('flags an injection that will break an override run later', () => {
+    const broken = suite('asSpy(TestBed.inject(Api)).load.mockReturnValue(of(page));', 'TestBed.overrideProvider(Other, { useValue: x });');
+
+    expect(lint(broken, 'no-inject-before-override')).toEqual(['vitest-auto-spy/no-inject-before-override']);
+    expect(firstMessage(broken, 'no-inject-before-override')).toContain('already been instantiated');
+  });
+
+  it('flags createComponent in the hook too — it instantiates just the same', () => {
+    expect(
+      lint(
+        suite('fixture = TestBed.createComponent(PageComponent);', 'TestBed.overrideComponent(PageComponent, {});'),
+        'no-inject-before-override',
+      ),
+    ).toHaveLength(1);
+  });
+
+  it('does not depend on the override being written after the injection', () => {
+    // The helper is declared above the hook and called from the test, so it runs last whatever the
+    // source order says. A lexical rule would miss exactly this one.
+    const viaHelper = [
+      "describe('page', () => {",
+      '  const createComponent = () => {',
+      '    TestBed.overrideProvider(Other, { useValue: x });',
+      '    return TestBed.createComponent(PageComponent);',
+      '  };',
+      '',
+      '  beforeEach(() => {',
+      '    asSpy(TestBed.inject(Api)).load.mockReturnValue(of(page));',
+      '  });',
+      '',
+      "  it('renders', () => createComponent());",
+      '});',
+    ].join('\n');
+
+    expect(lint(viaHelper, 'no-inject-before-override')).toHaveLength(1);
+  });
+
+  it('leaves the orders that actually work alone', () => {
+    // Nothing overrides.
+    expect(
+      lint(suite('asSpy(TestBed.inject(Api)).load.mockReturnValue(of(page));', 'expect(1).toBe(1);'), 'no-inject-before-override'),
+    ).toEqual([]);
+    // The override is in the same hook, ahead of the injection.
+    expect(
+      lint(
+        suite('TestBed.overrideProvider(Other, { useValue: x });\n    TestBed.inject(Api);', 'expect(1).toBe(1);'),
+        'no-inject-before-override',
+      ),
+    ).toEqual([]);
+    // Injected inside the test rather than the hook, which is the fix the message names.
+    expect(lint(suite('noop();', 'TestBed.overrideProvider(Other, {});\n    injectSpy(Api);'), 'no-inject-before-override')).toEqual([]);
+    // A suite that resets the module has already thought about this.
+    expect(
+      lint(
+        suite('TestBed.inject(Api);', 'TestBed.resetTestingModule();\n    TestBed.overrideProvider(Other, {});'),
+        'no-inject-before-override',
+      ),
+    ).toEqual([]);
+    // Two suites, only one of which overrides.
+    const separate = [
+      "describe('a', () => { beforeEach(() => { TestBed.inject(Api); }); });",
+      "describe('b', () => { it('x', () => TestBed.overrideProvider(Other, {})); });",
+    ].join('\n');
+
+    expect(lint(separate, 'no-inject-before-override')).toEqual([]);
+  });
+
+  it('reads an injection written outside any suite, and any call that merely looks like one', () => {
+    expect(lint('TestBed.inject(Api);\nTestBed.overrideProvider(Other, {});', 'no-inject-before-override')).toEqual([]);
+    expect(
+      lint("beforeEach(() => { TestBed.inject(Api); });\nit('x', () => bed.overrideProvider(Other, {}));", 'no-inject-before-override'),
+    ).toEqual([]);
+    expect(
+      lint("beforeEach(() => { TestBed.inject(Api); });\nit('x', () => TestBed.compileComponents());", 'no-inject-before-override'),
+    ).toEqual([]);
   });
 });
 

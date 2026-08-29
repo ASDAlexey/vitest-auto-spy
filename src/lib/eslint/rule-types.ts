@@ -40,6 +40,11 @@ export interface EsFunction extends EsNode {
   body: EsNode;
 }
 
+/** An array literal. A hole (`[a, , b]`) is `null` rather than a node. */
+export interface EsArrayExpression extends EsNode {
+  elements: (EsNode | null)[];
+}
+
 /** A `{ … }` block, whose `body` is the statement list rather than one node. */
 export interface EsBlockStatement extends EsNode {
   body: EsNode[];
@@ -319,6 +324,11 @@ function rootCall(node: EsNode): EsNode {
  * writes, and a project that aliases either has bigger problems than this plugin.
  */
 export function isRunnerCall(node: EsNode, members: ReadonlySet<string>): boolean {
+  return isMemberCall(node, RUNNERS, members);
+}
+
+/** Whether a node is `<object>.<member>(…)` for one of each — the shape every namespaced test API takes. */
+export function isMemberCall(node: EsNode, objects: ReadonlySet<string>, members: ReadonlySet<string>): boolean {
   if (
     !isCallExpression(node) ||
     !isMemberExpression(node.callee) ||
@@ -328,7 +338,7 @@ export function isRunnerCall(node: EsNode, members: ReadonlySet<string>): boolea
     return false;
   }
 
-  return RUNNERS.has(node.callee.object.name) && members.has(node.callee.property.name);
+  return objects.has(node.callee.object.name) && members.has(node.callee.property.name);
 }
 
 /** Node types whose body is a *later* evaluation — the boundary the module-scope search stops at, and what `enclosingFunction` returns. */
