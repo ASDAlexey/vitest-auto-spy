@@ -19,7 +19,11 @@ import {
   type RuleListener,
   type RuleModule,
   buildsRunnerFnAtModuleScope,
+  enclosingFunction,
   findProperty,
+  isCallExpression,
+  isIdentifier,
+  isMemberExpression,
   isObjectExpression,
   isRunnerFnCall,
   propertyName,
@@ -196,6 +200,71 @@ const noDoneCallback = defineRule({
   }),
 });
 
+/** The promise methods whose callback is deferred: nothing inside it runs during the synchronous test body. */
+const PROMISE_CALLBACK_METHODS = new Set(['catch', 'finally', 'then']);
+
+/** Whether `fn` is the callback handed to `.then()` / `.catch()` / `.finally()`, rather than to anything else. */
+function isPromiseCallback(fn: EsNode): boolean {
+  const call = fn.parent;
+
+  if (!isCallExpression(call) || !isMemberExpression(call.callee)) {
+    return false;
+  }
+
+  // A computed method name (`p[settle](…)`) is not knowably a promise callback, so it is left alone.
+  return isIdentifier(call.callee.property) && PROMISE_CALLBACK_METHODS.has(call.callee.property.name);
+}
+
+/** Whether the chain grows past `node`: `p.then(a)` is the object of `.catch`, which is the callee of `.catch(b)`. */
+function continuesChain(node: EsNode): boolean {
+  return isMemberExpression(node.parent) || (isCallExpression(node.parent) && node.parent.callee === node);
+}
+
+/**
+ * Whether the chain `call` belongs to is a bare expression statement — nobody awaits, returns, stores
+ * or passes on the promise.
+ *
+ * The walk to the top of the chain is the whole point: in `p.then(a).catch(b)` the parent of
+ * `p.then(a)` is a member expression, so only the *last* call in the chain has a parent that says
+ * whether anything ever consumes the promise. Reading the immediate parent would clear the first
+ * callback of every chain that has a second one.
+ */
+function isFloatingChain(call: EsNode): boolean {
+  let current = call;
+
+  while (continuesChain(current)) {
+    current = current.parent;
+  }
+
+  return current.parent.type === 'ExpressionStatement';
+}
+
+/** `p.then(() => expect(…))` as a statement of its own → `expect(await p)`. */
+const noFloatingAssertion = defineRule({
+  anchor: '-a-promise-a-test-forgets-to-await',
+  description: 'Await or return a promise chain that asserts, instead of leaving the .then() callback floating',
+  messages: {
+    noFloatingAssertion:
+      'Nothing awaits this chain, so the test ends before the callback runs: the assertion never runs, and the test passes no matter what it claims — including claims that are false. Await the chain (or `return` it) and assert on the settled value: `expect(await promise)`, `await expectEmission(source$)`.',
+  },
+  create: (context) => ({
+    'CallExpression[callee.name="expect"]': (node: EsNode): void => {
+      // Only the *immediately* enclosing function counts. One nested callback deeper the advice stops
+      // being true: awaiting the chain revives an `expect` sitting directly in the `.then()` callback,
+      // but not one parked in a `subscribe` or a `setTimeout` inside it — and which of those a
+      // callback is cannot be read off the syntax. Reporting only what awaiting actually fixes keeps
+      // the message honest, and leaves the deferred-callback shapes to `no-expect-in-subscribe`.
+      const callback = enclosingFunction(node);
+
+      if (!callback || !isPromiseCallback(callback) || !isFloatingChain(callback.parent)) {
+        return;
+      }
+
+      context.report({ node, messageId: 'noFloatingAssertion' });
+    },
+  }),
+});
+
 /** Every rule the plugin ships, keyed by the name used in an ESLint config. */
 export const rules: Record<string, RuleModule> = {
   'prefer-provide-auto-spy': preferProvideAutoSpy,
@@ -206,4 +275,5 @@ export const rules: Record<string, RuleModule> = {
   'no-shared-module-level-mock': noSharedModuleLevelMock,
   'no-mocked-for-spy': noMockedForSpy,
   'no-done-callback': noDoneCallback,
+  'no-floating-assertion': noFloatingAssertion,
 };

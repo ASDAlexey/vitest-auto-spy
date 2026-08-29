@@ -87,8 +87,18 @@ export function isObjectExpression(node: EsNode): node is EsObjectExpression {
 }
 
 /** Narrow to a call expression. */
-function isCallExpression(node: EsNode): node is EsCallExpression {
+export function isCallExpression(node: EsNode): node is EsCallExpression {
   return node.type === 'CallExpression';
+}
+
+/** Narrow to a member expression. */
+export function isMemberExpression(node: EsNode): node is EsMemberExpression {
+  return node.type === 'MemberExpression';
+}
+
+/** Narrow to an identifier — the shape a non-computed member key takes. */
+export function isIdentifier(node: EsNode): node is EsIdentifier {
+  return node.type === 'Identifier';
 }
 
 /** The static name of a property key (`{ foo: … }`, `{ 'foo': … }`), or `undefined` when computed. */
@@ -143,7 +153,7 @@ function isFnOf(callee: EsMemberExpression): boolean {
   return (object.name === 'vi' || object.name === 'jest') && property.name === 'fn';
 }
 
-/** Node types whose body is a *later* evaluation — the boundary the module-scope search stops at. */
+/** Node types whose body is a *later* evaluation — the boundary the module-scope search stops at, and what `enclosingFunction` returns. */
 const FUNCTION_TYPES = new Set(['ArrowFunctionExpression', 'FunctionDeclaration', 'FunctionExpression']);
 
 /** Whether a value read off a node is itself a node (ESTree marks every one with a `type`). */
@@ -180,4 +190,26 @@ export function buildsRunnerFnAtModuleScope(node: EsNode): boolean {
 
     return isNode(value) && buildsRunnerFnAtModuleScope(value);
   });
+}
+
+/**
+ * The innermost function whose body contains `node`, or `undefined` when `node` sits at module scope.
+ *
+ * An esquery selector reaches downward: it can say "an `expect()` somewhere below a `.then()`", which
+ * is equally true of one buried two callbacks deeper inside a `subscribe`. Telling those apart means
+ * asking the question upward — which callback is this expression actually the body of — so the walk
+ * is manual.
+ */
+export function enclosingFunction(node: EsNode): EsNode | undefined {
+  let current = node;
+
+  while (current.type !== 'Program') {
+    if (FUNCTION_TYPES.has(current.type)) {
+      return current;
+    }
+
+    current = current.parent;
+  }
+
+  return undefined;
 }
