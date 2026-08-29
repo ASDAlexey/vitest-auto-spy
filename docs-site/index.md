@@ -107,9 +107,13 @@ features:
     title: The anti-patterns, underlined as you type
     details: A spy declared as the class, an expect() inside subscribe(), a done callback Vitest never calls — every one of them passes, so finding them in CI is an hour too late. The twelve rules ship with the package and need no editor plugin of their own — WebStorm and the other JetBrains IDEs run them natively, VS Code, Cursor and Windsurf through the ESLint extension.
     link: /utilities/editor-diagnostics
+  - icon: 🔎
+    title: Defects a green suite cannot show
+    details: npx vitest-auto-spy doctor reports what nothing consumes — a tsconfig include pattern that matches no file, so it type-checks nothing while tsc --noEmit still reports success; a production module importing a spec, which under a shared environment is a cycle that costs the spec its own suite; a spec importing another spec; a @jest-environment pragma the runner never reads; configuration left behind for a runner that is gone, together with the setup files only it referenced. The check that motivated it found nine of 152 spec tsconfigs still covering their specs, after a codemod ate a /** and left a valid glob matching nothing. Read-only, zero config, exit 1 in CI.
+    link: /utilities/cli
   - icon: 🤖
     title: Readable by your agent, not just by you
-    details: An AGENTS.md ships inside the tarball for offline reading, llms.txt and llms-full.txt sit at the docs root, a Claude Code skill installs from the repo, and every error message ends with a link to the page that explains it. Claude Code, OpenAI Codex, GLM/z.ai, Cursor, Copilot, Gemini CLI and the rest each get the exact file to point at.
+    details: One npx vitest-auto-spy init writes the pointer into the files the agents in your repository actually read — AGENTS.md, CLAUDE.md, GEMINI.md, a Claude Code skill stub, and a glob-scoped rule file for each tool already set up here — specialised for this runner, this framework and this setup file, between markers it regenerates on the next run. Behind it sits an AGENTS.md inside the tarball for offline reading, llms.txt and llms-full.txt at the docs root, and every error message ending with a link to the page that explains it.
     link: /agents
   - icon: 📦
     title: Zero runtime deps

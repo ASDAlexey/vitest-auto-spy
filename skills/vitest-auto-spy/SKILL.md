@@ -204,7 +204,13 @@ it('loads', async () => {
 ```bash
 npx vitest run path/to/file.spec.ts   # or the project's own command
 npx tsc --noEmit
+npx vitest-auto-spy doctor            # after a large edit: defects a green run cannot show
 ```
 
 Most of this library's guarantees are type-level, so a green run that does not type-check is not
 done. Report failures with their output rather than describing them as passing.
+
+`doctor` is read-only. It reports what neither the runner nor the compiler can: a `tsconfig`
+`include` pattern that matches no file, a production module importing a spec, a spec importing
+another spec, a foreign runner's `@jest-environment` pragma, and config left behind for a runner
+that is gone.

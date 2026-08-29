@@ -24,6 +24,22 @@ decision tree, the configuration semantics, an error→fix table and the anti-pa
 root: a link-only map, so an agent fetches one page instead of scraping the rendered HTML of ten.
 Both files are generated from this site's sidebar and checked in CI, so they cannot drift.
 
+## One command
+
+```bash
+npx vitest-auto-spy init
+```
+
+It writes the pointer below into the files the agents in *this* repository actually read, and
+specialises it: which subpath matches this runner, which adapter matches the framework, the real
+path of the setup file that needs `import 'vitest-auto-spy/rxjs'` — and it omits the rxjs line
+entirely when rxjs is not installed. Everything it writes sits between markers and is regenerated
+on the next run, so an upgrade is a one-hunk diff and `init --uninstall` puts the file back.
+
+`npx vitest-auto-spy init --check` is the CI form: it fails when the block on disk is not the
+block the installed version would write. The whole command is documented on
+[The CLI](/utilities/cli); the rest of this page is what it writes, and how to do it by hand.
+
 ## Point your agent at it once
 
 The single highest-leverage line, in the instruction file your agent actually reads — a root

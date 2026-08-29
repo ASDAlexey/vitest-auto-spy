@@ -203,6 +203,7 @@ export default defineConfig({
           { text: 'fakeAsync on Vitest', link: '/utilities/zone' },
           { text: 'Waiting and the clock', link: '/utilities/event-loop' },
           { text: 'ESLint plugin', link: '/utilities/eslint-plugin' },
+          { text: 'CLI — doctor & init', link: '/utilities/cli' },
           { text: 'Editor diagnostics', link: '/utilities/editor-diagnostics' },
         ],
       },

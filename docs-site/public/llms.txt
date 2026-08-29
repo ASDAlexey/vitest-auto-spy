@@ -52,6 +52,7 @@ spied method earns helpers from its return type — `calledWith`/`mustBeCalledWi
 - [fakeAsync on Vitest](https://asdalexey.github.io/vitest-auto-spy/utilities/zone): vitest-auto-spy/zone — the ProxyZone patch zone.js/testing does not ship for Vitest, behind its own specifier so a zoneless project never sees it.
 - [Waiting and the clock](https://asdalexey.github.io/vitest-auto-spy/utilities/event-loop): flushEventLoop, flushEventLoopUntil, settleDynamicImport, mockSystemTime and useCountingClock — four pending queues, and the tool that drives each.
 - [ESLint plugin](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-plugin): Twelve flat-config lint rules that steer a suite onto the auto-spy helpers, versioned with the API they recommend.
+- [CLI — doctor & init](https://asdalexey.github.io/vitest-auto-spy/utilities/cli): npx vitest-auto-spy doctor finds suite-level defects that never fail a run — a tsconfig include pattern matching no file, a spec another file imports, a foreign runner's pragma, config for a runner that is gone. npx vitest-auto-spy init writes the pointer every AI coding agent in the repository actually reads.
 - [Editor diagnostics](https://asdalexey.github.io/vitest-auto-spy/utilities/editor-diagnostics): Underline the vitest-auto-spy anti-patterns while the spec is being written — the twelve shipped ESLint rules, shown natively by WebStorm and the other JetBrains IDEs, and by the ESLint extension in VS Code, Cursor and Windsurf.
 
 ## Adapters

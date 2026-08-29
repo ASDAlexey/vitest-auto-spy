@@ -1959,10 +1959,19 @@ Run what the project actually has — check its `package.json` first.
 ```bash
 npx vitest run path/to/file.spec.ts   # or: bun test path/to/file.test.ts
 npx tsc --noEmit                      # Spy<T> mistakes are compile errors, not runtime ones
+npx vitest-auto-spy doctor            # suite-level defects that never fail a run
 ```
 
 Type errors matter here more than usual: most of this library's guarantees are type-level, so a
 suite that runs green but does not type-check is not done.
+
+`doctor` is read-only and finds what a green run cannot: a `tsconfig` `include` pattern that
+matches no file (so it type-checks nothing while `tsc --noEmit` still reports success), a
+production module importing a `*.spec.ts`, a spec importing another spec, a `@jest-environment`
+pragma the runner never reads, and configuration left behind for a runner that is gone. It is
+worth one run after any large edit to a test suite — especially after a codemod, which is where
+the eaten glob below came from. Full reference:
+<https://asdalexey.github.io/vitest-auto-spy/utilities/cli>.
 
 ### If you are writing a codemod over specs
 

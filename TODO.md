@@ -853,7 +853,8 @@ children go 0 → 400) and already fixed by `renderShallow` (4.1× here, 16.2× 
   to patch, while this package would owe the code semver, docs and tests across Angular 21 and
   22 indefinitely. (4) Whether a workspace trades a 596 MB bundle graph for module mocking is
   the app team's call, not a test-double library's.
-- [ ] **What to ship instead — three read-only pieces, no mutation.** (a) A `doctor` check: detect an
+- [~] **What to ship instead — three read-only pieces, no mutation.** (a) **shipped** as
+      `angular-build-splitting-off`; (b) and (c) still open. A `doctor` check: detect an
       installed `@angular/build` in `[22.1.5, 22.1.7)` and report that the unit-test build has code
       splitting off, that `--coverage` will grow ~400 MB per spec with no plateau, and name both
       exits (upgrade to 22.1.7+ and set `"splitting": true`, or apply the patch). This is exactly
@@ -869,26 +870,51 @@ children go 0 → 400) and already fixed by `renderShallow` (4.1× here, 16.2× 
 
 ## `doctor` — a repository-level check for defects that never fail
 
-A CLI (`npx vitest-auto-spy doctor`, non-zero exit) grouping the checks below. What they have in
-common is that **nothing consumes them**: the run is green, and the only reader of a
-`tsconfig.spec.json` after Jest is gone is somebody's editor. Each check is independent and can be
-built and enabled on its own; the shared part is a small CLI entry (`bin` in `package.json`, a new
-published surface — which is the reason this is a plan rather than a patch).
+**Shipped.** `npx vitest-auto-spy doctor`, non-zero exit, grouping the checks below. What they have
+in common is that **nothing consumes them**: the run is green, and the only reader of a
+`tsconfig.spec.json` after Jest is gone is somebody's editor. Each check is independent; the shared
+part is a 15th tsup entry (`src/cli.ts`, ESM, shebang, `dts: false`, its own pass so it shares no
+chunk with the core) behind `bin` in `package.json`. It imports nothing from the library — the core
+loads Vitest, which refuses to be imported outside a test run.
 
-- [ ] **A spec that no tsconfig covers.** Found by a person opening a file and seeing
+Two invariants keep it honest, checked by `scripts/check-dist.mjs` on every `npm run build`: the
+package declares no runtime `dependencies`, and `node:fs` appears only in `dist/cli.js` and
+`dist/bun-angular.js` (the Bun preload inlines `templateUrl` from disk; nothing else may read one).
+
+Docs: `docs-site/utilities/cli.md`, plus the README section and the `doctor` line in `AGENTS.md`
+§19 and in the shipped skill's Finish block.
+
+Still open on `doctor`:
+
+- The `ts.parseJsonConfigFileContent` tier. The shipped glob matcher is self-contained and
+  zero-dependency; the consumer's own `typescript` via `createRequire` would be the authority on
+  `extends` chains and on the extension set an `include` entry expands over. Two patterns are
+  exempt today rather than resolved properly: a declaration-only glob and one rooted in a directory
+  the scan never enters.
+- `helper-from-wrong-entry` and `no-unawaited-helper` — the two named below, both of which need a
+  table generated from the installed version's own export map rather than a hand-written one.
+- The other 43 checks of the sharpened catalogue.
+
+- [x] **A spec that no tsconfig covers — shipped** as `tsconfig-glob-matches-nothing`, plus
+      `tsconfig-file-missing` for a `files` entry that is gone. Found by a person opening a file and seeing
       `Cannot find name 'vi'` while `tsc --noEmit` reported zero errors: a migration codemod editing
       `include` had eaten `/**/*`, turning `src/**/*.spec.ts` into `src*.spec.ts` — a syntactically
       valid glob that matches nothing. Nine of 152 spec tsconfigs still covered their specs. The
       check: for every `tsconfig*.json`, expand `include` and report a pattern that matches no file.
-- [ ] **A non-spec file that imports a spec.** Under a shared environment that is a cycle, and the
-      spec loses its own suite.
-- [ ] **A spec that exports a fixture somebody imports.** The same defect from the other side.
-- [ ] **A foreign runner's pragma left in a spec** (`@jest-environment`, `@jest-config`). Vitest does
+- [x] **A non-spec file that imports a spec — shipped** as `spec-imported-by-non-spec`. Under a
+      shared environment that is a cycle, and the spec loses its own suite.
+- [x] **A spec that exports a fixture somebody imports — shipped** as `spec-exports-fixture`. The
+      same defect from the other side; both fall out of one lexical import graph
+      (`src/cli/checks/graph.ts`), built once per run and shared by every check that needs it.
+- [x] **A foreign runner's pragma left in a spec — shipped** as `foreign-runner-pragma`
+      (`@jest-environment`, `@jest-environment-options`, `@jest-config`). Vitest does
       not read them; the environment comes from the config, so the comment looks operative and is
       not.
-- [ ] **Orphan files referenced only by a removed runner config** — `setupFiles`, `moduleNameMapper`,
-      `snapshotSerializers`. One of the three found this way had been empty since before the
-      migration: a year as a setting that configured nothing.
+- [x] **Orphan files referenced only by a removed runner config — shipped** as
+      `dead-runner-config` (the jest/karma config itself, when neither package nor script mentions
+      the runner) and `orphan-runner-file` (a path it references that still exists, is not a live
+      `setupFiles` entry, and nothing imports). One of the three found this way had been empty since
+      before the migration: a year as a setting that configured nothing.
 
 Two of these (the import-cycle pair) overlap with the `no-shared-module-level-mock` lint rule, and
 the overlap is not complete: the rule sees one file at a time, so it catches the _export_ but not
@@ -923,10 +949,14 @@ root files: `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`. `llms.txt` stays — it costs
 a link people paste, not something coding agents fetch: one 90-day crawler sample put it at 0.1% of
 AI-bot requests, and Google stated in January 2026 that it does not use it.
 
-- [ ] **`npx vitest-auto-spy init`, on the same `bin` as `doctor`.** That shared entry is what the
-      `doctor` section above is blocked on — a new published surface, paid for once. `src/cli.ts` is
-      a 15th ESM tsup entry with a shebang, importing nothing from the library core (Vitest refuses
-      `require()`, and `init` writes files rather than creating spies). - **Tier 1, always written:** a managed block in root `AGENTS.md` and root `CLAUDE.md`, plus
+- [x] **`npx vitest-auto-spy init`, on the same `bin` as `doctor` — shipped.** `src/cli.ts` is a
+      15th ESM tsup entry with a shebang, importing nothing from the library core (Vitest refuses
+      `require()`, and `init` writes files rather than creating spies). Tier 1, tier 2, the legacy
+      refusal, the markers, `--check` / `--dry-run` / `--uninstall` and the Codex budget warning all
+      landed as described below. **Not shipped:** the JSON/YAML targets (`.gemini/settings.json`,
+      `.aider.conf.yml`) and therefore the sidecar manifest — a root `GEMINI.md` covers Gemini CLI
+      without touching its settings, and every marker-carrying target is already found by its
+      marker, so `--uninstall` needs no manifest. Add both only if a JSON target ever appears. - **Tier 1, always written:** a managed block in root `AGENTS.md` and root `CLAUDE.md`, plus
       `.claude/skills/vitest-auto-spy/SKILL.md` as a stub — the shipped skill's frontmatter copied
       verbatim (the description is what drives loading) over a body that points at
       `node_modules/vitest-auto-spy/AGENTS.md`, so it cannot go stale. `init --check` compares the

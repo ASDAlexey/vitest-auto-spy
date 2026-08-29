@@ -59,9 +59,10 @@ identical API, with **RxJS** spies and **Angular / NestJS / React / Vue·Pinia /
 - 🚚 A migration you can verify — `compareTestRuns` on the two JSON reports, `diffByField` for the assertion the reporter collapses
 - 📏 Lint rules and one-line test-run hygiene — twelve rules in `vitest-auto-spy/eslint-plugin` (two `--fix`, three suggestions), `setupAutoSpy()`
 - 🩺 [Editor diagnostics](#editor-diagnostics--webstorm--vs-code) — the same anti-patterns underlined while you type: native ESLint inspections in **WebStorm** and the other JetBrains IDEs, the ESLint extension in **VS Code**, no extra plugin either way
+- 🔎 [`npx vitest-auto-spy doctor`](#the-cli--doctor-and-init) — suite-level defects **that never fail a run**: a `tsconfig` `include` matching no file, a production module importing a spec, a `@jest-environment` pragma the runner never reads, config left behind for a runner that is gone. Read-only, no config, exits 1 in CI
 - 🔇 Console spies — `import { consoleInfoSpy } from 'vitest-auto-spy/console'` silences `console` and asserts its calls
 - 🧭 [**Spec patterns**](https://asdalexey.github.io/vitest-auto-spy/recipes) — the shapes a ~370-file Angular suite converged on, and the traps that only surface at scale
-- 🤖 Built for AI agents too — an offline [`AGENTS.md`](#using-this-library-with-an-ai-agent) inside the package, a [per-agent map](#which-file-your-agent-reads) for **Claude Code**, **OpenAI Codex**, **GLM/z.ai**, **Cursor**, **Copilot**, **Gemini CLI** and the rest, `llms.txt` on the docs site, a Claude Code skill, and errors that name their own fix
+- 🤖 Built for AI agents too — one `npx vitest-auto-spy init` writes the pointer into the files your agents actually read and specialises it for this repository, backed by an offline [`AGENTS.md`](#using-this-library-with-an-ai-agent) inside the package, a [per-agent map](#which-file-your-agent-reads) for **Claude Code**, **OpenAI Codex**, **GLM/z.ai**, **Cursor**, **Copilot**, **Gemini CLI** and the rest, `llms.txt` on the docs site, a Claude Code skill, and errors that name their own fix
 - 🟢 100% test coverage, **zero runtime dependencies** (in-tree arg serializer, no `javascript-stringify`)
 
 ## Table of contents
@@ -69,6 +70,9 @@ identical API, with **RxJS** spies and **Angular / NestJS / React / Vue·Pinia /
 - [Install](#install)
   - [Requirements](#requirements)
   - [Peer dependencies](#peer-dependencies)
+- [The CLI — `doctor` and `init`](#the-cli--doctor-and-init)
+  - [`doctor` — defects that never fail](#doctor--defects-that-never-fail)
+  - [`init` — the pointer an agent reads](#init--the-pointer-an-agent-reads)
 - [Using this library with an AI agent](#using-this-library-with-an-ai-agent)
   - [Point your agent at it once](#point-your-agent-at-it-once)
   - [Which file your agent reads](#which-file-your-agent-reads)
@@ -190,6 +194,65 @@ them only for the matching entry point. The package itself has **zero runtime de
 | `rxjs`          | `vitest-auto-spy/rxjs` observable spies (and `Spy<T>` type-checking) — `>=7`, **no upper bound** (the rxjs 8 line included) | yes       |
 | `@angular/core` | `vitest-auto-spy/angular` helpers                                                                                           | yes       |
 
+## The CLI — `doctor` and `init`
+
+The package ships one executable, with no dependencies and nothing to configure:
+
+```bash
+npx vitest-auto-spy doctor   # read-only. Exits 1 when it finds something
+npx vitest-auto-spy init     # writes the agent instructions pointer
+```
+
+### `doctor` — defects that never fail
+
+Every check shares one property: **nothing consumes the result**. The suite is green,
+`tsc --noEmit` reports zero errors, and the only reader of the stale thing is whoever opens the
+file. That is why they survive for years, and why a per-file linter cannot find most of them — the
+evidence is spread across files.
+
+```
+$ npx vitest-auto-spy doctor
+vitest-auto-spy doctor — /work/app
+1284 files, runner: vitest, entry: vitest-auto-spy/angular
+
+error  tsconfig-glob-matches-nothing libs/users/tsconfig.spec.json
+       The "include" pattern "src*.spec.ts" matches no file.
+       → A pattern that matches nothing type-checks nothing, and `tsc --noEmit` still reports
+         zero errors. Fix the glob or delete the entry.
+
+3 errors, 4 warnings, 1 note
+```
+
+| Check                          | What it finds                                                        |
+| ------------------------------ | -------------------------------------------------------------------- |
+| `tsconfig-glob-matches-nothing` | An `include` pattern that matches no file — so it type-checks nothing |
+| `tsconfig-file-missing`        | A `files` entry naming a file that is gone                            |
+| `spec-imported-by-non-spec`    | A production module importing a `*.spec.ts`                           |
+| `spec-exports-fixture`         | A spec importing another spec, whose hooks then run in a foreign file  |
+| `foreign-runner-pragma`        | `@jest-environment` left in a spec, which Vitest never reads           |
+| `dead-runner-config`           | `jest.config.*` / `karma.conf.*` for a runner that is not installed    |
+| `orphan-runner-file`           | A setup file only that dead config referenced                          |
+| `angular-build-splitting-off`  | `@angular/build` in `[22.1.5, 22.1.7)` — the OOM under `--coverage`    |
+| `no-agent-instructions`        | No instruction file names the package. A note, not an error            |
+
+The check that motivated the tool: a spec showing `Cannot find name 'vi'` in the editor while
+`tsc --noEmit` reported zero errors. A migration codemod editing `include` had eaten a `/**`,
+turning `src/**/*.spec.ts` into `src*.spec.ts` — a valid glob that matches nothing. Nine of 152
+spec tsconfigs still covered their specs.
+
+`doctor` never writes. There is no `--fix`.
+
+### `init` — the pointer an agent reads
+
+No coding agent scans dependencies for instructions, so the `AGENTS.md` and the skill shipped
+inside this package's tarball are never discovered on their own. `init` writes the pointer into
+the files that *are* read — `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, a Claude Code skill stub, and a
+glob-scoped rule file for each tool whose directory already exists — and specialises it for this
+repository's runner, framework and setup file. Everything sits between markers, so a re-run is a
+no-op and `--uninstall` puts the files back.
+
+Full reference, including the flags and the CI form: **[The CLI](https://asdalexey.github.io/vitest-auto-spy/utilities/cli)**.
+
 ## Using this library with an AI agent
 
 Most tests are now written with an assistant in the loop, so this package ships documentation
@@ -245,7 +308,14 @@ already exists.
 
 ### Install it in your agent
 
-Two commands at the repository root cover every tool in that table:
+One command covers every tool in that table, and specialises the text for this repository:
+
+```bash
+npx vitest-auto-spy init          # write it
+npx vitest-auto-spy init --check  # CI: fail when it is missing or out of date
+```
+
+By hand, the same thing is two commands at the repository root:
 
 ```bash
 # 1 — AGENTS.md: Codex, Cursor, Copilot, Cline, Windsurf, Zed, OpenCode, Qwen, Roo, Junie, Aider…
