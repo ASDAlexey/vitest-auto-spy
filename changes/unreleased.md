@@ -44,6 +44,39 @@ _Last released: **v3.1.0** (2026-08-28)._
 - **CI runs `test:zone` and `alias:sync:check`.** `vitest-auto-spy/zone` is the only entry that
   touches zone.js and no other suite loads it, so `fakeAsync` / `waitForAsync` were covered locally
   and nowhere else; the alias check keeps the generated package from drifting from `package.json`.
+- **`setupAngularTestEnv` decides the mode once per spec file.** The `zoneless` predicate is called
+  from a `beforeAll` instead of before every test: `expect.getState().testPath` _is_ the file, and a
+  file does not change mode halfway through, so the per-test call re-derived an answer that was
+  already known — 10 536 calls become 784 on the suite this came from. Only a predicate with
+  per-test side effects can tell the difference.
+- **The global-patch guard compares names, not descriptors.** `guardGlobalPatches` used to
+  materialise `Object.getOwnPropertyDescriptors` of `globalThis`, `document` and `navigator` after
+  every test — ~1260 descriptor objects per test in a DOM environment — to find an addition that
+  virtually never happens. It now compares the list of own property names, reads a descriptor only
+  for a name that appeared, and carries the baseline from test to test rather than re-taking it.
+  Measured in isolation: 0.283 ms → 0.013 ms per test, 1260 descriptor objects → 0. What it catches
+  is unchanged: a non-configurable addition is still reported against the test that made it, and a
+  property added and taken off again within one test is still nothing to report.
+- **Accessor discovery is cached per prototype**, the way method discovery already was. With
+  `autoSpyAccessors: true`, `createSpyFromClass` walked the prototype chain and materialised the
+  descriptors of every level on every call — that is, in every `beforeEach`. 0.0013 ms → 0.0001 ms
+  per spy on a three-level chain; 10 000 spies of one class walk that chain once instead of 10 000
+  times. `resolveAccessors` copies what it reads, so a caller cannot mutate the cached lists.
+- **`blockNetwork` installs one and the same stub** rather than allocating a fresh closure before
+  every test. The stub carries no state — everything it reports comes from the argument it is handed.
+- **A `calledWith` spy stops serializing calls that cannot match it.** The exact-match map is keyed
+  by a serialization of the whole argument list, and it was built on _every_ invocation of a spy that
+  had any `calledWith` config — so `service.load(component)` on a spy configured with
+  `calledWith(1)` walked and stringified the entire component graph to produce a key that could not
+  possibly be in the map. The map now knows which argument counts were configured, and a call with a
+  count nobody configured skips the serialization outright. Exact behaviour is unchanged: two
+  argument lists of different lengths never serialized to the same key anyway.
+- **The Bun resource inliner scans by character code.** `inlineAngularResources` masks comments and
+  string literals before it rewrites a decorator, and that scan allocated a two-character string per
+  character of the file — three times per file, on the critical path of every `.ts` the Bun loader
+  touches. It now reads character codes, and the two style passes are skipped entirely for a file
+  that never mentions `styleUrl`. Measured on a 100 KB component: 1.09 ms → 0.21 ms per pass, with
+  byte-identical output.
 
 ## Fixed
 
@@ -110,27 +143,6 @@ _Last released: **v3.1.0** (2026-08-28)._
   `installPerTest(() => stubIntersectionObserver(…))` that is an observer stub holding the
   fixture's DOM and the component instance, one subtree per spec file, until the worker exits.
   Reading the handle outside a test now reports that, as its docblock always promised.
-
-- **`setupAngularTestEnv` decides the mode once per spec file.** The `zoneless` predicate is called
-  from a `beforeAll` instead of before every test: `expect.getState().testPath` _is_ the file, and a
-  file does not change mode halfway through, so the per-test call re-derived an answer that was
-  already known — 10 536 calls become 784 on the suite this came from. Only a predicate with
-  per-test side effects can tell the difference.
-- **The global-patch guard compares names, not descriptors.** `guardGlobalPatches` used to
-  materialise `Object.getOwnPropertyDescriptors` of `globalThis`, `document` and `navigator` after
-  every test — ~1260 descriptor objects per test in a DOM environment — to find an addition that
-  virtually never happens. It now compares the list of own property names, reads a descriptor only
-  for a name that appeared, and carries the baseline from test to test rather than re-taking it.
-  Measured in isolation: 0.283 ms → 0.013 ms per test, 1260 descriptor objects → 0. What it catches
-  is unchanged: a non-configurable addition is still reported against the test that made it, and a
-  property added and taken off again within one test is still nothing to report.
-- **Accessor discovery is cached per prototype**, the way method discovery already was. With
-  `autoSpyAccessors: true`, `createSpyFromClass` walked the prototype chain and materialised the
-  descriptors of every level on every call — that is, in every `beforeEach`. 0.0013 ms → 0.0001 ms
-  per spy on a three-level chain; 10 000 spies of one class walk that chain once instead of 10 000
-  times. `resolveAccessors` copies what it reads, so a caller cannot mutate the cached lists.
-- **`blockNetwork` installs one and the same stub** rather than allocating a fresh closure before
-  every test. The stub carries no state — everything it reports comes from the argument it is handed.
 
 - **`vitest-auto-spy/zone` keeps the identity of the runner API.** The patch returned a new `Proxy`
   for every property read, so `it.skip !== it.skip` and `test.each !== test.each`: anything that
