@@ -8,6 +8,22 @@ _Last released: **v3.1.0** (2026-08-28)._
 
 ## Added
 
+- **`createSpyFromClass(X, { fillMissing: true })`** — answers a member the prototype never named
+  with a spy, instead of leaving it absent. The empty-prototype fallback covers a *fully* abstract
+  class; one concrete member is enough to leave that path, and a partially abstract class — a DI
+  token with a few `abstract` declarations and one concrete helper or getter — is the ordinary
+  Angular shape. `abstract read(): string` is erased before it reaches a prototype, so discovery
+  finds only the concrete members, the fallback does not fire, and every abstract member is missing
+  while `Spy<T>` types it as present: the read yields `undefined` and the failure lands in production
+  code as `… is not a function`, with nothing pointing at the spec. It has to be opt-in — TypeScript
+  erases `abstract`, so at runtime such a class and a concrete one are the same object, and filling
+  every unknown key by default would silence a genuine typo on every class in the suite. Reading a
+  member the record already has still goes to the record (a lazy placeholder materialises exactly as
+  it would without the wrapper), and the protocol keys the surrounding machinery probes to decide
+  *what kind of object this is* — `then`, `constructor`, `toJSON`, `asymmetricMatch`, `$$typeof`,
+  `nodeType`, and every symbol — are never filled: a spy on `asymmetricMatch` turns each `toEqual`
+  against the double into a matcher invocation, and one on `toJSON` rewrites every snapshot of it.
+
 - **`setupAutoSpy({ pruneMockRegistry: true })`** — keeps `@vitest/spy`'s registry of every mock ever
   created down to the mocks that outlive a file. `vi.fn()` and `vi.spyOn()` add what they create to
   one module-level `Set`, because that is what `vi.clearAllMocks()` walks, and no API takes anything
@@ -95,6 +111,14 @@ _Last released: **v3.1.0** (2026-08-28)._
   byte-identical output.
 
 ## Fixed
+
+- **`onlyMethodsToSpyOn` was silently discarded on an abstract class.** The empty-prototype fallback
+  fired first and handed back the `createAutoMock` proxy, which answers *every* key — so the one
+  thing a restricting list exists for ("spy these and no others, so an unexpected call is loud") was
+  disabled without a word. The list now keeps the assembled record, whatever the prototype named. The
+  typo warning that goes with it is suppressed when the prototype names nothing at all: there every
+  entry would be reported and none of it is evidence of a typo, because a whitelist is the only way
+  to describe such a class.
 
 - **A throwing `setupAutoSpy` diagnostic no longer cancels the restores.** `strayRejections` and
   `guardGlobals: 'throw'` fail a test on purpose, and each hygiene step used to be its own

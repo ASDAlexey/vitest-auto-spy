@@ -12,6 +12,344 @@ The latest released version here must always match the one published on
 
 ### Added
 
+- **`expectError(source$, options?)` — the error, unwrapped.** The emission helpers wrap a stream
+  failure in a new `Error` whose message names the stream, which is right for reporting a failure
+  nobody expected and useless when the failure is the subject: `rejects.toBe(originalError)`,
+  `rejects.toBeInstanceOf(UdmsStatusError)` and an exact message comparison all fail against the
+  wrapper, and three migrated specs lost the assertion they had. `expectError` resolves *with* the
+  error as it was thrown, waits for it however late it arrives, and fails — naming the stream — when
+  the stream completes or stays quiet instead. The wrapped failures now also carry the original on
+  `cause`.
+- **`expectEmission` / `expectEmissions` / `expectNoEmission` take `{ skip, until }`.** The dominant
+  shape on a replayed stream is not "it emitted" but "it emitted *the* value", and writing that as
+  `source$.pipe(filter(…))` or `pipe(skip(1))` moves the interesting condition out of the assertion
+  and into the source — in a helper whose whole point is that it needs no rxjs. Non-matching
+  emissions are still counted, so a failure reads `4 emission(s) received` rather than `0`, which is
+  what tells "the wrong thing fired" from "nothing fired"; a `filter` in front of the helper throws
+  that distinction away.
+- **`{ advance }` closes the window between subscribing and awaiting.** A stream driven by a
+  `debounceTime`, a retry or a poll needs the clock moved *after* something is listening, and `await`
+  gives control away before the next statement runs. The shape specs arrive at otherwise — hold the
+  promise, advance, then await — is correct and breaks silently the moment somebody adds an `await`
+  one line above it. A callback rather than an `advanceTimers: true` flag, because these helpers are
+  in the core entry, which has no test runner in it.
+- **`ClassSpyConfiguration.overrides` and `AutoMockConfiguration.returns` — the missing halves.**
+  `provideAutoSpyForToken` took property seeds and `provideAutoSpy` took method configuration, so a
+  double needing both was provided in one statement and finished in another. Both factories now take
+  both: `returns` for what a spied method answers, `overrides` for a member that is not a method
+  result. A seeded member is stored verbatim and is no longer a spy — seed data there, name methods
+  in `returns`.
+- **`Mutable<T>`.** `Spy<T>` is a homomorphic mapped type, so it preserves the `readonly` of an
+  abstract getter — and an abstract class whose useful members are getters is exactly the shape
+  `createAutoMock` exists for. `Mutable<Spy<PlatformLocation>>` makes the direct assignment the
+  Proxy's `set` trap has always handled type-check as well.
+
+- **`prefer-create-spy-from-class` takes `{ minRunnerFns }`.** The threshold of two `vi.fn()`s is
+  what makes two doubles on adjacent lines behave differently, and seven migration batches tripped
+  over it independently. It stays at two by default — an object holding one `vi.fn()` is
+  indistinguishable from an options bag with a callback in it, and this rule fires on every object
+  literal in a file — but it is now named in the message and configurable, and the case those
+  reports were about is covered from the side that can prove it: `prefer-provide-auto-spy` has a
+  `provide:` next to the object, fires at one, and since it learnt to follow a name reaches the same
+  doubles.
+
+- **`expectCompletion(source$, options?)` — the assertion for a stream whose value is not the
+  point.** A save, a purge, an `Observable<void>`, a `Subject` a teardown closes. `firstValueFrom`
+  rejects such a stream with rxjs's `EmptyError`, and the workaround people arrive at
+  independently — `lastValueFrom(source$, { defaultValue: undefined })` — reads as though the
+  default were the interesting part when the whole assertion is "it finished". It resolves on
+  completion, rejects on a stream that is still running when the timeout expires (with a message
+  that names `take` / `first` / `takeUntil` / a `Subject` nobody completes) and on one that errors.
+  Emissions do not fail it: it asserts termination, and `expectNoEmission` is still the one for
+  silence.
+- **`mockDeep<T>(overrides?, { selfReturning: true })` — a deep mock that survives a chain of
+  calls.** `mockDeep` builds depth on property *access*, so `api.repo.user.find()` chains while
+  `logger.channel('app').info('x')` throws: the called node returned `undefined`, and
+  `DeepMockProxy<T>` types the whole chain perfectly, so nothing warns. Six spec files in one
+  migration were written against the type and reverted to `createAutoMock` + `mockReturnThis`
+  before the cause was found. With the option, an *unconfigured* call hands the node back;
+  `mockReturnValue`, `calledWith(...)` and `resolveWith` all still win, so the only case it gets
+  wrong is a node deliberately configured to return `undefined` — which is why it is opt-in.
+- **`setEmissionTimeout(ms)` — one default instead of `{ timeout: 0 }` at every call site.** The
+  emission watchdog runs on real time on purpose (see *Changed*), so in a suite under global fake
+  timers a failing assertion spends a real second. The reflex that produces is `{ timeout: 0 }`
+  everywhere — nine call sites in a single batch — which disables the watchdog and leaves the next
+  silent stream hanging to the runner's own timeout with no message worth reading. Set the default
+  once in the setup file instead.
+
+- **`blockNetwork` closes `XMLHttpRequest` and `navigator.sendBeacon`, not only `fetch`.** jsdom
+  ships no `fetch` but implements XHR in full, and plenty of libraries never left it: `rmp-vast`
+  pings every VAST tracker through a hand-rolled `XMLHttpRequest` (`FW.ajax`), so a suite driving an
+  ad player with `setupAutoSpy({ blockNetwork: true })` already on kept reaching
+  `radiantmediaplayer.com` — one ping per quartile, per ad, per test — and printed jsdom's
+  `AggregateError at Object.dispatchError` for every connection that failed. What a green run
+  printed therefore depended on whether the machine had a route to the internet. `blockNetwork()`
+  now takes `{ fetch?, xhr?, beacon? }` (and `setupAutoSpy({ blockNetwork })` takes the same object
+  or `true`); every channel is closed by default, so the bare call is unchanged apart from covering
+  more. The two callers want different answers, which is why `xhr` is a mode rather than a boolean:
+  `'reject'` (the default) fails the request the way an unreachable host does — `readyState` 4,
+  `status` 0, an `error` event, and `BLOCKED_XHR_MESSAGE` on `statusText`, the only string channel a
+  failed request has — so the code under test takes the branch a unit test should be asserting on,
+  while `'empty'` answers it with a silent 200 and an empty body, for a tracker ping whose response
+  nobody reads and whose failure only trades one kind of noise for another. The diversion happens in
+  `open`, so the only address the real implementation ever holds is a local one whatever `send` then
+  does; the failure itself is synthesised rather than delegated to a URL the environment refuses,
+  because there is no URL jsdom and happy-dom agree to fail on. A `data:` URL is let through — the
+  scheme a spec serves its own fixtures from, and the only one a DOM answers without a socket —
+  while a **relative** URL is not, since the DOM resolves it against the document origin and the
+  request then rests on nothing listening on that port. `sendBeacon` is replaced only where the
+  environment has one, because introducing it would hand the code under test a capability it does
+  not otherwise have. Everything goes in through `mockValueProp`, so `restoreMockedProps()` puts it
+  all back. `WebSocket` and `EventSource` are left alone on purpose: their failure is an event on an
+  object the code keeps and reconnects, so no blanket answer is free of a behaviour change of its
+  own.
+- **`no-mocked-for-spy` fixes what it reports** (`eslint --fix`), and it is the only rule here that
+  does. It renames `Mocked<T>` / `MockedObject<T>` to `Spy<T>`, adds
+  `import type { Spy } from 'vitest-auto-spy'` when the name is free, and drops the orphaned
+  `Mocked` import once the last reference to it is gone — with the whole declaration when it was the
+  only specifier, out of the braces when it was not. The reason this one may run unattended is that
+  it touches nothing but a declaration: a wrong rewrite is a compile error, never a test that
+  silently changed meaning. It declines where it cannot prove the rename — a `Mocked` the file
+  declares itself, a `Spy` already bound to something else, or a `Mocked<{ a: Mock }>` whose
+  argument is not a named type — and reports those without a fix.
+- **A suggestion for the shape `no-expect-in-subscribe` fires on most often.** One template
+  accounted for 111 of the 133 rule violations in a batch of 22 migrated spec files:
+  `it(name, () => new Promise<void>((done) => { src$.subscribe((value) => { expect(…); done(); }); }))`,
+  which is what a mechanical migration off Jasmine's `done` produced when `done` stopped being a
+  test parameter. The rule now offers the rewrite —
+  `it(name, async () => { const value = await firstValueFrom(src$); expect(…); })` — re-indented to
+  the depth the test already sits at, with `firstValueFrom` imported when the file has no binding
+  for it. It is offered only for that exact frame: one `subscribe` statement in the promise
+  executor (anything else there is usually the statement that *triggers* the source, and that has to
+  run while something is already listening), one block-bodied callback taking at most a value, and
+  `done` mentioned exactly once and standing last. A suggestion rather than a fix, because a wrong
+  rewrite here leaves a test that still passes — the failure this rule exists to catch.
+- **Suggestions on `prefer-inject-spy` and `no-object-define-property`.** Both change behaviour
+  rather than spelling, so an editor offers the edit and a human accepts it:
+  `vi.spyOn(TestBed.inject(X), 'm')` → `injectSpy(X).m` (whether that finds a spy depends on a
+  `provideAutoSpy(X)` usually written in another file), and
+  `Object.defineProperty(o, 'p', { value })` → `mockValueProp(o, 'p', value)` (which leaves the
+  property writable and configurable where the original sealed it — the point of the change, and
+  still a change). Each brings its own import. Both decline the shapes they would have to invent:
+  `TestBed.inject(X, null, flags)`, a computed method name, a descriptor with a getter or an extra
+  key, or a name that already means something else in the file.
+
+- **`createSpyFromClass(X, { fillMissing: true })` — a partially abstract class.** The
+  empty-prototype fallback covers a *fully* abstract class; one concrete member is enough to leave
+  that path, and a DI token with a few `abstract` declarations plus one concrete helper or getter is
+  the ordinary Angular shape. `abstract read(): string` is erased before it reaches a prototype, so
+  discovery finds only the concrete members, the fallback does not fire, and every abstract member is
+  missing while `Spy<T>` types it as present: the read yields `undefined` and the failure lands in
+  production code as `… is not a function`, with nothing pointing at the spec. `fillMissing` answers
+  a name the prototype never carried with a spy. It has to be opt-in — TypeScript erases `abstract`,
+  so at runtime such a class and a concrete one are the same object, and filling every unknown key by
+  default would silence a genuine typo on every class in the suite, which is the property that
+  separates this library from the mock-everything proxies. A member the record already has is still
+  read from the record, so a lazy placeholder materialises exactly as it would without the wrapper;
+  and the protocol keys the surrounding machinery probes to decide *what kind of object this is* —
+  `then`, `constructor`, `toJSON`, `asymmetricMatch`, `$$typeof`, `nodeType`, and every symbol — are
+  never filled: a spy on `asymmetricMatch` turns each `toEqual` against the double into a matcher
+  invocation, and one on `toJSON` rewrites every snapshot of it.
+
+### Fixed
+
+- **All four `mock*Prop` helpers were a silent no-op on `createAutoMock` and `mockDeep` doubles.**
+  Both are Proxies; the helpers are built on `Object.defineProperty`; neither Proxy trapped it. The
+  patch landed on the Proxy's own target, the `get` trap never looked there, nothing threw, and the
+  test carried on reading the old value. That broke the composition of two things this library
+  recommends in the same breath — `no-object-define-property` sends people to `mock*Prop`, the
+  factory decision tree sends them to `createAutoMock` — and specs that hit it ended up building the
+  double by hand, real getters plus a `createFunctionSpy` per method. Both Proxies now carry
+  `defineProperty`, `deleteProperty` and (on `mockDeep`) `getOwnPropertyDescriptor` traps over the
+  same store the `get` trap reads, so every helper works and `restoreMockedProps()` undoes it.
+  Accessor descriptors are kept as accessors, so `mockReadonlyProp`'s getter is *called* rather than
+  handed back.
+- **`delete mock.optionalMethod` deleted nothing.** On a double that materialises members on demand,
+  dropping a key is not deletion — the next read made a fresh spy, the member was truthy again, and
+  a test named "the optional method is missing, so we do not crash" exercised the branch where it is
+  present. Green, and asserting nothing. A deleted key is now remembered as absent until something
+  writes to it again, as it would be on a real object.
+- **`expectEmission` inferred `unknown` instead of the emitted type, silently.** Its parameter
+  matched rxjs's overloaded `subscribe` in a way that inferred nothing — TypeScript pairs the
+  *trailing* signatures, and in rxjs 7 that is the deprecated positional overload — so
+  `expectEmission(of(1))` was a `Promise<unknown>`. The call compiled, `resolves.toBe(1)` passed,
+  and the loss surfaced only when somebody read a field off the awaited value (`TS2339`) or
+  destructured it (`TS2488`). Three agents hit it independently, and the helper was losing to
+  `firstValueFrom` — 58 files against 7 in one repository — on nothing but its types. Every helper
+  now takes a first overload shaped like the callback form, which pairs correctly with rxjs 7 *and*
+  with the single signature rxjs 8 leaves behind; `expectEmissions` was wrong the same way and is
+  fixed with it. Hand-rolled observer-only sources still take the second overload unchanged.
+- **`expectEmission` hung on an Angular `output()`.** `OutputEmitterRef.subscribe` takes a bare
+  callback, and the helpers passed an observer object; `emit()` then called that object, and the
+  `TypeError` went into Angular's `ErrorHandler` rather than out to the spec — so
+  `await expectEmission(component.selectionChange)` waited for the watchdog with nothing to explain
+  it. Both subscription contracts are now accepted: an rxjs source (detected by `pipe`) still gets
+  the observer object, because rxjs reads a function argument as `next` and drops `error` and
+  `complete`, and everything else gets an observer that is also callable.
+- **`provideAutoSpy` / `createSpyFromClass` take an `abstract class`.** `abstract class LocalStorage
+  extends AbstractStorage {}`, provided in production with `useClass`, is the standard Angular
+  DI-token idiom, and it failed in both directions: the bare call compiled and produced a double
+  with no spies on it, while the config form that would fix that did not compile at all
+  (`TS2345: Cannot assign an abstract constructor type to a non-abstract constructor type`).
+  `ClassType<T>` now carries an **abstract** construct signature — nothing in this library calls
+  `new` on the token — and at runtime, when prototype discovery comes back empty (abstract members
+  are erased before they reach a prototype), the factory hands back the `createAutoMock` proxy
+  instead of an empty object, so every method of the declared type answers. `returns` is applied to
+  it too. The hand-written workaround, `{ provide: X, useValue: createAutoMock<X>() }`, is no longer
+  needed.
+- **`onlyMethodsToSpyOn` was silently discarded on an abstract class.** The empty-prototype fallback
+  above fired first and handed back the `createAutoMock` proxy, which answers *every* key — so the
+  one thing a restricting list exists for ("spy these and no others, so an unexpected call is loud")
+  was switched off without a word. A restricting list now keeps the assembled record whatever the
+  prototype named. The typo warning that goes with it is suppressed when the prototype names nothing
+  at all: there every entry would be reported and none of it is evidence of a typo, because a
+  whitelist is the only way to describe such a class.
+- **`overrideProvider(X, provideAutoSpy(X))` is not a silent no-op**, contrary to what `AGENTS.md`
+  §13, the Angular page and the site's landing page all claimed. `provideAutoSpy` returns
+  `{ provide, useValue }`; `overrideProvider` reads `useValue` off it and ignores the extra key, and
+  the spy is installed. `overrideAutoSpy` is still the right call — it says what it does and hands
+  the spy back directly — but the documented reason was false. Corrected in all three places.
+
+### Changed
+
+- **`no-expect-in-subscribe` says which of three edits it is looking at.** The rule reported one
+  message for three repairs that share a shape and nothing else, and five batches split the work by
+  hand — the proportion moves per *file*, not per suite: 110 of 111 places were a mechanical
+  inversion in one, 36 of 119 in another. Now: the subscription is the last thing the test does →
+  invert it into `await firstValueFrom(...)`; another statement follows it → that statement is
+  usually what makes the stream emit (`httpMock.expectOne(...)`, `subject.next(...)`,
+  `vi.runAllTimers()`), inverting deadlocks, so hold the promise, fire the trigger and await it;
+  the assertion is in the `error` branch, positional or named → `rejects`, which additionally fails
+  when the stream succeeds, something an `error` callback nobody calls cannot do. The message also
+  names `expectEmissions(source$, N)` for a callback that was asserting on every emission, and spells
+  out that `subscribe({ next: () => expect.unreachable(…), error: (e) => expect(e).toBe(err) })`
+  collapses to one `rejects` line.
+- **…and finds assertions the callback reaches through a helper.**
+  `source$.subscribe((data) => assertShape(data))` is the same green-and-empty test as the inline
+  form, and the rule saw nothing there at all. It now steps once through a name bound in the same
+  file — declared or assigned, either spelling — and counts the `expect`s in its body. A helper
+  declared inside the callback is counted once, not twice.
+- **The done-callback suggestion covers the observer forms.** `subscribe({ next })` behaves as the
+  positional callback, and `subscribe({ complete })` becomes
+  `await lastValueFrom(src, { defaultValue: undefined })` — `complete` fires after an empty stream
+  too, which `firstValueFrom` rejects on, and seven places in one file were written that way. Two
+  handlers are declined outright: a one-off codemod that looked for `done()` as the last line of *a*
+  callback found it in `complete`, took `next` for the body, and broke a file.
+- **`prefer-provide-auto-spy` reads `useFactory`.** It looked only at `useValue`, so
+  `useFactory: vi.fn().mockImplementation(() => ({ isKeyEnabled: vi.fn() }))` went unreported — with,
+  in one file, a structural double unrelated to the class and a double cast to make it fit. The
+  factory is read *through* the function, which is the opposite of how a `useValue` is read and right
+  for each: a factory's body is what DI ends up holding, while a function inside a `useValue` is a
+  lazily-built double, i.e. the shape these rules recommend.
+- **`no-mocked-for-spy` sees every type position.** The selector was pinned to a `let` annotation,
+  so it missed a factory's return type, a helper's parameter, and `as unknown as Mocked<T>` — which
+  in one batch stood on the line after the declaration in all eight reports. Fixing one and leaving
+  the other is how a file ends up saying both.
+- **`no-object-define-property` names the helper each descriptor asks for.** Five batches met four
+  descriptor shapes and a message listing two helpers, and for two of those shapes the named helper
+  is actively wrong: `{ get }` is `mockReadonlyPropGetter`, and a `{ value }` holding a mock the
+  code calls with `new` is `stubConstructor` — spelled with a `function` because an arrow cannot be
+  constructed, which is why `mockValueProp` there produces "is not a constructor" three assertions
+  before anything looks wrong. The suggestion now declines that shape rather than proposing it, and
+  the message adds the case where the property is missing because it is an instance field, whose
+  repair belongs where the spy is built (`instanceMethodsToSpyOn`).
+- **…and calls out a patch paired with a hand-written restore.** Two `Object.defineProperty` calls
+  on the same object and key in the same block are a patch and a manual undo, and the undo runs only
+  if every assertion between them passes: the first red one skips it and the global stays patched
+  for the rest of the file — and, under `isolate: false`, of the worker.
+- **`prefer-create-spy-from-class` stays out of `vi.mock()` factories.** The object a module mock
+  returns replaces the module's *exports*, and its `vi.fn()`s stand in for classes used as DI
+  tokens; `createSpyFromClass` cannot go there in any form, because a token has to be a constructor.
+
+- **The emission watchdog's real-time clock is now explained rather than merely implemented.** It
+  stays on the timers captured at import, for two reasons that are now written down: the helper *is*
+  the assertion, so its clock must be the one thing a spec cannot stop; and a virtual watchdog would
+  race the timers the spec advances — `{ timeout: 200 }` followed by `vi.advanceTimersByTime(5_000)`
+  would fire at 200 virtual ms and reject the stream the spec was about to advance into. The timeout
+  message no longer advises `{ timeout: 0 }` under fake timers, which disables the watchdog and
+  takes the failure message with it; it points at `setEmissionTimeout` instead.
+- **`PropStubValue<V>` accepts `null` and `undefined`.** "This member is absent in this test" is a
+  normal thing for a spec to say, and interface declarations routinely omit the `| null` the runtime
+  has. Such a call already compiled — by falling through to the untyped escape-hatch overload every
+  `mock*Prop` helper carries — so what this changes is which overload answers: the checked one, with
+  its property-name check and completions. Worth stating plainly, because it is easy to over-read:
+  nothing a `mock*Prop` helper is handed is ever *rejected*, and that is deliberate — the escape
+  hatch is a routine tool (a partial fixture of a fat type, a synthetic DOM event, a member the
+  double does not have), not a last resort.
+- **Documented the one thing about `mockDeep` that the types hide:** depth comes from property
+  access, not from calls. `AGENTS.md` §2, the decision tree, and the auto-mock page now say so
+  before recommending it for chains.
+
+- **`prefer-provide-auto-spy` sees the doubles it was written for.** It read the `useValue` only
+  when the object literal was written in place, and only its direct properties. Both misses were
+  found on live code: in one spec file eight hand-rolled doubles were declared as `const`s above the
+  TestBed and passed by name, and the rule reported none of them; and a platform double written as
+  `{ type: 'tizen', application: { init: vi.fn() } }` read as configuration because the spy was one
+  level down. It now follows a name to the `const` that initialised it — same file, never
+  reassigned, the same one-step resolution `prefer-inject-spy` uses — and looks through the whole
+  `useValue` subtree, stopping at every function boundary so that a factory returning spies (the
+  shape it steers towards) is still not flagged.
+- **A configured `vi.fn()` counts as one.** `vi.fn()` and `vi.fn().mockReturnValue(of([]))` are the
+  same double, one of them tuned, but the check both provider rules sit on read the immediate
+  callee's object and stopped there — so it recognised the bare form and missed every configured
+  one. In one `providers` array the double on one line was reported and the one on the next was
+  not; four independent migration batches found it on four different files. Exactly backwards, too:
+  the more a hand-rolled double has been tuned, the further it has drifted from the class it stands
+  in for. The member chain is now unwound to the call that created the mock, however long it is
+  (`vi.fn().mockReturnValue(x).mockName('y')`), which mostly shows up in
+  `prefer-create-spy-from-class` — it counts direct property values and never walked the subtree.
+- **`prefer-provide-auto-spy` stops recommending a call that does not compile.** It named
+  `provideAutoSpy(Token)` for everything, and on an `InjectionToken` that is wrong: `provideAutoSpy`
+  reads a class prototype and a token has none, so the right call is `provideAutoSpyForToken` —
+  which the message had never heard of. Three batches reported it independently, and it was not a
+  rare corner: 6 of 8 reports in one, 3 of 12 and 2 of 5 in the others. The rule now tells the two
+  apart, by the declaration where `new InjectionToken(…)` is within the resolver's reach and by the
+  `SCREAMING_SNAKE_CASE` spelling otherwise, and the class message names the token form as well —
+  the two are never interchangeable, so guessing silently would have been worse than saying both.
+  The token message also carries the seed that the first use of it needs:
+  `provideAutoSpyForToken(LOGGER, { channel: vi.fn().mockReturnThis() })`, without which a
+  constructor doing `inject(LOGGER).channel('auth').debug('…')` dies on `undefined` before the spec
+  runs a line.
+- **`prefer-create-spy-from-class` no longer flags its own fix.** An object of `vi.fn()`s handed to
+  one of this library's factories — `createAutoMock<T>({ send: vi.fn(), abort: vi.fn() })`,
+  `mockDeep<T>({ api: { load: vi.fn(), save: vi.fn() } })` — is a *seed*, and there is no other form
+  it could take: it was reported all the same, so replacing a hand-rolled double as the rule asks
+  produced a fresh violation of the same rule. At `error` level that stops the work, and the only
+  way past it is an `eslint-disable` over correct code. Anything inside a call to `autoMocked`,
+  `createAutoMock`, `createMock`, `createSpyClass`, `createSpyFromClass`, `mockConstructor`,
+  `mockDeep`, `provideAutoSpy` or `provideAutoSpyForToken` is now left alone, at any depth.
+  `prefer-provide-auto-spy` was checked for the same trap and does not have it: a `useValue` built
+  by a factory is a call rather than an object literal, which it already ignores.
+- **`no-expect-in-subscribe` reports once per `subscribe`, with the assertion count.** It counted
+  `expect` calls, so one file produced 44 messages for 23 places — which doubles the apparent size
+  of the job when a migration is triaged by rule counts, and every one of those messages named the
+  same rewrite.
+- **`no-object-define-property` names the helper the descriptor asks for.** The message listed
+  `mockReadonlyProp` / `mockValueProp` for every shape, including
+  `Object.defineProperty(host, 'offsetHeight', { get: () => 1000, configurable: true })` — which is
+  literally `mockReadonlyPropGetter`. It now maps the descriptor to the helper (`value` →
+  `mockValueProp`, `get` → `mockReadonlyPropGetter`, a `get`/`set` pair → `mockAccessorsProp`, a
+  signal-valued property → `mockReadonlyProp`), and the suggestion covers the getter form as well
+  as the value one. A `configurable` key alongside is fine — restoring configurability is the point
+  of the change — and anything else is reported without a suggestion.
+- **`setupAutoSpy({ strayRejections: true })` no longer reports a failure twice.** An `async` test
+  that fails an assertion leaves its own `AssertionError` in two places: the runner reports the
+  failed test, and under some zone patches the same error also arrives as a rejection nobody
+  handled. A red run then printed two messages per failure, and the first thing a reader does with
+  the second one is go looking for a defect that is not there. The teardown step now reads the
+  errors the runner has already attributed to the test that just finished — `task.result.errors`,
+  populated by the time `afterEach` runs — and drops a captured rejection that is the same object,
+  or carries the same message and stack. What survives is what the check is for: the rejections that
+  fail no test at all.
+- **`prefer-inject-spy` reads the two-step form too.** It used to see only
+  `vi.spyOn(TestBed.inject(X), 'm')`; the same mistake spelled over two lines —
+  `const events = TestBed.inject(EventsService); vi.spyOn(events, 'announce')` — went unreported,
+  which was found with both forms on adjacent lines of one file and only the first of them flagged.
+  The variable is resolved through the parser's scope manager, so the rule still leaves alone
+  anything it cannot pin down: a name bound by an import or a parameter, a `let` declared without an
+  initialiser, one initialised from something other than `TestBed.inject`, and one assigned again
+  anywhere in the file — by the `spyOn` it holds whatever that assignment put there.
+
 - **`setupAutoSpy({ pruneMockRegistry: true })`** — keeps `@vitest/spy`'s registry of every mock ever
   created down to the mocks that outlive a file. `vi.fn()` and `vi.spyOn()` add what they create to one
   module-level `Set`, because that is what `vi.clearAllMocks()` walks, and no API takes anything out
