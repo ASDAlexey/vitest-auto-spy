@@ -10,6 +10,8 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+## [3.8.0] - 2026-08-29
+
 ### Added
 
 - **`npx vitest-auto-spy doctor` — a repository-level check for defects that never fail anything.**
@@ -72,6 +74,22 @@ The latest released version here must always match the one published on
   captor matches every value, so using one in `calledWith` would configure a return for every call
   — the types stop that line from compiling.
 
+### Changed
+
+- **`dist/node.d.cts` is 3.9 kB instead of 94 kB — the published tarball drops over 20 kB.** It was
+  the largest file in the package by a wide margin: the CJS build is a second tsup config object, so
+  `rollup-dts` ran over it separately and inlined the entire type surface a second time, where
+  `dist/node.d.ts` says the same thing in seven lines by sharing the emitted chunks. A post-build
+  step (`scripts/thin-node-cts.mjs`) now rewrites it as a re-export of that twin. Measured against
+  the published 3.7.0 and *including* everything added in this release, `dist` is 712 → 640 kB and
+  the tarball 260 → 238 kB. No type or value changed hands — verified with a CommonJS consumer that
+  uses both, under `module`/`moduleResolution` `node16` **and** `nodenext`, with
+  `verbatimModuleSyntax` off **and** on, plus a real `require('vitest-auto-spy/node')` round-trip.
+
+## [3.7.0] - 2026-08-29
+
+### Added
+
 - **`settleResource(resource, { turns, label })` on `/angular` and `/bun-angular` — one wait for
   `httpResource()`, `resource()` and `rxResource()`.** Angular's resource primitives need a
   different wait each, and no library in the Angular world had an answer: measured on 21.2.17
@@ -94,28 +112,6 @@ The latest released version here must always match the one published on
   names both things that produce it. The watchdog runs on a timer captured at import, so
   `vi.useFakeTimers()` cannot freeze it — a watchdog the code under test can stop is not a watchdog.
   `{ timeout: 0 }` restores the unbounded wait.
-
-- **`docs-site/utilities/editor-diagnostics.md` — the lint rules, in the editor.** They are
-  worth more while the cursor is still on the line than in CI, because every shape they catch
-  *passes*. No editor needs a plugin of this package's own: WebStorm, IntelliJ IDEA Ultimate,
-  PhpStorm, PyCharm Professional and RubyMine all run ESLint natively — inline, in the Problems tool
-  window and under **Code → Inspect Code** — and VS Code, Cursor and Windsurf need only the ESLint
-  extension. The page carries the setup for both, the three things that otherwise read as "the rules
-  do not work" (flat config only, scope the block to spec files yourself, `⌥⏎` is where the fixes
-  and suggestions live), a table of what gets underlined and why, and the reason a native JetBrains
-  plugin is not planned. Summarised in the README as **Editor diagnostics — WebStorm & VS Code**.
-
-### Changed
-
-- **`dist/node.d.cts` is 3.9 kB instead of 94 kB — the published tarball drops over 20 kB.** It was
-  the largest file in the package by a wide margin: the CJS build is a second tsup config object, so
-  `rollup-dts` ran over it separately and inlined the entire type surface a second time, where
-  `dist/node.d.ts` says the same thing in seven lines by sharing the emitted chunks. A post-build
-  step (`scripts/thin-node-cts.mjs`) now rewrites it as a re-export of that twin. Measured against
-  the published 3.7.0 and *including* everything added in this release, `dist` is 712 → 640 kB and
-  the tarball 260 → 238 kB. No type or value changed hands — verified with a CommonJS consumer that
-  uses both, under `module`/`moduleResolution` `node16` **and** `nodenext`, with
-  `verbatimModuleSyntax` off **and** on, plus a real `require('vitest-auto-spy/node')` round-trip.
 
 ### Fixed
 
@@ -147,12 +143,6 @@ The latest released version here must always match the one published on
   `WeakMap`-memoised per prototype for some time; the page was out of date, and the line read as an
   argument for replacing `autoSpyAccessors: true` with an explicit list on speed grounds. What the
   option actually costs is the accessor indirection, which the same page already measures at 5%.
-
-- **The docs site builds again.** Two dead links (`/core/factories` in `adapters/angular.md`,
-  `/utilities/doubles` in `utilities/setup.md`) pointed at pages that do not exist, and VitePress
-  fails the build on a dead link — so the GitHub Pages deploy had been failing, and nothing
-  published since had reached the site. They now point at
-  `/core/auto-mock-by-type#recursive-deep-mocks-—-mockdeep` and `/utilities/constructor-doubles`.
 
 ### Internal
 
@@ -186,6 +176,28 @@ The latest released version here must always match the one published on
   holds the helpers that are identical on both runners; the two entries re-export it instead of
   repeating it. The second copy was the kind that rots quietly — a helper added to one entry and not
   the other is not a failure anywhere, it is simply missing on Bun.
+
+## [3.6.0] - 2026-08-29
+
+### Added
+
+- **`docs-site/utilities/editor-diagnostics.md` — the lint rules, in the editor.** They are
+  worth more while the cursor is still on the line than in CI, because every shape they catch
+  *passes*. No editor needs a plugin of this package's own: WebStorm, IntelliJ IDEA Ultimate,
+  PhpStorm, PyCharm Professional and RubyMine all run ESLint natively — inline, in the Problems tool
+  window and under **Code → Inspect Code** — and VS Code, Cursor and Windsurf need only the ESLint
+  extension. The page carries the setup for both, the three things that otherwise read as "the rules
+  do not work" (flat config only, scope the block to spec files yourself, `⌥⏎` is where the fixes
+  and suggestions live), a table of what gets underlined and why, and the reason a native JetBrains
+  plugin is not planned. Summarised in the README as **Editor diagnostics — WebStorm & VS Code**.
+
+### Fixed
+
+- **The docs site builds again.** Two dead links (`/core/factories` in `adapters/angular.md`,
+  `/utilities/doubles` in `utilities/setup.md`) pointed at pages that do not exist, and VitePress
+  fails the build on a dead link — so the GitHub Pages deploy had been failing, and nothing
+  published since had reached the site. They now point at
+  `/core/auto-mock-by-type#recursive-deep-mocks-—-mockdeep` and `/utilities/constructor-doubles`.
 
 ### Discoverability
 
@@ -231,10 +243,6 @@ The latest released version here must always match the one published on
 
 ### Added
 
-- **`countMockedProps()`** — how many `mock*Prop` patches are still in place, the counterpart of
-  `countStrayTimers()` / `countStrayRejections()`. It answers one question: did the teardown
-  actually run? `afterEach(() => expect(countMockedProps()).toBe(0))`.
-
 - **A twelfth rule: `prefer-as-spy`** (`warn`, and the second that runs under `--fix`) —
   `TestBed.inject(X) as Spy<X>` becomes `asSpy<X>(TestBed.inject(X))`, with the `asSpy` import added
   and a `Spy` import the rewrite orphans taken out. That cast is written once per injected double in
@@ -249,6 +257,14 @@ The latest released version here must always match the one published on
   hops through `unknown` are left alone — the hop says the value is not a `T`, so the call would not
   compile — except for `TestBed.inject(X) as unknown as Spy<X>`, where the container returns `X` by
   construction and the hop was only silencing `TS2352`.
+
+## [3.5.0] - 2026-08-29
+
+### Added
+
+- **`countMockedProps()`** — how many `mock*Prop` patches are still in place, the counterpart of
+  `countStrayTimers()` / `countStrayRejections()`. It answers one question: did the teardown
+  actually run? `afterEach(() => expect(countMockedProps()).toBe(0))`.
 
 - **An eleventh rule: `no-inject-before-override`** (`warn`) — the trap this plugin's own advice
   sets. `TestBed.inject()` and `TestBed.createComponent()` **instantiate** the testing module, and
@@ -291,6 +307,7 @@ The latest released version here must always match the one published on
   error as it was thrown, waits for it however late it arrives, and fails — naming the stream — when
   the stream completes or stays quiet instead. The wrapped failures now also carry the original on
   `cause`.
+
 - **`expectEmission` / `expectEmissions` / `expectNoEmission` take `{ skip, until }`.** The dominant
   shape on a replayed stream is not "it emitted" but "it emitted *the* value", and writing that as
   `source$.pipe(filter(…))` or `pipe(skip(1))` moves the interesting condition out of the assertion
@@ -298,12 +315,14 @@ The latest released version here must always match the one published on
   emissions are still counted, so a failure reads `4 emission(s) received` rather than `0`, which is
   what tells "the wrong thing fired" from "nothing fired"; a `filter` in front of the helper throws
   that distinction away.
+
 - **`{ advance }` closes the window between subscribing and awaiting.** A stream driven by a
   `debounceTime`, a retry or a poll needs the clock moved *after* something is listening, and `await`
   gives control away before the next statement runs. The shape specs arrive at otherwise — hold the
   promise, advance, then await — is correct and breaks silently the moment somebody adds an `await`
   one line above it. A callback rather than an `advanceTimers: true` flag, because these helpers are
   in the core entry, which has no test runner in it.
+
 - **`observablePropsToSpyOn` on the token path.** The third option the two provider forms did not
   share, and the one where the asymmetry cost the most: a class tells the factory which members are
   methods, a type does not, so every unnamed key of a token-driven double was a *function* spy —
@@ -312,12 +331,14 @@ The latest released version here must always match the one published on
   to a hand-written double, which is what `prefer-provide-auto-spy` and
   `prefer-create-spy-from-class` exist to steer them away from. A member also named in `overrides`
   keeps its seed, the same precedence the class factory uses.
+
 - **`ClassSpyConfiguration.overrides` and `AutoMockConfiguration.returns` — the missing halves.**
   `provideAutoSpyForToken` took property seeds and `provideAutoSpy` took method configuration, so a
   double needing both was provided in one statement and finished in another. Both factories now take
   both: `returns` for what a spied method answers, `overrides` for a member that is not a method
   result. A seeded member is stored verbatim and is no longer a spy — seed data there, name methods
   in `returns`.
+
 - **`Mutable<T>`.** `Spy<T>` is a homomorphic mapped type, so it preserves the `readonly` of an
   abstract getter — and an abstract class whose useful members are getters is exactly the shape
   `createAutoMock` exists for. `Mutable<Spy<PlatformLocation>>` makes the direct assignment the
@@ -341,6 +362,7 @@ The latest released version here must always match the one published on
   that names `take` / `first` / `takeUntil` / a `Subject` nobody completes) and on one that errors.
   Emissions do not fail it: it asserts termination, and `expectNoEmission` is still the one for
   silence.
+
 - **`mockDeep<T>(overrides?, { selfReturning: true })` — a deep mock that survives a chain of
   calls.** `mockDeep` builds depth on property *access*, so `api.repo.user.find()` chains while
   `logger.channel('app').info('x')` throws: the called node returned `undefined`, and
@@ -349,6 +371,7 @@ The latest released version here must always match the one published on
   before the cause was found. With the option, an *unconfigured* call hands the node back;
   `mockReturnValue`, `calledWith(...)` and `resolveWith` all still win, so the only case it gets
   wrong is a node deliberately configured to return `undefined` — which is why it is opt-in.
+
 - **`setEmissionTimeout(ms)` — one default instead of `{ timeout: 0 }` at every call site.** The
   emission watchdog runs on real time on purpose (see *Changed*), so in a suite under global fake
   timers a failing assertion spends a real second. The reflex that produces is `{ timeout: 0 }`
@@ -382,6 +405,7 @@ The latest released version here must always match the one published on
   all back. `WebSocket` and `EventSource` are left alone on purpose: their failure is an event on an
   object the code keeps and reconnects, so no blanket answer is free of a behaviour change of its
   own.
+
 - **`no-mocked-for-spy` fixes what it reports** (`eslint --fix`), and it is the only rule here that
   does. It renames `Mocked<T>` / `MockedObject<T>` to `Spy<T>`, adds
   `import type { Spy } from 'vitest-auto-spy'` when the name is free, and drops the orphaned
@@ -391,6 +415,7 @@ The latest released version here must always match the one published on
   silently changed meaning. It declines where it cannot prove the rename — a `Mocked` the file
   declares itself, a `Spy` already bound to something else, or a `Mocked<{ a: Mock }>` whose
   argument is not a named type — and reports those without a fix.
+
 - **A suggestion for the shape `no-expect-in-subscribe` fires on most often.** One template
   accounted for 111 of the 133 rule violations in a batch of 22 migrated spec files:
   `it(name, () => new Promise<void>((done) => { src$.subscribe((value) => { expect(…); done(); }); }))`,
@@ -403,6 +428,7 @@ The latest released version here must always match the one published on
   run while something is already listening), one block-bodied callback taking at most a value, and
   `done` mentioned exactly once and standing last. A suggestion rather than a fix, because a wrong
   rewrite here leaves a test that still passes — the failure this rule exists to catch.
+
 - **Suggestions on `prefer-inject-spy` and `no-object-define-property`.** Both change behaviour
   rather than spelling, so an editor offers the edit and a human accepts it:
   `vi.spyOn(TestBed.inject(X), 'm')` → `injectSpy(X).m` (whether that finds a spy depends on a
@@ -448,6 +474,7 @@ The latest released version here must always match the one published on
   `throwWith(e)` still means "emit a, then fail". `vi.clearAllMocks()` and `clearMocks: true` still
   cannot reach it, for the same reason they cannot clear a `calledWith` chain, so a spy shared
   across tests wants `resetAutoSpy(spy)` in `beforeEach`.
+
 - **A proxy double satisfied rxjs's duck-typing, and that silently emptied a stream.**
   `of(autoMocked<AnimationItem>())` never emitted: `of(...)` calls `popScheduler(args)`, which takes
   the last argument for a scheduler when `typeof x.schedule === 'function'`, so a double that
@@ -461,6 +488,7 @@ The latest released version here must always match the one published on
   denying `lift` and `@@observable` is enough that `from(double)` now fails with rxjs's own "You
   provided an invalid object where a stream was expected". A type that genuinely has one of the four
   seeds it once and gets it back.
+
 - **`gettersToSpyOn` on a get/set pair spied only the getter.** The double came out poorer than the
   original exactly where the code under test expects symmetry: the assignment landed on the no-op
   setter the spy scaffolding installs, so the write vanished *and* there was nothing to assert on —
@@ -468,6 +496,7 @@ The latest released version here must always match the one published on
   undefined` several steps from the configuration behind it. Naming either half now installs both
   when the **prototype descriptor** declares both; mirroring never adds what the class does not
   have, so a read-only member stays read-only.
+
 - **All four `mock*Prop` helpers were a silent no-op on `createAutoMock` and `mockDeep` doubles.**
   Both are Proxies; the helpers are built on `Object.defineProperty`; neither Proxy trapped it. The
   patch landed on the Proxy's own target, the `get` trap never looked there, nothing threw, and the
@@ -479,17 +508,20 @@ The latest released version here must always match the one published on
   same store the `get` trap reads, so every helper works and `restoreMockedProps()` undoes it.
   Accessor descriptors are kept as accessors, so `mockReadonlyProp`'s getter is *called* rather than
   handed back.
+
 - **A `mockDeep` result had nowhere to go.** `DeepMockProxy<T>` is not assignable to `T` (a mapped
   type cannot see private members, and it loses non-public members at depth), and `asInstance` — the
   bridge that exists for exactly this — took only a `Spy<T>`, which a deep mock is not: it has no
   `accessorSpies` bag. So the factory decision tree recommended `mockDeep` whenever the calls chain,
   and the result then fitted nothing that expected `T`. `asInstance` now has a second overload for
   it; the runtime story is identical to `createAutoMock`'s, so the bridge is the same one.
+
 - **`delete mock.optionalMethod` deleted nothing.** On a double that materialises members on demand,
   dropping a key is not deletion — the next read made a fresh spy, the member was truthy again, and
   a test named "the optional method is missing, so we do not crash" exercised the branch where it is
   present. Green, and asserting nothing. A deleted key is now remembered as absent until something
   writes to it again, as it would be on a real object.
+
 - **`expectEmission` inferred `unknown` instead of the emitted type, silently.** Its parameter
   matched rxjs's overloaded `subscribe` in a way that inferred nothing — TypeScript pairs the
   *trailing* signatures, and in rxjs 7 that is the deprecated positional overload — so
@@ -500,6 +532,7 @@ The latest released version here must always match the one published on
   now takes a first overload shaped like the callback form, which pairs correctly with rxjs 7 *and*
   with the single signature rxjs 8 leaves behind; `expectEmissions` was wrong the same way and is
   fixed with it. Hand-rolled observer-only sources still take the second overload unchanged.
+
 - **`expectEmission` hung on an Angular `output()`.** `OutputEmitterRef.subscribe` takes a bare
   callback, and the helpers passed an observer object; `emit()` then called that object, and the
   `TypeError` went into Angular's `ErrorHandler` rather than out to the spec — so
@@ -507,6 +540,7 @@ The latest released version here must always match the one published on
   it. Both subscription contracts are now accepted: an rxjs source (detected by `pipe`) still gets
   the observer object, because rxjs reads a function argument as `next` and drops `error` and
   `complete`, and everything else gets an observer that is also callable.
+
 - **`provideAutoSpy` / `createSpyFromClass` take an `abstract class`.** `abstract class LocalStorage
   extends AbstractStorage {}`, provided in production with `useClass`, is the standard Angular
   DI-token idiom, and it failed in both directions: the bare call compiled and produced a double
@@ -518,6 +552,7 @@ The latest released version here must always match the one published on
   instead of an empty object, so every method of the declared type answers. `returns` is applied to
   it too. The hand-written workaround, `{ provide: X, useValue: createAutoMock<X>() }`, is no longer
   needed.
+
 - **`onlyMethodsToSpyOn` was silently discarded on an abstract class.** The empty-prototype fallback
   above fired first and handed back the `createAutoMock` proxy, which answers *every* key — so the
   one thing a restricting list exists for ("spy these and no others, so an unexpected call is loud")
@@ -525,13 +560,12 @@ The latest released version here must always match the one published on
   prototype named. The typo warning that goes with it is suppressed when the prototype names nothing
   at all: there every entry would be reported and none of it is evidence of a typo, because a
   whitelist is the only way to describe such a class.
+
 - **`overrideProvider(X, provideAutoSpy(X))` is not a silent no-op**, contrary to what `AGENTS.md`
   §13, the Angular page and the site's landing page all claimed. `provideAutoSpy` returns
   `{ provide, useValue }`; `overrideProvider` reads `useValue` off it and ignores the extra key, and
   the spy is installed. `overrideAutoSpy` is still the right call — it says what it does and hands
   the spy back directly — but the documented reason was false. Corrected in all three places.
-
-### Fixed
 
 - **A `mock*Prop` patch no longer survives a teardown that never ran.** `setupAutoSpy()` restored
   properties from an `afterEach`, and Vitest calls `afterEach` hooks in **reverse** registration
@@ -550,6 +584,7 @@ The latest released version here must always match the one published on
   and calls whatever that chain did — measured in both orderings rather than assumed. The net does
   nothing unless the hook was skipped, so the ordinary path costs one boolean, and when it does fire
   it warns with the count and the cause, at the test where it happened instead of two tests later.
+
 - **`flushEventLoopUntil`'s failure names the cause that reads as a flake.** It listed three
   possibilities and none of them covered what actually happened twice: the work *had* started, and a
   **cold** dynamic `import()` needed more turns than the budget. The giveaway is that only the first
@@ -582,32 +617,38 @@ The latest released version here must always match the one published on
   names `expectEmissions(source$, N)` for a callback that was asserting on every emission, and spells
   out that `subscribe({ next: () => expect.unreachable(…), error: (e) => expect(e).toBe(err) })`
   collapses to one `rejects` line.
+
 - **…and finds assertions the callback reaches through a helper.**
   `source$.subscribe((data) => assertShape(data))` is the same green-and-empty test as the inline
   form, and the rule saw nothing there at all. It now steps once through a name bound in the same
   file — declared or assigned, either spelling — and counts the `expect`s in its body. A helper
   declared inside the callback is counted once, not twice.
+
 - **The done-callback suggestion covers the observer forms.** `subscribe({ next })` behaves as the
   positional callback, and `subscribe({ complete })` becomes
   `await lastValueFrom(src, { defaultValue: undefined })` — `complete` fires after an empty stream
   too, which `firstValueFrom` rejects on, and seven places in one file were written that way. Two
   handlers are declined outright: a one-off codemod that looked for `done()` as the last line of *a*
   callback found it in `complete`, took `next` for the body, and broke a file.
+
 - **`prefer-provide-auto-spy` reads `useFactory`.** It looked only at `useValue`, so
   `useFactory: vi.fn().mockImplementation(() => ({ isKeyEnabled: vi.fn() }))` went unreported — with,
   in one file, a structural double unrelated to the class and a double cast to make it fit. The
   factory is read *through* the function, which is the opposite of how a `useValue` is read and right
   for each: a factory's body is what DI ends up holding, while a function inside a `useValue` is a
   lazily-built double, i.e. the shape these rules recommend.
+
 - **`no-mocked-for-spy` sees every type position.** The selector was pinned to a `let` annotation,
   so it missed a factory's return type, a helper's parameter, and `as unknown as Mocked<T>` — which
   in one batch stood on the line after the declaration in all eight reports. Fixing one and leaving
   the other is how a file ends up saying both.
+
 - **…and says what a `Signal<T>` property needs.** Third independent report of one substitution: a
   signal replaced by `vi.fn().mockReturnValue(value)`, which reads identically at the call site and
   stops being a signal the moment anything puts a `computed()` or an `effect()` downstream of it.
   The message now spells the repair out as `mockReadonlyProp(obj, key, signal(value))`, with the
   word **real** on the signal.
+
 - **`no-object-define-property` names the helper each descriptor asks for.** Five batches met four
   descriptor shapes and a message listing two helpers, and for two of those shapes the named helper
   is actively wrong: `{ get }` is `mockReadonlyPropGetter`, and a `{ value }` holding a mock the
@@ -616,10 +657,12 @@ The latest released version here must always match the one published on
   before anything looks wrong. The suggestion now declines that shape rather than proposing it, and
   the message adds the case where the property is missing because it is an instance field, whose
   repair belongs where the spy is built (`instanceMethodsToSpyOn`).
+
 - **…and calls out a patch paired with a hand-written restore.** Two `Object.defineProperty` calls
   on the same object and key in the same block are a patch and a manual undo, and the undo runs only
   if every assertion between them passes: the first red one skips it and the global stays patched
   for the rest of the file — and, under `isolate: false`, of the worker.
+
 - **`prefer-create-spy-from-class` stays out of `vi.mock()` factories.** The object a module mock
   returns replaces the module's *exports*, and its `vi.fn()`s stand in for classes used as DI
   tokens; `createSpyFromClass` cannot go there in any form, because a token has to be a constructor.
@@ -631,6 +674,7 @@ The latest released version here must always match the one published on
   would fire at 200 virtual ms and reject the stream the spec was about to advance into. The timeout
   message no longer advises `{ timeout: 0 }` under fake timers, which disables the watchdog and
   takes the failure message with it; it points at `setEmissionTimeout` instead.
+
 - **`PropStubValue<V>` accepts `null` and `undefined`.** "This member is absent in this test" is a
   normal thing for a spec to say, and interface declarations routinely omit the `| null` the runtime
   has. Such a call already compiled — by falling through to the untyped escape-hatch overload every
@@ -639,6 +683,7 @@ The latest released version here must always match the one published on
   nothing a `mock*Prop` helper is handed is ever *rejected*, and that is deliberate — the escape
   hatch is a routine tool (a partial fixture of a fat type, a synthetic DOM event, a member the
   double does not have), not a last resort.
+
 - **Documented two failures that are only diagnosable from the docs.** A member Angular moved onto
   the instance (`Router.currentNavigation` since Angular 20) is not on the prototype, so the spy does
   not have it and configuring it throws `TypeError: Cannot read properties of undefined (reading
@@ -649,6 +694,7 @@ The latest released version here must always match the one published on
   `@Component({ providers })` beating a module-level `provideAutoSpy` is now a section of §13 rather
   than a row in the error table — it has surfaced twice in one migration wave, both times as a
   `TypeError` inside whatever the real service touched first.
+
 - **Documented the one thing about `mockDeep` that the types hide:** depth comes from property
   access, not from calls. `AGENTS.md` §2, the decision tree, and the auto-mock page now say so
   before recommending it for chains.
@@ -662,6 +708,7 @@ The latest released version here must always match the one published on
   reassigned, the same one-step resolution `prefer-inject-spy` uses — and looks through the whole
   `useValue` subtree, stopping at every function boundary so that a factory returning spies (the
   shape it steers towards) is still not flagged.
+
 - **A configured `vi.fn()` counts as one.** `vi.fn()` and `vi.fn().mockReturnValue(of([]))` are the
   same double, one of them tuned, but the check both provider rules sit on read the immediate
   callee's object and stopped there — so it recognised the bare form and missed every configured
@@ -671,6 +718,7 @@ The latest released version here must always match the one published on
   in for. The member chain is now unwound to the call that created the mock, however long it is
   (`vi.fn().mockReturnValue(x).mockName('y')`), which mostly shows up in
   `prefer-create-spy-from-class` — it counts direct property values and never walked the subtree.
+
 - **`prefer-provide-auto-spy` stops recommending a call that does not compile.** It named
   `provideAutoSpy(Token)` for everything, and on an `InjectionToken` that is wrong: `provideAutoSpy`
   reads a class prototype and a token has none, so the right call is `provideAutoSpyForToken` —
@@ -683,6 +731,7 @@ The latest released version here must always match the one published on
   `provideAutoSpyForToken(LOGGER, { channel: vi.fn().mockReturnThis() })`, without which a
   constructor doing `inject(LOGGER).channel('auth').debug('…')` dies on `undefined` before the spec
   runs a line.
+
 - **`prefer-create-spy-from-class` no longer flags its own fix.** An object of `vi.fn()`s handed to
   one of this library's factories — `createAutoMock<T>({ send: vi.fn(), abort: vi.fn() })`,
   `mockDeep<T>({ api: { load: vi.fn(), save: vi.fn() } })` — is a *seed*, and there is no other form
@@ -693,10 +742,12 @@ The latest released version here must always match the one published on
   `mockDeep`, `provideAutoSpy` or `provideAutoSpyForToken` is now left alone, at any depth.
   `prefer-provide-auto-spy` was checked for the same trap and does not have it: a `useValue` built
   by a factory is a call rather than an object literal, which it already ignores.
+
 - **`no-expect-in-subscribe` reports once per `subscribe`, with the assertion count.** It counted
   `expect` calls, so one file produced 44 messages for 23 places — which doubles the apparent size
   of the job when a migration is triaged by rule counts, and every one of those messages named the
   same rewrite.
+
 - **`no-object-define-property` names the helper the descriptor asks for.** The message listed
   `mockReadonlyProp` / `mockValueProp` for every shape, including
   `Object.defineProperty(host, 'offsetHeight', { get: () => 1000, configurable: true })` — which is
@@ -705,6 +756,7 @@ The latest released version here must always match the one published on
   signal-valued property → `mockReadonlyProp`), and the suggestion covers the getter form as well
   as the value one. A `configurable` key alongside is fine — restoring configurability is the point
   of the change — and anything else is reported without a suggestion.
+
 - **`setupAutoSpy({ strayRejections: true })` no longer reports a failure twice.** An `async` test
   that fails an assertion leaves its own `AssertionError` in two places: the runner reports the
   failed test, and under some zone patches the same error also arrives as a rejection nobody
@@ -714,6 +766,7 @@ The latest released version here must always match the one published on
   populated by the time `afterEach` runs — and drops a captured rejection that is the same object,
   or carries the same message and stack. What survives is what the check is for: the rejections that
   fail no test at all.
+
 - **`prefer-inject-spy` reads the two-step form too.** It used to see only
   `vi.spyOn(TestBed.inject(X), 'm')`; the same mistake spelled over two lines —
   `const events = TestBed.inject(EventsService); vi.spyOn(events, 'announce')` — went unreported,
@@ -722,6 +775,10 @@ The latest released version here must always match the one published on
   anything it cannot pin down: a name bound by an import or a parameter, a `let` declared without an
   initialiser, one initialised from something other than `TestBed.inject`, and one assigned again
   anywhere in the file — by the `spyOn` it holds whatever that assignment put there.
+
+## [3.4.0] - 2026-08-29
+
+### Added
 
 - **`setupAutoSpy({ pruneMockRegistry: true })`** — keeps `@vitest/spy`'s registry of every mock ever
   created down to the mocks that outlive a file. `vi.fn()` and `vi.spyOn()` add what they create to one
@@ -744,6 +801,11 @@ The latest released version here must always match the one published on
   `keepMockRegistered(mock)` marks the one case the split misses (a module loaded by a dynamic
   `import()` inside a test), and `getMockRegistrySize()` reports what is left. Off by default: it
   reaches into a set the runner does not expose.
+
+## [3.3.0] - 2026-08-29
+
+### Added
+
 - **`setupAutoSpy({ strayRejections: true })`** — turns a promise rejection zone.js swallowed into a
   failed test. zone.js replaces the global `Promise`, and a rejected `ZoneAwarePromise` nobody
   handled is drained into `console.error` and no further: it never reaches
@@ -762,6 +824,7 @@ The latest released version here must always match the one published on
   native rejections the runner already fails a run for. `trackStrayRejections()`,
   `countStrayRejections()` and `flushStrayRejections()` are exported for a suite that wants the
   check somewhere narrower.
+
 - **`no-floating-assertion`** — a ninth ESLint rule, `error` in `configs.recommended`, and the
   static half of the same failure. It flags an `expect()` inside a `.then()` / `.catch()` /
   `.finally()` callback whose chain is a bare expression statement: nothing awaits it, returns it,
@@ -771,6 +834,11 @@ The latest released version here must always match the one published on
   second having a consumer, and it reads only the *immediately* enclosing callback: awaiting the
   chain revives an `expect` sitting directly in the `.then()`, but not one parked in a
   `subscribe()` inside it, and reporting only what the fix repairs keeps the message honest.
+
+## [3.2.0] - 2026-08-28
+
+### Added
+
 - **`setupFakeTimers(config?, { betweenTests })`** — keeps the clock fake in the gaps between tests,
   not only during them, which is what Jest's `fakeTimers.enableGlobally` did. Arming in `beforeEach`
   alone does not reproduce it: a `beforeAll` inside a **nested** `describe` runs after the previous
@@ -788,22 +856,24 @@ The latest released version here must always match the one published on
   depends on is on npm, and skips a version that is already there — so it is safe to re-run, and it
   can be run on its own to catch up a version released before it existed. Publishing by hand is what
   let the alias sit at 1.9.3, two majors and four entry points behind.
+
 - **CI runs `npm run test:zone` and `npm run alias:sync:check`.** `vitest-auto-spy/zone` is the only
   entry that touches zone.js and no other suite loads any of it, so `fakeAsync` / `waitForAsync` were
   verified locally and nowhere else.
+
 - **`installProxyZonePatch({ scope })`** — `'shared'` (the new default) runs every test and hook body
   of the run through one proxy zone, which is what Angular's own jasmine patch does: a component
   built in `beforeEach` schedules from its constructor, and the `tick()` inside the `fakeAsync` test
   has to see those timers. `'callback'` keeps the previous fork-per-callback behaviour, which is what
   `test.concurrent` needs — two callbacks in flight would otherwise swap the same `ProxyZoneSpec`
   delegate under one another.
+
 - **`DeepPartial<T>` accepts the real value at every level**, not only a partial of it. The type is a
   mapping over host objects as well — `BuiltIn` can only list ECMAScript types, since naming `Node`
   or `NodeList` would put `lib: ["DOM"]` into the published `.d.ts` for `/node`, `/nestjs` and
   `/bun` — and a real `NodeList` had stopped being assignable to the mapping of itself
   (`createMock<MutationRecord>({ addedNodes: nodeList })`). Excess-property checking is unaffected: a
   key `T` does not have is still rejected at any depth.
-
 ## [3.1.0] - 2026-08-28
 
 Everything below comes from one source: a 1688-spec Angular monorepo moving from Jest to Vitest
@@ -1787,7 +1857,14 @@ by hand there, in more than one place, by more than one person.
   `mockAccessorsProp`.
 - Dual ESM + CJS build with type declarations; 100% test coverage.
 
-[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v3.1.0...HEAD
+[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v3.8.0...HEAD
+[3.8.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v3.7.0...v3.8.0
+[3.7.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v3.6.0...v3.7.0
+[3.6.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v3.5.0...v3.6.0
+[3.5.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v3.4.0...v3.5.0
+[3.4.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v3.3.0...v3.4.0
+[3.3.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v3.2.0...v3.3.0
+[3.2.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v3.1.0...v3.2.0
 [3.1.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v3.0.0...v3.1.0
 [3.0.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v2.0.3...v3.0.0
 [2.0.3]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v2.0.2...v2.0.3

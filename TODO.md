@@ -1,25 +1,8 @@
 # TODO — refactoring & analysis
 
-Audit of `vitest-auto-spy` (v1.3.0). The core is already cleanly layered (IoC
-`MockAdapter` / `ObservableSupport` registries, one factory reused by the
-class-based and type-based paths). Items below are ordered by value. Status
-markers: `[x]` done in this pass, `[ ]` backlog, `[~]` considered & intentionally
-skipped.
-
-## Correctness / quality gate
-
-- [x] **Restore 100% coverage** — `auto-mock.ts` Proxy traps `has` / `ownKeys` /
-      `getOwnPropertyDescriptor` (lines 71–83) had no tests, so `npm run
-test:coverage` (and therefore CI's `Test + coverage` step) was **red**
-      at 98.34% on this branch. Added trap-exercising specs. The `set` trap was
-      already covered by the "assign a plain property" test.
-- [x] **`npm run check` now enforces the coverage gate** — it ran `npm test`
-      (no coverage), so the 100% threshold was silently bypassed locally while
-      CI ran `test:coverage`. Switched `check` to `test:coverage` so a local
-      `check` matches CI. (Re-verified 2026-08-29: `check` had drifted back to
-      `npm run test` at some point and was silently bypassing the gate again.
-      Switched back, and this time the gate caught two real uncovered branches
-      the same session.)
+Everything still open on `vitest-auto-spy`, ordered by value. Shipped work is not
+kept here — it lives in `CHANGELOG.md` and in git history. Status markers: `[ ]`
+backlog, `[~]` considered and intentionally not done, with the reason.
 
 ## Live defects — measured 2026-08-29
 
@@ -35,82 +18,6 @@ not reproduce under `provideHttpClientTesting`, an `httpResource` needs one sett
 reported, and `import type` fixes neither half of the rxjs declaration problem. `npm run check`
 passes end to end, coverage back at 100%.
 
-- [x] **`expectEmission` cannot subscribe to an Angular `output()`.** Fixed and verified in source:
-      `CallbackSubscribable<T>` is the first overload of all three entry points, and
-      `subscribeToSource` branches on `typeof source.pipe === 'function'` — an rxjs source gets the
-      observer object (so `error` / `complete` still report), everything else gets a hybrid
-      observer that is also a bare callback. No rxjs import was added.
-      Original finding: `SubscribableLike`
-      (`lib/expect-emission.ts:23-25`) requires an _observer object_, and the helper passes one at
-      `:92`. Angular's `OutputRef.subscribe` takes a **callback**, so Angular stores the object and
-      later invokes it: `TypeError: listenerFn is not a function`, thrown internally and swallowed.
-      The watchdog at `:85-90` then rejects with `… did not emit within 200 ms (0 emission(s)
-received). Either the stream never fired — check the trigger and any provider spy feeding it`
-      — **blaming the component for a defect in the helper**, which is the exact failure this
-      module's docstring (`:2-9`) exists to abolish. Fix, no new dependency: an rxjs `Observable`
-      has `pipe` and an `OutputEmitterRef` does not, so branch on `typeof source.pipe === 'function'`
-      in `subscribeAndCollect` (`:64-92`) and send an observer or a bare callback accordingly;
-      widen the three entry points (`:148`, `:166`, `:186`) to `OutputRefLike<T> |
-SubscribableLike<T>`. `error` / `complete` are unreachable for an `OutputRef`, so nothing is
-      lost. Not `outputToObservable` — that would pull rxjs into a module deliberately kept
-      duck-typed and rxjs-free.
-- [x] **`stable(fixture)` deadlocks on a pending `HttpClient` request.** Shipped: `stable` now takes
-      `{ timeout = 2000, label }` and races `fixture.whenStable()` against a real timer captured at
-      import (so fake timers cannot stop the watchdog — the same reason `expect-emission.ts` captures
-      its own). On expiry it throws the cause, naming the fixture and both things that produce it (an
-      unflushed request, a real timer), instead of letting the runner report a file-level timeout.
-      `{ timeout: 0 }` restores the unbounded wait.
-
-      **Correction to the finding, measured on the same Angular 21.2.17 zoneless TestBed:** the
-      deadlock does **not** reproduce under `provideHttpClientTesting`. With one `HttpClient.get` in
-      flight both `fixture.whenStable()` and `ApplicationRef.whenStable()` resolve immediately — the
-      testing backend registers no pending task. Whatever produced the original 800 ms / 600 ms
-      measurement, it was not the testing backend on this version. The timeout is worth having on its
-      own merits (a real backend, a `PendingTasks` entry nothing completes, a `setInterval` under
-      real timers all still hang), but the headline claim was not reproducible and should not be
-      repeated in the docs.
-
-- [x] **The `httpResource` example in `lib/event-loop.ts:91-95` does not work.** Fixed from both
-      ends. `settleResource` shipped (see below), and `event-loop.ts` no longer claims the use case:
-      the example is now an SDK handshake, and both places that named `httpResource` say plainly that
-      this helper never ticks and point at `settleResource`. Re-measured while doing it, and the
-      sequence is one step shorter than the finding says: after `flush()` the resource needs **one
-      microtask** to reach `resolved` — the extra tick is not required.
-- [x] **`serializeValue` is exponential on shared (non-circular) substructure.** Fixed: identity
-      memoisation (`Map<object, string>`) beside the cycle-guard `WeakSet`, both now carried in one
-      `SerializeContext`. Re-measured on the same diamond: depth 16 36.97 ms → **0.63 ms**, depth 18
-      118.72 ms → **1.25 ms**, depth 20 1 124 ms → **5.01 ms** (224×). One subtlety the fix had to
-      handle and the finding did not name: a rendering containing `[Circular]` depends on the path
-      that produced it, so a subtree that emitted a back-edge is deliberately kept out of the cache.
-      Output is byte-identical either way; covered by a deterministic getter-read-count spec rather
-      than a timing one. Original finding: `serializeObject`
-      does `seen.add(v)` … `seen.delete(v)`, so an object reachable by two paths is serialised
-      twice. Measured on a diamond: depth 16 → 65 536 nodes / 36.97 ms; depth 18 → 262 144 /
-      118.72 ms; **depth 20 → 41 distinct objects become 1 048 576 serialised nodes, a 12.6 MB key
-      and 1 124 ms**. Cycles are handled; DAGs are not — and a normalised store slice, a shared
-      config object or any tree with repeated nodes is a DAG. Fix: memoise by identity
-      (`Map<object, string>` beside the existing `WeakSet`); output stays byte-identical for
-      non-shared input.
-- [x] **`bench/auto-spy.bench.ts` measures the garbage collector.** Fixed: every case now ends with
-      `pruneMockRegistry()`, so the registry never holds more than one iteration's worth and each
-      case starts from the heap the previous one started from. The prune had to go _inside_ the
-      timed body — Vitest runs **no** hooks in benchmark mode (`beforeAll` / `beforeEach` /
-      `afterAll` in a `describe` are all silently skipped, verified) and `bench()`'s third argument
-      is tinybench's bench-level `Options`, not its per-task `FnOptions`. Cost is one `Set.delete`
-      per mock created (~50 ns against ~1.9 µs to create it). Two consecutive runs after the fix
-      reproduce every case within **1.00–1.16×** (the worst was 569× before), and the 40-method /
-      3-called row now reports the **7.48× lazy** win the docs publish. Timing table in
-      `docs-site/core/performance.md` re-taken. Original finding: `@vitest/spy` holds every mock
-      ever created in a module-level strong `Set` (`REGISTERED_MOCKS`); 20 000 eager 10-method spies
-      retain 972 MB, and after dropping every reference and forcing GC **0.0% is collected**. Each
-      bench case therefore allocates into a monotonically growing heap, and `p75` reports whether a
-      major GC landed inside the sample. Two consecutive unmodified runs: `createAutoMock + 4
-accesses` moved **569×** (5.0680 ms → 0.0089 ms), and run 1's summary reported "eager
-      **272.67× faster** than lazy" for the 40-method case the docs publish as a 7× _lazy_ win. Fix:
-      call this package's own `pruneMockRegistry()` (or `vi.clearAllMocks()`) between cases, then
-      re-take the timing table in `docs-site/core/performance.md`. The memory table there is
-      unaffected and reproduces (40-method / 2-touched lazy: 18 354 B × 2000 = 36.7 MB vs 35.4 MB
-      published).
 - [ ] **The declaration output emits a _value_ import of rxjs.** `dist/types-*.d.ts:1` is
       `import { Observable, Subject } from 'rxjs';`, emitted from `lib/types.ts`'s `import type`.
       That file is what `index.d.ts` → `bun.d.ts` re-export, so a consumer without the optional rxjs
@@ -146,17 +53,6 @@ accesses` moved **569×** (5.0680 ms → 0.0089 ms), and run 1's summary reporte
       `SubjectLike<T>` is assignable **to** rxjs's `Subject<T>`, so `const s: Subject<number> =
       spy.m.returnSubject()` stops compiling for every consumer that has rxjs. Schedule it with a
       major, or decide the tax is the price of a nominal type.
-
-- [x] **`resetAutoSpy` does not reach into `mockDeep` children.** Fixed: `collectMocks` is now a
-      visitor that treats an assembled spy as a container (own keys) and a mock as a leaf _except_
-      when it is a `mockDeep` node, which is both. The children live in a closure and are
-      deliberately absent from `Object.keys`, so the node publishes them through one new symbol seam
-      (`DEEP_CHILDREN` in `spy-mark.ts`, answered before the `get` trap's symbol guard) that a spec
-      cannot see. Worse than reported, in fact: a `mockDeep` root is a _function_, so the own-key
-      walk found nothing at any depth and `resetAutoSpy(api)` reset nothing at all. Original
-      finding: It walks own keys one level
-      (`lib/reset-auto-spy.ts:43`), so a nested deep-mock keeps its configuration across tests.
-      `vitest-mock-extended`'s `mockReset` recurses; this reads as a bug rather than a design choice.
 
 ## Field findings — consumer monorepo merge, 2026-08-29
 
@@ -363,21 +259,6 @@ callable. Type 'TestContext' has no call signatures.` — text the rule's own de
       channel names the file. The triage rule that does work is the one this library can state: fix
       only files that failed on their own assertions, then re-run.
 
-## Duplication removal (DRY — repo enforces jscpd threshold 0)
-
-- [x] **Vitest-adapter registration was copy-pasted across 6 entries**
-      (`index`, `angular`, `nestjs`, `react`, `vue`, `svelte`): each repeated
-      `import { registerMockAdapter } … import { vitestMockAdapter } …
-registerMockAdapter(vitestMockAdapter)` plus a near-identical comment.
-      Extracted a single side-effect module `lib/use-vitest-adapter.ts`; every
-      Vitest entry now does `import './lib/use-vitest-adapter';`. One source of
-      truth for "this entry runs on Vitest".
-- [x] **`provideAutoSpy` value-provider construction duplicated** between
-      `lib/angular.ts` and `lib/nestjs.ts` (identical
-      `{ provide, useValue: createSpyFromClass(...) }`). Extracted
-      `lib/class-value-provider.ts`; both adapters and their public
-      `AngularValueProvider` / `NestValueProvider` types derive from it.
-
 ## Considered & intentionally skipped
 
 - [~] **Merge the three `as any` mock casts** (`asVitestMock` / `asBunMock` /
@@ -393,20 +274,6 @@ registerMockAdapter(vitestMockAdapter)` plus a near-identical comment.
 
 ## Performance pass (Unreleased)
 
-- [x] **CommonJS output cut to the two entries where `require()` works.** Eight of the twelve `.cjs`
-      files threw on their own first line (Vitest refuses to be required), and esbuild cannot
-      code-split CommonJS, so each surviving bundle carried a private copy of the `MockAdapter` /
-      `ObservableSupport` registries — `require('…/rxjs')` next to `require('…/node')` failed with
-      "Observable spies require rxjs". Kept: `node` (self-contained, used alone) and `eslint-plugin`
-      (no registry). Folded `bun-angular` into the shared ESM pass, which removed its inlined copy
-      of the core. `dist/` 625 kB → 241 kB, tarball 187 kB → 108 kB.
-- [x] **`bench/auto-spy.bench.ts` compared the lazy path against itself.** Its "eager" case was
-      `createSpyFromClass(WideService)` with no config, and `lazySpies` defaults to `true` — so the
-      reported "1.79x faster" (±84% rme) measured noise. Rewritten to pass both options explicitly
-      and to sweep class width against methods actually called, which is what the default trades on.
-- [x] **`vitest.shared-env.config.mts` carried dead configuration.** `test.poolOptions` was removed
-      in Vitest 4 — it logged `was removed in Vitest 4` on every run and was ignored. The top-level
-      `fileParallelism: false` already covers it.
 - [~] **Micro-optimising `createFunctionSpy`.** Measured before deciding: `vi.fn()` alone is 1.3 µs
   (p75) and the full `createFunctionSpy` is 1.9 µs, so _everything_ this library adds per method
   — two `ArgsMap`s, the promise helpers, three `defineProperty` brands, the `settledResults`
@@ -436,16 +303,6 @@ factories together cost **13.8 ms of a 1.32 s run — 1.0% of wall clock, 0.07% 
 may be argued on suite wall time.** The arguments are memory, pathological input, and per-file
 import cost.
 
-- [x] **Pre-serialise `calledWith` config args at `set()` time.** Shipped. `MatcherConfig` now
-      carries a `serialized` array rendered once in `set()`; positions holding an asymmetric matcher
-      stay `undefined` and dispatch to `asymmetricMatch` as before. Re-measured on this machine
-      rather than reusing the original figure — the absolute numbers differ, the ratio does not:
-      an asymmetric config whose other arg is a 200-key object went **27.32 µs → 14.26 µs per call,
-      1.92×**, which is the predicted 2×. Output unchanged, and pinned by a spec that counts config
-      reads through a getter (one read at `set()`, none across three lookups) rather than by a
-      timing assertion. Original finding: The exact map needs nothing: dispatch is flat 186–237 ns from 1 to 100 configs, and
-      the `#arities` guard turns a 1 000-key object passed to a differently-shaped config into
-      **145 ns** instead of 145.89 µs.
 - [ ] **Opt-in `lazySpies: 'proxy'` — one `Proxy` instead of N accessor placeholders.** Creation is
       O(1) in class width: 30–43 ns against 504 ns at 5 methods, 1 958 ns at 20, 11 326 ns at 100
       and **48 951 ns at 400**. On the realistic shape (create + touch 2 + call each 5×) that is
@@ -462,51 +319,6 @@ import cost.
       `getOwnPropertyDescriptor` removes the documented reason to reach for `lazySpies: false`.
       Target consumers are the wide generated clients — orval / ng-openapi-gen services, ngrx
       facades.
-- [x] **`node.d.cts` → a thin re-export of its own ESM twin.** Shipped in
-      `scripts/thin-node-cts.mjs`, run from `npm run build` after `tsup`. It had grown to
-      **~94 kB / 1 829 lines** since the finding was written — the largest file in the package by a
-      wide margin — because the CJS pass is a second tsup config object and `rollup-dts` inlines the
-      whole surface again, where `dist/node.d.ts` says the same thing in seven re-export lines by
-      sharing the emitted chunks. Now **3.9 kB**. Measured against published 3.7.0 and including
-      everything else added this cycle: `dist` 712 → 640 kB, tarball **260 → 238 kB**; on the same
-      export surface it was 232 kB, i.e. −10.8% against the −11.9% predicted.
-
-      **The proposed shape does not compile, and neither does the obvious alternative** — measured
-      with a `.cts` consumer that uses both a value and a type:
-
-      | shape | result |
-      | --- | --- |
-      | `export * from './node.js'` | TS1479 — a CJS file cannot `require` an ESM one |
-      | `export type * from './node.js'` | TS1479 as well, with no `resolution-mode` |
-      | `import type * as N` + `export = N` | values fine, **every type alias lost** (TS2305 on `Spy`) |
-      | `export type * … with { 'resolution-mode': 'import' }` | types fine, **values become type-only** (TS1362) |
-
-      "Type-only re-exports cross the boundary freely" is true and is only half a declaration file:
-      a CJS consumer calling `createSpyFromClass` needs the *value*. What works is both halves at
-      once — one `export type *` carrying every type, and the values re-declared by name against the
-      same namespace (`export declare const x: typeof Entry.x`), the list read from the built ESM
-      module's own runtime exports so it cannot drift from what `node.cjs` provides. Verified clean
-      on `node16` **and** `nodenext`, with `verbatimModuleSyntax` off **and** on, plus a real
-      `require('./dist/node.cjs')` round-trip.
-
-      `eslint-plugin.d.cts` was measured and deliberately left alone: 5 906 B, no external imports,
-      and a default-only export whose CJS interop is not worth disturbing for 5 kB.
-- [x] **What the published bundle-size number actually measures — recorded so the next scare is
-      short.** bundlephobia's version chart makes 3.7.0 look like a step change; it is not. Measured
-      from the published tarballs with bundlephobia's own method (esbuild, minify, gzip, peers
-      external): **3.4.0 10.8 kB → 3.5.0 12.5 → 3.6.0 12.5 → 3.7.0 12.7 kB gzip.** The one real step
-      is 3.4.0 → 3.5.0, and 3.7.0 adds 0.2 kB.
-
-      More to the point, **that number is the whole barrel and nobody imports the whole barrel.**
-      Bundling a consumer that imports only `createSpyFromClass` against the shipped `dist/index.js`
-      costs **5.1 kB gzip / 14.8 kB raw, 19 modules** — the root entry tree-shakes, and every module
-      left in the minimal path is one the factory genuinely needs. Adding `createAutoMock` moves it
-      by nothing. The 12.7 kB figure is `export *`, which is the shape bundlephobia measures and no
-      spec writes.
-
-      And this is a **devDependency**: none of it reaches a production bundle, which is why
-      `tsup.config.ts` refuses to minify in the first place. The two costs that are real are install
-      weight (addressed above — tarball is now 232 kB) and per-spec import time (the item below).
 
 - [ ] **De-chunk `dist/index.js` and `dist/angular.js` only.** Importing the root entry costs
       **5.9 ms per spec file** (150 identical trivial specs, `isolate: true`, single worker:
@@ -525,16 +337,6 @@ import cost.
       the worker's life. Docs line, not a code change. Cosmetic sibling: the legacy string form of
       `setTimeout` is added to `stray-timers.ts`'s `handles` but never wrapped with `forgetting`, so
       its handle is never removed — it skews `countStrayTimers`, nothing more.
-- [x] **`pruneMockRegistry()` verified in real Vitest.** `pool: 'forks'`, `--expose-gc`, 5 000 eager
-      10-method spies = 50 000 mocks: `heldBytes` 243 232 168 → `retainedAfterPrune` 2 267 632.
-      **99.1% released**, registry 50 000 → 0. No caveat found.
-- [x] **No leak in this package's own code.** Nine modules audited: `create-spy-from-class` caches
-      are `WeakMap` keyed on prototype, `mock-registry` is a `WeakSet`, `install-per-test` drops its
-      handle in `afterEach`, `global-patch-guard` holds bounded strings, `mock-deep` and
-      `package-identity` are bounded. The only 100%-retention leak in the process belongs to
-      `@vitest/spy`, and `pruneMockRegistry()` releases 99.1% of it.
-
-Measured this pass and rejected — do not re-open without new evidence:
 
 - [~] **Micro-optimising `createFunctionSpy`**, re-confirmed with fresh numbers rather than quoted
   from the previous pass. A materialised spy retains 4 794 B, of which **4 117 B is bare
@@ -558,9 +360,7 @@ Measured this pass and rejected — do not re-open without new evidence:
   invariant. Only `index` and `angular` are worth the trade.
 - [~] **Optimising the `ArgsMap` exact map** — already optimal (flat 186–237 ns from 1 to 100
   configs; the `#arities` guard is the best thing in the file).
-- [x] **Caching the `autoSpyAccessors` walk harder** — already `WeakMap`-cached per prototype
-      (`accessorNamesCache`), so nothing to do in code. The stale line in
-      `docs-site/core/performance.md` that called the walk uncached is now corrected.
+
 - [~] **Dropping `AGENTS.md` from `files`.** `README.md` + `AGENTS.md` are 187 847 B raw /
   57 908 B gzip = **29.3% of every install**, and dropping `AGENTS.md` alone is −12.6%. Measured
   and offered, not recommended: it is what an agent in a consumer repo reads with no network,
@@ -724,37 +524,6 @@ default value, and needs **one microtask plus one tick** to reach `resolved`. A 
 with an async loader is different again: tick + microtask is not enough, `await
 ApplicationRef.whenStable()` is. Two waits for one concept — which is the argument for one name.
 
-- [x] **`mockResourceProp(object, property, initialValue)` — shipped** in `lib/resource-prop.ts`,
-      exported from `/angular`. Returns `{ set, fail, loading, reload, resource }` and installs a
-      double built from real `signal()`s, so a `computed()` downstream recomputes exactly as it does
-      against a real resource. Two shape decisions worth recording: `isLoading` is a `computed()`
-      rather than a plain arrow, because Angular's `Signal<T>` is branded and a bare function is not
-      assignable to it; and the double deliberately omits `asReadonly` / `destroy` / `update`, which
-      a *consumer* never calls — a double that answers a call nobody should make is how a typo
-      survives a run. `resource` is exposed beyond the four members the finding named, because
-      asserting on the installed double is the other half of driving it. Starts `'resolved'` at
-      `initialValue`; `fail()` takes a string or an `Error`.
-- [x] **`settleResource(resource, { turns = 20, label })` — S.** Shipped in
-      `lib/settle-resource.ts`, exported from `/angular` and `/bun-angular`. Duck-typed on
-      `{ status(): string }`, so `@angular/core` stays an optional peer and a hand-built double
-      works. Re-measured rather than taken on trust: `httpResource` settles in **1** round after its
-      flush, a plain `resource()` in **2** — the finding says one for both. `error` and `idle` end
-      the wait too (waiting for either is waiting for something that cannot happen). One correction
-      to the shape: a `flushEffects()` still has to come _before_ the flush, because an
-      `httpResource` issues no request until something ticks and there is nothing for `expectOne` to
-      find until then — `settleResource` cannot absorb that step, and its docstring says so.
-- [x] **`stable(fixture, { timeout = 2000, label })` — S.** Shipped, with the caveat recorded under
-      the live defect above: the specific `HttpClient` deadlock that motivated it does not reproduce
-      under `provideHttpClientTesting` on Angular 21.2.17, so the message names the causes without
-      claiming that one. Original item: Race `fixture.whenStable()` against a
-      real timer — the `setTimer` pattern already in `lib/expect-emission.ts:44-45`, captured at
-      import so fake timers cannot stop it — and on expiry throw the cause instead of letting the
-      runner report a 5 s file-level timeout: _"the fixture was still unstable after 2000 ms. A
-      pending HttpClient request keeps it unstable, and under `provideHttpClientTesting` only the
-      spec can complete one — flush it before awaiting, or use `settleResource()`."_ This is the
-      shape the earlier `settled(fixture)` item said it would have to take ("it belongs behind an
-      option on `stable`"); the measurement is the missing argument. Angular 22 (2026-06-03) making
-      components default to `OnPush` adds to it.
 - [ ] **`provideHttpTesting()` + `expectRequest(url).flush(body)` — M, and it costs a peer.**
       Collapses the measured six-step dance (tick → inject controller → `expectOne` → flush →
       microtask → tick) into two lines, with `flush` returning a promise so the caller cannot get
@@ -762,15 +531,7 @@ ApplicationRef.whenStable()` is. Two waits for one concept — which is the argu
       which is **not a peer today** — a second optional peer (`@angular/common`). The precedent and
       the lazy-load strategy both exist, but it is a scope decision, which is why it ranks below the
       three items that need nothing new.
-- [x] **`registerResourceMatchers()` — shipped** in `lib/resource-matchers.ts`, exported from
-      `/angular`. The load-bearing behaviour is one the finding did not name: `toHaveResourceValue`
-      **fails a resource that has not resolved even when its default value matches**, which is the
-      assertion the whole family exists to stop passing, and the failure says which status it was in
-      and names the flush. `toHaveResourceError` takes an optional substring or `RegExp`.
-      Duck-typed on `{ status, value, error }` with `error` optional, so a hand-built double works;
-      anything that is not a resource gets its own message rather than a `TypeError`, because the
-      two ways to get there — passing `products.value()` instead of `products`, and passing a
-      property that was never a resource — are both silent.
+
 - [ ] **`enableAngularDiagnostics()` — M.** The grouping the earlier `NO_ERRORS_SCHEMA` item left
       open now has four members, which settles it: `ngModuleScopes` (apply `assertNgModuleScopes`
       automatically), `deadSchemas` (a `NO_ERRORS_SCHEMA` next to a standalone component is a dead
@@ -889,37 +650,25 @@ children go 0 → 400) and already fixed by `renderShallow` (4.1× here, 16.2× 
   22 indefinitely. (4) Whether a workspace trades a 596 MB bundle graph for module mocking is
   the app team's call, not a test-double library's.
 - [~] **What to ship instead — three read-only pieces, no mutation.** (a) **shipped** as
-      `angular-build-splitting-off`; (b) and (c) still open. A `doctor` check: detect an
-      installed `@angular/build` in `[22.1.5, 22.1.7)` and report that the unit-test build has code
-      splitting off, that `--coverage` will grow ~400 MB per spec with no plateau, and name both
-      exits (upgrade to 22.1.7+ and set `"splitting": true`, or apply the patch). This is exactly
-      the "a defect nothing consumes" niche the doctor exists for. (b) A `docs-site/adapters/angular.md`
-      page. Note that the trade is **not** "memory against module mocking" — splitting off buys
-      nothing for `vi.mock` (see the item above); what it buys is the live-binding / undefined-export
-      class upstream turned it off for, and what it costs is 791 chunks / 596 MB and an
-      OOM-under-coverage that no warning announces. Reproduce the patch script verbatim as a
-      copy-pasteable escape hatch with a "delete this from 22.1.7" note. People will arrive at the
-      page by searching the OOM. (c) Optionally a one-shot runtime notice from `setupAutoSpy`, in the same
-      family as the duplicate-install report it already prints: read the builder's mode and say so
-      once per run. Read-only, zero risk, and it fires in the session where it matters.
+  `angular-build-splitting-off`; (b) and (c) still open. A `doctor` check: detect an
+  installed `@angular/build` in `[22.1.5, 22.1.7)` and report that the unit-test build has code
+  splitting off, that `--coverage` will grow ~400 MB per spec with no plateau, and name both
+  exits (upgrade to 22.1.7+ and set `"splitting": true`, or apply the patch). This is exactly
+  the "a defect nothing consumes" niche the doctor exists for. (b) A `docs-site/adapters/angular.md`
+  page. Note that the trade is **not** "memory against module mocking" — splitting off buys
+  nothing for `vi.mock` (see the item above); what it buys is the live-binding / undefined-export
+  class upstream turned it off for, and what it costs is 791 chunks / 596 MB and an
+  OOM-under-coverage that no warning announces. Reproduce the patch script verbatim as a
+  copy-pasteable escape hatch with a "delete this from 22.1.7" note. People will arrive at the
+  page by searching the OOM. (c) Optionally a one-shot runtime notice from `setupAutoSpy`, in the same
+  family as the duplicate-install report it already prints: read the builder's mode and say so
+  once per run. Read-only, zero risk, and it fires in the session where it matters.
 
 ## `doctor` — a repository-level check for defects that never fail
 
-**Shipped.** `npx vitest-auto-spy doctor`, non-zero exit, grouping the checks below. What they have
-in common is that **nothing consumes them**: the run is green, and the only reader of a
-`tsconfig.spec.json` after Jest is gone is somebody's editor. Each check is independent; the shared
-part is a 15th tsup entry (`src/cli.ts`, ESM, shebang, `dts: false`, its own pass so it shares no
-chunk with the core) behind `bin` in `package.json`. It imports nothing from the library — the core
-loads Vitest, which refuses to be imported outside a test run.
-
-Two invariants keep it honest, checked by `scripts/check-dist.mjs` on every `npm run build`: the
-package declares no runtime `dependencies`, and `node:fs` appears only in `dist/cli.js` and
-`dist/bun-angular.js` (the Bun preload inlines `templateUrl` from disk; nothing else may read one).
-
-Docs: `docs-site/utilities/cli.md`, plus the README section and the `doctor` line in `AGENTS.md`
-§19 and in the shipped skill's Finish block.
-
-Still open on `doctor`:
+`npx vitest-auto-spy doctor` ships. What every check has in common is that **nothing consumes the
+result**: the run is green, and the only reader of a `tsconfig.spec.json` after Jest is gone is
+somebody's editor. Still open:
 
 - The `ts.parseJsonConfigFileContent` tier. The shipped glob matcher is self-contained and
   zero-dependency; the consumer's own `typescript` via `createRequire` would be the authority on
@@ -929,32 +678,6 @@ Still open on `doctor`:
 - `helper-from-wrong-entry` and `no-unawaited-helper` — the two named below, both of which need a
   table generated from the installed version's own export map rather than a hand-written one.
 - The other 43 checks of the sharpened catalogue.
-
-- [x] **A spec that no tsconfig covers — shipped** as `tsconfig-glob-matches-nothing`, plus
-      `tsconfig-file-missing` for a `files` entry that is gone. Found by a person opening a file and seeing
-      `Cannot find name 'vi'` while `tsc --noEmit` reported zero errors: a migration codemod editing
-      `include` had eaten `/**/*`, turning `src/**/*.spec.ts` into `src*.spec.ts` — a syntactically
-      valid glob that matches nothing. Nine of 152 spec tsconfigs still covered their specs. The
-      check: for every `tsconfig*.json`, expand `include` and report a pattern that matches no file.
-- [x] **A non-spec file that imports a spec — shipped** as `spec-imported-by-non-spec`. Under a
-      shared environment that is a cycle, and the spec loses its own suite.
-- [x] **A spec that exports a fixture somebody imports — shipped** as `spec-exports-fixture`. The
-      same defect from the other side; both fall out of one lexical import graph
-      (`src/cli/checks/graph.ts`), built once per run and shared by every check that needs it.
-- [x] **A foreign runner's pragma left in a spec — shipped** as `foreign-runner-pragma`
-      (`@jest-environment`, `@jest-environment-options`, `@jest-config`). Vitest does
-      not read them; the environment comes from the config, so the comment looks operative and is
-      not.
-- [x] **Orphan files referenced only by a removed runner config — shipped** as
-      `dead-runner-config` (the jest/karma config itself, when neither package nor script mentions
-      the runner) and `orphan-runner-file` (a path it references that still exists, is not a live
-      `setupFiles` entry, and nothing imports). One of the three found this way had been empty since
-      before the migration: a year as a setting that configured nothing.
-
-Two of these (the import-cycle pair) overlap with the `no-shared-module-level-mock` lint rule, and
-the overlap is not complete: the rule sees one file at a time, so it catches the _export_ but not
-"and three files import it", and it cannot see a non-spec file importing a spec at all. That part
-genuinely needs a repository-level pass.
 
 ## Agent adoption — `init`, and what cannot work
 
@@ -984,37 +707,6 @@ root files: `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`. `llms.txt` stays — it costs
 a link people paste, not something coding agents fetch: one 90-day crawler sample put it at 0.1% of
 AI-bot requests, and Google stated in January 2026 that it does not use it.
 
-- [x] **`npx vitest-auto-spy init`, on the same `bin` as `doctor` — shipped.** `src/cli.ts` is a
-      15th ESM tsup entry with a shebang, importing nothing from the library core (Vitest refuses
-      `require()`, and `init` writes files rather than creating spies). Tier 1, tier 2, the legacy
-      refusal, the markers, `--check` / `--dry-run` / `--uninstall` and the Codex budget warning all
-      landed as described below. **Not shipped:** the JSON/YAML targets (`.gemini/settings.json`,
-      `.aider.conf.yml`) and therefore the sidecar manifest — a root `GEMINI.md` covers Gemini CLI
-      without touching its settings, and every marker-carrying target is already found by its
-      marker, so `--uninstall` needs no manifest. Add both only if a JSON target ever appears. - **Tier 1, always written:** a managed block in root `AGENTS.md` and root `CLAUDE.md`, plus
-      `.claude/skills/vitest-auto-spy/SKILL.md` as a stub — the shipped skill's frontmatter copied
-      verbatim (the description is what drives loading) over a body that points at
-      `node_modules/vitest-auto-spy/AGENTS.md`, so it cannot go stale. `init --check` compares the
-      stub's frontmatter against the shipped skill, the same CI pattern as `llms:check`. - **Tier 2, only when the tool's directory already exists**, glob-scoped so it costs no context
-      on non-test tasks: `.cursor/rules/vitest-auto-spy.mdc` (`globs`, `alwaysApply: false`),
-      `.github/instructions/vitest-auto-spy.instructions.md` (`applyTo`), `.devin/rules/` or
-      `.windsurf/rules/` (`trigger: glob`, ≤12 000 chars), `.clinerules/` (`paths`). Their bodies
-      are pointers, not copies — all of them read `AGENTS.md` anyway. - **Never create `.rules`, `.cursorrules`, `.windsurfrules` or `.clinerules`** (the legacy file
-      forms). Zed resolves instructions **first-match-wins** over an ordered list ending in
-      `AGENTS.md`, so creating any of them silently shadows the entire project's instructions.
-      Append only if one already exists. - **Markers and idempotency:** `<!-- vitest-auto-spy:begin v=… sha=… -->` / `:end`, content
-      between them fully regenerated, text outside never read or reformatted. JSON/YAML targets
-      (`.gemini/settings.json`, `.aider.conf.yml`) take no markers — parse, set only our keys,
-      record every touched path in a sidecar manifest so an `--uninstall` can be exact. - **The reason a CLI beats the paste-able snippet the README ships today:** `init` reads the
-      consuming `package.json` and configs and **specialises the block** — which subpath matches
-      this runner (`vitest-auto-spy` / `/bun` / `/bun-angular` / `/node`), which adapter matches
-      the framework, the actual path of the setup file that needs `import 'vitest-auto-spy/rxjs'`,
-      and it omits the rxjs bullet entirely when rxjs is absent. A hand-pasted snippet always
-      states all of it and half of it is false for any given repo. - **Codex budget:** the whole root→cwd `AGENTS.md` chain is capped at `project_doc_max_bytes`,
-      default **32 768 bytes**, and over-budget files are silently truncated. Target ≤1.6 kB for
-      the block and warn when the resulting file crosses the cap. Nested `AGENTS.md` _below_ cwd
-      are never read by Codex — only git-root down to cwd — so a monorepo needs the block in the
-      package directory too.
 - [~] **A postinstall message.** Ineffective and risky, and the trend is one-way: npm hides
   lifecycle output by default since v7, pnpm 10 blocks dependency scripts, Yarn Berry defaults
   `enableScripts: false` for third-party packages, and npm v12 (targeted July 2026) flips
@@ -1213,26 +905,7 @@ with zoneless support: a `./zoneless` entry added in 19.2.0 on 2026-03-17.
 function` — blaming the spy rather than the test. Biggest payoff exactly where this library is
       strongest: a wide service where one of forty methods was left unstubbed and `undefined`
       surfaces three frames later.
-- [x] **`captureArg<T>()` — shipped** in `lib/capture-arg.ts`, exported from the root entry.
-      Runtime-neutral as predicted; two things the finding had wrong, both found by testing rather
-      than reasoning.
 
-      **It must be a class, not an object literal.** Accessors in a literal are enumerable own
-      properties, and the runner walks those when it serialises the expected side of an assertion —
-      which read `.value` on a captor that had matched nothing and replaced a readable assertion
-      failure with this helper's own throw. On a class the accessors sit on the prototype and are
-      not enumerable, so a captor can be printed, diffed and logged without being read.
-
-      **It does not belong in `calledWith`, and the types already say so.** The finding's "already
-      routes through `ArgsMap#findByMatcher`" is true of the mechanism and wrong as a use: a captor
-      matches every value, so `spy.load.calledWith(captor)` configures a return for *every* call —
-      which is `mockReturnValue`, spelled less clearly. `calledWith` is typed to the method's own
-      parameters, so it does not compile. `expect.any` type-checks there only because it returns
-      `any`. Documented as assertion-only.
-
-      Also: the last capture is boxed (`{ value: T } | undefined`) rather than read off the end of
-      the array, so that capturing an actual `undefined` argument stays distinct from never having
-      matched — without the non-null assertion the index access would otherwise need.
 - [ ] **`createSpyFromInstance(instance, config)` — M.** The one structural capability three live
       competitors have and this package does not: `vi.mockObject(obj)`, `sinon.createStubInstance`,
       `td.replace(obj, 'method')`. Every factory here _constructs_ the double; there is no way to
