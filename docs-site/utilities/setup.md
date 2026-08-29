@@ -255,6 +255,54 @@ is turned off does not throw at the suite.
 The [`no-floating-assertion`](/utilities/eslint-plugin) rule catches the commonest shape statically,
 before it ever runs.
 
+## 9. Pruning the mock registry nothing empties
+
+Opt-in, and the one switch on this page that is about what the run costs rather than what it reports.
+
+`vi.fn()` and `vi.spyOn()` add the mock they create to a single module-level `Set` inside
+`@vitest/spy`, because that is what `vi.clearAllMocks()` walks — and no API ever takes anything out
+of it again. With `isolate: true` the module is re-evaluated per file and the set starts empty every
+time. With `isolate: false` it is evaluated once per worker and only grows, and a large suite feels
+both halves of that:
+
+- `clearMocks: true` walks every mock of every file already run **before every single test**, so the
+  cost of clearing grows with the number of tests already behind it.
+- the worker's heap holds every mock of the run at once — with their recorded arguments, and through
+  those whole component trees.
+
+```ts
+setupAutoSpy({ pruneMockRegistry: true }); // keep only the mocks that outlive a file
+```
+
+There is no API for that set, so it is taken from the one thing that iterates it: `Set.forEach`
+passes the set to its callback as the third argument, so `vi.clearAllMocks()` under a briefly patched
+`Set.prototype.forEach` hands the registry over. The capture is verified against a probe mock, and
+without a match nothing is pruned — a slower run beats a broken one.
+
+The half worth understanding before turning it on is what must **not** go. Dropping a mock from the
+registry means `vi.clearAllMocks()` and `clearMocks: true` can no longer see it, so its calls
+accumulate silently: harmless for a mock that dies with the file that made it, a bug for the
+module-level `vi.fn()` in a shared `*.mock.ts` that six spec files import. The first file to import
+it creates it, a naive prune drops it when that file ends, and the file that happens to run **second**
+then fails on calls its predecessor made — which reads as flakiness, because which file runs first is
+the runner's choice.
+
+So the split is drawn where it is observable: whatever is already in the registry when a file's hooks
+start was created while the module graph was being evaluated, which is exactly what "lives in a
+module" means, and it is kept; everything added afterwards belongs to a test or a hook of that file
+and goes when the file ends. One case lands on the wrong side of that line — a module first loaded by
+a dynamic `import()` inside a test — and says so explicitly:
+
+```ts
+// fixtures/navigation.mock.ts — imported by six spec files
+export const navigation = { setFocus: keepMockRegistered(vi.fn()) };
+```
+
+The pieces are exported for a suite that wants them without the rest: `trackMockRegistry()` installs
+the same pair of hooks on its own, `keepRegisteredMocks()` marks everything currently registered as
+long-lived, `pruneMockRegistry()` is the one-shot sweep and returns how many went, and
+`getMockRegistrySize()` reports what is left — `undefined` when the capture never took.
+
 ## Reinstalling a stub for every test
 
 ```ts
@@ -295,6 +343,7 @@ each test: a stub installed for the previous test is exactly what must not still
 | `guardGlobals`        | `'off'`   | Report a test that redefines a global property as non-configurable            |
 | `globalFakeTimers`    | `false`   | Fake timers for every test **and between them** — see below                   |
 | `restoreTimerGlobals` | `true`    | Put back timer globals that uninstalling the fakes deleted                    |
+| `pruneMockRegistry`   | `false`   | Keep @vitest/spy's ever-growing mock registry to the mocks that outlive a file |
 
 `restoreMocks` is off by default because it also drops `vi.spyOn` stubs a suite installed in
 `beforeAll`; it is the knob to reach for when the run shares one environment across files.

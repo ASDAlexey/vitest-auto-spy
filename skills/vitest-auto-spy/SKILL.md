@@ -104,6 +104,7 @@ it('loads', async () => {
 | a green run exiting 1 with `AbortError` under happy-dom            | `setupAutoSpy({ blockNetwork: true })`                             |
 | timers or frames from a previous file failing this one             | `setupAutoSpy({ strayTimers: true })`                              |
 | an assertion error in stderr, every test green and the run at 0    | `setupAutoSpy({ strayRejections: true })` — zone.js swallowed it   |
+| a run getting slower the longer it goes, on `isolate: false`       | `setupAutoSpy({ pruneMockRegistry: true })` — the mock registry    |
 | `Cannot read properties of undefined (reading 'now')`              | `restoreTimerGlobals` — on by default                              |
 | a spy handed to an API typed against the real class                | `asInstance()` / `asSpy()`                                         |
 | the code under test does `new X()` (a global, a vendor SDK)        | `mockConstructor(factory)` / `stubConstructor(obj, key, factory)`  |

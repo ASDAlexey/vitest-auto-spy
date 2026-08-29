@@ -73,6 +73,11 @@ alongside it:
   the promise rejections zone.js drains into `console.error` and no further, turned into failed
   tests. Nothing else on this list looks there: a swallowed rejection never reaches the channel
   Vitest watches, so a spec that asserts inside a `.then()` nobody awaits stays green and exits 0.
+- [`setupAutoSpy({ pruneMockRegistry: true })`](/utilities/setup#_9-pruning-the-mock-registry-nothing-empties) —
+  the `Set` inside `@vitest/spy` that every `vi.fn()` joins and that nothing ever takes anything out
+  of, kept to the mocks that outlive a file. On `isolate: false` it is what makes `clearMocks` cost
+  more with every test already run, and what keeps a whole run's recorded arguments — and the
+  component trees behind them — alive in one worker.
 - [Nine ESLint rules](/utilities/eslint-plugin) versioned together with the API they recommend, and
   [`setupAutoSpy()`](/utilities/setup) for the test-run hygiene a shared environment needs.
 - [Per-file `TestBed` diagnostics](/adapters/angular#where-a-spec-spends-its-time) — which specs
