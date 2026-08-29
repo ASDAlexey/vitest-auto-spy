@@ -116,6 +116,21 @@ function addObservableHelpers<T>(
   });
 }
 
+/**
+ * Forget what the previous configuration of `container` left behind.
+ *
+ * A function spy owns one container for its whole life, and `unwrapContainer` reads
+ * `_isRejectedPromise` and `valuesPerCalls` *before* it reads `value`. Without this, a
+ * `rejectWith(err)` (or a `*PerCall` batch) keeps answering for every later `nextWith` /
+ * `nextWithPerCall` on the same spy, silently ignoring the newer configuration. The promise
+ * helpers clear both on every store; the observable helpers publish through this instead of
+ * repeating it at each of their two publication points.
+ */
+function clearPreviousConfig(container: ReturnValueContainer): void {
+  container._isRejectedPromise = false;
+  delete container.valuesPerCalls;
+}
+
 /** A memoizing lazy factory: the `ReplaySubject` is created on first use, then reused. */
 function lazySubject<T>(): () => ReplaySubject<T> {
   let subject: ReplaySubject<T> | undefined;
@@ -160,6 +175,7 @@ function addNextWithPerCall<T>(
 
         valuesPerCalls.push({ wrappedValue: buildPerCallObservable(replaySubject, config) });
       });
+      clearPreviousConfig(returnValueContainer);
       returnValueContainer.valuesPerCalls = valuesPerCalls;
 
       onConfigured(returnValueContainer);
@@ -171,6 +187,7 @@ function addNextWithPerCall<T>(
 
 export function addObservableHelpersToFunctionSpy(spyFunction: object, valueContainer: ReturnValueContainer): void {
   addObservableHelpers(spyFunction, lazySubject(), (configuredSubject) => {
+    clearPreviousConfig(valueContainer);
     valueContainer.value = configuredSubject;
   });
   addNextWithPerCall(spyFunction, valueContainer);
@@ -179,6 +196,7 @@ export function addObservableHelpersToFunctionSpy(spyFunction: object, valueCont
 export function addObservableHelpersToCalledWithObject(calledWithObject: CalledWithObject, calledWithArgs: unknown[]): void {
   const returnValueContainer: ReturnValueContainer = { value: undefined };
   addObservableHelpers(calledWithObject, lazySubject(), (configuredSubject) => {
+    clearPreviousConfig(returnValueContainer);
     returnValueContainer.value = configuredSubject;
     calledWithObject.argsToValuesMap.set(calledWithArgs, returnValueContainer);
   });
