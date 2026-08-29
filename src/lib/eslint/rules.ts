@@ -7,35 +7,65 @@
  * only says "don't" moves the problem instead of solving it.
  *
  * They are deliberately narrow — every one of them fires on a shape that has a single, mechanical
- * replacement, so `--fix`-less autopilot is still safe to leave on in CI.
+ * replacement.
+ *
+ * **Fix or suggestion.** A rule applies a fix on its own only where the rewrite is decidable from
+ * the file in front of it; everything else is offered as a suggestion, which an editor shows and a
+ * human accepts. `no-mocked-for-spy` is the one fix here: a declaration is the only thing it
+ * touches, and the worst a wrong one can do is fail to compile — it can never change what the test
+ * does at run time. `prefer-inject-spy` cannot make that claim (whether the token really is
+ * provided with `provideAutoSpy` is usually decided in another file) and neither can
+ * `no-object-define-property` (`mockValueProp` leaves the property writable and configurable, which
+ * is the point of the change and still a change), so both suggest.
  */
+import { type EsPromiseExecutor, type EsSubscribeCall, awaitedRewriteFor } from './await-emission';
+import { bindingState, dropNamedImport, findBinding, initializerOf, insertImport } from './bindings';
+import { propHelperSuggestion } from './prop-helpers';
 import {
+  type EsCallExpression,
+  type EsFix,
+  type EsFixer,
   type EsFunction,
+  type EsIdentifier,
   type EsNode,
   type EsObjectExpression,
   type EsProperty,
+  type EsTypeReference,
+  type EsVariable,
   type EsVariableDeclarator,
   type RuleContext,
   type RuleListener,
   type RuleModule,
+  type SuggestionDescriptor,
+  buildsRunnerFn,
   buildsRunnerFnAtModuleScope,
   enclosingFunction,
   findProperty,
   isCallExpression,
   isIdentifier,
   isMemberExpression,
+  isNewExpression,
   isObjectExpression,
+  isRunnerCall,
   isRunnerFnCall,
   propertyName,
+  propertyValue,
 } from './rule-types';
+import { type EsNamedCall, type SubscribeRepair, enclosingSubscribe, helperAssertions, repairFor } from './subscribe-repair';
 
 const README = 'https://github.com/ASDAlexey/vitest-auto-spy#how-to-mock';
+
+/** The package the fixes import from, spelled once. */
+const PACKAGE = 'vitest-auto-spy';
 
 /** Build a rule, appending the recipe link to every message so the fix is one click away. */
 function defineRule(options: {
   anchor: string;
   description: string;
   messages: Record<string, string>;
+  fixable?: true;
+  hasSuggestions?: true;
+  schema?: readonly object[];
   create: (context: RuleContext) => RuleListener;
 }): RuleModule {
   const url = `${README}${options.anchor}`;
@@ -46,24 +76,113 @@ function defineRule(options: {
       type: 'suggestion',
       docs: { description: options.description, url },
       messages,
-      schema: [],
+      schema: options.schema ?? [],
+      // Spread rather than assigned: ESLint reads the presence of these keys, and
+      // `exactOptionalPropertyTypes` will not let an absent one be spelled as `undefined`.
+      ...(options.fixable ? { fixable: 'code' as const } : {}),
+      ...(options.hasSuggestions ? { hasSuggestions: true } : {}),
     },
     create: options.create,
   };
 }
 
-/** Whether an object literal stubs behaviour (holds at least one `vi.fn()`), as opposed to carrying plain config values. */
+/**
+ * Whether an object literal stubs behaviour, as opposed to carrying plain configuration values.
+ *
+ * The whole subtree counts, not the top level: a platform double is routinely written as
+ * `{ type: 'tizen', application: { init: vi.fn() } }`, and reading only the direct properties of
+ * that says it is configuration. The walk stops at every function boundary, so a factory *returning*
+ * spies — the shape these rules steer towards — is not mistaken for a hand-rolled double.
+ */
 function looksLikeHandRolledMock(object: EsObjectExpression): boolean {
-  return object.properties.some((property) => propertyName(property) !== undefined && isRunnerFnCall(propertyValue(property)));
+  return buildsRunnerFnAtModuleScope(object);
 }
 
-function propertyValue(property: EsNode): EsNode {
-  // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- only called for nodes `propertyName` already accepted, i.e. `type === 'Property'`.
-  return (property as EsProperty).value;
+/**
+ * The double a provider hands over, whether it is written in place or parked in a `const` above.
+ *
+ * The identifier step is not a refinement: in the suite this came from, eight hand-rolled doubles
+ * were declared above the TestBed and passed by name, and the rule — reading only the literal form
+ * — reported none of them.
+ */
+function providedDouble(context: RuleContext, value: EsNode): EsObjectExpression | undefined {
+  if (isObjectExpression(value)) {
+    return value;
+  }
+
+  if (!isIdentifier(value)) {
+    return undefined;
+  }
+
+  const initializer = initializerOf(context.sourceCode.getScope(value), value);
+
+  return initializer && isObjectExpression(initializer) ? initializer : undefined;
 }
 
 function countRunnerFns(object: EsObjectExpression): number {
   return object.properties.filter((property) => propertyName(property) !== undefined && isRunnerFnCall(propertyValue(property))).length;
+}
+
+/**
+ * The spelling an Angular `InjectionToken` carries almost without exception.
+ *
+ * A last resort, and only that: a token is nearly always imported from the file that declares it, so
+ * the declaration is out of the resolver's reach and the name is what is left to read.
+ */
+const TOKEN_NAME = /^[\dA-Z_]+$/;
+
+/** Whether an initialiser is `new InjectionToken<…>(…)` — the one form that settles the question outright. */
+function buildsInjectionToken(node: EsNode | undefined): boolean {
+  return node !== undefined && isNewExpression(node) && isIdentifier(node.callee) && node.callee.name === 'InjectionToken';
+}
+
+/**
+ * Whether what is being provided is a token rather than a class.
+ *
+ * It decides which of two calls the message names, and the two are not interchangeable:
+ * `provideAutoSpy` reads a class prototype, an `InjectionToken` has none, and the advice to use it
+ * on one does not compile. Three migration batches reported the same wrong recommendation — 6 of 8
+ * reports in one of them were on tokens.
+ */
+function providesToken(context: RuleContext, provide: EsNode): boolean {
+  if (!isIdentifier(provide)) {
+    return false;
+  }
+
+  return buildsInjectionToken(initializerOf(context.sourceCode.getScope(provide), provide)) || TOKEN_NAME.test(provide.name);
+}
+
+/**
+ * Whether a provider hands DI a hand-rolled double, in either of the two ways it can.
+ *
+ * `useFactory` is read *through* the function, which is the opposite of how `useValue` is read and
+ * is the right way round for each: a factory's whole body is what DI ends up holding, while a
+ * function sitting inside a `useValue` is a lazily-built double, i.e. the shape these rules
+ * recommend. Missing the factory form let three layers of fiction hide behind one line —
+ * `useFactory: vi.fn().mockImplementation(() => ({ isKeyEnabled: vi.fn() }))`, a structural double
+ * with no relation to the class, and a double cast to make it fit.
+ */
+function handRolledProvider(
+  context: RuleContext,
+  useValue: EsProperty | undefined,
+  useFactory: EsProperty | undefined,
+): EsProperty | undefined {
+  if (useValue) {
+    const double = providedDouble(context, useValue.value);
+
+    return double && looksLikeHandRolledMock(double) ? useValue : undefined;
+  }
+
+  return useFactory && buildsRunnerFn(factoryBody(context, useFactory.value), true) ? useFactory : undefined;
+}
+
+/** The factory itself, or the value a name was bound to — one step, the same as `providedDouble` takes. */
+function factoryBody(context: RuleContext, value: EsNode): EsNode {
+  if (!isIdentifier(value)) {
+    return value;
+  }
+
+  return initializerOf(context.sourceCode.getScope(value), value) ?? value;
 }
 
 /** `{ provide: X, useValue: { a: vi.fn() } }` → `provideAutoSpy(X)`. */
@@ -72,33 +191,136 @@ const preferProvideAutoSpy = defineRule({
   description: 'Provide a spied service with provideAutoSpy() instead of a hand-rolled useValue object',
   messages: {
     preferProvideAutoSpy:
-      'This `useValue` object hand-rolls a service mock. `provideAutoSpy(Token)` spies every method of the real class, so the stub cannot drift from it.',
+      'This `useValue` object hand-rolls a service mock. `provideAutoSpy(Class)` spies every method of the real class, so the stub cannot drift from it. For a dependency behind an `InjectionToken` — which has no class to read, and which `provideAutoSpy` therefore cannot take — it is `provideAutoSpyForToken(TOKEN)`, built from the type the token carries.',
+    preferProvideAutoSpyForToken:
+      'This `useValue` object hand-rolls a mock for an `InjectionToken`. `provideAutoSpy` cannot take one: it reads a class prototype and a token has none. `provideAutoSpyForToken(TOKEN)` builds the double from the type the token carries instead. Members the double must *answer* with rather than spy on go in its second argument — including a call the code under test chains off: `provideAutoSpyForToken(LOGGER, { channel: vi.fn().mockReturnThis() })`, without which `inject(LOGGER).channel("x").debug()` dies on `undefined` inside the constructor.',
   },
   create: (context) => ({
     ObjectExpression: (node: EsObjectExpression): void => {
+      const provide = findProperty(node, 'provide');
       const useValue = findProperty(node, 'useValue');
+      const useFactory = findProperty(node, 'useFactory');
 
-      if (!findProperty(node, 'provide') || !useValue || !isObjectExpression(useValue.value) || !looksLikeHandRolledMock(useValue.value)) {
+      const reported = handRolledProvider(context, useValue, useFactory);
+
+      if (!provide || !reported) {
         return;
       }
 
-      context.report({ node: useValue, messageId: 'preferProvideAutoSpy' });
+      const messageId = providesToken(context, provide.value) ? 'preferProvideAutoSpyForToken' : 'preferProvideAutoSpy';
+
+      context.report({ node: reported, messageId });
     },
   }),
 });
+
+/**
+ * The factories this library offers, whose arguments are seeds rather than hand-rolled doubles.
+ *
+ * A seed is an object of `vi.fn()`s that has no other form it could take: `createAutoMock<T>({ send:
+ * vi.fn() })` is what the rule *asked* for, and flagging it again turns the recommended fix into a
+ * violation that only an `eslint-disable` over correct code can clear.
+ */
+const SPY_FACTORIES = new Set([
+  'autoMocked',
+  'createAutoMock',
+  'createMock',
+  'createSpyClass',
+  'createSpyFromClass',
+  'mockConstructor',
+  'mockDeep',
+  'provideAutoSpy',
+  'provideAutoSpyForToken',
+]);
+
+/** Whether a node is a call of one of those factories. */
+function isFactoryCall(node: EsNode): boolean {
+  return isCallExpression(node) && isIdentifier(node.callee) && SPY_FACTORIES.has(node.callee.name);
+}
+
+/**
+ * Whether the literal is somewhere inside a factory call.
+ *
+ * The walk goes all the way up rather than looking at the immediate parent, because a seed nests:
+ * `mockDeep<T>({ api: { load: vi.fn(), save: vi.fn() } })` puts the object two levels below the call.
+ */
+function insideFactorySeed(node: EsNode): boolean {
+  let current = node;
+
+  while (current.type !== 'Program') {
+    if (isFactoryCall(current)) {
+      return true;
+    }
+
+    current = current.parent;
+  }
+
+  return false;
+}
+
+/** `vi.mock(…)` and friends: the second argument replaces a module's exports, not a service. */
+const MODULE_MOCKS = new Set(['doMock', 'mock']);
+
+/**
+ * How many `vi.fn()`s make an object a hand-rolled double, per the rule's options.
+ *
+ * Two by default, and the argument for that is what the rule cannot see: an object holding one
+ * `vi.fn()` is indistinguishable from an options bag with a callback in it (`{ onDone: vi.fn() }`,
+ * `{ next: vi.fn() }`), and this rule fires on every object literal in the file. What made the
+ * default defensible is that the case the reports were actually about — a one-method double handed
+ * to DI — is `prefer-provide-auto-spy`'s, which has a `provide:` next to it to prove the object is
+ * a service double and therefore fires at **one**. Since that rule learnt to follow a name to the
+ * `const` above the TestBed, the overlap is covered from the side that can prove it. Projects that
+ * want the stricter reading anyway can say so.
+ */
+function minRunnerFns(context: RuleContext): number {
+  const configured: unknown = Reflect.get(Object(context.options[0]), 'minRunnerFns');
+
+  return typeof configured === 'number' ? configured : 2;
+}
+
+/**
+ * Whether the literal sits inside a `vi.mock()` factory.
+ *
+ * The object a module mock returns replaces the module's *exports*, and the `vi.fn()`s in it stand
+ * in for classes that are then used as DI tokens — `createSpyFromClass` cannot go there in any
+ * form, because a token has to be a constructor. Reported once, and the agent's own repair
+ * (`class DialogRefStub {}`) had nothing to do with what the message said.
+ */
+function insideModuleMock(node: EsNode): boolean {
+  let current = node;
+
+  while (current.type !== 'Program') {
+    if (isRunnerCall(current, MODULE_MOCKS)) {
+      return true;
+    }
+
+    current = current.parent;
+  }
+
+  return false;
+}
 
 /** `{ a: vi.fn(), b: vi.fn() }` → `createSpyFromClass(X)` / `createAutoMock<T>()`. */
 const preferCreateSpyFromClass = defineRule({
   anchor: '-a-service-without-di',
   description: 'Build a spy from the class (createSpyFromClass / createAutoMock) instead of an object of vi.fn()s',
+  schema: [{ type: 'object', properties: { minRunnerFns: { type: 'integer', minimum: 1 } }, additionalProperties: false }],
   messages: {
     preferCreateSpyFromClass:
-      'An object of `vi.fn()`s only mocks the methods you remembered. `createSpyFromClass(X)` reads the class, `createAutoMock<T>()` the type — both stay in step with it.',
+      'An object of **two or more** `vi.fn()`s only mocks the methods you remembered. `createSpyFromClass(X)` reads the class, `createAutoMock<T>()` the type — both stay in step with it. The threshold is why an object next to this one with a single `vi.fn()` is not flagged: on its own that is indistinguishable from an options bag with a callback in it. Lower it with `{ minRunnerFns: 1 }` if the suite has no such objects — and note that a one-method double handed to DI is reported by `prefer-provide-auto-spy` either way.',
   },
   create: (context) => ({
     ObjectExpression: (node: EsObjectExpression): void => {
-      // The provider form is `prefer-provide-auto-spy`'s business — do not report it twice.
-      if (propertyName(node.parent) === 'useValue' || countRunnerFns(node) < 2) {
+      // The provider form is `prefer-provide-auto-spy`'s business — do not report it twice; a seed
+      // handed to one of this library's own factories is the fix rather than the problem; and a
+      // module mock's exports are not a service double at all.
+      if (
+        propertyName(node.parent) === 'useValue' ||
+        countRunnerFns(node) < minRunnerFns(context) ||
+        insideFactorySeed(node) ||
+        insideModuleMock(node)
+      ) {
         return;
       }
 
@@ -107,46 +329,228 @@ const preferCreateSpyFromClass = defineRule({
   }),
 });
 
-/** `vi.spyOn(TestBed.inject(X), 'method')` → `injectSpy(X).method`. */
+/** Whether a node is `TestBed.inject(...)`, the call whose result should have been read with `injectSpy`. */
+function isTestBedInject(node: EsNode): node is EsCallExpression {
+  if (
+    !isCallExpression(node) ||
+    !isMemberExpression(node.callee) ||
+    !isIdentifier(node.callee.object) ||
+    !isIdentifier(node.callee.property)
+  ) {
+    return false;
+  }
+
+  return node.callee.object.name === 'TestBed' && node.callee.property.name === 'inject';
+}
+
+/** The string a literal argument spells, when it is one and it can be written after a dot. */
+function memberName(node: EsNode | undefined): string | undefined {
+  const value: unknown = node?.type === 'Literal' ? Reflect.get(node, 'value') : undefined;
+
+  return typeof value === 'string' && /^[$A-Z_a-z][\w$]*$/.test(value) ? value : undefined;
+}
+
+/**
+ * `injectSpy(Token).method` for a `vi.spyOn` that is provably about an injected instance, or nothing
+ * when any part of the rewrite would have to be invented.
+ *
+ * `TestBed.inject(X, null, InjectFlags.Optional)` is deliberately not translated: `injectSpy` takes
+ * the token alone, and dropping the rest would change which instance — if any — comes back.
+ */
+function injectSpySuggestion(context: RuleContext, node: EsCallExpression, injectCall: EsCallExpression): SuggestionDescriptor | undefined {
+  const [token, ...extra] = injectCall.arguments;
+  const method = memberName(node.arguments[1]);
+  const state = bindingState(context.sourceCode.getScope(node), 'injectSpy');
+
+  if (!token || extra.length > 0 || method === undefined || state === 'taken') {
+    return undefined;
+  }
+
+  const replacement = `injectSpy(${context.sourceCode.getText(token)}).${method}`;
+
+  return {
+    desc: `Read the spy from DI instead: ${replacement}`,
+    fix: (fixer): EsFix[] => {
+      const edits = [fixer.replaceText(node, replacement)];
+
+      if (state === 'free') {
+        edits.push(insertImport(fixer, `import { injectSpy } from '${PACKAGE}/angular';`));
+      }
+
+      return edits;
+    },
+  };
+}
+
+/** `vi.spyOn(TestBed.inject(X), 'method')`, in one step or in two → `injectSpy(X).method`. */
 const preferInjectSpy = defineRule({
   anchor: '-reading-a-spy-back-from-di',
   description: 'Read an already-spied dependency with injectSpy() instead of re-spying a TestBed.inject() result',
+  hasSuggestions: true,
   messages: {
     preferInjectSpy:
       'Spying the instance DI just handed you replaces one method and leaves the rest real. Provide it with `provideAutoSpy(X)` and read it back with `injectSpy(X)`.',
   },
   create: (context) => ({
-    'CallExpression[callee.object.name="vi"][callee.property.name="spyOn"] CallExpression[callee.object.name="TestBed"][callee.property.name="inject"]':
-      (node: EsNode): void => context.report({ node, messageId: 'preferInjectSpy' }),
+    'CallExpression[callee.object.name="vi"][callee.property.name="spyOn"]': (node: EsCallExpression): void => {
+      const [target] = node.arguments;
+
+      if (!target) {
+        return;
+      }
+
+      // Two shapes, one problem: the injected instance handed straight to `spyOn`, and the same
+      // instance parked in a `const` first. The second one is the common half of the pair — both
+      // were found on adjacent lines of the same file, and only the inline one used to be reported.
+      const injectCall = isTestBedInject(target) ? target : injectedFromVariable(context, target);
+
+      if (!injectCall) {
+        return;
+      }
+
+      const suggestion = injectSpySuggestion(context, node, injectCall);
+
+      context.report(suggestion ? { node, messageId: 'preferInjectSpy', suggest: [suggestion] } : { node, messageId: 'preferInjectSpy' });
+    },
   }),
 });
+
+/** The `TestBed.inject()` behind a plain name, when the name is one and it holds one. */
+function injectedFromVariable(context: RuleContext, target: EsNode): EsCallExpression | undefined {
+  if (!isIdentifier(target)) {
+    return undefined;
+  }
+
+  const initializer = initializerOf(context.sourceCode.getScope(target), target);
+
+  return initializer && isTestBedInject(initializer) ? initializer : undefined;
+}
 
 /** `Object.defineProperty(obj, 'x', …)` → `mockReadonlyProp` / `mockValueProp`. */
 const noObjectDefineProperty = defineRule({
   anchor: '-a-readonly-property-or-a-signal',
   description: 'Patch properties with mockReadonlyProp / mockValueProp, which record the undo',
+  hasSuggestions: true,
   messages: {
     noObjectDefineProperty:
-      '`Object.defineProperty` in a spec leaves no way back: nothing restores the original descriptor, so the patch leaks into the next file under `isolate: false`. `mockReadonlyProp` / `mockValueProp` return the undo and register it with `restoreMockedProps()`.',
+      '`Object.defineProperty` in a spec leaves no way back: nothing restores the original descriptor, and it defaults `configurable` to `false`, so the patch seals the property for the rest of the worker under `isolate: false`. Take the helper the descriptor asks for — `{ value }` holding data is `mockValueProp`; `{ value }` holding a mock the code calls with `new` (a `mockImplementation(function () { … })`, spelled with a `function` because an arrow cannot be constructed) is `stubConstructor`; `{ get }` is `mockReadonlyPropGetter`; a `get`/`set` pair is `mockAccessorsProp`; a signal-valued property is `mockReadonlyProp`. Each returns the undo and registers it with `restoreMockedProps()`. And if the property is missing because it is an instance field rather than a prototype member, the repair belongs where the spy is built — `instanceMethodsToSpyOn` / `observablePropsToSpyOn` — not here.',
+    manualRestore:
+      'This property is redefined twice in the same block, which is a patch and a hand-written restore. The restore runs only if every assertion between them passes: the first red one skips it, and the patch is then live for every later test of the file — and, under `isolate: false`, for every later file of the worker. `vi.restoreAllMocks()` does not help, because it knows about spies and not about descriptors. `mockValueProp` / `mockReadonlyPropGetter` register the undo with `restoreMockedProps()`, which runs in a hook and therefore runs whatever the assertions did.',
   },
-  create: (context) => ({
-    'CallExpression[callee.object.name="Object"][callee.property.name=/^definePropert(y|ies)$/]': (node: EsNode): void =>
-      context.report({ node, messageId: 'noObjectDefineProperty' }),
-  }),
+  create: (context) => {
+    // Grouped and reported at the end, because "is there a hand-written restore below" is only
+    // answerable once the block has been walked. Keyed by the block and by what is being patched,
+    // so a `beforeEach` patch paired with an `afterEach` restore — which is correct, and runs in a
+    // hook whatever the assertions did — is not mistaken for one.
+    const patches = new Map<string, EsCallExpression[]>();
+
+    return {
+      'CallExpression[callee.object.name="Object"][callee.property.name="defineProperty"]': (node: EsCallExpression): void => {
+        const key = patchKey(context, node);
+        const seen = patches.get(key) ?? [];
+
+        seen.push(node);
+        patches.set(key, seen);
+      },
+      'Program:exit': (): void => {
+        patches.forEach((nodes) => {
+          const messageId = nodes.length > 1 ? 'manualRestore' : 'noObjectDefineProperty';
+
+          nodes.forEach((node) => {
+            const suggestion = propHelperSuggestion(context, node);
+
+            context.report(suggestion ? { node, messageId, suggest: [suggestion] } : { node, messageId });
+          });
+        });
+      },
+      // `defineProperties` takes a map of descriptors, so its replacement is one `mockValueProp` per
+      // entry — several statements where there was one, which is not a per-node edit.
+      'CallExpression[callee.object.name="Object"][callee.property.name="defineProperties"]': (node: EsNode): void =>
+        context.report({ node, messageId: 'noObjectDefineProperty' }),
+    };
+  },
 });
+
+/**
+ * What a `defineProperty` call patches, as a string: the block it sits in, the object and the key.
+ *
+ * Text rather than nodes, because `window` in two calls is two identifiers and one global. The
+ * block comes from {@link enclosingFunction}, so two patches of the same property in two different
+ * tests stay apart.
+ */
+function patchKey(context: RuleContext, node: EsCallExpression): string {
+  const [target, key] = node.arguments;
+  const scope = enclosingFunction(node);
+  const where = scope ? String(scope.range[0]) : 'module';
+
+  return `${where}:${target ? context.sourceCode.getText(target) : ''}:${key ? context.sourceCode.getText(key) : ''}`;
+}
 
 /** `source$.subscribe(v => expect(v)…)` → `await expectEmission(source$)`. */
 const noExpectInSubscribe = defineRule({
   anchor: '-an-observable',
   description: 'Assert observables with expectEmission() instead of expect() inside a subscribe callback',
   messages: {
-    noExpectInSubscribe:
-      'If the stream never emits, this callback never runs and the test passes having asserted nothing. `await expectEmission(source$)` fails when the value does not arrive.',
+    invertible:
+      'If the stream never emits, this callback never runs and the test passes having asserted nothing — all {{count}} of these. Turn the subscription inside out: `const value = await firstValueFrom(source$)`, then assert on it. `await expectEmission(source$)` does the same and fails with the source named when the value does not arrive. If the stream emits more than once and every emission was meant to be checked, count them and take `expectEmissions(source$, N)`.',
+    afterTrigger:
+      'There is code after this subscription, which usually means the code after it is what makes the stream emit — `httpMock.expectOne(...)`, `subject.next(...)`, `vi.runAllTimers()`. `await firstValueFrom(source$)` deadlocks on that shape: the await never returns, so the trigger never runs. Hold the promise instead, and note that `expectEmission` subscribes when you call it, not when you await it:\n  const emission = expectEmission(source$);\n  req.flush(payload);\n  await expect(emission).resolves.toEqual(payload);\nAll {{count}} assertions here move below the await.',
+    inErrorHandler:
+      'This assertion is in the failure branch, where `expectEmission` cannot help: it resolves on a value, and wraps whatever the stream errored with. Assert on the rejection instead — `await expect(firstValueFrom(source$)).rejects.toBeInstanceOf(UdmsStatusError)`, or `.rejects.toMatchObject({ status: 404 })` — which fails the test when the stream succeeds, something an `error` callback nobody calls cannot do. All {{count}} assertions here move into the matcher, and the `next` half goes with them: `subscribe({ next: () => expect.unreachable(…), error: (e) => expect(e).toBe(err) })` becomes the one line `await expect(firstValueFrom(source$)).rejects.toBe(err)`, because the guard against an emission is what `rejects` already is.',
   },
-  create: (context) => ({
-    'CallExpression[callee.property.name="subscribe"] CallExpression[callee.name="expect"]': (node: EsNode): void =>
-      context.report({ node, messageId: 'noExpectInSubscribe' }),
-  }),
+  hasSuggestions: true,
+  create: (context) => {
+    // Counted per `subscribe`, reported once. One assertion per report turned 23 places into 44
+    // messages in a single file of the suite this came from, which doubles the apparent size of the
+    // job at triage time — and every one of those messages named the same rewrite.
+    const assertions = new Map<EsSubscribeCall, { count: number; repair: SubscribeRepair }>();
+    const rewrites = new Map<EsNode, SuggestionDescriptor>();
+
+    /** Add assertions to the `subscribe` they belong to. The first of them decides the repair: a
+     * second one in a different branch of the same `subscribe` is possible, rare, and wants the
+     * message that is already there. */
+    const record = (node: EsNode, count: number): void => {
+      if (count === 0) {
+        return;
+      }
+
+      const subscribeCall = enclosingSubscribe(node);
+      const seen = assertions.get(subscribeCall);
+
+      assertions.set(subscribeCall, { count: (seen?.count ?? 0) + count, repair: seen?.repair ?? repairFor(node, subscribeCall) });
+    };
+
+    return {
+      // The whole `it(name, () => new Promise((done) => { … }))` frame, matched as a shape so that
+      // the rewrite has nothing left to prove about where it is. It is visited before the
+      // assertions inside it, and both are collected until the file is over.
+      'CallExpression[callee.name=/^(it|test)$/] > ArrowFunctionExpression > NewExpression[callee.name="Promise"] > :matches(ArrowFunctionExpression, FunctionExpression)':
+        (node: EsPromiseExecutor): void => {
+          const rewrite = awaitedRewriteFor(context, node);
+
+          if (rewrite) {
+            rewrites.set(rewrite.subscribeCall, rewrite.suggestion);
+          }
+        },
+      'CallExpression[callee.property.name="subscribe"] CallExpression[callee.name="expect"]': (node: EsNode): void => {
+        record(node, 1);
+      },
+      // Every plain-name call inside a `subscribe`, so that assertions parked in a helper are found
+      // too. `expect` and `done` land here as well and resolve to no local function, which costs a
+      // scope lookup and nothing else.
+      'CallExpression[callee.property.name="subscribe"] CallExpression[callee.type="Identifier"]': (node: EsNamedCall): void => {
+        record(node, helperAssertions(context, node, enclosingSubscribe(node)));
+      },
+      'Program:exit': (): void => {
+        assertions.forEach(({ count, repair }, subscribeCall) => {
+          const suggestion = rewrites.get(subscribeCall);
+          const report = { node: subscribeCall, messageId: repair, data: { count: String(count) } };
+
+          context.report(suggestion ? { ...report, suggest: [suggestion] } : report);
+        });
+      },
+    };
+  },
 });
 
 /** `export const fixture = { m: vi.fn() }` → `export const createFixture = () => ({ m: vi.fn() })`. */
@@ -166,17 +570,72 @@ const noSharedModuleLevelMock = defineRule({
   }),
 });
 
+/** The identifier of a `Mocked<…>` annotation, whose parent the selector guarantees to be the type reference. */
+interface EsMockedTypeName extends EsIdentifier {
+  parent: EsTypeReference;
+}
+
+/**
+ * Whether the annotation is `Mocked<SomeNamedType>` and nothing more inventive.
+ *
+ * `Mocked<{ isKeyEnabled: Mock }>` is a real shape in migrated suites, and `Spy<T>` reads a *class*
+ * or interface — handing it an object literal of `Mock`s asks a different question of the type
+ * system than the one the rule is making. Reported, never rewritten.
+ */
+function namesOneType(reference: EsTypeReference): boolean {
+  const params = reference.typeArguments?.params ?? [];
+
+  return params.length === 1 && params.every((param) => param.type === 'TSTypeReference');
+}
+
+/** Rename the annotation, import `Spy`, and drop the `Mocked` import once nothing else uses it. */
+function spyTypeFixes(context: RuleContext, fixer: EsFixer, node: EsMockedTypeName, mocked: EsVariable | undefined): EsFix[] {
+  const edits = [fixer.replaceText(node, 'Spy')];
+
+  if (bindingState(context.sourceCode.getScope(node), 'Spy') === 'free') {
+    edits.push(insertImport(fixer, `import type { Spy } from '${PACKAGE}';`));
+  }
+
+  // One reference left means this is it: renaming it orphans the import. Several, and the import is
+  // dropped on the pass that rewrites the last one — ESLint re-lints after every applied fix.
+  const orphaned = mocked?.references.length === 1 ? dropNamedImport(context.sourceCode, fixer, mocked) : undefined;
+
+  if (orphaned) {
+    edits.push(orphaned);
+  }
+
+  return edits;
+}
+
 /** `let s: Mocked<Cart>` → `let s: Spy<Cart>`. */
 const noMockedForSpy = defineRule({
   anchor: '-reading-a-spy-back-from-di',
   description: 'Declare a spy as Spy<T>, not as Vitest’s Mocked<T>',
+  fixable: true,
   messages: {
     noMockedForSpy:
       '`Mocked<T>` keeps `T`’s private members, so assigning a spy to it fails with "is missing the following properties: _zone, _queries, …" — a list of private field names that says nothing about the real problem, which is the declaration. Declare `Spy<T>`.',
   },
   create: (context) => ({
-    'VariableDeclarator > Identifier > TSTypeAnnotation > TSTypeReference > Identifier[name=/^Mocked(Object)?$/]': (node: EsNode): void =>
-      context.report({ node, messageId: 'noMockedForSpy' }),
+    // Every type position, not only a `let` annotation: the type turns up in a factory's return
+    // type, in a helper's parameter and — in all eight reports of one batch, on the line right after
+    // the declaration — in `as unknown as Mocked<T>`. Fixing the declaration and leaving the cast
+    // spelled `Mocked` is how the same file ends up saying both.
+    'TSTypeReference > Identifier[name=/^Mocked(Object)?$/]': (node: EsMockedTypeName): void => {
+      const mocked = findBinding(context.sourceCode.getScope(node), node.name);
+      // A `Mocked` the file declares itself is not Vitest's, whatever it is called, and `Spy`
+      // already meaning something else here is the same problem from the other end.
+      const rewritable =
+        (!mocked || mocked.defs.some((definition) => definition.type === 'ImportBinding')) &&
+        namesOneType(node.parent) &&
+        bindingState(context.sourceCode.getScope(node), 'Spy') !== 'taken';
+
+      context.report(
+        rewritable
+          ? { node, messageId: 'noMockedForSpy', fix: (fixer: EsFixer): EsFix[] => spyTypeFixes(context, fixer, node, mocked) }
+          : { node, messageId: 'noMockedForSpy' },
+      );
+    },
   }),
 });
 
