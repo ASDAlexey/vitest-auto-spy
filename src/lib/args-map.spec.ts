@@ -68,6 +68,14 @@ describe('ArgsMap', () => {
     expect(map.get('not-an-array')).toBeUndefined();
   });
 
+  it('keeps a non-array key out of the arity index', () => {
+    const map = new ArgsMap();
+    map.set('bare', 'value');
+
+    expect(map.get('bare')).toBe('value');
+    expect(map.get([1])).toBeUndefined();
+  });
+
   it('does not serialize a call whose arity nobody configured', () => {
     const map = new ArgsMap();
     map.set([1], 'one');
