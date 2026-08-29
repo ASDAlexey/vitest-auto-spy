@@ -24,6 +24,7 @@
 import { DOCS_LINKS, withDocs } from './docs-links';
 import { createFunctionSpy } from './function-spy';
 import { getMockAdapter } from './mock-adapter';
+import { requireObservableSupport } from './observable-support';
 import {
   NOT_STORED,
   type ProxyPropStore,
@@ -32,13 +33,14 @@ import {
   dropStoredProp,
   hasStoredProp,
   isDeletedProp,
+  isProtocolKey,
   readStoredAccessor,
   storeDefinedProp,
   writeStoredAccessor,
   writeStoredValue,
 } from './proxy-props';
 import { AUTO_SPY_MARK } from './spy-mark';
-import type { DeepPartial, Func, MethodReturns, Spy, SpyOptions } from './types';
+import type { DeepPartial, Func, MethodReturns, OnlyObservablePropsOf, Spy, SpyOptions } from './types';
 
 /**
  * Create a fully-typed auto-mock of `T` from its type alone (no class).
@@ -67,13 +69,64 @@ export function createAutoMock<T, Options extends SpyOptions = SpyOptions>(
   // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- the auto-mock is built dynamically from runtime-accessed keys; its `Spy<T>` shape cannot be expressed before access.
   const mock = new Proxy<Record<PropertyKey, unknown>>({}, createAutoMockHandler(overrides ?? {})) as Spy<T, Options>;
 
+  applyObservableProps(mock, config?.observablePropsToSpyOn);
   applyMockReturns(mock, config?.returns);
 
   return mock;
 }
 
+/**
+ * Replace the named members with observable property spies.
+ *
+ * Without this the double answers an Observable member with a *function* spy, because with only a
+ * type at runtime a method key and a property key are indistinguishable — so the code under test
+ * subscribes to a function and the failure lands somewhere else entirely.
+ */
+function applyObservableProps(mock: object, names: readonly string[] | undefined): void {
+  if (!names?.length) {
+    // Nothing to do, and nothing to ask the registry for: a double with no observable members must
+    // stay buildable in a suite that never imports `vitest-auto-spy/rxjs`.
+    return;
+  }
+
+  const support = requireObservableSupport();
+
+  for (const name of names) {
+    // A seeded key wins, exactly as it does on the class-based factory: `overrides` is the more
+    // specific statement, and it is the documented way to hand the double a real `Subject` the spec
+    // drives itself.
+    if (name in mock) {
+      continue;
+    }
+
+    Reflect.set(mock, name, support.createPropSpy());
+  }
+}
+
 /** What a type-driven double can be configured with beyond its seeded values. */
 export interface AutoMockConfiguration<T> {
+  /**
+   * Members to build as **observable property spies** (`nextWith`, `throwWith`, `returnSubject`, …)
+   * rather than as function spies.
+   *
+   * The same option `createSpyFromClass` takes, and it matters more here, not less: a class tells
+   * the factory which members are methods, a type does not. Every unseeded key of a type-driven
+   * double is therefore a function spy — so an Observable member is one too, the code under test
+   * subscribes to a function, and the failure surfaces far from the double.
+   *
+   * ```ts
+   * provideAutoSpyForToken(FAVORITES, undefined, { observablePropsToSpyOn: ['favorites$'] });
+   * // …
+   * injectSpy(FAVORITES).favorites$.nextWith([{ id: 1 }]);
+   * ```
+   *
+   * A member also named in `overrides` keeps its seed: hand the double a real `Subject` there when
+   * the spec drives the stream itself, and name it here when `nextWith` is what the spec wants.
+   *
+   * Requires the `vitest-auto-spy/rxjs` entry, which is what registers the observable helpers; a
+   * double that names none of these stays buildable without it.
+   */
+  observablePropsToSpyOn?: OnlyObservablePropsOf<T>[];
   /**
    * What each named method returns, applied as the mock is built — the same field
    * `createSpyFromClass` takes, and the half `overrides` cannot express.
@@ -183,12 +236,13 @@ function readKey(store: ProxyPropStore, key: string | symbol, receiver: unknown)
     return true;
   }
 
-  // Never materialize a spy for runtime/JS-internal lookups (symbols such
-  // as the iteration/`toPrimitive` protocols, thenable `then` checks, or
-  // `constructor`) — doing so would, e.g., make the mock look like a Promise.
-  // A key a spec deleted is answered the same way: on a double that makes members on demand, that
-  // tombstone is the only thing standing between `delete mock.m` and a brand-new spy.
-  if (typeof key === 'symbol' || key === 'then' || key === 'constructor' || isDeletedProp(store, key)) {
+  // Never materialize a spy for runtime/JS-internal lookups (symbols such as the
+  // iteration/`toPrimitive` protocols, thenable `then` checks, or `constructor`), nor for the
+  // protocol keys a library probes to decide what it was handed — see `isProtocolKey`, which is
+  // where the reasoning for that list lives. A key a spec deleted is answered the same way: on a
+  // double that makes members on demand, that tombstone is the only thing standing between
+  // `delete mock.m` and a brand-new spy.
+  if (typeof key === 'symbol' || key === 'then' || key === 'constructor' || isProtocolKey(key) || isDeletedProp(store, key)) {
     return undefined;
   }
 

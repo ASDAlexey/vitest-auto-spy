@@ -75,19 +75,22 @@ function mergeSubjectWithDefaultValues<T>(subject: ReplaySubject<T>, valuesConfi
  */
 function addObservableHelpers<T>(
   objectToDecorate: object,
-  getSubject: () => ReplaySubject<T>,
+  handle: SubjectHandle<T>,
   onSubjectConfigured: (subject: Observable<T>) => void,
 ): void {
   decorate(objectToDecorate, {
     nextWith: (value: T): void => {
-      const subject = getSubject();
+      const subject = handle.get();
       subject.next(value);
       onSubjectConfigured(subject);
     },
     nextOneTimeWith: (value: T): void => {
-      const subject = getSubject();
+      const subject = handle.get();
       subject.next(value);
       subject.complete();
+      // Closed for good, so the next configuration on this spy has to start a new one — otherwise
+      // it pushes into a dead subject and emits nothing, which is what used to happen.
+      handle.terminate();
       onSubjectConfigured(subject);
     },
     nextWithValues: (valuesConfigs: ValueConfig<T>[]): void => {
@@ -95,20 +98,22 @@ function addObservableHelpers<T>(
         return;
       }
 
-      onSubjectConfigured(mergeSubjectWithDefaultValues(getSubject(), valuesConfigs));
+      onSubjectConfigured(mergeSubjectWithDefaultValues(handle.get(), valuesConfigs));
     },
     throwWith: (value: unknown): void => {
-      const subject = getSubject();
+      const subject = handle.get();
       subject.error(value);
+      handle.terminate();
       onSubjectConfigured(subject);
     },
     complete: (): void => {
-      const subject = getSubject();
+      const subject = handle.get();
       subject.complete();
+      handle.terminate();
       onSubjectConfigured(subject);
     },
     returnSubject: (): ReplaySubject<T> => {
-      const subject = getSubject();
+      const subject = handle.get();
       onSubjectConfigured(subject);
 
       return subject;
@@ -131,11 +136,70 @@ function clearPreviousConfig(container: ReturnValueContainer): void {
   delete container.valuesPerCalls;
 }
 
-/** A memoizing lazy factory: the `ReplaySubject` is created on first use, then reused. */
-function lazySubject<T>(): () => ReplaySubject<T> {
-  let subject: ReplaySubject<T> | undefined;
+/**
+ * The backing subject of one spy, and its lifetime.
+ *
+ * It used to be a plain memoizing factory — one `ReplaySubject(1)` created on first use and kept
+ * for the life of the spy — and that made the buffer outlive the configuration that filled it. Two
+ * failures came out of it, both silent, and the first is the quietest defect in this library's
+ * history: **a failing call became a successful one carrying the previous test's data.**
+ *
+ * ```ts
+ * // test 1
+ * service.createSeamlessTransition.nextWith(uri); // buffered, for the rest of the run
+ *
+ * // test 2 — the failure path is what this test is about
+ * service.createSeamlessTransition.throwWith(error);
+ * // the subscriber gets `uri` first, and the error only after it
+ * ```
+ *
+ * The code under test therefore walks the *success* branch on stale data, and the branch the test
+ * was written for is reached — if at all — one emission late. Nothing in the failure points at the
+ * previous test. It needs a spy that outlives a test, which is the ordinary shape when the TestBed
+ * is built in `beforeAll`.
+ *
+ * The second is worse in a quieter way: `error()` and `complete()` **close a Subject permanently**,
+ * so every later `nextWith` on that spy pushed into a dead subject and emitted nothing at all —
+ * even after `resetAutoSpy`, which is supposed to return the spy to pristine and could not reach
+ * this state.
+ *
+ * Hence a handle rather than a factory. `get()` hands back a live subject, making a fresh one when
+ * the current one has been terminated; `terminate()` records that a helper closed it; `reset()`
+ * drops it, and is wired into the spy's configuration reset — the buffer *is* configuration, in
+ * exactly the sense `calledWith` is.
+ */
+interface SubjectHandle<T> {
+  /** The current subject — a new one when there is none, or when the last was closed. */
+  get(): ReplaySubject<T>;
+  /** Record that a helper has just errored or completed the subject. */
+  terminate(): void;
+  /** Forget the subject, so the next configuration starts from an empty stream. */
+  reset(): void;
+}
 
-  return (): ReplaySubject<T> => (subject ??= createReplaySubject<T>());
+function subjectHandle<T>(): SubjectHandle<T> {
+  let subject: ReplaySubject<T> | undefined;
+  // Tracked here rather than read off the subject: rxjs's own `isStopped` is deprecated, and the
+  // three helpers that close it are the only things that can, so this cannot drift.
+  let terminated = false;
+
+  return {
+    get: (): ReplaySubject<T> => {
+      if (!subject || terminated) {
+        subject = createReplaySubject<T>();
+        terminated = false;
+      }
+
+      return subject;
+    },
+    terminate: (): void => {
+      terminated = true;
+    },
+    reset: (): void => {
+      subject = undefined;
+      terminated = false;
+    },
+  };
 }
 
 /** Build the per-call observable for one `ValueConfigPerCall` entry. */
@@ -185,17 +249,25 @@ function addNextWithPerCall<T>(
   });
 }
 
-export function addObservableHelpersToFunctionSpy(spyFunction: object, valueContainer: ReturnValueContainer): void {
-  addObservableHelpers(spyFunction, lazySubject(), (configuredSubject) => {
+/**
+ * @returns the spy's observable reset, for {@link createFunctionSpy} to fold into its configuration
+ *   reset. Returned rather than attached here because a spy owns exactly one reset hook, and the
+ *   core already uses it for the container and the dispatch.
+ */
+export function addObservableHelpersToFunctionSpy(spyFunction: object, valueContainer: ReturnValueContainer): () => void {
+  const handle = subjectHandle();
+  addObservableHelpers(spyFunction, handle, (configuredSubject) => {
     clearPreviousConfig(valueContainer);
     valueContainer.value = configuredSubject;
   });
   addNextWithPerCall(spyFunction, valueContainer);
+
+  return handle.reset;
 }
 
 export function addObservableHelpersToCalledWithObject(calledWithObject: CalledWithObject, calledWithArgs: unknown[]): void {
   const returnValueContainer: ReturnValueContainer = { value: undefined };
-  addObservableHelpers(calledWithObject, lazySubject(), (configuredSubject) => {
+  addObservableHelpers(calledWithObject, subjectHandle(), (configuredSubject) => {
     clearPreviousConfig(returnValueContainer);
     returnValueContainer.value = configuredSubject;
     calledWithObject.argsToValuesMap.set(calledWithArgs, returnValueContainer);
@@ -230,21 +302,16 @@ export function createObservableWithValues<T>(
 
 /** Create an observable property spy (deferred subscription to a controllable subject). */
 export function createObservablePropSpy<T>(): AddObservableSpyMethods<T> & Observable<T> {
-  const providedSubject = createReplaySubject<T>();
-  // The currently-published stream: starts as the backing subject, but
-  // `nextWithValues` swaps in a merged observable. `defer` re-reads it on each
-  // subscription, so late reconfiguration is honoured. The backing
-  // `providedSubject` is captured separately, so `nextWith`/`complete` after a
-  // `nextWithValues` keep operating on a real Subject.
-  let published$: Observable<T> = providedSubject;
+  const handle = subjectHandle<T>();
+  // The currently-published stream: starts as the backing subject, but `nextWithValues` swaps in a
+  // merged observable. `defer` re-reads it on each subscription, so late reconfiguration is
+  // honoured — and it re-reads the *handle* too, so a `nextWith` after a `complete()` publishes the
+  // fresh subject rather than pushing into the closed one.
+  let published$: Observable<T> = defer(() => handle.get());
   const observableSpy: Observable<T> = defer(() => published$);
-  addObservableHelpers(
-    observableSpy,
-    () => providedSubject,
-    (configuredSubject) => {
-      published$ = configuredSubject;
-    },
-  );
+  addObservableHelpers(observableSpy, handle, (configuredSubject) => {
+    published$ = configuredSubject;
+  });
 
   // `addObservableHelpers` attaches the `AddObservableSpyMethods<T>` helpers onto
   // `observableSpy` at runtime; the assertion re-exposes those dynamically-attached

@@ -174,7 +174,7 @@ export function createFunctionSpy<FunctionType extends Func>(name: string): AddS
   settledResultsRecorder = recorder;
 
   addPromiseHelpersToFunctionSpy(functionSpy, valueContainer);
-  getObservableSupport()?.addToFunctionSpy(functionSpy, valueContainer);
+  const resetObservableStream = getObservableSupport()?.addToFunctionSpy(functionSpy, valueContainer);
 
   const spy = decorate(functionSpy, {
     calledWith: (...calledWithArgs: unknown[]): CalledWithObject =>
@@ -194,6 +194,10 @@ export function createFunctionSpy<FunctionType extends Func>(name: string): AddS
     valueContainer.value = undefined;
     delete valueContainer._isRejectedPromise;
     delete valueContainer.valuesPerCalls;
+    // The observable layer keeps its `ReplaySubject` in a closure the container cannot reach, and
+    // its buffer is configuration in exactly the sense `calledWith` is: without this, a value from
+    // one test is replayed to the next one — ahead of the error that test configured.
+    resetObservableStream?.();
     // Re-install the library dispatch so a bare `spy.method.mockReturnValue(…)`
     // set directly on the host mock is reverted too (mockClear alone can't).
     getMockAdapter().restoreImplementation(functionSpy, dispatch);

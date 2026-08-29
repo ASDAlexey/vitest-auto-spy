@@ -8,10 +8,12 @@
 import { type Observable, firstValueFrom } from 'rxjs';
 import { beforeAll, describe, expect, it } from 'vitest';
 
+import { createSpyFromClass } from './create-spy-from-class';
 import { createFunctionSpy } from './function-spy';
 import { registerMockAdapter } from './mock-adapter';
 import { addObservableHelpersToCalledWithObject, addObservableHelpersToFunctionSpy, createObservablePropSpy } from './observable-spy';
 import { registerObservableSupport } from './observable-support';
+import { resetAutoSpy } from './reset-auto-spy';
 import { vitestMockAdapter } from './vitest-adapter';
 
 beforeAll(() => {
@@ -71,5 +73,101 @@ describe('observable helpers, publishing over a previous configuration', () => {
     chain.nextWith('fresh');
 
     await expect(firstValueFrom(load())).resolves.toBe('fresh');
+  });
+});
+
+describe('the backing subject does not outlive the configuration that filled it', () => {
+  class AccountService {
+    createSeamlessTransition(): Observable<string> {
+      throw new Error('not implemented in the double');
+    }
+  }
+
+  /** Everything one subscription saw, without an `expect` inside a `subscribe` callback. */
+  function record(source$: Observable<string>): { values: string[]; error?: unknown; completed: boolean } {
+    const seen: { values: string[]; error?: unknown; completed: boolean } = { values: [], completed: false };
+
+    source$.subscribe({
+      next: (value) => seen.values.push(value),
+      error: (error) => (seen.error = error),
+      complete: () => (seen.completed = true),
+    });
+
+    return seen;
+  }
+
+  it('does not replay a previous configuration ahead of a `throwWith`', () => {
+    // The quietest defect this library has had: the `ReplaySubject(1)` was created once per spy and
+    // kept its buffer for the life of the spy, so a value configured for one test arrived first in
+    // the next one — the code under test walked the SUCCESS branch on stale data, and the failure
+    // the test was written for came one emission late, if at all.
+    const service = createSpyFromClass(AccountService);
+    const failure = new Error('boom');
+
+    service.createSeamlessTransition.nextWith('uri://stale');
+    resetAutoSpy(service);
+    service.createSeamlessTransition.throwWith(failure);
+
+    const seen = record(service.createSeamlessTransition());
+
+    expect(seen.values).toEqual([]);
+    expect(seen.error).toBe(failure);
+  });
+
+  it('starts a new stream after `throwWith` closed the old one', () => {
+    // `error()` and `complete()` close a Subject permanently, so every later `nextWith` pushed into
+    // a dead subject and emitted nothing at all — silence where the spec had configured a value.
+    const service = createSpyFromClass(AccountService);
+
+    service.createSeamlessTransition.throwWith(new Error('boom'));
+    service.createSeamlessTransition.nextWith('uri://after');
+
+    expect(record(service.createSeamlessTransition()).values).toEqual(['uri://after']);
+  });
+
+  it('starts a new stream after `complete()` too', () => {
+    const service = createSpyFromClass(AccountService);
+
+    service.createSeamlessTransition.complete();
+    service.createSeamlessTransition.nextWith('uri://after');
+
+    expect(record(service.createSeamlessTransition()).values).toEqual(['uri://after']);
+  });
+
+  it('starts a new stream after `nextOneTimeWith`, which completes as well', () => {
+    const service = createSpyFromClass(AccountService);
+
+    service.createSeamlessTransition.nextOneTimeWith('first');
+    service.createSeamlessTransition.nextOneTimeWith('second');
+
+    expect(record(service.createSeamlessTransition()).values).toEqual(['second']);
+  });
+
+  it('keeps "emit, then fail" working inside one test', () => {
+    // The sequence the fix must not break: within a test both calls are one story, and only a
+    // reset (or a terminal call) starts a new one.
+    const service = createSpyFromClass(AccountService);
+    const failure = new Error('later');
+
+    service.createSeamlessTransition.nextWith('a');
+    service.createSeamlessTransition.throwWith(failure);
+
+    const seen = record(service.createSeamlessTransition());
+
+    expect(seen.values).toEqual(['a']);
+    expect(seen.error).toBe(failure);
+  });
+
+  it('does the same for an observable property spy', () => {
+    class Store {
+      products$!: Observable<string>;
+    }
+
+    const store = createSpyFromClass(Store, { observablePropsToSpyOn: ['products$'] });
+
+    store.products$.complete();
+    store.products$.nextWith('after');
+
+    expect(record(store.products$).values).toEqual(['after']);
   });
 });

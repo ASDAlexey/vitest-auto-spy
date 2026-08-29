@@ -7,9 +7,10 @@
  * library recommends in two places at once (`no-object-define-property` → `mock*Prop`, the factory
  * tree → `createAutoMock`) and did not support.
  */
+import { from, isObservable, of } from 'rxjs';
 import { beforeAll, describe, expect, it } from 'vitest';
 
-import { createAutoMock } from './auto-mock';
+import { autoMocked, createAutoMock } from './auto-mock';
 import { registerMockAdapter } from './mock-adapter';
 import { mockDeep } from './mock-deep';
 import { mockAccessorsProp, mockReadonlyProp, mockReadonlyPropGetter, mockValueProp, restoreMockedProps } from './prop-mock';
@@ -33,9 +34,7 @@ type BuildLocation = (seed?: Partial<PlatformLocation>) => PlatformLocation;
 
 const factories: [string, BuildLocation][] = [
   ['createAutoMock', (seed): PlatformLocation => asInstance(createAutoMock<PlatformLocation>(seed))],
-  // `DeepMockProxy<T>` has no `accessorSpies` bag, so `asInstance` (which expects a `Spy<T>`) does
-  // not take it; the node answers every member of `T` all the same.
-  ['mockDeep', (seed): PlatformLocation => mockDeep<PlatformLocation>(seed)],
+  ['mockDeep', (seed): PlatformLocation => asInstance(mockDeep<PlatformLocation>(seed))],
 ];
 
 describe.each(factories)('mock*Prop over %s', (_name, build) => {
@@ -225,5 +224,80 @@ describe('`delete` on a double that makes members on demand', () => {
     engine.setPlaybackRate = (): void => undefined;
 
     expect(engine.setPlaybackRate).toBeDefined();
+  });
+});
+
+describe('a proxy double must not impersonate a protocol', () => {
+  interface AnimationItem {
+    play(): void;
+    destroy(): void;
+  }
+
+  it('survives `of(mock)` — the reported case, and the worst of the family', () => {
+    // `of(...)` calls `popScheduler(args)`, which takes the LAST argument for a scheduler when
+    // `typeof x.schedule === 'function'`. A double that answers every property answered that too,
+    // so the whole double was eaten as the scheduler, `of()` was left with no arguments, and the
+    // emission was scheduled onto a spy that does nothing — a stream that never emits, failing an
+    // assertion three concerns away with nothing pointing back at `of`.
+    const emitted: AnimationItem[] = [];
+    const animation = autoMocked<AnimationItem>();
+
+    of(animation).subscribe((value) => emitted.push(value));
+
+    expect(emitted).toEqual([animation]);
+  });
+
+  it('is not mistaken for an Observable', () => {
+    // `isObservable` is `lift` and `subscribe` both being functions.
+    expect(isObservable(createAutoMock<AnimationItem>())).toBe(false);
+  });
+
+  it("fails loudly, in rxjs's own words, when handed to `from`", () => {
+    // Not silence, and not a `TypeError` from three frames inside rxjs either.
+    expect(() => from(createAutoMock<AnimationItem>() as never)).toThrow(/invalid object where a stream was expected/);
+  });
+
+  it('is not thenable, so `await` hands the double back unchanged', async () => {
+    const animation = createAutoMock<AnimationItem>();
+
+    // A truthy `then` is the classic trap of any answer-to-everything proxy, and it breaks in the
+    // code under test rather than in the spec.
+    expect(await animation).toBe(animation);
+  });
+
+  it.each(['schedule', 'lift', '@@observable', 'getReader'])('answers `%s` with undefined on both doubles', (key) => {
+    const auto: Record<string, unknown> = createAutoMock<AnimationItem>();
+    const deep: Record<string, unknown> = mockDeep<AnimationItem>();
+
+    expect(auto[key]).toBeUndefined();
+    expect(deep[key]).toBeUndefined();
+  });
+
+  it('leaves `subscribe` alone — an ordinary method name, and an ordinary assertion', () => {
+    // Denying `lift` and `@@observable` is enough to stop the impersonation, so this one does not
+    // have to be sacrificed: a store, an `OutputEmitterRef` or an event bus is a normal thing to
+    // mock, and `expect(store.subscribe).toHaveBeenCalledWith(cb)` is why.
+    const store = createAutoMock<{ subscribe(listener: () => void): void }>();
+    const listener = (): void => undefined;
+
+    store.subscribe(listener);
+
+    expect(store.subscribe).toHaveBeenCalledWith(listener);
+  });
+
+  it('hands a seeded protocol member back, which is the way out', () => {
+    // The deny-list is consulted after the store, so a type that genuinely has one of these members
+    // is mocked by saying so once.
+    const scheduler = createAutoMock<{ schedule(work: () => void): void }>({ schedule: () => undefined });
+
+    expect(scheduler.schedule).toBeTypeOf('function');
+  });
+
+  it('takes an assignment as a seed too', () => {
+    const scheduler: Record<string, unknown> = createAutoMock<{ schedule(work: () => void): void }>();
+
+    scheduler['schedule'] = (): void => undefined;
+
+    expect(scheduler['schedule']).toBeTypeOf('function');
   });
 });

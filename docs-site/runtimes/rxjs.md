@@ -40,6 +40,43 @@ Using an observable spy without importing `vitest-auto-spy/rxjs` throws a clear 
 add the import. The core's _type_ surface (`Spy<T>`) still references rxjs types, so keep `rxjs`
 available for type-checking; none of it reaches your runtime bundle.
 
+## The backing subject, and how long it lives
+
+Every observable helper writes into one `ReplaySubject(1)` per spied member. Its buffer is
+**configuration**, in exactly the sense a `calledWith` chain is, and until 3.5.0 it outlived the test
+that filled it. Two silent failures came out of that.
+
+```ts
+// test 1
+service.createSeamlessTransition.nextWith(uri); // buffered
+
+// test 2 — the failure path is what this test is about
+service.createSeamlessTransition.throwWith(error); // the subscriber gets `uri` FIRST, then the error
+```
+
+The code under test ran the **success** branch on the previous test's data, and the branch the test
+existed for arrived one emission late — with nothing in the failure pointing back. The second is
+quieter still: `error()` and `complete()` close a Subject for good, so every later `nextWith` on that
+spy pushed into a dead subject and emitted nothing.
+
+Both are fixed: `resetAutoSpy(spy)` drops the subject, and a terminated one is replaced by the next
+configuration. Two things follow that are worth knowing.
+
+**`vi.clearAllMocks()` and `clearMocks: true` still cannot reach it.** That is not an oversight — it
+is the same boundary that keeps them from clearing a `calledWith` chain: the state lives in this
+library's closures, not on the runner's mock object. When a spy outlives a test, reset it yourself:
+
+```ts
+beforeEach(() => {
+  resetAutoSpy(service); // the TestBed is built in beforeAll, so the spy is shared
+});
+```
+
+**Inside one test, nothing changed.** `nextWith(a)` followed by `throwWith(e)` still means "emit a,
+then fail" — both calls belong to one story, and only a reset or a terminal call starts a new one.
+`nextWithValues([{ errorValue: e }])` remains the way to build a stream that fails on subscription
+regardless of what came before it.
+
 ## Standalone observable builder
 
 ```ts

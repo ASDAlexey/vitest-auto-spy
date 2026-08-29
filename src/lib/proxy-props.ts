@@ -167,3 +167,61 @@ export function readStoredAccessor(store: ProxyPropStore, key: string | symbol, 
 
 /** Returned by {@link readStoredAccessor} when the key has no patched accessor. */
 export const NOT_STORED = Symbol('vitest-auto-spy.notStored');
+
+/**
+ * Keys a library probes to decide **what kind of thing** it was handed, rather than to call.
+ *
+ * A double that answers every property answers these too, and then it is not a double of `T` any
+ * more — it is whatever the probe was looking for. The reported case cost an afternoon and looked
+ * nothing like its cause:
+ *
+ * ```ts
+ * of(autoMocked<AnimationItem>()); // an Observable that never emits
+ * ```
+ *
+ * `of(...)` calls `popScheduler(args)`, which treats the **last argument** as a scheduler when
+ * `typeof x.schedule === 'function'`. The whole double was eaten as the scheduler, `of()` was left
+ * with an empty argument list, and the emission was scheduled onto a spy that does nothing. The
+ * component under test then kept its `null`, and the assertion that failed was three concerns away
+ * — nothing in the failure mentions `of`.
+ *
+ * The three names here are the ones with a demonstrated mechanic, and each is unambiguously
+ * protocol rather than API:
+ *
+ * | Key            | Probe                                          | What it made the double |
+ * | -------------- | ---------------------------------------------- | ----------------------- |
+ * | `schedule`     | `popScheduler` in `of` / `from` / `merge` / …  | a scheduler             |
+ * | `lift`         | `isObservable` (with `subscribe`)              | an Observable           |
+ * | `@@observable` | `isInteropObservable` in `innerFrom`           | an interop Observable   |
+ * | `getReader`    | `isReadableStreamLike` in `innerFrom`          | a WHATWG ReadableStream |
+ *
+ * `then` and every symbol (`Symbol.iterator`, `Symbol.asyncIterator`, `Symbol.observable`) were
+ * already answered with `undefined` for the same reason, which is why `await mock` returns the mock
+ * and `from(mock)` does not iterate it.
+ *
+ * **`subscribe` is deliberately *not* here.** It is a perfectly ordinary method name — a store, an
+ * Angular `OutputEmitterRef`, an event bus — and `expect(store.subscribe).toHaveBeenCalledWith(cb)`
+ * is a real assertion this library exists to support. Denying `lift` already breaks rxjs's
+ * `isObservable`, and denying `@@observable` breaks `innerFrom`, so `subscribe` on its own no longer
+ * fools anything: `from(mock)` now fails with rxjs's own "You provided an invalid object where a
+ * stream was expected". Loud, and in the right file.
+ *
+ * The list is deliberately short for that reason. A key goes in only with an observed mechanic
+ * behind it, never because it sounds protocol-ish — every entry costs somebody the ability to mock
+ * a member of that name without seeding it.
+ */
+const PROTOCOL_KEYS: ReadonlySet<string> = new Set(['schedule', 'lift', '@@observable', 'getReader']);
+
+/**
+ * Whether a key must be answered with `undefined` rather than a spy, so the double is not mistaken
+ * for a scheduler, a promise or a stream.
+ *
+ * Consulted **after** the store, so it is not a hard rule: a spec that genuinely mocks a type with
+ * a `schedule` method seeds it (`createAutoMock<Scheduler>({ schedule: vi.fn() })`) or assigns to
+ * it, and gets it back. Without a seed the member is absent, and the failure is an immediate
+ * `TypeError: … is not a function` at the call site — which is the trade this makes: a loud local
+ * error instead of a silent remote one.
+ */
+export function isProtocolKey(key: string | symbol): boolean {
+  return typeof key === 'string' && PROTOCOL_KEYS.has(key);
+}
