@@ -10,13 +10,16 @@ skipped.
 
 - [x] **Restore 100% coverage** — `auto-mock.ts` Proxy traps `has` / `ownKeys` /
       `getOwnPropertyDescriptor` (lines 71–83) had no tests, so `npm run
-    test:coverage` (and therefore CI's `Test + coverage` step) was **red**
+test:coverage` (and therefore CI's `Test + coverage` step) was **red**
       at 98.34% on this branch. Added trap-exercising specs. The `set` trap was
       already covered by the "assign a plain property" test.
 - [x] **`npm run check` now enforces the coverage gate** — it ran `npm test`
       (no coverage), so the 100% threshold was silently bypassed locally while
       CI ran `test:coverage`. Switched `check` to `test:coverage` so a local
-      `check` matches CI.
+      `check` matches CI. (Re-verified 2026-08-29: `check` had drifted back to
+      `npm run test` at some point and was silently bypassing the gate again.
+      Switched back, and this time the gate caught two real uncovered branches
+      the same session.)
 
 ## Live defects — measured 2026-08-29
 
@@ -24,33 +27,63 @@ Seven findings from a measured pass (perf/memory, competitor sweep, Angular swee
 defect in shipped behaviour, not a missing feature, and each was reproduced rather than reasoned
 about. Ordered by how badly the failure lies about its own cause.
 
-- [ ] **`expectEmission` cannot subscribe to an Angular `output()`.** `SubscribableLike`
+**Status after the 2026-08-29 fix pass: six of seven closed, one disproven.** Two were closed by
+verification rather than by code (the `output()` subscription was already fixed in source; the
+accessor-cache docs line was simply wrong). Three findings turned out to be inaccurate where they
+were checked, and each correction is recorded inline rather than dropped: the `stable` deadlock does
+not reproduce under `provideHttpClientTesting`, an `httpResource` needs one settle step fewer than
+reported, and `import type` fixes neither half of the rxjs declaration problem. `npm run check`
+passes end to end, coverage back at 100%.
+
+- [x] **`expectEmission` cannot subscribe to an Angular `output()`.** Fixed and verified in source:
+      `CallbackSubscribable<T>` is the first overload of all three entry points, and
+      `subscribeToSource` branches on `typeof source.pipe === 'function'` — an rxjs source gets the
+      observer object (so `error` / `complete` still report), everything else gets a hybrid
+      observer that is also a bare callback. No rxjs import was added.
+      Original finding: `SubscribableLike`
       (`lib/expect-emission.ts:23-25`) requires an _observer object_, and the helper passes one at
       `:92`. Angular's `OutputRef.subscribe` takes a **callback**, so Angular stores the object and
       later invokes it: `TypeError: listenerFn is not a function`, thrown internally and swallowed.
       The watchdog at `:85-90` then rejects with `… did not emit within 200 ms (0 emission(s)
-    received). Either the stream never fired — check the trigger and any provider spy feeding it`
+received). Either the stream never fired — check the trigger and any provider spy feeding it`
       — **blaming the component for a defect in the helper**, which is the exact failure this
       module's docstring (`:2-9`) exists to abolish. Fix, no new dependency: an rxjs `Observable`
       has `pipe` and an `OutputEmitterRef` does not, so branch on `typeof source.pipe === 'function'`
       in `subscribeAndCollect` (`:64-92`) and send an observer or a bare callback accordingly;
       widen the three entry points (`:148`, `:166`, `:186`) to `OutputRefLike<T> |
-    SubscribableLike<T>`. `error` / `complete` are unreachable for an `OutputRef`, so nothing is
+SubscribableLike<T>`. `error` / `complete` are unreachable for an `OutputRef`, so nothing is
       lost. Not `outputToObservable` — that would pull rxjs into a module deliberately kept
       duck-typed and rxjs-free.
-- [ ] **`stable(fixture)` deadlocks on a pending `HttpClient` request.** Measured: with one request
-      in flight neither `fixture.whenStable()` nor `ApplicationRef.whenStable()` ever resolves —
-      still unresolved after 800 ms / 600 ms, resolving the instant `flush()` runs. The spec then
-      dies on Vitest's 5 s timeout with nothing named. This is the headline zoneless helper
-      (`lib/zoneless.ts:47-50`) on the codepath Angular consumers hit most, and nothing in
-      `docs-site/` warns about it. See the `stable` budget item under "Angular — the resource era".
-- [ ] **The `httpResource` example in `lib/event-loop.ts:91-95` does not work.** Measured: it
-      finishes the budget having issued **zero requests**, because nothing ticks. The real sequence
-      is `TestBed.tick()` → one microtask → `expectOne`, and after `flush()` one more microtask plus
-      one tick before the resource reports `resolved`. `flushEventLoopUntil` claims this use case in
-      its own docstring and cannot serve it — it never ticks. Fix the example when `settleResource`
-      lands; it is the same finding from both ends.
-- [ ] **`serializeValue` is exponential on shared (non-circular) substructure.** `serializeObject`
+- [x] **`stable(fixture)` deadlocks on a pending `HttpClient` request.** Shipped: `stable` now takes
+      `{ timeout = 2000, label }` and races `fixture.whenStable()` against a real timer captured at
+      import (so fake timers cannot stop the watchdog — the same reason `expect-emission.ts` captures
+      its own). On expiry it throws the cause, naming the fixture and both things that produce it (an
+      unflushed request, a real timer), instead of letting the runner report a file-level timeout.
+      `{ timeout: 0 }` restores the unbounded wait.
+
+      **Correction to the finding, measured on the same Angular 21.2.17 zoneless TestBed:** the
+      deadlock does **not** reproduce under `provideHttpClientTesting`. With one `HttpClient.get` in
+      flight both `fixture.whenStable()` and `ApplicationRef.whenStable()` resolve immediately — the
+      testing backend registers no pending task. Whatever produced the original 800 ms / 600 ms
+      measurement, it was not the testing backend on this version. The timeout is worth having on its
+      own merits (a real backend, a `PendingTasks` entry nothing completes, a `setInterval` under
+      real timers all still hang), but the headline claim was not reproducible and should not be
+      repeated in the docs.
+
+- [x] **The `httpResource` example in `lib/event-loop.ts:91-95` does not work.** Fixed from both
+      ends. `settleResource` shipped (see below), and `event-loop.ts` no longer claims the use case:
+      the example is now an SDK handshake, and both places that named `httpResource` say plainly that
+      this helper never ticks and point at `settleResource`. Re-measured while doing it, and the
+      sequence is one step shorter than the finding says: after `flush()` the resource needs **one
+      microtask** to reach `resolved` — the extra tick is not required.
+- [x] **`serializeValue` is exponential on shared (non-circular) substructure.** Fixed: identity
+      memoisation (`Map<object, string>`) beside the cycle-guard `WeakSet`, both now carried in one
+      `SerializeContext`. Re-measured on the same diamond: depth 16 36.97 ms → **0.63 ms**, depth 18
+      118.72 ms → **1.25 ms**, depth 20 1 124 ms → **5.01 ms** (224×). One subtlety the fix had to
+      handle and the finding did not name: a rendering containing `[Circular]` depends on the path
+      that produced it, so a subtree that emitted a back-edge is deliberately kept out of the cache.
+      Output is byte-identical either way; covered by a deterministic getter-read-count spec rather
+      than a timing one. Original finding: `serializeObject`
       does `seen.add(v)` … `seen.delete(v)`, so an object reachable by two paths is serialised
       twice. Measured on a diamond: depth 16 → 65 536 nodes / 36.97 ms; depth 18 → 262 144 /
       118.72 ms; **depth 20 → 41 distinct objects become 1 048 576 serialised nodes, a 12.6 MB key
@@ -58,12 +91,21 @@ about. Ordered by how badly the failure lies about its own cause.
       config object or any tree with repeated nodes is a DAG. Fix: memoise by identity
       (`Map<object, string>` beside the existing `WeakSet`); output stays byte-identical for
       non-shared input.
-- [ ] **`bench/auto-spy.bench.ts` measures the garbage collector.** `@vitest/spy` holds every mock
+- [x] **`bench/auto-spy.bench.ts` measures the garbage collector.** Fixed: every case now ends with
+      `pruneMockRegistry()`, so the registry never holds more than one iteration's worth and each
+      case starts from the heap the previous one started from. The prune had to go _inside_ the
+      timed body — Vitest runs **no** hooks in benchmark mode (`beforeAll` / `beforeEach` /
+      `afterAll` in a `describe` are all silently skipped, verified) and `bench()`'s third argument
+      is tinybench's bench-level `Options`, not its per-task `FnOptions`. Cost is one `Set.delete`
+      per mock created (~50 ns against ~1.9 µs to create it). Two consecutive runs after the fix
+      reproduce every case within **1.00–1.16×** (the worst was 569× before), and the 40-method /
+      3-called row now reports the **7.48× lazy** win the docs publish. Timing table in
+      `docs-site/core/performance.md` re-taken. Original finding: `@vitest/spy` holds every mock
       ever created in a module-level strong `Set` (`REGISTERED_MOCKS`); 20 000 eager 10-method spies
       retain 972 MB, and after dropping every reference and forcing GC **0.0% is collected**. Each
       bench case therefore allocates into a monotonically growing heap, and `p75` reports whether a
       major GC landed inside the sample. Two consecutive unmodified runs: `createAutoMock + 4
-    accesses` moved **569×** (5.0680 ms → 0.0089 ms), and run 1's summary reported "eager
+accesses` moved **569×** (5.0680 ms → 0.0089 ms), and run 1's summary reported "eager
       **272.67× faster** than lazy" for the 40-method case the docs publish as a 7× _lazy_ win. Fix:
       call this package's own `pruneMockRegistry()` (or `vi.clearAllMocks()`) between cases, then
       re-take the timing table in `docs-site/core/performance.md`. The memory table there is
@@ -76,15 +118,47 @@ about. Ordered by how badly the failure lies about its own cause.
       `.d.ts` files / 7 162 lines** into every consumer's TypeScript program — against this
       package's own 1 494 lines, a 4.8× tax paid by every React / Vue / Svelte / Node consumer. The
       invariant "rxjs stays behind `/rxjs`" holds at runtime and is violated at the type level.
-      Forcing the emitted form to `import type` is a correctness fix as much as a size one; matching
-      structurally on the existing `SubscribableLike` instead of the nominal `Observable` would
-      remove the import outright, at the cost of widening what `[R] extends [Observable<infer O>]`
-      matches.
-- [ ] **`resetAutoSpy` does not reach into `mockDeep` children.** It walks own keys one level
+
+      **The proposed fix is disproven — measured 2026-08-29, do not implement it.** A fixture package
+      whose only `.d.ts` names `Observable`, compiled by the repo's own tsc against a consumer with
+      and without rxjs on disk:
+
+      | emitted form | TS2307 without rxjs (`skipLibCheck: false`) | rxjs files pulled into the program |
+      | --- | --- | ---: |
+      | `import { Observable } from 'rxjs';` | yes, at col 28 | 191 |
+      | `import type { Observable } from 'rxjs';` | **yes, at col 33** | **191** |
+      | no rxjs reference at all | no | 2 |
+
+      `import type` is byte-for-byte equivalent to TypeScript on both counts: it resolves the module
+      exactly the same way and loads the same 191 files. Neither half of the fix happens. (Under the
+      default `skipLibCheck: true` neither form errors, so the correctness half only ever showed up
+      in a strict consumer.) Measured in passing and worth recording: the bare `import 'rxjs';`
+      side-effect lines in `dist/index.d.ts` and friends are **inert** — TypeScript reports nothing
+      for an unresolvable side-effect import in a declaration file and pulls nothing in. They are
+      cosmetic, not the defect.
+
+      **Only removing the reference works**, which is the second option in the original finding and
+      is a **breaking type change**, not a drive-by: the two dispatch positions
+      (`[ReturnType] extends [Observable<infer O>]`, `T[K] extends Observable<infer O>`) and
+      `OnlyObservablePropsOf` can go structural at the price of widening what counts as an
+      observable — but `AddObservableSpyMethods` genuinely *returns* rxjs values
+      (`returnSubject(): Subject<T>`, `nextWithPerCall(): Subject<T>[]`), and no hand-written
+      `SubjectLike<T>` is assignable **to** rxjs's `Subject<T>`, so `const s: Subject<number> =
+      spy.m.returnSubject()` stops compiling for every consumer that has rxjs. Schedule it with a
+      major, or decide the tax is the price of a nominal type.
+
+- [x] **`resetAutoSpy` does not reach into `mockDeep` children.** Fixed: `collectMocks` is now a
+      visitor that treats an assembled spy as a container (own keys) and a mock as a leaf _except_
+      when it is a `mockDeep` node, which is both. The children live in a closure and are
+      deliberately absent from `Object.keys`, so the node publishes them through one new symbol seam
+      (`DEEP_CHILDREN` in `spy-mark.ts`, answered before the `get` trap's symbol guard) that a spec
+      cannot see. Worse than reported, in fact: a `mockDeep` root is a _function_, so the own-key
+      walk found nothing at any depth and `resetAutoSpy(api)` reset nothing at all. Original
+      finding: It walks own keys one level
       (`lib/reset-auto-spy.ts:43`), so a nested deep-mock keeps its configuration across tests.
       `vitest-mock-extended`'s `mockReset` recurses; this reads as a bug rather than a design choice.
 
-## Field findings — consumer-project merge, 2026-08-29
+## Field findings — consumer monorepo merge, 2026-08-29
 
 Reported from a consumer, not from this repo: merging four months of `master` into an Angular
 monorepo whose suite (1 725 spec files, 12 152 tests) had already moved to Vitest. Thirty-one specs
@@ -99,7 +173,7 @@ new rows in the no-twin table).
       `migrating.md` already warns that `vi.mock` of a bundled barrel is a silent no-op. The loud
       half is what people hit _next_, when they work around the silence by reaching for a spy:
       `vi.spyOn(domainMetrics, 'injectDomainMetrics')` → `TypeError: Cannot redefine property:
-    injectDomainMetrics`, thrown by `Object.defineProperty` with no mention of bundling, of the
+injectDomainMetrics`, thrown by `Object.defineProperty` with no mention of bundling, of the
       module, or of the way out. Cost three separate diagnoses in one afternoon on the same suite —
       two by people, one by an agent that walked into it independently. This library already owns the
       `spyOn` seam through its adapters and already has `lib/docs-links.ts` for exactly this kind of
@@ -110,15 +184,15 @@ new rows in the no-twin table).
       standing in for — _which collaborators did this entry point actually ask for_ — is answerable
       through DI without touching the module boundary: a provider factory runs exactly when something
       injects its token. Written out by hand it is nine lines of `providers.map(token => ({ provide:
-    token, useFactory: … }))` pushing into an array, and on the suite above it got written twice in
+token, useFactory: … }))` pushing into an array, and on the suite above it got written twice in
       one afternoon and was wanted a third time. Candidate for `/angular`: providers plus the ordered
       record of which tokens DI constructed. Nothing about it is Angular-specific except the provider
       shape, so check whether the nestjs entry wants the same thing before settling the API.
 - [ ] **A `Spy<T>` passed where `T` is expected produces a message about private fields.**
       `adjustSubscriptionDetails(navigationTimingService, …)` → `TS2345: Argument of type
-    'Spy<NavigationTimingService>' is not assignable to parameter of type 'NavigationTimingService'.
-    Type 'Spy<NavigationTimingService>' is missing the following properties: active,
-    pendingStartTime, visitedRoutes, routerSubscription, and 12 more.` The fix is `asInstance`, and
+'Spy<NavigationTimingService>' is not assignable to parameter of type 'NavigationTimingService'.
+Type 'Spy<NavigationTimingService>' is missing the following properties: active,
+pendingStartTime, visitedRoutes, routerSubscription, and 12 more.` The fix is `asInstance`, and
       the message never says so. This is exactly the failure shape `no-mocked-for-spy` already
       rescues people from, pointed the other way — and that rule's wording ("a list of private field
       names that says nothing about the real problem, which is the declaration") is the model. A rule
@@ -127,7 +201,7 @@ new rows in the no-twin table).
       declaration in the same file and cannot change run-time behaviour.
 - [ ] **`mockImplementation()` with no argument is a compile error Jest never had.** Jest installed a
       no-op; Vitest requires the function, so every carried-over call is `TS2554: Expected 1
-    arguments, but got 0` — four of them in one file on the suite above. Mechanical fix to
+arguments, but got 0` — four of them in one file on the suite above. Mechanical fix to
       `mockImplementation(() => undefined)`. Documented now as a row in `migrating.md`; worth a rule
       only if the codemod below does not land, since the compiler catches it in any suite with a type
       gate and misses it entirely in one without.
@@ -147,15 +221,43 @@ new rows in the no-twin table).
   close: quote the error verbatim in the constructor-doubles page, and name `Image`, `Worker`
   and `WebSocket` beside the observers in the `stub*` family listing. The same trick would help
   `no-done-callback`, whose first symptom under a type gate is `TS2349: This expression is not
-    callable. Type 'TestContext' has no call signatures.` — text the rule's own description shares
+callable. Type 'TestContext' has no call signatures.` — text the rule's own description shares
   no words with.
+
+- [ ] **A rule for the spread that only fails under a bundler: `no-import-time-spread`.** Same suite,
+      three days later: `Spread syntax requires ...iterable[Symbol.iterator] to be a function`, a
+      `TypeError` thrown while the spec bundle loads, on a tree whose every test passes. The shape is
+      `export const webosEvents = [...BaseEvents]` at module scope, where `BaseEvents` is a value
+      imported from another module. Under `tsc` and under a browser's ESM loader this is safe —
+      the importing module never runs before its dependency. Inside one bundle it is not: the chunk
+      can be evaluated while the binding is still `undefined`, and `[...undefined]` throws. Same
+      root cause as the barrel-initialisation note already in `migrating.md`, but the symptom names
+      neither a module nor a barrel, so nothing connects the two. An AST scan for module-level
+      `SpreadElement`s whose operand is an imported identifier — skipping function bodies, which run
+      later — found exactly seven sites in an 8 673-file workspace, two of them spreading a workspace
+      barrel. That is a small enough population to be worth flagging at the cursor, and it is
+      decidable from the imports in the same file, so it clears the bar in `lib/eslint/rules.ts:12-19`.
+      It cannot carry a `--fix` (the safe rewrite depends on whether the operand is a constant that
+      can be inlined or a value that must be read lazily), but it can carry a suggestion and a link.
+
+- [ ] **A load-time failure under `isolate: false` is reported against every file in the worker, with
+      no stack.** Worth a paragraph wherever this library documents running without isolation, because
+      it makes triage read backwards. On the suite above, four consecutive full runs of an unchanged
+      tree reported 0, 95, 104 and 151 failed _files_ while the failed _test_ count stayed at zero —
+      the number tracks how many spec files happened to share the worker that died, not how much is
+      broken. The intersection of the failed lists across runs was **empty**, which is the tell: no
+      file in those lists is the culprit. Two further traps found while chasing it: Vitest 4 collapses
+      the identical unhandled error to a single message line with no stack and no originating module,
+      and `json` reporter output carries the same bare message (`assertionResults: []`), so neither
+      channel names the file. The triage rule that does work is the one this library can state: fix
+      only files that failed on their own assertions, then re-run.
 
 ## Duplication removal (DRY — repo enforces jscpd threshold 0)
 
 - [x] **Vitest-adapter registration was copy-pasted across 6 entries**
       (`index`, `angular`, `nestjs`, `react`, `vue`, `svelte`): each repeated
       `import { registerMockAdapter } … import { vitestMockAdapter } …
-    registerMockAdapter(vitestMockAdapter)` plus a near-identical comment.
+registerMockAdapter(vitestMockAdapter)` plus a near-identical comment.
       Extracted a single side-effect module `lib/use-vitest-adapter.ts`; every
       Vitest entry now does `import './lib/use-vitest-adapter';`. One source of
       truth for "this entry runs on Vitest".
@@ -303,8 +405,9 @@ Measured this pass and rejected — do not re-open without new evidence:
   invariant. Only `index` and `angular` are worth the trade.
 - [~] **Optimising the `ArgsMap` exact map** — already optimal (flat 186–237 ns from 1 to 100
   configs; the `#arities` guard is the best thing in the file).
-- [~] **Caching the `autoSpyAccessors` walk harder** — already `WeakMap`-cached per prototype.
-  `docs-site/core/performance.md` still says it is uncached; that line is out of date.
+- [x] **Caching the `autoSpyAccessors` walk harder** — already `WeakMap`-cached per prototype
+      (`accessorNamesCache`), so nothing to do in code. The stale line in
+      `docs-site/core/performance.md` that called the walk uncached is now corrected.
 - [~] **Dropping `AGENTS.md` from `files`.** `README.md` + `AGENTS.md` are 187 847 B raw /
   57 908 B gzip = **29.3% of every install**, and dropping `AGENTS.md` alone is −12.6%. Measured
   and offered, not recommended: it is what an agent in a consumer repo reads with no network,
@@ -476,13 +579,19 @@ ApplicationRef.whenStable()` is. Two waits for one concept — which is the argu
       hand-built `signal()`s. **Sidesteps the deadlock entirely** — nothing is ever in flight.
       Ranked first because it is the shallow answer, the one that fits a suite which already refuses
       to test templates.
-- [ ] **`settleResource(resource, { turns = 20, label })` — S.** `TestBed.tick()` → one microtask →
-      check `status()`, up to the budget, then fail naming what never settled. Measured: resolves
-      `httpResource` after flush in one iteration and `resource()` in one — the two cases that need
-      different waits today, behind one name. `flushEventLoopUntil` is already exactly this shape
-      and already claims the use case in its docstring; it just never ticks. Shipping this repairs
-      the broken example.
-- [ ] **`stable(fixture, { timeout = 2000, label })` — S.** Race `fixture.whenStable()` against a
+- [x] **`settleResource(resource, { turns = 20, label })` — S.** Shipped in
+      `lib/settle-resource.ts`, exported from `/angular` and `/bun-angular`. Duck-typed on
+      `{ status(): string }`, so `@angular/core` stays an optional peer and a hand-built double
+      works. Re-measured rather than taken on trust: `httpResource` settles in **1** round after its
+      flush, a plain `resource()` in **2** — the finding says one for both. `error` and `idle` end
+      the wait too (waiting for either is waiting for something that cannot happen). One correction
+      to the shape: a `flushEffects()` still has to come _before_ the flush, because an
+      `httpResource` issues no request until something ticks and there is nothing for `expectOne` to
+      find until then — `settleResource` cannot absorb that step, and its docstring says so.
+- [x] **`stable(fixture, { timeout = 2000, label })` — S.** Shipped, with the caveat recorded under
+      the live defect above: the specific `HttpClient` deadlock that motivated it does not reproduce
+      under `provideHttpClientTesting` on Angular 21.2.17, so the message names the causes without
+      claiming that one. Original item: Race `fixture.whenStable()` against a
       real timer — the `setTimer` pattern already in `lib/expect-emission.ts:44-45`, captured at
       import so fake timers cannot stop it — and on expiry throw the cause instead of letting the
       runner report a 5 s file-level timeout: _"the fixture was still unstable after 2000 ms. A
@@ -548,7 +657,7 @@ Median of 60 reps, component holding a 100-row `@for` of a child component — t
   mechanism has nothing to win.
 - [~] **Avoiding `resetTestingModule` per test** — 0.003 ms.
 - [~] **`renderShallow` avoiding `compileComponents`** — already true (`grep -rn compileComponents
-    src` never hits `render-shallow.ts`), and on a standalone AOT bed it costs 0.137 ms once.
+src` never hits `render-shallow.ts`), and on a standalone AOT bed it costs 0.137 ms once.
 
 Where the time actually is: `createComponent` + first change detection, essentially all of it
 building the child subtree — already measured in `docs-site/core/performance.md` (0.65 → 8.52 ms as
@@ -912,7 +1021,7 @@ with zoneless support: a `./zoneless` entry added in 19.2.0 on 2026-03-17.
       nobody configured is called. `vitest-mock-extended` has `fallbackMockImplementation`,
       `@golevelup` has `{ strict: true }`, testdouble is strict by default. The only tool here is
       `onlyMethodsToSpyOn`, which _deletes_ the method, so the failure reads `service.load is not a
-    function` — blaming the spy rather than the test. Biggest payoff exactly where this library is
+function` — blaming the spy rather than the test. Biggest payoff exactly where this library is
       strongest: a wide service where one of forty methods was left unstubbed and `undefined`
       surfaces three frames later.
 - [ ] **`captureArg<T>()` — S.** The one matcher shape both live competitors ship that cannot be

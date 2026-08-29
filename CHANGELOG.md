@@ -12,6 +12,29 @@ The latest released version here must always match the one published on
 
 ### Added
 
+- **`settleResource(resource, { turns, label })` on `/angular` and `/bun-angular` — one wait for
+  `httpResource()`, `resource()` and `rxResource()`.** Angular's resource primitives need a
+  different wait each, and no library in the Angular world had an answer: measured on 21.2.17
+  (zoneless TestBed), an `httpResource` settles **one** tick + microtask after its response is
+  flushed and a plain `resource()` takes **two**, while a freshly created `httpResource` has issued
+  no request at all until something ticks. Getting it wrong does not fail — it asserts the
+  resource's *default* value, a green test proving nothing until the day the default changes. This
+  is the loop both converge under, with a turn budget and a failure that names the resource and the
+  flush it is missing. The wait ends on any settled status, `error` and `idle` included, because
+  waiting for either is waiting for something that cannot happen. Duck-typed on
+  `{ status(): string }`, so `@angular/core` stays an optional peer and a hand-built double works.
+
+  One thing it deliberately does not absorb: the `flushEffects()` that comes *before* the flush.
+  There is nothing for `expectOne` to find until something ticks, so the order is tick → flush →
+  wait, and the docs say so at every mention.
+
+- **`stable(fixture, { timeout = 2000, label })` — the wait is bounded now.** A fixture that never
+  stabilises used to hang until Vitest reported a 5 s *file-level* timeout naming neither the helper
+  nor the fixture, which blames the file for the state of one component. It now throws the cause and
+  names both things that produce it. The watchdog runs on a timer captured at import, so
+  `vi.useFakeTimers()` cannot freeze it — a watchdog the code under test can stop is not a watchdog.
+  `{ timeout: 0 }` restores the unbounded wait.
+
 - **`docs-site/utilities/editor-diagnostics.md` — the lint rules, in the editor.** They are
   worth more while the cursor is still on the line than in CI, because every shape they catch
   *passes*. No editor needs a plugin of this package's own: WebStorm, IntelliJ IDEA Ultimate,
@@ -24,11 +47,66 @@ The latest released version here must always match the one published on
 
 ### Fixed
 
+- **`serializeValue` was exponential on shared (non-circular) substructure.** The cycle guard added
+  and *removed* each object as it walked, so a node reachable by two paths was serialised twice —
+  correct, and quadratic in the worst case, exponential in the common one. Measured on a diamond:
+  depth 16 was 36.97 ms, depth 18 118.72 ms, and depth 20 turned 41 distinct objects into 1 048 576
+  serialised nodes, a 12.6 MB key and **1 124 ms**. Cycles were handled; DAGs were not — and a
+  normalised store slice, a shared config object or any tree with repeated nodes is a DAG. Now
+  memoised by identity beside the existing cycle guard: **0.63 ms / 1.25 ms / 5.01 ms** for the same
+  three depths, a 224× improvement at depth 20, with byte-identical output. A rendering that
+  contains `[Circular]` depends on the path that produced it, so a subtree that emitted a back-edge
+  is deliberately kept out of the cache.
+
+- **`resetAutoSpy` / `clearAutoSpy` now reach into `mockDeep` children.** They walked own keys one
+  level, and a `mockDeep` root is a *function* — so they found no mocks at any depth and
+  `resetAutoSpy(api)` reset nothing at all, leaving a `calledWith` seeded on `api.repo.user.find`
+  alive into the next test. `vitest-mock-extended`'s `mockReset` recurses, and a nested double
+  surviving a reset reads as a bug wherever the expectation came from. The children stay invisible
+  to a spec: the node publishes them through one internal symbol, not as own keys.
+
+- **`flushEventLoopUntil` no longer claims a use case it cannot serve.** Its docstring, and
+  `docs-site/utilities/event-loop.md`, showed an Angular `httpResource()` as *the* example. It never
+  worked: the helper takes real event-loop turns and never ticks, so — measured — a resource awaited
+  through it finishes the whole budget having issued zero requests, then fails saying the condition
+  was never met. Both now point at `settleResource` and say plainly why.
+
+- **`docs-site/core/performance.md` said the accessor walk was uncached.** It has been
+  `WeakMap`-memoised per prototype for some time; the page was out of date, and the line read as an
+  argument for replacing `autoSpyAccessors: true` with an explicit list on speed grounds. What the
+  option actually costs is the accessor indirection, which the same page already measures at 5%.
+
 - **The docs site builds again.** Two dead links (`/core/factories` in `adapters/angular.md`,
   `/utilities/doubles` in `utilities/setup.md`) pointed at pages that do not exist, and VitePress
   fails the build on a dead link — so the GitHub Pages deploy had been failing, and nothing
   published since had reached the site. They now point at
   `/core/auto-mock-by-type#recursive-deep-mocks-—-mockdeep` and `/utilities/constructor-doubles`.
+
+### Internal
+
+- **`bench/auto-spy.bench.ts` was measuring the garbage collector.** `@vitest/spy` keeps every mock
+  it ever creates in a module-level *strong* `Set` — that set is what `vi.clearAllMocks()` walks —
+  so nothing a bench case allocated was ever collectable: 20 000 eager 10-method spies retained
+  972 MB, and forcing a GC after dropping every reference released **0.0%**. Each case therefore
+  allocated into a heap it inherited from the case before, and `p75` reported whether a major GC
+  landed inside the sample. Two consecutive unmodified runs moved `createAutoMock + 4 accesses`
+  **569×** (5.0680 ms → 0.0089 ms), and one of them announced "eager 272.67× faster than lazy" for
+  the case the docs publish as a 7× *lazy* win. Every case now ends with this package's own
+  `pruneMockRegistry()`; two runs after the fix reproduce every case within **1.00–1.16×**, and the
+  40-method / 3-called row reports the 7.48× it is supposed to. Timing table in
+  `docs-site/core/performance.md` re-taken. (The prune had to go inside the timed body: Vitest runs
+  no hooks at all in benchmark mode, and `bench()`'s third argument is tinybench's bench-level
+  options, not its per-task hooks. It costs one `Set.delete` per mock created, against ~1.9 µs to
+  create one.)
+
+- **`npm run check` enforces the coverage gate again.** It had drifted back to `npm run test`, so
+  the 100% threshold was silently bypassed locally while CI ran `test:coverage`. It runs
+  `test:coverage` now — and caught two genuinely uncovered branches in the same session.
+
+- **The Angular surface shared by `/angular` and `/bun-angular` is one list.** `lib/angular-portable.ts`
+  holds the helpers that are identical on both runners; the two entries re-export it instead of
+  repeating it. The second copy was the kind that rots quietly — a helper added to one entry and not
+  the other is not a failure anywhere, it is simply missing on Bun.
 
 ### Discoverability
 
