@@ -120,6 +120,40 @@ test takes exactly the branch it would take for a failed request. A spec that ge
 (`restoreProps` takes it off again), and `blockNetwork()` is exported for suites that want it
 somewhere narrower.
 
+`fetch` is only half of the network, and the other half is the one jsdom implements in full.
+Plenty of libraries never left `XMLHttpRequest` — `rmp-vast` pings every VAST tracker through a
+hand-rolled one — so a suite with `blockNetwork: true` already on was still reaching the internet,
+one ping per quartile per ad per test, and printing jsdom's `AggregateError at
+Object.dispatchError` for each connection that failed. Whether a green run prints that depends on
+whether the machine has a route out, which is not a property a test suite should have.
+
+Every channel the environment implements is closed by default. The object narrows it:
+
+| option   | default    | what it does                                                              |
+| -------- | ---------- | ------------------------------------------------------------------------- |
+| `fetch`  | `true`     | `fetch` rejects, naming what was requested                                 |
+| `xhr`    | `'reject'` | how a diverted `XMLHttpRequest` is answered — or `false` to leave it alone |
+| `beacon` | `true`     | `navigator.sendBeacon` answers `false`, where the environment has one      |
+
+`'reject'` fails the request the way an unreachable host does: `readyState` 4, `status` 0, an
+`error` event, and the marker on `statusText` — the one string channel a failed request has.
+`'empty'` answers it with status 200 and an empty body instead, which is what a request nobody
+reads the response of wants:
+
+```ts
+setupAutoSpy({ blockNetwork: { xhr: 'empty' } }); // tracker pings, answered and silent
+```
+
+A `data:` URL is let through, and it is the only thing that is: it is the scheme a spec serves its
+own fixtures from, and the only one a DOM answers without a socket. A **relative** URL is not
+exempt — the DOM resolves it against the document origin, so a spec that reaches `/config` and
+passes is resting on nothing listening on that port.
+
+`WebSocket` and `EventSource` are deliberately left alone. Their failure is an event on an object
+the code keeps and reconnects, so there is no answer a blanket stub could give that is not a
+behaviour change of its own;
+[`stubConstructor`](/utilities/doubles) is the tool for a spec that has one.
+
 ## 6. Putting back timer globals the fakes took with them
 
 On by default, because it can only ever repair.
@@ -252,6 +286,13 @@ always `0` because nothing is watching is the failure mode worth being loud abou
 `flushStrayRejections()` returns an empty array instead, so a teardown left behind after the option
 is turned off does not throw at the suite.
 
+A rejection the runner has **already** blamed the finished test for is not reported again. An
+`async` test that fails an assertion leaves its own `AssertionError` in both places: the runner names
+the failure, and the same error arrives here as a rejection nobody handled. A red run therefore
+used to print two messages per failure, and the first thing a reader does with the second one is go
+looking for a defect that is not there. What survives the filter is what this check exists for —
+the rejections that fail no test at all.
+
 The [`no-floating-assertion`](/utilities/eslint-plugin) rule catches the commonest shape statically,
 before it ever runs.
 
@@ -339,7 +380,7 @@ each test: a stub installed for the previous test is exactly what must not still
 | `restoreMocks`        | `false`   | `vi.restoreAllMocks()` in a global `afterEach` — turn on for `isolate: false` |
 | `strayTimers`         | `false`   | Track and cancel timeouts, intervals and frames that outlive their file       |
 | `strayRejections`     | `false`   | Fail the test a rejection zone.js swallowed surfaced in — needs zone.js       |
-| `blockNetwork`        | `false`   | Reject every `fetch`, so a unit run cannot reach the network                  |
+| `blockNetwork`        | `false`   | Close every network channel the environment has — `true`, or a narrowing object |
 | `guardGlobals`        | `'off'`   | Report a test that redefines a global property as non-configurable            |
 | `globalFakeTimers`    | `false`   | Fake timers for every test **and between them** — see below                   |
 | `restoreTimerGlobals` | `true`    | Put back timer globals that uninstalling the fakes deleted                    |

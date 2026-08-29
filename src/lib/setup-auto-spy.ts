@@ -18,7 +18,7 @@ import { DOCS_LINKS, withDocs } from './docs-links';
 import { type FakeTimersConfig, setupFakeTimers } from './fake-timers';
 import { type GlobalPatchReaction, type GlobalSnapshot, checkSealedAdditions, snapshotWatchedGlobals } from './global-patch-guard';
 import { trackMockRegistry } from './mock-registry';
-import { blockNetwork } from './network-stub';
+import { type BlockNetworkOptions, blockNetwork } from './network-stub';
 import { describeDuplicateCopies } from './package-identity';
 import { restoreMockedProps } from './prop-mock';
 import { type StrayRejection, flushStrayRejections, trackStrayRejections } from './stray-rejections';
@@ -63,12 +63,17 @@ export interface SetupAutoSpyOptions {
    */
   strayRejections?: boolean;
   /**
-   * Reject every `fetch` before each test, so a unit run cannot reach the network. Default `false`,
-   * since it changes the behaviour of code under test. Worth turning on under happy-dom, which —
-   * unlike jsdom — implements `fetch`: requests nothing asserts on then abort at teardown and fail
-   * an otherwise green run with no test named. See {@link blockNetwork}.
+   * Close the network before each test, so a unit run cannot reach it. Default `false`, since it
+   * changes the behaviour of code under test. `true` blocks every channel the environment
+   * implements — `fetch` rejects, `XMLHttpRequest` fails, `navigator.sendBeacon` answers `false`;
+   * pass a {@link BlockNetworkOptions} object to narrow it, most often `{ xhr: 'empty' }` for a
+   * suite whose outbound requests are tracker pings nobody reads.
+   *
+   * Worth turning on under happy-dom, which — unlike jsdom — implements `fetch`: requests nothing
+   * asserts on then abort at teardown and fail an otherwise green run with no test named. And worth
+   * it under jsdom too, which implements `XMLHttpRequest` in full. See {@link blockNetwork}.
    */
-  blockNetwork?: boolean;
+  blockNetwork?: BlockNetworkOptions | boolean;
   /**
    * Install fake timers around **every** test in the run — Jest's `fakeTimers.enableGlobally`,
    * which Vitest has no setting for. Default `false`.
@@ -182,21 +187,73 @@ export function describeStrayRejections(rejections: readonly StrayRejection[]): 
 }
 
 /**
- * Fail the test whatever was captured is attributed to.
+ * What the runner has already blamed the test that just ran for.
+ *
+ * Reached through `Object(...)` at every step rather than guarded: the shape is the runner's, this
+ * package does not depend on its types, and a missing link anywhere on the path means the same
+ * thing as an empty list. `errors` is on `task.result` by the time `afterEach` runs — verified
+ * against the runner rather than assumed, for a passing test (absent), a synchronous failure and an
+ * asynchronous one (present, one entry).
+ *
+ * Exported for this module's own spec, which builds the context by hand.
+ */
+export function reportedErrors(context: unknown): readonly unknown[] {
+  const result: unknown = Reflect.get(Object(Reflect.get(Object(context), 'task')), 'result');
+  const errors: unknown = Reflect.get(Object(result), 'errors');
+
+  return Array.isArray(errors) ? errors : [];
+}
+
+/**
+ * Whether a rejection is one the runner has already told the reader about.
+ *
+ * Identity first, and then message-and-stack, because the runner processes an error on its way into
+ * `result.errors` and does not promise to hand back the object that was thrown. Two failures that
+ * agree on both of those are the same throw seen twice, which is precisely the case worth dropping.
+ */
+function alreadyReported(reason: unknown, reported: readonly unknown[]): boolean {
+  return reported.some((error) => error === reason || sameFailure(error, reason));
+}
+
+function sameFailure(reported: unknown, reason: unknown): boolean {
+  const message: unknown = Reflect.get(Object(reason), 'message');
+
+  return (
+    typeof message === 'string' &&
+    Reflect.get(Object(reported), 'message') === message &&
+    Reflect.get(Object(reported), 'stack') === Reflect.get(Object(reason), 'stack')
+  );
+}
+
+/**
+ * Fail the test whatever was captured is attributed to — minus what the runner has already said.
+ *
+ * An `async` test that fails an assertion leaves its own `AssertionError` where this can find it:
+ * the runner reports the failure, and the same error arrives here as a rejection nobody handled. The
+ * report then carried two messages per failure, and the first thing a reader does with the second
+ * one is go looking for a defect that is not there. A rejection the runner has already attributed to
+ * this test is not news, whatever else it is, so it is dropped — the check exists to surface the
+ * rejections that fail *no* test.
  *
  * A named function rather than an inline hook body, so the spec can exercise the failure without
  * the hook failing the very test doing the asserting.
  */
-export function reportStrayRejections(): void {
-  const stray = flushStrayRejections();
+export function reportStrayRejections(context?: unknown): void {
+  const reported = reportedErrors(context);
+  const stray = flushStrayRejections().filter((rejection) => !alreadyReported(rejection.reason, reported));
 
   if (stray.length > 0) {
     throw new Error(describeStrayRejections(stray));
   }
 }
 
-/** One step of the single `afterEach` {@link setupAutoSpy} installs. */
-type TeardownStep = () => void;
+/**
+ * One step of the single `afterEach` {@link setupAutoSpy} installs.
+ *
+ * The runner's test context is handed along, because one of the steps needs to know how the test it
+ * runs after ended; the rest ignore it.
+ */
+type TeardownStep = (context?: unknown) => void;
 
 /**
  * Run every teardown step, then re-throw whatever the first failing one threw.
@@ -213,12 +270,12 @@ type TeardownStep = () => void;
  * Exported for this module's own spec: every step of a real run either throws through the hook —
  * failing the test that is doing the asserting — or is invisible from inside a test.
  */
-export function runTeardown(steps: readonly TeardownStep[]): void {
+export function runTeardown(steps: readonly TeardownStep[], context?: unknown): void {
   const failures: unknown[] = [];
 
   for (const step of steps) {
     try {
-      step();
+      step(context);
     } catch (error) {
       failures.push(error);
     }
@@ -315,10 +372,16 @@ export function setupAutoSpy(options: SetupAutoSpyOptions = {}): void {
     setupFakeTimers(options.globalFakeTimers === true ? undefined : options.globalFakeTimers, { betweenTests: true });
   }
 
-  if (options.blockNetwork ?? false) {
-    // Per test rather than once: the stub is registered as a property patch, so `restoreProps`
-    // takes it off again after every test, and re-installing is what keeps it in place.
-    beforeEach(blockNetwork);
+  if (options.blockNetwork) {
+    // Per test rather than once: the stubs are registered as property patches, so `restoreProps`
+    // takes them off again after every test, and re-installing is what keeps them in place. The
+    // options are read once here rather than per test — `beforeEach` hands its callback a
+    // `TestContext`, which a bare `beforeEach(blockNetwork)` would pass on as the options object.
+    const blockOptions = options.blockNetwork === true ? {} : options.blockNetwork;
+
+    beforeEach(() => {
+      blockNetwork(blockOptions);
+    });
   }
 
   // The diagnostics come first because they are the steps that throw on purpose; every restore
@@ -347,8 +410,8 @@ export function setupAutoSpy(options: SetupAutoSpyOptions = {}): void {
   }
 
   if (steps.length > 0) {
-    afterEach(() => {
-      runTeardown(steps);
+    afterEach((context) => {
+      runTeardown(steps, context);
     });
   }
 }

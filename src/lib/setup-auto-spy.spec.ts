@@ -6,10 +6,10 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import '../index';
-import { getPackageCopies, registerPackageCopy, resetPackageCopies } from './package-identity';
 import { getMockRegistrySize, resetMockRegistryTracking } from './mock-registry';
+import { getPackageCopies, registerPackageCopy, resetPackageCopies } from './package-identity';
 import { countMockedProps, mockValueProp, restoreMockedProps } from './prop-mock';
-import { describeStrayRejections, reportStrayRejections, runTeardown, setupAutoSpy } from './setup-auto-spy';
+import { describeStrayRejections, reportStrayRejections, reportedErrors, runTeardown, setupAutoSpy } from './setup-auto-spy';
 import { type StrayRejection, flushStrayRejections } from './stray-rejections';
 import { countStrayTimers, trackStrayTimers } from './stray-timers';
 
@@ -119,6 +119,26 @@ describe('network blocking (opted in)', () => {
   });
 });
 
+describe('network blocking, narrowed to one channel', () => {
+  setupAutoSpy({ duplicateCopies: 'off', blockNetwork: { fetch: false, xhr: 'empty' } });
+
+  it('reads the options once, and applies exactly the ones it was given', async () => {
+    const answered = await new Promise<string>((resolve) => {
+      const xhr = new XMLHttpRequest();
+
+      xhr.addEventListener('load', () => resolve(`${xhr.status} ${JSON.stringify(xhr.responseText)}`));
+      xhr.open('GET', 'https://tracker.example.test/ping.gif');
+      xhr.send();
+    });
+
+    // Blocked, but answered rather than failed — and `fetch` was left as the environment had it,
+    // which is what proves the object reached `blockNetwork` instead of a `TestContext`.
+    expect(answered).toBe(`200 ""`);
+    expect(typeof fetch).toBe('function');
+    await expect(fetch('data:text/plain;charset=utf-8,ok').then((response) => response.text())).resolves.toBe('ok');
+  });
+});
+
 describe('timer globals (on by default)', () => {
   setupAutoSpy({ duplicateCopies: 'off', restoreProps: false });
 
@@ -223,6 +243,48 @@ describe('stray-rejection containment (opted in)', () => {
     expect(() => reportStrayRejections()).toThrow(/expected 1 to be 2[\s\S]*attributed to .*names the assertion/);
   });
 
+  it('does not report again what the runner has already blamed the test for', () => {
+    const failure = Object.assign(new Error('expected 1 to be 2'), { matcherResult: { pass: false } });
+
+    fireRejection(failure);
+
+    // An `async` test that fails an assertion leaves its own error here as well: the runner names it
+    // once, and a second message about the same throw sends the reader looking for a defect that is
+    // not there.
+    expect(() => reportStrayRejections({ task: { result: { errors: [failure] } } })).not.toThrow();
+  });
+
+  it('recognises the runner’s copy of the same throw, not only the object itself', () => {
+    const thrown = new Error('expected 1 to be 2');
+    const processed = { message: thrown.message, stack: thrown.stack };
+
+    fireRejection(thrown);
+
+    expect(() => reportStrayRejections({ task: { result: { errors: [processed] } } })).not.toThrow();
+  });
+
+  it('still reports a rejection the runner said nothing about', () => {
+    fireRejection(new Error('nobody awaited me'));
+
+    expect(() => reportStrayRejections({ task: { result: { errors: [new Error('a different failure')] } } })).toThrow(/nobody awaited me/);
+    fireRejection(new Error('nobody awaited me'));
+    // Same message, different throw: the stacks part company, so it keeps its own message.
+    expect(() => reportStrayRejections({ task: { result: { errors: [new Error('nobody awaited me')] } } })).toThrow(/nobody awaited me/);
+    fireRejection('a bare string');
+    // A reason with no message at all is nothing the runner's error list can be mistaken for.
+    expect(() => reportStrayRejections({ task: { result: { errors: [new Error('something else')] } } })).toThrow(
+      /rejected with a bare string/,
+    );
+  });
+
+  it('reads an empty list out of every shape of context the runner might not have filled in', () => {
+    expect(reportedErrors(undefined)).toEqual([]);
+    expect(reportedErrors({})).toEqual([]);
+    expect(reportedErrors({ task: {} })).toEqual([]);
+    expect(reportedErrors({ task: { result: {} } })).toEqual([]);
+    expect(reportedErrors({ task: { result: { errors: ['boom'] } } })).toEqual(['boom']);
+  });
+
   it('is not claimed twice when setupAutoSpy runs again', () => {
     const claimed: unknown = Reflect.get(zoneStub, rejectionSlot);
 
@@ -279,9 +341,9 @@ describe('runTeardown', () => {
     const ran: string[] = [];
     const diagnostic = new Error('the finding');
 
-    expect(() => runTeardown([step(ran, 'diagnostic', diagnostic), step(ran, 'restore'), step(ran, 'late', new Error('a restore'))])).toThrow(
-      diagnostic,
-    );
+    expect(() =>
+      runTeardown([step(ran, 'diagnostic', diagnostic), step(ran, 'restore'), step(ran, 'late', new Error('a restore'))]),
+    ).toThrow(diagnostic);
     expect(ran).toEqual(['diagnostic', 'restore', 'late']);
   });
 

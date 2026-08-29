@@ -56,4 +56,4 @@ export {
 } from './lib/stray-rejections';
 export { cancelStrayTimers, countStrayTimers, trackStrayTimers, type SchedulerHost, type StopTrackingTimers } from './lib/stray-timers';
 export { getWatchedTimerGlobals, restoreTimerGlobals } from './lib/timer-globals';
-export { BLOCKED_FETCH_MESSAGE, blockNetwork } from './lib/network-stub';
+export { BLOCKED_FETCH_MESSAGE, BLOCKED_XHR_MESSAGE, blockNetwork, type BlockNetworkOptions, type XhrBlockMode } from './lib/network-stub';

@@ -307,7 +307,15 @@ setupAutoSpy({ blockNetwork: true });
 ```
 
 `fetch` then rejects immediately, naming the URL that was requested, and the code under test takes
-exactly the branch it would take for a failed request.
+exactly the branch it would take for a failed request. `XMLHttpRequest` and `navigator.sendBeacon`
+go the same way — jsdom implements XHR in full, and a library that never left it (an ad player
+pinging VAST trackers, say) reaches the internet from a suite that thought it was blocked. For a
+suite whose outbound requests are pings nobody reads the response of, answer them instead of
+failing them:
+
+```ts
+setupAutoSpy({ blockNetwork: { xhr: 'empty' } });
+```
 
 ## Fake timers
 
@@ -385,6 +393,10 @@ inside one test answers the same, so a spec about **order** or **duration** need
 | `expect(component.total).toBeTruthy()` on a signal             | `expect(component.total).toHaveSignalValue(3)`                 |
 | `configureTestingModule` inside every `it()`                   | one per `describe`                                             |
 | `methodsToSpyOn` used to *restrict* the set                    | `onlyMethodsToSpyOn` restricts; `methodsToSpyOn` adds           |
+
+Row five is the one worth being convinced of rather than told: the same false assertion written
+four ways against four streams, and [the run that leaves every `subscribe` form
+green](/core/observable-assertions#measured-four-forms-against-four-streams).
 
 The first three are enforceable — [the ESLint plugin](/utilities/eslint-plugin) has a rule for each.
 Scope it to spec files: an object of `vi.fn()`s is perfectly reasonable in application code.
