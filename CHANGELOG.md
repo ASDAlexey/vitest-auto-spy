@@ -12,6 +12,27 @@ The latest released version here must always match the one published on
 
 ### Added
 
+- **`setupAutoSpy({ pruneMockRegistry: true })`** — keeps `@vitest/spy`'s registry of every mock ever
+  created down to the mocks that outlive a file. `vi.fn()` and `vi.spyOn()` add what they create to one
+  module-level `Set`, because that is what `vi.clearAllMocks()` walks, and no API takes anything out
+  of it again. With `isolate: true` the module is re-evaluated per file and the set starts empty; with
+  `isolate: false` it is evaluated once per worker and only grows, so `clearMocks: true` walks every
+  mock of every file already run **before every single test**, and the worker's heap holds all of them
+  at once — with their recorded arguments, and through those whole component trees. The set is not
+  exposed, so it is taken from the one thing that iterates it: `Set.forEach` hands its receiver to the
+  callback, so `vi.clearAllMocks()` under a briefly patched `Set.prototype.forEach` reveals it, and the
+  capture is verified against a probe mock — without a match nothing is pruned, because a slower run
+  beats a broken one. The half that is easy to get wrong is what must **not** go: dropping a mock means
+  `clearMocks` can no longer see it, which is harmless for one that dies with its file and a bug for the
+  module-level `vi.fn()` in a shared `*.mock.ts` that six spec files import — the first file to import
+  it creates it, a naive prune drops it when that file ends, and the file that happens to run second
+  then fails on calls its predecessor made. Read as flakiness, because which file is first is the
+  runner's choice. So the split is drawn where it is observable: what exists when a file's hooks start
+  was created while the module graph was being evaluated and is kept, everything added afterwards
+  belongs to that file and goes when it ends. `trackMockRegistry()` installs it on its own,
+  `keepMockRegistered(mock)` marks the one case the split misses (a module loaded by a dynamic
+  `import()` inside a test), and `getMockRegistrySize()` reports what is left. Off by default: it
+  reaches into a set the runner does not expose.
 - **`setupAutoSpy({ strayRejections: true })`** — turns a promise rejection zone.js swallowed into a
   failed test. zone.js replaces the global `Promise`, and a rejected `ZoneAwarePromise` nobody
   handled is drained into `console.error` and no further: it never reaches

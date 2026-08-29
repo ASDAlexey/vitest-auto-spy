@@ -35,6 +35,15 @@ export {
   type SystemTime,
 } from './lib/clock';
 export { registerFocusMatchers } from './lib/focus-matchers';
+export {
+  captureMockRegistry,
+  getMockRegistrySize,
+  keepMockRegistered,
+  keepRegisteredMocks,
+  pruneMockRegistry,
+  resetMockRegistryTracking,
+  trackMockRegistry,
+} from './lib/mock-registry';
 export { advanceTimers, setupFakeTimers, type FakeTimersConfig } from './lib/fake-timers';
 export { describeDuplicateCopies, getPackageCopies } from './lib/package-identity';
 export {

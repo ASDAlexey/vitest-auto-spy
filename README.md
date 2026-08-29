@@ -1295,6 +1295,7 @@ single-purpose utility you can pick up independently — they all ride on the sa
 | `installPerTest(install)`                                                            | `/setup`                      | Re-install a stub before every test of the block — a `describe`-level stub is restored away after the first                                           |
 | `setupAngularTestEnv(opts)`                                                          | `/angular`                    | Zone and zoneless spec files in one worker, switching platforms per file                                                                              |
 | `restoreTimerGlobals()`                                                              | `/setup`                      | Put back timer globals that uninstalling the fakes deleted rather than restored                                                                       |
+| `trackMockRegistry()` / `keepMockRegistered(mock)`                                    | `/setup`                      | Keep @vitest/spy's mock registry to the mocks that outlive a file; mark one the split would miss ([details](#test-run-hygiene))                        |
 | `errorHandler`                                                                       | core                          | The `mustBeCalledWith` argument-mismatch reporter — swap it to customize failure output                                                               |
 
 A taste of the DI pair — provide the spy, inject it back fully typed:
@@ -1426,6 +1427,15 @@ expensive to diagnose when it is missing. The first three are on by default:
    migrated Angular monorepo — 1688 spec files, 11 587 tests, green, exit 0 — was hiding six defects
    of exactly that shape, two of them assertions that were simply false and one a `TypeError` thrown
    by production code.
+8. **The mock registry, which nothing empties.** Opt-in. Every `vi.fn()` and `vi.spyOn()` is added to
+   one `Set` inside `@vitest/spy` so that `vi.clearAllMocks()` has something to walk, and no API takes
+   anything out of it again. With `isolate: false` that set is created once per worker and only
+   grows, so `clearMocks: true` walks every mock of every file already run before each test, and the
+   worker holds all of them at once — with their recorded arguments, and through those whole
+   component trees. Pruning it is easy to get wrong in one specific way: drop the module-level
+   `vi.fn()` that six spec files import from a shared `*.mock.ts` and nothing clears it any more, so
+   its calls accumulate and the file that happens to run second fails on calls its predecessor made.
+   `pruneMockRegistry` keeps what a file inherited and drops only what it added.
 
 | Option                | Default   | Notes                                                                         |
 | --------------------- | --------- | ----------------------------------------------------------------------------- |
@@ -1438,6 +1448,7 @@ expensive to diagnose when it is missing. The first three are on by default:
 | `guardGlobals`        | `'off'`   | Report a test that redefines a global property as non-configurable            |
 | `globalFakeTimers`    | `false`   | Fake timers for every test **and between them** — Jest's `enableGlobally`     |
 | `restoreTimerGlobals` | `true`    | Put back timer globals that uninstalling the fakes deleted                    |
+| `pruneMockRegistry`   | `false`   | Keep @vitest/spy's ever-growing mock registry to the mocks that outlive a file |
 
 `restoreMocks` is off by default because it also drops `vi.spyOn` stubs a suite installed in
 `beforeAll`; it is the knob to reach for when the run shares one environment across files.

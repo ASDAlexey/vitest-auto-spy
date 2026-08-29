@@ -17,6 +17,7 @@ import { afterAll, afterEach, beforeEach, vi } from 'vitest';
 import { DOCS_LINKS, withDocs } from './docs-links';
 import { type FakeTimersConfig, setupFakeTimers } from './fake-timers';
 import { type GlobalPatchReaction, type GlobalSnapshot, checkSealedAdditions, snapshotWatchedGlobals } from './global-patch-guard';
+import { trackMockRegistry } from './mock-registry';
 import { blockNetwork } from './network-stub';
 import { describeDuplicateCopies } from './package-identity';
 import { restoreMockedProps } from './prop-mock';
@@ -99,6 +100,18 @@ export interface SetupAutoSpyOptions {
    * installed on purpose. See {@link restoreTimerGlobals}.
    */
   restoreTimerGlobals?: boolean;
+  /**
+   * Keep `@vitest/spy`'s registry of every mock ever created down to the mocks that outlive a file.
+   * Default `false`, because it reaches into a set the runner does not expose.
+   *
+   * The registry exists so `vi.clearAllMocks()` has something to walk. With `isolate: false` it is
+   * created once per worker and only grows: `clearMocks: true` then walks every mock of every file
+   * already run before each test, and the heap holds all of them — with their recorded arguments,
+   * and through those whole component trees. Turning this on prunes what each file added once the
+   * file is over, and keeps what the file inherited. See {@link trackMockRegistry}, and
+   * {@link keepMockRegistered} for the one case the split gets wrong on its own.
+   */
+  pruneMockRegistry?: boolean;
   /**
    * Clear the `vitest-auto-spy/console` spies after every test. Default `true`.
    *
@@ -292,6 +305,10 @@ export function setupAutoSpy(options: SetupAutoSpyOptions = {}): void {
     afterAll(() => {
       cancelStrayTimers();
     });
+  }
+
+  if (options.pruneMockRegistry ?? false) {
+    trackMockRegistry();
   }
 
   if (options.globalFakeTimers) {

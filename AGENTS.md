@@ -456,6 +456,34 @@ undo), `flushStrayRejections()` (takes what was captured and starts again from e
 `countStrayRejections()`. The `no-floating-assertion` lint rule catches the commonest shape before
 it ever runs (§16).
 
+**The one that gets slower the longer the run goes on:** every `vi.fn()` and `vi.spyOn()` is added
+to one `Set` inside `@vitest/spy`, because that is what `vi.clearAllMocks()` walks, and nothing takes
+anything out of it again. With `isolate: false` the set is created once per worker and only grows:
+`clearMocks: true` then walks every mock of every file already run **before every single test**, and
+the worker holds all of them at once — their recorded arguments included, and through those whole
+component trees.
+
+```ts
+setupAutoSpy({ pruneMockRegistry: true }); // keep only the mocks that outlive a file
+```
+
+The part to understand before turning it on is what must **not** be pruned. Dropping a mock from that
+set means `clearMocks` can no longer see it, so its calls accumulate silently — harmless for a mock
+that dies with its file, a bug for the module-level `vi.fn()` in a shared `*.mock.ts` that six spec
+files import. The first file to import it creates it; drop it when that file ends and the file that
+happens to run **second** fails on calls its predecessor made, which reads as flakiness because which
+file is first is the runner's choice. So the split is drawn where it is observable: what is already in
+the registry when a file's hooks start was created while the module graph was being evaluated and is
+kept; everything added after that belongs to the file and goes when it ends. One case lands on the
+wrong side — a module first loaded by a dynamic `import()` inside a test — and says so explicitly:
+
+```ts
+export const navigation = { setFocus: keepMockRegistered(vi.fn()) };
+```
+
+`trackMockRegistry()` installs the pair of hooks on its own, `pruneMockRegistry()` is the one-shot
+sweep (it returns how many went) and `getMockRegistrySize()` reports what is left.
+
 Two more switches, both about the environment rather than the spies:
 
 ```ts

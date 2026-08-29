@@ -7,6 +7,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest
 
 import '../index';
 import { getPackageCopies, registerPackageCopy, resetPackageCopies } from './package-identity';
+import { getMockRegistrySize, resetMockRegistryTracking } from './mock-registry';
 import { countMockedProps, mockValueProp, restoreMockedProps } from './prop-mock';
 import { describeStrayRejections, reportStrayRejections, runTeardown, setupAutoSpy } from './setup-auto-spy';
 import { type StrayRejection, flushStrayRejections } from './stray-rejections';
@@ -163,6 +164,18 @@ describe('stray-timer containment (opted in)', () => {
     setupAutoSpy({ duplicateCopies: 'off', restoreProps: false, strayTimers: true });
 
     expect(globalThis.setTimeout).toBe(scheduler);
+  });
+});
+
+describe('mock-registry pruning (opted in)', () => {
+  // The capture happens in the `beforeAll` the option registers, so a size at all is the proof that
+  // it ran; the prune it pairs with runs after this block's last test.
+  setupAutoSpy({ duplicateCopies: 'off', restoreProps: false, pruneMockRegistry: true });
+
+  afterAll(resetMockRegistryTracking);
+
+  it('captures the registry the runner does not expose', () => {
+    expect(getMockRegistrySize()).toBeGreaterThan(0);
   });
 });
 
