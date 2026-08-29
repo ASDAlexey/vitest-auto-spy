@@ -38,7 +38,9 @@ export {
 // for why it is one file rather than two identical lists.
 export * from './lib/angular-portable';
 
+export { mockResourceProp, type MockedResource, type ResourceDouble, type ResourceDoubleStatus } from './lib/resource-prop';
 export { mockSignalProp } from './lib/signal-prop';
+export { registerResourceMatchers, type ResourceLike } from './lib/resource-matchers';
 export { registerSignalMatchers, type SignalLike } from './lib/signal-matchers';
 
 export {
