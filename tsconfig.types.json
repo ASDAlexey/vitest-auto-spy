@@ -1,0 +1,7 @@
+{
+  // The program the type-level tests are checked in. Separate from `tsconfig.spec.json` because
+  // those files are never executed: Vitest's `typecheck` mode only compiles them and reports the
+  // diagnostics, so they need the sources in the program and nothing from the test setup.
+  "extends": "./tsconfig.json",
+  "include": ["src/type-tests/**/*.test-d.ts", "src/**/*.d.ts"]
+}

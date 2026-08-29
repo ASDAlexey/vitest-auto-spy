@@ -185,6 +185,7 @@
     "test:coverage": "vitest run --coverage",
     "test:shared-env": "vitest run --config vitest.shared-env.config.mts",
     "test:zone": "vitest run --config vitest.zone.config.mts",
+    "test:types": "vitest run --config vitest.types.config.mts",
     "test:bun": "bun test ./src/bun-tests/core.bun.test.ts ./src/bun-tests/rxjs.bun.test.ts",
     "test:bun:angular": "bun test --preload ./src/bun-angular.ts ./src/bun-tests",
     "test:bun:isolate": "bun test --isolate --preload ./src/bun-angular.ts ./src/bun-tests",
@@ -194,7 +195,7 @@
     "format": "prettier -w \"src/**/*.ts\"",
     "format:check": "prettier -c \"src/**/*.ts\"",
     "jscpd": "jscpd",
-    "check": "npm run typecheck && npm run lint && npm run jscpd && npm run llms:check && npm run plugin:sync:check && npm run alias:sync:check && npm run test:coverage && npm run test:shared-env && npm run test:zone && npm run test:bun && npm run test:bun:angular",
+    "check": "npm run typecheck && npm run lint && npm run jscpd && npm run llms:check && npm run plugin:sync:check && npm run alias:sync:check && npm run test:coverage && npm run test:types && npm run test:shared-env && npm run test:zone && npm run test:bun && npm run test:bun:angular",
     "prepublishOnly": "npm run build",
     "version": "node scripts/sync-plugin-version.mjs && node scripts/sync-alias.mjs && git add .claude-plugin alias"
   },

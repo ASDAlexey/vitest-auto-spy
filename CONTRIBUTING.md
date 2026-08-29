@@ -18,11 +18,17 @@ npm ci
 | `npm run test:watch` | Run tests in watch mode |
 | `npm run test:coverage` | Run tests with coverage (100% thresholds enforced) |
 | `npm run typecheck` | Type-check the project with `tsc --noEmit` |
+| `npm run test:types` | Assert what callers **infer** — `expectTypeOf` cases under `src/type-tests` |
 | `npm run build` | Build the ESM + CJS bundles and type declarations |
 
 ## Guidelines
 
 - **Keep coverage at 100%.** New code needs tests; the coverage thresholds will fail CI otherwise.
+- **A helper whose value is its type needs a type test.** `npm run typecheck` proves the sources
+  compile; it says nothing about what a call site infers, and the two have already diverged here:
+  `expectEmission` shipped for several versions inferring `Promise<unknown>`, every runtime test
+  green, until a consumer's build failed on `TS2339`/`TS2488`. Add the `expectTypeOf` case next to
+  the runtime one in `src/type-tests/`.
 - **Match the existing style** — the codebase mirrors the `jest-auto-spies` API surface.
 - **One logical change per PR.** Small, focused PRs get reviewed faster.
 - **Every user-facing change updates [`CHANGELOG.md`](./CHANGELOG.md) in the same PR** under
@@ -141,7 +147,7 @@ optional local staging mirror and is not required by the release flow.
 
 1. Fork the repo and create a branch from `master`.
 2. Make your change with tests.
-3. Run `npm run typecheck && npm run test:coverage && npm run build` locally.
+3. Run `npm run typecheck && npm run test:coverage && npm run test:types && npm run build` locally.
 4. Open a pull request describing the change and the motivation.
 
 By contributing you agree that your contributions are licensed under the project's
