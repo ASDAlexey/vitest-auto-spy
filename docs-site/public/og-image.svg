@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#131a2e" />
+      <stop offset="1" stop-color="#080c18" />
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#7ee787" />
+      <stop offset="1" stop-color="#4cc9f0" />
+    </linearGradient>
+  </defs>
+
+  <rect width="1200" height="630" fill="url(#bg)" />
+  <rect x="0" y="0" width="1200" height="6" fill="url(#accent)" />
+
+  <g transform="translate(88, 132)">
+    <circle cx="34" cy="34" r="26" fill="none" stroke="url(#accent)" stroke-width="7" />
+    <path d="M53 53 78 78" stroke="url(#accent)" stroke-width="9" stroke-linecap="round" />
+    <path d="M22 34h24M34 22v24" stroke="#e6edf3" stroke-width="6" stroke-linecap="round" />
+  </g>
+
+  <text x="196" y="196" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="72" font-weight="700" fill="#e6edf3">
+    vitest-auto-spy
+  </text>
+
+  <text x="88" y="288" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="38" fill="#9fb0c9">
+    Fully-typed test spies, generated from a class.
+  </text>
+  <text x="88" y="342" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="38" fill="#9fb0c9">
+    One API across Vitest, Bun and node:test.
+  </text>
+
+  <g font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="26" fill="#0b1020">
+    <rect x="88" y="404" width="196" height="56" rx="28" fill="#7ee787" />
+    <text x="122" y="440" font-weight="600">Vitest 4</text>
+    <rect x="304" y="404" width="196" height="56" rx="28" fill="#4cc9f0" />
+    <text x="344" y="440" font-weight="600">Bun 1.4</text>
+    <rect x="520" y="404" width="230" height="56" rx="28" fill="#c9d1d9" />
+    <text x="556" y="440" font-weight="600">node:test</text>
+    <rect x="770" y="404" width="230" height="56" rx="28" fill="#f0a04c" />
+    <text x="800" y="440" font-weight="600">Angular</text>
+  </g>
+
+  <text x="88" y="546" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="24" fill="#6b7c95">
+    createSpyFromClass · provideAutoSpy · createAutoMock · expectEmission · renderShallow
+  </text>
+  <text x="88" y="588" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="22" fill="#4d5c73">
+    asdalexey.github.io/vitest-auto-spy · a drop-in successor to jest-auto-spies · zero runtime deps
+  </text>
+</svg>

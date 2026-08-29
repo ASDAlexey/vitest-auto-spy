@@ -1,0 +1,19 @@
+# https://asdalexey.github.io/vitest-auto-spy/robots.txt
+#
+# Google reads only the robots.txt at the *host* root, so this file is advisory for it — the
+# authoritative one lives in the `asdalexey.github.io` repository, and that is where the Sitemap
+# line below has to be repeated. Other crawlers (and several LLM fetchers) do request a
+# subdirectory robots.txt, which is why it is here at all.
+
+User-agent: *
+Allow: /
+
+# Yandex reads Clean-param and Host from any robots.txt it is served.
+User-agent: Yandex
+Allow: /
+
+Sitemap: https://asdalexey.github.io/vitest-auto-spy/sitemap.xml
+
+# For an agent that wants the documentation as text rather than as rendered HTML:
+#   https://asdalexey.github.io/vitest-auto-spy/llms.txt        — a link map, one page per line
+#   https://asdalexey.github.io/vitest-auto-spy/llms-full.txt   — the entire documentation, one file

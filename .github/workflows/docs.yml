@@ -53,7 +53,46 @@ jobs:
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
+    outputs:
+      page_url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+
+  # Tell the engines that pull from IndexNow — Yandex, Bing, Seznam, Naver — that the pages changed,
+  # instead of waiting for a crawl. Google does not participate; its route is the sitemap submitted
+  # in Search Console, which the deploy above refreshes anyway.
+  #
+  # The key is public by design: ownership is proved by serving it at `keyLocation`, so the file in
+  # `docs-site/public/` is the whole authentication. Submission is best-effort — a failure here must
+  # never fail a deploy that already succeeded.
+  indexnow:
+    needs: deploy
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Submit every documented URL to IndexNow
+        run: |
+          KEY=2a4caaf62ad5485f432289e1b2496969
+          HOST=asdalexey.github.io
+          BASE="https://${HOST}/vitest-auto-spy"
+
+          # The sitemap is the list the site itself publishes — no second inventory to keep in step.
+          URLS="$(curl -fsS "${BASE}/sitemap.xml" | grep -o '<loc>[^<]*</loc>' | sed 's|</\?loc>||g')"
+
+          if [ -z "$URLS" ]; then
+            echo "::warning::sitemap.xml returned no URLs — skipping IndexNow."
+            exit 0
+          fi
+
+          PAYLOAD="$(jq -n --arg host "$HOST" --arg key "$KEY" --arg keyLocation "${BASE}/${KEY}.txt" \
+            --argjson urlList "$(printf '%s\n' "$URLS" | jq -R . | jq -s .)" \
+            '{host: $host, key: $key, keyLocation: $keyLocation, urlList: $urlList}')"
+
+          echo "Submitting $(printf '%s\n' "$URLS" | wc -l | tr -d ' ') URLs to IndexNow."
+          curl -fsS -X POST https://api.indexnow.org/IndexNow \
+            -H 'Content-Type: application/json; charset=utf-8' \
+            -d "$PAYLOAD" && echo "IndexNow accepted the submission."
