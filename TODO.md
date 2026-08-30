@@ -195,6 +195,61 @@ re-deriving:
       the whole of the answer. `teardownTimeout` has no Jest counterpart at all and is not on the
       serialized worker config, so it cannot be read from a setup file either way.
 
+## Coverage under a bundling builder — closed 2026-08-30, and what stays out of reach
+
+Reported from the same consumer monorepo, where the suite runs over a bundle built by
+`@angular/build:unit-test`. Three findings arrived; two became `doctor` checks and one is a Vitest
+internal nobody outside Vitest can fix.
+
+Shipped: `coverage-all-removed` and `coverage-include-misses-bundle`
+(`src/cli/checks/coverage-config.ts`), the `Coverage under the unit-test builder` section on the
+Angular page, and one row plus a paragraph on the migration page. What was established by probe or
+by reading the installed sources, and is worth not re-deriving:
+
+- **`coverage.all` is gone in Vitest 4.** Not in `coverageConfigDefaults` (enumerated on 4.1.9), and
+  the pass over untested files is driven by the presence of `coverage.include`. Probed both ways on
+  a three-file fixture: with `all: true` and no `include` the unimported module is absent from the
+  report; with `include` and no `all` it is there. No error either way.
+- **Coverage is matched twice.** `@vitest/coverage-v8` 4.1.9 calls `isIncluded` on the executed
+  script's URL (`dist/provider.js:247`) before any remap, and again on the remapped source path when
+  `excludeAfterRemap` is on (`:61`). `@angular/build` 22.1.3 forces that flag on
+  (`src/builders/unit-test/runners/vitest/plugins.js:415`) and prepends `spec-*.js`, `chunk-*.js` to
+  the target's `coverageInclude` (`:421`) — which is why a list written in the **runner config**
+  instead loses every counter on the first pass and reports nothing.
+- **Order in the list is irrelevant**, presence is not. `isIncluded` calls
+  `pm.isMatch(filename, glob, { contains: true, dot: true, ignore })` with the array, so any pattern
+  matching wins. The builder writing its two globs first is a convention, not a requirement.
+- **`coverage` inside a `projects[]` entry is ignored silently** — probed on 4.1.9, no warning. It
+  is not the mechanism behind the finding above (the builder passes the runner config to Vitest as
+  the root config as well), but it is the next place a reader looks.
+
+- **istanbul is incompatible with `coverage.include` under this builder.** The untested-files pass
+  resolves through Vite rather than through the aliases the builder supplies, so the first aliased
+  import ends the run (`Failed to resolve import "@workspace/…" from "…?vitest-uncovered-coverage=true"`,
+  and the package named changes between runs). `v8` drops what it cannot parse with a warning
+  instead — 184 files of 4969 — and stays green. Reported with one clean series of four runs:
+  istanbul 113 s and `v8` 81 s without `include`, `v8` 250 s with it, istanbul `exit 1` with it.
+- **Narrowing the scope is not only about speed.** In that series the cobertura report is 10.78 MB
+  (istanbul) / 10.79 MB (`v8`) without `include` and 8.89 MB with it, against GitLab's 10 MB parse
+  limit — over which the report is dropped silently: green job, percentages in the log, no line
+  highlighting in the merge request.
+
+- [~] **A runtime notice from `setupAutoSpy` when coverage is on and the include list cannot
+      match** — not implementable, and the reason is worth recording. The serialized worker config
+      carries only `{ reportsDirectory, provider, enabled, htmlDir }` under `coverage`; `include`
+      and `exclude` are not sent to workers at all (probed on 4.1.9 by dumping
+      `globalThis.__vitest_worker__.config.coverage` from a spec). There is no public read either,
+      so a setup file cannot see the list, and the report it would be wrong about is assembled in
+      the main process after the run. The static check is the only honest place for this.
+- [~] **`picomatch` recompiles the whole pattern list per file.** `isIncluded` memoises the
+      *verdict* in `globCache`, keyed by filename, not a compiled matcher, so every new file pays
+      for compiling the array again. The consumer measured 100 ms per file on 124 globs plus 304
+      negations — a shard that runs in 82 s stretched past 13 minutes — and fixed it by gluing the
+      globs into one brace expression (1.1 ms per file). Nothing to ship here: the cost is inside
+      Vitest, and "glue your globs" is advice with a footgun, since an equivalent glued form has to
+      be verified pattern by pattern against the unglued one. Worth revisiting only if Vitest
+      accepts a cached matcher upstream.
+
 ## Considered & intentionally skipped
 
 - [~] **Merge the three `as any` mock casts** (`asVitestMock` / `asBunMock` /

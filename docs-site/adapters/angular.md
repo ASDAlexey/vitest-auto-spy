@@ -650,6 +650,56 @@ mode for a package whose whole pitch is that failures name their own cause. And 
 weeks. Whether a workspace trades a 596 MB bundle graph for anything at all is the app team's call,
 not a test-double library's; the diagnosis belongs here, the mutation does not.
 
+## Coverage under the unit-test builder
+
+Two settings in this area read as configuration and configure nothing. `npx vitest-auto-spy doctor`
+reports both — `coverage-all-removed` and `coverage-include-misses-bundle` — because neither one
+fails anything: the run is green and a report is produced, it is just not the report the setting
+describes.
+
+**Coverage is matched twice, and the first pass sees chunks.** `@vitest/coverage-v8` calls
+`isIncluded` on the URL of each executed script before any remap, and — when `excludeAfterRemap` is
+on — again on the remapped source path. `@angular/build` sets `excludeAfterRemap: true` itself, so
+under this builder both passes run against the same list. The suite runs over a bundle, so the first
+pass compares your globs against `spec-*.js` / `chunk-*.js`, not against `.ts` files: a list of
+source globs drops every counter there and the report comes out **empty**.
+
+The builder handles this for the list it owns — it prepends `spec-*.js` and `chunk-*.js` to the
+target's `coverageInclude` option. It does not, and cannot, do that for a list written inside the
+Vitest runner config. So under this builder the include list belongs on the target:
+
+```jsonc
+// angular.json — the list the builder can fix up for you
+"test": {
+  "builder": "@angular/build:unit-test",
+  "options": {
+    "runnerConfig": "tools/vitest-runner.config.ts",
+    "coverageInclude": ["libs/**/*.ts", "apps/**/*.ts"]
+  }
+}
+```
+
+**The provider is not only a speed choice here.** With `coverage.include` set, the pass over
+files no test imported resolves them itself, and `@vitest/coverage-istanbul` does that through
+Vite's resolver rather than through the aliases the builder hands out: on a workspace with tsconfig
+path aliases the first aliased import ends the whole run.
+
+```text
+Error: Failed to resolve import "@workspace/api" from
+"apps/app/src/main.server.ts?cache=…&vitest-uncovered-coverage=true". Does the file exist?
+```
+
+The package named there changes between runs — it is the first unresolved import, not a guilty file.
+`v8` degrades softly on the same pass: files it cannot parse are dropped with a warning and the run
+stays green. Reported from one Angular monorepo, on one series of runs: 184 files of 4969 dropped
+that way, and `v8` 28 % faster than istanbul at matching settings (81 s against 113 s).
+
+**`coverage.all` no longer exists.** It is absent from `coverageConfigDefaults` in Vitest 4, and the
+pass over files no test imported is driven by the presence of `coverage.include` instead. A config
+carried over from Vitest 3 with `all: true` and no `include` reports only the files the run touched,
+with no error and no warning — verified on 4.1.9 against a fixture whose second module nothing
+imports: absent with `all: true`, present once `include` is declared.
+
 ## Asserting a signal
 
 ```ts

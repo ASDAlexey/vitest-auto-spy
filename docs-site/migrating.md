@@ -127,6 +127,7 @@ different name.
 | `jest.fn().mockImplementation()` with no argument       | **requires one**      | `mockImplementation(() => undefined)` — Jest installed the no-op for you                                                                         |
 | `xit` / `xdescribe`                                     | **none**              | `it.skip` / `describe.skip`; the rename fails as `TS2304: Cannot find name 'xit'`                                                                |
 | `testTimeout: 30000` (one budget)                       | **two fields**        | set `hookTimeout` to the same number — Vitest resolves it separately and defaults it to 10 000 ms                                                |
+| `collectCoverageFrom: [...]`                            | `coverage.include`    | and **not** `coverage.all`: the key was removed in Vitest 4, where `include` alone drives the pass over files no test imported                   |
 
 The timeout row is the quietest of them. `jest-circus` spends one `testTimeout` on a hook and on a
 test body alike; Vitest resolves `hookTimeout` on its own, so a config that carried the single Jest
@@ -145,6 +146,14 @@ test: {
 
 `slowTestThreshold` is the same family and changes only the report: `5` in Jest (**seconds**),
 `300` in Vitest (**milliseconds**), so a migrated suite starts marking most of its files slow.
+
+The coverage row changes the report too, in two ways worth expecting. `coverage.all` no longer
+exists — a config that carried `all: true` over from Vitest 3 sets nothing, and the report silently
+narrows to the files the run imported until `coverage.include` is declared. And Jest instruments
+with istanbul while Vitest's default provider is `v8`, which counts every function object the engine
+created rather than the ones a source map claims — so the function percentage moves on an unchanged
+tree while lines and branches stay put. Re-measure a function-coverage threshold before carrying it
+across; do not port the number.
 
 That last row is the one that costs the most, because nothing reports it. Under a bundling test
 builder — and under `isolate: false`, where the module may already be in the worker's graph — a
