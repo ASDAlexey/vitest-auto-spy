@@ -374,11 +374,11 @@ import cost.
 ## Release infrastructure — move npm publishing to OIDC (deadline ~Jan 2027)
 
 npm is retiring granular access tokens with **Bypass 2FA**. The scriptable half of
-the move is done — `auto-release.yml` publishes over OIDC with no `NODE_AUTH_TOKEN`,
-`release.yml` no longer publishes at all, the npm floor is pinned exactly and
-`--provenance` is gone. What is left is the part that needs a browser and a
-person, plus the one workflow still holding a token: `publish-alias.yml`, which
-publishes the `vitest-auto-spies` alias with `NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}`.
+the move is done for *both* packages — `auto-release.yml` and `publish-alias.yml`
+publish over OIDC with no `NODE_AUTH_TOKEN`, `release.yml` no longer publishes at
+all, the npm floor is pinned exactly in both and `--provenance` is gone (the
+registry attaches it). No workflow reads `secrets.NPM_TOKEN` any more. What is left
+is the part that needs a browser and a person.
 
 - **2026-07-31, already in force** — such a token can no longer perform
   account/governance actions: creating or deleting tokens, changing package
@@ -395,20 +395,41 @@ The fix is **Trusted Publishing (OIDC)** — GitHub Actions exchanges its own
 OIDC token for a short-lived publish credential, so no npm token lives in the
 repo at all.
 
-- [ ] **Register the trusted publisher on npmjs.com.** Requires an interactive
-      2FA challenge, so it cannot be scripted: package `vitest-auto-spy` →
-      Settings → Trusted Publisher → GitHub Actions; owner `ASDAlexey`, repo
-      `vitest-auto-spy`, workflow file `auto-release.yml` (with the extension),
-      environment left empty, action `npm publish`.
-- [ ] **Clean up after the first green OIDC release** — revoke the token on npm.
-      Only after a real publish has succeeded without it; the "skip if version
-      already exists" guard makes a retry safe. **The `NPM_TOKEN` repo secret
-      itself cannot go with it:** `publish-alias.yml` still authenticates the
-      `vitest-auto-spies` alias package with it (`secrets: inherit`), and that
-      package has no trusted publisher of its own. Deleting the secret when the
-      canonical package stops needing it breaks the alias. Either register a
-      second trusted publisher for the alias, or fold it into `auto-release.yml`,
-      before the secret is touched.
+Until both publishers below exist, every release fails at `npm publish` with
+`npm error code ENEEDAUTH / need auth This command requires you to be logged in` —
+that error means npm found no trusted publisher matching the run, not that the
+workflow is wrong. It is what killed the 3.10.0 release on 2026-08-30.
+
+- [ ] **Enable 2FA on the npm account first.** Changing a package's
+      trusted-publisher config is an account/governance action, and since
+      2026-07-31 a bypass-2FA token can no longer perform one — so the settings
+      page below asks for a second factor and there has to be one to give.
+      npmjs.com → avatar → **Account** → *Two-Factor Authentication* → **Enable
+      2FA** → password → pick the method → name the key → **Add security key** →
+      **save the recovery codes** (each is single-use; they are the only way back
+      in if the device is lost). npm's 2FA is WebAuthn — Touch ID / Face ID,
+      Windows Hello, or a hardware key (YubiKey, Thetis, Feitian) — configured
+      from a browser that supports it. Mode: `auth-and-writes` (authorization and
+      writes), not `auth-only`. This is a prerequisite for both steps below, and
+      it does not have to be re-entered by CI: OIDC replaces the credential
+      entirely, it does not proxy the human one.
+- [ ] **Register the trusted publisher for `vitest-auto-spy`.** Requires an
+      interactive 2FA challenge, so it cannot be scripted: npmjs.com → package
+      `vitest-auto-spy` → Settings → Trusted Publisher → GitHub Actions; owner
+      `ASDAlexey`, repo `vitest-auto-spy`, workflow file `auto-release.yml` (with
+      the extension), environment left empty.
+- [ ] **Register the trusted publisher for `vitest-auto-spies`** — same form, same
+      owner/repo, and the workflow file is **also `auto-release.yml`**, not
+      `publish-alias.yml`. npm validates the workflow that *entered* the run, and
+      `publish-alias.yml` is reached through `workflow_call`. One publisher per
+      package is the limit, but these are two packages, so both may name the same
+      file. `publish-alias.yml` lost its `workflow_dispatch` for exactly this
+      reason — the manual republish is now `Auto Release → Run workflow` with the
+      `alias_ref` input.
+- [ ] **Clean up after the first green OIDC release** — revoke the npm token and
+      delete the `NPM_TOKEN` repository secret. Only after a real publish of both
+      packages has succeeded without it; the "skip if version already exists"
+      guards make a retry safe.
 
 Sources: <https://github.blog/changelog/2026-07-31-restricting-npm-bypass-2fa-granular-access-tokens/>,
 <https://docs.npmjs.com/trusted-publishers>

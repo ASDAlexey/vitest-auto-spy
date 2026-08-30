@@ -10,12 +10,15 @@ name: Publish alias
 # `/eslint-plugin`.
 #
 # Called by `auto-release.yml` after the canonical package is on npm (`release.yml` no longer
-# publishes — the canonical package moved to npm Trusted Publishing, which allows one publishing
-# workflow per package). This workflow still authenticates with `NPM_TOKEN`: npm validates the
-# *calling* workflow's filename, so a trusted publisher for `vitest-auto-spies` would have to name
-# auto-release.yml and would break the manual dispatch below. Also
-# runnable on its own (Actions → Publish alias → Run workflow) to catch up a version that was
-# released before this workflow existed — publishing an already-published version is a no-op.
+# publishes at all).
+#
+# It authenticates with npm Trusted Publishing (OIDC) — no `NPM_TOKEN`. The trusted publisher
+# registered on npmjs.com for `vitest-auto-spies` names **auto-release.yml**, not this file: npm
+# validates the workflow that *entered* the run, and for a reusable workflow that is the caller.
+# Which is why there is no `workflow_dispatch` here — a hand-started run of this file would present
+# `publish-alias.yml` as its workflow ref and npm would refuse the token. To republish the alias by
+# hand, use Actions → *Auto Release* → *Run workflow* and fill in `alias_ref` (e.g. `v3.9.0`);
+# publishing an already-published version is a no-op.
 
 on:
   workflow_call:
@@ -25,14 +28,10 @@ on:
         type: string
         required: false
         default: ''
-    secrets:
-      NPM_TOKEN:
-        required: true
-  workflow_dispatch:
 
 permissions:
   contents: read
-  id-token: write # npm provenance
+  id-token: write # the OIDC token npm exchanges for a publish credential; also carries provenance
 
 # The alias must never be published twice concurrently, and never while the canonical one is mid-flight.
 concurrency:
@@ -47,13 +46,17 @@ jobs:
         with:
           ref: ${{ inputs.ref || github.ref }}
 
+      # No `registry-url` on purpose, exactly as in auto-release.yml: setup-node would write
+      # `//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}` into ~/.npmrc, npm would read that as
+      # "auth is already configured", skip the OIDC exchange and die with ENEEDAUTH.
       - uses: actions/setup-node@v4
         with:
-          node-version: 24 # latest LTS
-          registry-url: https://registry.npmjs.org
+          node-version: 24 # >= 22.14, the floor for trusted publishing
 
+      # Exact, not `npm@11` — same reasoning as auto-release.yml: trusted publishing needs
+      # >= 11.5.1 and a floating major must not be able to drift below that floor.
       - name: Pin npm
-        run: npm i -g npm@11
+        run: npm i -g npm@11.19.1
 
       # The stubs and the exports map are generated. A hand edit that never went through the
       # generator would publish a package that disagrees with the canonical one — catch it here
@@ -80,13 +83,14 @@ jobs:
             exit 1
           fi
 
-          # A bare `npm publish` failure here is a 403 with no hint about which of the two packages
-          # the token is missing, and the run reads as "the release broke" rather than "one secret
-          # needs one more package on its allow-list". The canonical package publishing fine while
-          # this one 403s is the signature of a granular token scoped to `vitest-auto-spy` alone.
-          if ! npm publish --provenance --access public; then
-            echo "::error title=Alias not published::npm refused the publish. If the log above shows \`403 Forbidden - PUT https://registry.npmjs.org/vitest-auto-spies\`, NPM_TOKEN cannot write this package — it is a granular token scoped to vitest-auto-spy only. Fix: npmjs.com -> Access Tokens -> the token used as NPM_TOKEN -> add vitest-auto-spies with read and write, or issue a new token covering both packages and update the repository secret. Then re-run Actions -> Publish alias."
+          # No `--provenance`: npm attaches it by itself when trusted publishing puts a public
+          # package on npm from a public repo.
+          #
+          # A bare failure here says nothing about which half of the OIDC handshake is missing, and
+          # the run reads as "the release broke" rather than "one package needs one settings page".
+          # ENEEDAUTH means npm found no trusted publisher matching this run; E403 means it found
+          # one that names a different owner/repo/workflow.
+          if ! npm publish --access public; then
+            echo "::error title=Alias not published::npm refused the publish. \`ENEEDAUTH\` or \`403 Forbidden - PUT https://registry.npmjs.org/vitest-auto-spies\` means the trusted publisher for vitest-auto-spies is missing or does not match this run. Fix: npmjs.com -> package vitest-auto-spies -> Settings -> Trusted Publisher -> GitHub Actions, owner ASDAlexey, repository vitest-auto-spy, workflow file auto-release.yml (NOT publish-alias.yml — npm validates the caller of a reusable workflow), environment empty. Then re-run Actions -> Auto Release -> Run workflow with alias_ref set to the tag."
             exit 1
           fi
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

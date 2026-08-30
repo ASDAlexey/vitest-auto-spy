@@ -102,9 +102,11 @@ publishes to npm (with provenance), publishes the `vitest-auto-spies` alias
 generated notes. **You never bump the version or tag by hand** — just land good
 commits.
 
-> Maintainers: this requires an `NPM_TOKEN` repo secret. Pushing a `v*` tag
-> manually still triggers the standalone [`Release`](./.github/workflows/release.yml)
-> workflow as a fallback.
+> Maintainers: no npm token is involved — both packages publish over npm Trusted
+> Publishing (OIDC), and both trusted publishers name `auto-release.yml`. Pushing a
+> `v*` tag manually still triggers the standalone
+> [`Release`](./.github/workflows/release.yml) workflow, but that one only creates the
+> GitHub Release; it does not publish.
 
 ### Keeping the changelog in sync with npm
 
@@ -140,18 +142,23 @@ with the same conditions (only `/node` and `/eslint-plugin` ship CJS) and the sa
 `version` lifecycle script runs it and stages `alias/`, so an auto-release carries the bump.
 
 **Publishing is automatic too.** `.github/workflows/publish-alias.yml` runs after the canonical
-package reaches npm — from both release paths, with the same `NPM_TOKEN` and the same provenance —
+package reaches npm, over the same Trusted Publishing (OIDC) handshake and with the same provenance,
 so there is nothing to do by hand. It re-checks `alias:sync:check`, skips a version that is already
 published, and refuses to publish before the canonical package is on npm (the alias depends on it by
 an exact caret range, so an alias published first would be uninstallable).
 
+It is `workflow_call`-only on purpose. npm validates the workflow that **entered** the run, and for
+a reusable workflow that is the caller — so the trusted publisher registered on `vitest-auto-spies`
+names `auto-release.yml`, and a run started directly on *Publish alias* would present a workflow ref
+npm does not trust.
+
 Two cases still need a human:
 
-- **Catching up a version released before that workflow existed** — Actions → *Publish alias* →
-  *Run workflow* on `master`. It publishes whatever version `alias/package.json` carries, and is a
-  no-op if that one is already on npm.
-- **npm is down or the token is rejected** — the fallback is `cd alias && npm publish`, which needs
-  a local login (`npm login`; a stale `~/.npmrc` token fails as a **404 on PUT**, not as a 401,
+- **Catching up a version that was released without the alias** — Actions → *Auto Release* → *Run
+  workflow*, with `alias_ref` set to the tag (e.g. `v3.9.0`). That skips the whole canonical release
+  and only republishes the alias; it is a no-op if that version is already on npm.
+- **npm is down or the OIDC exchange is rejected** — the fallback is `cd alias && npm publish`, which
+  needs a local login (`npm login`; a stale `~/.npmrc` token fails as a **404 on PUT**, not as a 401,
   because npm hides unauthorised writes behind "not found").
 
 ### Release checklist — these four must always match

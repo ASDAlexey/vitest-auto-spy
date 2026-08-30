@@ -31,8 +31,13 @@ name: Auto Release
 #     actions/setup-node@v7; v4-v6 all still write the placeholder.
 #   - npm must be >= 11.5.1 and Node >= 22.14, hence the pins below.
 #
-# The `vitest-auto-spies` alias package is still published with `NPM_TOKEN` — see
-# publish-alias.yml. Do not delete that secret yet.
+# The `vitest-auto-spies` alias package publishes over OIDC too, from
+# publish-alias.yml — but npm validates the *entry point* workflow, not the reusable
+# one that runs `npm publish`, so its trusted publisher also names THIS file. That is
+# why publish-alias.yml is `workflow_call`-only and the manual "republish the alias"
+# path is the `alias_ref` dispatch input below: every publish of either package has to
+# enter through auto-release.yml or npm rejects the OIDC token. No `NPM_TOKEN` secret
+# is used any more.
 #
 # The version-bump commit/tag is pushed with GITHUB_TOKEN, which does NOT
 # re-trigger workflows, so there is no release loop.
@@ -40,6 +45,16 @@ name: Auto Release
 on:
   push:
     branches: [master, main]
+  workflow_dispatch:
+    inputs:
+      alias_ref:
+        description: >-
+          Republish the vitest-auto-spies alias from this commit or tag (e.g. v3.9.0) and do
+          nothing else — no bump, no tag, no canonical publish. Leave empty to run the normal
+          release path over the default branch.
+        type: string
+        required: false
+        default: ''
 
 permissions:
   contents: write # push the bump commit/tag and create the GitHub Release
@@ -52,6 +67,8 @@ concurrency:
 
 jobs:
   release:
+    # An `alias_ref` dispatch is the alias-only path — skip the whole canonical release.
+    if: inputs.alias_ref == ''
     runs-on: ubuntu-latest
     outputs:
       bump: ${{ steps.bump.outputs.bump }}
@@ -201,15 +218,21 @@ jobs:
   # .github/workflows/publish-alias.yml. It goes out after the canonical package is on npm, because
   # it depends on it by an exact caret range.
   #
-  # It is still published with `NPM_TOKEN`, hence `secrets: inherit`. A trusted publisher is
-  # per-package and npm validates the *calling* workflow's filename, so migrating the alias means
-  # registering a publisher on `vitest-auto-spies` that names this file (auto-release.yml) — which
-  # would then break the manual `Actions -> Publish alias` dispatch, whose caller is
-  # publish-alias.yml. Until that is decided, the NPM_TOKEN secret must stay.
+  # Its own trusted publisher on npmjs.com names *this* file, not publish-alias.yml: npm reads the
+  # OIDC token's caller workflow, which for a reusable workflow is the entry point. That is also
+  # the reason the manual republish is the `alias_ref` dispatch input on this workflow instead of
+  # `Actions -> Publish alias` — a run entered through publish-alias.yml would present a workflow
+  # ref npm does not trust. No secrets are passed: the child mints its own OIDC token from the
+  # `id-token: write` permission it declares.
+  #
+  # `always()` because the `release` job is deliberately skipped on the alias-only dispatch, and a
+  # skipped dependency would otherwise skip this job with it.
   publish-alias:
     needs: release
-    if: needs.release.outputs.bump != 'none'
+    if: >-
+      always()
+      && (inputs.alias_ref != ''
+          || (needs.release.result == 'success' && needs.release.outputs.bump != 'none'))
     uses: ./.github/workflows/publish-alias.yml
     with:
-      ref: ${{ needs.release.outputs.version }}
-    secrets: inherit
+      ref: ${{ inputs.alias_ref || needs.release.outputs.version }}

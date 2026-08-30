@@ -60,7 +60,7 @@ identical API, with **RxJS** spies and **Angular / NestJS / React / Vue·Pinia /
 - 🧩 Module mocks that prove they applied — `assertMocked`, `moduleNamespace`, for a `vi.mock()` a bundler quietly ignored
 - 🧾 Fixtures without casts — deep-partial `createMock`, `narrow()`, `withOverrides()`, `asInstances()`, `captureArg()`
 - 🚚 A migration you can verify — `compareTestRuns` on the two JSON reports, `diffByField` for the assertion the reporter collapses
-- 📏 Lint rules and one-line test-run hygiene — thirteen rules in `vitest-auto-spy/eslint-plugin` (two `--fix`, six suggestions), `setupAutoSpy()`
+- 📏 Lint rules and one-line test-run hygiene — fourteen rules in `vitest-auto-spy/eslint-plugin` (two `--fix`, six suggestions), `setupAutoSpy()`
 - 🩺 [Editor diagnostics](#editor-diagnostics--webstorm--vs-code) — the same anti-patterns underlined while you type: native ESLint inspections in **WebStorm** and the other JetBrains IDEs, the ESLint extension in **VS Code**, no extra plugin either way
 - 🔎 [`npx vitest-auto-spy doctor`](#the-cli--doctor-codemod-and-init) — suite-level defects **that never fail a run**: a `tsconfig` `include` matching no file, a production module importing a spec, a `@jest-environment` pragma the runner never reads, config left behind for a runner that is gone. Read-only, no config, exits 1 in CI
 - 🚚 [`npx vitest-auto-spy codemod`](#codemod--migrating-a-suite-off-jest-auto-spies) — seven transforms that move a suite off `jest-auto-spies` and Jest, dry-run by default, with a `--verify` pass that also checks a file somebody edited by hand
@@ -2207,12 +2207,13 @@ export can never be.
 | `no-overridden-provider`       |   `error`   | suggest           | two providers for one token in one array → the earlier one never runs; the exact duplicate can be deleted                                  |
 | `no-inject-before-override`    |   `warn`    | —                 | `TestBed.inject()` in a hook, in a suite that still calls `override*`                                                                      |
 | `no-import-time-spread`        |   `error`   | suggest           | `export const x = [...Imported]` at module scope → a `TypeError` while the bundle loads                                                    |
+| `no-unregistered-inject-spy`   |   `warn`    | —                 | `injectSpy(X)` for a token this file never registered → the real instance, whose spy helpers exist only for the compiler                    |
 
 Every message ends with a link to the matching [recipe](#how-to-mock): a rule that only says
 "don't" moves the problem rather than solving it. Rules travel with the API they recommend, so they
 are versioned together and stop being re-written in every project that installs the package.
 
-**Two of the thirteen fix on their own, six offer suggestions**, and the split is not about how hard
+**Two of the fourteen fix on their own, six offer suggestions**, and the split is not about how hard
 the rewrite is. `no-mocked-for-spy` touches a _declaration_: get it wrong and the file stops
 compiling, which is the loudest, cheapest failure there is — so `--fix` rewrites the type, adds
 `import type { Spy } from 'vitest-auto-spy'` and drops the `Mocked` import once nothing else uses
@@ -2462,11 +2463,13 @@ Releases are automated: merging a PR into `master` bumps the version from the
 Conventional Commit types and publishes to npm — see
 [CONTRIBUTING.md → Releasing](./CONTRIBUTING.md#releasing).
 
-`auto-release.yml` is the **only** workflow that publishes `vitest-auto-spy`, and it authenticates
-with npm **Trusted Publishing (OIDC)** — no npm token, and provenance attached by the registry.
-A hand-pushed `v*` tag runs `release.yml`, which now only creates the GitHub Release; it does not
-publish. The `vitest-auto-spies` alias package is a second npm package with its own publish, and it
-still authenticates with `NPM_TOKEN` — npm allows one trusted-publisher workflow per package.
+`auto-release.yml` is the **only** entry point that publishes either package, and it authenticates
+with npm **Trusted Publishing (OIDC)** — no npm token anywhere in the repository, and provenance
+attached by the registry. A hand-pushed `v*` tag runs `release.yml`, which now only creates the
+GitHub Release; it does not publish. The `vitest-auto-spies` alias is a second npm package with its
+own publish (`publish-alias.yml`), but it is `workflow_call`-only and reached through
+`auto-release.yml`, because npm validates the workflow that *entered* the run, not the reusable one
+that runs `npm publish`.
 
 If this package saved you time, a ⭐ on [GitHub](https://github.com/ASDAlexey/vitest-auto-spy)
 helps others find it.
