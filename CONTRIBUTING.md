@@ -108,6 +108,69 @@ commits.
 > [`Release`](./.github/workflows/release.yml) workflow, but that one only creates the
 > GitHub Release; it does not publish.
 
+### How the two packages authenticate to npm
+
+Neither workflow holds an npm token. Both publish over **Trusted Publishing (OIDC)**: GitHub Actions
+mints a short-lived OIDC token from `id-token: write`, npm checks the claims in it against a
+publisher registered on the package, and hands back a credential that expires with the job. Nothing
+in the repository can publish on its own, and there is no secret to leak or rotate.
+
+Each package carries its own publisher, and both name the **same** workflow file:
+
+| npm package | Publisher | Organization or user | Repository | Workflow filename | Environment | Allowed actions |
+| --- | --- | --- | --- | --- | --- | --- |
+| `vitest-auto-spy` | GitHub Actions | `ASDAlexey` | `vitest-auto-spy` | `auto-release.yml` | *(empty)* | `npm publish` |
+| `vitest-auto-spies` | GitHub Actions | `ASDAlexey` | `vitest-auto-spy` | `auto-release.yml` | *(empty)* | `npm publish` |
+
+Registered at npmjs.com → the package → **Settings** → *Trusted Publisher*. Changing it is an
+account-level action, so it needs 2FA on the npm account; it cannot be scripted.
+
+Four things this table is easy to get wrong:
+
+- **`Repository` is the GitHub repo, not the npm package.** The alias lives in this repository, so
+  it is `vitest-auto-spy` for both rows.
+- **`Workflow filename` is a filename, not a path** — `auto-release.yml`, never
+  `.github/workflows/auto-release.yml`.
+- **`Environment` must stay empty.** Fill it in and npm starts demanding that the publishing job
+  declare a matching `environment:`, which neither job does.
+- **The alias's row also says `auto-release.yml`, not `publish-alias.yml`.** npm validates the
+  workflow that *entered* the run, and `publish-alias.yml` is reached through `workflow_call`. That
+  is why it has no `workflow_dispatch` of its own — see [the alias](#the-vitest-auto-spies-alias).
+
+Reading a failure: **`ENEEDAUTH`** ("need auth … you need to authorize this machine") means npm found
+no publisher matching the run — the row is missing, or the workflow that entered the run is not the
+one it names. **`E403`** means it found one that disagrees about owner, repo or allowed action. In
+neither case is the token expired, because there is no token.
+
+Two ways to break this by accident:
+
+- Passing `registry-url` to `actions/setup-node` (v4–v6). It writes
+  `//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}` into `~/.npmrc`, npm reads that as "auth is
+  already configured", skips the OIDC exchange entirely and dies with `ENEEDAUTH`. Fixed in v7.
+- Letting the npm pin float below 11.5.1, or Node below 22.14 — the floors for trusted publishing.
+  Both workflows pin an exact npm for this reason.
+
+#### The January 2027 deadline
+
+npm is retiring granular access tokens that bypass 2FA, in two steps:
+
+- **2026-07-31, in force** — such a token can no longer perform account, org or package management
+  actions.
+- **~2027-01, announced** — it loses direct publish too: *"Their publishing surface will reduce to
+  reading private packages and staging a publish, which a maintainer approves with 2FA."*
+
+**This repository is not affected, and there is nothing to do in January.** Trusted publishing is
+the recommended replacement, not a thing being retired, and both packages already use it. The
+alternative npm offers — *staged publishing*, where CI prepares a release and a human approves it
+with 2FA — would turn an automatic release into a manual one, which is why the trusted publishers
+above allow `npm publish` and deliberately do **not** allow `npm stage publish`.
+
+What would put us back in scope is reintroducing a token: an `NPM_TOKEN` secret, a `NODE_AUTH_TOKEN`
+in a workflow, or a publish from a laptop as the normal path. A one-off manual publish to recover
+from an outage is fine — it is a person with 2FA, not a bypass token.
+
+Not affected by any of this: `GITHUB_TOKEN`, GitHub PATs, GitHub App tokens.
+
 ### Keeping the changelog in sync with npm
 
 The automation owns the **version number**; humans own the **changelog**. The two only stay
