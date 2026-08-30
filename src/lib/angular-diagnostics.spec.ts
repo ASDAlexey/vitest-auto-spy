@@ -12,8 +12,8 @@ import { TestBed } from '@angular/core/testing';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 
 import '../angular';
-import { assertNoPendingRequests, disableAngularDiagnostics, enableAngularDiagnostics } from './angular-diagnostics';
 import { injectSpy } from './angular';
+import { assertNoPendingRequests, disableAngularDiagnostics, enableAngularDiagnostics } from './angular-diagnostics';
 import { mockValueProp } from './prop-mock';
 
 @Injectable()

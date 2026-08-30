@@ -41,7 +41,7 @@ describe('errorHandler.throwArgumentsError', () => {
     configured.set([expect.any(Number), expect.stringContaining('a')], { value: 'ok' });
 
     expect(messageOf([9, 'zzz'], 'load', configured)).toContain(
-      'Wanted (2 configured):\n  load(1,\'fast\')\n  load(Any<Number>,StringContaining)\nActual: load(9,\'zzz\')',
+      "Wanted (2 configured):\n  load(1,'fast')\n  load(Any<Number>,StringContaining)\nActual: load(9,'zzz')",
     );
   });
 

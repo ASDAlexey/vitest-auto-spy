@@ -3,7 +3,7 @@
  * things worth proving are: the record fills in only as DI constructs a token, the doubles exist
  * before that so a spec can stub them, and the provider shape is the one both frameworks accept.
  */
-import { InjectionToken, Injectable, Injector, inject } from '@angular/core';
+import { Injectable, InjectionToken, Injector, inject } from '@angular/core';
 import { describe, expect, it } from 'vitest';
 
 import '../angular';
