@@ -28,16 +28,16 @@ The one figure not re-measured here is the type-instantiation count in
 This is the first thing to know about the alternatives, and no comparison table anywhere makes it.
 Last release per package, read from the registry on 2026-08-30:
 
-| Library                                                                                   | Latest   | Published      | Repo                                                                                                                 | State                            |
-| ----------------------------------------------------------------------------------------- | -------- | -------------- | -------------------------------------------------------------------------------------------------------------------- | -------------------------------- |
-| [ts-auto-mock](https://www.npmjs.com/package/ts-auto-mock)                                | 3.7.4    | **2024-08-24** | [Typescript-TDD/ts-auto-mock](https://github.com/Typescript-TDD/ts-auto-mock)                                         | feature-frozen by its author     |
-| [testdouble](https://www.npmjs.com/package/testdouble)                                    | 3.20.2   | **2024-03-21** | [testdouble/testdouble.js](https://github.com/testdouble/testdouble.js)                                               | dormant, ~2.5 years              |
-| [moq.ts](https://www.npmjs.com/package/moq.ts)                                            | 10.0.8   | **2023-05-02** | [dvabuzyarov/moq.ts](https://github.com/dvabuzyarov/moq.ts)                                                           | dormant since 2023               |
-| [@fluffy-spoon/substitute](https://www.npmjs.com/package/@fluffy-spoon/substitute)        | 1.208.0  | **2021-05-07** | [ffMathy/FluffySpoon.JavaScript.Testing.Faking](https://github.com/ffMathy/FluffySpoon.JavaScript.Testing.Faking)     | last shipped 2021                |
-| [@golevelup/nestjs-testing](https://www.npmjs.com/package/@golevelup/nestjs-testing)      | 0.1.2    | **2019**       | [golevelup/nestjs](https://github.com/golevelup/nestjs)                                                               | dead — do not cite it as current |
-| [@ngneat/spectator](https://www.npmjs.com/package/@ngneat/spectator)                      | 22.1.0   | **2025-11-02** | `ngneat/spectator` is **HTTP 404** → [ngneat-archive/spectator](https://github.com/ngneat-archive/spectator)          | ~10 months, repository gone      |
-| [jest-auto-spies](https://www.npmjs.com/package/jest-auto-spies)                          | 3.0.1    | 2025-09-22     | [hirezio/auto-spies](https://github.com/hirezio/auto-spies)                                                           | quiet; its core dep is from 2023 |
-| [@bugsplat/vitest-auto-spies](https://www.npmjs.com/package/@bugsplat/vitest-auto-spies)  | 1.0.0    | 2026-02-04     | [BugSplat-Git/auto-spies](https://github.com/BugSplat-Git/auto-spies)                                                 | 102 downloads in the window      |
+| Library                                                                                  | Latest  | Published      | Repo                                                                                                              | State                            |
+| ---------------------------------------------------------------------------------------- | ------- | -------------- | ----------------------------------------------------------------------------------------------------------------- | -------------------------------- |
+| [ts-auto-mock](https://www.npmjs.com/package/ts-auto-mock)                               | 3.7.4   | **2024-08-24** | [Typescript-TDD/ts-auto-mock](https://github.com/Typescript-TDD/ts-auto-mock)                                     | feature-frozen by its author     |
+| [testdouble](https://www.npmjs.com/package/testdouble)                                   | 3.20.2  | **2024-03-21** | [testdouble/testdouble.js](https://github.com/testdouble/testdouble.js)                                           | dormant, ~2.5 years              |
+| [moq.ts](https://www.npmjs.com/package/moq.ts)                                           | 10.0.8  | **2023-05-02** | [dvabuzyarov/moq.ts](https://github.com/dvabuzyarov/moq.ts)                                                       | dormant since 2023               |
+| [@fluffy-spoon/substitute](https://www.npmjs.com/package/@fluffy-spoon/substitute)       | 1.208.0 | **2021-05-07** | [ffMathy/FluffySpoon.JavaScript.Testing.Faking](https://github.com/ffMathy/FluffySpoon.JavaScript.Testing.Faking) | last shipped 2021                |
+| [@golevelup/nestjs-testing](https://www.npmjs.com/package/@golevelup/nestjs-testing)     | 0.1.2   | **2019**       | [golevelup/nestjs](https://github.com/golevelup/nestjs)                                                           | dead — do not cite it as current |
+| [@ngneat/spectator](https://www.npmjs.com/package/@ngneat/spectator)                     | 22.1.0  | **2025-11-02** | `ngneat/spectator` is **HTTP 404** → [ngneat-archive/spectator](https://github.com/ngneat-archive/spectator)      | ~10 months, repository gone      |
+| [jest-auto-spies](https://www.npmjs.com/package/jest-auto-spies)                         | 3.0.1   | 2025-09-22     | [hirezio/auto-spies](https://github.com/hirezio/auto-spies)                                                       | quiet; its core dep is from 2023 |
+| [@bugsplat/vitest-auto-spies](https://www.npmjs.com/package/@bugsplat/vitest-auto-spies) | 1.0.0   | 2026-02-04     | [BugSplat-Git/auto-spies](https://github.com/BugSplat-Git/auto-spies)                                             | 102 downloads in the window      |
 
 Five of them last published more than a year ago, and a sixth's repository no longer exists. Two
 corrections to claims this page used to make, and to claims still made elsewhere:
@@ -63,16 +63,16 @@ corrections to claims this page used to make, and to claims still made elsewhere
 
 The competition that is actually shipping, with the same window's downloads:
 
-| Library                                                                                  | Latest             | Downloads/mo  | Repo                                                                                                                | What it is                                                                     |
-| ---------------------------------------------------------------------------------------- | ------------------ | ------------- | --------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
-| [sinon](https://www.npmjs.com/package/sinon)                                             | 22.1.0, 2026-07-20 | 50 371 190    | [sinonjs/sinon](https://github.com/sinonjs/sinon)                                                                   | the general-purpose toolkit; `createStubInstance` is the class-reading part     |
-| [jest-mock-extended](https://www.npmjs.com/package/jest-mock-extended)                   | 4.0.1, 2026-04-20  | 9 397 966     | [marchaos/jest-mock-extended](https://github.com/marchaos/jest-mock-extended)                                       | deep type-driven Proxy mocks, Jest                                              |
-| [vitest-mock-extended](https://www.npmjs.com/package/vitest-mock-extended)                | 5.1.1, 2026-08-02  | 5 443 915     | [eratio08/vitest-mock-extended](https://github.com/eratio08/vitest-mock-extended)                                   | the same, ported to Vitest                                                      |
-| [ng-mocks](https://www.npmjs.com/package/ng-mocks)                                       | 14.17.3, 2026-08-24| 2 502 024     | [help-me-mom/ng-mocks](https://github.com/help-me-mom/ng-mocks)                                                     | healthy; mocks an Angular **declaration graph**, not one class                  |
-| [@testing-library/angular](https://www.npmjs.com/package/@testing-library/angular)       | 19.4.2, 2026-08-07 | 1 020 821     | [testing-library/angular-testing-library](https://github.com/testing-library/angular-testing-library)                | rendering-first, but `/vitest-utils` ships a `createMock` of its own            |
-| [@suites/unit](https://www.npmjs.com/package/@suites/unit)                               | 3.1.1, 2026-05-08  | 473 130       | [suites-dev/suites](https://github.com/suites-dev/suites)                                                           | DI-driven unit builder, recommended by the NestJS docs                          |
-| [@golevelup/ts-vitest](https://www.npmjs.com/package/@golevelup/ts-vitest)               | 4.0.0, 2026-03-18  | 353 803       | [golevelup/nestjs](https://github.com/golevelup/nestjs)                                                             | `createMock<T>()` deep Proxy, the Nest community default                        |
-| [Vitest's own `vi`](https://vitest.dev/api/vi)                                            | Vitest 4           | —             | [vitest-dev/vitest](https://github.com/vitest-dev/vitest)                                                           | `vi.fn` / `vi.spyOn` / `vi.mockObject` — increasingly the default answer         |
+| Library                                                                            | Latest              | Downloads/mo | Repo                                                                                                  | What it is                                                                  |
+| ---------------------------------------------------------------------------------- | ------------------- | ------------ | ----------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| [sinon](https://www.npmjs.com/package/sinon)                                       | 22.1.0, 2026-07-20  | 50 371 190   | [sinonjs/sinon](https://github.com/sinonjs/sinon)                                                     | the general-purpose toolkit; `createStubInstance` is the class-reading part |
+| [jest-mock-extended](https://www.npmjs.com/package/jest-mock-extended)             | 4.0.1, 2026-04-20   | 9 397 966    | [marchaos/jest-mock-extended](https://github.com/marchaos/jest-mock-extended)                         | deep type-driven Proxy mocks, Jest                                          |
+| [vitest-mock-extended](https://www.npmjs.com/package/vitest-mock-extended)         | 5.1.1, 2026-08-02   | 5 443 915    | [eratio08/vitest-mock-extended](https://github.com/eratio08/vitest-mock-extended)                     | the same, ported to Vitest                                                  |
+| [ng-mocks](https://www.npmjs.com/package/ng-mocks)                                 | 14.17.3, 2026-08-24 | 2 502 024    | [help-me-mom/ng-mocks](https://github.com/help-me-mom/ng-mocks)                                       | healthy; mocks an Angular **declaration graph**, not one class              |
+| [@testing-library/angular](https://www.npmjs.com/package/@testing-library/angular) | 19.4.2, 2026-08-07  | 1 020 821    | [testing-library/angular-testing-library](https://github.com/testing-library/angular-testing-library) | rendering-first, but `/vitest-utils` ships a `createMock` of its own        |
+| [@suites/unit](https://www.npmjs.com/package/@suites/unit)                         | 3.1.1, 2026-05-08   | 473 130      | [suites-dev/suites](https://github.com/suites-dev/suites)                                             | DI-driven unit builder, recommended by the NestJS docs                      |
+| [@golevelup/ts-vitest](https://www.npmjs.com/package/@golevelup/ts-vitest)         | 4.0.0, 2026-03-18   | 353 803      | [golevelup/nestjs](https://github.com/golevelup/nestjs)                                               | `createMock<T>()` deep Proxy, the Nest community default                    |
+| [Vitest's own `vi`](https://vitest.dev/api/vi)                                     | Vitest 4            | —            | [vitest-dev/vitest](https://github.com/vitest-dev/vitest)                                             | `vi.fn` / `vi.spyOn` / `vi.mockObject` — increasingly the default answer    |
 
 For scale in the other direction: `jasmine-core` still pulls **23 922 905** downloads a month, and
 Angular's official v22 answer for a service double is a hand-written
@@ -83,17 +83,17 @@ library — it is a literal somebody typed out by hand.
 
 ### The double itself
 
-|                                                | vitest-auto-spy | jest-auto-spies | \*-mock-extended | @golevelup/ts-vitest |     @suites/unit     | ng-mocks | @testing-library/angular | @ngneat/spectator |         sinon          |   Vitest 4 built-ins   |
-| ---------------------------------------------- | :-------------: | :-------------: | :--------------: | :------------------: | :------------------: | :------: | :----------------------: | :---------------: | :--------------------: | :--------------------: |
-| Reads a real **class** at runtime              |       ✅        |       ✅        |        ❌        |       partial        | constructor metadata |    ✅    |            ✅            |        ✅         | `createStubInstance`   |     `vi.mockObject`    |
-| Mocks from a **type** with no class            |       ✅        |       ❌        |        ✅        |          ✅          |          ❌          |    ❌    |            ❌            |        ❌         |           ❌           |           ❌           |
-| Recursive deep mock                            |       ✅        |       ❌        |        ✅        |          ✅          |          ❌          |    ❌    |            ❌            |        ❌         |           ❌           |         partial        |
-| Return-type-aware **promise** helpers          |       ✅        |       ✅        |        ❌        |          ❌          |          ❌          |    ❌    |            ❌            |        ❌         |           ❌           |           ❌           |
-| Return-type-aware **observable** helpers       |       ✅        |       ✅        |        ❌        |          ❌          |          ❌          |    ❌    |            ❌            |        ❌         |           ❌           |           ❌           |
-| **Getter / setter spies**                      |       ✅        |       ✅        |        ❌        |          ❌          |          ❌          |    ❌    |            ❌            |        ❌         |           ✅           |           ✅           |
-| `calledWith`                                   |       ✅        |       ✅        |        ✅        |          ❌          |          ❌          |    ❌    |            ❌            |        ❌         |       `withArgs`       |           ❌           |
-| `mustBeCalledWith` (fails on a mismatch)       |       ✅        |       ✅        |        ❌        |          ❌          |          ❌          |    ❌    |            ❌            |        ❌         |           ❌           |           ❌           |
-| Typed as a **spy type**, not as `T`            |    `Spy<T>`     |    `Spy<T>`     |  `MockProxy<T>`  |    `DeepMocked<T>`   |     `Mocked<T>`      | **`T`**  |   `Mock<T>` (see below)  |   `SpyObject<T>`  | `SinonStubbedInstance` |    `MaybeMockedDeep`   |
+|                                          | vitest-auto-spy | jest-auto-spies | \*-mock-extended | @golevelup/ts-vitest |     @suites/unit     | ng-mocks | @testing-library/angular | @ngneat/spectator |         sinon          | Vitest 4 built-ins |
+| ---------------------------------------- | :-------------: | :-------------: | :--------------: | :------------------: | :------------------: | :------: | :----------------------: | :---------------: | :--------------------: | :----------------: |
+| Reads a real **class** at runtime        |       ✅        |       ✅        |        ❌        |       partial        | constructor metadata |    ✅    |            ✅            |        ✅         |  `createStubInstance`  |  `vi.mockObject`   |
+| Mocks from a **type** with no class      |       ✅        |       ❌        |        ✅        |          ✅          |          ❌          |    ❌    |            ❌            |        ❌         |           ❌           |         ❌         |
+| Recursive deep mock                      |       ✅        |       ❌        |        ✅        |          ✅          |          ❌          |    ❌    |            ❌            |        ❌         |           ❌           |      partial       |
+| Return-type-aware **promise** helpers    |       ✅        |       ✅        |        ❌        |          ❌          |          ❌          |    ❌    |            ❌            |        ❌         |           ❌           |         ❌         |
+| Return-type-aware **observable** helpers |       ✅        |       ✅        |        ❌        |          ❌          |          ❌          |    ❌    |            ❌            |        ❌         |           ❌           |         ❌         |
+| **Getter / setter spies**                |       ✅        |       ✅        |        ❌        |          ❌          |          ❌          |    ❌    |            ❌            |        ❌         |           ✅           |         ✅         |
+| `calledWith`                             |       ✅        |       ✅        |        ✅        |          ❌          |          ❌          |    ❌    |            ❌            |        ❌         |       `withArgs`       |         ❌         |
+| `mustBeCalledWith` (fails on a mismatch) |       ✅        |       ✅        |        ❌        |          ❌          |          ❌          |    ❌    |            ❌            |        ❌         |           ❌           |         ❌         |
+| Typed as a **spy type**, not as `T`      |    `Spy<T>`     |    `Spy<T>`     |  `MockProxy<T>`  |   `DeepMocked<T>`    |     `Mocked<T>`      | **`T`**  |  `Mock<T>` (see below)   |  `SpyObject<T>`   | `SinonStubbedInstance` | `MaybeMockedDeep`  |
 
 Two cells worth expanding, both read out of the published tarballs on 2026-08-30:
 
@@ -110,19 +110,19 @@ spyNamePrefix?: string): T` — the double is typed as the real service, so `.mo
 
 ### Where it runs, and what it costs
 
-|                                    | vitest-auto-spy | jest-auto-spies | vitest-mock-extended | jest-mock-extended | @golevelup/ts-vitest | @suites/unit | ng-mocks | @testing-library/angular | @ngneat/spectator |    sinon     |
-| ---------------------------------- | :-------------: | :-------------: | :------------------: | :----------------: | :------------------: | :----------: | :------: | :----------------------: | :---------------: | :----------: |
-| Vitest                             |       ✅        |       ❌        |          ✅          |         ❌         |          ✅          |      ✅      |    ✅    |            ✅            |     partial¹      | own stubs³   |
-| Jest                               |    via API²     |       ✅        |          ❌          |         ✅         |          ❌          |      ✅      |    ✅    |            ✅            |        ✅         | own stubs³   |
-| Bun (`bun:test`)                   |     **✅**      |       ❌        |          ❌          |         ❌         |          ❌          |      ❌      |    ❌    |            ❌            |        ❌         | own stubs³   |
-| `node:test`                        |     **✅**      |       ❌        |          ❌          |         ❌         |          ❌          |      ❌      |    ❌    |            ❌            |        ❌         | own stubs³   |
-| Angular `TestBed` helpers          |       ✅        |       ✅        |          ❌          |         ❌         |          ❌          |    **❌**    |    ✅    |            ✅            |        ✅         |      ❌      |
-| Angular **TestBed under `bun`**    |     **✅**      |       ❌        |          ❌          |         ❌         |          ❌          |      ❌      |    ❌    |            ❌            |        ❌         |      ❌      |
-| Angular **zoneless** helpers       |       ✅        |       ❌        |          ❌          |         ❌         |          ❌          |      ❌      |    ❌    |     ✅ (`./zoneless`)    |        ❌         |      ❌      |
-| Works with specs compiled **AOT**  |       ✅        |        —        |          —           |         —          |          —           |      —       | `aot: false` |          —           |         —         |      —       |
-| NestJS recipe                      |       ✅        |       ❌        |          ❌          |         ❌         |          ✅          |      ✅      |    ❌    |            ❌            |        ❌         |      ❌      |
-| React / Vue / Svelte recipes       |       ✅        |       ❌        |          ❌          |         ❌         |          ❌          |      ❌      |    ❌    |            ❌            |        ❌         |      ❌      |
-| Runtime dependencies               |     **0**       |        1        |          1           |         2          |          0           |      4       |    0     |            1             |    3 (incl. jQuery) |      4       |
+|                                   | vitest-auto-spy | jest-auto-spies | vitest-mock-extended | jest-mock-extended | @golevelup/ts-vitest | @suites/unit |   ng-mocks   | @testing-library/angular | @ngneat/spectator |   sinon    |
+| --------------------------------- | :-------------: | :-------------: | :------------------: | :----------------: | :------------------: | :----------: | :----------: | :----------------------: | :---------------: | :--------: |
+| Vitest                            |       ✅        |       ❌        |          ✅          |         ❌         |          ✅          |      ✅      |      ✅      |            ✅            |     partial¹      | own stubs³ |
+| Jest                              |    via API²     |       ✅        |          ❌          |         ✅         |          ❌          |      ✅      |      ✅      |            ✅            |        ✅         | own stubs³ |
+| Bun (`bun:test`)                  |     **✅**      |       ❌        |          ❌          |         ❌         |          ❌          |      ❌      |      ❌      |            ❌            |        ❌         | own stubs³ |
+| `node:test`                       |     **✅**      |       ❌        |          ❌          |         ❌         |          ❌          |      ❌      |      ❌      |            ❌            |        ❌         | own stubs³ |
+| Angular `TestBed` helpers         |       ✅        |       ✅        |          ❌          |         ❌         |          ❌          |    **❌**    |      ✅      |            ✅            |        ✅         |     ❌     |
+| Angular **TestBed under `bun`**   |     **✅**      |       ❌        |          ❌          |         ❌         |          ❌          |      ❌      |      ❌      |            ❌            |        ❌         |     ❌     |
+| Angular **zoneless** helpers      |       ✅        |       ❌        |          ❌          |         ❌         |          ❌          |      ❌      |      ❌      |    ✅ (`./zoneless`)     |        ❌         |     ❌     |
+| Works with specs compiled **AOT** |       ✅        |        —        |          —           |         —          |          —           |      —       | `aot: false` |            —             |         —         |     —      |
+| NestJS recipe                     |       ✅        |       ❌        |          ❌          |         ❌         |          ✅          |      ✅      |      ❌      |            ❌            |        ❌         |     ❌     |
+| React / Vue / Svelte recipes      |       ✅        |       ❌        |          ❌          |         ❌         |          ❌          |      ❌      |      ❌      |            ❌            |        ❌         |     ❌     |
+| Runtime dependencies              |      **0**      |        1        |          1           |         2          |          0           |      4       |      0       |            1             | 3 (incl. jQuery)  |     4      |
 
 ¹ Runs, but ships `declare namespace jasmine` in its own typings and imports a package Angular 20
 deprecated — see [above](#half-the-field-has-stopped-shipping).
@@ -147,7 +147,11 @@ them at all.
 `bun:test`'s own `spyOn` refuses accessors outright. Verified here on Bun 1.4.0:
 
 ```ts
-const o = { get v() { return 1; } };
+const o = {
+  get v() {
+    return 1;
+  },
+};
 spyOn(o, 'v', 'get');
 // TypeError: spyOn(target, prop) does not support accessor properties yet
 ```
@@ -167,10 +171,12 @@ See [Accessor spies](/core/create-spy-from-class) and [Bun](/runtimes/bun).
 
 ### 2. `injectSpy` tells you when the injector handed back the real thing
 
-`warnWhenNotASpy` (`src/lib/angular.ts:117`) checks what came out of the container and warns, once
+`reportWhenNotASpy` (`src/lib/angular.ts:132`) checks what came out of the container and warns, once
 per token, when it is a plain instance rather than an auto-spy — naming the token and the
 `provideAutoSpy` call that is missing. Without it, a forgotten provider surfaces much later, as
 `.mockReturnValue is not a function` on a real method, in whichever test happens to touch it first.
+`enableAngularDiagnostics({ unspiedProviders: true })` raises the same report from a warning to a
+failure, at which point the de-duplication drops: a throw is once per test by definition.
 
 Spectator does the opposite: `spectator.d.ts:17` declares `inject<T>(token: Token<T>):
 SpyObject<T>` — **every** token is typed as a spy whether it was mocked or not, so the compiler
@@ -182,11 +188,11 @@ Deep-Proxy mocking is paid for at `tsc` time, and nobody publishes the bill. Fro
 survey — one fixture, an 80-member class, 30 mock declarations, 600 member touches,
 `tsc --extendedDiagnostics`, identical across three runs:
 
-| Type                            | Instantiations |
-| ------------------------------- | -------------: |
-| `Spy<T>` (this package)         |      **2 656** |
-| `@golevelup/ts-vitest`          |          5 092 |
-| `vitest-mock-extended`          |          5 614 |
+| Type                    | Instantiations |
+| ----------------------- | -------------: |
+| `Spy<T>` (this package) |      **2 656** |
+| `@golevelup/ts-vitest`  |          5 092 |
+| `vitest-mock-extended`  |          5 614 |
 
 Roughly half the type-checker work of the deep-proxy libraries, while carrying more helpers on each
 method. This is the one number on the page not re-measured on 2026-08-30.
