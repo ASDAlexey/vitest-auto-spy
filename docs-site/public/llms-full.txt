@@ -27,7 +27,7 @@ Control helpers that follow each return type, behind one identical API on Vitest
 - **One core, three runtimes, five frameworks** — The core never imports your runner. vi.fn() and its equivalents sit behind a MockAdapter that each entry point registers on import, so the same spec code runs on Vitest, bun:test and node:test — only native mock methods stay the runner's own. Angular, NestJS, React, Vue / Pinia and Svelte have their own entry points on top of it, and rxjs stays opt-in behind a subpath. — https://asdalexey.github.io/vitest-auto-spy/runtimes/vitest
 - **Getter and setter spies, including where Bun refuses** — bun:test's own spyOn(obj, 'prop', 'get') throws — "does not support accessor properties yet", verified on Bun 1.4.0. And no library that generates a double from a class or a type has accessor spies at all, on any runner — not ng-mocks, spectator, @testing-library/angular, vitest-mock-extended, @golevelup or Suites. accessorSpies never calls the runner's spyOn. It redefines the property with a mock built by the adapter and preserves the half it is not replacing, so getters and setters behave identically on Vitest, Bun and node:test. — https://asdalexey.github.io/vitest-auto-spy/comparison#_1-accessor-spies-on-bun
 - **Angular's TestBed under bun test** — Bun ships no DOM and cannot resolve templateUrl, so Angular specs simply do not run there — no other library in the field claims otherwise. One preload installs a DOM, inlines external templates and styles through a Bun.plugin hook, and boots a zoneless TestBed. provideAutoSpy, injectSpy and the zoneless waits come from one bun-angular entry point and read the same as they do on Vitest. — https://asdalexey.github.io/vitest-auto-spy/runtimes/bun-angular
-- **Thirteen lint rules, underlined as you type** — Thirteen flat-config rules versioned together with the API they recommend, each message linking to its recipe. Seven of them catch a test being wrong rather than verbose — an expect() inside subscribe(), an expect() in a .then() nobody awaits, an Object.defineProperty nothing restores, a module-level mock shared across files, a done callback that makes a test pass having run almost none of its body. Two rewrite the source under --fix and six offer the rewrite as a suggestion, because a fix that silences the rule while the type gate still fails is worse than no fix. No editor plugin of their own — WebStorm runs them natively, VS Code, Cursor and Windsurf through the ESLint extension. — https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-plugin
+- **Fourteen lint rules, underlined as you type** — Fourteen flat-config rules versioned together with the API they recommend, each message linking to its recipe. Seven of them catch a test being wrong rather than verbose — an expect() inside subscribe(), an expect() in a .then() nobody awaits, an Object.defineProperty nothing restores, a module-level mock shared across files, a done callback that makes a test pass having run almost none of its body. Two rewrite the source under --fix and six offer the rewrite as a suggestion, because a fix that silences the rule while the type gate still fails is worse than no fix. No editor plugin of their own — WebStorm runs them natively, VS Code, Cursor and Windsurf through the ESLint extension. — https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-plugin
 - **Signals and resources a spec can drive** — mockSignalProp replaces a signal-valued property with a real WritableSignal and hands back the writable half, so a computed downstream recomputes and an effect runs. runEffect() runs one effect body on demand when its trigger is now static. httpResource() and resource() need a different wait each — measured on 21.2.17, an httpResource settles one tick plus one microtask after its response is flushed, a plain resource() takes two rounds, and neither has issued a request until something ticks. Get it wrong and nothing fails — the spec asserts the resource's default value and passes. settleResource() is the one wait both converge under, mockResourceProp drives a resource with no HTTP in flight at all, and toHaveResourceValue refuses to compare an unresolved resource even when its default happens to match. — https://asdalexey.github.io/vitest-auto-spy/adapters/angular#resources-httpresource-and-resource
 - **Less TestBed, and proof of what was injected** — renderShallow collapses the shallow-TestBed copy-paste into one call — 291 ms down to 174 ms, 1.7×, on real component specs — and createWithAutoSpies builds a class through DI with every unprovided token spied. overrideComponentProvider reaches a dependency a component declares in its own providers, which a testing module cannot. trackInjections answers the question most vi.mock() calls were really asking, which collaborators the entry point actually asked for, by registering them as provider factories and reading back the ones that fired — an assertion that survives a bundler removing the module boundary a mock would have needed. — https://asdalexey.github.io/vitest-auto-spy/adapters/angular#shallow-component-rendering
 - **Four Angular failures that pass quietly** — enableAngularDiagnostics() turns four silences into failures in one setup line — a testing module importing an NgModule that contributes nothing at all, schemas sitting next to a standalone component where they can never apply, injectSpy handed a real instance instead of a spy, and a test that ends with unflushed HttpTestingController requests. The third is the one nothing else looks for. injectSpy already warns once per token, naming the token and the provideAutoSpy call that is missing, and the group raises that warning to a failure — where spectator declares inject&lt;T&gt;(token) as SpyObject&lt;T&gt; whether the token was mocked or not, so the compiler hides the mistake until a real method meets .mockReturnValue somewhere else entirely. — https://asdalexey.github.io/vitest-auto-spy/adapters/angular-diagnostics
@@ -5237,6 +5237,7 @@ which a subpath export of this package can never be.
 | `no-overridden-provider`       |   `error`   | suggest           | two providers for one token in one array → the earlier one never runs; the exact duplicate can be deleted                                  |
 | `no-inject-before-override`    |   `warn`    | —                 | `TestBed.inject()` in a hook, in a suite that still calls `override*`                                                                      |
 | `no-import-time-spread`        |   `error`   | suggest           | `export const x = [...Imported]` at module scope → a `TypeError` while the bundle loads                                                    |
+| `no-unregistered-inject-spy`   |   `warn`    | —                 | `injectSpy(X)` for a token this file never registered → the real instance, whose spy helpers exist only for the compiler                    |
 
 The seven `error` rules are the ones that catch a test being _wrong_ rather than verbose.
 `Object.defineProperty` leaves no way back — nothing restores the original descriptor, so the patch
@@ -5520,6 +5521,55 @@ source$.subscribe((data) => assertShape(data)); // still an assertion that may n
 One step through a name bound in the same file, which needs no type information and covers the
 shape. A helper declared _inside_ the callback is counted once, not twice.
 
+## The spy that only the compiler can see
+
+`no-unregistered-inject-spy` reports an `injectSpy(X)` for a token nothing in the file registered as
+an auto-spy:
+
+```ts
+TestBed.configureTestingModule({
+  imports: [RouterTestingModule], // provides a real ActivatedRoute
+  providers: [provideAutoSpy(UserService)],
+});
+
+const route = injectSpy(ActivatedRoute); // ❌ the real one, with spy helpers that are not there
+```
+
+What comes back is whatever Angular DI already had — the real service, or an object an imported
+testing module put there. The compiler has no objection, and that is the whole defect: `injectSpy`
+is declared to return a `Spy<T>`, so every helper on it type-checks against that declaration rather
+than against the value, and the helpers are therefore present for `tsc` and absent at run time. The
+first `.mockReturnValue(…)` or `.calledWith(…)` lands on a real method and throws there, as a
+`TypeError` on a line that reads like ordinary spy setup.
+
+The library already says this at run time: `injectSpy` checks what the injector handed back and
+warns that it is a plain instance. A warning on stderr is the weakest place to say it. It does not
+fail the run, it scrolls past in a suite of a thousand files, and it arrives only for the tests that
+actually executed the line — in one consumer monorepo dozens of spec files print it on every CI run
+and it has never been acted on. Nothing about the check needs type information, so it belongs where
+the mistake is written: the whole question is which tokens this file registered, and which token is
+being asked for.
+
+**The rule is quiet unless it can see the whole picture**, because a false positive here costs more
+than the warning it replaces. It reports nothing when:
+
+- the file never calls `provideAutoSpy` — then it configures DI in some way this does not model, and
+  a token missing from the tally says nothing;
+- any `providers` array holds a spread or a provider factory other than `provideAutoSpy`.
+  `providers: [...sharedMocks]` is the ordinary way to pull in a shared mock module, and what it
+  registers is out of sight. One unreadable entry hides an unknown number of tokens, so it silences
+  the **file** rather than one line;
+- the file calls `createWithAutoSpies`, `renderShallow` or `TestBed.overrideProvider`, each of which
+  registers doubles somewhere this scan does not look.
+
+A token provided by hand — `{ provide: X, useValue: someObject }` — is recorded as provided and left
+alone. `prefer-provide-auto-spy` is the rule for that shape, and two rules firing on one line would
+only teach people to disable both. A `useValue` that is a call to `createAutoMock`,
+`createSpyFromClass`, `createMock` or `mockDeep` counts as a registration, the same as
+`provideAutoSpy` does. Tokens are compared as source text, the way `no-overridden-provider` already
+compares them, and there is no fix and no suggestion: the repair is either a provider this file does
+not have, or a `TestBed.inject(X)` that says the real implementation was the point.
+
 ## Options
 
 `prefer-create-spy-from-class` takes one:
@@ -5552,7 +5602,7 @@ call, and it only ever looked at object literals.
 
 ## Which rules fix, and why so few
 
-Two of the thirteen rewrite the source on their own, six offer the rewrite as a suggestion, and the
+Two of the fourteen rewrite the source on their own, six offer the rewrite as a suggestion, and the
 split is about what a wrong guess costs rather than about how hard the rewrite is.
 
 `no-mocked-for-spy` touches nothing but a **declaration**. Get it wrong and the file stops
@@ -6387,7 +6437,7 @@ cheap to fix while the cursor is still on the line and expensive to find afterwa
 one of them **passes**.
 
 There is one channel, and it is already in the package:
-[`vitest-auto-spy/eslint-plugin`](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-plugin). Twelve rules over a real syntax tree,
+[`vitest-auto-spy/eslint-plugin`](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-plugin). Fourteen rules over a real syntax tree,
 with a fix or a suggestion where the rewrite is decidable — the same rules in the editor and in CI,
 so nothing passes locally and fails on the build. No editor needs a plugin of this package's own;
 it needs its ESLint integration switched on, which every IDE below has.
@@ -6395,7 +6445,7 @@ it needs its ESLint integration switched on, which every IDE below has.
 ## WebStorm and the other JetBrains IDEs
 
 WebStorm, IntelliJ IDEA Ultimate, PhpStorm, PyCharm Professional and RubyMine all run ESLint
-natively, so the rules light up **inline, with no plugin to install** — the same twelve checks, in
+natively, so the rules light up **inline, with no plugin to install** — the same fourteen checks, in
 the editor, in the Problems tool window, and under **Code → Inspect Code** for the whole project.
 
 Install and configure once:
@@ -6439,14 +6489,14 @@ still hand-rolls its doubles" question actually needs.
 
 **A native JetBrains plugin is not planned**
 A plugin in the JetBrains Marketplace would duplicate an integration the IDE already has, and would
-then have to keep a second copy of twelve rules — in Kotlin — in step with the TypeScript ones.
+then have to keep a second copy of fourteen rules — in Kotlin — in step with the TypeScript ones.
 Where the ESLint route genuinely cannot reach (a repository with no ESLint at all), the honest fix
 is four lines of `eslint.config.js`, not a second implementation.
 
 ## VS Code, Cursor, Windsurf, VSCodium
 
 Install the [ESLint extension](https://marketplace.visualstudio.com/items?itemName=dbaeumer.vscode-eslint)
-and the flat config above is enough: the same twelve rules, inline and in the Problems panel.
+and the flat config above is enough: the same fourteen rules, inline and in the Problems panel.
 
 ```jsonc
 // .vscode/settings.json
@@ -9156,7 +9206,7 @@ alongside it:
   of, kept to the mocks that outlive a file. On `isolate: false` it is what makes `clearMocks` cost
   more with every test already run, and what keeps a whole run's recorded arguments — and the
   component trees behind them — alive in one worker.
-- [Twelve ESLint rules](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-plugin) versioned together with the API they recommend, and
+- [Fourteen ESLint rules](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-plugin) versioned together with the API they recommend, and
   [`setupAutoSpy()`](https://asdalexey.github.io/vitest-auto-spy/utilities/setup) for the test-run hygiene a shared environment needs.
 - [Per-file `TestBed` diagnostics](https://asdalexey.github.io/vitest-auto-spy/adapters/angular#where-a-spec-spends-its-time) — which specs
   actually pay for `TestBed`, and by how much.
