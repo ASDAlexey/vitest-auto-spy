@@ -10,6 +10,233 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+### Added
+
+- **`setupAutoSpy({ frozenClockHint })` — a timeout under fake timers now says the clock is why.**
+  A frozen clock turns waiting into waiting forever, and the runner's advice ("pass a timeout value
+  as the last argument") is the one repair that cannot work: the callback is not late, it is never
+  scheduled to run. Under `globalFakeTimers` nothing in the spec even says the clock is fake, so the
+  timeout arrives in a file that never mentions a timer. The hint appends `vi.isFakeTimers()` and
+  `vi.getTimerCount()` — facts, not a guess — to both `Test timed out in Nms.` and
+  `Hook timed out in Nms.`, and names the case that reaches this with no timer in sight:
+  `setImmediate` is faked too, and Express ends a request matching no route through `finalhandler`
+  on `setImmediate`, so the 404 is never written and a routing mistake is reported as a slow test.
+  On by default; silent while the clock is real, and silent when its queue is empty.
+
+- **`setupAutoSpy({ hookTimeoutHint })` — a `beforeEach` that ran out of `hookTimeout` now says why.**
+  Jest resolves one `testTimeout` for a hook and for a test body alike (`hook.timeout || getState().testTimeout`);
+  Vitest resolves `hookTimeout` separately and defaults it to 10 000 ms, so a suite that carried its
+  preset's `testTimeout: 30000` into the runner config and stopped there gives hooks a third of the
+  budget its tests get. The failure lands nowhere near the cause: Vitest attributes a `beforeEach`
+  timeout to the **test**, with the test's duration pinned at the limit, so the log reads
+  `× should create 10045ms` — a slow test whose body never ran. On by default, because it only ever
+  appends a sentence to a test that has already failed, and silent unless the two budgets actually
+  differ or the hook named its own timeout (`beforeEach(fn, 300)`), which the config is not to blame
+  for. `hookTimeoutHint: false` turns it off.
+
+- **`using spy = createSpyFromClass(X)` — every double carries `[Symbol.dispose]()`.** It runs
+  `resetAutoSpy(this)`, so the `afterEach` that existed only to reset one spy can go: recorded
+  calls, `calledWith` / `mustBeCalledWith` chains, `resolveWith` / `nextWith` values and a bare
+  `mockReturnValue` all go with the block. `createAutoMock` proxies and **every `mockDeep` node**
+  carry it too, so `using api = mockDeep<Api>()` resets the whole tree, children included. The key
+  is **non-enumerable** — `{ ...spy }` copies enumerable own symbol properties, so an enumerable
+  dispose method would follow the double into every snapshot — and has a stable identity across
+  reads, which a `Disposable` check and a `DisposableStack` both assume. There is deliberately **no
+  `[Symbol.asyncDispose]`**: `resetAutoSpy` is synchronous, and `await using` already falls back to
+  `@@dispose`. `Symbol.dispose` exists on every supported runtime, so there is no feature detection;
+  the `using` _declaration_ is your toolchain's question — esbuild and `tsc` both downlevel it. A
+  standalone `createFunctionSpy` is **not** covered: it is a host-runner mock, and Vitest puts its
+  own `[Symbol.dispose]` on those, which restores the original implementation instead.
+
+- **`strict: true` / `onUnstubbedCall` — fail on a method nobody configured, naming the call.** An
+  unconfigured method answers `undefined`, which is a legal value, so the failure surfaces frames
+  later inside production code as `Cannot read properties of undefined`. Strict mode makes the
+  omission say so on the line that called it — `Nothing configured Cart.checkout, and strict mode is
+  on. / Called as: Cart.checkout(1,'now')`, with the arguments printed because on a wide service
+  _which_ call is half the diagnosis. Available on `createSpyFromClass`, `createAutoMock`,
+  `provideAutoSpy`, and suite-wide through `setupAutoSpy({ strict })` (armed only when the option is
+  passed, released in the `afterAll` of the file that armed it, so a shared worker cannot fail a
+  spec that never opted in). `onUnstubbedCall` is the general form — whatever it returns becomes the
+  call's return value, which covers "record, don't fail" and a blanket fallback value. Precedence,
+  most specific first and stopping at the first one set: the double's `onUnstubbedCall`, the global
+  `onUnstubbedCall`, the double's `strict` (**including an explicit `strict: false`**, the only way
+  to exempt one collaborator from a suite-wide default), the global `strict`. It is not
+  argument-level strictness: a `calledWith` chain for _other_ arguments is a statement that the
+  method is stubbed, and `mustBeCalledWith` is the tool that throws on an argument miss. It does not
+  reach accessor spies, observable-property spies, `mockDeep` nodes, `console-spy`,
+  `mockResourceProp`'s `reload` or a standalone `createFunctionSpy`; `fillMissing` members **are**
+  covered, since a member the prototype never named is by definition one nobody configured.
+  `mockReturnValue` / `mockImplementation` / the `returns:` option replace the library's dispatch
+  rather than registering configuration, so they never reach the guard at all — with one visible
+  edge, `mockReturnValueOnce`, whose queue empties back onto the library dispatch and is then
+  reported as unstubbed. Full page: `core/strict-mode`.
+
+- **`npx vitest-auto-spy codemod` — migrate a suite off `jest-auto-spies` and Jest.** Seven
+  transforms: `auto-spies-import` splits an
+  `import { createSpyFromClass, provideAutoSpy, Spy } from 'jest-auto-spies'` across the entry
+  points that actually export each name, from a table generated from the **installed** package's own
+  export map; `inject-cast` rewrites `TestBed.inject(X) as Spy<X>` into
+  `asSpy<X>(TestBed.inject(X))`, carrying the type arguments across rather than leaving them to
+  inference; `jest-types` transposes `jest.Mock<R, [A]>` into the single call signature Vitest takes
+  (a plain rename compiles into the reverse meaning and nothing fails until a call site disagrees);
+  `jest-namespace` renames the `jest.*` members that have a `vi` twin; `jest-globals-import`,
+  `jasmine-aliases` (`xit` / `fdescribe` → `it.skip` / `describe.only`) and
+  `mock-implementation-arity` finish the mechanical half. **Dry-run by default** — the first thing a
+  repository sees is a diff it can reject — with `--write` to apply, `--only` / `--skip` to select,
+  and `--list` to print the transforms and the generated entry-point table. A member with no `vi`
+  twin (`requireMock`, `replaceProperty`, `createMockFromModule`, `setTimeout`, …) is **left alone
+  and reported with what to do instead**, and so is a member in neither list, because an unknown
+  member is exactly where guessing produces a rewrite that still compiles and means something else.
+  `--verify` transforms nothing and matches the files against the patterns the codemod removes,
+  exiting 1 on anything left — the check that also works on a file somebody edited by hand.
+
+- **`enableAngularDiagnostics()` on `/angular` — four silent Angular-testing failures turned into
+  loud ones.** `ngModuleScopes` fails on a testing module importing an NgModule that contributes
+  nothing at runtime; `deadSchemas` on `NO_ERRORS_SCHEMA` sitting next to a standalone component,
+  where it can never apply; `unspiedProviders` raises `injectSpy`'s existing `console.warn` about a
+  plain instance to a thrown failure at the `injectSpy` line; `pendingRequests` fails a test that
+  ends with unflushed `HttpTestingController` requests, naming each method and URL. Every member
+  defaults to `true` and takes `false` to opt out; a second call replaces the previous selection
+  rather than adding to it, and `disableAngularDiagnostics()` turns the group off while leaving the
+  `TestBed` timing instrumentation alone. `assertNoPendingRequests()` is the same HTTP check
+  exported for mid-test use. **`@angular/common/http/testing` is never imported** — the token is read
+  out of the caller's own `provideHttpClientTesting()` / `HttpClientTestingModule` configuration, so
+  a project that configures neither is silently inert. Call it _after_
+  `initTestEnvironment(...)`: Vitest runs `afterEach` in reverse registration order, and the check
+  has to run before the TestBed teardown it inspects.
+
+- **`trackInjections(tokens, options?)`, exported from both `/angular` and `/nestjs`.** Which
+  collaborators an entry point actually asked for, recorded through DI provider factories instead of
+  a module mock — a factory runs exactly when something injects its token, and DI is a seam the
+  build cannot remove. Returns an `InjectionLog`: `providers` to spread into a testing module,
+  `injectedTokens()` in the order the factories ran, `names()` for a readable `toEqual`,
+  `wasInjected(token)`, `get<D>(token)` typed as `Spy<D>`, and `reset()` for the record only. Each
+  token gets a class spy when it is a function and a `createAutoMock()` otherwise; `double` replaces
+  that where a collaborator has to be a real object. Doubles are built **eagerly** so a spec can stub
+  one before the entry point runs; the record fills in as DI constructs them, once per injector.
+  `{ provide, useFactory }` is the same object in both frameworks, so it is one implementation rather
+  than two that drift, and the core imports no framework at all.
+
+- **ESLint: `no-import-time-spread` (`error`, suggestion), the thirteenth rule.** A module-scope
+  spread of an imported binding — `export const webosEvents = [...BaseEvents]` — is safe under `tsc`
+  and under a browser's ESM loader, and raises
+  `Spread syntax requires ...iterable[Symbol.iterator] to be a function` while a spec _bundle_ loads,
+  because a shared chunk can be evaluated while a binding it re-exports is still `undefined`. An AST
+  pass found exactly seven sites in an 8 673-file workspace. A function body and an instance field
+  are deliberately not reported — they run later than the module does — while a `static` field is,
+  and the operand has to be the imported binding itself.
+
+### Changed
+
+- **`no-overridden-provider` classifies the pair, and every message names the surviving provider's
+  line.** The first field data — 20 reports across an 8 673-file workspace — split in two. A
+  **verbatim duplicate** (`provideAutoSpy(X)` twice in one array) cannot change what the test gets,
+  so that one carries a **suggestion** to delete the dead copy — a suggestion and never `--fix`,
+  because a run that deletes lines of a `providers` array unattended is not something to discover in
+  a diff. The other half is the interesting one: the surviving provider is the **barer** of the two,
+  so everything a configured `provideAutoSpy(X, { gettersToSpyOn: … })` set up is gone and the
+  assertions below run against a poorer spy answering to the same name. That case carries **no
+  edit** — which of the two to keep is the entire question — and says so instead.
+
+- **`no-mocked-for-spy`'s `--fix` is narrowed to values that came from this library's factories.**
+  The old fix rewrote the declaration to `Spy<T>` and left the object literal assigned beneath it,
+  which the new type rejects: `eslint --fix` reported clean and the type gate failed afterwards —
+  the worst shape an autofix has, because the rule's own check passes and nothing points back at it.
+  A declaration is decidable; what the name is _assigned_ a few lines below is a separate question.
+  The plain fix therefore survives only where the value came out of `createSpyFromClass`,
+  `createAutoMock`, `createMock`, `mockDeep`, `injectSpy`, `asSpy` and friends, which return a
+  `Spy<T>` already, plus annotations that belong to no variable (a parameter, a return type, an `as`
+  expression). Everywhere else the identical edit is offered as a **suggestion**, to be accepted
+  together with the repair at the creation site.
+
+- **A `mustBeCalledWith` failure prints `Wanted:` next to `Actual:`.** The diagnosis is the
+  comparison, not either half of it, the way `td.explain` and sinon report it. Every configured call
+  is listed when there is more than one, matchers included, so a config that never matched is
+  visible rather than inferred.
+
+- **`Cannot redefine property` is re-thrown with the property, the target and the way out.** Where an
+  accessor spy goes through this library — an `observablePropsToSpyOn` or getter/setter spy on an
+  auto-spy — the bare `TypeError` becomes a sentence naming the property, saying what the target
+  actually is (an ES module namespace is what a bundler leaves behind once it has inlined a barrel or
+  a workspace alias), and pointing at the "provide a real seam" recipe: inject the dependency, pass
+  it as an argument, or reach it through an object your own code owns. A `vi.spyOn` written by hand
+  in a spec is not something this package can see, so that one still reports the bare `TypeError`.
+
+- **`overrideComponentProvider` verifies that the override applied.** Queuing the component with the
+  TestBed compiler removes the _usual_ cause of a silent no-op; it does not prove the override
+  landed. Each call now queues a check and wraps `TestBed.createComponent` once: on the next fixture
+  the component's **own** injector is asked for the token, and a mismatch throws naming the
+  component, the token and what was resolved instead. The check is **always on** rather than a member
+  of `enableAngularDiagnostics` — an override that did not apply is a bug in the helper, it cannot
+  fire in a spec that never called the helper, and it stays silent when the component was not
+  rendered. Limits: the **first** `createComponent` only (the wrapper unhooks itself), an absent
+  component means silence rather than a guess, a later competing `TestBed.overrideProvider` still
+  wins (the check reports it, it cannot prevent it), and a `TestBed` without `createComponent` gets
+  no verification rather than a stale one. The injector is read structurally off the `DebugElement`,
+  so no `@angular/platform-browser` import was added.
+
+- **`dist/index.js` and `dist/angular.js` are built as one module each.** Importing an entry costs
+  per-module loader work rather than per-byte work, and every consumer imports the root on every spec
+  while every Angular consumer imports both. The root entry now reaches the loader as **2 modules
+  instead of 8** and `/angular` as **2 instead of 10** — measured at ~0.8 ms less per spec file for
+  the root and ~1.0 ms for an Angular consumer, at a cost of ~120 kB in a dev-only dependency that
+  never reaches a production bundle. The four stateful modules (`mock-adapter`,
+  `observable-support`, `package-identity`, `expect-emission`) are pinned to a single
+  `dist/shared-state.js` that every ESM entry imports, which makes the one-registry invariant
+  structural rather than emergent — two copies of it is the historical
+  `No mock adapter registered` / `Observable spies require rxjs` failure. Only these two entries:
+  de-chunking all fourteen costs +429 kB and duplicates the registries. The CommonJS build is
+  untouched and stays self-contained.
+
+- **Library throw sites report the caller's line.** Vitest 4.1's `vi.defineHelper` is probed off the
+  runtime (`globalThis.__vitest_index__`, present with or without `globals`) rather than imported, so
+  nothing changes on Bun, on `node:test`, or on Vitest below 4.1, where it degrades to the identity
+  function. Where it helps, the frame the runner reports is the spec line that called the helper
+  instead of a file inside `node_modules/vitest-auto-spy` — which is exactly the wrong invitation,
+  since the first thing both a person and an agent do with it is open that file.
+
+### Fixed
+
+- **`mockReadonlyProp` / `mockValueProp` / `mockReadonlyPropGetter` / `mockAccessorsProp` explain a
+  property that refuses to be replaced.** They reach the same `Object.defineProperty` as the accessor
+  spies behind the adapter, which have named the target and the way out for a while, and used to hand
+  the bare `TypeError: Cannot redefine property: injectDomainMetrics` straight back. The shared
+  explanation now lives in one place and both seams use it. The second half of the fix is the one
+  that was costing a second failure: the undo journal is written **after** the define succeeds rather
+  than before it, so a patch that never happened no longer sits there until the next
+  `restoreMockedProps()` reports a teardown failure for it. Anything that is not the runtime refusing
+  to redefine is re-thrown untouched.
+
+- **`no-overridden-provider` no longer reports `multi: true`.** Angular *accumulates* multi providers
+  for a token instead of keeping the last, so two of them in one array is the feature and not a
+  defect — a spec asserting that two `BEFORE_INIT` hooks run in registration order registers both on
+  purpose, and the report could only be silenced with an `eslint-disable` over a working test. The
+  flag was not read at all: `multi` appeared nowhere in the built plugin. Mixing the two modes for
+  one token is still reported, because Angular refuses that pair at runtime with
+  `Cannot mix multi providers and regular providers`; a `multi` value the rule cannot resolve
+  (`multi: flag`) is read as multi, since a missed report costs less than a false one.
+  `prefer-provide-auto-spy` steps back from a multi provider too — `provideAutoSpy` takes no
+  registration mode, so the replacement it would ask for does not exist.
+
+- **The legacy string form of `setTimeout` no longer skews `countStrayTimers()`.** Its handler is not
+  a function and cannot be wrapped, so nothing can report when it fired; recording it among the
+  tracked handles left the count stuck above zero for the rest of the file, and the
+  `afterEach(() => expect(countStrayTimers()).toBe(0))` this module recommends could never pass again
+  once a suite used the form. Those handles are now kept apart: still cancelled at teardown, never
+  counted as pending.
+
+- **`assertNgModuleScopes` and the `ngModuleScopes` diagnostic test emptiness by flattening.** The
+  compiler nests, and the `ɵinj.imports` of `@NgModule({})` is `[[], []]` — the module's own imports
+  and exports, both empty — which a `length === 0` test read as two entries and called a
+  contribution.
+
+- **A `mockDeep` node answers `[Symbol.dispose]` with the library's reset.** Every node answered
+  Vitest's own dispose, which restores the root spy instead of resetting the tree, so
+  `using api = mockDeep<Api>()` did the wrong thing. It is answered from the proxy trap rather than
+  defined on the node — a `defineProperty` there lands in the property store, where every key is
+  reported as enumerable, which is precisely what the non-enumerable definition exists to avoid — and
+  at every depth, so `using` on a sub-tree resets that sub-tree.
+
 ## [3.8.0] - 2026-08-29
 
 ### Added

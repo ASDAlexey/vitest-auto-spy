@@ -1,6 +1,6 @@
 ---
 name: vitest-auto-spy
-description: Write or fix tests that use vitest-auto-spy — typed spies generated from a class or a type on Vitest, bun:test and node:test. Use when a spec imports `vitest-auto-spy` (or a subpath such as `/angular`, `/bun`, `/bun-angular`, `/node`, `/rxjs`, `/nestjs`, `/vue`, `/react`, `/svelte`, `/console`, `/setup`, `/zone`, `/eslint-plugin`), when the user mentions createSpyFromClass, captureArg, mockResourceProp, registerResourceMatchers, createAutoMock, autoMocked, createMock, mockDeep, provideAutoSpy, provideAutoSpyForToken, injectSpy, renderShallow, createWithAutoSpies, stable, settleResource, overrideComponentProvider, assertNgModuleScopes, setupAngularTestEnv, createDirectiveHost, toHaveDirectiveApplied, expectEmission, expectCompletion, mockSignalProp, runEffect, mockReadonlyProp, stubIntersectionObserver, stubResizeObserver, stubMutationObserver, stubMediaElement, stubAbortController, mockConstructor, stubConstructor, flushEventLoop, settleDynamicImport, mockSystemTime, useCountingClock, registerFocusMatchers, toHaveFocus, assertMocked, moduleNamespace, diffByField, installPerTest, asInstances, narrow, withOverrides, compareTestRuns, installProxyZonePatch, setupAutoSpy, blockNetwork, trackStrayTimers, trackStrayRejections, Spy<T>, calledWith, mustBeCalledWith, onlyMethodsToSpyOn, instanceMethodsToSpyOn, observablePropsToSpyOn, resolveWith or nextWith, when migrating a suite off jest-auto-spies, or when a test fails with "No mock adapter registered", "Observable spies require rxjs", "not found on the class prototype", "is not a constructor", "Expected to be running in 'ProxyZone'" or "Spy<T> is not assignable".
+description: Write or fix tests that use vitest-auto-spy — typed spies generated from a class or a type on Vitest, bun:test and node:test. Use when a spec imports `vitest-auto-spy` (or a subpath such as `/angular`, `/bun`, `/bun-angular`, `/node`, `/rxjs`, `/nestjs`, `/vue`, `/react`, `/svelte`, `/console`, `/setup`, `/zone`, `/eslint-plugin`), when the user mentions createSpyFromClass, captureArg, mockResourceProp, registerResourceMatchers, createAutoMock, autoMocked, createMock, mockDeep, provideAutoSpy, provideAutoSpyForToken, injectSpy, renderShallow, createWithAutoSpies, stable, settleResource, overrideComponentProvider, assertNgModuleScopes, enableAngularDiagnostics, assertNoPendingRequests, trackInjections, setupAngularTestEnv, createDirectiveHost, toHaveDirectiveApplied, expectEmission, expectCompletion, mockSignalProp, runEffect, mockReadonlyProp, stubIntersectionObserver, stubResizeObserver, stubMutationObserver, stubMediaElement, stubAbortController, mockConstructor, stubConstructor, flushEventLoop, settleDynamicImport, mockSystemTime, useCountingClock, registerFocusMatchers, toHaveFocus, assertMocked, moduleNamespace, diffByField, installPerTest, asInstances, narrow, withOverrides, compareTestRuns, installProxyZonePatch, setupAutoSpy, blockNetwork, trackStrayTimers, trackStrayRejections, Spy<T>, calledWith, mustBeCalledWith, onlyMethodsToSpyOn, instanceMethodsToSpyOn, observablePropsToSpyOn, strict, onUnstubbedCall, resolveWith or nextWith, when migrating a suite off jest-auto-spies (run `npx vitest-auto-spy codemod`), or when a test fails with "No mock adapter registered", "Observable spies require rxjs", "not found on the class prototype", "is not a constructor", "Expected to be running in 'ProxyZone'" or "Spy<T> is not assignable".
 ---
 
 # vitest-auto-spy
@@ -80,6 +80,24 @@ passes emptily. When the request is not what the spec is about, skip it: `mockRe
 'products', [])` gives a double whose `set` / `fail` / `loading` move it directly, with nothing in
 flight to await.
 
+## Migrating a suite off `jest-auto-spies`
+
+Run the codemod; do not hand-edit the imports.
+
+```bash
+npx vitest-auto-spy codemod            # dry run — prints the diff, writes nothing
+npx vitest-auto-spy codemod --write    # apply
+npx vitest-auto-spy codemod --verify   # exits 1 on anything still matching what it removes
+```
+
+It splits the legacy import across the entry points that actually export each name (read off the
+installed package's export map), rewrites `TestBed.inject(X) as Spy<X>` into
+`asSpy<X>(TestBed.inject(X))`, and transposes `jest.Mock<R, [A]>` into the single call signature
+Vitest takes — a plain rename compiles into the reverse meaning and fails nowhere near the line. A
+`jest.*` member with no `vi` twin is left alone and reported instead of guessed at. Run `--verify`
+after `--write` and after any manual clean-up: it matches the _result_, so it also covers files
+edited by hand.
+
 ## Skeleton — anything else
 
 ```ts
@@ -101,54 +119,58 @@ it('loads', async () => {
 
 ## Reach for these before hand-rolling
 
-| Situation                                                          | Helper                                                             |
-| ------------------------------------------------------------------ | ------------------------------------------------------------------ |
-| a `signal()` / `computed()` field on the class under test          | `mockSignalProp(obj, prop, initial)` — returns the writable        |
-| a resource field, when the HTTP round trip is not the point        | `mockResourceProp(obj, prop, initial)` — `set` / `fail` / `loading` |
-| asserting a resource's value *and* status together                 | `registerResourceMatchers()` → `toHaveResourceValue` / `toBeLoading` |
-| a callback or config object the code under test built              | `captureArg<T>()` in the assertion, then read `.value`             |
-| an `effect()` whose trigger is now a static signal                 | `runEffect(effectRef)`                                             |
-| the component constructs its own `IntersectionObserver`            | `stubIntersectionObserver()` (+ `Resize` / `Mutation`)             |
-| a green run exiting 1 with `AbortError` under happy-dom            | `setupAutoSpy({ blockNetwork: true })`                             |
-| a real request going out of a unit run (`fetch`, XHR, `sendBeacon`) | `setupAutoSpy({ blockNetwork: true })` — `{ xhr: 'empty' }` for pings |
-| timers or frames from a previous file failing this one             | `setupAutoSpy({ strayTimers: true })`                              |
-| an assertion error in stderr, every test green and the run at 0    | `setupAutoSpy({ strayRejections: true })` — zone.js swallowed it   |
-| a run getting slower the longer it goes, on `isolate: false`       | `setupAutoSpy({ pruneMockRegistry: true })` — the mock registry    |
-| `Cannot read properties of undefined (reading 'now')`              | `restoreTimerGlobals` — on by default                              |
-| a spy handed to an API typed against the real class                | `asInstance()` / `asSpy()`                                         |
-| the code under test does `new X()` (a global, a vendor SDK)        | `mockConstructor(factory)` / `stubConstructor(obj, key, factory)`  |
-| `X is not a constructor`, with a stack in production code          | same — a `vi.fn(() => …)` cannot serve `new`                       |
-| waiting for a dynamic `import()` under fake timers                 | `settleDynamicImport(() => import('…'))` / `flushEventLoop()`      |
-| `addEventListener(…, { signal })` throwing about `EventTarget`     | `stubAbortController()`                                            |
-| a suite ported from Jest's `fakeTimers.enableGlobally`             | `setupAutoSpy({ globalFakeTimers: true })`                         |
-| a nested `describe`'s `beforeAll` landing on real timers           | `setupFakeTimers(cfg, { betweenTests: true })`                     |
-| setup hooks applying to the first spec file of a worker only       | the setup module is cached — run coverage with `--isolate`         |
-| `fakeAsync` inside `test.concurrent`                               | `installProxyZonePatch({ scope: 'callback' })`                     |
-| an assertion containing a date                                     | `mockSystemTime(iso)` — never `vi.spyOn(globalThis, 'Date')`       |
-| a spec asserting on tick _order_ under a frozen clock              | `useCountingClock()`                                               |
-| a dependency declared in the component's own `providers`           | `overrideComponentProvider(Cmp, Token)`                            |
-| `NG0303` / `NG0301` / `NG0304` from an imported NgModule           | `assertNgModuleScopes(Module)` — an AOT bundle stripped its scope  |
-| a focus assertion failing as `expected false to deeply equal true` | `registerFocusMatchers()` + `expect(el).toHaveFocus()`             |
-| a collaborator passed as an argument, then asserted on             | `autoMocked<T>()` — typed `T & Spy<T>`                             |
-| a `<video>` / `<audio>`: `play()` throws, `duration` is `NaN`      | `stubMediaElement({ duration })`, then `media.set(el, …)`          |
-| a `vi.mock()` that silently did nothing under a bundler            | `assertMocked(ns, { specifier, exports })`                         |
-| `No "default" export is defined on the mock`                       | `vi.mock('x', () => moduleNamespace({ … }))`                       |
-| waiting for a `resource()` / an SDK to become ready                | `flushEventLoopUntil(() => …, { label })` — budgeted, not tuned    |
-| `expected [ { at: 1, …(5) }, …(8) ] to deeply equal …`             | `expect(diffByField(actual, expected)).toBeUndefined()`            |
-| a stub that works only in the first test of the file               | `installPerTest(() => stub…())` — or install it in `beforeEach`    |
-| a library failing every other run after a `defineProperty` on DOM  | `setupAutoSpy({ guardGlobals: 'throw' })` names the file           |
-| `Cannot set base providers because it has already been called`     | `setupAngularTestEnv({ zoneless, initZone, initZoneless })`        |
-| a dependency behind an `InjectionToken`, with no class to spy      | `provideAutoSpyForToken(TOKEN)` + `injectSpy(TOKEN)`               |
-| `Expected to be running in 'ProxyZone', but it was not found`      | `import 'vitest-auto-spy/zone'` (needs `globals: true`)            |
-| `Property 'mockReturnValue' does not exist on type 'never'`        | upgrade — the spy no longer collapses on an unreadable return type |
-| a signal-valued getter that `gettersToSpyOn` will not accept       | it accepts any key now; for a signal prefer `mockSignalProp`       |
-| five `asInstance(…)` in one call, found one per `tsc` run          | `...asInstances(a, b, c, d, e)`                                    |
-| `nextWith` demanding `HttpEvent<T>` on a generated client          | `asSpy<Client, { overload: 'first' }>(…)` / `Overload<M, 0>`       |
-| a fixture that needs a nested object built by its own call         | `createMock<T>({ a: { b: 1 } })` — deep partial, still exact       |
-| `'params' in link` ladders, or a cast, to pick a union branch      | `narrow.byKey(link, 'params')` / `narrow.observable(x)`            |
-| `{ ...modelInstance, flag: true }` losing every getter             | `withOverrides(modelInstance, { flag: true })`                     |
-| `NG0303` / `NG0304` / silence from a directive spec                | `createDirectiveHost({ template, scope: [Module] })`               |
-| "did the migration lose a test?" with matching counters            | `compareTestRuns(before, after)`                                   |
+| Situation                                                           | Helper                                                                                               |
+| ------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| a `signal()` / `computed()` field on the class under test           | `mockSignalProp(obj, prop, initial)` — returns the writable                                          |
+| a resource field, when the HTTP round trip is not the point         | `mockResourceProp(obj, prop, initial)` — `set` / `fail` / `loading`                                  |
+| asserting a resource's value _and_ status together                  | `registerResourceMatchers()` → `toHaveResourceValue` / `toBeLoading`                                 |
+| a callback or config object the code under test built               | `captureArg<T>()` in the assertion, then read `.value`                                               |
+| an `effect()` whose trigger is now a static signal                  | `runEffect(effectRef)`                                                                               |
+| the component constructs its own `IntersectionObserver`             | `stubIntersectionObserver()` (+ `Resize` / `Mutation`)                                               |
+| a green run exiting 1 with `AbortError` under happy-dom             | `setupAutoSpy({ blockNetwork: true })`                                                               |
+| a real request going out of a unit run (`fetch`, XHR, `sendBeacon`) | `setupAutoSpy({ blockNetwork: true })` — `{ xhr: 'empty' }` for pings                                |
+| timers or frames from a previous file failing this one              | `setupAutoSpy({ strayTimers: true })`                                                                |
+| an assertion error in stderr, every test green and the run at 0     | `setupAutoSpy({ strayRejections: true })` — zone.js swallowed it                                     |
+| a run getting slower the longer it goes, on `isolate: false`        | `setupAutoSpy({ pruneMockRegistry: true })` — the mock registry                                      |
+| `Cannot read properties of undefined (reading 'now')`               | `restoreTimerGlobals` — on by default                                                                |
+| a spy handed to an API typed against the real class                 | `asInstance()` / `asSpy()`                                                                           |
+| the code under test does `new X()` (a global, a vendor SDK)         | `mockConstructor(factory)` / `stubConstructor(obj, key, factory)`                                    |
+| `X is not a constructor`, with a stack in production code           | same — a `vi.fn(() => …)` cannot serve `new`                                                         |
+| waiting for a dynamic `import()` under fake timers                  | `settleDynamicImport(() => import('…'))` / `flushEventLoop()`                                        |
+| `addEventListener(…, { signal })` throwing about `EventTarget`      | `stubAbortController()`                                                                              |
+| a suite ported from Jest's `fakeTimers.enableGlobally`              | `setupAutoSpy({ globalFakeTimers: true })`                                                           |
+| a nested `describe`'s `beforeAll` landing on real timers            | `setupFakeTimers(cfg, { betweenTests: true })`                                                       |
+| setup hooks applying to the first spec file of a worker only        | the setup module is cached — run coverage with `--isolate`                                           |
+| `fakeAsync` inside `test.concurrent`                                | `installProxyZonePatch({ scope: 'callback' })`                                                       |
+| an assertion containing a date                                      | `mockSystemTime(iso)` — never `vi.spyOn(globalThis, 'Date')`                                         |
+| a spec asserting on tick _order_ under a frozen clock               | `useCountingClock()`                                                                                 |
+| a dependency declared in the component's own `providers`            | `overrideComponentProvider(Cmp, Token)` — it verifies on the first fixture that the override applied |
+| a double answering `undefined` for a method nobody configured       | `{ strict: true }`, or `setupAutoSpy({ strict: true })` suite-wide                                   |
+| an `afterEach` that exists only to reset one spy                    | `using spy = createSpyFromClass(X)` — `[Symbol.dispose]` resets it                                   |
+| a dead NgModule import, dead `schemas`, an unflushed HTTP request   | `enableAngularDiagnostics()` in the setup file, after `initTestEnvironment`                          |
+| "which collaborators did this actually inject?"                     | `trackInjections([A, TOKEN])` — providers plus the record, not `vi.mock`                             |
+| `NG0303` / `NG0301` / `NG0304` from an imported NgModule            | `assertNgModuleScopes(Module)` — an AOT bundle stripped its scope                                    |
+| a focus assertion failing as `expected false to deeply equal true`  | `registerFocusMatchers()` + `expect(el).toHaveFocus()`                                               |
+| a collaborator passed as an argument, then asserted on              | `autoMocked<T>()` — typed `T & Spy<T>`                                                               |
+| a `<video>` / `<audio>`: `play()` throws, `duration` is `NaN`       | `stubMediaElement({ duration })`, then `media.set(el, …)`                                            |
+| a `vi.mock()` that silently did nothing under a bundler             | `assertMocked(ns, { specifier, exports })`                                                           |
+| `No "default" export is defined on the mock`                        | `vi.mock('x', () => moduleNamespace({ … }))`                                                         |
+| waiting for a `resource()` / an SDK to become ready                 | `flushEventLoopUntil(() => …, { label })` — budgeted, not tuned                                      |
+| `expected [ { at: 1, …(5) }, …(8) ] to deeply equal …`              | `expect(diffByField(actual, expected)).toBeUndefined()`                                              |
+| a stub that works only in the first test of the file                | `installPerTest(() => stub…())` — or install it in `beforeEach`                                      |
+| a library failing every other run after a `defineProperty` on DOM   | `setupAutoSpy({ guardGlobals: 'throw' })` names the file                                             |
+| `Cannot set base providers because it has already been called`      | `setupAngularTestEnv({ zoneless, initZone, initZoneless })`                                          |
+| a dependency behind an `InjectionToken`, with no class to spy       | `provideAutoSpyForToken(TOKEN)` + `injectSpy(TOKEN)`                                                 |
+| `Expected to be running in 'ProxyZone', but it was not found`       | `import 'vitest-auto-spy/zone'` (needs `globals: true`)                                              |
+| `Property 'mockReturnValue' does not exist on type 'never'`         | upgrade — the spy no longer collapses on an unreadable return type                                   |
+| a signal-valued getter that `gettersToSpyOn` will not accept        | it accepts any key now; for a signal prefer `mockSignalProp`                                         |
+| five `asInstance(…)` in one call, found one per `tsc` run           | `...asInstances(a, b, c, d, e)`                                                                      |
+| `nextWith` demanding `HttpEvent<T>` on a generated client           | `asSpy<Client, { overload: 'first' }>(…)` / `Overload<M, 0>`                                         |
+| a fixture that needs a nested object built by its own call          | `createMock<T>({ a: { b: 1 } })` — deep partial, still exact                                         |
+| `'params' in link` ladders, or a cast, to pick a union branch       | `narrow.byKey(link, 'params')` / `narrow.observable(x)`                                              |
+| `{ ...modelInstance, flag: true }` losing every getter              | `withOverrides(modelInstance, { flag: true })`                                                       |
+| `NG0303` / `NG0304` / silence from a directive spec                 | `createDirectiveHost({ template, scope: [Module] })`                                                 |
+| "did the migration lose a test?" with matching counters             | `compareTestRuns(before, after)`                                                                     |
 
 ## Rules that prevent most of the mistakes
 
@@ -174,10 +196,15 @@ it('loads', async () => {
   under zone.js the rejection is swallowed into `console.error` rather than reported.
   `await` the promise and assert the settled value; `setupAutoSpy({ strayRejections: true })` turns
   the ones already in a suite into failures.
+- **`strict` answers "nobody configured this method", never "nobody configured this call."** A
+  `calledWith` chain for other arguments does not trip it — that is `mustBeCalledWith`. It does not
+  reach accessor spies, observable-property spies, `mockDeep` nodes, `console-spy`,
+  `mockResourceProp`'s `reload` or a standalone `createFunctionSpy`, and `mockReturnValue` /
+  `mockImplementation` / `returns:` bypass it by replacing the dispatch.
 - **Never assert a signal with `toBeTruthy()`** — every signal is truthy. Use
   `toHaveSignalValue(v)` after `registerSignalMatchers()`.
 - **Never assert a resource with `expect(r.value()).toEqual(...)` alone** — an unresolved resource
-  still holds its *default*, so that passes while proving nothing. `toHaveResourceValue(v)` after
+  still holds its _default_, so that passes while proving nothing. `toHaveResourceValue(v)` after
   `registerResourceMatchers()` fails unless the resource actually resolved.
 - **Never put `captureArg()` in `calledWith`** — it matches every value, so it configures a return
   for every call. It belongs in `toHaveBeenCalledWith`; the types enforce this.
@@ -205,6 +232,7 @@ it('loads', async () => {
 npx vitest run path/to/file.spec.ts   # or the project's own command
 npx tsc --noEmit
 npx vitest-auto-spy doctor            # after a large edit: defects a green run cannot show
+npx vitest-auto-spy codemod --verify  # after a migration: anything the transforms should have removed
 ```
 
 Most of this library's guarantees are type-level, so a green run that does not type-check is not
