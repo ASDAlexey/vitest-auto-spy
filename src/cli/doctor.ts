@@ -8,6 +8,7 @@
  */
 import { checkAgentInstructions } from './checks/agent-instructions';
 import { checkAngularBuild } from './checks/angular-build';
+import { checkCoverageConfig } from './checks/coverage-config';
 import { checkForeignPragma } from './checks/foreign-pragma';
 import { buildGraph } from './checks/graph';
 import { checkOrphanRunnerConfig } from './checks/orphan-runner-config';
@@ -25,6 +26,7 @@ export function runDoctor(profile: Profile): Finding[] {
     ...checkForeignPragma(graph),
     ...checkOrphanRunnerConfig(profile, graph),
     ...checkAngularBuild(profile),
+    ...checkCoverageConfig(profile),
     ...checkAgentInstructions(profile),
   ];
 }

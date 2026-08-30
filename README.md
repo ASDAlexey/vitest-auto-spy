@@ -244,6 +244,8 @@ error  tsconfig-glob-matches-nothing libs/users/tsconfig.spec.json
 | `dead-runner-config`            | `jest.config.*` / `karma.conf.*` for a runner that is not installed   |
 | `orphan-runner-file`            | A setup file only that dead config referenced                         |
 | `angular-build-splitting-off`   | `@angular/build` in `[22.1.5, 22.1.7)` — the OOM under `--coverage`   |
+| `coverage-all-removed`          | `coverage.all` in a config, on a Vitest that stopped reading the key  |
+| `coverage-include-misses-bundle` | A `coverage.include` of sources only, in a runner config over a bundle |
 | `no-agent-instructions`         | No instruction file names the package. A note, not an error           |
 
 The check that motivated the tool: a spec showing `Cannot find name 'vi'` in the editor while

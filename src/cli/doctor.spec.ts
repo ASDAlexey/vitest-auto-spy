@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import { checkAgentInstructions } from './checks/agent-instructions';
 import { checkAngularBuild, compareVersions, isAffectedVersion, parseVersion } from './checks/angular-build';
+import { canMatchBundleChunk, checkCoverageConfig, coverageBlock, declaresKey, includePatterns } from './checks/coverage-config';
 import { checkForeignPragma, findPragmas } from './checks/foreign-pragma';
 import { buildGraph, extractSpecifiers, resolveRelative } from './checks/graph';
 import { checkOrphanRunnerConfig, referencedPaths } from './checks/orphan-runner-config';
@@ -292,6 +293,109 @@ describe('checkAngularBuild', () => {
     expect(compareVersions([22, 1], [22, 1])).toBe(0);
     expect(compareVersions([22, 1, 5], [22, 1, 5])).toBe(0);
     expect(isAffectedVersion([22, 1, 6])).toBe(true);
+  });
+});
+
+describe('checkCoverageConfig', () => {
+  const workspace = (runnerConfig: string): string =>
+    JSON.stringify({ projects: { app: { architect: { test: { builder: '@angular/build:unit-test', options: { runnerConfig } } } } } });
+
+  const vitest = (version: string): Record<string, string> => ({ 'node_modules/vitest/package.json': JSON.stringify({ version }) });
+
+  it('reports `coverage.all` once Vitest is the version that stopped reading it', () => {
+    const config = 'export default { test: { coverage: { provider: "v8", all: true } } };';
+    const four = readProfile(createTempRepo({ 'package.json': '{}', 'vitest.config.ts': config, ...vitest('4.1.9') }));
+    const three = readProfile(createTempRepo({ 'package.json': '{}', 'vitest.config.ts': config, ...vitest('3.2.4') }));
+
+    expect(checks(checkCoverageConfig(four))).toEqual(['coverage-all-removed']);
+    expect(checkCoverageConfig(three)).toEqual([]);
+  });
+
+  it('says nothing without a coverage block, without Vitest on disk, or on a manifest it cannot read', () => {
+    const noBlock = { 'package.json': '{}', 'vitest.config.ts': 'export default { test: { globals: true } };', ...vitest('4.1.9') };
+    const noVitest = { 'package.json': '{}', 'vitest.config.ts': 'export default { test: { coverage: { all: true } } };' };
+    const unreadable = { ...noVitest, 'node_modules/vitest/package.json': JSON.stringify({ version: 4 }) };
+
+    expect(checkCoverageConfig(readProfile(createTempRepo(noBlock)))).toEqual([]);
+    expect(checkCoverageConfig(readProfile(createTempRepo(noVitest)))).toEqual([]);
+    expect(checkCoverageConfig(readProfile(createTempRepo(unreadable)))).toEqual([]);
+  });
+
+  it('reports a source-only `coverage.include` in the runner config of a unit-test target', () => {
+    const root = createTempRepo({
+      'package.json': '{}',
+      'angular.json': workspace('./tools/vitest-runner.config.ts'),
+      'tools/vitest-runner.config.ts': 'export default { test: { coverage: { include: ["libs/**/*.ts", "apps/**/*.html"] } } };',
+    });
+
+    expect(checks(checkCoverageConfig(readProfile(root)))).toEqual(['coverage-include-misses-bundle']);
+  });
+
+  it('stays quiet when the list can reach a chunk, and when the same list is not a runner config', () => {
+    const reachable = createTempRepo({
+      'package.json': '{}',
+      'project.json': workspace('vitest-runner.config.ts'),
+      'vitest-runner.config.ts': 'export default { test: { coverage: { include: ["spec-*.js", "chunk-*.js", "libs/**/*.ts"] } } };',
+    });
+    const plain = createTempRepo({
+      'package.json': '{}',
+      'vitest.config.ts': 'export default { test: { coverage: { include: ["src/**/*.ts"] } } };',
+    });
+
+    expect(checkCoverageConfig(readProfile(reachable))).toEqual([]);
+    expect(checkCoverageConfig(readProfile(plain))).toEqual([]);
+  });
+
+  it('ignores a workspace file that names no unit-test target, and one that is not JSON', () => {
+    const other = createTempRepo({
+      'package.json': '{}',
+      'angular.json': JSON.stringify({
+        projects: {
+          app: { architect: { test: { builder: '@angular-devkit/build-angular:karma', options: { assets: [{ glob: '*' }] } } } },
+        },
+      }),
+      'project.json': 'not json at all',
+      'vitest-runner.config.ts': 'export default { test: { coverage: { include: ["src/**/*.ts"] } } };',
+    });
+
+    expect(checkCoverageConfig(readProfile(other))).toEqual([]);
+  });
+
+  it('ignores an Nx-style target that names no runner config of its own', () => {
+    const nxStyle = createTempRepo({
+      'package.json': '{}',
+      'project.json': JSON.stringify({ targets: { test: { executor: '@angular/build:unit-test', options: { runnerConfig: true } } } }),
+    });
+
+    expect(checkCoverageConfig(readProfile(nxStyle))).toEqual([]);
+  });
+
+  it('reads a workspace file that vanished as empty', () => {
+    expect(checkCoverageConfig(profileWith({ files: ['angular.json'] }))).toEqual([]);
+  });
+
+  it('reads the coverage block lexically, and gives up rather than guess on an unbalanced one', () => {
+    expect(coverageBlock('a: 1, coverage: { provider: "v8" }, b: 2')).toBe('coverage: { provider: "v8" }');
+    expect(coverageBlock('coverage: { thresholds: { lines: 100 } }')).toBe('coverage: { thresholds: { lines: 100 } }');
+    expect(coverageBlock('test: { globals: true }')).toBeUndefined();
+    expect(coverageBlock('coverage: { provider: "v8"')).toBeUndefined();
+  });
+
+  it('separates the own keys of the block from a nested literal', () => {
+    expect(declaresKey('coverage: { all: true }', 'all')).toBe(true);
+    expect(declaresKey('coverage: { thresholds: { all: true } }', 'all')).toBe(false);
+    expect(includePatterns('coverage: { include: ["a.ts", "b.ts"] }')).toEqual(['a.ts', 'b.ts']);
+    expect(includePatterns('coverage: { exclude: ["a.ts"] }')).toEqual([]);
+  });
+
+  it('treats an extension-free pattern as able to reach a chunk and a pinned one as not', () => {
+    expect(canMatchBundleChunk('spec-*.js')).toBe(true);
+    expect(canMatchBundleChunk('dist/*.mjs')).toBe(true);
+    expect(canMatchBundleChunk('src/**/*.{ts,js}')).toBe(true);
+    expect(canMatchBundleChunk('src/**/*.*')).toBe(true);
+    expect(canMatchBundleChunk('libs/**')).toBe(true);
+    expect(canMatchBundleChunk('src/**/*.ts')).toBe(false);
+    expect(canMatchBundleChunk('src/**/*.{ts,tsx}')).toBe(false);
   });
 });
 
