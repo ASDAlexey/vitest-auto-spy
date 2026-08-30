@@ -13,6 +13,7 @@
  * actually had, which is the only thing that makes the failure cheaper than the assertion it
  * replaces.
  */
+import { defineHelper } from './define-helper';
 import { serializeValue } from './serialize-args';
 import type { Func } from './types';
 
@@ -45,28 +46,14 @@ type WithKey<T, Key extends PropertyKey> = [Extract<T, Record<Key, unknown>>] ex
 /** The subscribable branch of `T`, or `T` itself when there is nothing to extract. */
 type Subscribable<T> = [Extract<T, { subscribe: Func }>] extends [never] ? T : Extract<T, { subscribe: Func }>;
 
-/**
- * Narrow a union to the branch a test knows it got.
- *
- * ```ts
- * const link = narrow(result.link, (candidate): candidate is DeeplinkWithParams => 'params' in candidate);
- * ```
- *
- * @param value The union-typed value.
- * @param predicate A type guard — or a plain boolean check, which narrows nothing but still fails
- *   in one place with a readable message.
- * @param label What was expected, quoted in the failure. Defaults to the predicate's source, which
- *   for an arrow is usually the most accurate description available.
- */
-export function narrow<T, Narrowed extends T>(value: T, predicate: (candidate: T) => candidate is Narrowed, label?: string): Narrowed;
-export function narrow<T>(value: T, predicate: (candidate: T) => boolean, label?: string): T;
-export function narrow<T>(value: T, predicate: (candidate: T) => boolean, label?: string): T {
+/** The implementation behind {@link narrow}; the doc comment lives on the exported value. */
+const narrowValue = defineHelper(<T>(value: T, predicate: (candidate: T) => boolean, label?: string): T => {
   if (!predicate(value)) {
     throw narrowingFailed(label ?? String(predicate), value);
   }
 
   return value;
-}
+});
 
 /**
  * The most common narrowing, without writing the guard: the branch that has this key.
@@ -104,5 +91,34 @@ function observable<T>(value: T): Subscribable<T> {
   return value as Subscribable<T>;
 }
 
-narrow.byKey = byKey;
-narrow.observable = observable;
+/**
+ * The callable shape of {@link narrow}, spelled out because the runtime value is a wrapped
+ * function rather than a `function` declaration: `vi.defineHelper` returns a new function, so the
+ * two overloads and the two attached helpers have to be declared rather than inferred.
+ */
+interface Narrow {
+  <T, Narrowed extends T>(value: T, predicate: (candidate: T) => candidate is Narrowed, label?: string): Narrowed;
+  <T>(value: T, predicate: (candidate: T) => boolean, label?: string): T;
+  /** {@link byKey} */
+  byKey: typeof byKey;
+  /** {@link observable} */
+  observable: typeof observable;
+}
+
+/**
+ * Narrow a union to the branch a test knows it got.
+ *
+ * ```ts
+ * const link = narrow(result.link, (candidate): candidate is DeeplinkWithParams => 'params' in candidate);
+ * ```
+ *
+ * @param value The union-typed value.
+ * @param predicate A type guard — or a plain boolean check, which narrows nothing but still fails
+ *   in one place with a readable message.
+ * @param label What was expected, quoted in the failure. Defaults to the predicate's source, which
+ *   for an arrow is usually the most accurate description available.
+ */
+export const narrow: Narrow = Object.assign(narrowValue, {
+  byKey: defineHelper(byKey),
+  observable: defineHelper(observable),
+});

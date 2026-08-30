@@ -21,6 +21,7 @@
  * optionally the Jest-shaped leniency where an export nobody stubbed reads as `undefined` instead
  * of throwing.
  */
+import { defineHelper } from './define-helper';
 import { DOCS_LINKS, withDocs } from './docs-links';
 
 /**
@@ -82,7 +83,7 @@ const SILENT_NO_OP_CAUSES =
  * @param options The specifier to name in the message, and the exports that must be mocks.
  * @returns `namespace`, so the check can wrap the import at the point of use.
  */
-export function assertMocked<T extends object>(namespace: T, options: AssertMockedOptions = {}): T {
+export const assertMocked = defineHelper(<T extends object>(namespace: T, options: AssertMockedOptions = {}): T => {
   const target = describeTarget(options.specifier);
   const required = options.exports;
 
@@ -113,7 +114,7 @@ export function assertMocked<T extends object>(namespace: T, options: AssertMock
   }
 
   return namespace;
-}
+});
 
 /** Options for {@link moduleNamespace}. */
 export interface ModuleNamespaceOptions {
