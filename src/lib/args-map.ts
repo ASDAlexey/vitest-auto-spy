@@ -18,6 +18,12 @@ type SerializedArgs = string;
 /** The minimal shape of a Vitest/Jest asymmetric matcher (`expect.any(...)`, etc.). */
 interface AsymmetricMatcher {
   asymmetricMatch(value: unknown): boolean;
+  /**
+   * The matcher's own rendering — `Any<Number>`, `StringContaining "a"` — which is what the runner
+   * prints for it in a diff. Optional because a hand-rolled matcher only has to answer
+   * `asymmetricMatch`; there the class name (`String(matcher)`) is the best available description.
+   */
+  toAsymmetricMatcher?: () => string;
 }
 
 /**
@@ -29,10 +35,15 @@ interface AsymmetricMatcher {
  * two `serializeValue` walks per invocation where one is enough. Positions holding an
  * asymmetric matcher are `undefined` here — they dispatch to `asymmetricMatch` and are
  * never serialized at all.
+ *
+ * `described` is the same args rendered for a human: the bare form of `serialized`, with the
+ * matcher positions filled in by the matcher itself. It is built in the same pass because that is
+ * the only place the matcher is narrowed to something that can describe itself.
  */
 interface MatcherConfig {
   args: unknown[];
   serialized: (string | undefined)[];
+  described: string[];
   value: unknown;
 }
 
@@ -61,9 +72,24 @@ export class ArgsMap {
 
   set(key: unknown, value: unknown): void {
     if (Array.isArray(key) && hasAsymmetricMatcher(key)) {
-      const serialized = key.map((arg) => (isAsymmetricMatcher(arg) ? undefined : this.#serialize([arg])));
+      const serialized: (string | undefined)[] = [];
+      const described: string[] = [];
 
-      this.#matcherConfigs.push({ args: key, serialized, value });
+      for (const arg of key) {
+        if (isAsymmetricMatcher(arg)) {
+          serialized.push(undefined);
+          described.push(arg.toAsymmetricMatcher?.() ?? String(arg));
+        } else {
+          const rendered = this.#serialize([arg]);
+
+          serialized.push(rendered);
+          // `#serialize` brackets the single-element array it is given; the bare rendering is what
+          // goes between the commas of the failure message.
+          described.push(rendered.slice(1, -1));
+        }
+      }
+
+      this.#matcherConfigs.push({ args: key, serialized, described, value });
 
       return;
     }
@@ -87,6 +113,20 @@ export class ArgsMap {
     }
 
     return this.#findByMatcher(key);
+  }
+
+  /**
+   * Every configured argument list, rendered the way a lookup key is — the *wanted* half of a
+   * `mustBeCalledWith` failure.
+   *
+   * Nothing is rendered here: the exact configs are keyed by their own serialization, and an
+   * asymmetric config carries the description built when it was registered. A failure message is
+   * assembling text it already has.
+   */
+  configured(): string[] {
+    const asymmetric = this.#matcherConfigs.map((config) => `[${config.described.join(',')}]`);
+
+    return [...Object.keys(this.#map), ...asymmetric];
   }
 
   // Keys are always argument arrays; `serializeValue` renders them to a stable,

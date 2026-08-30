@@ -31,6 +31,29 @@ myService.getName.mustBeCalledWith(1).mockReturnValue('Fake Name');
 expect(() => myService.getName(2)).toThrow();
 ```
 
+### What a `mustBeCalledWith` failure prints
+
+Both sides, the way `td.explain` and sinon do — because the diagnosis is the comparison, not either
+half of it:
+
+```
+The function 'getName' was configured with 'mustBeCalledWith' and expects to be called with specific arguments.
+Wanted: getName(1)
+Actual: getName(2)
+Docs: https://asdalexey.github.io/vitest-auto-spy/core/control-helpers
+```
+
+Every configured call is listed when there is more than one, matchers included, so a config that
+never matched is visible rather than inferred:
+
+```
+Wanted (3 configured):
+  getName(1)
+  getName(2,'fast')
+  getName(Any<Number>,StringContaining)
+Actual: getName(9,'zzz')
+```
+
 ### Asymmetric matchers in `calledWith`
 
 `calledWith` / `mustBeCalledWith` accept the same asymmetric matchers as `expect`

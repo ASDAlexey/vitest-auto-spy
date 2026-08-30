@@ -484,14 +484,14 @@ describe('sync methods', () => {
     expect(spy.syncMethod(1)).toBe('one');
   });
 
-  it('mustBeCalledWith throws when called with the wrong args', () => {
+  it('mustBeCalledWith throws when called with the wrong args, showing both sides', () => {
     spy.syncMethod.mustBeCalledWith(1).mockReturnValue('one');
-    expect(() => spy.syncMethod(2)).toThrow(/actual arguments were/);
+    expect(() => spy.syncMethod(2)).toThrow(/Wanted: syncMethod\(1\)\nActual: syncMethod\(2\)/);
   });
 
   it('mustBeCalledWith throws when called without args', () => {
     spy.syncMethod.mustBeCalledWith(1).mockReturnValue('one');
-    expect(() => spy.syncMethod()).toThrow(/without any arguments/);
+    expect(() => spy.syncMethod()).toThrow(/Wanted: syncMethod\(1\)\nActual: syncMethod\(\)/);
   });
 
   // Regression (bug #2): `javascript-stringify` can return `undefined`; the
@@ -811,12 +811,14 @@ describe('createFunctionSpy', () => {
 // ---------------------------------------------------------------------------
 
 describe('errorHandler', () => {
+  // The message itself — every branch of it — is covered in `lib/error-handler.spec.ts`; these two
+  // only pin the public re-export down to the shape a consumer calling it by hand still gets.
   it('formats the actual arguments', () => {
-    expect(() => errorHandler.throwArgumentsError([1, 'a'], 'fn')).toThrow(/actual arguments were: 1,'a'/);
+    expect(() => errorHandler.throwArgumentsError([1, 'a'], 'fn')).toThrow(/Actual: fn\(1,'a'\)/);
   });
 
   it('handles a call without arguments', () => {
-    expect(() => errorHandler.throwArgumentsError([], 'fn')).toThrow(/without any arguments/);
+    expect(() => errorHandler.throwArgumentsError([], 'fn')).toThrow(/Actual: fn\(\)/);
   });
 });
 
