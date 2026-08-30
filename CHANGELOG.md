@@ -12,6 +12,41 @@ The latest released version here must always match the one published on
 
 ### Added
 
+- **`createFixture<T>(defaults, overrides?)` and `createFixtureFactory<T>(defaults)` — somewhere to
+  put a model, so it is written out and checked once.** `createMock` answers "this spec reads two
+  fields of a big shape"; it has nothing to say about the more expensive habit, which is a content
+  model with seventeen required fields copied into every spec that needs one. Measured on a single
+  migration shard, those copies alone produced **28 `TS1117`** diagnostics — a duplicate key in a
+  literal, where the runtime keeps the *second* one, so an automated "drop one" fix silently changes
+  values — plus half of that shard's `TS2741`. The `defaults` argument is a **complete** `T` and that
+  is the point rather than a chore: a field the model dropped six months ago fails in one place
+  instead of in eight copies nobody re-checks, which is the diagnostic `Partial<T>` and `as T` both
+  delete. Overrides are deep-partial-checked like `createMock`'s and merge leaf by leaf; an
+  overridden array replaces the default one outright, because no merge rule over arrays is right
+  often enough to guess at. Every call hands back a fresh object and the defaults are copied when the
+  factory is built — a fixture shared by reference is the most common way one test's mutation decides
+  another's outcome, and under `isolate: false` that sharing reaches across files. The copy is deep
+  through plain objects and arrays and stops there: a `Date`, a `Map`, a DOM node or a class instance
+  travels by reference, because rebuilding one would strip its prototype, accessors included. For
+  defaults that *are* a model instance with getters, `withOverrides()` snapshots them first.
+
+- **`assertComponentDefIntact(...components)` (`/angular`) — the hole a half-loaded barrel leaves in
+  a component's own definition.** Providers and the compiled scope are baked into `ɵcmp` when the
+  component's module executes, not read at `createComponent` time, so a bundler that splits a barrel
+  into a chunk which has not run yet builds the definition with `undefined` in `providers`,
+  `viewProviders` or `dependencies`. Angular finds out much later and from inside itself —
+  `TypeError: Cannot read properties of undefined (reading 'provide')` at `resolveProvider
+  render3/di_setup.ts:95` — with a stack naming neither the barrel, nor the symbol, nor the
+  component; and the spec that breaks is one nobody touched, because chunk boundaries move with file
+  *contents*. Both obvious cures fail for the same reason: an `await import()` at the top of
+  `beforeEach` is already too late, and a static import in the spec header does not fix the order
+  this bundler emits. The check walks the three lists — nested arrays and the thunk Angular emits for
+  a forward reference included — and names the list and the index. The same call answers the related
+  `Cannot read properties of undefined (reading 'ɵcmp')` from `imports: [Cmp]`, where the class
+  reference itself never arrived, and a directive's `ɵdir` is read the same way. It does not fix the
+  build, which is a bundler configuration question; it replaces a half-hour investigation with one
+  line and points it away from the spec.
+
 - **`doctor` reports two coverage settings that configure nothing.** Both are the same defect in two
   shapes: a coverage key written where the party that assembles the coverage options never looks at
   it. Nothing fails either way — the run is green and a report is produced, it is simply not the
@@ -41,6 +76,27 @@ The latest released version here must always match the one published on
   the way `no-overridden-provider` already compares them; no fix and no suggestion, because the
   repair is either a provider the file does not have or a `TestBed.inject(X)` that says the real
   implementation was the point.
+
+### Documentation
+
+- **An "Error → cure" table in the README, keyed by what the compiler prints.** `asSpy` and
+  `asInstance` were unfindable from the messages that call for them: no `TS2739` text contains either
+  name, so neither a person nor an agent grepping the error reaches the helper. Six rows, one per
+  shape the confusion takes, plus the two facts that cost the most time when they are missing — that
+  the last row is word for word the second one (one message serving two different mistakes, told
+  apart only by the line it lands on), and that the error count does not fall monotonically, because
+  TypeScript stops checking a call at the first bad argument and stops excess-property checking at
+  the first unknown key. One file counted 40 → 1 → 1 → 1 → 0.
+
+### Internal
+
+- **The two `prefer-*` provider rules read hand-rolled doubles from one module.** `rules.ts` had
+  grown past the 500-line ceiling its own lint config sets, and the part that pushed it over was a
+  reading shared by `prefer-provide-auto-spy` and `prefer-create-spy-from-class`: how many `vi.fn()`s
+  a subtree carries, whether the object was written in place or parked in a `const` above the
+  TestBed, and whether it sits somewhere the answer must be "leave it alone". That now lives in
+  `eslint/hand-rolled-doubles.ts`, which is also what stops the two rules from drifting into
+  disagreeing about the same literal. No rule behaviour changed.
 
 ## [3.9.0] - 2026-08-30
 

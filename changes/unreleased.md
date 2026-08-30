@@ -4,11 +4,33 @@
 > local staging mirror — GitHub Releases are auto-generated from Conventional Commits on push to
 > `master`, so nothing here is pasted anywhere. See `CONTRIBUTING.md` → "Releasing".
 
-_Last released: **v3.8.1** (2026-08-29)._
+_Last released: **v3.11.0** (2026-08-30) — the git tag and `package.json` agree._
 
-Pending work is staged in `CHANGELOG.md` under `## [Unreleased]` — `using` / `Symbol.dispose`,
-`strict` / `onUnstubbedCall`, the `codemod` command, `enableAngularDiagnostics()`, `trackInjections`,
-`no-import-time-spread`, and the de-chunked `index` / `angular` entries. This mirror is not kept in
-lockstep; read the root file.
+> ⚠️ **`CHANGELOG.md` is two releases behind the tags.** Its newest released heading is
+> `## [3.9.0]`, while the latest tag and `package.json` are both `3.11.0` — so whatever shipped as
+> 3.10.0 and 3.11.0 is still sitting under `## [Unreleased]` there, mixed in with work that has not
+> shipped at all. This is the one manual step the automation does not do (`CONTRIBUTING.md` →
+> "Releasing", step 2): split that section into `## [3.10.0]` and `## [3.11.0]` by reading the
+> Conventional Commits between the tags, fix the compare links, and commit it as `docs(changelog):`
+> — a `docs` commit does not trigger a release.
+
+## Staged for the next release
+
+- **`createFixture<T>(defaults, overrides?)` / `createFixtureFactory<T>(defaults)`** (core) — the
+  model a whole suite shares, written out and checked once instead of copied into eight specs.
+  `defaults` is a complete `T`, so a removed field is one compile error rather than eight silent
+  lies; overrides are deep-partial-checked and merge leaf by leaf, an overridden array replaces.
+  Every call hands back a fresh object, which retires the shared `const FIXTURE` whose mutation in
+  one test decides another's outcome.
+- **`assertComponentDefIntact(...components)`** (`/angular`) — fails before rendering when a
+  half-loaded barrel chunk left `undefined` in a component's own `providers`, `viewProviders` or
+  compiled scope, naming the list and the index. Angular otherwise reports it half an hour later as
+  `Cannot read properties of undefined (reading 'provide')` from inside its own provider resolution.
+  Also answers the related `… (reading 'ɵcmp')` from `imports: [Cmp]`.
+- **README: an "Error → cure" table**, keyed by what the compiler prints rather than by helper name —
+  `asSpy` and `asInstance` are unfindable from the messages that call for them.
+- **Internal:** the reading shared by the two `prefer-*` provider lint rules moved to
+  `src/lib/eslint/hand-rolled-doubles.ts`; `rules.ts` had grown past the 500-line ceiling its own
+  config sets and was failing `npm run lint` on 3.11.0. No rule behaviour changed.
 
 <!-- Add user-facing items here as work lands, mirroring `## [Unreleased]` in the root CHANGELOG. -->
