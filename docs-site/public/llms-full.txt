@@ -6200,13 +6200,23 @@ So there is no table in the source. At run time the command:
    `types` condition: a declaration file names the type-only exports a runtime bundle cannot. A
    checkout with no `dist` falls back to the sources beside it, which is how a monorepo consumes the
    package before its first release.
-3. **Collects the exported names lexically** — named clauses, declarations, and `export * from './…'`
-   followed through the barrels to a depth of eight — against a
+3. **Collects the exported names lexically** — named clauses, declarations, and both spellings of the
+   star re-export, `export * from './…'` and `export type * from './…'`, followed through the barrels
+   to a depth of eight — against a
    [comment-and-string-masked view](#how-a-pattern-never-matches-a-comment) of each file, so a name
    inside a comment or a string is not an export.
 
 The result is a name → specifiers lookup with no false positives available to it, because it is not
 a guess about the API — it _is_ the API, read off the copy on disk.
+
+**The two spellings of `export *` are not interchangeable, and the difference is invisible**
+The type-only form is what a package uses to re-export its public type surface in one line, so a
+walker that knows only the value form loses every type at once — here that is `Spy<T>` and everything
+declared beside it. Nothing announces the loss: the table still builds, still looks complete, and the
+import transform simply decides it cannot place the name and leaves the import on `jest-auto-spies`
+with a residue error. The failure also only appears on the source path, since a `.d.ts` spells its
+exports out — so a suite run against a built `dist` stays green while the same suite run before the
+build fails.
 
 **Resolution order**, when a name is exported by more than one entry:
 
