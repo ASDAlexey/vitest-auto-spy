@@ -154,7 +154,6 @@ jobs:
           npm version ${{ steps.bump.outputs.bump }} -m 'chore(release): %s [skip ci]'
           NEW_VERSION="v$(node -p "require('./package.json').version")"
           echo "version=${NEW_VERSION}" >> "$GITHUB_OUTPUT"
-          git push --follow-tags
 
       # Authenticated over OIDC — no NODE_AUTH_TOKEN, and no `--provenance`: npm
       # attaches provenance by itself when it publishes a public package from a
@@ -168,6 +167,18 @@ jobs:
           else
             npm publish --access public
           fi
+
+      # After the publish, never before it. The commit and the tag exist only on the runner until
+      # this step, so a publish that fails leaves the remote exactly as it was and the next run
+      # recomputes the same bump and retries. Pushing first is what produced v1.13.0, v2.0.0, v2.0.1
+      # and v3.9.0 — tags on GitHub for versions npm never received. v3.9.0 also showed why that
+      # state is hard to leave: the bump is decided over `$(git describe --tags --abbrev=0)..HEAD`,
+      # so the pushed tag makes the range empty, every later step skips on `bump != 'none'`, and
+      # re-running the failed job publishes nothing. The inverse order can only fail the other way —
+      # npm ahead of the tag — which the "already published" guard above makes safe to retry.
+      - name: Push the release commit and its tag
+        if: steps.bump.outputs.bump != 'none'
+        run: git push --follow-tags
 
       - name: Create GitHub Release
         if: steps.bump.outputs.bump != 'none'
