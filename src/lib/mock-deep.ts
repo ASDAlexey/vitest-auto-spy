@@ -23,6 +23,7 @@
  * `logger.channel('app').info('x')` — is a `TypeError` at the second call, even though
  * `DeepMockProxy<T>` types it perfectly. Pass `{ selfReturning: true }` for that shape.
  */
+import { DISPOSE } from './dispose-symbol';
 import { createFunctionSpy } from './function-spy';
 import {
   NOT_STORED,
@@ -154,7 +155,7 @@ function readNodeMember(state: DeepNodeState, target: Func, key: string | symbol
   // Reached at every depth, not only at the root: `resetAutoSpy` walks `DEEP_CHILDREN` from
   // whichever node it is handed, so `using` on a sub-tree resets that sub-tree. A seed or an
   // assignment under the same key still wins, since both are read from the store above.
-  if (key === Symbol.dispose) {
+  if (key === DISPOSE) {
     return disposeAutoSpy;
   }
 

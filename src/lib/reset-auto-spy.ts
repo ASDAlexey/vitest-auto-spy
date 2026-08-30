@@ -12,6 +12,7 @@
  * them records no spurious calls. A `mockDeep` node is followed to its materialised children, so a
  * `calledWith` seeded three levels down does not outlive the test that set it.
  */
+import { DISPOSE } from './dispose-symbol';
 import { type MockFn, getMockAdapter } from './mock-adapter';
 import { isMarkedMock, readDeepChildren, runClearHook, runConfigReset } from './spy-mark';
 
@@ -161,5 +162,5 @@ export function disposeAutoSpy(this: object): void {
  * brand does.
  */
 export function attachDispose(spy: object): void {
-  Object.defineProperty(spy, Symbol.dispose, { value: disposeAutoSpy, enumerable: false, configurable: true, writable: true });
+  Object.defineProperty(spy, DISPOSE, { value: disposeAutoSpy, enumerable: false, configurable: true, writable: true });
 }

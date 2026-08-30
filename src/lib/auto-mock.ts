@@ -21,6 +21,7 @@
  *    method keys and property keys are indistinguishable at runtime. Seed plain
  *    properties through `overrides` (or assign them) when you need real values.
  */
+import { DISPOSE } from './dispose-symbol';
 import { DOCS_LINKS, withDocs } from './docs-links';
 import { type UnstubbedGuard, createFunctionSpy, resolveUnstubbedGuard } from './function-spy';
 import { getMockAdapter } from './mock-adapter';
@@ -212,7 +213,7 @@ function createAutoMockHandler(seed: object, unstubbed: UnstubbedGuard | undefin
     deleteProperty: (_target, key): boolean => dropStoredProp(store, key),
 
     has(_target, key): boolean {
-      return key === AUTO_SPY_MARK || key === Symbol.dispose || hasStoredProp(store, key);
+      return key === AUTO_SPY_MARK || key === DISPOSE || hasStoredProp(store, key);
     },
 
     ownKeys(): (string | symbol)[] {
@@ -247,7 +248,7 @@ function readKey(store: ProxyPropStore, key: string | symbol, receiver: unknown,
   // `this`, which `using` binds to the proxy, so one shared function serves every auto-mock and the
   // key answers with a stable identity. A seed or an assignment under the same key wins, since both
   // are read from the store above.
-  if (key === Symbol.dispose) {
+  if (key === DISPOSE) {
     return disposeAutoSpy;
   }
 
