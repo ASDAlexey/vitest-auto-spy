@@ -278,6 +278,21 @@ describe('stray timers', () => {
     expect(original).toHaveBeenCalledWith('doThing()', 300);
   });
 
+  it('does not count the legacy string form as pending, but still cancels it', () => {
+    const host = createHost();
+
+    track(host);
+
+    const handle = host.setTimeout('doThing()' as unknown as ScheduledCallback, 300);
+
+    // Nothing reports when a string handler ran, so counting it would leave the suite's own
+    // `expect(countStrayTimers()).toBe(0)` failing for the rest of the file.
+    expect(countStrayTimers(host)).toBe(0);
+    expect(cancelStrayTimers(host)).toBe(0);
+    // Cleared all the same, and once — it can only ever have been a timeout.
+    expect(host.cleared).toEqual([handle]);
+  });
+
   it('defaults to the real globals', () => {
     const stop = trackStrayTimers();
 

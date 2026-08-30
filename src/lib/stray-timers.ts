@@ -57,6 +57,13 @@ interface Tracking {
    * clears accept either kind, so which scheduler produced one is not worth storing.
    */
   readonly handles: Set<unknown>;
+  /**
+   * Handles whose firing cannot be observed — the legacy string form of `setTimeout`, whose handler
+   * is not a function and therefore cannot be wrapped. They are cancelled at teardown like anything
+   * else, but they are never counted: nothing tells us when one ran, so counting it would report
+   * every suite that used the form as leaking for the rest of the file.
+   */
+  readonly opaque: Set<unknown>;
   readonly frames: Set<number>;
   readonly stop: StopTrackingTimers;
 }
@@ -103,8 +110,8 @@ function defineScheduler(host: SchedulerHost, name: keyof SchedulerHost, value: 
  *
  * The wrapper reads the handle out of the enclosing binding instead of capturing it, because the
  * handle exists only once `schedule` has returned — which always happens before a callback can run.
- * A handler that is not a function (the legacy string form of `setTimeout`) is passed through
- * untouched: wrapping it would change what it means.
+ * A handler that is not a function is passed through untouched: wrapping it would turn a call the
+ * real scheduler rejects on the spot into one that fails later, inside the callback.
  */
 function scheduleTracked<THandle>(
   schedule: (callback: ScheduledCallback) => THandle,
@@ -126,15 +133,34 @@ function scheduleTracked<THandle>(
   return handle;
 }
 
-/** Replace `setTimeout` / `setInterval` with recording wrappers. */
-function wrapTimerScheduler(host: SchedulerHost, name: 'setInterval' | 'setTimeout', handles: Set<unknown>): () => void {
+/** The two sets {@link wrapTimerScheduler} records into — see {@link Tracking} for what separates them. */
+type TimerSets = Pick<Tracking, 'handles' | 'opaque'>;
+
+/**
+ * Replace `setTimeout` / `setInterval` with recording wrappers.
+ *
+ * The legacy string form of `setTimeout` — a handler evaluated in global scope rather than called —
+ * cannot be wrapped without changing what it means, so nothing reports when one fired. Its handle
+ * therefore goes to the `opaque` set: still cancelled at teardown, never counted as pending.
+ * Recording it in `handles` instead is what used to leave `countStrayTimers()` stuck above zero for
+ * the rest of the file, so the `afterEach(() => expect(countStrayTimers()).toBe(0))` this module
+ * recommends could never pass again once a suite used the form.
+ */
+function wrapTimerScheduler(host: SchedulerHost, name: 'setInterval' | 'setTimeout', sets: TimerSets): () => void {
   const original = host[name];
   // Only a timeout is one-shot; an interval outlives its first run.
   const oneShot = name === 'setTimeout';
 
-  defineScheduler(host, name, (callback: ScheduledCallback, ...rest: unknown[]): unknown =>
-    scheduleTracked((tracked) => original(tracked, ...rest), callback, handles, oneShot),
-  );
+  defineScheduler(host, name, (callback: ScheduledCallback, ...rest: unknown[]): unknown => {
+    if (oneShot && typeof callback === 'string') {
+      const handle = original(callback, ...rest);
+      sets.opaque.add(handle);
+
+      return handle;
+    }
+
+    return scheduleTracked((tracked) => original(tracked, ...rest), callback, sets.handles, oneShot);
+  });
 
   return () => defineScheduler(host, name, original);
 }
@@ -218,11 +244,12 @@ export function trackStrayTimers(host: SchedulerHost = defaultHost()): StopTrack
   }
 
   const handles = new Set<unknown>();
+  const opaque = new Set<unknown>();
   const frames = new Set<number>();
 
   const undo = [
-    wrapTimerScheduler(host, 'setTimeout', handles),
-    wrapTimerScheduler(host, 'setInterval', handles),
+    wrapTimerScheduler(host, 'setTimeout', { handles, opaque }),
+    wrapTimerScheduler(host, 'setInterval', { handles, opaque }),
     wrapTimerCanceller(host, 'clearTimeout', handles),
     wrapTimerCanceller(host, 'clearInterval', handles),
     wrapFrameScheduler(host, frames),
@@ -234,7 +261,7 @@ export function trackStrayTimers(host: SchedulerHost = defaultHost()): StopTrack
     registry().delete(host);
   };
 
-  registry().set(host, { handles, frames, stop });
+  registry().set(host, { handles, opaque, frames, stop });
 
   return stop;
 }
@@ -244,7 +271,8 @@ export function trackStrayTimers(host: SchedulerHost = defaultHost()): StopTrack
  *
  * Belongs in `afterAll`, where "is this callback still wanted?" always answers no. Returns how many
  * handles it had to cancel, which is the number worth logging when a suite wants to know whether it
- * is actually leaking.
+ * is actually leaking. A timeout scheduled with the legacy string form is cleared along with the
+ * rest but left out of that number: it may well have fired already, and there is no way to tell.
  *
  * @example
  * ```ts
@@ -274,6 +302,10 @@ export function cancelStrayTimers(host: SchedulerHost = defaultHost()): number {
   });
   tracked.handles.clear();
 
+  // Always a timeout, so one clear is enough. Clearing one that has already fired is a no-op.
+  tracked.opaque.forEach((handle) => host.clearTimeout(handle));
+  tracked.opaque.clear();
+
   const cancelFrame = host.cancelAnimationFrame;
 
   if (cancelFrame) {
@@ -291,7 +323,8 @@ export function cancelStrayTimers(host: SchedulerHost = defaultHost()): number {
  *
  * A timeout leaves the count when it fires, a frame when it runs, and either kind of timer when
  * something clears it; an interval stays until it is cancelled, which is what makes an uncancelled
- * one worth reporting.
+ * one worth reporting. The legacy string form of `setTimeout` is not counted at all — its handler
+ * cannot be wrapped, so nothing reports when it fired; {@link cancelStrayTimers} still clears it.
  *
  * @example
  * ```ts
