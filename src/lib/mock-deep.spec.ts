@@ -9,6 +9,7 @@ import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { registerMockAdapter } from './mock-adapter';
 import { mockDeep } from './mock-deep';
 import { asInstance, asSpy } from './spy-typing';
+import type { DeepMockProxy } from './types';
 import { vitestMockAdapter } from './vitest-adapter';
 
 beforeAll(() => {
@@ -212,5 +213,45 @@ describe('handing a deep mock to something that wants the real type', () => {
 
     expect(logger.channel).toHaveBeenCalledWith('app');
     expect(asSpy<AppLogger>(logger.channel('app')).info).toHaveBeenCalledWith('started');
+  });
+});
+
+describe('mockDeep — Symbol.dispose', () => {
+  it('resets the whole tree at the end of a `using` block, children included', () => {
+    let escaped: DeepMockProxy<Root> | undefined = undefined;
+
+    {
+      using api = mockDeep<Root>();
+      api.db.repo.user.find.calledWith(1).mockReturnValue('Ada');
+
+      expect(api.db.repo.user.find(1)).toBe('Ada');
+      escaped = api;
+    }
+
+    // `resetAutoSpy` walks `DEEP_CHILDREN`, so a `calledWith` seeded three levels down does not
+    // outlive the block — which is the whole reason a deep mock needs the hook at all.
+    expect(escaped.db.repo.user.find).toHaveBeenCalledTimes(0);
+    expect(escaped.db.repo.user.find(1)).toBeUndefined();
+  });
+
+  it('answers before the spy surface, with one stable function at every depth', () => {
+    const api = mockDeep<Root>();
+
+    // The ordering is the point. Vitest's own `vi.fn()` carries an own `[Symbol.dispose]` that
+    // calls `mockRestore`, and that key is therefore part of the spy surface a node forwards to —
+    // so without the trap answering first, `using` on a deep mock restored the root node and left
+    // every seeded child exactly as it was.
+    expect(api[Symbol.dispose]).toBe(api[Symbol.dispose]);
+    expect(Reflect.get(api.db.repo, Symbol.dispose)).toBe(api[Symbol.dispose]);
+  });
+
+  it('lets a member written under the same name win, as every other key does', () => {
+    const disposed = vi.fn();
+    const api = mockDeep<Root>();
+
+    api[Symbol.dispose] = disposed;
+    api[Symbol.dispose]();
+
+    expect(disposed).toHaveBeenCalledTimes(1);
   });
 });

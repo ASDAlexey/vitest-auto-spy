@@ -20,7 +20,7 @@
  * not have becomes a new spy. Enumeration, `has` and descriptors are left to the target, so
  * `Object.keys` reports what was really assembled rather than every key anybody ever touched.
  */
-import { createFunctionSpy } from './function-spy';
+import { type UnstubbedGuard, createFunctionSpy } from './function-spy';
 import type { Func } from './types';
 
 /**
@@ -52,10 +52,20 @@ function isInternalKey(key: PropertyKey): boolean {
  * Wrap an assembled spy record so that reading a member it does not have mints a function spy and
  * caches it on the record.
  *
+ * The strict-mode guard travels with it, and that is not a detail. A filled-in member is *by
+ * definition* one nobody configured — it did not exist until the read that made it — so
+ * `{ strict: true, fillMissing: true }` without the guard produced the one combination that is
+ * worse than either flag alone: a suite that asked to be told about unconfigured calls, on exactly
+ * the members where the question is always "nobody configured this", answering `undefined` in
+ * silence. The two options are complementary rather than opposed: `fillMissing` decides that an
+ * abstract member *exists*, `strict` decides what happens when nothing said what it does.
+ *
  * @param autoSpy The record `createSpyFromClass` assembled from the prototype.
+ * @param unstubbed The guard the assembled record's own spies were given — see
+ *   {@link resolveUnstubbedGuard}. Omitted by every non-strict double, which is the default.
  * @returns The same object's behaviour, plus an answer for names the prototype never carried.
  */
-export function fillMissingMembers(autoSpy: Record<string, unknown>): Record<string, unknown> {
+export function fillMissingMembers(autoSpy: Record<string, unknown>, unstubbed?: UnstubbedGuard): Record<string, unknown> {
   return new Proxy(autoSpy, {
     get(target: Record<string, unknown>, key: PropertyKey): unknown {
       // `in` and not `hasOwnProperty`: an inherited `toString` is a member the record answers, and
@@ -64,7 +74,7 @@ export function fillMissingMembers(autoSpy: Record<string, unknown>): Record<str
         return Reflect.get(target, key);
       }
 
-      const spy = createFunctionSpy<Func>(String(key));
+      const spy = createFunctionSpy<Func>(String(key), unstubbed);
 
       // Written back as a plain data property, exactly as the lazy placeholder does when it
       // materialises, so the second read is an ordinary lookup and `Object.keys` now names it.

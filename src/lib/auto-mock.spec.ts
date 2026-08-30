@@ -174,3 +174,65 @@ describe('createAutoMock returns configuration', () => {
     warn.mockRestore();
   });
 });
+
+describe('createAutoMock — Symbol.dispose', () => {
+  it('resets the double at the end of a `using` block', () => {
+    let escaped: ReturnType<typeof createAutoMock<UserService>> | undefined = undefined;
+
+    {
+      using users = createAutoMock<UserService>();
+      users.getName.calledWith(1).mockReturnValue('Ada');
+
+      expect(users.getName(1)).toBe('Ada');
+      escaped = users;
+    }
+
+    expect(escaped.getName).toHaveBeenCalledTimes(0);
+    expect(escaped.getName(1)).toBeUndefined();
+  });
+
+  it('answers the key outside the property store, so it never reaches ownKeys or a spread', () => {
+    const users = createAutoMock<UserService>();
+    users.getName(1);
+
+    expect(Symbol.dispose in users).toBe(true);
+    expect(users[Symbol.dispose]).toBe(users[Symbol.dispose]);
+    expect(Object.keys(users)).toEqual(['getName']);
+    expect(Object.getOwnPropertySymbols({ ...users })).toEqual([]);
+  });
+
+  it('lets a member written under the same name win, as every other key does', () => {
+    const disposed = vi.fn();
+    const users = createAutoMock<UserService>();
+
+    users[Symbol.dispose] = disposed;
+    users[Symbol.dispose]();
+
+    expect(disposed).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('createAutoMock — strict mode', () => {
+  it('throws without a class name, since a type-driven double has none to print', () => {
+    const users = createAutoMock<UserService>(undefined, { strict: true });
+
+    expect(() => users.getName(1)).toThrow('[vitest-auto-spy] Nothing configured getName, and strict mode is on.\nCalled as: getName(1)');
+  });
+
+  it('leaves a configured member alone and runs onUnstubbedCall for the rest', () => {
+    const seen: (string | undefined)[] = [];
+    const users = createAutoMock<UserService>(undefined, {
+      onUnstubbedCall: ({ className, method }) => {
+        seen.push(className, method);
+
+        return 'noted';
+      },
+    });
+
+    users.getName.calledWith(1).mockReturnValue('Ada');
+
+    expect(users.getName(1)).toBe('Ada');
+    expect(users.getUser(1)).toBe('noted');
+    expect(seen).toEqual([undefined, 'getUser']);
+  });
+});

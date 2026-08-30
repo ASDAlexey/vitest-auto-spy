@@ -26,7 +26,7 @@ leaks straight into the next file. `setupAutoSpy()` registers `restoreMockedProp
 
 **And in an `onTestFinished` net behind it**, because the `afterEach` is not guaranteed to run.
 Vitest calls `afterEach` hooks in **reverse** registration order, so the one a setup file registers
-is the *last*, and any hook the spec file registered — which therefore runs first — takes the chain
+is the _last_, and any hook the spec file registered — which therefore runs first — takes the chain
 down with it when it throws:
 
 ```ts
@@ -157,8 +157,8 @@ whether the machine has a route out, which is not a property a test suite should
 
 Every channel the environment implements is closed by default. The object narrows it:
 
-| option   | default    | what it does                                                              |
-| -------- | ---------- | ------------------------------------------------------------------------- |
+| option   | default    | what it does                                                               |
+| -------- | ---------- | -------------------------------------------------------------------------- |
 | `fetch`  | `true`     | `fetch` rejects, naming what was requested                                 |
 | `xhr`    | `'reject'` | how a diverted `XMLHttpRequest` is answered — or `false` to leave it alone |
 | `beacon` | `true`     | `navigator.sendBeacon` answers `false`, where the environment has one      |
@@ -372,6 +372,147 @@ the same pair of hooks on its own, `keepRegisteredMocks()` marks everything curr
 long-lived, `pruneMockRegistry()` is the one-shot sweep and returns how many went, and
 `getMockRegistrySize()` reports what is left — `undefined` when the capture never took.
 
+## 10. Strict doubles for the whole suite
+
+Opt-in, and the one switch here that changes what a **double** does rather than what the environment
+does.
+
+```ts
+setupAutoSpy({ strict: true }); // a method nobody configured throws, naming itself
+```
+
+Off, a method nobody configured returns `undefined` — a legal value, so the failure surfaces
+wherever it is finally used, several frames from the omission and usually inside production code.
+On, it throws on the call that produced it, naming the class, the method and the arguments. The
+per-double form is `createSpyFromClass(X, { strict: true })`; this is the same switch for a whole
+suite, so adopting it is one line rather than an edit per factory call.
+
+`onUnstubbedCall` is the general form — whatever it returns becomes the call's result, so a suite can
+record the gap before turning the throw on:
+
+```ts
+setupAutoSpy({ onUnstubbedCall: ({ className, method }) => console.warn(`unstubbed ${className}.${method}`) });
+```
+
+A double's own configuration wins, **including an explicit `strict: false`** — which is the only way
+to exempt one wide collaborator from the default.
+
+Two things about the lifetime, both of which matter under `isolate: false`. The default is armed only
+when one of the two options is actually passed, so a plain `setupAutoSpy()` cannot clobber a default
+something else installed. And it is released in `afterAll` of the file that armed it: the module
+holding it is shared by every file in the worker, so a default left armed would fail a spec that
+never opted in, with a message naming a class that spec had nothing to do with. That is the same seam
+`strayTimers` uses, for the same reason.
+
+Where the guard reaches, what counts as configured, and the full precedence chain are on
+[Strict mode](/core/strict-mode).
+
+## 11. The hook budget Jest had only one of
+
+On by default, because it only ever appends a sentence to a test that has already failed.
+
+```ts
+setupAutoSpy({ hookTimeoutHint: false }); // off
+```
+
+Jest resolves **one** budget and spends it on a hook and on a test body alike:
+
+```js
+const timeout = hook.timeout || getState().testTimeout; // jest-circus
+const timeout = test.timeout || getState().testTimeout;
+```
+
+Vitest resolves two, and `hookTimeout` has its own default of 10 000 ms. So a suite that carried its
+Jest preset's `testTimeout: 30000` into the runner config and stopped there gives every hook a third
+of the budget its tests get, and nothing says so.
+
+What makes that expensive is where the failure lands. Vitest attributes a `beforeEach` timeout to the
+**test**, with the test's duration pinned at the limit:
+
+```text
+× should create 10045ms
+```
+
+It reads as a slow test. The body it names never ran at all, so the ten seconds are nowhere to be
+found in it, and the reader spends the afternoon in the wrong file. The hint puts the missing
+sentence on the error itself, naming both budgets and the field to set.
+
+It is silent when the budgets agree — then the hook really is slow and the config is not the story —
+and silent for a hook that named its own limit (`beforeEach(fn, 300)`). `beforeAll` is out of reach
+by construction: its timeout is reported as a failed _suite_, every test is marked skipped, and no
+`afterEach` runs for the hint to ride on.
+
+Migrating a runner config off Jest, set the two side by side and treat the single Jest number as
+belonging to both:
+
+```ts
+test: {
+  testTimeout: 30_000,
+  // Jest had one budget for both; Vitest defaults this to 10_000 on its own.
+  hookTimeout: 30_000,
+}
+```
+
+One neighbouring field differs quietly and changes only the report: `slowTestThreshold` is `5` in
+Jest (**seconds**) and `300` in Vitest (**milliseconds**), so a migrated suite starts marking most of
+its files slow. A unit change, not a regression.
+
+## 12. A timeout the clock explains, not the code
+
+On by default, and silent unless the clock is frozen with callbacks queued on it.
+
+```ts
+setupAutoSpy({ frozenClockHint: false }); // off
+```
+
+Fake timers turn waiting into waiting forever. `await new Promise((r) => setTimeout(r, 10))` never
+resolves unless something advances them, and all the runner has to say about it is what it says
+about a genuinely slow test:
+
+```text
+Error: Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument …
+```
+
+So the reader is told to raise the budget — the one repair that cannot work, because the callback is
+not late, it is never going to run. Under [`globalFakeTimers`](#fake-timers-for-the-whole-run) it is
+worse: nothing in the spec says the clock is fake, because the setting came from a Jest preset that
+had `fakeTimers.enableGlobally`, so the timeout arrives in a file that never mentions a timer.
+
+The hint reports `vi.isFakeTimers()` and `vi.getTimerCount()` — the clock is frozen, N callbacks are
+queued on it, and nothing advanced it. That is a fact rather than a guess, which is why the check
+says nothing when the fake clock's queue is empty: an empty queue explains no timeout.
+
+**The shape that reaches this with no timer in sight is an HTTP spec.** `setImmediate` is among the
+globals `vi.useFakeTimers()` replaces by default, and Express ends a request that matched no route
+through `finalhandler`, which schedules on `setImmediate`. The 404 is therefore never written, and a
+routing mistake is reported as a test that took thirty seconds. In such a file, "the test hung"
+means _the route did not match_.
+
+One thing this cannot see through: a spec whose own `afterEach` calls `vi.useRealTimers()`. Hooks
+run in reverse registration order, so a spec's own hook runs before the one `setupAutoSpy` installs,
+and the clock is real again by the time the hint reads it. Nothing is reported then, rather than
+something wrong.
+
+## The two buffers teardown drains
+
+Two of the checks above keep what they find in a buffer until something takes it out, and both
+buffers are unbounded.
+
+- **The rejection captures.** `trackStrayRejections()` appends one entry per swallowed rejection,
+  and each entry holds the reason itself — an `Error`, its stack, and through that the whole async
+  closure chain that produced it.
+- **The property journal.** `mockReadonlyProp` and its siblings append to
+  `globalThis.__vitestAutoSpyPatchedProps__`, one entry per patch, each holding the object it
+  patched and the descriptor it overwrote.
+
+On the supported path neither grows: `setupAutoSpy()`'s `afterEach` drains both after every test —
+`flushStrayRejections()` hands the array over and leaves it empty, `restoreMockedProps()` empties
+the journal before it puts anything back. What accumulates for the worker's life is the hand-wired
+half: a `trackStrayRejections()` read only through `countStrayRejections()`, or patches read only
+through `countMockedProps()`. **A counter empties nothing.** Read through the flush, or let
+`setupAutoSpy()` own the teardown and use the counters for the assertion they are there for.
+
 ## Reinstalling a stub for every test
 
 ```ts
@@ -401,18 +542,22 @@ each test: a stub installed for the previous test is exactly what must not still
 
 ## Options
 
-| Option                | Default   | Notes                                                                         |
-| --------------------- | --------- | ----------------------------------------------------------------------------- |
-| `duplicateCopies`     | `'throw'` | `'warn'` to report without failing, `'off'` to skip the check                 |
-| `restoreProps`        | `true`    | `restoreMockedProps()` in a global `afterEach`                                |
-| `restoreMocks`        | `false`   | `vi.restoreAllMocks()` in a global `afterEach` — turn on for `isolate: false` |
-| `strayTimers`         | `false`   | Track and cancel timeouts, intervals and frames that outlive their file       |
-| `strayRejections`     | `false`   | Fail the test a rejection zone.js swallowed surfaced in — needs zone.js       |
+| Option                | Default   | Notes                                                                           |
+| --------------------- | --------- | ------------------------------------------------------------------------------- |
+| `duplicateCopies`     | `'throw'` | `'warn'` to report without failing, `'off'` to skip the check                   |
+| `restoreProps`        | `true`    | `restoreMockedProps()` in a global `afterEach`                                  |
+| `restoreMocks`        | `false`   | `vi.restoreAllMocks()` in a global `afterEach` — turn on for `isolate: false`   |
+| `strayTimers`         | `false`   | Track and cancel timeouts, intervals and frames that outlive their file         |
+| `strayRejections`     | `false`   | Fail the test a rejection zone.js swallowed surfaced in — needs zone.js         |
 | `blockNetwork`        | `false`   | Close every network channel the environment has — `true`, or a narrowing object |
-| `guardGlobals`        | `'off'`   | Report a test that redefines a global property as non-configurable            |
-| `globalFakeTimers`    | `false`   | Fake timers for every test **and between them** — see below                   |
-| `restoreTimerGlobals` | `true`    | Put back timer globals that uninstalling the fakes deleted                    |
-| `pruneMockRegistry`   | `false`   | Keep @vitest/spy's ever-growing mock registry to the mocks that outlive a file |
+| `guardGlobals`        | `'off'`   | Report a test that redefines a global property as non-configurable              |
+| `globalFakeTimers`    | `false`   | Fake timers for every test **and between them** — see below                     |
+| `restoreTimerGlobals` | `true`    | Put back timer globals that uninstalling the fakes deleted                      |
+| `pruneMockRegistry`   | `false`   | Keep @vitest/spy's ever-growing mock registry to the mocks that outlive a file  |
+| `hookTimeoutHint`     | `true`    | Explain a hook that ran out of `hookTimeout` while `testTimeout` is larger      |
+| `frozenClockHint`     | `true`    | Explain a timeout that happened because nothing advanced the fake clock         |
+| `strict`              | `false`   | Every double built afterwards throws on a method nobody configured              |
+| `onUnstubbedCall`     | —         | The general form of `strict` — its return value becomes the call's result       |
 
 `restoreMocks` is off by default because it also drops `vi.spyOn` stubs a suite installed in
 `beforeAll`; it is the knob to reach for when the run shares one environment across files.
@@ -442,6 +587,10 @@ test's `afterEach`, so a block that prepares its samples there would otherwise m
 fail with `the timers APIs are not mocked` — in a set whose own tests never touch a timer. The fakes
 come off for good in `afterAll`, so they never outlive the file. For one `describe` rather than the
 whole run, that is [`setupFakeTimers(config, { betweenTests: true })`](./fake-timers).
+
+Pass a config object rather than `true` when the run drives a real HTTP handler: the default
+`toFake` includes `setImmediate`, which is how an Express `404` becomes a 30-second timeout that
+names nothing — see [taking `setImmediate` out of `toFake`](./fake-timers#taking-setimmediate-out-of-tofake).
 
 ## Shared fixtures are functions, not constants
 

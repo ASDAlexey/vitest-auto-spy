@@ -28,21 +28,42 @@ createSpyFromClass(MyService, {
   settersToSpyOn: ['userName'],
   autoSpyAccessors: true, // auto-discover every getter/setter on the prototype chain
   lazySpies: true, // build each method spy on first access (see below)
+  strict: true, // a method nobody configured throws instead of returning undefined
 });
 ```
 
 Passing an array **adds** the listed names to the auto-discovered set, matching `jest-auto-spies`.
 Discovery already finds every prototype method, so the only names worth passing are the ones it
-cannot see. To spy on *nothing but* a list, use `onlyMethodsToSpyOn`, which skips discovery.
+cannot see. To spy on _nothing but_ a list, use `onlyMethodsToSpyOn`, which skips discovery.
 
 The `ClassSpyConfiguration` keys are `methodsToSpyOn`, `onlyMethodsToSpyOn`,
 `instanceMethodsToSpyOn`, `observablePropsToSpyOn`, `gettersToSpyOn`, `settersToSpyOn`,
-`autoSpyAccessors`, `fillMissing`, `lazySpies`, `returns` and `overrides`.
+`autoSpyAccessors`, `fillMissing`, `lazySpies`, `returns`, `overrides`, `strict` and
+`onUnstubbedCall`.
+
+### `strict` — a method nobody configured {#strict}
+
+```ts
+const users = createSpyFromClass(UserService, { strict: true });
+
+users.load.resolveWith([]);
+users.currentTenant(); // throws: Nothing configured UserService.currentTenant
+```
+
+Off by default, so an unconfigured method returns `undefined` — which is a legal value, and so the
+failure lands wherever that `undefined` is finally used rather than on the call that produced it.
+`onlyMethodsToSpyOn` was the only tool for this before and answers a different question: it _deletes_
+the method, so the failure reads `… is not a function` and blames the spy.
+
+`onUnstubbedCall` is the general form — record instead of failing, or return a blanket fallback —
+and `setupAutoSpy({ strict: true })` turns it on for a whole suite, with `{ strict: false }` on one
+double as the way out. What counts as configured, and where the guard does not reach, are on
+[Strict mode](./strict-mode).
 
 ### `instanceMethodsToSpyOn` — callables that are not on the prototype
 
 Method discovery walks the **prototype chain**, which is where `class` methods live. A callable
-assigned to an *instance field* is invisible to it — an arrow-function property, an Angular
+assigned to an _instance field_ is invisible to it — an arrow-function property, an Angular
 `signal()` / `computed()` field, a method of an ngrx `signalStore()`. Name those explicitly:
 
 ```ts
@@ -81,12 +102,12 @@ There is no better message to be had at runtime, and the reason is worth knowing
 like an oversight: instance fields do not exist until a constructor has run, and this factory never
 constructs the class — which is exactly what makes it safe to build a spy from a service whose
 constructor opens a socket. The only alternative would be to answer an unknown member with
-*something*, and that something would be truthy, so `if (service.optionalThing)` in the code under
+_something_, and that something would be truthy, so `if (service.optionalThing)` in the code under
 test would take the wrong branch — silently, in a different file. That is the failure mode the
 [protocol deny-list](/core/auto-mock-by-type) exists to remove, and a loud `TypeError` on the spec's
 own line is the better of the two.
 
-### `fillMissing` — a partially abstract class
+### `fillMissing` — a partially abstract class {#fill-missing}
 
 A **fully** abstract class needs nothing: its prototype names nothing at all, so the factory hands
 back the [type-driven proxy](/core/auto-mock-by-type) and every method answers. One concrete member
@@ -121,7 +142,7 @@ alternative when the list is short and worth stating.
 
 Two things it does not change. A member the record already has is still read from the record, so a
 lazy placeholder materialises exactly as it would without the wrapper. And the protocol keys the
-surrounding machinery probes to decide *what kind of object this is* — `then`, `constructor`,
+surrounding machinery probes to decide _what kind of object this is_ — `then`, `constructor`,
 `toJSON`, `asymmetricMatch`, `$$typeof`, `nodeType`, and every symbol — are never filled: a spy on
 `asymmetricMatch` turns every `toEqual` against the double into a matcher invocation, and one on
 `toJSON` rewrites every snapshot of it.
@@ -153,9 +174,56 @@ eager spies. See [Adapters → Angular](/adapters/angular#lazy-spies-by-default)
 :::
 
 **Behaviour is identical either way.** `Object.keys`, `vi.isMockFunction`, `calledWith`,
-`resetAutoSpy` / `clearAutoSpy` and enumeration all work the same; lazy only changes *when* each spy
+`resetAutoSpy` / `clearAutoSpy` and enumeration all work the same; lazy only changes _when_ each spy
 is constructed, not what it does. The one nuance: a lazy method is an accessor until first touched,
 so a never-accessed spy has no recorded calls (which is exactly why `resetAutoSpy` can skip it).
+
+## `using` — reset at the end of the block {#using}
+
+Every double this package builds carries a `[Symbol.dispose]()` that calls `resetAutoSpy(this)`, so
+the `afterEach` that exists only to reset one spy can go:
+
+```ts
+it('loads', () => {
+  using cart = createSpyFromClass(Cart); // reset when the block ends
+  cart.total.calledWith().mockReturnValue(42);
+
+  expect(cart.total()).toBe(42);
+});
+// calls and configuration both gone — cart.total() is undefined again
+```
+
+`resetAutoSpy` is what runs, so it is the full reset: recorded calls, `calledWith` /
+`mustBeCalledWith` chains, `resolveWith` / `nextWith` values, and a bare `mockReturnValue` set
+directly on the host mock. It is also callable by hand — `cart[Symbol.dispose]()` — and the key has
+a **stable identity** across reads, which a `Disposable` check and a `DisposableStack` both assume.
+
+**The method is ours; the syntax is your toolchain's.** `Symbol.dispose` is a well-known symbol on
+every runtime this package supports (Node 18.18+, which is under the package's own
+`engines: { node: ">=18" }`; Bun 1.4), so there is no runtime guard and no feature detection — the
+key is simply there. The `using` _declaration_ is a separate question: esbuild and `tsc` both
+downlevel it, which is why the specs in this repository use it while CI runs on Node 22, 24 and 26.
+Executed natively — an untranspiled `.js` on Node 22 — it is a `SyntaxError`; Node 24 runs it. If
+your setup does not transpile, call `[Symbol.dispose]()` or `resetAutoSpy()` directly; nothing else
+changes.
+
+**The key is non-enumerable**, so it stays out of a spread. That is the one that had to be defended:
+`{ ...spy }` copies enumerable own _symbol_ properties, so an enumerable dispose method would follow
+the double into every snapshot and every `withOverrides`-style copy. `Object.keys` and
+`JSON.stringify` ignore symbols outright and were never at risk.
+
+**There is deliberately no `[Symbol.asyncDispose]`.** `resetAutoSpy` is synchronous, so an async half
+would add a microtask and advertise teardown that does not exist — and `await using` already falls
+back to `@@dispose` when `@@asyncDispose` is absent, so nothing is lost.
+
+::: warning `createFunctionSpy` is not covered
+A standalone `createFunctionSpy` is a host-runner mock, and Vitest puts its own `[Symbol.dispose]`
+on every mock it creates — `() => mock.mockRestore()`, which **restores the original
+implementation**. That is a different contract from reverting a double's configuration: the
+`calledWith` chains this library keeps in a closure are not part of it. `using` on a single function
+spy therefore means whatever your runner means by it, not what it means on a `Spy<T>`. Reach for
+`resetAutoSpy(spy)` when the library configuration is what should go.
+:::
 
 ## The `Spy<T>` shape
 
@@ -206,7 +274,7 @@ what the class already has: a read-only member stays read-only.
 
 Before 3.5.0 only the named half was spied, and the double came out poorer than the original exactly
 where the code under test expects symmetry. The assignment `service.manualSwitchKidMode = false`
-landed on the no-op setter the spy scaffolding installs, so the write vanished *and* there was
+landed on the no-op setter the spy scaffolding installs, so the write vanished _and_ there was
 nothing to assert on — `accessorSpies.setters.manualSwitchKidMode` was `undefined`, and the failure
 read `Cannot read properties of undefined` several steps from the configuration that caused it.
 

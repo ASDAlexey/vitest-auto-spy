@@ -7,10 +7,11 @@ import { createAccessorsSpies } from './accessor-spy';
 import { createAutoMock } from './auto-mock';
 import { DOCS_LINKS, withDocs } from './docs-links';
 import { fillMissingMembers } from './fill-missing';
-import { createFunctionSpy } from './function-spy';
+import { type UnstubbedGuard, createFunctionSpy, resolveUnstubbedGuard } from './function-spy';
 import { getMockAdapter } from './mock-adapter';
 import { requireObservableSupport } from './observable-support';
-import type { ClassSpyConfiguration, ClassType, Func, OnlyMethodKeysOf, Spy, SpyOptions } from './types';
+import { attachDispose } from './reset-auto-spy';
+import type { ClassSpyConfiguration, ClassType, Func, OnlyMethodKeysOf, Spy, SpyOptions, UnstubbedCallHandler } from './types';
 
 /** All names to spy on, flattened from either form of the config argument. */
 interface ResolvedSpyConfiguration {
@@ -25,6 +26,8 @@ interface ResolvedSpyConfiguration {
   lazySpies: boolean;
   returns: Record<string, unknown>;
   overrides: object;
+  strict: boolean | undefined;
+  onUnstubbedCall: UnstubbedCallHandler | undefined;
 }
 
 /** Getter/setter accessor names discovered along a prototype chain. */
@@ -45,6 +48,8 @@ const EMPTY_CONFIGURATION: ResolvedSpyConfiguration = {
   lazySpies: true,
   returns: {},
   overrides: {},
+  strict: undefined,
+  onUnstubbedCall: undefined,
 };
 
 /** Own, non-getter method names of a single prototype object (excluding the constructor). */
@@ -324,12 +329,12 @@ function materializeMethodSpy(autoSpy: Record<string, unknown>, methodName: stri
  * property and throw `TypeError: Cannot set property … which has only a getter` in strict mode,
  * which is how every ES module runs.
  */
-function defineLazyMethodSpy(autoSpy: Record<string, unknown>, methodName: string): void {
+function defineLazyMethodSpy(autoSpy: Record<string, unknown>, methodName: string, unstubbed: UnstubbedGuard | undefined): void {
   Object.defineProperty(autoSpy, methodName, {
     configurable: true,
     enumerable: true,
     get(): unknown {
-      const spy = createFunctionSpy(methodName);
+      const spy = createFunctionSpy(methodName, unstubbed);
       materializeMethodSpy(autoSpy, methodName, spy);
 
       return spy;
@@ -362,6 +367,8 @@ function resolveConfiguration<T>(methodsToSpyOnOrConfig?: ClassSpyConfiguration<
     lazySpies: methodsToSpyOnOrConfig.lazySpies ?? true,
     returns: methodsToSpyOnOrConfig.returns ?? {},
     overrides: methodsToSpyOnOrConfig.overrides ?? {},
+    strict: methodsToSpyOnOrConfig.strict,
+    onUnstubbedCall: methodsToSpyOnOrConfig.onUnstubbedCall,
   };
 }
 
@@ -438,10 +445,13 @@ function assembleSpy<T, Options extends SpyOptions>(ObjectClass: ClassType<T>, c
     // Throwing here — "use createAutoMock<T>()" — was the alternative, and it is worse: it turns
     // the single most common Angular token shape into a hard error with a manual workaround, when
     // the workaround is a thing this library can simply do.
-    return createAutoMock<T, Options>();
+    // Strict mode travels with it: a fully abstract class is exactly the wide-collaborator shape
+    // `strict: true` exists for, and losing the flag at the fallback would switch it off silently.
+    return createAutoMock<T, Options>(undefined, { strict: config.strict, onUnstubbedCall: config.onUnstubbedCall });
   }
 
   const methodNames = resolveMethodNames(ObjectClass, config);
+  const unstubbed = resolveUnstubbedGuard(ObjectClass.name, config);
 
   // Only a restricting list can be silently wrong: a misspelled name there replaces the real method
   // with nothing, and the failure surfaces as `… is not a function` inside the code under test. In
@@ -472,16 +482,18 @@ function assembleSpy<T, Options extends SpyOptions>(ObjectClass: ClassType<T>, c
   // the placeholder is an enumerable accessor. Eager path is the default.
   methodNames.forEach((methodName) => {
     if (config.lazySpies) {
-      defineLazyMethodSpy(autoSpy, methodName);
+      defineLazyMethodSpy(autoSpy, methodName, unstubbed);
     } else {
-      autoSpy[methodName] = createFunctionSpy(methodName);
+      autoSpy[methodName] = createFunctionSpy(methodName, unstubbed);
     }
   });
+
+  attachDispose(autoSpy);
 
   // `autoSpy` is assembled key-by-key from the runtime method/accessor names;
   // its concrete `Spy<T>` shape only exists structurally after assembly.
   // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- the spy object is built dynamically from runtime-discovered names; its `Spy<T>` shape cannot be expressed before assembly.
-  return (config.fillMissing ? fillMissingMembers(autoSpy) : autoSpy) as Spy<T, Options>;
+  return (config.fillMissing ? fillMissingMembers(autoSpy, unstubbed) : autoSpy) as Spy<T, Options>;
 }
 
 /**

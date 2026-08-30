@@ -16,7 +16,10 @@ import { afterAll, afterEach, beforeEach, onTestFinished, vi } from 'vitest';
 
 import { DOCS_LINKS, withDocs } from './docs-links';
 import { type FakeTimersConfig, setupFakeTimers } from './fake-timers';
+import { annotateFrozenClockTimeout, readFrozenClock } from './frozen-clock';
+import { setDefaultStrictMode } from './function-spy';
 import { type GlobalPatchReaction, type GlobalSnapshot, checkSealedAdditions, snapshotWatchedGlobals } from './global-patch-guard';
+import { annotateHookTimeout, readRunnerTimeouts } from './hook-timeout';
 import { trackMockRegistry } from './mock-registry';
 import { type BlockNetworkOptions, blockNetwork } from './network-stub';
 import { describeDuplicateCopies } from './package-identity';
@@ -24,6 +27,7 @@ import { countMockedProps, restoreMockedProps } from './prop-mock';
 import { type StrayRejection, flushStrayRejections, trackStrayRejections } from './stray-rejections';
 import { cancelStrayTimers, trackStrayTimers } from './stray-timers';
 import { restoreTimerGlobals } from './timer-globals';
+import type { UnstubbedCallHandler } from './types';
 
 /** How `setupAutoSpy` should react to more than one install of the library. */
 export type DuplicateCopiesReaction = 'off' | 'throw' | 'warn';
@@ -118,6 +122,36 @@ export interface SetupAutoSpyOptions {
    */
   pruneMockRegistry?: boolean;
   /**
+   * Explain a `beforeEach` that ran out of the run-wide `hookTimeout` while `testTimeout` is larger.
+   * Default `true` — it only ever adds a sentence to a test that has already failed.
+   *
+   * Jest resolves one `testTimeout` for a hook and for a test body alike; Vitest resolves
+   * `hookTimeout` separately and defaults it to 10 000 ms. A suite that migrated its preset's single
+   * `testTimeout: 30000` into the runner config and stopped there gives hooks a third of the budget
+   * their tests get — and Vitest reports the resulting hook timeout **against the test**, with the
+   * test's duration pinned at the limit (`× should create 10045ms`). It reads as a slow test, and
+   * the body it names never ran. See {@link annotateHookTimeout}.
+   *
+   * Silent unless the two budgets actually differ, and silent for a hook that named its own timeout
+   * (`beforeEach(fn, 300)`) — that one is slow on its own terms and the config is not to blame.
+   */
+  hookTimeoutHint?: boolean;
+  /**
+   * Explain a test or hook that ran out of time while the clock was frozen and callbacks were queued
+   * on it. Default `true` — like {@link hookTimeoutHint}, it only ever adds a sentence to a test
+   * that has already failed.
+   *
+   * A frozen clock turns waiting into waiting forever, and the runner's own advice ("pass a timeout
+   * value") is the one repair that cannot work. Under {@link globalFakeTimers} nothing in the spec
+   * says the clock is fake at all, so the timeout arrives in a file that never mentions a timer. The
+   * hint reports `vi.isFakeTimers()` and `vi.getTimerCount()` — a fact, not a guess — and names the
+   * `setImmediate` case that reaches this with no timer in sight. See
+   * {@link annotateFrozenClockTimeout}.
+   *
+   * Silent when the clock is real, and silent when the fake clock has nothing queued.
+   */
+  frozenClockHint?: boolean;
+  /**
    * Clear the `vitest-auto-spy/console` spies after every test. Default `true`.
    *
    * They are plain mocks over the real `console`, and nothing the runner offers empties them:
@@ -130,6 +164,60 @@ export interface SetupAutoSpyOptions {
    * on a registry that entry fills in, so the module is not pulled in on its account.
    */
   resetConsoleSpies?: boolean;
+  /**
+   * Make every double built afterwards throw when a method nobody configured is called, instead of
+   * returning `undefined`. Default: off.
+   *
+   * The per-double flag is `createSpyFromClass(X, { strict: true })`; this is the same switch for a
+   * whole suite, so that adopting it is one line rather than an edit per factory call. A double's
+   * own configuration still wins — an explicit `strict: false` included, which is the only way to
+   * exempt one wide collaborator from a suite-wide default.
+   *
+   * See {@link StrictSpyConfiguration.strict} for what counts as configured.
+   */
+  strict?: boolean;
+  /**
+   * The general form of {@link strict} for a whole suite: run this instead of returning `undefined`
+   * from a call nobody configured, and use whatever it returns as that call's result.
+   *
+   * ```ts
+   * setupAutoSpy({ onUnstubbedCall: ({ className, method }) => console.warn(`unstubbed ${className}.${method}`) });
+   * ```
+   *
+   * A double's own `onUnstubbedCall` wins over this one.
+   */
+  onUnstubbedCall?: UnstubbedCallHandler;
+}
+
+/**
+ * Install the suite-wide strict-mode default, and take it off again when the file is over.
+ *
+ * The disarm is the half that matters. `setDefaultStrictMode` writes a module-level binding, and
+ * under `isolate: false` that module is shared by every file in the worker — so a default armed by
+ * one setup run would stay armed for files whose own setup never asked for it, and the failure
+ * ("Nothing configured X.load, and strict mode is on") would name a spec that never opted in.
+ * `afterAll` is the same seam `strayTimers` uses for the same reason: the switch is armed now, once,
+ * and released once the file that armed it has finished.
+ *
+ * Armed only when the caller actually asked, so that a plain `setupAutoSpy()` cannot clobber a
+ * default some other seam installed — `{ strict: undefined, onUnstubbedCall: undefined }` resolves
+ * to "off", but writing it would still overwrite whatever was there.
+ */
+function armStrictMode(options: SetupAutoSpyOptions): void {
+  // One value rather than two conditions, because `strict: false` is an answer and not an absence:
+  // `??` keeps it (`false ?? handler` is `false`), so the only way to reach `undefined` here is a
+  // caller that mentioned neither option.
+  const asked: UnstubbedCallHandler | boolean | undefined = options.strict ?? options.onUnstubbedCall;
+
+  if (asked === undefined) {
+    return;
+  }
+
+  setDefaultStrictMode({ strict: options.strict, onUnstubbedCall: options.onUnstubbedCall });
+
+  afterAll(() => {
+    setDefaultStrictMode(undefined);
+  });
 }
 
 function reportDuplicateCopies(reaction: DuplicateCopiesReaction): void {
@@ -248,6 +336,35 @@ export function reportStrayRejections(context?: unknown): void {
 }
 
 /**
+ * Extend a hook timeout the runner has already blamed this test for with the reason it happened.
+ *
+ * The budgets are read per test rather than once at setup, because `vi.setConfig({ testTimeout })`
+ * at the top of a spec file runs *after* the setup file did and would otherwise leave a cached pair
+ * describing a run that no longer exists. The read is six property lookups on a path the teardown
+ * already walks.
+ *
+ * Exported for this module's own spec: reaching it through a real hook timeout would cost the very
+ * budget it reports on, and would fail the test doing the asserting.
+ */
+export function annotateTimedOutHooks(context?: unknown): void {
+  annotateHookTimeout(reportedErrors(context), readRunnerTimeouts());
+}
+
+/**
+ * Explain a timeout the frozen clock accounts for.
+ *
+ * Runs after {@link annotateTimedOutHooks} so a hook that timed out under a frozen clock carries
+ * both sentences: they answer different questions — which budget ran out, and why the work never
+ * finished — and the second is useless without the first naming the hook.
+ *
+ * Exported for this module's own spec, for the same reason as its neighbour: reaching it through a
+ * real timeout would cost the budget it reports on.
+ */
+export function annotateFrozenClockTimeouts(context?: unknown): void {
+  annotateFrozenClockTimeout(reportedErrors(context), readFrozenClock());
+}
+
+/**
  * One step of the single `afterEach` {@link setupAutoSpy} installs.
  *
  * The runner's test context is handed along, because one of the steps needs to know how the test it
@@ -325,6 +442,21 @@ function watchGlobalPatches(reaction: GlobalPatchReaction): TeardownStep[] {
 }
 
 /**
+ * The hook-timeout annotation, as a step or as nothing at all.
+ *
+ * First of the diagnostics on purpose: it adds a sentence to a failure the runner has already
+ * recorded, and every step after it may throw. Its own contribution is a string, never a throw.
+ */
+function watchHookTimeouts(enabled: boolean): TeardownStep[] {
+  return enabled ? [annotateTimedOutHooks] : [];
+}
+
+/** The frozen-clock annotation, as a step or as nothing at all. It adds a string and never throws. */
+function watchFrozenClock(enabled: boolean): TeardownStep[] {
+  return enabled ? [annotateFrozenClockTimeouts] : [];
+}
+
+/**
  * Claim zone's rejection slot for this worker, handing back the per-test report step.
  *
  * Kept last of the diagnostics, which is as late as the read can be made without a restore running
@@ -368,6 +500,8 @@ export function setupAutoSpy(options: SetupAutoSpyOptions = {}): void {
     trackMockRegistry();
   }
 
+  armStrictMode(options);
+
   if (options.globalFakeTimers) {
     setupFakeTimers(options.globalFakeTimers === true ? undefined : options.globalFakeTimers, { betweenTests: true });
   }
@@ -390,6 +524,8 @@ export function setupAutoSpy(options: SetupAutoSpyOptions = {}): void {
   // environment back. The split is not cosmetic — the net below re-runs the restores and must not
   // re-run a check that has already reported.
   const diagnostics: TeardownStep[] = [
+    ...watchHookTimeouts(options.hookTimeoutHint ?? true),
+    ...watchFrozenClock(options.frozenClockHint ?? true),
     ...watchGlobalPatches(options.guardGlobals ?? 'off'),
     ...watchStrayRejections(options.strayRejections ?? false),
   ];

@@ -6,15 +6,31 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import '../index';
+import { createSpyFromClass } from './create-spy-from-class';
 import { getMockRegistrySize, resetMockRegistryTracking } from './mock-registry';
 import { getPackageCopies, registerPackageCopy, resetPackageCopies } from './package-identity';
 import { countMockedProps, mockValueProp, restoreMockedProps } from './prop-mock';
-import { describeStrayRejections, reportStrayRejections, reportedErrors, runTeardown, setupAutoSpy } from './setup-auto-spy';
+import {
+  annotateFrozenClockTimeouts,
+  annotateTimedOutHooks,
+  describeStrayRejections,
+  reportStrayRejections,
+  reportedErrors,
+  runTeardown,
+  setupAutoSpy,
+} from './setup-auto-spy';
 import { type StrayRejection, flushStrayRejections } from './stray-rejections';
 import { countStrayTimers, trackStrayTimers } from './stray-timers';
 
 const DUPLICATE = 'file:///app/node_modules/other/node_modules/vitest-auto-spy/dist/index.js';
 const REAL_ROOTS = getPackageCopies();
+
+/** A double built inside a test, to show what the suite-wide strict default did to it. */
+class Cart {
+  total(): number {
+    return 0;
+  }
+}
 
 const patchTarget = { value: 'real' };
 const stubTarget = {
@@ -22,6 +38,37 @@ const stubTarget = {
     return 'real';
   },
 };
+
+/**
+ * The suite-wide strict-mode default, and — the half that matters — its release.
+ *
+ * `setDefaultStrictMode` writes a module-level binding, so under `isolate: false` it is shared by
+ * every file in the worker. A default that outlived the file that armed it would fail specs that
+ * never opted in, with a message ("Nothing configured X.load, and strict mode is on") naming a
+ * switch their setup never touched.
+ *
+ * First in the file on purpose, and the only block here that arms it. `setupAutoSpy()` installs the
+ * default when the suite factory runs — during collection, before any test — so the window in which
+ * it is live is "from collection until this block's `afterAll`", and putting the block anywhere
+ * else would put unrelated tests inside that window.
+ */
+describe('suite-wide strict mode (opted in)', () => {
+  setupAutoSpy({ duplicateCopies: 'off', restoreProps: false, strict: true });
+
+  it('reaches a double built afterwards, without that call site mentioning it', () => {
+    expect(() => createSpyFromClass(Cart).total()).toThrow(/Nothing configured Cart\.total, and strict mode is on/);
+  });
+
+  it('is still overridden by a double that opted out explicitly', () => {
+    expect(createSpyFromClass(Cart, { strict: false }).total()).toBeUndefined();
+  });
+});
+
+describe('suite-wide strict mode, after the block that armed it', () => {
+  it('finds the default released, so it cannot travel into the next file', () => {
+    expect(createSpyFromClass(Cart).total()).toBeUndefined();
+  });
+});
 
 describe('duplicate installs', () => {
   afterEach(() => {
@@ -462,7 +509,14 @@ describe('console-spy clearing (on by default)', () => {
 describe('every step opted out', () => {
   const reset = vi.fn();
 
-  setupAutoSpy({ duplicateCopies: 'off', resetConsoleSpies: false, restoreProps: false, restoreTimerGlobals: false });
+  setupAutoSpy({
+    duplicateCopies: 'off',
+    frozenClockHint: false,
+    hookTimeoutHint: false,
+    resetConsoleSpies: false,
+    restoreProps: false,
+    restoreTimerGlobals: false,
+  });
 
   beforeAll(() => {
     globalThis.__vitestAutoSpyResetConsoleSpies__ = reset;
@@ -526,5 +580,81 @@ describe('setupAutoSpy({ globalFakeTimers: true })', () => {
     it('found the clock already fake', () => {
       expect(advanced).toBe(true);
     });
+  });
+});
+
+/**
+ * The hint appended to a `beforeEach` that ran out of the run-wide `hookTimeout`.
+ *
+ * Vitest resolves `hookTimeout` (10 000 ms by default) independently of `testTimeout` (5 000 ms),
+ * where Jest applied one number to both. A suite that carried its Jest preset's `testTimeout: 30000`
+ * across and left `hookTimeout` alone gives hooks a third of the budget — and the timeout is
+ * reported against the *test*, its duration pinned at the limit, so the log reads as a slow test
+ * whose body never ran.
+ *
+ * The step is called directly here: making a hook actually time out would cost the budget under
+ * discussion, once per case, and would fail the test doing the asserting. That it is reachable at
+ * all was settled against the real runner with a `beforeEach(fn, 300)` probe.
+ */
+describe('hook timeout hint', () => {
+  afterEach(() => {
+    vi.resetConfig();
+  });
+
+  function timedOutHook(limit: number): Error {
+    return new Error(`Hook timed out in ${limit}ms.`);
+  }
+
+  it('explains the asymmetry once the budgets are the migrated shape', () => {
+    // Also the check that the budgets are read live: `vi.setConfig` is the public writer, and the
+    // step has to see what it wrote rather than a pair cached when the setup file ran.
+    vi.setConfig({ testTimeout: 30_000, hookTimeout: 10_000 });
+
+    const error = timedOutHook(10_000);
+
+    annotateTimedOutHooks({ task: { result: { errors: [error] } } });
+
+    expect(error.message).toContain('[vitest-auto-spy] hookTimeout is 10000ms while testTimeout is 30000ms');
+  });
+
+  it("stays quiet on this suite's own budgets, where the hook has the larger one", () => {
+    const error = timedOutHook(10_000);
+
+    annotateTimedOutHooks({ task: { result: { errors: [error] } } });
+
+    expect(error.message).toBe('Hook timed out in 10000ms.');
+  });
+});
+
+/**
+ * The sentence a timeout gets when the clock, not the code, is what stalled.
+ *
+ * Called directly for the same reason as its neighbour above: a real timeout costs the budget it
+ * reports on. That the pieces line up under the real runner was settled with a probe test —
+ * `setImmediate` awaited under `vi.useFakeTimers()` with a 300 ms limit produced
+ * `Test timed out in 300ms.`, an `afterEach` that ran anyway, and `vi.getTimerCount() === 1`.
+ */
+describe('frozen clock hint', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('explains a timeout the frozen clock accounts for', () => {
+    vi.useFakeTimers();
+    setTimeout(() => undefined, 10_000);
+
+    const error = new Error('Test timed out in 5000ms.');
+
+    annotateFrozenClockTimeouts({ task: { result: { errors: [error] } } });
+
+    expect(error.message).toContain('[vitest-auto-spy] the clock is frozen and 1 callback(s) are queued on it');
+  });
+
+  it('stays quiet while the clock is real, which is how the rest of this file runs', () => {
+    const error = new Error('Test timed out in 5000ms.');
+
+    annotateFrozenClockTimeouts({ task: { result: { errors: [error] } } });
+
+    expect(error.message).toBe('Test timed out in 5000ms.');
   });
 });

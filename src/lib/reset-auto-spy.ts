@@ -133,3 +133,33 @@ export function resetAutoSpy(spy: object): void {
     runConfigReset(mock);
   });
 }
+
+/**
+ * The `[Symbol.dispose]()` every double carries: `using spy = createSpyFromClass(X)` resets it when
+ * the block ends, so the `afterEach` that existed only to reset one spy can go.
+ *
+ * Written against `this` rather than closing over the double, so one function serves every spy and
+ * the identity of `spy[Symbol.dispose]` is stable across reads — which is what a `Disposable` check
+ * and a `DisposableStack` both assume. `using` calls it with the resource as the receiver, and so
+ * does an explicit `spy[Symbol.dispose]()`.
+ */
+export function disposeAutoSpy(this: object): void {
+  resetAutoSpy(this);
+}
+
+/**
+ * Attach {@link disposeAutoSpy} to an assembled spy record.
+ *
+ * **Non-enumerable**, for the same reason the {@link markAsMock} brand is: a spread (`{ ...spy }`)
+ * copies enumerable own *symbol* properties too, so an enumerable dispose method would follow the
+ * double into every snapshot and every `withOverrides`-style copy. `Object.keys` and
+ * `JSON.stringify` ignore symbols outright, so those two are safe either way; the spread is the one
+ * that has to be defended against, and `enumerable: false` is what does it.
+ *
+ * Not applied to the `createAutoMock` proxy, which has no record to define on — it answers the key
+ * from its `get` trap instead, outside the property store, so it stays out of `ownKeys` as the
+ * brand does.
+ */
+export function attachDispose(spy: object): void {
+  Object.defineProperty(spy, Symbol.dispose, { value: disposeAutoSpy, enumerable: false, configurable: true, writable: true });
+}

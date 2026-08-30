@@ -29,6 +29,38 @@ users.getName.calledWith(1).mockReturnValue('Ada');
 users.load.resolveWith({ id: 1 });
 ```
 
+The second argument is the configuration: `observablePropsToSpyOn`, `returns`, and the
+[strict-mode](./strict-mode) pair `strict` / `onUnstubbedCall`.
+
+```ts
+const users = createAutoMock<UserService>(undefined, { strict: true });
+
+users.getName(1); // throws: Nothing configured getName, and strict mode is on.
+```
+
+The message has **no class name** — a type-driven double never read one, and `className` is
+`undefined` in an `onUnstubbedCall` handler for the same reason. A **seeded** member is a stored
+value rather than a spy, so it never reaches the guard at all. The same fallback covers a fully
+abstract class handed to `createSpyFromClass`, which returns this proxy: `strict` travels into it.
+
+### `using` — reset at the end of the block {#using}
+
+```ts
+it('names the user', () => {
+  using users = createAutoMock<UserService>();
+  users.getName.calledWith(1).mockReturnValue('Ada');
+
+  expect(users.getName(1)).toBe('Ada');
+});
+// calls and configuration both gone
+```
+
+`Symbol.dispose` is answered from the Proxy's `get` trap rather than defined on it, so it never
+reaches `ownKeys` and a spread of the double does not carry it — `Object.keys(users)` still lists
+only the members something touched. A seed or an assignment under the same key wins, as it does for
+every other key. The details, and the reason there is no `[Symbol.asyncDispose]`, are on
+[createSpyFromClass](./create-spy-from-class#using).
+
 ## From a type, without spies — `createMock`
 
 `createAutoMock` is built for a collaborator the code under test **calls**: every un-seeded member
@@ -43,11 +75,11 @@ const route = createMock<ActivatedRouteSnapshot>({ data: { title: 'Report' } });
 const config = createMock<ServerConfig>({ baseUrl: 'https://example.test' });
 ```
 
-|                   | `createMock<T>()`                          | `createAutoMock<T>()`                   |
-| ----------------- | ------------------------------------------ | --------------------------------------- |
-| Returns           | `T`                                        | `Spy<T>`                                |
-| Un-seeded members | `undefined`                                | a lazily created, decorated spy         |
-| Reach for it when | the double is **read** — data shapes       | the double is **called** — collaborators |
+|                   | `createMock<T>()`                    | `createAutoMock<T>()`                    |
+| ----------------- | ------------------------------------ | ---------------------------------------- |
+| Returns           | `T`                                  | `Spy<T>`                                 |
+| Un-seeded members | `undefined`                          | a lazily created, decorated spy          |
+| Reach for it when | the double is **read** — data shapes | the double is **called** — collaborators |
 
 `partial` is a `Partial<T>`, so the seeded fields stay type-checked: an unknown key, or a known key
 with the wrong type, is still a compile error. It is also the single place the `as` lives, so a
@@ -78,6 +110,12 @@ const seeded = mockDeep<Api>({ repo: { user: { find: () => Promise.resolve({ id:
 Seeded values (via `overrides` or `mock.x = …`) shadow the auto-generated child for that key.
 Nodes are intentionally **not** thenable, so awaiting a node never treats it as a promise.
 
+`using api = mockDeep<Api>()` works, and works at **every depth** — `Symbol.dispose` is answered by
+the same trap on every node, and `resetAutoSpy` walks the tree from whichever node it was handed, so
+`using` on a sub-tree resets that sub-tree. `mockDeep` takes no strict-mode configuration: its nodes
+are built without a guard, so an unconfigured call returns `undefined` (or the node itself under
+`selfReturning`) whatever `setupAutoSpy` was given.
+
 ### What a Proxy-backed double cannot do
 
 Both `createAutoMock` and `mockDeep` build a Proxy, and a Proxy answers only the operations its
@@ -85,12 +123,12 @@ handler traps. Three of them were missing, and each gave a **silent** wrong answ
 error — a checking test quietly becoming a non-checking one, visible only by reading the proxy's
 source. Two are fixed in 3.5.0; the third cannot be.
 
-| Operation                          | Before                                             | Now                                                      |
-| ---------------------------------- | -------------------------------------------------- | -------------------------------------------------------- |
-| `mockValueProp` and its three siblings | patch landed on the Proxy target; the double ignored it | works, and `restoreMockedProps()` undoes it          |
-| `delete mock.optionalMethod`       | deleted nothing — the next read remade the spy      | the member is absent until something writes to it again  |
-| `Object.assign(realInstance, mock)` | copies only the keys already **read**              | unchanged — see below                                    |
-| `of(mock)` / `from(mock)`          | the double was taken for a scheduler or a stream    | four protocol keys answer `undefined` — see below        |
+| Operation                              | Before                                                  | Now                                                     |
+| -------------------------------------- | ------------------------------------------------------- | ------------------------------------------------------- |
+| `mockValueProp` and its three siblings | patch landed on the Proxy target; the double ignored it | works, and `restoreMockedProps()` undoes it             |
+| `delete mock.optionalMethod`           | deleted nothing — the next read remade the spy          | the member is absent until something writes to it again |
+| `Object.assign(realInstance, mock)`    | copies only the keys already **read**                   | unchanged — see below                                   |
+| `of(mock)` / `from(mock)`              | the double was taken for a scheduler or a stream        | four protocol keys answer `undefined` — see below       |
 
 The first was the worst of the three, because it broke the composition of two things the library
 recommends at once: the `no-object-define-property` rule sends people to `mock*Prop`, and the
@@ -104,7 +142,7 @@ therefore gets whichever members happened to be read first, and every other call
 implementation without a word. Use `createSpyFromClass` there — it returns an ordinary object whose
 method keys are enumerable, so the copy is complete.
 
-### It answers everything, so it must not answer *these*
+### It answers everything, so it must not answer _these_
 
 The same premise cuts the other way. A library handed an object that has to decide **what kind of
 thing it is** asks by probing a key, and a double that answers every property answers the probe too
@@ -112,12 +150,12 @@ thing it is** asks by probing a key, and a double that answers every property an
 names are answered with `undefined` unless the spec seeds them, alongside `then` and every symbol,
 which always were:
 
-| Key            | Probed by                                      | The double became  |
-| -------------- | ---------------------------------------------- | ------------------ |
-| `schedule`     | `popScheduler` in `of` / `from` / `merge` / …  | a scheduler        |
-| `lift`         | `isObservable`, together with `subscribe`      | an Observable      |
-| `@@observable` | `isInteropObservable` in `innerFrom`           | an interop stream  |
-| `getReader`    | `isReadableStreamLike` in `innerFrom`          | a ReadableStream   |
+| Key            | Probed by                                     | The double became |
+| -------------- | --------------------------------------------- | ----------------- |
+| `schedule`     | `popScheduler` in `of` / `from` / `merge` / … | a scheduler       |
+| `lift`         | `isObservable`, together with `subscribe`     | an Observable     |
+| `@@observable` | `isInteropObservable` in `innerFrom`          | an interop stream |
+| `getReader`    | `isReadableStreamLike` in `innerFrom`         | a ReadableStream  |
 
 The one that cost an afternoon reads like nothing at all:
 
@@ -134,8 +172,8 @@ that failed was about an unrelated `emit()` three concerns away — nothing in t
 `subscribe` is deliberately **not** on the list: it is an ordinary method name (a store, an Angular
 `OutputEmitterRef`, an event bus) and `expect(store.subscribe).toHaveBeenCalledWith(cb)` is a real
 assertion. Denying `lift` and `@@observable` already breaks the impersonation, so `subscribe` alone
-fools nothing — `from(double)` fails with rxjs's own *"You provided an invalid object where a stream
-was expected"*.
+fools nothing — `from(double)` fails with rxjs's own _"You provided an invalid object where a stream
+was expected"_.
 
 If your type genuinely has one of the four, seed it once and it comes back; the list is consulted
 after the store.
@@ -153,7 +191,7 @@ costs somebody the ability to mock a member of that name without seeding it.
 
 `createAutoMock` reads its seed with `Reflect.ownKeys`, so a key written out with an explicit
 `undefined` **is** in the store and reads back as `undefined`. Leave it out and the same read
-materialises a function spy — which is *truthy*, and sends a guarded call site down the branch the
+materialises a function spy — which is _truthy_, and sends a guarded call site down the branch the
 spec was trying to close:
 
 ```ts
@@ -188,7 +226,7 @@ expect(logger.channel('app').info).toHaveBeenCalledWith('started');
 ```
 
 It never takes configuration away: `mockReturnValue`, `calledWith(...).mockReturnValue(...)` and
-`resolveWith` all still win, and only an *unconfigured* call — the one that returned `undefined` —
+`resolveWith` all still win, and only an _unconfigured_ call — the one that returned `undefined` —
 returns the node. The exact cost is a node deliberately configured to return `undefined`; assert on
 its calls rather than on its return value there, which is why this is opt-in.
 

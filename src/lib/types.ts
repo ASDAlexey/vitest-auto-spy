@@ -240,6 +240,38 @@ type SelectOverload<Method extends Func, Options extends SpyOptions> = Options e
 // Accessor spies + the assembled `Spy<T>`
 // ---------------------------------------------------------------------------
 
+/**
+ * The `[Symbol.dispose]()` every double this package builds carries.
+ *
+ * It calls `resetAutoSpy(this)`, so `using` releases the double at the end of the block and the
+ * `afterEach` that existed only to reset one spy can go:
+ *
+ * ```ts
+ * it('loads', () => {
+ *   using users = createSpyFromClass(UserService); // reset when the block ends
+ *   users.load.resolveWith([]);
+ * });
+ * ```
+ *
+ * Declared here rather than referenced as the global `Disposable`, for the same reason Vitest
+ * declares its own: `Disposable` lives in `lib.esnext.disposable`, and a consumer whose `lib` stops
+ * at ES2022 and who has no `@types/node` would see the published `.d.ts` fail on the name. A
+ * structural declaration needs only `Symbol.dispose` to be typed, which is what a runtime capable of
+ * `using` guarantees — and `Spy<T>` stays assignable to `Disposable` wherever that type does exist.
+ *
+ * A type alias rather than an interface, deliberately: an interface has no implicit index
+ * signature, and `Spy<T>` picking one up in its intersection would stop it being assignable to
+ * `Record<string, unknown>` — which specs and helpers here do rely on.
+ *
+ * There is deliberately no `[Symbol.asyncDispose]`. `resetAutoSpy` is synchronous, so an async half
+ * would add a microtask and advertise teardown that does not exist; `await using` already accepts a
+ * sync-disposable (the spec falls back to `@@dispose` when `@@asyncDispose` is absent), so nothing
+ * is lost.
+ */
+export type SpyDisposable = {
+  [Symbol.dispose](): void;
+};
+
 /** The `accessorSpies` bag added to every auto-spy. */
 export type AddAccessorsSpies<T> = {
   accessorSpies: {
@@ -253,7 +285,7 @@ export type AddAccessorsSpies<T> = {
  * `mock.repo.user.find()` works without seeding), methods become spies, and
  * primitive properties keep their type (seed them via `overrides`/assignment).
  */
-export type DeepMockProxy<T> = {
+export type DeepMockProxy<T> = SpyDisposable & {
   [K in keyof T]: T[K] extends Func ? AddSpyMethodsByReturnTypes<T[K]> : T[K] extends object ? DeepMockProxy<T[K]> : T[K];
 };
 
@@ -266,13 +298,14 @@ export type DeepMockProxy<T> = {
  * let cinemas: Spy<VenuesService, { overload: 'first' }>;
  * ```
  */
-export type Spy<T, Options extends SpyOptions = SpyOptions> = AddAccessorsSpies<T> & {
-  [K in keyof T]: T[K] extends Func
-    ? AddSpyMethodsByReturnTypes<SelectOverload<T[K], Options>>
-    : T[K] extends Observable<infer O>
-      ? AddObservableSpyMethods<O> & T[K]
-      : T[K];
-};
+export type Spy<T, Options extends SpyOptions = SpyOptions> = AddAccessorsSpies<T> &
+  SpyDisposable & {
+    [K in keyof T]: T[K] extends Func
+      ? AddSpyMethodsByReturnTypes<SelectOverload<T[K], Options>>
+      : T[K] extends Observable<infer O>
+        ? AddObservableSpyMethods<O> & T[K]
+        : T[K];
+  };
 
 /**
  * What a `mock*Prop` helper accepts as the stand-in for a member typed `V`.
@@ -378,8 +411,82 @@ type BuiltIn = Date | Error | Func | Promise<unknown> | ReadonlyMap<unknown, unk
  */
 export type MethodReturns<T> = { [K in OnlyMethodKeysOf<T>]?: T[K] extends Func ? ReturnType<T[K]> : never };
 
+/** Everything the strict-mode handler is told about a call nobody configured. */
+export interface UnstubbedCall {
+  /** The class the double was built from — `undefined` for a type-driven `createAutoMock`. */
+  className: string | undefined;
+  /** The method that was called. */
+  method: string;
+  /** The arguments it was called with. */
+  args: unknown[];
+}
+
+/**
+ * What to do about a call nobody configured.
+ *
+ * Whatever it returns becomes that call's return value, so a handler can supply a blanket default
+ * (`vitest-mock-extended`'s `fallbackMockImplementation`) instead of failing; throwing from it is
+ * what `strict: true` does.
+ */
+export type UnstubbedCallHandler = (call: UnstubbedCall) => unknown;
+
+/**
+ * Strict-mode configuration, shared by every factory that builds a double.
+ *
+ * The failure this exists for is specific to wide services, which is where this library is used
+ * most: on a forty-method collaborator with one method left unstubbed, the call returns `undefined`
+ * and the test fails three frames later on something that has nothing to do with the omission. The
+ * only tool before this was {@link ClassSpyConfiguration.onlyMethodsToSpyOn}, which *removes* the
+ * method — so the failure reads `service.load is not a function` and blames the spy rather than the
+ * spec.
+ *
+ * **What counts as stubbed.** Anything that configures the method at all: `mockReturnValue`,
+ * `mockImplementation`, `returns:` in the configuration, `resolveWith` / `rejectWith` /
+ * `resolveWithPerCall`, `nextWith` / `throwWith` / `complete` / `returnSubject`, or *any*
+ * `calledWith` / `mustBeCalledWith` chain.
+ *
+ * **A `calledWith` chain that does not match the call is still stubbed**, and deliberately so.
+ * `calledWith(1)` is a statement that this method is configured, and the argument-level version of
+ * strictness already has a name — `mustBeCalledWith`, which throws showing wanted next to actual.
+ * Making `strict` throw on an argument miss would silently reclassify every existing `calledWith`
+ * into `mustBeCalledWith` and print a worse message than the one that tool already prints. Strict
+ * mode answers "nobody configured this method", not "nobody configured this call".
+ */
+export interface StrictSpyConfiguration {
+  /**
+   * Throw when a method nobody configured is called, naming the class, the method and the
+   * arguments, instead of returning `undefined`.
+   *
+   * ```ts
+   * const users = createSpyFromClass(UserService, { strict: true });
+   *
+   * users.load.resolveWith([]);
+   * users.remove(1); // throws: nothing configured UserService.remove
+   * ```
+   *
+   * Sugar for an {@link onUnstubbedCall} that throws. An explicit `strict: false` also switches off
+   * a default installed globally.
+   */
+  strict?: boolean | undefined;
+  /**
+   * The general form of {@link strict}: run this instead of returning `undefined`, and use whatever
+   * it returns as the call's result.
+   *
+   * ```ts
+   * createSpyFromClass(UserService, {
+   *   onUnstubbedCall: ({ className, method }) => {
+   *     unstubbed.push(`${className}.${method}`); // record, don't fail
+   *   },
+   * });
+   * ```
+   *
+   * Wins over {@link strict} when both are given, and over anything installed globally.
+   */
+  onUnstubbedCall?: UnstubbedCallHandler | undefined;
+}
+
 /** Restricts/extends what `createSpyFromClass` spies on. */
-export interface ClassSpyConfiguration<T> {
+export interface ClassSpyConfiguration<T> extends StrictSpyConfiguration {
   /**
    * Extra callables to spy on, **added** to the methods discovered on the prototype.
    *

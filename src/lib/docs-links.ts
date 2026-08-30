@@ -14,6 +14,11 @@ const DOCS = 'https://asdalexey.github.io/vitest-auto-spy';
 
 export const DOCS_LINKS = {
   angular: `${DOCS}/adapters/angular`,
+  // Their own pages rather than anchors on `adapters/angular`: a reader who hits one of these arrived
+  // from a failure, not from reading, and the page they want is the one about that check — not the
+  // one about the adapter that hosts it.
+  angularDiagnostics: `${DOCS}/adapters/angular-diagnostics`,
+  angularOverrides: `${DOCS}/adapters/angular-overrides`,
   autoMockByType: `${DOCS}/core/auto-mock-by-type`,
   bunAngular: `${DOCS}/runtimes/bun-angular`,
   createSpyFromClass: `${DOCS}/core/create-spy-from-class`,
@@ -25,8 +30,17 @@ export const DOCS_LINKS = {
   mediaElement: `${DOCS}/utilities/media-element`,
   moduleMocks: `${DOCS}/utilities/module-mocks`,
   observerStubs: `${DOCS}/utilities/observer-stubs`,
+  // The recipe for the one failure no spy library can work around: a binding the bundler already
+  // inlined. Deep-linked to the section rather than the page, because the page's first half is
+  // about the *silent* half of the same problem and the reader arriving here has the loud one.
+  realSeam: `${DOCS}/utilities/module-mocks#provide-a-real-seam`,
   rxjs: `${DOCS}/runtimes/rxjs`,
   setup: `${DOCS}/utilities/setup`,
+  // Its own page rather than a section of the factory's: the reader arriving here was thrown at by a
+  // double they configured somewhere else entirely, and the question they have is what counts as
+  // configured — which is the whole page, not a paragraph of another one.
+  strictMode: `${DOCS}/core/strict-mode`,
+  trackInjections: `${DOCS}/utilities/track-injections`,
 } as const;
 
 /** Append a "see also" line to a message, on its own line so a terminal keeps the URL clickable. */

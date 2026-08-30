@@ -22,7 +22,7 @@
  *    properties through `overrides` (or assign them) when you need real values.
  */
 import { DOCS_LINKS, withDocs } from './docs-links';
-import { createFunctionSpy } from './function-spy';
+import { type UnstubbedGuard, createFunctionSpy, resolveUnstubbedGuard } from './function-spy';
 import { getMockAdapter } from './mock-adapter';
 import { requireObservableSupport } from './observable-support';
 import {
@@ -39,8 +39,9 @@ import {
   writeStoredAccessor,
   writeStoredValue,
 } from './proxy-props';
+import { disposeAutoSpy } from './reset-auto-spy';
 import { AUTO_SPY_MARK } from './spy-mark';
-import type { DeepPartial, Func, MethodReturns, OnlyObservablePropsOf, Spy, SpyOptions } from './types';
+import type { DeepPartial, Func, MethodReturns, OnlyObservablePropsOf, Spy, SpyOptions, StrictSpyConfiguration } from './types';
 
 /**
  * Create a fully-typed auto-mock of `T` from its type alone (no class).
@@ -64,10 +65,15 @@ export function createAutoMock<T, Options extends SpyOptions = SpyOptions>(
   overrides?: DeepPartial<T>,
   config?: AutoMockConfiguration<T>,
 ): Spy<T, Options> {
+  // No class was read, so there is no name to put in a strict-mode message — hence `undefined`
+  // rather than a placeholder: the failure says `load(1)`, which is all this factory truthfully
+  // knows about the double.
+  const unstubbed = resolveUnstubbedGuard(undefined, { strict: config?.strict, onUnstubbedCall: config?.onUnstubbedCall });
+
   // The Proxy assembles `T`'s spy surface lazily from runtime-accessed keys, so
   // its concrete `Spy<T>` shape only exists structurally, not statically.
   // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- the auto-mock is built dynamically from runtime-accessed keys; its `Spy<T>` shape cannot be expressed before access.
-  const mock = new Proxy<Record<PropertyKey, unknown>>({}, createAutoMockHandler(overrides ?? {})) as Spy<T, Options>;
+  const mock = new Proxy<Record<PropertyKey, unknown>>({}, createAutoMockHandler(overrides ?? {}, unstubbed)) as Spy<T, Options>;
 
   applyObservableProps(mock, config?.observablePropsToSpyOn);
   applyMockReturns(mock, config?.returns);
@@ -104,7 +110,7 @@ function applyObservableProps(mock: object, names: readonly string[] | undefined
 }
 
 /** What a type-driven double can be configured with beyond its seeded values. */
-export interface AutoMockConfiguration<T> {
+export interface AutoMockConfiguration<T> extends StrictSpyConfiguration {
   /**
    * Members to build as **observable property spies** (`nextWith`, `throwWith`, `returnSubject`, …)
    * rather than as function spies.
@@ -187,11 +193,11 @@ function applyMockReturns(mock: object, returns: MethodReturns<never> | undefine
 }
 
 /** Build the handler that gives an auto-mock its behaviour. */
-function createAutoMockHandler(seed: object): ProxyHandler<Record<PropertyKey, unknown>> {
+function createAutoMockHandler(seed: object, unstubbed: UnstubbedGuard | undefined): ProxyHandler<Record<PropertyKey, unknown>> {
   const store = createProxyPropStore(seed);
 
   return {
-    get: (_target, key, receiver): unknown => readKey(store, key, receiver),
+    get: (_target, key, receiver): unknown => readKey(store, key, receiver, unstubbed),
 
     set(_target, key, value, receiver): boolean {
       if (!writeStoredAccessor(store, key, value, receiver)) {
@@ -206,7 +212,7 @@ function createAutoMockHandler(seed: object): ProxyHandler<Record<PropertyKey, u
     deleteProperty: (_target, key): boolean => dropStoredProp(store, key),
 
     has(_target, key): boolean {
-      return key === AUTO_SPY_MARK || hasStoredProp(store, key);
+      return key === AUTO_SPY_MARK || key === Symbol.dispose || hasStoredProp(store, key);
     },
 
     ownKeys(): (string | symbol)[] {
@@ -217,8 +223,8 @@ function createAutoMockHandler(seed: object): ProxyHandler<Record<PropertyKey, u
   };
 }
 
-/** Answer one property read: a patched accessor, a known value, the brand, or a freshly-made spy. */
-function readKey(store: ProxyPropStore, key: string | symbol, receiver: unknown): unknown {
+/** Answer one property read: a patched accessor, a known value, the brand, the dispose hook, or a freshly-made spy. */
+function readKey(store: ProxyPropStore, key: string | symbol, receiver: unknown, unstubbed: UnstubbedGuard | undefined): unknown {
   const patched = readStoredAccessor(store, key, receiver);
 
   if (patched !== NOT_STORED) {
@@ -236,6 +242,15 @@ function readKey(store: ProxyPropStore, key: string | symbol, receiver: unknown)
     return true;
   }
 
+  // Answered here for the same reason and by the same mechanism as the brand: outside the store, so
+  // it never reaches `ownKeys` and a spread of the double does not carry it. `disposeAutoSpy` reads
+  // `this`, which `using` binds to the proxy, so one shared function serves every auto-mock and the
+  // key answers with a stable identity. A seed or an assignment under the same key wins, since both
+  // are read from the store above.
+  if (key === Symbol.dispose) {
+    return disposeAutoSpy;
+  }
+
   // Never materialize a spy for runtime/JS-internal lookups (symbols such as the
   // iteration/`toPrimitive` protocols, thenable `then` checks, or `constructor`), nor for the
   // protocol keys a library probes to decide what it was handed — see `isProtocolKey`, which is
@@ -246,7 +261,7 @@ function readKey(store: ProxyPropStore, key: string | symbol, receiver: unknown)
     return undefined;
   }
 
-  const spy = createFunctionSpy<Func>(String(key));
+  const spy = createFunctionSpy<Func>(String(key), unstubbed);
   store.values.set(key, spy);
 
   return spy;

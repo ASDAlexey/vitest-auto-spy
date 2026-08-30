@@ -37,6 +37,7 @@ import {
   writeStoredAccessor,
   writeStoredValue,
 } from './proxy-props';
+import { disposeAutoSpy } from './reset-auto-spy';
 import { DEEP_CHILDREN } from './spy-mark';
 import type { DeepMockProxy, Func } from './types';
 
@@ -146,6 +147,17 @@ function readNodeMember(state: DeepNodeState, target: Func, key: string | symbol
     return state.children;
   }
 
+  // `using api = mockDeep<Api>()`. Answered from the trap rather than defined on the node, for the
+  // reason `attachDispose` states about the `createAutoMock` proxy: there is no record to define on
+  // — a `defineProperty` here would land in the property store, where `describeStoredProp` reports
+  // every key as enumerable, which is precisely what the non-enumerable definition exists to avoid.
+  // Reached at every depth, not only at the root: `resetAutoSpy` walks `DEEP_CHILDREN` from
+  // whichever node it is handed, so `using` on a sub-tree resets that sub-tree. A seed or an
+  // assignment under the same key still wins, since both are read from the store above.
+  if (key === Symbol.dispose) {
+    return disposeAutoSpy;
+  }
+
   // Not thenable, and not a scheduler / Observable either: awaiting a node must not treat it as
   // a Promise, and `of(node)` must not eat it as a scheduler. See `isProtocolKey`.
   if (key === 'then' || isProtocolKey(key)) {
@@ -236,7 +248,28 @@ function createDeepNode(name: string, overrides: object, selfReturning: boolean)
   return node;
 }
 
-/** Behaviour switches for {@link mockDeep}. */
+/**
+ * Behaviour switches for {@link mockDeep}.
+ *
+ * There is deliberately **no `strict` / `onUnstubbedCall` here**, and the omission is the one worth
+ * writing down, because a deep proxy answering every property read is exactly the "a typo never
+ * fails" weakness this package holds against the proxy-per-property mocks.
+ *
+ * Strict mode cannot repair it. The guard fires on a *call* with nothing configured, and every hop
+ * of a deep chain except the last is a property *read* — so `api.reop.user.find` still materialises
+ * silently, and all a guard could change is what the final call returns. The half of the problem
+ * that is worth solving is solved elsewhere and by a different mechanism: `createSpyFromClass` and
+ * `createAutoMock<T>()` know the member set (from the prototype, or from `T` at the call site), so
+ * a name outside it is either absent or refused. `mockDeep` is the factory you reach for when you
+ * have chosen not to enumerate the surface.
+ *
+ * And a guard would not be inert here. {@link resolveUnstubbedGuard} consults the suite-wide
+ * default `setupAutoSpy({ strict: true })` installs, so wiring one in would make that single line
+ * throw on every unconfigured call in every existing deep tree in the suite — including the ones
+ * {@link selfReturning} exists to answer, where "unconfigured call" is defined to mean "hand the
+ * node back" and the guard would run first. A suite-wide switch silently disabling a per-mock
+ * option is not a trade worth making for a check that cannot see the reads anyway.
+ */
 export interface MockDeepOptions {
   /**
    * Make a **called** node hand itself back, so a fluent API chains through calls as well as
@@ -284,6 +317,10 @@ export interface MockDeepOptions {
  * `repo` and `user` are *read*. A chain that goes through a **call** — `api.repo('users').find()` —
  * needs `{ selfReturning: true }`, otherwise the call returns `undefined` and the next hop throws.
  * See {@link MockDeepOptions.selfReturning}.
+ *
+ * Every node carries `[Symbol.dispose]`, so `using api = mockDeep<Api>()` resets the whole tree —
+ * children included — when the block ends, and the `afterEach` that existed only to reset one deep
+ * mock can go.
  */
 export function mockDeep<T>(overrides: Partial<T> = {}, options: MockDeepOptions = {}): DeepMockProxy<T> {
   // The proxy tree assembles `T`'s deep spy surface lazily from runtime-accessed

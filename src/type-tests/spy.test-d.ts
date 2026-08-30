@@ -14,7 +14,7 @@
 import { describe, expectTypeOf, it } from 'vitest';
 
 import { asInstance, createAutoMock, createSpyFromClass } from '../auto-spy';
-import type { Spy } from '../auto-spy';
+import type { Spy, SpyDisposable } from '../auto-spy';
 
 class Storage {
   readonly name: string = 'storage';
@@ -85,5 +85,21 @@ describe('createAutoMock', () => {
     expectTypeOf(mock.load).toBeCallableWith(1);
     expectTypeOf(mock.load(1)).toEqualTypeOf<Promise<string>>();
     expectTypeOf(mock.ready).toEqualTypeOf<boolean>();
+  });
+});
+
+describe('Spy<T> is Disposable', () => {
+  it('satisfies the global Disposable, so `using spy = …` type-checks', () => {
+    expectTypeOf<Spy<Storage>>().toExtend<Disposable>();
+    expectTypeOf<Spy<Storage>>().toExtend<SpyDisposable>();
+  });
+
+  it('exposes the dispose method as a zero-argument, void-returning call on both factories', () => {
+    const fromClass = createSpyFromClass(Storage);
+    const fromType = createAutoMock<Storage>();
+
+    expectTypeOf(fromClass[Symbol.dispose]).toBeCallableWith();
+    expectTypeOf(fromClass[Symbol.dispose]()).toEqualTypeOf<void>();
+    expectTypeOf(fromType[Symbol.dispose]()).toEqualTypeOf<void>();
   });
 });
