@@ -145,6 +145,45 @@ scope-empty and would be reported as a false positive. The
 [`ngModuleScopes` diagnostic](/adapters/angular-diagnostics#ngmodulescopes) is the automatic form,
 and it filters much harder for exactly that reason.
 
+## `assertComponentDefIntact(...components)`
+
+The other half of the same bundle problem. A component's providers and its compiled scope are
+**baked into `ɵcmp` when the component's module executes** — not read at `createComponent` time. When
+a bundler splits a barrel into a chunk that has not run yet, the definition is built with `undefined`
+in those lists, and Angular discovers it much later, from inside itself:
+
+```text
+TypeError: Cannot read properties of undefined (reading 'provide')
+  ❯ resolveProvider render3/di_setup.ts:95
+```
+
+The stack names neither the barrel, nor the symbol, nor the component. Worse, the spec it breaks is
+usually one nobody touched: chunk boundaries move with file *contents*, so editing a type in a
+neighbouring file is enough to move a symbol across one. Both obvious cures fail for the same reason
+— an `await import()` at the top of `beforeEach` is already too late, and a static import at the top
+of the spec does not fix the order this bundler emits.
+
+```ts
+assertComponentDefIntact(HoverMenuComponent);
+const fixture = TestBed.createComponent(HoverMenuComponent);
+```
+
+```text
+[vitest-auto-spy] HoverMenuComponent.ɵcmp.providers[0] is undefined.
+A component bakes its providers and its scope into the definition when its module executes, so a
+hole there means the chunk holding that symbol had not run at that moment — an uninitialised barrel
+chunk.
+```
+
+It walks `providers`, `viewProviders` and `dependencies`, including lists nested inside them and the
+thunk Angular emits for a forward reference. The same call answers the related
+`Cannot read properties of undefined (reading 'ɵcmp')` from `imports: [Cmp]`, where the class
+reference itself is what never arrived — there the message names the argument position instead.
+Directives work too: a type carrying `ɵdir` is checked the same way.
+
+This does not fix the build; that is a bundler configuration question. It replaces a half-hour
+investigation with one line, and points it away from the spec.
+
 ## Related
 
 - [Angular adapter](/adapters/angular) — why a component-level provider beats a module-level one.

@@ -49,7 +49,7 @@ identical API, with **RxJS** spies and **Angular / NestJS / React / Vue·Pinia /
 - ⚙️ Getter / setter spies via `accessorSpies`
 - 🧰 DI & mocking utilities — `provideAutoSpy` / `injectSpy` (Angular, NestJS, Vue), `createFunctionSpy`, `mockReadonlyProp` for signals
 - ⚡ Angular speed & zoneless helpers — `renderShallow` (**1.7×** on real component specs), `createWithAutoSpies`, `stable` / `flushEffects`, `settleResource` for `httpResource()`, `toHaveSignalValue`, per-file `TestBed` timings
-- 🧱 The providers a testing module cannot reach — `overrideComponentProvider` (which verifies the override actually applied), `provideAutoSpyForToken`, `assertNgModuleScopes`, `createDirectiveHost`
+- 🧱 The providers a testing module cannot reach — `overrideComponentProvider` (which verifies the override actually applied), `provideAutoSpyForToken`, `assertNgModuleScopes`, `assertComponentDefIntact`, `createDirectiveHost`
 - 🚨 Failures that used to be silence — `enableAngularDiagnostics()` for dead NgModule imports, dead `schemas`, an unspied provider and unflushed HTTP requests; `trackInjections` for which collaborators the code actually asked for
 - 🔒 [Strict doubles](#strict-doubles--fail-on-a-method-nobody-configured) — `strict: true` / `onUnstubbedCall` fail on a method nobody configured, naming the class, the method and the arguments instead of answering `undefined`
 - ♻️ `using spy = createSpyFromClass(X)` — every double carries `[Symbol.dispose]`, so the `afterEach` that only reset one spy can go
@@ -58,7 +58,7 @@ identical API, with **RxJS** spies and **Angular / NestJS / React / Vue·Pinia /
 - ⏳ Waiting that is not a guess — `flushEventLoop`, `settleDynamicImport`, `flushEventLoopUntil`, and a clock that survives fake timers (`mockSystemTime`, `useCountingClock`)
 - 🌀 `fakeAsync` / `waitForAsync` on Vitest — one import of `vitest-auto-spy/zone`; zone.js stays out of every other entry
 - 🧩 Module mocks that prove they applied — `assertMocked`, `moduleNamespace`, for a `vi.mock()` a bundler quietly ignored
-- 🧾 Fixtures without casts — deep-partial `createMock`, `narrow()`, `withOverrides()`, `asInstances()`, `captureArg()`
+- 🧾 Fixtures without casts — deep-partial `createMock`, `createFixture` / `createFixtureFactory`, `narrow()`, `withOverrides()`, `asInstances()`, `captureArg()`
 - 🚚 A migration you can verify — `compareTestRuns` on the two JSON reports, `diffByField` for the assertion the reporter collapses
 - 📏 Lint rules and one-line test-run hygiene — fourteen rules in `vitest-auto-spy/eslint-plugin` (two `--fix`, six suggestions), `setupAutoSpy()`
 - 🩺 [Editor diagnostics](#editor-diagnostics--webstorm--vs-code) — the same anti-patterns underlined while you type: native ESLint inspections in **WebStorm** and the other JetBrains IDEs, the ESLint extension in **VS Code**, no extra plugin either way
@@ -1171,6 +1171,40 @@ Rule of thumb: `createAutoMock` for a collaborator you **call** and assert on, `
 data shape you **read**. `createMock` is also the one place the `as` lives, so a suite under a
 `no-type-assertion` lint rule stops sprinkling `eslint-disable` over its fixtures.
 
+### A model many specs build — `createFixture` / `createFixtureFactory`
+
+`createMock` answers "this spec reads two fields of a big shape". The other habit is more expensive:
+a model with seventeen required fields, each with its own nested interface, copied into every spec
+that needs one. Measured on one migration shard, those copies alone produced **28 `TS1117`**
+diagnostics — a duplicate key in a literal, where the runtime keeps the *second* one.
+
+```ts
+import { createFixtureFactory } from 'vitest-auto-spy';
+
+// article.fixture.ts — the model, written out once and checked in full
+export const anArticle = createFixtureFactory<Article>({
+  id: '1',
+  header: { title: '', subtitle: 'none' },
+  tags: [],
+  publishedAt: new Date(0),
+});
+
+// in a spec — name only what this test is about
+const draft = anArticle({ header: { title: 'Draft' } });  // header.subtitle survives
+```
+
+`defaults` is a **complete** `T`, and that is the point rather than a chore: a field the model
+dropped six months ago fails in one place instead of in eight copies nobody re-checks. `Partial<T>`
+and `as T` both delete that diagnostic. Overrides are deep-partial-checked and merge leaf by leaf; an
+overridden array replaces the default one outright.
+
+Every call returns a **new object**, and the defaults are copied when the factory is built — a
+fixture shared by reference is the most common way one test's mutation decides another's outcome, and
+under `isolate: false` that reaches across files. The copy is deep through plain objects and arrays
+and stops there: a `Date`, a `Map` or a class instance is carried across by reference rather than
+rebuilt without its prototype. For defaults that *are* a class instance with getters, snapshot them
+with `withOverrides()` first.
+
 ## Synchronous methods
 
 ```ts
@@ -1813,6 +1847,8 @@ single-purpose utility you can pick up independently — they all ride on the sa
 | `createFunctionSpy(name)`                                                            | core                          | A single standalone function spy with the full helper set (`calledWith`, `resolveWith`, `nextWith`, …) — no class needed                                      |
 | `createAutoMock<T>(overrides?)`                                                      | core                          | Proxy-based spy from a **type/interface** alone ([details](#auto-mock-by-type-no-class-needed))                                                               |
 | `createMock<T>(partial?)`                                                            | core                          | A plain, spy-free `T` built from the fields a test seeds — for data shapes, not collaborators                                                                 |
+| `createFixture<T>(defaults, overrides?)`                                             | core                          | One `T` from a complete, checked default plus what this test changes — a fresh copy every call                                                                |
+| `createFixtureFactory<T>(defaults)`                                                  | core                          | Somewhere to put that default: returns `(overrides?) => T`, with the defaults pinned at build time                                                            |
 | `createObservableWithValues(configs, opts?)`                                         | `/rxjs`                       | Build a fake `Observable` emitting a precise sequence of values / errors / completion                                                                         |
 | `consoleInfoSpy` / `consoleWarnSpy` / …                                              | `/console`                    | Silent typed spies over the global `console`, installed on import ([details](#console-spies--vitest-auto-spyconsole))                                         |
 | `mockReadonlyProp(obj, prop, value)`                                                 | `/angular`                    | Overwrite a `readonly` property (incl. Angular signals) with a static value                                                                                   |
@@ -1850,6 +1886,7 @@ single-purpose utility you can pick up independently — they all ride on the sa
 | `registerFocusMatchers()`                                                            | `/setup`                      | Adds `expect(el).toHaveFocus()`, which names _why_ focus is elsewhere                                                                                         |
 | `overrideAutoSpy(Token, config?)` / `overrideComponentProvider(Cmp, Token, config?)` | `/angular`                    | Replace a dependency a component declares in its own `providers`                                                                                              |
 | `assertNgModuleScopes(...modules)`                                                   | `/angular`                    | Fail early when an AOT test bundle left an NgModule with no runtime declarations                                                                              |
+| `assertComponentDefIntact(...components)`                                            | `/angular`                    | Fail before rendering when a half-loaded barrel chunk left a hole in a component's own `providers` or scope                                                   |
 | `enableAngularDiagnostics(opts?)` / `assertNoPendingRequests()`                      | `/angular`                    | Dead NgModule imports, dead `schemas`, an unspied provider and unflushed HTTP requests, as failures ([details](#diagnostics--four-silent-failures-made-loud)) |
 | `trackInjections(tokens, opts?)`                                                     | `/angular`, `/nestjs`         | Which collaborators DI actually constructed, recorded through provider factories — with the doubles attached                                                  |
 | `mockSignalProp(obj, prop, initial)`                                                 | `/angular`                    | Replace a signal-valued property with a real `WritableSignal`, and hand the writable handle back                                                              |
@@ -2342,6 +2379,31 @@ asSpy(TestBed.inject(CartService)); // CartService → Spy<CartService>, for the
 
 Both are the same object at runtime; only the view changes.
 
+### Error → cure
+
+Keyed by what the compiler prints, because that is what you have when you get there. The helper
+names are unfindable from these messages otherwise — no `TS2739` text contains the word `asInstance`.
+
+| Message                                                                         | What actually happened                    | Cure                                              |
+| ------------------------------------------------------------------------------- | ----------------------------------------- | -------------------------------------------------- |
+| `TS2352 … 'Spy<X>' … Property 'accessorSpies' is missing in type 'X'`           | `x as Spy<X>`, written by hand            | `asSpy(x)` — never a double assertion              |
+| `TS2739` / `TS2740`: `'Spy<X>' is missing … ` + a list of **private** fields     | a spy handed to an API typed against `X`  | `asInstance(spy)`                                   |
+| `TS2345: Argument of type 'Spy<X>' is not assignable to parameter of type 'X'`   | the same, in an argument                  | `asInstance(spy)`, or `asInstances(a, b, c)`        |
+| `TS2322: Type 'Spy<X>' is not assignable to type 'Mocked<X>' …`                  | the variable was declared `Mocked<T>`     | declare it `Spy<T>`                                 |
+| `'AddPromiseSpyMethods<unknown>' is missing … from type 'WithMockReturnValue<…>'` | a generic class inferred as `Service<any>` | `asSpy<Service>(…)` / `injectSpy<Service>(…)`      |
+| `TS2739 … 'Spy<X>' is missing …` **on a line with `injectSpy`**                  | the provider handed back the real object  | `provideAutoSpy(X)`, or an honest `TestBed.inject`  |
+
+Two notes that cost real time when they are missing.
+
+**The last row is word for word the second one**, and that is a property of the language rather than
+a flaw in the table: one message serves two different mistakes. The tell is the line it lands on.
+
+**The error count does not go down monotonically.** TypeScript stops checking a call at the first bad
+argument, so "one error left" means "as many as there are unfixed arguments" — one file counted
+40 → 1 → 1 → 1 → 0. Excess-property checking stops at the first unknown key of a literal for the same
+reason. The useful heuristic: if a file already contains one `asInstance`, it almost certainly needs
+another, and the next one is in that same file.
+
 ## API reference
 
 | Export                                                                                                       | Description                                                                                                                                         |
@@ -2349,6 +2411,7 @@ Both are the same object at runtime; only the view changes.
 | `createSpyFromClass(Class, methodsOrConfig?)`                                                                | Build a fully-typed `Spy<T>` from a class                                                                                                           |
 | `createAutoMock<T>(overrides?, config?)`                                                                     | Build a `Spy<T>` from a **type/interface** alone (Proxy, no class); `{ returns, observablePropsToSpyOn }` configure it                              |
 | `createMock<T>(partial?)`                                                                                    | Build a plain, spy-free `T` from the fields a test seeds — for data shapes the code under test reads                                                |
+| `createFixture<T>(defaults, overrides?)` / `createFixtureFactory<T>(defaults)`                                | A model written out and checked once, stamped into a fresh copy per test — for the fixture eight specs would otherwise each keep a copy of          |
 | `mockDeep<T>(overrides?, options?)`                                                                          | Build a **recursive** auto-mock — `mock.repo.user.find()` chains without seeding; `{ selfReturning: true }` chains through calls too                |
 | `resetAutoSpy(spy)` / `clearAutoSpy(spy)`                                                                    | Reset every spy in an auto-spy at once — `reset` also reverts return-value config (`calledWith` **and** a bare `mockReturnValue`); `clear` keeps it |
 | `spy[Symbol.dispose]()`                                                                                      | What `using spy = createSpyFromClass(X)` runs at the end of the block — `resetAutoSpy(this)`, on every double including each `mockDeep` node        |
@@ -2371,7 +2434,7 @@ Both are the same object at runtime; only the view changes.
 | `autoMocked<T>(overrides?)`                                                                                  | `createAutoMock` typed as `T & Spy<T>`                                                                                                              |
 | `mockSystemTime` / `withSystemTime` / `mockNow` / `useCountingClock` _(`/setup`)_                            | Clock control that survives fake timers being re-installed per test                                                                                 |
 | `registerFocusMatchers()` _(`/setup`)_                                                                       | Adds `expect(el).toHaveFocus()`                                                                                                                     |
-| `overrideAutoSpy` / `overrideComponentProvider` / `assertNgModuleScopes` _(Angular)_                         | Override a component-level provider — and verify on the next fixture that the override applied; diagnose an NgModule with an empty runtime scope    |
+| `overrideAutoSpy` / `overrideComponentProvider` / `assertNgModuleScopes` / `assertComponentDefIntact` _(Angular)_                         | Override a component-level provider — and verify on the next fixture that the override applied; diagnose an NgModule with an empty runtime scope    |
 | `enableAngularDiagnostics(opts?)` / `disableAngularDiagnostics()` / `assertNoPendingRequests()` _(Angular)_  | Dead NgModule imports, dead `schemas`, an unspied provider and unflushed HTTP requests, as failures                                                 |
 | `trackInjections(tokens, opts?)` _(Angular, NestJS)_                                                         | Providers that record which collaborators DI constructed, with an auto-spy behind each token                                                        |
 | `setupAutoSpy(opts?)` _(`/setup`)_                                                                           | Property restore + duplicate-copy detection + mock-registry hygiene, in one call                                                                    |

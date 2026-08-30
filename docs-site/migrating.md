@@ -290,6 +290,7 @@ Behaviour is identical; if you depend on every spy existing before first access,
 
 Beyond the runner swap, everything the old API did not have:
 [`createAutoMock` / `mockDeep` / `createMock`](/core/auto-mock-by-type),
+[`createFixture` / `createFixtureFactory`](/utilities/fixtures) for the model a suite shares,
 [`renderShallow` and `createWithAutoSpies`](/adapters/angular),
 [observable assertions](/core/observable-assertions),
 [fake timers that settle](/utilities/fake-timers),

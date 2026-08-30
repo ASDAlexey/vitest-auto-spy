@@ -1,11 +1,11 @@
 ---
 title: Fixtures without casts
-description: createMock’s deep partial, narrow() for a union a test knows the branch of, and withOverrides() for a model whose getters a spread would drop.
+description: createMock’s deep partial, createFixture/createFixtureFactory for a model many specs build, narrow() for a union a test knows the branch of, and withOverrides() for a model whose getters a spread would drop.
 ---
 
 # Fixtures without casts
 
-Three helpers for the data a spec builds rather than the collaborators it drives. What they have in
+Four helpers for the data a spec builds rather than the collaborators it drives. What they have in
 common: each one replaces a type assertion that silently stops checking, with something that keeps
 checking.
 
@@ -30,13 +30,53 @@ That rejection is the whole value. After a model changes, a renamed or removed f
 a spec fixture is least likely to notice and most likely to be lying about — and `as T` throws the
 check away, which is why "the fixture compiles" stops meaning anything.
 
-::: tip Looking for `createFixture`?
-This is it. `createMock<T>` builds the data; `createAutoMock<T>` builds the collaborator whose calls
-you assert. Both take a deep partial now.
+::: tip Which of the three?
+`createMock<T>` builds data from the fields one spec reads; `createFixture<T>` builds it from
+defaults many specs share; `createAutoMock<T>` builds the collaborator whose calls you assert. All
+three take a deep partial.
 :::
 
 Built-ins are handed through untouched — a `Date`, a `Map`, a `Promise`, a function stays itself
 rather than becoming an object of optional methods.
+
+## `createFixture<T>(defaults, overrides?)` — a model written out once
+
+`createMock` answers "this spec reads two fields of a big shape". It has nothing to say about the
+other habit, which is more expensive: a content model with seventeen required fields, each with its
+own nested interface, copied into every spec that needs one. Measured on a single migration shard,
+those copies produced **28 `TS1117`** diagnostics — a duplicate key in a literal — and half of the
+shard's `TS2741`.
+
+```ts
+// article.fixture.ts — the model, written out once, checked in full
+export const anArticle = createFixtureFactory<Article>({
+  id: '1',
+  header: { title: '', subtitle: 'none' },
+  tags: [],
+  publishedAt: new Date(0),
+});
+
+// in a spec — name only what this test is about
+const draft = anArticle({ header: { title: 'Draft' } });
+```
+
+The `defaults` argument is a **complete** `T`, and that is the point rather than a chore: a field the
+model dropped six months ago fails here, in one place, instead of in eight copies nobody re-checks.
+`Partial<T>` and `as T` both delete that diagnostic, which is why neither is the answer.
+
+Overrides are deep-partial-checked like `createMock`'s, and merge leaf by leaf — `header.subtitle`
+above survives an override that only names `header.title`. An overridden **array** replaces the
+default one outright; no merge rule over arrays is right often enough to guess at.
+
+**Every call hands back a new object**, and the defaults are copied when the factory is built. A
+fixture shared by reference is the most common way one test's mutation decides another's outcome,
+and under `isolate: false` that sharing reaches across files.
+
+The copy is deep through plain objects and arrays and stops there: a `Date`, a `Map`, a DOM node or a
+class instance is carried across by reference, because rebuilding one would strip its prototype —
+accessors included. When the defaults *are* a class instance with getters, snapshot it with
+[`withOverrides`](#withoverrides-model-overrides-a-model-whose-getters-survive) first and hand the
+result here.
 
 ## `narrow(value, predicate)` — the branch a test knows it got
 

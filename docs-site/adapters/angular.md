@@ -896,6 +896,46 @@ module is legitimately empty and would be reported as a false positive.
 applies this automatically to every testing module, behind a much stricter filter that a
 providers-only module passes.
 
+## A component whose own definition has a hole in it
+
+The same bundle, one level down. A component's `providers`, `viewProviders` and compiled scope are
+**baked into `ɵcmp` when its module executes** — not read at `createComponent` time. So when a
+bundler splits a barrel into a chunk that has not run yet, the definition is assembled with
+`undefined` where a provider or a scope dependency should be, and Angular finds out much later, from
+inside itself:
+
+```
+TypeError: Cannot read properties of undefined (reading 'provide')
+  ❯ resolveProvider render3/di_setup.ts:95
+```
+
+The stack names neither the barrel, nor the symbol, nor the component. Worse, the spec that breaks is
+usually one nobody touched: chunk boundaries move with file *contents*, so editing a type in a
+neighbouring file is enough to move a symbol across one. Both obvious cures fail for the same reason
+— `await import('@scope/lib')` at the top of `beforeEach` is already too late, and a static import in
+the spec header does not fix the order this bundler emits.
+
+```ts
+import { assertComponentDefIntact } from 'vitest-auto-spy/angular';
+
+assertComponentDefIntact(HoverMenuComponent);
+const fixture = TestBed.createComponent(HoverMenuComponent);
+```
+
+```
+[vitest-auto-spy] HoverMenuComponent.ɵcmp.providers[0] is undefined.
+```
+
+It walks the three lists, nested arrays and the thunk Angular emits for a forward reference included.
+The same call answers the related `Cannot read properties of undefined (reading 'ɵcmp')` from
+`imports: [Cmp]`, where the class reference itself never arrived — there the message names the
+argument position instead. A directive is read the same way, through `ɵdir`.
+
+Neither this nor `assertNgModuleScopes` fixes the build; that is a bundler configuration question.
+Both replace a stack inside `@angular/core` with a line naming what is missing, and point it away
+from the spec. Full reference on the
+[component provider overrides page](/adapters/angular-overrides#assertcomponentdefintact-components).
+
 ## Focus assertions
 
 ```ts

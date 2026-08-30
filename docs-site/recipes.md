@@ -400,11 +400,51 @@ more runs to find out. `diffByField` answers it directly:
 inside one test answers the same, so a spec about **order** or **duration** needs
 [`useCountingClock()`](/utilities/event-loop#usecountingclock-options) rather than a frozen clock.
 
+## The model eight specs each keep a copy of
+
+The pattern is not about spies at all, which is why it survives every review: a content model with
+seventeen required fields, each with its own nested interface, pasted into every spec that needs one.
+Measured on one migration shard, those copies alone produced **28 `TS1117`** diagnostics — a
+duplicate key in a literal — standing behind 26 key pairs in eight fixtures, plus half of that
+shard's `TS2741`.
+
+The fix is not another way to skip the fields. It is somewhere to put them:
+
+```ts
+// article.fixture.ts
+import { createFixtureFactory } from 'vitest-auto-spy';
+
+export const anArticle = createFixtureFactory<Article>({
+  id: '1',
+  header: { title: '', subtitle: 'none' },
+  tags: [],
+  publishedAt: new Date(0),
+});
+
+// article-list.component.spec.ts
+const draft = anArticle({ header: { title: 'Draft' } }); // header.subtitle survives
+const tagged = anArticle({ tags: ['news'] });            // the array is replaced, not merged
+```
+
+Two properties are what make it worth the move rather than a matter of taste. The defaults are a
+**complete** `T`, so a field the model dropped six months ago is one compile error instead of eight
+silent lies — the diagnostic `Partial<T>` and `as T` both delete. And **every call returns a new
+object**, which retires the shared `const FIXTURE` whose mutation in one test decides another's
+outcome; under `isolate: false` that sharing reaches across files, and the failure lands in whichever
+file the runner happened to schedule second.
+
+One caveat worth knowing before you reach for it: the copy is deep through plain objects and arrays
+and stops there. A `Date`, a `Map` or a class instance travels by reference, because rebuilding one
+would strip its prototype. For defaults that *are* a model instance with getters,
+[`withOverrides`](/utilities/fixtures#withoverrides-model-overrides-a-model-whose-getters-survive)
+snapshots them first.
+
 ## What not to do
 
 | ❌                                                          | ✅                                                            |
 | ----------------------------------------------------------- | ------------------------------------------------------------- |
 | a hand-written `{ provide: X, useValue: { a: vi.fn() } }`     | `provideAutoSpy(X)`                                            |
+| the same 100-line model literal copied into eight specs        | one `createFixtureFactory<T>(defaults)`, called with the diff   |
 | `vi.spyOn(TestBed.inject(X), 'method')`                       | `injectSpy(X).method`                                          |
 | `Object.defineProperty(service, 'ready', { value: true })`    | `mockReadonlyProp(service, 'ready', true)`                     |
 | `let s: MyService = createSpyFromClass(MyService)`             | `let s: Spy<MyService>`                                        |

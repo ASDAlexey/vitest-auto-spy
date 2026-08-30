@@ -1,6 +1,6 @@
 ---
 name: vitest-auto-spy
-description: Write or fix tests that use vitest-auto-spy — typed spies generated from a class or a type on Vitest, bun:test and node:test. Use when a spec imports `vitest-auto-spy` or any of its subpaths (`/angular`, `/bun-angular`, `/bun`, `/node`, `/rxjs`, `/nestjs`, `/setup`, `/zone`, `/eslint-plugin`), when the user mentions createSpyFromClass, createAutoMock, autoMocked, createMock, mockDeep, createFunctionSpy, provideAutoSpy, provideAutoSpyForToken, injectSpy, renderShallow, createWithAutoSpies, createDirectiveHost, overrideComponentProvider, enableAngularDiagnostics, assertNoPendingRequests, assertNgModuleScopes, setupAngularTestEnv, trackInjections, runEffect, settleResource, mockResourceProp, mockSignalProp, mockReadonlyProp, captureArg, expectEmission, expectError, setupAutoSpy, installPerTest, stubIntersectionObserver, stubMediaElement, stubConstructor, mockSystemTime, assertMocked, moduleNamespace, compareTestRuns, Spy<T>, calledWith, mustBeCalledWith, onlyMethodsToSpyOn, instanceMethodsToSpyOn, observablePropsToSpyOn, strict, onUnstubbedCall, resolveWith or nextWith, when migrating a suite off jest-auto-spies (`npx vitest-auto-spy codemod`), or when a test fails with "No mock adapter registered", "Observable spies require rxjs", "not found on the class prototype", "strict mode is on", "the override did not apply", "is not a constructor", "Expected to be running in 'ProxyZone'" or "Spy<T> is not assignable".
+description: Write or fix tests that use vitest-auto-spy — typed spies generated from a class or a type on Vitest, bun:test and node:test. Use when a spec imports `vitest-auto-spy` or any of its subpaths (`/angular`, `/bun-angular`, `/bun`, `/node`, `/rxjs`, `/nestjs`, `/setup`, `/zone`, `/eslint-plugin`), when the user mentions createSpyFromClass, createAutoMock, autoMocked, createMock, createFixture, createFixtureFactory, mockDeep, createFunctionSpy, provideAutoSpy, provideAutoSpyForToken, injectSpy, renderShallow, createWithAutoSpies, createDirectiveHost, overrideComponentProvider, enableAngularDiagnostics, assertNoPendingRequests, assertNgModuleScopes, assertComponentDefIntact, setupAngularTestEnv, trackInjections, runEffect, settleResource, mockResourceProp, mockSignalProp, mockReadonlyProp, captureArg, expectEmission, expectError, setupAutoSpy, installPerTest, stubIntersectionObserver, stubMediaElement, stubConstructor, mockSystemTime, assertMocked, moduleNamespace, compareTestRuns, Spy<T>, calledWith, mustBeCalledWith, onlyMethodsToSpyOn, instanceMethodsToSpyOn, observablePropsToSpyOn, strict, onUnstubbedCall, resolveWith or nextWith, when migrating a suite off jest-auto-spies (`npx vitest-auto-spy codemod`), or when a test fails with "No mock adapter registered", "Observable spies require rxjs", "not found on the class prototype", "strict mode is on", "the override did not apply", "is not a constructor", "Expected to be running in 'ProxyZone'" or "Spy<T> is not assignable".
 ---
 
 # vitest-auto-spy
@@ -40,6 +40,7 @@ Real class, constructed by you? → createSpyFromClass(Class, config?)   → Spy
 Type only, and it gets CALLED?  → createAutoMock<T>(overrides?)        → Spy<T>
 …and calls chain (a.b.c())?     → mockDeep<T>(overrides?)
 Type only, and it is only READ? → createMock<T>(partial?)              → plain T, no spies
+…and many specs share it?       → createFixtureFactory<T>(defaults)     → (overrides?) => T
 A single function?              → createFunctionSpy<Fn>('name')
 Code does `new Foo()`?          → createSpyClass(Foo)
 ```
@@ -150,6 +151,7 @@ it('loads', async () => {
 | a dead NgModule import, dead `schemas`, an unflushed HTTP request   | `enableAngularDiagnostics()` in the setup file, after `initTestEnvironment`                          |
 | "which collaborators did this actually inject?"                     | `trackInjections([A, TOKEN])` — providers plus the record, not `vi.mock`                             |
 | `NG0303` / `NG0301` / `NG0304` from an imported NgModule            | `assertNgModuleScopes(Module)` — an AOT bundle stripped its scope                                    |
+| `Cannot read properties of undefined (reading 'provide')` in `di_setup` | `assertComponentDefIntact(Cmp)` — a barrel chunk left a hole in `ɵcmp`                            |
 | a focus assertion failing as `expected false to deeply equal true`  | `registerFocusMatchers()` + `expect(el).toHaveFocus()`                                               |
 | a collaborator passed as an argument, then asserted on              | `autoMocked<T>()` — typed `T & Spy<T>`                                                               |
 | a `<video>` / `<audio>`: `play()` throws, `duration` is `NaN`       | `stubMediaElement({ duration })`, then `media.set(el, …)`                                            |
@@ -167,6 +169,7 @@ it('loads', async () => {
 | five `asInstance(…)` in one call, found one per `tsc` run           | `...asInstances(a, b, c, d, e)`                                                                      |
 | `nextWith` demanding `HttpEvent<T>` on a generated client           | `asSpy<Client, { overload: 'first' }>(…)` / `Overload<M, 0>`                                         |
 | a fixture that needs a nested object built by its own call          | `createMock<T>({ a: { b: 1 } })` — deep partial, still exact                                         |
+| the same 100-line model literal copied into eight specs (`TS1117`)  | one `createFixtureFactory<T>(defaults)`; specs call it with what they change          |
 | `'params' in link` ladders, or a cast, to pick a union branch       | `narrow.byKey(link, 'params')` / `narrow.observable(x)`                                              |
 | `{ ...modelInstance, flag: true }` losing every getter              | `withOverrides(modelInstance, { flag: true })`                                                       |
 | `NG0303` / `NG0304` / silence from a directive spec                 | `createDirectiveHost({ template, scope: [Module] })`                                                 |

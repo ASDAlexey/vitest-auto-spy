@@ -30,7 +30,9 @@ return type: `resolveWith` / `rejectWith` for `Promise`s, `nextWith` / `throwWit
 No class to hand? Mock straight from a **type or interface** with `createAutoMock<T>()`, or build a
 recursive, self-seeding mock with `mockDeep<T>()`. For a double the code under test only **reads** —
 a DTO, a route snapshot, a config object — `createMock<T>(partial?)` returns a plain, spy-free `T`
-instead. See [Auto-mock by type](./auto-mock-by-type).
+instead, and `createFixtureFactory<T>(defaults)` is where the model a whole suite shares gets written
+out and checked once. See [Auto-mock by type](./auto-mock-by-type) and
+[Fixtures without casts](/utilities/fixtures).
 
 ## Where it runs
 

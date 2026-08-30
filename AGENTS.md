@@ -77,7 +77,8 @@ Do you have a real class at runtime?
          ├── yes, and reads chain (a.b.c())         → mockDeep<T>(overrides?)        → DeepMockProxy<T>
          ├── yes, and CALLS chain (a.b().c())       → mockDeep<T>({}, { selfReturning: true })
          └── no, it is only READ (DTO, config, route snapshot)
-                                                    → createMock<T>(partial?)        → T   (no spies)
+                 ├── one spec, a couple of fields   → createMock<T>(partial?)        → T   (no spies)
+                 └── many specs, one shared model   → createFixtureFactory<T>(defaults) → (overrides?) => T
 
 One standalone function?          → createFunctionSpy<Fn>('name')
 Code under test does `new Foo()`? → a real class?  createSpyClass(Foo)
@@ -96,6 +97,16 @@ noise scales with the number of them.
 
 `createMock<T>()` is the one to reach for on data shapes — it returns a plain `T`, so it satisfies a
 `no-type-assertion` lint rule without an `eslint-disable` on every fixture.
+
+**`createFixture<T>(defaults, overrides?)` / `createFixtureFactory<T>(defaults)` are for the model
+that more than one spec builds.** The difference from `createMock` is the `defaults` argument: it is
+a **complete** `T`, checked in full, in one place — so a field the model dropped fails there instead
+of in eight copies of a hundred-line literal. Overrides are deep-partial-checked and merge leaf by
+leaf; an overridden array replaces the default one. Every call hands back a fresh object and the
+defaults are copied at build time, which is what keeps one test's mutation out of the next test —
+across files, under `isolate: false`. The copy is deep through plain objects and arrays only: a
+`Date`, a `Map` or a class instance travels by reference, because rebuilding it would strip its
+prototype. Defaults that are a class instance with getters go through `withOverrides()` first.
 
 **`mockDeep` builds depth on property access, not on calls** — the distinction the tree now spells
 out, and the one that costs an afternoon otherwise. `mock.repo.user.find()` chains because every hop
@@ -1539,6 +1550,37 @@ assertNgModuleScopes(DirectivesModule, PipesModule); // throws, naming the modul
 Then declare what the spec needs in the TestBed module directly. Pass only modules you expect to
 bring declarations — a providers-only module is legitimately empty.
 
+### A component whose own definition has a hole in it
+
+The same bundle, one level down. A component's `providers`, `viewProviders` and compiled scope are
+**baked into `ɵcmp` when its module executes**, not read at `createComponent` time — so a barrel
+split into a chunk that has not run yet produces a definition with `undefined` in those lists.
+Angular finds out much later, from inside itself, with a stack that names neither the barrel nor the
+component:
+
+```
+TypeError: Cannot read properties of undefined (reading 'provide')
+  ❯ resolveProvider render3/di_setup.ts:95
+```
+
+Both obvious cures fail: `await import('@scope/lib')` at the top of `beforeEach` is already too late,
+and a static import at the top of the spec does not fix the order this bundler emits. Worse, the spec
+that breaks is one nobody touched — chunk boundaries move with file *contents*, so editing a type
+next door is enough.
+
+```ts
+import { assertComponentDefIntact } from 'vitest-auto-spy/angular';
+
+assertComponentDefIntact(HoverMenuComponent); // HoverMenuComponent.ɵcmp.providers[0] is undefined
+const fixture = TestBed.createComponent(HoverMenuComponent);
+```
+
+It walks the three lists, nested arrays and forward-reference thunks included, and answers the
+related `Cannot read properties of undefined (reading 'ɵcmp')` from `imports: [Cmp]` as well — there
+the class reference itself never arrived, and the message names the argument position. Directives
+(`ɵdir`) are checked the same way. Neither this nor `assertNgModuleScopes` fixes the build; both
+replace a stack inside `@angular/core` with a line naming what is missing.
+
 ### Four silent failures, as one setup line
 
 ```ts
@@ -2015,6 +2057,9 @@ packages, which a subpath export can never be.
 | `overrideComponentProvider(…): the override did not apply`                           | the component injects a different token, or a later `overrideProvider` won                                                                           | pass the token the component actually injects (a base class, an `InjectionToken`), and override after nothing else re-configures |
 | `the test ended with N unflushed HttpTestingController request(s)`                   | `enableAngularDiagnostics({ pendingRequests })` — nothing answered them                                                                              | flush each (`controller.expectOne(url).flush(body)`), or `controller.verify()` where absence is the assertion (§13)              |
 | `NgModule(s) with an empty runtime scope: …`                                         | `ngModuleScopes` (or `assertNgModuleScopes`) — an AOT test bundle stripped `ɵɵsetNgModuleScope`, so the import contributes nothing                   | declare what the spec needs in the TestBed module directly; pass only modules expected to bring declarations (§13)               |
+| `Cannot read properties of undefined (reading 'provide')`, stack inside `render3/di_setup`         | a barrel chunk had not run when the component's definition was built, so a provider slot is `undefined`                                              | `assertComponentDefIntact(Cmp)` before `createComponent` — it names the list and the index (§13)                                 |
+| `assertComponentDefIntact(): argument N is undefined, which carries no ɵcmp or ɵdir`               | the class reference itself never arrived — the `Cannot read properties of undefined (reading 'ɵcmp')` case                                           | the same split barrel; import the component from its own module, not the barrel (§13)                                            |
+| `TS1117: An object literal cannot have multiple properties with the same name`, in a fixture       | a hundred-line model literal copied into eight specs and edited independently                                                                        | one `createFixtureFactory<T>(defaults)`; note the runtime keeps the **second** key, so do not auto-fix by dropping one (§12)      |
 | `configureTestingModule was given N schema(s) that can never apply`                  | `enableAngularDiagnostics({ deadSchemas })` — `schemas` next to a standalone component, with `declarations` empty                                    | drop the `schemas` entry and put the missing directive/pipe in the component's own `imports`, or use `createDirectiveHost` (§13) |
 | `injectSpy(X): the injector returned a plain instance, not an auto-spy`              | the token is provided for real; a `console.warn` on its own, a **throw** under `enableAngularDiagnostics({ unspiedProviders })`                      | `provideAutoSpy(X)` / `provideAutoSpyForToken(TOKEN)`, or `TestBed.inject(X)` if the real thing is what the spec wants           |
 | `trackInjections(...).get(X): that token is not tracked by this log`                 | `get` only answers for tokens whose providers the log created                                                                                        | add the token to the `trackInjections([...])` list, or read it from the injector directly (§13)                                  |
