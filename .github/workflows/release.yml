@@ -1,9 +1,21 @@
 name: Release
 
-# Publishes to npm when a v* tag is pushed, e.g. `git push origin v1.2.3`.
-# Requires an `NPM_TOKEN` repo secret (an npm Automation or granular token that
-# bypasses 2FA). Publishes with provenance for a verified npm badge.
-# Re-running for an already-published version is a no-op (safe to retry).
+# Creates the GitHub Release for a manually pushed v* tag, e.g. `git push origin v1.2.3`.
+#
+# This workflow does NOT publish to npm any more. Publishing moved to npm Trusted
+# Publishing (OIDC), and a package can have exactly one trusted publisher naming exactly
+# one workflow file — that file is `auto-release.yml`, the automatic path from master. A
+# second publishing workflow could not authenticate, so this one was reduced to the part
+# that never needed npm credentials.
+#
+# Consequence, on purpose: pushing a tag by hand no longer puts anything on npm. To
+# release, land a `feat:`/`fix:`/breaking commit on master and let auto-release.yml bump,
+# tag, publish and release. This file only backfills a GitHub Release for a tag that
+# auto-release.yml did not create — which is also why it is not skipped by `[skip ci]`
+# discussions: tags pushed by GITHUB_TOKEN never trigger workflows, so it only ever runs
+# for a tag a human pushed.
+#
+# Re-running for a tag that already has a Release is a no-op (safe to retry).
 
 on:
   push:
@@ -11,40 +23,19 @@ on:
 
 permissions:
   contents: write # required to create the GitHub Release
-  id-token: write # required for npm provenance
 
 jobs:
-  publish:
+  release:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0 # tags, so the release notes can link the previous version
 
+      # scripts/release-notes.mjs uses node builtins only — no `npm ci`, no build.
       - uses: actions/setup-node@v4
         with:
-          node-version: 24 # latest LTS
-          registry-url: https://registry.npmjs.org
-          cache: npm
-
-      - name: Pin npm
-        run: npm i -g npm@11
-
-      - run: npm ci
-
-      - name: Build
-        run: npm run build
-
-      - name: Publish to npm (skip if version already exists)
-        run: |
-          VERSION="$(node -p "require('./package.json').version")"
-          if npm view "vitest-auto-spy@${VERSION}" version >/dev/null 2>&1; then
-            echo "vitest-auto-spy@${VERSION} is already published — skipping."
-          else
-            npm publish --provenance --access public
-          fi
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          node-version: 24
 
       - name: Create GitHub Release (skip if it already exists)
         run: |
@@ -57,11 +48,3 @@ jobs:
           fi
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  # Same second package as in the auto-release path — see .github/workflows/publish-alias.yml.
-  publish-alias:
-    needs: publish
-    uses: ./.github/workflows/publish-alias.yml
-    with:
-      ref: ${{ github.ref_name }}
-    secrets: inherit

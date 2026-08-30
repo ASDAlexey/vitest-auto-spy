@@ -9,7 +9,11 @@ name: Publish alias
 # hand is what let it sit at 1.9.3 for two majors, without `/bun-angular`, `/setup`, `/zone` or
 # `/eslint-plugin`.
 #
-# Called by `auto-release.yml` and `release.yml` after the canonical package is on npm. Also
+# Called by `auto-release.yml` after the canonical package is on npm (`release.yml` no longer
+# publishes — the canonical package moved to npm Trusted Publishing, which allows one publishing
+# workflow per package). This workflow still authenticates with `NPM_TOKEN`: npm validates the
+# *calling* workflow's filename, so a trusted publisher for `vitest-auto-spies` would have to name
+# auto-release.yml and would break the manual dispatch below. Also
 # runnable on its own (Actions → Publish alias → Run workflow) to catch up a version that was
 # released before this workflow existed — publishing an already-published version is a no-op.
 

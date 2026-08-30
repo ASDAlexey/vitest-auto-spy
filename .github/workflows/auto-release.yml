@@ -10,8 +10,30 @@ name: Auto Release
 #   - `fix:`                                               -> patch
 #   - anything else (chore/docs/refactor/ci/test/...)      -> no release
 #
-# Requires an `NPM_TOKEN` repo secret (npm Automation or granular token that
-# bypasses 2FA). Publishes with provenance for a verified npm badge.
+# Publishing authenticates with npm Trusted Publishing (OIDC) — no npm token is
+# stored in this repository. GitHub Actions mints a short-lived OIDC token from
+# the `id-token: write` permission below and npm exchanges it for a publish
+# credential. Provenance is attached automatically (public package, public repo),
+# so `--provenance` is not passed.
+#
+# THIS is the file the npm trusted-publisher config must name: npmjs.com ->
+# package `vitest-auto-spy` -> Settings -> Trusted Publisher -> GitHub Actions,
+# owner `ASDAlexey`, repository `vitest-auto-spy`, workflow `auto-release.yml`,
+# environment left empty. A package can only have one trusted publisher, which is
+# why `release.yml` no longer publishes — it only creates the GitHub Release for a
+# manually pushed tag.
+#
+# Two things the OIDC handshake is fragile about:
+#   - `actions/setup-node` must NOT be given `registry-url`. It then writes
+#     `//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}` into ~/.npmrc with a
+#     placeholder value, npm reads that as "auth is already configured" and skips
+#     the token exchange, and the publish dies with E404/ENEEDAUTH. Fixed only in
+#     actions/setup-node@v7; v4-v6 all still write the placeholder.
+#   - npm must be >= 11.5.1 and Node >= 22.14, hence the pins below.
+#
+# The `vitest-auto-spies` alias package is still published with `NPM_TOKEN` — see
+# publish-alias.yml. Do not delete that secret yet.
+#
 # The version-bump commit/tag is pushed with GITHUB_TOKEN, which does NOT
 # re-trigger workflows, so there is no release loop.
 
@@ -21,7 +43,7 @@ on:
 
 permissions:
   contents: write # push the bump commit/tag and create the GitHub Release
-  id-token: write # npm provenance
+  id-token: write # the OIDC token npm exchanges for a publish credential
 
 # Never run two releases at once.
 concurrency:
@@ -39,14 +61,20 @@ jobs:
         with:
           fetch-depth: 0 # full history + tags for commit analysis
 
+      # No `registry-url` on purpose — see the header. It would write a placeholder
+      # `_authToken` into ~/.npmrc and npm would skip the OIDC exchange. The default
+      # registry is registry.npmjs.org anyway, and package.json carries
+      # `publishConfig.access: public`.
       - uses: actions/setup-node@v4
         with:
-          node-version: 24 # latest LTS
-          registry-url: https://registry.npmjs.org
+          node-version: 24 # >= 22.14, the floor for trusted publishing
           cache: npm
 
+      # Exact, not `npm@11`: trusted publishing needs >= 11.5.1 and a floating major
+      # must not be able to drift below that floor. 11.19.1 is the last 11.x
+      # (2026-08-26); npm 12 is `latest` but is a major this release path has never run.
       - name: Pin npm
-        run: npm i -g npm@11
+        run: npm i -g npm@11.19.1
 
       - run: npm ci
 
@@ -128,6 +156,9 @@ jobs:
           echo "version=${NEW_VERSION}" >> "$GITHUB_OUTPUT"
           git push --follow-tags
 
+      # Authenticated over OIDC — no NODE_AUTH_TOKEN, and no `--provenance`: npm
+      # attaches provenance by itself when it publishes a public package from a
+      # public repo through trusted publishing.
       - name: Publish to npm (skip if version already exists)
         if: steps.bump.outputs.bump != 'none'
         run: |
@@ -135,10 +166,8 @@ jobs:
           if npm view "vitest-auto-spy@${VERSION}" version >/dev/null 2>&1; then
             echo "vitest-auto-spy@${VERSION} is already published — skipping."
           else
-            npm publish --provenance --access public
+            npm publish --access public
           fi
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Create GitHub Release
         if: steps.bump.outputs.bump != 'none'
@@ -160,6 +189,12 @@ jobs:
   # The `vitest-auto-spies` alias is a second npm package, generated from this one — see
   # .github/workflows/publish-alias.yml. It goes out after the canonical package is on npm, because
   # it depends on it by an exact caret range.
+  #
+  # It is still published with `NPM_TOKEN`, hence `secrets: inherit`. A trusted publisher is
+  # per-package and npm validates the *calling* workflow's filename, so migrating the alias means
+  # registering a publisher on `vitest-auto-spies` that names this file (auto-release.yml) — which
+  # would then break the manual `Actions -> Publish alias` dispatch, whose caller is
+  # publish-alias.yml. Until that is decided, the NPM_TOKEN secret must stay.
   publish-alias:
     needs: release
     if: needs.release.outputs.bump != 'none'
