@@ -15,6 +15,7 @@
  */
 import { DOCS_LINKS, withDocs } from './docs-links';
 import { registerPackageCopy } from './package-identity';
+import { isCannotRedefine, redefineFailure } from './redefine-failure';
 import type { Func } from './types';
 
 // Every entry bundles this module, so importing any of them records which install of the library
@@ -55,6 +56,40 @@ export interface MockAdapter {
    * wipe the dispatch itself.
    */
   restoreImplementation(mock: MockFn, implementation: Func): void;
+}
+
+/** Run an accessor spy, translating a non-configurable property into a failure that names the way out. */
+function spyOrExplain(spy: () => MockFn, target: object, property: string, accessor: 'get' | 'set'): MockFn {
+  try {
+    return spy();
+  } catch (error) {
+    if (isCannotRedefine(error)) {
+      throw redefineFailure(
+        `Cannot spy on the '${accessor}' accessor of '${property}': the property is not configurable, so it cannot be redefined.`,
+        target,
+        error,
+      );
+    }
+
+    throw error;
+  }
+}
+
+/**
+ * Wrap an adapter so its two accessor spies report a non-configurable property in full.
+ *
+ * Applied by each adapter to itself rather than by {@link registerMockAdapter}, so the exported
+ * adapter object and the registered one stay the same value — and so an adapter used directly (the
+ * Bun and Node factories are exported) carries the diagnostic too.
+ */
+export function guardAccessorSpies(adapter: MockAdapter): MockAdapter {
+  return {
+    ...adapter,
+    spyOnGetter: (target: object, property: string): MockFn =>
+      spyOrExplain(() => adapter.spyOnGetter(target, property), target, property, 'get'),
+    spyOnSetter: (target: object, property: string): MockFn =>
+      spyOrExplain(() => adapter.spyOnSetter(target, property), target, property, 'set'),
+  };
 }
 
 let registeredAdapter: MockAdapter | undefined;

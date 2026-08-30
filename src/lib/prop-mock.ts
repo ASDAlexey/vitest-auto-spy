@@ -8,6 +8,7 @@
  */
 import { DOCS_LINKS, withDocs } from './docs-links';
 import { getMockAdapter } from './mock-adapter';
+import { isCannotRedefine, redefineFailure } from './redefine-failure';
 import type { PropStubValue } from './types';
 
 /** Undoes a single `mock*Prop` patch; calling it more than once is a no-op. */
@@ -43,17 +44,17 @@ function getPatchedProps(): PatchedProp[] {
 }
 
 /**
- * Record the descriptor a helper is about to overwrite and hand back the undo for *this* patch
+ * Record the descriptor a helper has just overwritten and hand back the undo for *this* patch
  * alone — for the common case of a stub that must come off inside one test rather than at the end
  * of the file. {@link restoreMockedProps} undoes whatever is left.
  */
-function rememberProp<T>(object: T, property: PropertyKey): RestoreProp {
+function rememberProp<T>(object: T, property: PropertyKey, descriptor: PropertyDescriptor | undefined): RestoreProp {
   const patch: PatchedProp = {
     // The helpers only ever patch objects; the cast bridges the generic `T` of the public API.
     // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- `T` is unconstrained on the public signatures, but every caller passes an object (a service instance, a class prototype or a global).
     object: object as object,
     property,
-    descriptor: Object.getOwnPropertyDescriptor(object, property),
+    descriptor,
     undone: false,
   };
 
@@ -70,6 +71,41 @@ function rememberProp<T>(object: T, property: PropertyKey): RestoreProp {
     patch.undone = true;
     restorePatch(patch);
   };
+}
+
+/**
+ * Overwrite one property, record the undo, and say something useful when the property refuses.
+ *
+ * A bare `TypeError: Cannot redefine property: injectDomainMetrics` names neither the object, nor
+ * the reason the property is locked, nor the repair. The accessor spies behind the adapter have
+ * explained that failure for a while; these helpers reach the same `Object.defineProperty` and used
+ * to hand the unhelpful text straight back.
+ *
+ * **The journal entry is made only after the define has succeeded**, and the order is the whole
+ * point. Recording first and compensating on failure is the obvious shape and is wrong twice over:
+ * the compensation would write the original descriptor back to the property that has just refused a
+ * write, so it throws in turn and replaces the diagnosis with its own error — and a patch that never
+ * happened would otherwise sit in the journal until the next `restoreMockedProps()` reported a
+ * teardown failure for it, turning one confusing message into two.
+ */
+function applyPatch<T>(object: T, property: PropertyKey, descriptor: PropertyDescriptor): RestoreProp {
+  const previous = Object.getOwnPropertyDescriptor(object, property);
+
+  try {
+    Object.defineProperty(object, property, descriptor);
+  } catch (error) {
+    if (isCannotRedefine(error)) {
+      throw redefineFailure(
+        `Cannot mock the property '${String(property)}': it is not configurable, so it cannot be redefined.`,
+        Object(object),
+        error,
+      );
+    }
+
+    throw error;
+  }
+
+  return rememberProp(object, property, previous);
 }
 
 /** Put one recorded descriptor back, or drop the property when the helper introduced it. */
@@ -185,11 +221,7 @@ export function mockReadonlyProp<T, K extends keyof T>(object: T, property: K, v
 /** Escape hatch for members the public type does not describe — `#private` fields, ad-hoc keys. */
 export function mockReadonlyProp<T>(object: T, property: PropertyKey, value: unknown): RestoreProp;
 export function mockReadonlyProp<T>(object: T, property: PropertyKey, value: unknown): RestoreProp {
-  const restore = rememberProp(object, property);
-
-  Object.defineProperty(object, property, { get: () => value, configurable: true });
-
-  return restore;
+  return applyPatch(object, property, { get: () => value, configurable: true });
 }
 
 /**
@@ -207,11 +239,7 @@ export function mockReadonlyPropGetter<T, K extends keyof T>(object: T, property
 /** Escape hatch for members the public type does not describe — `#private` fields, ad-hoc keys. */
 export function mockReadonlyPropGetter<T>(object: T, property: PropertyKey, getter: () => unknown): RestoreProp;
 export function mockReadonlyPropGetter<T>(object: T, property: PropertyKey, getter: () => unknown): RestoreProp {
-  const restore = rememberProp(object, property);
-
-  Object.defineProperty(object, property, { get: getter, configurable: true });
-
-  return restore;
+  return applyPatch(object, property, { get: getter, configurable: true });
 }
 
 /**
@@ -233,11 +261,7 @@ export function mockValueProp<T, K extends keyof T>(object: T, property: K, valu
 /** Escape hatch for members the public type does not describe — `#private` fields, ad-hoc keys. */
 export function mockValueProp<T>(object: T, property: PropertyKey, value: unknown): RestoreProp;
 export function mockValueProp<T>(object: T, property: PropertyKey, value: unknown): RestoreProp {
-  const restore = rememberProp(object, property);
-
-  Object.defineProperty(object, property, { value, writable: true, configurable: true });
-
-  return restore;
+  return applyPatch(object, property, { value, writable: true, configurable: true });
 }
 
 /**
@@ -259,13 +283,10 @@ export function mockAccessorsProp<T, K extends keyof T>(object: T, property: K, 
 export function mockAccessorsProp<T>(object: T, property: PropertyKey, accessors?: AccessorImplementations): RestoreProp;
 export function mockAccessorsProp<T>(object: T, property: PropertyKey, accessors?: AccessorImplementations): RestoreProp {
   const adapter = getMockAdapter();
-  const restore = rememberProp(object, property);
 
-  Object.defineProperty(object, property, {
+  return applyPatch(object, property, {
     get: adapter.createMockFn(accessors?.get),
     set: adapter.createMockFn(accessors?.set),
     configurable: true,
   });
-
-  return restore;
 }

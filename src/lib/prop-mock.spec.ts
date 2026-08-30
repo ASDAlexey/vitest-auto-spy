@@ -68,3 +68,55 @@ describe('the undo of a single patch', () => {
     expect(countMockedProps()).toBe(0);
   });
 });
+
+/**
+ * A property the runtime refuses to replace at all — the other half of the same seam.
+ *
+ * The accessor spies behind the adapter have explained this failure for a while; the `mock*Prop`
+ * helpers reach the same `Object.defineProperty` and used to hand the bare
+ * `TypeError: Cannot redefine property: x` straight back. Worse, the journal already held the patch
+ * by then, so the next sweep tried to undo something that never happened.
+ */
+describe('a property that refuses to be replaced', () => {
+  function sealed(): { value: string } {
+    const host = { value: 'real' };
+
+    Object.defineProperty(host, 'value', { value: 'real', configurable: false });
+
+    return host;
+  }
+
+  it('says what was attempted, on what, and what to do instead', () => {
+    expect(() => mockValueProp(sealed(), 'value', 'patched')).toThrow(
+      /Cannot mock the property 'value': it is not configurable[\s\S]*Give the code under test a real seam/,
+    );
+  });
+
+  it('names the target, so the reader knows what they are looking at', () => {
+    expect(() => mockValueProp(Object.freeze({ value: 'real' }), 'value', 'patched')).toThrow(/The target is a frozen object/);
+  });
+
+  it('leaves nothing in the journal, because the entry is only made once the define succeeds', () => {
+    expect(countMockedProps()).toBe(0);
+    expect(() => mockValueProp(sealed(), 'value', 'patched')).toThrow();
+
+    expect(countMockedProps()).toBe(0);
+    expect(() => restoreMockedProps()).not.toThrow();
+  });
+
+  it('re-throws anything that is not the runtime refusing to redefine', () => {
+    // A host whose `defineProperty` fails for its own reasons: the guard must not dress that up as
+    // a story about bundled modules and seams.
+    const host = new Proxy(
+      { value: 'real' },
+      {
+        defineProperty: (): never => {
+          throw new RangeError('boom');
+        },
+      },
+    );
+
+    expect(() => mockValueProp(host, 'value', 'patched')).toThrow(RangeError);
+    expect(countMockedProps()).toBe(0);
+  });
+});

@@ -8,7 +8,7 @@
  */
 import { type Mock, vi } from 'vitest';
 
-import type { MockAdapter, MockFn } from './mock-adapter';
+import { type MockAdapter, type MockFn, guardAccessorSpies } from './mock-adapter';
 import type { Func } from './types';
 
 /** View a runtime-agnostic {@link MockFn} as the concrete Vitest mock it actually is here. */
@@ -17,7 +17,7 @@ function asVitestMock(mock: MockFn): Mock {
   return mock as any;
 }
 
-export const vitestMockAdapter: MockAdapter = {
+export const vitestMockAdapter: MockAdapter = guardAccessorSpies({
   createMockFn(implementation?: Func, name?: string): MockFn {
     const mock = implementation ? vi.fn(implementation) : vi.fn();
 
@@ -53,4 +53,4 @@ export const vitestMockAdapter: MockAdapter = {
   restoreImplementation(mock: MockFn, implementation: Func): void {
     asVitestMock(mock).mockImplementation(implementation);
   },
-};
+});

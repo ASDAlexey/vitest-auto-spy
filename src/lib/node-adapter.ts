@@ -11,7 +11,7 @@
  * bare argument array) and resets via `mock.resetCalls()`, so `getCalls` /
  * `reset` adapt that shape. Accessor spies reuse the shared redefine helper.
  */
-import type { MockAdapter, MockFn } from './mock-adapter';
+import { type MockAdapter, type MockFn, guardAccessorSpies } from './mock-adapter';
 import { createRedefineMockAdapter } from './redefine-accessor-spy';
 import type { Func } from './types';
 
@@ -48,14 +48,16 @@ function nameNodeMock(mockFn: MockFn, name?: string): MockFn {
 
 /** Build a `node:test` {@link MockAdapter} from the runtime's `mock` primitive. */
 export function createNodeMockAdapter(nodeTest: NodeTestApi): MockAdapter {
-  return createRedefineMockAdapter({
-    createMockFn: (implementation?: Func, name?: string): MockFn =>
-      nameNodeMock(nodeTest.fn(implementation ?? ((): void => undefined)), name),
-    getCalls: (mockFn: MockFn): readonly unknown[][] => asNodeMock(mockFn).mock.calls.map((call) => call.arguments),
-    reset: (mockFn: MockFn): void => asNodeMock(mockFn).mock.resetCalls(),
-    // `node:test` mocks reset call history via `resetCalls()`; there is no
-    // separate implementation to preserve, so clear maps to the same primitive.
-    clear: (mockFn: MockFn): void => asNodeMock(mockFn).mock.resetCalls(),
-    restoreImplementation: (mockFn: MockFn, implementation: Func): void => asNodeMock(mockFn).mock.mockImplementation(implementation),
-  });
+  return guardAccessorSpies(
+    createRedefineMockAdapter({
+      createMockFn: (implementation?: Func, name?: string): MockFn =>
+        nameNodeMock(nodeTest.fn(implementation ?? ((): void => undefined)), name),
+      getCalls: (mockFn: MockFn): readonly unknown[][] => asNodeMock(mockFn).mock.calls.map((call) => call.arguments),
+      reset: (mockFn: MockFn): void => asNodeMock(mockFn).mock.resetCalls(),
+      // `node:test` mocks reset call history via `resetCalls()`; there is no
+      // separate implementation to preserve, so clear maps to the same primitive.
+      clear: (mockFn: MockFn): void => asNodeMock(mockFn).mock.resetCalls(),
+      restoreImplementation: (mockFn: MockFn, implementation: Func): void => asNodeMock(mockFn).mock.mockImplementation(implementation),
+    }),
+  );
 }

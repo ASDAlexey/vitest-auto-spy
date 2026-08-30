@@ -10,7 +10,7 @@
  * `getCalls` / `reset` map straight through; accessor spies reuse the shared
  * redefine helper.
  */
-import type { MockAdapter, MockFn } from './mock-adapter';
+import { type MockAdapter, type MockFn, guardAccessorSpies } from './mock-adapter';
 import { createRedefineMockAdapter } from './redefine-accessor-spy';
 import type { Func } from './types';
 
@@ -48,11 +48,13 @@ export function createBunMockAdapter(bun: BunTestApi): MockAdapter {
     return mockFn;
   };
 
-  return createRedefineMockAdapter({
-    createMockFn,
-    getCalls: (mockFn: MockFn): readonly unknown[][] => asBunMock(mockFn).mock.calls,
-    reset: (mockFn: MockFn): void => asBunMock(mockFn).mockReset(),
-    clear: (mockFn: MockFn): void => asBunMock(mockFn).mockClear(),
-    restoreImplementation: (mockFn: MockFn, implementation: Func): void => asBunMock(mockFn).mockImplementation(implementation),
-  });
+  return guardAccessorSpies(
+    createRedefineMockAdapter({
+      createMockFn,
+      getCalls: (mockFn: MockFn): readonly unknown[][] => asBunMock(mockFn).mock.calls,
+      reset: (mockFn: MockFn): void => asBunMock(mockFn).mockReset(),
+      clear: (mockFn: MockFn): void => asBunMock(mockFn).mockClear(),
+      restoreImplementation: (mockFn: MockFn, implementation: Func): void => asBunMock(mockFn).mockImplementation(implementation),
+    }),
+  );
 }

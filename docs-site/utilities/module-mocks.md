@@ -25,7 +25,7 @@ beforeEach(() => {
 });
 ```
 
-Fails at the line that assumed the mock, naming the module. Without `exports` it checks that *some*
+Fails at the line that assumed the mock, naming the module. Without `exports` it checks that _some_
 export is a runner mock; with it, that each named one is — which is what a factory that stubs part
 of a module and re-exports the rest needs, since a factory that lost the one export the test drives
 still looks mocked from the outside.
@@ -45,6 +45,74 @@ Neither has a fix inside `vi.mock`. What works is not mocking the module at all:
 in — a TestBed provider, a constructor argument, a function parameter — and stub the value.
 `assertMocked` is what turns the silent case into a sentence, so that conclusion is reached in one
 run rather than three.
+
+## Provide a real seam
+
+The silent `vi.mock` has a loud twin, and it is the one people hit _next_ — after the mock does
+nothing, the natural move is to reach for a spy instead:
+
+```ts
+import * as domainMetrics from '@app/domain-metrics';
+
+vi.spyOn(domainMetrics, 'injectDomainMetrics'); // TypeError: Cannot redefine property: injectDomainMetrics
+```
+
+Same cause, opposite symptom. Once a bundler has inlined the barrel, its exports are live bindings
+on a module namespace object: not configurable, not writable, not replaceable by `vi.spyOn`,
+`jest.spyOn`, `Object.defineProperty` or anything else. There is no spy library that can win this,
+and the `TypeError` says none of that — it names the property and stops.
+
+A `vi.spyOn` written by hand in a spec is not something this package can see, so that one still
+reports the bare `TypeError`. Everywhere the redefinition goes through the library the same failure
+is re-thrown with the whole sentence, naming the property, what the target actually is, and the way
+out — that is the accessor spies (an `observablePropsToSpyOn` / getter-setter spy taken on an
+auto-spy) and the `mock*Prop` helpers alike:
+
+```
+[vitest-auto-spy] Cannot spy on the 'get' accessor of 'injectDomainMetrics': the property is not
+configurable, so it cannot be redefined. The target is an ES module namespace.
+An ES module namespace is what a bundler leaves behind once it has inlined a barrel or a workspace
+alias (`@angular/build:unit-test`, a pre-bundled `vite-node` entry): the export is a live binding,
+not a writable property, and no spy library — this one, `vi.spyOn`, `jest.spyOn` — can replace it.
+`vi.mock()` of the same module is the silent version of this failure, not the fix.
+Give the code under test a real seam and spy on that: inject the dependency, pass it in as an
+argument, or reach it through a class or object your own code owns.
+```
+
+`mockValueProp` / `mockReadonlyProp` word the first line for what they do
+(`Cannot mock the property 'x': it is not configurable, so it cannot be redefined.`) and share the
+rest. They also leave nothing behind: the undo journal is written only once the redefinition has
+succeeded, so a refused patch cannot come back a second time as a `restoreMockedProps()` teardown
+failure for something that never happened.
+
+**The seam is a change to the code under test, not to the test.** Three shapes, cheapest first:
+
+```ts
+// 1. Inject it. The consumer takes the dependency from DI, so the spec supplies a double.
+readonly #metrics = inject(DomainMetrics);
+// spec: TestBed.configureTestingModule({ providers: [provideAutoSpy(DomainMetrics)] });
+
+// 2. Pass it in. A free function that takes its collaborator as an argument needs no mocking at all.
+export function priceBasket(items: Item[], rate: RateLookup): number { … }
+// spec: priceBasket(items, () => 1.2);
+
+// 3. Own the indirection. Re-export the third-party call through a class you control,
+//    and let every caller — and every spec — go through that.
+@Service()
+export class MetricsGateway {
+  track(event: string): void {
+    injectDomainMetrics().track(event);
+  }
+}
+```
+
+All three survive the bundler, because none of them depends on the module graph having a boundary
+where the spec wants one. That is the point: `vi.mock` and `vi.spyOn` on a module both bet on a
+boundary the build is free to remove, and a seam you wrote yourself is one the build has to keep.
+
+Once the dependency is injected, [`trackInjections`](/utilities/track-injections) is what asserts
+_which_ collaborators the entry point actually asked for — the question the barrel mock was usually
+standing in for.
 
 ## `moduleNamespace(exports, options?)`
 
