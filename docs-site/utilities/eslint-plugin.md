@@ -1,6 +1,6 @@
 ---
 title: ESLint plugin
-description: Thirteen flat-config lint rules that steer a suite onto the auto-spy helpers, versioned with the API they recommend.
+description: Fourteen flat-config lint rules that steer a suite onto the auto-spy helpers, versioned with the API they recommend.
 ---
 
 # ESLint plugin
@@ -37,6 +37,7 @@ which a subpath export of this package can never be.
 | `no-overridden-provider`       |   `error`   | suggest           | two providers for one token in one array → the earlier one never runs; the exact duplicate can be deleted                                  |
 | `no-inject-before-override`    |   `warn`    | —                 | `TestBed.inject()` in a hook, in a suite that still calls `override*`                                                                      |
 | `no-import-time-spread`        |   `error`   | suggest           | `export const x = [...Imported]` at module scope → a `TypeError` while the bundle loads                                                    |
+| `no-unregistered-inject-spy`   |   `warn`    | —                 | `injectSpy(X)` for a token this file never registered → the real instance, whose spy helpers exist only for the compiler                    |
 
 The seven `error` rules are the ones that catch a test being _wrong_ rather than verbose.
 `Object.defineProperty` leaves no way back — nothing restores the original descriptor, so the patch
@@ -321,6 +322,55 @@ source$.subscribe((data) => assertShape(data)); // still an assertion that may n
 One step through a name bound in the same file, which needs no type information and covers the
 shape. A helper declared _inside_ the callback is counted once, not twice.
 
+## The spy that only the compiler can see
+
+`no-unregistered-inject-spy` reports an `injectSpy(X)` for a token nothing in the file registered as
+an auto-spy:
+
+```ts
+TestBed.configureTestingModule({
+  imports: [RouterTestingModule], // provides a real ActivatedRoute
+  providers: [provideAutoSpy(UserService)],
+});
+
+const route = injectSpy(ActivatedRoute); // ❌ the real one, with spy helpers that are not there
+```
+
+What comes back is whatever Angular DI already had — the real service, or an object an imported
+testing module put there. The compiler has no objection, and that is the whole defect: `injectSpy`
+is declared to return a `Spy<T>`, so every helper on it type-checks against that declaration rather
+than against the value, and the helpers are therefore present for `tsc` and absent at run time. The
+first `.mockReturnValue(…)` or `.calledWith(…)` lands on a real method and throws there, as a
+`TypeError` on a line that reads like ordinary spy setup.
+
+The library already says this at run time: `injectSpy` checks what the injector handed back and
+warns that it is a plain instance. A warning on stderr is the weakest place to say it. It does not
+fail the run, it scrolls past in a suite of a thousand files, and it arrives only for the tests that
+actually executed the line — in one consumer monorepo dozens of spec files print it on every CI run
+and it has never been acted on. Nothing about the check needs type information, so it belongs where
+the mistake is written: the whole question is which tokens this file registered, and which token is
+being asked for.
+
+**The rule is quiet unless it can see the whole picture**, because a false positive here costs more
+than the warning it replaces. It reports nothing when:
+
+- the file never calls `provideAutoSpy` — then it configures DI in some way this does not model, and
+  a token missing from the tally says nothing;
+- any `providers` array holds a spread or a provider factory other than `provideAutoSpy`.
+  `providers: [...sharedMocks]` is the ordinary way to pull in a shared mock module, and what it
+  registers is out of sight. One unreadable entry hides an unknown number of tokens, so it silences
+  the **file** rather than one line;
+- the file calls `createWithAutoSpies`, `renderShallow` or `TestBed.overrideProvider`, each of which
+  registers doubles somewhere this scan does not look.
+
+A token provided by hand — `{ provide: X, useValue: someObject }` — is recorded as provided and left
+alone. `prefer-provide-auto-spy` is the rule for that shape, and two rules firing on one line would
+only teach people to disable both. A `useValue` that is a call to `createAutoMock`,
+`createSpyFromClass`, `createMock` or `mockDeep` counts as a registration, the same as
+`provideAutoSpy` does. Tokens are compared as source text, the way `no-overridden-provider` already
+compares them, and there is no fix and no suggestion: the repair is either a provider this file does
+not have, or a `TestBed.inject(X)` that says the real implementation was the point.
+
 ## Options
 
 `prefer-create-spy-from-class` takes one:
@@ -353,7 +403,7 @@ call, and it only ever looked at object literals.
 
 ## Which rules fix, and why so few
 
-Two of the thirteen rewrite the source on their own, six offer the rewrite as a suggestion, and the
+Two of the fourteen rewrite the source on their own, six offer the rewrite as a suggestion, and the
 split is about what a wrong guess costs rather than about how hard the rewrite is.
 
 `no-mocked-for-spy` touches nothing but a **declaration**. Get it wrong and the file stops

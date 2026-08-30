@@ -79,6 +79,7 @@ import {
 } from './rule-types';
 import { type EsNamedCall, type SubscribeRepair, enclosingSubscribe, helperAssertions, repairFor } from './subscribe-repair';
 import { breaksAnOverride } from './testbed-order';
+import { emptyRegistrations, readCall, readProviders, unregisteredInjections } from './unregistered-spy';
 
 const README = 'https://github.com/ASDAlexey/vitest-auto-spy#how-to-mock';
 
@@ -737,6 +738,33 @@ const noImportTimeSpread = defineRule({
   }),
 });
 
+/** `injectSpy(X)` for a token this file never registered as an auto-spy. */
+const noUnregisteredInjectSpy = defineRule({
+  anchor: '-a-service-behind-angular-di',
+  description: 'Do not read a token with injectSpy unless this file registered it as an auto-spy',
+  messages: {
+    noUnregisteredInjectSpy:
+      'Nothing in this file registers `{{token}}` as an auto-spy, so this hands back whatever Angular DI already had — the real service, or a hand-rolled object some imported module provides. The line still compiles and the spec still runs: `injectSpy` types the result as a spy, so the helpers are there for the compiler and absent at run time, and the first `.mockReturnValue(…)` or `.calledWith(…)` throws on a real method. Add `provideAutoSpy({{token}})` to the providers, or read the real implementation with `TestBed.inject({{token}})` and say so. Nothing is reported from a file whose providers this cannot read in full — a spread, an unknown provider factory, `createWithAutoSpies` or `TestBed.overrideProvider` all silence it.',
+  },
+  create: (context) => {
+    const tally = emptyRegistrations();
+
+    return {
+      CallExpression: (node: EsCallExpression): void => {
+        readCall(context, node, tally);
+      },
+      'Property[key.name="providers"] > ArrayExpression': (node: EsArrayExpression): void => {
+        readProviders(context, node, tally);
+      },
+      'Program:exit': (): void => {
+        unregisteredInjections(tally).forEach(({ node, token }) => {
+          context.report({ node, messageId: 'noUnregisteredInjectSpy', data: { token } });
+        });
+      },
+    };
+  },
+});
+
 /** Every rule the plugin ships, keyed by the name used in an ESLint config. */
 export const rules: Record<string, RuleModule> = {
   'prefer-provide-auto-spy': preferProvideAutoSpy,
@@ -752,4 +780,5 @@ export const rules: Record<string, RuleModule> = {
   'no-overridden-provider': noOverriddenProvider,
   'no-inject-before-override': noInjectBeforeOverride,
   'no-import-time-spread': noImportTimeSpread,
+  'no-unregistered-inject-spy': noUnregisteredInjectSpy,
 };

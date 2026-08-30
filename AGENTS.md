@@ -1886,8 +1886,9 @@ export default [{ files: ['**/*.spec.ts'], ...autoSpy.configs.recommended }];
 | `no-overridden-provider`       | `error` | suggest           | two providers for one token in one array → the earlier one never runs; the exact duplicate can be deleted                                 |
 | `no-inject-before-override`    | `warn`  | —                 | `TestBed.inject()` in a hook, in a suite that still calls `override*`                                                                     |
 | `no-import-time-spread`        | `error` | suggest           | `export const x = [...Imported]` at module scope → a `TypeError` while the bundle loads                                                   |
+| `no-unregistered-inject-spy`   | `warn`  | —                 | `injectSpy(X)` for a token this file never registered → the real instance, whose spy helpers exist only for the compiler |
 
-Thirteen rules; two fix on their own, six offer suggestions. `no-mocked-for-spy` only ever touches a
+Fourteen rules; two fix on their own, six offer suggestions. `no-mocked-for-spy` only ever touches a
 **type position**, where a wrong rewrite is a compile error rather than a test that quietly changed
 meaning — so `--fix` renames the type, adds `import type { Spy } from 'vitest-auto-spy'` and drops
 the orphaned `Mocked` import. Every type position, not only a `let`: a factory's return type, a

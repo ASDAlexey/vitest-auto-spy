@@ -2271,6 +2271,20 @@ seven sites in an 8 673-file workspace, which is small enough to flag at the cur
 and an instance field are deliberately not reported — they run later than the module does — while a
 `static` field is.
 
+The fourteenth, `no-unregistered-inject-spy`, catches `injectSpy(X)` for a token nothing in the file
+registered as an auto-spy. What comes back is whatever Angular DI already had — the real service, or
+an object an imported testing module put there — and nothing complains, because `injectSpy` is
+declared to return a `Spy<T>`: the helpers are present for `tsc` and absent at run time, so the first
+`.mockReturnValue(…)` or `.calledWith(…)` throws on a real method. The library warns about exactly
+this at run time, and that warning is why the rule exists rather than why it is redundant — it does
+not fail the run, it scrolls past in a suite of a thousand files, and it arrives only for the tests
+that executed the line; in one consumer monorepo dozens of spec files print it on every CI run and it
+has never been acted on. Reading it at the cursor needs no types, only the file's own registrations,
+and the rule stays quiet unless it can read all of them: it needs at least one `provideAutoSpy`, and
+a spread, an unknown provider factory, `createWithAutoSpies`, `renderShallow` or
+`TestBed.overrideProvider` silences the file. A token handed a plain `useValue` is left to
+`prefer-provide-auto-spy` — two rules on one line only teach people to disable both.
+
 ## Editor diagnostics — WebStorm & VS Code
 
 The rules above are worth more while the cursor is still on the line than they are in CI, because
@@ -2280,7 +2294,7 @@ package's own — it needs its ESLint integration switched on.
 ### WebStorm and the other JetBrains IDEs
 
 No plugin to install: WebStorm, IntelliJ IDEA Ultimate, PhpStorm, PyCharm Professional and RubyMine
-all run ESLint natively, so the twelve rules appear inline, in the **Problems** tool window, and
+all run ESLint natively, so the fourteen rules appear inline, in the **Problems** tool window, and
 under **Code → Inspect Code** for the whole project.
 
 ```js
@@ -2297,7 +2311,7 @@ has supported flat config since 2023.3); scope the block to spec files yourself;
 the fixes and suggestions live.
 
 A native JetBrains plugin is **not** planned — it would duplicate an integration the IDE already has
-and then keep a second copy of twelve rules, in Kotlin, in step with the TypeScript ones.
+and then keep a second copy of fourteen rules, in Kotlin, in step with the TypeScript ones.
 
 ### VS Code, Cursor, Windsurf, VSCodium
 

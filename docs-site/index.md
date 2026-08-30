@@ -44,8 +44,8 @@ features:
     details: Bun ships no DOM and cannot resolve templateUrl, so Angular specs simply do not run there — no other library in the field claims otherwise. One preload installs a DOM, inlines external templates and styles through a Bun.plugin hook, and boots a zoneless TestBed. provideAutoSpy, injectSpy and the zoneless waits come from one bun-angular entry point and read the same as they do on Vitest.
     link: /runtimes/bun-angular
   - icon: 📏
-    title: Thirteen lint rules, underlined as you type
-    details: Thirteen flat-config rules versioned together with the API they recommend, each message linking to its recipe. Seven of them catch a test being wrong rather than verbose — an expect() inside subscribe(), an expect() in a .then() nobody awaits, an Object.defineProperty nothing restores, a module-level mock shared across files, a done callback that makes a test pass having run almost none of its body. Two rewrite the source under --fix and six offer the rewrite as a suggestion, because a fix that silences the rule while the type gate still fails is worse than no fix. No editor plugin of their own — WebStorm runs them natively, VS Code, Cursor and Windsurf through the ESLint extension.
+    title: Fourteen lint rules, underlined as you type
+    details: Fourteen flat-config rules versioned together with the API they recommend, each message linking to its recipe. Seven of them catch a test being wrong rather than verbose — an expect() inside subscribe(), an expect() in a .then() nobody awaits, an Object.defineProperty nothing restores, a module-level mock shared across files, a done callback that makes a test pass having run almost none of its body. Two rewrite the source under --fix and six offer the rewrite as a suggestion, because a fix that silences the rule while the type gate still fails is worse than no fix. No editor plugin of their own — WebStorm runs them natively, VS Code, Cursor and Windsurf through the ESLint extension.
     link: /utilities/eslint-plugin
   - icon: 🧭
     title: Signals and resources a spec can drive

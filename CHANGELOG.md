@@ -23,6 +23,25 @@ The latest released version here must always match the one published on
   sources, so a list of `.ts` globs loses every counter on the first pass. The reader is lexical,
   like every other check in this CLI — the cost of that is a missed finding, never a wrong one.
 
+- **ESLint: `no-unregistered-inject-spy` (`warn`), the fourteenth rule.** `injectSpy(X)` for a token
+  nothing in the file registered as an auto-spy hands back whatever Angular DI already had — the real
+  service, or an object an imported testing module put there — and the compiler says nothing, because
+  `injectSpy` is declared to return a `Spy<T>`: the helpers exist for `tsc` and are absent at run
+  time, so the first `.mockReturnValue(…)` or `.calledWith(…)` throws on a real method. The library
+  already warns about this at run time, and that is the reason for the rule rather than an argument
+  against it — a warning on stderr does not fail the run, scrolls past in a suite of a thousand
+  files, and arrives only for the tests that executed the line; in one consumer monorepo dozens of
+  spec files print it on every CI run and it has never been acted on. The check needs no types, only
+  the file's own registrations, so **it is quiet unless it can read all of them**: at least one
+  `provideAutoSpy` has to be present, and a spread or an unknown provider factory in any `providers`
+  array, `createWithAutoSpies`, `renderShallow` or `TestBed.overrideProvider` silences the file — a
+  false positive here costs more than the warning it replaces. A token given a plain
+  `{ provide: X, useValue: … }` is recorded as provided and left to `prefer-provide-auto-spy`, since
+  two rules firing on one line only teach people to disable both. Tokens are compared as source text,
+  the way `no-overridden-provider` already compares them; no fix and no suggestion, because the
+  repair is either a provider the file does not have or a `TestBed.inject(X)` that says the real
+  implementation was the point.
+
 ## [3.9.0] - 2026-08-30
 
 ### Added

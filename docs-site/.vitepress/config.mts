@@ -112,14 +112,14 @@ export default defineConfig({
             author: { '@id': `${HOSTNAME}#author` },
             url: HOSTNAME,
             description:
-              'Generate fully-typed test spies from a class, an interface or nothing at all. One API across Vitest, Bun and node:test, with Angular, NestJS, React, Vue and Svelte recipes, RxJS observable spies and eleven ESLint rules. A drop-in replacement for jest-auto-spies.',
+              'Generate fully-typed test spies from a class, an interface or nothing at all. One API across Vitest, Bun and node:test, with Angular, NestJS, React, Vue and Svelte recipes, RxJS observable spies and fourteen ESLint rules. A drop-in replacement for jest-auto-spies.',
             featureList: [
               'Typed spies generated from a class prototype',
               'createAutoMock<T>() — a mock from a type alone, no class required',
               'One mock adapter core across Vitest, bun:test and node:test',
               'Angular TestBed helpers: provideAutoSpy, injectSpy, renderShallow',
               'Observable assertions that fail on silence',
-              'Eleven ESLint rules and editor diagnostics for WebStorm and VS Code',
+              'Fourteen ESLint rules and editor diagnostics for WebStorm and VS Code',
             ],
             offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' },
           },

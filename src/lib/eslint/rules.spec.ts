@@ -1344,3 +1344,103 @@ describe('the plugin', () => {
     });
   });
 });
+
+describe('no-unregistered-inject-spy', () => {
+  const RULE = 'no-unregistered-inject-spy';
+
+  /** The shape the rule exists for: one token registered, another injected. */
+  const unregistered = `
+    TestBed.configureTestingModule({
+      imports: [RouterTestingModule],
+      providers: [provideAutoSpy(UserService)],
+    });
+
+    const users = injectSpy(UserService);
+    const route = injectSpy(ActivatedRoute);
+  `;
+
+  it('reports an injectSpy whose token nothing registered', () => {
+    expect(lint(unregistered, RULE)).toEqual([`vitest-auto-spy/${RULE}`]);
+    expect(firstMessage(unregistered, RULE)).toContain('ActivatedRoute');
+  });
+
+  it('accepts a token registered through provideAutoSpy or an auto-spy useValue', () => {
+    const registered = `
+      TestBed.configureTestingModule({
+        providers: [provideAutoSpy(UserService), { provide: Clock, useValue: createAutoMock<Clock>() }],
+      });
+
+      injectSpy(UserService);
+      injectSpy(Clock);
+    `;
+
+    expect(lint(registered, RULE)).toEqual([]);
+  });
+
+  it('says nothing about a token provided by hand — that is prefer-provide-auto-spy’s line', () => {
+    const handRolled = `
+      TestBed.configureTestingModule({
+        providers: [provideAutoSpy(UserService), { provide: Clock, useValue: { now: () => 0 } }],
+      });
+
+      injectSpy(Clock);
+    `;
+
+    expect(lint(handRolled, RULE)).toEqual([]);
+  });
+
+  it('stays quiet in a file that never registers an auto-spy at all', () => {
+    const noRegistrations = `
+      TestBed.configureTestingModule({ providers: [] });
+
+      injectSpy(ActivatedRoute);
+    `;
+
+    expect(lint(noRegistrations, RULE)).toEqual([]);
+  });
+
+  it.each([
+    ['a spread of shared providers', 'providers: [provideAutoSpy(UserService), ...sharedMocks]'],
+    ['an unknown provider factory', 'providers: [provideAutoSpy(UserService), provideRouterStubs()]'],
+    ['a bare identifier', 'providers: [provideAutoSpy(UserService), routerProvider]'],
+    ['a hole', 'providers: [provideAutoSpy(UserService), , ]'],
+    ['an object with no provide key', 'providers: [provideAutoSpy(UserService), { useValue: 1 }]'],
+  ])('stays quiet when the providers array contains %s', (_label, providers) => {
+    const code = `
+      TestBed.configureTestingModule({ ${providers} });
+
+      injectSpy(ActivatedRoute);
+    `;
+
+    expect(lint(code, RULE)).toEqual([]);
+  });
+
+  it.each([
+    ['createWithAutoSpies', 'createWithAutoSpies(HostComponent, [UserService]);'],
+    ['renderShallow', 'renderShallow(HostComponent);'],
+    ['TestBed.overrideProvider', 'TestBed.overrideProvider(ActivatedRoute, { useValue: {} });'],
+  ])('stays quiet when %s builds the module elsewhere', (_label, statement) => {
+    const code = `
+      TestBed.configureTestingModule({ providers: [provideAutoSpy(UserService)] });
+      ${statement}
+
+      injectSpy(ActivatedRoute);
+    `;
+
+    expect(lint(code, RULE)).toEqual([]);
+  });
+
+  it('is unmoved by the calls around it — zero-argument, member and chained', () => {
+    const noise = `
+      TestBed.configureTestingModule({ providers: [provideAutoSpy(UserService)] });
+      TestBed.resetTestingModule();
+      TestBed.inject(UserService);
+      fixture.debugElement.query(By.css('a'));
+      helpers.build();
+
+      injectSpy(ActivatedRoute);
+    `;
+
+    expect(lint(noise, RULE)).toEqual([`vitest-auto-spy/${RULE}`]);
+  });
+});
