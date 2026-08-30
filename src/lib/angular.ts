@@ -96,9 +96,11 @@ export function provideAutoSpyForToken<T>(
  * generic service at once — a copy of this helper written that way is how the failure usually
  * arrives, in four unrelated files.
  *
- * If the injector hands back something that is not an auto-spy, that is reported: a provider the
- * spec forgot to register is otherwise found much later, when `.mockReturnValue` is called on the
- * real method.
+ * @remarks
+ * When the injector hands back a real instance rather than a double, that is reported — a provider
+ * the spec forgot to register is otherwise found much later, when `.mockReturnValue` is called on
+ * the real method. It is a `console.warn`, once per token; raise it to a thrown failure with
+ * `enableAngularDiagnostics({ unspiedProviders: true })` from `vitest-auto-spy/angular`.
  */
 export function injectSpy<T, Options extends SpyOptions = SpyOptions>(
   token: ClassType<T> | InjectionToken<T> | (abstract new (...args: never[]) => T),

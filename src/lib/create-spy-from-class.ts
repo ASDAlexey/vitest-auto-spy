@@ -388,6 +388,12 @@ function resolveConfiguration<T>(methodsToSpyOnOrConfig?: ClassSpyConfiguration<
  * // a generated API client, whose useful signature is the first of four
  * createSpyFromClass<VenuesService, { overload: 'first' }>(VenuesService);
  * ```
+ *
+ * @remarks
+ * Discovery walks the **prototype chain**, so a callable assigned in the constructor is invisible to
+ * it: an arrow-function property, an Angular `signal()` field, and every method of an ngrx
+ * `signalStore()`, which live on the instance. Name those in `instanceMethodsToSpyOn` — or build the
+ * double from the type instead, with `createAutoMock<T>()`, which reads no prototype at all.
  */
 export function createSpyFromClass<T, Options extends SpyOptions = SpyOptions>(
   ObjectClass: ClassType<T>,

@@ -102,6 +102,16 @@ export type ValueConfig<T> = CompleteValueConfig | ErrorValueConfig | NextValueC
 
 /** Helpers attached to an `Observable`-returning spy. */
 export interface AddObservableSpyMethods<T> {
+  /**
+   * Emit `value` — buffered, so a subscription taken afterwards still receives it.
+   *
+   * @remarks
+   * Every helper here exists only once the observable layer is registered: `import
+   * 'vitest-auto-spy/rxjs'` once, in the setup file. Without it they are absent from a method spy
+   * (`… .nextWith is not a function`) and `observablePropsToSpyOn` throws
+   * `Observable spies require rxjs`. Prefer {@link returnSubject} when the spec drives the stream
+   * itself, {@link nextWithPerCall} when each call needs its own.
+   */
   nextWith(value?: T): void;
   /** Emit one value then complete. */
   nextOneTimeWith(value?: T): void;
@@ -131,18 +141,30 @@ export type WithMockReturnValue<Method extends Func> = {
 
 /** Argument-matching helpers attached to a plain (sync) spy. */
 export interface AddCalledWithSpyMethods<Method extends Func> {
+  /**
+   * Configure what the spy answers for exactly these arguments.
+   *
+   * @remarks
+   * **Lenient on a miss:** a call matching no chain falls through to the spy's default
+   * (`mockReturnValue`, `resolveWith`, … — or `undefined`), so a wrong expectation here is silent.
+   * {@link mustBeCalledWith} throws instead, printing wanted beside actual. Matching is positional
+   * and arity-exact — `calledWith(1)` never answers `load(1, undefined)` — and accepts asymmetric
+   * matchers (`expect.any(String)`, `expect.objectContaining({…})`).
+   */
   calledWith(...args: Parameters<Method>): WithMockReturnValue<Method>;
   mustBeCalledWith(...args: Parameters<Method>): WithMockReturnValue<Method>;
 }
 
 /** Argument-matching helpers that resolve to observable helpers. */
 export type AddCalledWithObservable<Method extends Func, O> = {
+  /** Argument-matched and lenient on a miss — see {@link AddCalledWithSpyMethods.calledWith}. */
   calledWith(...args: Parameters<Method>): AddObservableSpyMethods<O>;
   mustBeCalledWith(...args: Parameters<Method>): AddObservableSpyMethods<O>;
 };
 
 /** Argument-matching helpers that resolve to promise helpers. */
 export type AddCalledWithPromise<Method extends Func, P> = {
+  /** Argument-matched and lenient on a miss — see {@link AddCalledWithSpyMethods.calledWith}. */
   calledWith(...args: Parameters<Method>): AddPromiseSpyMethods<P>;
   mustBeCalledWith(...args: Parameters<Method>): AddPromiseSpyMethods<P>;
 };
@@ -297,6 +319,13 @@ export type DeepMockProxy<T> = SpyDisposable & {
  * // a generated client whose useful overload is the first one:
  * let cinemas: Spy<VenuesService, { overload: 'first' }>;
  * ```
+ *
+ * @remarks
+ * A **mapped type**, so it drops `#private` and `private` members and is therefore *not* assignable
+ * to `T`. Declare the variable as `Spy<T>` — never as `T`, `Mocked<T>` or `MockedObject<T>` — and
+ * call `asInstance(spy)` at the one place a real `T` is wanted. The compiler reports this as missing
+ * private fields and says nothing about the real cause, which is why the `no-mocked-for-spy` lint
+ * rule exists.
  */
 export type Spy<T, Options extends SpyOptions = SpyOptions> = AddAccessorsSpies<T> &
   SpyDisposable & {
@@ -490,32 +519,33 @@ export interface ClassSpyConfiguration<T> extends StrictSpyConfiguration {
   /**
    * Extra callables to spy on, **added** to the methods discovered on the prototype.
    *
-   * These are `jest-auto-spies`' semantics, and the reason they are additive there: prototype
-   * discovery already finds every method, so the only names worth passing are the ones it cannot
-   * see — an arrow-function property, an Angular `signal()` field, a method of an ngrx
-   * `signalStore()`. {@link instanceMethodsToSpyOn} is the same behaviour under a name that says so.
-   *
-   * To spy on *nothing but* the names listed, use {@link onlyMethodsToSpyOn}.
+   * @remarks
+   * **Additive, not a whitelist** — `jest-auto-spies`' semantics, and the single most repeated
+   * mistake in this API. Discovery already finds every prototype method, so the only names worth
+   * passing are the ones it cannot see: an arrow-function property, an Angular `signal()` field, a
+   * method of an ngrx `signalStore()`. {@link instanceMethodsToSpyOn} is the same behaviour under a
+   * name that says so. The exhaustive whitelist is {@link onlyMethodsToSpyOn}, which skips discovery
+   * entirely. Dropping either option usually fixes more than it breaks.
    */
   methodsToSpyOn?: OnlyMethodKeysOf<T>[];
   /**
    * Spy on these methods and no others — prototype discovery is skipped entirely.
    *
+   * @remarks
    * Every other method is then absent from the spy, so code under test that calls one fails with
    * `… is not a function`. Occasionally that is the point (a wide collaborator where an unexpected
-   * call should be loud). A name here that the prototype does not have is reported as a probable
-   * typo, since under a restricting list a misspelling silently un-spies the real method.
+   * call should be loud); when it is not, {@link methodsToSpyOn} is the additive option. A name here
+   * that the prototype does not have is reported as a probable typo, since under a restricting list
+   * a misspelling silently un-spies the real method.
    */
   onlyMethodsToSpyOn?: OnlyMethodKeysOf<T>[];
   /**
    * Callables that live on the *instance* rather than on the prototype — an arrow-function
-   * property, an Angular `signal()` / `computed()` field, a method of an ngrx `signalStore()`.
-   * Prototype discovery cannot see them, so they are named here and **added** to whatever the
-   * method resolution produced.
+   * property, an Angular `signal()` / `computed()` field, a method of an ngrx `signalStore()` —
+   * **added** to whatever prototype discovery produced.
    *
-   * Behaviourally identical to {@link methodsToSpyOn}; the two differ only in what the name tells a
-   * reader. Prefer this one in new code, and keep `methodsToSpyOn` for specs carried over from
-   * `jest-auto-spies`.
+   * @remarks
+   * Behaviourally identical to {@link methodsToSpyOn}; prefer this name in new code.
    */
   instanceMethodsToSpyOn?: OnlyMethodKeysOf<T>[];
   observablePropsToSpyOn?: OnlyObservablePropsOf<T>[];
