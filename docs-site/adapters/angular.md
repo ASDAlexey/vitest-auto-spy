@@ -92,7 +92,7 @@ so at runtime this class and a concrete one are the same object. Ask for it:
 providers: [provideAutoSpy(LocalStorage, { fillMissing: true })];
 ```
 
-See [`fillMissing`](../core/create-spy-from-class#fillmissing-a-partially-abstract-class) for what it
+See [`fillMissing`](../core/create-spy-from-class#fill-missing) for what it
 does and does not fill.
 
 ## Seeding the double in the provider
@@ -241,6 +241,10 @@ the per-test `overrideComponent` costs more than it saves. **Shallow rendering p
 real child tree to skip.** Use [the diagnostics](#where-a-spec-spends-its-time) to find the files
 worth converting rather than guessing.
 
+A spec that needs the real template is not excluded from this: `keepTemplate: true` still empties
+the child imports, and still measures 1.8× against the full cycle — see
+[the middle rung](/core/performance#the-middle-rung-keeptemplate-true).
+
 ## Building a class with auto-spied dependencies
 
 The alternative a project writes by hand is a `providers` array listing each dependency with a
@@ -289,6 +293,34 @@ app the state that matters is signal-derived and effects are what move it forwar
 both, in the right order; `flushEffects` prefers `TestBed.tick()` (Angular ≥ 20) and falls back to
 `ApplicationRef.tick()`.
 
+### `autoDetect` is already on under zoneless
+
+Older advice — including this page, until now — describes automatic change detection as something a
+spec has to arrange. That is a zone-era description. Since Angular 19.0.0 the fixture's default is
+conditional, and on `@angular/core@21.2.17` it reads:
+
+```ts
+// @angular/core/fesm2022/testing.mjs:164-167, rewrapped
+autoDetectDefault = this.zonelessEnabled ? true : false;
+autoDetect = inject(ComponentFixtureAutoDetect, { optional: true }) ?? this.autoDetectDefault;
+```
+
+So in a zoneless suite it is **on by default**: nothing has to provide `ComponentFixtureAutoDetect`,
+and nothing has to call `autoDetectChanges()`. What is still the spec's job is _when_ — autoDetect
+schedules the pass rather than running it at the point of the write, so an assertion on the line
+after a signal write still reads the state from before it. `await stable(fixture)` is what puts the
+pass and the effects in front of the assertion; another `detectChanges()` is not.
+
+Two related deprecations in the same version, both pointing the same way:
+
+| `@angular/core@21.2.17`                  |                                                                                                 |
+| ---------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `autoDetectChanges(autoDetect: boolean)` | `@deprecated` at `types/testing.d.ts:112` — use the no-argument `autoDetectChanges()` at `:121` |
+| `TestBed.flushEffects()`                 | `@deprecated` at `:498` in favour of `TestBed.tick()` at `:506`                                 |
+
+`flushEffects()` from this package already prefers `TestBed.tick()` and falls back to
+`ApplicationRef.tick()` only for Angular < 20, so a suite using it is on the surviving call already.
+
 ### The wait is bounded
 
 `stable` gives the fixture **2000 ms** and then throws the cause. A fixture that never stabilises —
@@ -311,11 +343,11 @@ cannot stop it: a watchdog the code under test can freeze is not a watchdog.
 Angular's resource primitives need a **different wait each**, and neither is the one a spec reaches
 for. Measured on Angular 21.2.17, zoneless TestBed:
 
-| What                                              | What it needs to settle              |
-| ------------------------------------------------- | ------------------------------------ |
-| `httpResource()`, after its response is flushed   | one tick + one microtask             |
-| `resource()` with an async loader                 | two rounds of the same               |
-| `httpResource()` that has just been created       | a tick, or it makes **no request**   |
+| What                                            | What it needs to settle            |
+| ----------------------------------------------- | ---------------------------------- |
+| `httpResource()`, after its response is flushed | one tick + one microtask           |
+| `resource()` with an async loader               | two rounds of the same             |
+| `httpResource()` that has just been created     | a tick, or it makes **no request** |
 
 Getting it wrong does not fail loudly. It asserts against the resource's _default_ value — a green
 test proving nothing, until the day the default changes. `settleResource` is the loop both converge
@@ -352,7 +384,7 @@ met. Its docstring used to claim this exact use case; it never worked.
 
 ### Skipping the request entirely — `mockResourceProp`
 
-Everything above is the answer when the request *is* the point. Often it is not: the spec is about a
+Everything above is the answer when the request _is_ the point. Often it is not: the spec is about a
 component's own logic, it never wanted an `HttpTestingController`, and the value it needs is one it
 picked in advance. `mockResourceProp` replaces the property with a double the spec moves directly.
 
@@ -384,13 +416,13 @@ Reactivity is genuine: the double is built from real `signal()`s, so a `computed
 against a real `httpResource`. A plain object with the same keys would satisfy every read and notify
 nothing.
 
-| Member                | What it is                                                             |
-| --------------------- | ---------------------------------------------------------------------- |
-| `set(value)`          | resolve with a value; clears any error                                 |
-| `fail(error)`         | fail with an `Error` or a message string                               |
-| `loading()`           | put it back in flight                                                  |
-| `reload`              | the spied `reload()` — assert the call, nothing is re-issued           |
-| `resource`            | the installed double, for asserting on it directly                     |
+| Member        | What it is                                                   |
+| ------------- | ------------------------------------------------------------ |
+| `set(value)`  | resolve with a value; clears any error                       |
+| `fail(error)` | fail with an `Error` or a message string                     |
+| `loading()`   | put it back in flight                                        |
+| `reload`      | the spied `reload()` — assert the call, nothing is re-issued |
+| `resource`    | the installed double, for asserting on it directly           |
 
 Undone by `restoreMockedProps()` like every other property patch, so a suite running `setupAutoSpy()`
 needs no teardown of its own.
@@ -443,19 +475,180 @@ expect(component.icon()).toBe('starFilled');
 `runEffect` runs the body with the signal values as they stand, cleanup registration intact, without
 marking the effect clean — a later flush still behaves normally.
 
-::: warning Do not reach for `vi.mock('@angular/core')` instead
+::: warning Before reaching for `vi.mock('@angular/core')` instead
 The instinct is to replace `effect()` with the identity function so the callback becomes something
-the spec holds. Under the Angular unit-test builder that is not available: specs are bundled,
-`@angular/core` lands in a chunk other chunks already depend on, and substituting it re-enters that
-chunk mid-initialisation. The run dies with `Cannot access '__vi_import_N__' before initialization`,
-which says nothing about mocking. The same applies to `vi.mock()` with a relative path — once
-bundled there is no module boundary left to replace.
+the spec holds. That mock can be made to work under the Angular unit-test builder — but only if its
+factory avoids one specific construct, and a relative path never works at all. See
+[module mocks under the unit-test builder](#module-mocks-under-the-unit-test-builder) before
+writing one; asserting the effect's result stays the more durable shape either way.
 :::
 
 It reads Angular's reactive node off the `EffectRef`, so it is tied to an internal-by-convention
 detail. If a future Angular moves the effect body, `runEffect` throws with a message saying to assert
 the effect's **result** instead — set the signals it reads, `await stable(fixture)`, check what came
 out. That is the more durable shape wherever it is practical.
+
+## Module mocks under the unit-test builder
+
+This page used to say that `@angular/core` "cannot be mocked at all" under
+`@angular/build:unit-test`, and that the reason was the shared chunks a multi-entry build emits.
+**That was wrong**, and it sent people to rewrite specs that did not need rewriting. Measured
+2026-08-29 on a fixture of 11 spec files always collected in one run, on `@angular/build` 21.2.16
+and 22.1.6:
+
+> `vi.mock('@angular/core')` **does work** — with `TestBed` in the graph, with app code in the
+> graph, with every spec collected together.
+
+The real rule is narrower, and it is a one-line fix in the spec rather than a reason to abandon the
+approach.
+
+### The rule: a `vi.mock` factory must not use object spread
+
+Angular's builder sets `'object-rest-spread': false` unconditionally in `getFeatureSupport`
+(`@angular/build/src/tools/esbuild/utils.js:172`) — a deliberate workaround for a V8 performance
+defect, [crbug/v8/11536](https://bugs.chromium.org/p/v8/issues/detail?id=11536). So `{ ...actual, x }`
+never survives as spread: it is downlevelled to a bundle-scope `__spreadValues` helper. `vi.mock`
+factories are hoisted above the bundle's own initialisation, so the factory reaches that helper
+before it exists.
+
+```ts
+// ❌ the spread compiles to a helper the hoisted factory runs before it is initialised
+vi.mock('@angular/core', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@angular/core')>();
+
+  return { ...actual, effect: (fn: () => void) => fn };
+});
+
+// ✅ identical mock, no spread
+vi.mock('@angular/core', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@angular/core')>();
+
+  return Object.assign({}, actual, { effect: (fn: () => void) => fn });
+});
+```
+
+A modern `.browserslistrc` does not get you out of it — the flag is not target-derived. And code
+splitting only decides which spelling of the error you get, which is why the shared chunks looked
+like the cause:
+
+| Splitting | What the run says                                                                            |
+| --------- | -------------------------------------------------------------------------------------------- |
+| on        | `Cannot access '__vi_import_1__' before initialization` — the helper lives in a shared chunk |
+| off       | `__spreadValues is not a function` — the helper is a module-scope `var`                      |
+
+Neither message mentions spread, and neither mentions the factory.
+
+### A relative path is blocked, permanently
+
+`vi.mock('./thing')` is not a bundling accident — the builder rejects it on purpose. It injects a
+virtual entry point, `angular:vitest-mock-patch`
+(`@angular/build/src/builders/unit-test/runners/vitest/build-options.js`), which monkey-patches
+`vi.mock`, `vi.doMock`, `vi.importMock`, `vi.unmock` and `vi.doUnmock` to throw when the specifier
+matches `/^[./]/`:
+
+```text
+The "vi.mock" and related methods are not supported for relative imports with the Angular
+unit-test system. Please use Angular TestBed for mocking dependencies.
+```
+
+No build flag changes that. Mock through `TestBed` providers instead — which is what the rest of
+this page is about.
+
+::: danger A tsconfig path alias slips past the guard and does nothing
+`@app/thing` does not start with `.` or `/`, so the regex above never fires. There is **no throw**:
+the real module is used, the mock is silently ignored, and the spec fails later on an assertion that
+reads like a bug in the code under test. An alias is the worst of the three cases precisely because
+it looks like the one that works.
+:::
+
+### What the measurement does not cover
+
+Worth saying plainly, because the claim it replaces was stated too broadly once already. The fixture
+was a toy: no components, no templates, no barrels, no `externalDependencies` entries, and jsdom
+rather than happy-dom. It says `vi.mock('@angular/core')` is not categorically blocked and that
+spread is what breaks the factory; it does not say every mock of every module will work in a real
+application suite. The `splitting` option discussed below was never executed against it, because no
+published `@angular/build` ships it yet.
+
+## When the unit-test build has code splitting off
+
+`npx vitest-auto-spy doctor` reports `angular-build-splitting-off` when the installed
+`@angular/build` is in `[22.1.5, 22.1.7)`. People also arrive here from the other direction: a CI
+job that was fine last week is killed under `--coverage`, with no message from the builder about
+why.
+
+In that version window the unit-test bundle is built with esbuild code splitting **off**, and there
+is no option to turn it back on. What that buys is real — the live-binding and undefined-export
+class of failures upstream disabled it for — but the trade is not the one it is usually assumed to
+be:
+
+- **It buys nothing for module mocking.** `vi.mock` behaves the same either way; splitting only
+  changes the wording of the spread error above.
+- **It costs a bundle graph.** Every spec becomes a self-contained bundle: **791 chunks / 596 MB**
+  on a 784-spec suite, growing by hundreds of megabytes under `--coverage` with no plateau until the
+  run is killed. **The builder emits no warning in either mode.**
+
+PR #33961 restores a `splitting` option with splitting **on** by default, so 22.1.7 closes the
+window: upgrade and set `"splitting": true` on the test target.
+
+### The escape hatch, and why it is not shipped here
+
+Until then the only lever is to patch the installed builder in place. The shape of that patch — a
+version-guarded `postinstall` that rewrites `disableCodeSplitting: true,` in `node_modules` — is
+copy-pasteable, and is yours to own once you paste it: it is neither run nor tested by this
+repository, and it depends entirely on that literal still being there.
+
+```js
+// scripts/patch-angular-build.cjs — delete this once you are on @angular/build 22.1.7
+const { readdirSync, readFileSync, statSync, writeFileSync } = require('node:fs');
+const { join } = require('node:path');
+
+const root = join(__dirname, '..', 'node_modules', '@angular', 'build');
+const { version } = require(join(root, 'package.json'));
+const [major, minor, patch] = version.split('.').map(Number);
+const affected = major === 22 && minor === 1 && patch >= 5 && patch < 7;
+
+if (!affected) {
+  process.stdout.write(`@angular/build ${version} needs no patch\n`);
+  process.exit(0);
+}
+
+const NEEDLE = 'disableCodeSplitting: true,';
+let patched = 0;
+
+const walk = (dir) => {
+  for (const entry of readdirSync(dir)) {
+    const full = join(dir, entry);
+
+    if (statSync(full).isDirectory()) {
+      walk(full);
+    } else if (full.endsWith('.js')) {
+      const source = readFileSync(full, 'utf8');
+
+      if (source.includes(NEEDLE)) {
+        writeFileSync(full, source.split(NEEDLE).join('disableCodeSplitting: false,'));
+        patched += 1;
+      }
+    }
+  }
+};
+
+walk(join(root, 'src'));
+
+// Fail loudly rather than silently doing nothing: the literal moving is the expected way this breaks.
+if (patched === 0) {
+  throw new Error(`@angular/build ${version}: "${NEEDLE}" not found — the patch needs revisiting`);
+}
+```
+
+**This package deliberately does not ship it**, and would not accept a PR that did. Making it
+automatic means a `postinstall` that rewrites another package's files inside `node_modules`, which
+is the single most alarming thing a test library can do to a supply-chain audit — the same posture
+that keeps this package's own bundles unminified and readable. It is also string surgery against a
+literal at no fixed path, so an upstream refactor breaks it silently, which is the worst failure
+mode for a package whose whole pitch is that failures name their own cause. And its useful life is
+weeks. Whether a workspace trades a 596 MB bundle graph for anything at all is the app team's call,
+not a test-double library's; the diagnosis belongs here, the mutation does not.
 
 ## Asserting a signal
 
@@ -594,7 +787,10 @@ import { overrideAutoSpy, overrideComponentProvider } from 'vitest-auto-spy/angu
 const menu = overrideComponentProvider(CatalogPageComponent, NavigationBuilderService); // → Spy<NavigationBuilderService>
 
 // or, when the component is already in the testing module
-TestBed.configureTestingModule({ imports: [CheckoutComponent] }).overrideProvider(PaymentMethodService, overrideAutoSpy(PaymentMethodService));
+TestBed.configureTestingModule({ imports: [CheckoutComponent] }).overrideProvider(
+  PaymentMethodService,
+  overrideAutoSpy(PaymentMethodService),
+);
 ```
 
 `overrideProvider(X, provideAutoSpy(X))` is **not** broken, contrary to what this page used to say.
@@ -612,6 +808,10 @@ declaration otherwise.
 Do **not** reach for `TestBed.overrideComponent` here. It forces a JIT recompilation, and under an
 AOT test bundle that recompilation resolves the component's directives and pipes from a runtime
 scope the bundler has stripped, leaving it with none of them — see the next section.
+
+`overrideComponentProvider` also verifies, on the next `TestBed.createComponent`, that the
+component's own injector really answers with the spy — see
+[Component provider overrides](/adapters/angular-overrides).
 
 ## An NgModule that contributes nothing
 
@@ -641,6 +841,10 @@ TestBed.configureTestingModule({ imports: [DirectivesModule, PipesModule] });
 The error names the module and the cause, and the fix is to declare what the spec needs in the
 TestBed module directly. Pass only modules you import **for their declarations** — a providers-only
 module is legitimately empty and would be reported as a false positive.
+
+[`enableAngularDiagnostics({ ngModuleScopes })`](/adapters/angular-diagnostics#ngmodulescopes)
+applies this automatically to every testing module, behind a much stricter filter that a
+providers-only module passes.
 
 ## Focus assertions
 
@@ -681,8 +885,8 @@ const config = injectSpy<FeatureFlagService>(FeatureFlagService);
 
 ```ts
 // vitest-setup.ts
-import { setupAngularTestEnv } from 'vitest-auto-spy/angular';
 import { setupZoneTestEnv, setupZonelessTestEnv } from 'jest-preset-angular/setup-env';
+import { setupAngularTestEnv } from 'vitest-auto-spy/angular';
 
 setupAngularTestEnv({
   zoneless: (testPath) => testPath.includes('/libs/catalog/') || testPath.includes('/apps/storefront/'),
@@ -729,12 +933,12 @@ fixture.componentInstance.enabled = true; // typed from `props`
 Under the native builder the two halves of Angular disagree about where `imports` is resolved, and
 the same line is alive in one place and dead in the other:
 
-| Where                                   | Resolved by                          | An `NgModule` there                          |
-| --------------------------------------- | ------------------------------------ | -------------------------------------------- |
-| `@Component({ imports })`               | the AOT compiler, at build time      | **works** — the flat list is baked into `ɵcmp` |
+| Where                                         | Resolved by                                | An `NgModule` there                                                              |
+| --------------------------------------------- | ------------------------------------------ | -------------------------------------------------------------------------------- |
+| `@Component({ imports })`                     | the AOT compiler, at build time            | **works** — the flat list is baked into `ɵcmp`                                   |
 | `TestBed.configureTestingModule({ imports })` | `TestBedCompiler`, at runtime, from `ɵmod` | **contributes nothing** — `ɵɵsetNgModuleScope` is not emitted into a test bundle |
 
-So the host must be **standalone** and must carry the module in its *own* `imports`. A host written
+So the host must be **standalone** and must carry the module in its _own_ `imports`. A host written
 `standalone: false` inside a spec is worse still: it is compiled outside any scope at all, with no
 `NgClass`, no `AsyncPipe`, nothing. `createDirectiveHost` is that knowledge applied — the host is
 always standalone, `scope` becomes the component's imports, and `props` types
@@ -749,9 +953,9 @@ expect(fixture).toHaveDirectiveApplied(TruncateDirective, 'div');
 ```
 
 Angular reports a directive that is out of scope in three different wrong ways: `NG0303` sends the
-reader to the `@NgModule` where the directive *is* correctly declared; `NG0304` reports an absent
+reader to the `@NgModule` where the directive _is_ correctly declared; `NG0304` reports an absent
 **directive** as an absent **component**; and a directive used as a bare attribute, with no binding,
-reports *nothing at all* — a green test asserting on a directive that never ran.
+reports _nothing at all_ — a green test asserting on a directive that never ran.
 
 The matcher asserts the fact, and its failure names the cause and the fix, including the one that
 looks like a fix and is not: `schemas: [NO_ERRORS_SCHEMA]` applies to a testing module's
@@ -784,12 +988,12 @@ TestBed.configureTestingModule({ providers: [provideAutoSpyForToken(PASSCODE_SER
 const passcode = injectSpy(PASSCODE_SERVICE_TOKEN); // Spy<PasscodeService>
 ```
 
-A token typed with an *interface* has no class to read, which is where the usual workaround comes
+A token typed with an _interface_ has no class to read, which is where the usual workaround comes
 from: a `PasscodeServiceMock` written in the spec, spied, and provided — after which `Spy<Mock>` and
 `Spy<PasscodeService>` disagree about `calledWith` and somebody reaches for an assertion (or, more
 often, `TestBed.inject<any>(TOKEN)` with an `eslint-disable` at the top of the file).
 `provideAutoSpyForToken` reads the type off the token; `injectSpy` already accepts one. Note the
-name: `provideAutoSpy` reads a *class prototype*, which a token has none of, so it is not the call
+name: `provideAutoSpy` reads a _class prototype_, which a token has none of, so it is not the call
 that works here.
 
 The second argument is needed more often than it looks. A spy answers `undefined` until it is told

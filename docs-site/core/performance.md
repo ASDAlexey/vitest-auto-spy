@@ -244,6 +244,11 @@ Two things that measurement corrects, both worth knowing before you copy a confi
   was removed; Vitest logs `was removed in Vitest 4` and ignores it. The top-level
   `fileParallelism: false` replaces it.
 
+What the mode costs is not in the clock: a `TestBed` patch installed once per worker outlives the
+file that asked for it, and a load-time failure is reported against every file in the worker at
+once. Both are in [Vitest → Isolation](../runtimes/vitest#isolation), and both are worth reading
+before the config is copied.
+
 On a suite small enough that Vitest's own startup dominates, none of this shows up in the clock —
 this library's own 39-file suite runs in ~1.03 s either way. The work still collapses, and that is
 what scales: aggregate setup 6.3 s → 0.23 s, environment 5.2 s → 0.19 s, transform 3.1 s → 0.32 s.
@@ -268,6 +273,23 @@ to save (1.2×); on a table or a dashboard it is an order of magnitude.
 
 This is only worth taking because [templates are not what a spec asserts on](../recipes). A test that
 reads component state pays for the subtree and gets nothing back for it.
+
+#### The middle rung, `keepTemplate: true`
+
+A spec that needs a `viewChild`, content projection or a host binding needs the component's own
+template, and the table above reads as if that meant paying for the whole tree again. It does not.
+`buildOverride` (`lib/render-shallow.ts:83-98`) applies `imports: options.keepChildren ?? []`
+whether or not the template is kept, so with `keepTemplate: true` the template renders while every
+child in it resolves to nothing under `NO_ERRORS_SCHEMA`:
+
+| | per render |
+| --- | ---: |
+| the full `TestBed.createComponent` cycle | 1.933 ms |
+| `renderShallow({ keepTemplate: true })` | **1.074 ms** — 1.8× |
+
+So there are three rungs, not two: the full cycle, the component's own template with an empty
+subtree, and no template at all. Reach for the middle one when the spec reads something the template
+creates, and keep `keepChildren` for the handful of children it genuinely needs resolvable.
 
 ### 3. Worker count
 

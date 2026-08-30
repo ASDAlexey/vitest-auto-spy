@@ -34,9 +34,11 @@ export default defineConfig({
         content:
           'vitest, auto spy, auto-spies, vitest-auto-spy, jest-auto-spies, test spies, typed mocks, ' +
           'createSpyFromClass, createAutoMock, mockDeep, deep mock, resolveWith, calledWith, mustBeCalledWith, ' +
+          'strict mode, onUnstubbedCall, unstubbed call, fallbackMockImplementation, Symbol.dispose, using declaration, ' +
           'bun test, bun 1.4, angular on bun, node:test, angular testing, renderShallow, shallow rendering, zoneless, signal testing, ' +
           'nestjs, react, vue, pinia, svelte, rxjs, eslint plugin, mocking, typescript, ' +
           'vitest mock class, mock interface typescript, replace jest-auto-spies, vitest auto spies, ' +
+          'jest to vitest codemod, jest.Mock type arguments, migrate jest to vitest, ' +
           'webstorm eslint inspections, vs code extension, anti-patterns, spy typing, ' +
           'llms.txt, AGENTS.md, ai agent, claude code skill, openai codex, glm z.ai, cursor, copilot, gemini cli',
       },
@@ -167,6 +169,7 @@ export default defineConfig({
           { text: 'createSpyFromClass', link: '/core/create-spy-from-class' },
           { text: 'Control helpers', link: '/core/control-helpers' },
           { text: 'Auto-mock by type', link: '/core/auto-mock-by-type' },
+          { text: 'Strict mode', link: '/core/strict-mode' },
           { text: 'Observable assertions', link: '/core/observable-assertions' },
           { text: 'Bridging Spy<T> and T', link: '/core/spy-typing' },
           { text: 'Performance', link: '/core/performance' },
@@ -199,11 +202,13 @@ export default defineConfig({
           { text: 'Constructor doubles', link: '/utilities/constructor-doubles' },
           { text: 'Media element stub', link: '/utilities/media-element' },
           { text: 'Module mocks', link: '/utilities/module-mocks' },
+          { text: 'Tracking injections', link: '/utilities/track-injections' },
           { text: 'Fixtures without casts', link: '/utilities/fixtures' },
           { text: 'fakeAsync on Vitest', link: '/utilities/zone' },
           { text: 'Waiting and the clock', link: '/utilities/event-loop' },
           { text: 'ESLint plugin', link: '/utilities/eslint-plugin' },
           { text: 'CLI — doctor & init', link: '/utilities/cli' },
+          { text: 'CLI — the codemod', link: '/utilities/codemod' },
           { text: 'Editor diagnostics', link: '/utilities/editor-diagnostics' },
         ],
       },
@@ -212,6 +217,8 @@ export default defineConfig({
         collapsed: false,
         items: [
           { text: 'Angular', link: '/adapters/angular' },
+          { text: 'Angular diagnostics', link: '/adapters/angular-diagnostics' },
+          { text: 'Component provider overrides', link: '/adapters/angular-overrides' },
           { text: 'NestJS', link: '/adapters/nestjs' },
           { text: 'React', link: '/adapters/react' },
           { text: 'Vue / Pinia', link: '/adapters/vue' },

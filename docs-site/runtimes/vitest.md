@@ -93,6 +93,38 @@ export default defineConfig({
 });
 ```
 
+### A shared `TestBed` patch outlives the file that asked for it
+
+The setup file is the natural place to append one DI provider to every `configureTestingModule`
+call, installed once per worker behind a flag. Under `isolate: false` that patch does not end with
+the file that wanted it: specs in unrelated libraries silently inherit a provider they never
+declared, and they pass. They keep passing until the run isolates — which is the run CI makes,
+because coverage forces isolation — and then they fail with `NG0201: No provider found`, in files
+nobody touched.
+
+The general shape is a spec that only passes because a *neighbour in the same worker* configured the
+container. It is cheap to check and there is no other way to find it: **run any suite with a shared
+`TestBed` patch isolated once before trusting it.**
+
+### A load-time failure is reported against every file in the worker
+
+A file that dies while its module graph is being evaluated takes the worker's other files with it,
+and the report says so in a way that reads backwards. Four consecutive full runs of one unchanged
+tree reported **0, 95, 104 and 151 failed _files_** while the failed _test_ count stayed at **zero**:
+the number tracks how many spec files happened to share the worker that died, not how much is
+broken.
+
+The tell is the intersection: across those four runs the failed lists had **no file in common**. No
+file in any of them is the culprit.
+
+Neither channel names it either. Vitest 4 collapses the identical unhandled error to a single
+message line, with no stack and no originating module, and the `json` reporter carries the same bare
+message with `assertionResults: []`. So the triage rule that does work is the narrow one:
+
+> Fix only the files that failed on their **own** assertions, then re-run.
+
+Everything else in the list is a bystander, and re-running is what tells you which was which.
+
 ## The Angular subpath
 
 An Angular suite imports from `vitest-auto-spy/angular` instead — it registers the same Vitest

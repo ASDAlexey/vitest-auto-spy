@@ -48,6 +48,40 @@ signature so it tracks whatever the installed version accepts:
 setupFakeTimers({ toFake: ['setTimeout'] }); // leave Date and queueMicrotask real
 ```
 
+### Taking `setImmediate` out of `toFake`
+
+Vitest's default `toFake` is *every* timer the environment has except `process.nextTick` and
+`queueMicrotask` (Vitest 4.1.9). In Node that includes `setImmediate`, and `setImmediate` is the one
+whose absence is felt well outside timer code.
+
+Express's router ends an unmatched request through `setImmediate(done, layerError)`
+(`router/index.js:203`). With the clock frozen that callback is queued and never drained, so a
+request that should come back `404` sits there until the runner gives up:
+
+```text
+Test timed out in 30000ms
+```
+
+Nobody reading that on an HTTP call goes looking for a routing mistake — the natural reading is a
+hung socket, and the actual defect is three layers away. **A suite that drives a real HTTP handler
+wants `setImmediate` out of `toFake`.** Name the ones you want; anything not listed stays real:
+
+```ts
+setupFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] });
+```
+
+For a whole run, the same object goes to
+[`setupAutoSpy`](./setup#fake-timers-for-the-whole-run):
+
+```ts
+setupAutoSpy({ globalFakeTimers: { toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] } });
+```
+
+Narrowing `toFake` is the fix; `vi.useRealTimers()` inside the file is not. It un-arms the clock the
+rest of the file — and, with `betweenTests` or `globalFakeTimers`, the rest of the run — is written
+against, and the guarded arming above exists so that reaching for it does not also take teardown
+down with it, not to make it a supported way out.
+
 ## Between the tests as well — `betweenTests`
 
 ```ts

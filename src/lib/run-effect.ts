@@ -2,10 +2,14 @@
  * Running one `effect()` body on demand.
  *
  * The instinct is to neutralise `effect()` by replacing `@angular/core`, so the callback becomes
- * something the spec holds and can call. That is not available under the Angular unit-test builder:
- * specs are bundled, `@angular/core` lands in a chunk several other chunks already depend on, and
- * substituting it re-enters that chunk mid-initialisation — the run dies with
- * `Cannot access '__vi_import_N__' before initialization` rather than with anything about mocking.
+ * something the spec holds and can call. Under the Angular unit-test builder that is a sharper edge
+ * than it looks. The mock itself is possible, but the factory people reach for is not: the builder
+ * sets `'object-rest-spread': false` unconditionally, so `{ ...actual, effect: … }` downlevels to a
+ * bundle-scope `__spreadValues` helper that the hoisted factory reaches before it is initialised —
+ * the run dies with `Cannot access '__vi_import_N__' before initialization`, or with
+ * `__spreadValues is not a function` where code splitting is off, rather than with anything about
+ * mocking. `Object.assign({}, actual, { effect: … })` compiles to something that works, at the price
+ * of replacing the whole module for the file.
  *
  * So leave the effect real and address the effect itself. Angular hangs its reactive node off the
  * `EffectRef` under the `ɵSIGNAL` symbol, and the node keeps the closure it built around the user

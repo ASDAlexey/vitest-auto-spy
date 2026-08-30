@@ -197,10 +197,11 @@ const load = Object.assign(vi.fn(), { destroy: vi.fn() });
 
 ## Effects
 
-Do not try to replace `effect()` by mocking `@angular/core`. Under the Angular unit-test builder the
-specs are bundled and `@angular/core` sits in a shared chunk, so replacing it re-enters a chunk that
-is still initialising and fails with `Cannot access '__vi_import_N__' before initialization`. The
-same applies to any module those shared chunks depend on.
+Prefer not to replace `effect()` by mocking `@angular/core`. It is possible under the Angular
+unit-test builder — the mock that fails is the one whose factory uses object spread, and the
+failure (`Cannot access '__vi_import_N__' before initialization`) names neither spread nor the
+factory; see [module mocks under the unit-test builder](/adapters/angular#module-mocks-under-the-unit-test-builder).
+It is still the more brittle half of the trade.
 
 Assert the effect's **result** instead: set the signals it reads, let it run, and check what it
 produced.

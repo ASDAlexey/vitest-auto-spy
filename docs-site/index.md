@@ -25,7 +25,7 @@ hero:
 features:
   - icon: 🎯
     title: Fully typed spies
-    details: Every method becomes a typed mock with return-type-aware helpers — resolveWith for Promises, nextWith for Observables, calledWith / mustBeCalledWith for argument matching. Overloaded methods included — a generated API client no longer forces the last signature, the one nobody calls.
+    details: Every method becomes a typed mock with return-type-aware helpers — resolveWith for Promises, nextWith for Observables, calledWith / mustBeCalledWith for argument matching. Overloaded methods included — a generated API client no longer forces the last signature, the one nobody calls. strict — per double or per suite — turns the forty-first method nobody configured from an undefined that fails three frames later into a throw that names the class, the method and the arguments. And every double is Disposable, so using spy = createSpyFromClass(X) retires the afterEach that existed only to reset one spy.
     link: /core/create-spy-from-class
   - icon: 🧪
     title: Class, type, or neither
@@ -53,7 +53,7 @@ features:
     link: /adapters/angular
   - icon: 🧱
     title: The providers a testing module cannot reach
-    details: overrideComponentProvider replaces a dependency a component declares in its own providers, and queues the component with the TestBed compiler so the override reaches it. assertNgModuleScopes names the module an AOT bundle stripped, createDirectiveHost compiles a host that is correct for both the compiler and the TestBed, and provideAutoSpyForToken covers a dependency behind an InjectionToken.
+    details: overrideComponentProvider replaces a dependency a component declares in its own providers, and queues the component with the TestBed compiler so the override reaches it. assertNgModuleScopes names the module an AOT bundle stripped, createDirectiveHost compiles a host that is correct for both the compiler and the TestBed, and provideAutoSpyForToken covers a dependency behind an InjectionToken. enableAngularDiagnostics turns four more silences into failures in one setup line — a testing module importing an NgModule that contributes nothing at all, schemas sitting next to a standalone component where they can never apply, injectSpy handed a real instance instead of a spy, and a test that ends with unflushed HttpTestingController requests.
     link: /adapters/angular
   - icon: 📡
     title: Observables that fail on silence
@@ -101,7 +101,7 @@ features:
     link: /utilities/setup
   - icon: 🚚
     title: A migration you can verify
-    details: Counters cannot answer whether a port lost a test — a file can lose a whole suite while a flake elsewhere starts passing, and the totals match. compareTestRuns diffs the two sets of names from the JSON report both runners write, and diffByField turns a collapsed "…(8) to deeply equal" into the field that actually differs.
+    details: Counters cannot answer whether a port lost a test — a file can lose a whole suite while a flake elsewhere starts passing, and the totals match. compareTestRuns diffs the two sets of names from the JSON report both runners write, and diffByField turns a collapsed "…(8) to deeply equal" into the field that actually differs. npx vitest-auto-spy codemod does the edit half and declines the rest — it splits the legacy import across the entry points read off the installed package's own export map instead of a table typed into the tool, transposes jest.Mock<void, [Order]> into the call signature Vitest takes rather than renaming it into the reverse meaning, and leaves every span it cannot decide byte-for-byte as it was, with a file:line. Dry run by default, and --verify then matches the result against what should be gone — the one check that still works on a file somebody migrated by hand.
     link: /migrating
   - icon: 🩺
     title: The anti-patterns, underlined as you type
