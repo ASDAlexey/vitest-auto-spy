@@ -198,8 +198,9 @@ re-deriving:
 ## Coverage under a bundling builder — closed 2026-08-30, and what stays out of reach
 
 Reported from the same consumer monorepo, where the suite runs over a bundle built by
-`@angular/build:unit-test`. Three findings arrived; two became `doctor` checks and one is a Vitest
-internal nobody outside Vitest can fix.
+`@angular/build:unit-test`. Three findings arrived; two became `doctor` checks and the third was
+written off as a Vitest internal nobody outside Vitest could fix — which turned out to be false,
+and the correction is the largest number in this section.
 
 Shipped: `coverage-all-removed` and `coverage-include-misses-bundle`
 (`src/cli/checks/coverage-config.ts`), the `Coverage under the unit-test builder` section on the
@@ -229,10 +230,49 @@ by reading the installed sources, and is worth not re-deriving:
   and the package named changes between runs). `v8` drops what it cannot parse with a warning
   instead — 184 files of 4969 — and stays green. Reported with one clean series of four runs:
   istanbul 113 s and `v8` 81 s without `include`, `v8` 250 s with it, istanbul `exit 1` with it.
+  The 169 s that `include` adds there is not the untested-files pass, which is what it looks like
+  from the outside; see the `isIncluded` bullets below, where the same surcharge is measured
+  operation by operation and then removed.
 - **Narrowing the scope is not only about speed.** In that series the cobertura report is 10.78 MB
   (istanbul) / 10.79 MB (`v8`) without `include` and 8.89 MB with it, against GitLab's 10 MB parse
   limit — over which the report is dropped silently: green job, percentages in the log, no line
   highlighting in the merge request.
+
+- **`isIncluded` is where a narrowed scope actually spends its time, and it is replaceable from
+  outside Vitest.** Profiled with `DEBUG=vitest:coverage` on shard 1/4 of the 1725-file suite, scope
+  of 124 include globs plus 304 negations already glued into brace expressions:
+  `Generate coverage total time 224.2 s`, split as 2.6 s to read the 432 workers' coverage files,
+  54.3 s before the first conversion, 50.5 s to remap the 1958 covered files, **0.35 s** for the
+  pass over the 458 untested ones — and **114.1 s in the final `coverageMap.filter`**, a loop whose
+  whole body is one `isIncluded` call per file. Timers around the map operations on shard 1/16 name
+  the cost directly: 8000 `isIncluded` calls take **167 853 ms** against 1 808 ms with a compiled
+  matcher, `coverageMap.filter` 81 393 ms against 713 ms, the untested pass over 1816 files
+  69 779 ms against 9 439 ms. None of that is coverage work. It is `picomatch` compiling 428
+  patterns again for every filename, because `globCache` memoises the *verdict*, keyed by filename,
+  and never the matcher.
+- **The fix is a coverage-provider wrapper in the consumer's config — no Vitest patch, no glued
+  globs.** `coverage.provider: 'custom'` plus a `customProviderModule` that re-exports
+  `@vitest/coverage-v8` and, in `getProvider()`, overwrites the returned provider's `isIncluded`
+  with one that builds `pm(include, { contains: true, dot: true, ignore: exclude })` once and
+  reuses it. On the same real shard 1/4 with the same reporters the Vitest phase drops
+  **229.59 s → 22.88 s**, 432/432 files both ways, cobertura 8.0 MB both ways, and the report does
+  not move: `Statements 41.77 %`, 27 292/65 325 before and 27 289/65 325 after — same denominator,
+  three statements of the shared environment's ordinary drift. On the same globs over 200 distinct
+  paths the stock `pm.isMatch` costs 1.13 ms per file and the compiled matcher 0.018 ms, with
+  identical verdicts on every path.
+- **The trap that makes a correct wrapper measure as zero.** The first version delegated
+  `allowExternal: false` back to the original method "to be safe" — and `@angular/build:unit-test`
+  turns that option on, so every call took the slow path and the run came out at 227.6 s against a
+  229.6 s baseline, which reads as "the idea does not work" rather than "the fast path was never
+  entered". Do the `allowExternal` test inline instead: two `startsWith` against the workspace and
+  project roots. Delegate only the two cases the wrapper genuinely cannot answer — a `--changed`
+  run, which selects by its own file list, and a config with no `include`, where there is nothing
+  to compile. Two more mechanics worth not rediscovering: `getProvider()` runs before Vitest calls
+  `initialize()`, so `provider.options` does not exist yet at swap time and the matcher has to be
+  built lazily on the first question; and the filename must be normalised exactly as the original
+  does it, `slash(cleanUrl(filename))` with both helpers from `@vitest/utils/helpers`, or the
+  verdicts diverge on the paths the two forms disagree about. The provider's own `globCache` stays
+  a cache and keeps working.
 
 - [~] **A runtime notice from `setupAutoSpy` when coverage is on and the include list cannot
       match** — not implementable, and the reason is worth recording. The serialized worker config
@@ -241,14 +281,22 @@ by reading the installed sources, and is worth not re-deriving:
       `globalThis.__vitest_worker__.config.coverage` from a spec). There is no public read either,
       so a setup file cannot see the list, and the report it would be wrong about is assembled in
       the main process after the run. The static check is the only honest place for this.
-- [~] **`picomatch` recompiles the whole pattern list per file.** `isIncluded` memoises the
-      *verdict* in `globCache`, keyed by filename, not a compiled matcher, so every new file pays
-      for compiling the array again. The consumer measured 100 ms per file on 124 globs plus 304
-      negations — a shard that runs in 82 s stretched past 13 minutes — and fixed it by gluing the
-      globs into one brace expression (1.1 ms per file). Nothing to ship here: the cost is inside
-      Vitest, and "glue your globs" is advice with a footgun, since an equivalent glued form has to
-      be verified pattern by pattern against the unglued one. Worth revisiting only if Vitest
-      accepts a cached matcher upstream.
+- [~] **Shipping the cached-matcher wrapper as library surface.** Still not shipped, but for a
+      different reason than the one that stood here until 2026-08-30, and the old reason is
+      recorded rather than quietly deleted because it is the kind of conclusion a reader
+      re-derives: this entry used to say the cost lives inside Vitest, that "glue your globs" was
+      the only workaround and a footgun at that, and that the item was worth revisiting only if
+      Vitest accepted a cached matcher upstream. That verdict is **wrong**. A cost inside Vitest is
+      not the same as a cost out of reach — `coverage.provider: 'custom'` is a supported seam, the
+      provider object is an ordinary object, and 20 lines of consumer config bought 229.59 s →
+      22.88 s on a real shard with a byte-identical report. Nobody has to wait for upstream and
+      nobody has to hand-verify a glued glob list against the unglued one. What is still true is
+      that this is not *this library's* surface: it is a coverage provider, it has nothing to do
+      with spies, it pins `isIncluded` — a method that is not public API — into a package whose
+      users mostly do not run coverage over a bundle at all, and it would fail silently the day
+      that method is renamed. The shipping vehicles that fit are the recipe in
+      `articles/COVERAGE.md` and, if the numbers repeat on a second consumer, a `doctor` note that
+      points at it when it sees a large `coverage.include`.
 
 ## Considered & intentionally skipped
 
@@ -409,12 +457,15 @@ What is left here is the part that is still undone.
       any new versions of that package until 24 hours have passed"* — so the name is
       blocked until **2026-08-30T20:35:25Z** (23:35 MSK). A trusted publisher is
       configured on a package's settings page, which a non-existent package does not
-      have, so the order is: one manual `cd alias && npm publish` (a person with
-      `npm login`, not a bypass token), then the publisher row from the table in
-      CONTRIBUTING.md, then `Actions → Auto Release → Run workflow` with `alias_ref`
-      set to the current tag to prove the OIDC path. Its old versions 1.6.0 / 1.9.2 /
-      1.9.3 can never be reused — *"Once `package@version` has been used, you can
-      never use it again."*
+      have, so the order is: one manual `cd alias && npm publish --access public` (a
+      person with `npm login`, not a bypass token), then the publisher row from the
+      table in CONTRIBUTING.md. That bootstrap publish is also why the OIDC path
+      cannot be proven the same evening: an `Actions → Auto Release → Run workflow`
+      with `alias_ref` set to the current tag would find that version already on npm,
+      report "nothing to do" and go green without touching the handshake. The first
+      real OIDC publish of the alias is the next release. Its old versions 1.6.0 /
+      1.9.2 / 1.9.3 can never be reused — *"Once `package@version` has been used, you
+      can never use it again."*
 - [ ] **Delete the `NPM_TOKEN` repository secret and revoke the token on npm.**
       Nothing reads it any more, but do it only once both packages have gone out
       over OIDC — the "skip if version already exists" guards make a retry safe, a
