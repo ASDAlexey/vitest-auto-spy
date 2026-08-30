@@ -5,6 +5,7 @@
 import { resolve } from 'node:path';
 
 import { flagEnabled, flagValue, parseArgs } from './args';
+import { runCodemod } from './codemod/run';
 import { runDoctor } from './doctor';
 import { HELP } from './help';
 import { runInit } from './init';
@@ -79,6 +80,23 @@ function initCommand(cwd: string, argv: readonly string[], io: CliIo): number {
   return reportInit(result, check, io);
 }
 
+function codemodCommand(cwd: string, argv: readonly string[], io: CliIo): number {
+  const args = parseArgs(argv);
+
+  return runCodemod(
+    cwd,
+    {
+      write: flagEnabled(args, 'write'),
+      verify: flagEnabled(args, 'verify'),
+      list: flagEnabled(args, 'list'),
+      only: flagValue(args, 'only'),
+      skip: flagValue(args, 'skip'),
+      paths: args.positionals,
+    },
+    io,
+  );
+}
+
 export function runCli(argv: readonly string[], io: CliIo): number {
   const args = parseArgs(argv);
   const cwd = resolve(flagValue(args, 'cwd') ?? process.cwd());
@@ -101,6 +119,10 @@ export function runCli(argv: readonly string[], io: CliIo): number {
 
   if (args.command === 'init') {
     return initCommand(cwd, argv, io);
+  }
+
+  if (args.command === 'codemod') {
+    return codemodCommand(cwd, argv, io);
   }
 
   io.err(`Unknown command: ${args.command}\n`);

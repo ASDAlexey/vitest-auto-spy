@@ -5,16 +5,20 @@ description: npx vitest-auto-spy doctor finds suite-level defects that never fai
 
 # The CLI
 
-Two commands, no dependencies, nothing to configure:
+Three commands, no dependencies, nothing to configure:
 
 ```bash
 npx vitest-auto-spy doctor   # read-only. Exits 1 when it finds something
 npx vitest-auto-spy init     # writes the agent instructions pointer
+npx vitest-auto-spy codemod  # dry run by default. Exits 1 when it left something alone
 ```
 
-They are one binary because they answer one question from two directions — _is anything in this
+They are one binary because they answer one question from three directions — _is anything in this
 test suite quietly not doing what it looks like it is doing?_ `doctor` asks it of the repository,
-`init` asks it of the agent about to write the next spec.
+`init` asks it of the agent about to write the next spec, and
+[`codemod`](/utilities/codemod) asks it of every span a migration off `jest-auto-spies` would
+otherwise rename into the reverse meaning. This page covers the first two; the codemod
+[has its own](/utilities/codemod), because most of what it does is refuse.
 
 ## `doctor` — defects that never fail
 
@@ -36,17 +40,17 @@ error  tsconfig-glob-matches-nothing libs/users/tsconfig.spec.json
 3 errors, 4 warnings, 1 note
 ```
 
-| Check                           | What it finds                                                      | Why nothing catches it                                                                                                                                                                       |
-| ------------------------------- | ------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `tsconfig-glob-matches-nothing` | An `include` pattern that matches no file                          | A glob that matches nothing type-checks nothing, and `tsc` reports success                                                                                                                   |
-| `tsconfig-file-missing`         | A `files` entry naming a file that is gone                         | Same — the config is only read by editors once the runner stopped using it                                                                                                                   |
-| `spec-imported-by-non-spec`     | A production module importing a `*.spec.ts`                        | Under a shared environment the import is a cycle, and the spec loses its own suite                                                                                                           |
-| `spec-exports-fixture`          | A spec importing another spec                                      | The imported file's suites are collected twice and its hooks run in a foreign file's context                                                                                                 |
-| `foreign-runner-pragma`         | `@jest-environment` and friends left in a spec                     | Vitest never reads them; the environment comes from the config, so the comment looks operative                                                                                               |
-| `dead-runner-config`            | `jest.config.*`, `karma.conf.*` for a runner that is not installed | It is the first file a newcomer — or an agent — reads to learn how tests run                                                                                                                 |
-| `orphan-runner-file`            | A setup file only that dead config referenced                      | One found this way had been empty since before the migration: a year as a setting that configured nothing                                                                                    |
-| `angular-build-splitting-off`   | `@angular/build` in `[22.1.5, 22.1.7)`                             | The unit-test bundle is built with code splitting off. `--coverage` then grows by hundreds of megabytes with no plateau, and the builder emits no warning — see [Angular](/adapters/angular) |
-| `no-agent-instructions`         | No `AGENTS.md` / `CLAUDE.md` / `GEMINI.md` names the package       | A note, not an error. It is the one moment where saying so costs nothing                                                                                                                     |
+| Check                           | What it finds                                                      | Why nothing catches it                                                                                                                                                                                                                                                    |
+| ------------------------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `tsconfig-glob-matches-nothing` | An `include` pattern that matches no file                          | A glob that matches nothing type-checks nothing, and `tsc` reports success                                                                                                                                                                                                |
+| `tsconfig-file-missing`         | A `files` entry naming a file that is gone                         | Same — the config is only read by editors once the runner stopped using it                                                                                                                                                                                                |
+| `spec-imported-by-non-spec`     | A production module importing a `*.spec.ts`                        | Under a shared environment the import is a cycle, and the spec loses its own suite                                                                                                                                                                                        |
+| `spec-exports-fixture`          | A spec importing another spec                                      | The imported file's suites are collected twice and its hooks run in a foreign file's context                                                                                                                                                                              |
+| `foreign-runner-pragma`         | `@jest-environment` and friends left in a spec                     | Vitest never reads them; the environment comes from the config, so the comment looks operative                                                                                                                                                                            |
+| `dead-runner-config`            | `jest.config.*`, `karma.conf.*` for a runner that is not installed | It is the first file a newcomer — or an agent — reads to learn how tests run                                                                                                                                                                                              |
+| `orphan-runner-file`            | A setup file only that dead config referenced                      | One found this way had been empty since before the migration: a year as a setting that configured nothing                                                                                                                                                                 |
+| `angular-build-splitting-off`   | `@angular/build` in `[22.1.5, 22.1.7)`                             | The unit-test bundle is built with code splitting off. `--coverage` then grows by hundreds of megabytes with no plateau, and the builder emits no warning — see [what it trades, and the escape hatch](/adapters/angular#when-the-unit-test-build-has-code-splitting-off) |
+| `no-agent-instructions`         | No `AGENTS.md` / `CLAUDE.md` / `GEMINI.md` names the package       | A note, not an error. It is the one moment where saying so costs nothing                                                                                                                                                                                                  |
 
 The check that motivated the tool: a spec showing `Cannot find name 'vi'` in the editor while
 `tsc --noEmit` reported zero errors. A migration codemod editing `include` had eaten a `/**`,
@@ -122,14 +126,17 @@ when the file it appended to crosses that line.
 
 ### Flags
 
-| Flag              | Command | Effect                                                                    |
-| ----------------- | ------- | ------------------------------------------------------------------------- |
-| `--cwd <dir>`     | both    | Run against another directory                                             |
-| `--check`         | `init`  | Write nothing; exit 1 if the block is missing or out of date. The CI form |
-| `--dry-run`       | `init`  | Print what would change and write nothing                                 |
-| `--uninstall`     | `init`  | Remove the managed blocks and delete the files `init` created             |
-| `-h`, `--help`    | both    | The usage screen                                                          |
-| `-v`, `--version` | both    | The installed version                                                     |
+| Flag              | Command   | Effect                                                                    |
+| ----------------- | --------- | ------------------------------------------------------------------------- |
+| `--cwd <dir>`     | all three | Run against another directory                                             |
+| `--check`         | `init`    | Write nothing; exit 1 if the block is missing or out of date. The CI form |
+| `--dry-run`       | `init`    | Print what would change and write nothing                                 |
+| `--uninstall`     | `init`    | Remove the managed blocks and delete the files `init` created             |
+| `-h`, `--help`    | all three | The usage screen                                                          |
+| `-v`, `--version` | all three | The installed version                                                     |
+
+The codemod's own flags — `--write`, `--verify`, `--only`, `--skip`, `--list` — are on
+[its page](/utilities/codemod#flags).
 
 `init --check` in CI is the same shape as `llms:check` in this repository: it fails when the block
 on disk is not the block the installed version would write, which is exactly when an upgrade
@@ -140,6 +147,7 @@ changed the advice.
 ```yaml
 - run: npx vitest-auto-spy doctor
 - run: npx vitest-auto-spy init --check
+- run: npx vitest-auto-spy codemod --verify # on a suite that has been migrated
 ```
 
 Neither needs a network, a config file, or a token. The CLI ships with the package, has no runtime
