@@ -6,3 +6,8 @@ coverage/
 .idea/
 /docs/
 /articles/
+
+# `CLAUDE.md` is in the maintainer's global ignore file. This repository ships one on purpose — it is
+# a three-line pointer at `AGENTS.md`, there so an agent working in a fresh clone is not left with
+# nothing. A per-directory rule beats the global one, which is why this negation is here at all.
+!CLAUDE.md
