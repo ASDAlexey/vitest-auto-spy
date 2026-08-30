@@ -138,6 +138,7 @@ export type * from './lib/types';
 export { createSpyFromClass } from './lib/create-spy-from-class';
 export { autoMocked, createAutoMock, type AutoMockConfiguration } from './lib/auto-mock';
 export { createMock } from './lib/create-mock';
+export { createFixture, createFixtureFactory, type FixtureFactory } from './lib/fixture';
 export { mockDeep, type MockDeepOptions } from './lib/mock-deep';
 export { createFunctionSpy } from './lib/function-spy';
 
