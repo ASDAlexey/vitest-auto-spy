@@ -8,7 +8,7 @@ import { TestBed } from '@angular/core/testing';
 import { describe, expect, it } from 'vitest';
 
 import '../angular';
-import { assertNgModuleScopes, overrideAutoSpy, overrideComponentProvider } from './angular-overrides';
+import { assertComponentDefIntact, assertNgModuleScopes, overrideAutoSpy, overrideComponentProvider } from './angular-overrides';
 import { mockValueProp } from './prop-mock';
 
 @Injectable()
@@ -175,5 +175,50 @@ describe('assertNgModuleScopes', () => {
 
   it('ignores anything that is not an NgModule', () => {
     expect(() => assertNgModuleScopes(undefined, 'DirectivesModule', {})).not.toThrow();
+  });
+});
+
+describe('assertComponentDefIntact', () => {
+  it('accepts a component the compiler built whole', () => {
+    expect(() => assertComponentDefIntact(MenuHostComponent, DeclaredHostComponent)).not.toThrow();
+  });
+
+  it('accepts a directive, which carries the same lists under ɵdir', () => {
+    expect(() => assertComponentDefIntact({ ɵdir: { providers: [NavigationBuilderService] } })).not.toThrow();
+  });
+
+  it('names the exact position a provider never arrived at', () => {
+    const half = { name: 'HoverMenuComponent', ɵcmp: { providers: [undefined], viewProviders: [], dependencies: [] } };
+
+    expect(() => assertComponentDefIntact(half)).toThrow(/HoverMenuComponent\.ɵcmp\.providers\[0\] is undefined[\s\S]*barrel chunk/);
+  });
+
+  it('reaches a hole nested inside a provider array, and reports every one it found', () => {
+    const half = { name: 'CardComponent', ɵcmp: { viewProviders: [[NavigationBuilderService, null]], dependencies: [undefined] } };
+
+    expect(() => assertComponentDefIntact(half)).toThrow(/viewProviders\[0\]\[1\], CardComponent\.ɵcmp\.dependencies\[0\] are undefined/);
+  });
+
+  it('unwraps the thunk Angular emits for a forward reference', () => {
+    const lazy = { name: 'LazyComponent', ɵcmp: { dependencies: () => [undefined] } };
+
+    expect(() => assertComponentDefIntact(lazy)).toThrow(/LazyComponent\.ɵcmp\.dependencies\[0\] is undefined/);
+  });
+
+  it('leaves a thunk that throws to the failure that already has a message', () => {
+    const cyclic = {
+      name: 'CyclicComponent',
+      ɵcmp: {
+        dependencies: () => {
+          throw new Error('forward reference not resolved');
+        },
+      },
+    };
+
+    expect(() => assertComponentDefIntact(cyclic)).not.toThrow();
+  });
+
+  it('reports the class reference that itself never arrived', () => {
+    expect(() => assertComponentDefIntact(MenuHostComponent, undefined)).toThrow(/argument 1 is undefined, which carries no ɵcmp or ɵdir/);
   });
 });

@@ -18,7 +18,13 @@ import { useVitestAdapter } from './lib/use-vitest-adapter';
 useVitestAdapter();
 
 export { injectSpy, provideAutoSpy, provideAutoSpyForToken, type AngularTokenProvider, type AngularValueProvider } from './lib/angular';
-export { assertNgModuleScopes, overrideAutoSpy, overrideComponentProvider, type AutoSpyOverride } from './lib/angular-overrides';
+export {
+  assertComponentDefIntact,
+  assertNgModuleScopes,
+  overrideAutoSpy,
+  overrideComponentProvider,
+  type AutoSpyOverride,
+} from './lib/angular-overrides';
 export {
   assertNoPendingRequests,
   disableAngularDiagnostics,

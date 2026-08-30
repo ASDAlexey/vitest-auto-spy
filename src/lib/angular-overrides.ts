@@ -25,6 +25,12 @@
  * landed. So {@link overrideComponentProvider} also checks, on the next `TestBed.createComponent`,
  * that the component's own injector really answers with the spy — see {@link verifyOnNextCreate}
  * for why that check is always on rather than an opt-in diagnostic.
+ *
+ * The same AOT bundle is behind the two assertions at the end of the file.
+ * {@link assertNgModuleScopes} covers the module whose scope the bundler stripped;
+ * {@link assertComponentDefIntact} covers the component whose own definition was built while the
+ * chunk holding one of its providers had not run yet. Neither fixes a build — both replace a stack
+ * inside `@angular/core` with a line naming the thing that is missing.
  */
 import { type Type, isStandalone } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
@@ -266,6 +272,131 @@ function moduleName(module: unknown): string {
   const name = readProperty(module, 'name');
 
   return typeof name === 'string' ? name : String(module);
+}
+
+/**
+ * Where a component or directive definition keeps the lists that a half-loaded bundle leaves holes
+ * in. `dependencies` is the flat scope the AOT compiler baked in; the two provider lists are what
+ * the component contributes to its own injector.
+ */
+const DEFINITION_LISTS = ['providers', 'viewProviders', 'dependencies'] as const;
+
+/**
+ * Angular emits `dependencies` — and, in a cycle, the provider lists — as a thunk so that a forward
+ * reference resolves at first read. Unwrapping it is how the check sees the same array the runtime
+ * will; a thunk that throws is left alone, because that is a different failure with its own message.
+ */
+function resolveList(list: unknown): unknown {
+  if (typeof list !== 'function') {
+    return list;
+  }
+
+  try {
+    const produced: unknown = Reflect.apply(list, undefined, []);
+
+    return produced;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Every position in a (possibly nested) list whose entry never arrived, named by its path. */
+function collectHoles(list: unknown, path: string, holes: string[]): void {
+  const resolved = resolveList(list);
+
+  if (!Array.isArray(resolved)) {
+    return;
+  }
+
+  resolved.forEach((entry: unknown, index) => {
+    const at = `${path}[${index}]`;
+
+    if (entry === undefined || entry === null) {
+      holes.push(at);
+    } else if (Array.isArray(entry)) {
+      collectHoles(entry, at, holes);
+    }
+  });
+}
+
+/** The compiled definition a type carries, whichever of the two decorators produced it. */
+function definitionOf(type: unknown): { definition: unknown; key: string } | undefined {
+  const component = readProperty(type, 'ɵcmp');
+
+  if (component !== undefined) {
+    return { definition: component, key: 'ɵcmp' };
+  }
+
+  const directive = readProperty(type, 'ɵdir');
+
+  return directive === undefined ? undefined : { definition: directive, key: 'ɵdir' };
+}
+
+/**
+ * Fail before rendering when a component's own definition has holes in it.
+ *
+ * Providers are **baked into `ɵcmp` when the component's module executes**, not read at
+ * `createComponent` time. So when a bundler splits a barrel into a chunk that has not run yet, the
+ * definition is built with `undefined` where a provider or a scope dependency should be, and Angular
+ * discovers it much later, from inside itself:
+ *
+ * ```
+ * TypeError: Cannot read properties of undefined (reading 'provide')
+ *   ❯ resolveProvider render3/di_setup.ts:95
+ * ```
+ *
+ * The stack names neither the barrel, nor the symbol, nor the component — and the spec it breaks is
+ * usually one nobody touched, because chunk boundaries move with file *contents*: editing a type in
+ * a neighbouring file is enough. Both documented cures fail, too, and for the same reason: an
+ * `await import()` in `beforeEach` is already too late, and a static import at the top of the spec
+ * does not fix the order this bundler emits.
+ *
+ * ```ts
+ * assertComponentDefIntact(HoverMenuComponent);
+ * const fixture = TestBed.createComponent(HoverMenuComponent);
+ * ```
+ *
+ * The same call answers the related `Cannot read properties of undefined (reading 'ɵcmp')` from
+ * `imports: [Cmp]`, where the class reference itself is the thing that never arrived.
+ *
+ * This does not fix the build — that is a bundler configuration question — but it turns a
+ * half-hour investigation into one line, and points it away from the spec.
+ *
+ * @param components The component (or directive) classes a spec is about to render or import.
+ */
+export function assertComponentDefIntact(...components: unknown[]): void {
+  components.forEach((component, position) => {
+    const named = moduleName(component);
+    const found = definitionOf(component);
+
+    if (!found) {
+      throw new Error(
+        withDocs(
+          `[vitest-auto-spy] assertComponentDefIntact(): argument ${position} is ${named}, which carries no ɵcmp or ɵdir.\n` +
+            'Either it is not a component or directive, or the chunk that defines it has not executed yet — the ' +
+            'import resolved to nothing. A barrel split across chunks is the usual cause.',
+          DOCS_LINKS.angularOverrides,
+        ),
+      );
+    }
+
+    const holes: string[] = [];
+
+    DEFINITION_LISTS.forEach((list) => collectHoles(readProperty(found.definition, list), `${named}.${found.key}.${list}`, holes));
+
+    if (holes.length > 0) {
+      throw new Error(
+        withDocs(
+          `[vitest-auto-spy] ${holes.join(', ')} ${holes.length === 1 ? 'is' : 'are'} undefined.\n` +
+            'A component bakes its providers and its scope into the definition when its module executes, so a hole ' +
+            'there means the chunk holding that symbol had not run at that moment — an uninitialised barrel chunk. ' +
+            'Angular reports this much later as "Cannot read properties of undefined (reading \'provide\')", from ' +
+            'inside its own provider resolution.',
+          DOCS_LINKS.angularOverrides,
+        ),
+      );
+    }
+  });
 }
 
 /**
