@@ -19,6 +19,7 @@ import {
   type EsTypeReference,
   type EsVariable,
   type RuleContext,
+  type SuggestionDescriptor,
   isCallExpression,
   isIdentifier,
   isMemberExpression,
@@ -47,6 +48,49 @@ export function injectedFromVariable(context: RuleContext, target: EsNode): EsCa
   const initializer = initializerOf(context.sourceCode.getScope(target), target);
 
   return initializer && isTestBedInject(initializer) ? initializer : undefined;
+}
+
+/** The string a literal argument spells, when it is one and it can be written after a dot. */
+function memberName(node: EsNode | undefined): string | undefined {
+  const value: unknown = node?.type === 'Literal' ? Reflect.get(node, 'value') : undefined;
+
+  return typeof value === 'string' && /^[$A-Z_a-z][\w$]*$/.test(value) ? value : undefined;
+}
+
+/**
+ * `injectSpy(Token).method` for a `vi.spyOn` that is provably about an injected instance, or nothing
+ * when any part of the rewrite would have to be invented.
+ *
+ * `TestBed.inject(X, null, InjectFlags.Optional)` is deliberately not translated: `injectSpy` takes
+ * the token alone, and dropping the rest would change which instance — if any — comes back.
+ */
+export function injectSpySuggestion(
+  context: RuleContext,
+  node: EsCallExpression,
+  injectCall: EsCallExpression,
+): SuggestionDescriptor | undefined {
+  const [token, ...extra] = injectCall.arguments;
+  const method = memberName(node.arguments[1]);
+  const state = bindingState(context.sourceCode.getScope(node), 'injectSpy');
+
+  if (!token || extra.length > 0 || method === undefined || state === 'taken') {
+    return undefined;
+  }
+
+  const replacement = `injectSpy(${context.sourceCode.getText(token)}).${method}`;
+
+  return {
+    desc: `Read the spy from DI instead: ${replacement}`,
+    fix: (fixer): EsFix[] => {
+      const edits = [fixer.replaceText(node, replacement)];
+
+      if (state === 'free') {
+        edits.push(insertImport(fixer, `import { injectSpy } from '${PACKAGE}/angular';`));
+      }
+
+      return edits;
+    },
+  };
 }
 
 /** A type assertion — `x as T`, whatever `T` turns out to be. */

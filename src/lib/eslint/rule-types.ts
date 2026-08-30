@@ -6,6 +6,11 @@
  * actually read, and the guards narrow to them at runtime — the same check ESLint itself performs.
  */
 
+/** Where a node begins, in the coordinates a message quotes back to a reader. */
+export interface EsSourceLocation {
+  start: { line: number };
+}
+
 /** Any ESTree node, as ESLint hands it to a rule. */
 export interface EsNode {
   type: string;
@@ -13,6 +18,8 @@ export interface EsNode {
   parent: EsNode;
   /** Character offsets in the source text. ESLint guarantees them on every node; a fixer is nothing without them. */
   range: [number, number];
+  /** The same position in lines, which is the only form a message can name a *different* node in. */
+  loc: EsSourceLocation;
 }
 
 export interface EsIdentifier extends EsNode {
@@ -67,6 +74,17 @@ export interface EsCallExpression extends EsNode {
 export interface EsMemberExpression extends EsNode {
   object: EsNode;
   property: EsNode;
+}
+
+/** An assignment — `register = { … }`, the statement that decides what a `let` above it holds. */
+export interface EsAssignmentExpression extends EsNode {
+  left: EsNode;
+  right: EsNode;
+}
+
+/** A spread, in an array, an object or an argument list — ESTree spells all three the same way. */
+export interface EsSpreadElement extends EsNode {
+  argument: EsNode;
 }
 
 /**
@@ -166,6 +184,14 @@ export interface EsSourceCode {
   getScope(node: EsNode): EsScope;
   /** The source of one node, or — with no argument — of the whole file. */
   getText(node?: EsNode): string;
+  /**
+   * The token after a node, comments skipped.
+   *
+   * Declared as always returning one, which is true of every call made here: the only node this is
+   * asked about is an array element that another element of the same array follows, so the token is
+   * the comma between them.
+   */
+  getTokenAfter(node: EsNode): EsNode;
 }
 
 /** The sliver of ESLint's rule context the rules use. */

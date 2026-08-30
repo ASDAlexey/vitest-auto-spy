@@ -14,6 +14,7 @@ import {
   type EsObjectExpression,
   type RuleContext,
   type SuggestionDescriptor,
+  enclosingFunction,
   isCallExpression,
   isIdentifier,
   isMemberExpression,
@@ -113,4 +114,19 @@ export function propHelperSuggestion(context: RuleContext, node: EsCallExpressio
       return edits;
     },
   };
+}
+
+/**
+ * What a `defineProperty` call patches, as a string: the block it sits in, the object and the key.
+ *
+ * Text rather than nodes, because `window` in two calls is two identifiers and one global. The
+ * block comes from {@link enclosingFunction}, so two patches of the same property in two different
+ * tests stay apart.
+ */
+export function patchKey(context: RuleContext, node: EsCallExpression): string {
+  const [target, key] = node.arguments;
+  const scope = enclosingFunction(node);
+  const where = scope ? String(scope.range[0]) : 'module';
+
+  return `${where}:${target ? context.sourceCode.getText(target) : ''}:${key ? context.sourceCode.getText(key) : ''}`;
 }

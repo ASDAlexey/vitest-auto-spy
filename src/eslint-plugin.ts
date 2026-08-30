@@ -36,7 +36,7 @@ export interface AutoSpyEslintPlugin {
 
 const PLUGIN_NAME = 'vitest-auto-spy';
 
-/** Everything on: the five "there is a helper for this" rules plus the seven guards. */
+/** Everything on: the five "there is a helper for this" rules plus the eight guards. */
 const recommendedRules: Record<string, RuleSeverity> = {
   [`${PLUGIN_NAME}/prefer-provide-auto-spy`]: 'warn',
   [`${PLUGIN_NAME}/prefer-create-spy-from-class`]: 'warn',
@@ -50,6 +50,7 @@ const recommendedRules: Record<string, RuleSeverity> = {
   [`${PLUGIN_NAME}/no-floating-assertion`]: 'error',
   [`${PLUGIN_NAME}/no-overridden-provider`]: 'error',
   [`${PLUGIN_NAME}/no-inject-before-override`]: 'warn',
+  [`${PLUGIN_NAME}/no-import-time-spread`]: 'error',
 };
 
 const plugin: AutoSpyEslintPlugin = {

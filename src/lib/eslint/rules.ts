@@ -18,6 +18,13 @@
  * `no-object-define-property` (`mockValueProp` leaves the property writable and configurable, which
  * is the point of the change and still a change), so both suggest.
  *
+ * "Decidable from the file" is read strictly, because `no-mocked-for-spy` is where it was first read
+ * too loosely. A declaration is decidable; what the name is *assigned* a few lines below is a
+ * separate question, and an object literal of `vi.fn()`s does not fit the type the fix wrote. The
+ * rule therefore keeps the plain fix only where the value came out of one of this library's own
+ * factories, and demotes itself to a suggestion everywhere else — see `mocked-declaration.ts`. A
+ * rule here may hand back code it cannot prove compiles only with a human in the loop.
+ *
  * `prefer-as-spy` is the second fix, and it passes the same test from the other end: the developer
  * has *already* asserted `Spy<X>` in the file being linted. The rewrite keeps that assertion whole
  * and changes only how it is written — `asSpy` is a typed identity function, so the two lines are
@@ -34,22 +41,24 @@
  * for, and `--fix` over a suite would look as though it had left its own reports behind.
  */
 import { type EsPromiseExecutor, type EsSubscribeCall, awaitedRewriteFor } from './await-emission';
-import { PACKAGE, bindingState, dropNamedImport, findBinding, initializerOf, insertImport } from './bindings';
-import { type EsSpyCast, asSpyFixes, assertedValue, injectedFromVariable, isTestBedInject } from './injected-spy';
-import { overriddenProviders } from './overridden-provider';
-import { propHelperSuggestion } from './prop-helpers';
+import { bindingState, findBinding, initializerOf } from './bindings';
+import { isFloatingChain, isPromiseCallback } from './floating-assertion';
+import { lazyValueSuggestion, runsAtImportTime, spreadOfImport } from './import-time-spread';
+import { type EsSpyCast, asSpyFixes, assertedValue, injectSpySuggestion, injectedFromVariable, isTestBedInject } from './injected-spy';
+import { type EsMockedTypeName, namesOneType, rewritesTheWholeDeclaration, spyTypeFixes } from './mocked-declaration';
+import { OVERRIDE_MESSAGES, deleteProviderSuggestion, overriddenProviders } from './overridden-provider';
+import { patchKey, propHelperSuggestion } from './prop-helpers';
 import {
   type EsArrayExpression,
+  type EsAssignmentExpression,
   type EsCallExpression,
   type EsFix,
   type EsFixer,
   type EsFunction,
-  type EsIdentifier,
   type EsNode,
   type EsObjectExpression,
   type EsProperty,
-  type EsTypeReference,
-  type EsVariable,
+  type EsSpreadElement,
   type EsVariableDeclarator,
   type RuleContext,
   type RuleListener,
@@ -61,7 +70,6 @@ import {
   findProperty,
   isCallExpression,
   isIdentifier,
-  isMemberExpression,
   isNewExpression,
   isObjectExpression,
   isRunnerCall,
@@ -219,7 +227,10 @@ const preferProvideAutoSpy = defineRule({
 
       const reported = handRolledProvider(context, useValue, useFactory);
 
-      if (!provide || !reported) {
+      // A `multi: true` registration has no `provideAutoSpy` form — the factory builds one double for
+      // a token and takes no registration mode — so the replacement this rule asks for would silently
+      // turn an accumulating provider into an overriding one. Nothing to recommend, so nothing said.
+      if (!provide || !reported || findProperty(node, 'multi')) {
         return;
       }
 
@@ -345,45 +356,6 @@ const preferCreateSpyFromClass = defineRule({
   }),
 });
 
-/** The string a literal argument spells, when it is one and it can be written after a dot. */
-function memberName(node: EsNode | undefined): string | undefined {
-  const value: unknown = node?.type === 'Literal' ? Reflect.get(node, 'value') : undefined;
-
-  return typeof value === 'string' && /^[$A-Z_a-z][\w$]*$/.test(value) ? value : undefined;
-}
-
-/**
- * `injectSpy(Token).method` for a `vi.spyOn` that is provably about an injected instance, or nothing
- * when any part of the rewrite would have to be invented.
- *
- * `TestBed.inject(X, null, InjectFlags.Optional)` is deliberately not translated: `injectSpy` takes
- * the token alone, and dropping the rest would change which instance — if any — comes back.
- */
-function injectSpySuggestion(context: RuleContext, node: EsCallExpression, injectCall: EsCallExpression): SuggestionDescriptor | undefined {
-  const [token, ...extra] = injectCall.arguments;
-  const method = memberName(node.arguments[1]);
-  const state = bindingState(context.sourceCode.getScope(node), 'injectSpy');
-
-  if (!token || extra.length > 0 || method === undefined || state === 'taken') {
-    return undefined;
-  }
-
-  const replacement = `injectSpy(${context.sourceCode.getText(token)}).${method}`;
-
-  return {
-    desc: `Read the spy from DI instead: ${replacement}`,
-    fix: (fixer): EsFix[] => {
-      const edits = [fixer.replaceText(node, replacement)];
-
-      if (state === 'free') {
-        edits.push(insertImport(fixer, `import { injectSpy } from '${PACKAGE}/angular';`));
-      }
-
-      return edits;
-    },
-  };
-}
-
 /** `vi.spyOn(TestBed.inject(X), 'method')`, in one step or in two → `injectSpy(X).method`. */
 const preferInjectSpy = defineRule({
   anchor: '-reading-a-spy-back-from-di',
@@ -462,21 +434,6 @@ const noObjectDefineProperty = defineRule({
   },
 });
 
-/**
- * What a `defineProperty` call patches, as a string: the block it sits in, the object and the key.
- *
- * Text rather than nodes, because `window` in two calls is two identifiers and one global. The
- * block comes from {@link enclosingFunction}, so two patches of the same property in two different
- * tests stay apart.
- */
-function patchKey(context: RuleContext, node: EsCallExpression): string {
-  const [target, key] = node.arguments;
-  const scope = enclosingFunction(node);
-  const where = scope ? String(scope.range[0]) : 'module';
-
-  return `${where}:${target ? context.sourceCode.getText(target) : ''}:${key ? context.sourceCode.getText(key) : ''}`;
-}
-
 /** `TestBed.inject()` in a hook, in a suite that still overrides → the override throws. */
 const noInjectBeforeOverride = defineRule({
   anchor: '-a-service-behind-angular-di',
@@ -498,14 +455,25 @@ const noInjectBeforeOverride = defineRule({
 const noOverriddenProvider = defineRule({
   anchor: '-a-service-behind-angular-di',
   description: 'Register a token once — a second provider for it in the same array silently replaces the first',
+  hasSuggestions: true,
   messages: {
     noOverriddenProvider:
-      'Another provider for `{{token}}` follows this one in the same array, and Angular keeps the last: this one never runs. `provideAutoSpy({{token}})` sitting above `{ provide: {{token}}, useValue: … }` is not an auto-spy with extra configuration — it is a hand-rolled double, and the auto-spy is dead code. That misleads from both sides: assertions get written against a spy nothing provided, and whoever comes to replace the hand-rolled double sees the `provideAutoSpy` beside it and reads the work as done. Keep one.',
+      'Another provider for `{{token}}` follows this one in the same array, and Angular keeps the last: the one on line {{line}} is what DI hands out, and this one never runs. `provideAutoSpy({{token}})` sitting above `{ provide: {{token}}, useValue: … }` is not an auto-spy with extra configuration — it is a hand-rolled double, and the auto-spy is dead code. That misleads from both sides: assertions get written against a spy nothing provided, and whoever comes to replace the hand-rolled double sees the `provideAutoSpy` beside it and reads the work as done. Keep one.',
+    duplicateProvider:
+      '`{{token}}` is provided twice in this array, in the same words: the copy on line {{line}} is the one DI hands out, and Angular had already ignored this one. Deleting it therefore cannot change what the test gets, which is why this is the only shape here that comes with an edit — offered as a suggestion, because deleting a line of a `providers` array is not something to discover in a diff.',
+    overriddenByBarerProvider:
+      'Another provider for `{{token}}` follows this one on line {{line}}, and Angular keeps the last — so the double this spec configured is not the double it got. The survivor is the **barer** of the two: whatever is set up here (`gettersToSpyOn`, `instanceMethodsToSpyOn`, a `useValue` body) never reaches DI, and every assertion below runs against a poorer spy answering to the same name. Nothing can be deleted for you, because which of the two to keep is the question: move this configuration onto the provider on line {{line}}, or delete that one.',
   },
   create: (context) => ({
     ArrayExpression: (node: EsArrayExpression): void => {
-      overriddenProviders(context, node).forEach(({ element, token }) => {
-        context.report({ node: element, messageId: 'noOverriddenProvider', data: { token } });
+      overriddenProviders(context, node).forEach(({ element, token, kind, survivor }) => {
+        const report = {
+          node: element,
+          messageId: OVERRIDE_MESSAGES[kind],
+          data: { token, line: String(survivor.loc.start.line) },
+        };
+
+        context.report(kind === 'duplicate' ? { ...report, suggest: [deleteProviderSuggestion(context, element, token)] } : report);
       });
     },
   }),
@@ -595,73 +563,70 @@ const noSharedModuleLevelMock = defineRule({
   }),
 });
 
-/** The identifier of a `Mocked<…>` annotation, whose parent the selector guarantees to be the type reference. */
-interface EsMockedTypeName extends EsIdentifier {
-  parent: EsTypeReference;
-}
-
-/**
- * Whether the annotation is `Mocked<SomeNamedType>` and nothing more inventive.
- *
- * `Mocked<{ isKeyEnabled: Mock }>` is a real shape in migrated suites, and `Spy<T>` reads a *class*
- * or interface — handing it an object literal of `Mock`s asks a different question of the type
- * system than the one the rule is making. Reported, never rewritten.
- */
-function namesOneType(reference: EsTypeReference): boolean {
-  const params = reference.typeArguments?.params ?? [];
-
-  return params.length === 1 && params.every((param) => param.type === 'TSTypeReference');
-}
-
-/** Rename the annotation, import `Spy`, and drop the `Mocked` import once nothing else uses it. */
-function spyTypeFixes(context: RuleContext, fixer: EsFixer, node: EsMockedTypeName, mocked: EsVariable | undefined): EsFix[] {
-  const edits = [fixer.replaceText(node, 'Spy')];
-
-  if (bindingState(context.sourceCode.getScope(node), 'Spy') === 'free') {
-    edits.push(insertImport(fixer, `import type { Spy } from '${PACKAGE}';`));
-  }
-
-  // One reference left means this is it: renaming it orphans the import. Several, and the import is
-  // dropped on the pass that rewrites the last one — ESLint re-lints after every applied fix.
-  const orphaned = mocked?.references.length === 1 ? dropNamedImport(context.sourceCode, fixer, mocked) : undefined;
-
-  if (orphaned) {
-    edits.push(orphaned);
-  }
-
-  return edits;
-}
-
 /** `let s: Mocked<Cart>` → `let s: Spy<Cart>`. */
 const noMockedForSpy = defineRule({
   anchor: '-reading-a-spy-back-from-di',
   description: 'Declare a spy as Spy<T>, not as Vitest’s Mocked<T>',
   fixable: true,
+  hasSuggestions: true,
   messages: {
     noMockedForSpy:
       '`Mocked<T>` keeps `T`’s private members, so assigning a spy to it fails with "is missing the following properties: _zone, _queries, …" — a list of private field names that says nothing about the real problem, which is the declaration. Declare `Spy<T>`.',
   },
-  create: (context) => ({
-    // Every type position, not only a `let` annotation: the type turns up in a factory's return
-    // type, in a helper's parameter and — in all eight reports of one batch, on the line right after
-    // the declaration — in `as unknown as Mocked<T>`. Fixing the declaration and leaving the cast
-    // spelled `Mocked` is how the same file ends up saying both.
-    'TSTypeReference > Identifier[name=/^Mocked(Object)?$/]': (node: EsMockedTypeName): void => {
-      const mocked = findBinding(context.sourceCode.getScope(node), node.name);
-      // A `Mocked` the file declares itself is not Vitest's, whatever it is called, and `Spy`
-      // already meaning something else here is the same problem from the other end.
-      const rewritable =
-        (!mocked || mocked.defs.some((definition) => definition.type === 'ImportBinding')) &&
-        namesOneType(node.parent) &&
-        bindingState(context.sourceCode.getScope(node), 'Spy') !== 'taken';
+  create: (context) => {
+    // Collected and reported at the end, because what a `let` ends up holding is routinely written
+    // below its declaration — and whether the rename is the whole edit depends on that value.
+    const assignments = new Map<string, EsNode[]>();
+    const reported: EsMockedTypeName[] = [];
 
-      context.report(
-        rewritable
-          ? { node, messageId: 'noMockedForSpy', fix: (fixer: EsFixer): EsFix[] => spyTypeFixes(context, fixer, node, mocked) }
-          : { node, messageId: 'noMockedForSpy' },
-      );
-    },
-  }),
+    return {
+      AssignmentExpression: (node: EsAssignmentExpression): void => {
+        if (!isIdentifier(node.left)) {
+          return;
+        }
+
+        assignments.set(node.left.name, [...(assignments.get(node.left.name) ?? []), node.right]);
+      },
+      // Every type position, not only a `let` annotation: the type turns up in a factory's return
+      // type, in a helper's parameter and — in all eight reports of one batch, on the line right after
+      // the declaration — in `as unknown as Mocked<T>`. Fixing the declaration and leaving the cast
+      // spelled `Mocked` is how the same file ends up saying both.
+      'TSTypeReference > Identifier[name=/^Mocked(Object)?$/]': (node: EsMockedTypeName): void => {
+        reported.push(node);
+      },
+      'Program:exit': (): void => {
+        reported.forEach((node) => {
+          const mocked = findBinding(context.sourceCode.getScope(node), node.name);
+          // A `Mocked` the file declares itself is not Vitest's, whatever it is called, and `Spy`
+          // already meaning something else here is the same problem from the other end.
+          const rewritable =
+            (!mocked || mocked.defs.some((definition) => definition.type === 'ImportBinding')) &&
+            namesOneType(node.parent) &&
+            bindingState(context.sourceCode.getScope(node), 'Spy') !== 'taken';
+
+          if (!rewritable) {
+            context.report({ node, messageId: 'noMockedForSpy' });
+
+            return;
+          }
+
+          const fix = (fixer: EsFixer): EsFix[] => spyTypeFixes(context, fixer, node, mocked);
+
+          context.report(
+            rewritesTheWholeDeclaration(node, assignments)
+              ? { node, messageId: 'noMockedForSpy', fix }
+              : {
+                  node,
+                  messageId: 'noMockedForSpy',
+                  suggest: [
+                    { desc: 'Declare Spy<T> — and rebuild what is assigned to it, which Spy<T> will reject if it is a literal', fix },
+                  ],
+                },
+          );
+        });
+      },
+    };
+  },
 });
 
 /** `TestBed.inject(X) as Spy<X>` → `asSpy(TestBed.inject(X))`. */
@@ -721,45 +686,6 @@ const noDoneCallback = defineRule({
   }),
 });
 
-/** The promise methods whose callback is deferred: nothing inside it runs during the synchronous test body. */
-const PROMISE_CALLBACK_METHODS = new Set(['catch', 'finally', 'then']);
-
-/** Whether `fn` is the callback handed to `.then()` / `.catch()` / `.finally()`, rather than to anything else. */
-function isPromiseCallback(fn: EsNode): boolean {
-  const call = fn.parent;
-
-  if (!isCallExpression(call) || !isMemberExpression(call.callee)) {
-    return false;
-  }
-
-  // A computed method name (`p[settle](…)`) is not knowably a promise callback, so it is left alone.
-  return isIdentifier(call.callee.property) && PROMISE_CALLBACK_METHODS.has(call.callee.property.name);
-}
-
-/** Whether the chain grows past `node`: `p.then(a)` is the object of `.catch`, which is the callee of `.catch(b)`. */
-function continuesChain(node: EsNode): boolean {
-  return isMemberExpression(node.parent) || (isCallExpression(node.parent) && node.parent.callee === node);
-}
-
-/**
- * Whether the chain `call` belongs to is a bare expression statement — nobody awaits, returns, stores
- * or passes on the promise.
- *
- * The walk to the top of the chain is the whole point: in `p.then(a).catch(b)` the parent of
- * `p.then(a)` is a member expression, so only the *last* call in the chain has a parent that says
- * whether anything ever consumes the promise. Reading the immediate parent would clear the first
- * callback of every chain that has a second one.
- */
-function isFloatingChain(call: EsNode): boolean {
-  let current = call;
-
-  while (continuesChain(current)) {
-    current = current.parent;
-  }
-
-  return current.parent.type === 'ExpressionStatement';
-}
-
 /** `p.then(() => expect(…))` as a statement of its own → `expect(await p)`. */
 const noFloatingAssertion = defineRule({
   anchor: '-a-promise-a-test-forgets-to-await',
@@ -786,6 +712,31 @@ const noFloatingAssertion = defineRule({
   }),
 });
 
+/** `export const events = [...BaseEvents]` at module scope → a TypeError while the bundle loads. */
+const noImportTimeSpread = defineRule({
+  anchor: '-a-double-more-than-one-spec-uses',
+  description: 'Do not spread an imported binding at module scope — inside a bundle it can still be undefined',
+  hasSuggestions: true,
+  messages: {
+    noImportTimeSpread:
+      'This spreads `{{name}}`, a binding another module owns, while this module is still being evaluated. Under `tsc` and under a browser’s ESM loader that is safe — nothing runs before its dependency. Inside one bundle it is not: the spec bundle emits shared chunks, a chunk can be evaluated while the binding it re-exports is still `undefined`, and `[...undefined]` throws `Spread syntax requires ...iterable[Symbol.iterator] to be a function` before a single test runs — on a tree whose every test passes. Build the value lazily (a function, called where it is read), or inline the constant so nothing has to be imported for this line to work. Nothing inside a function body is reported: that runs later, which is the whole repair.',
+  },
+  create: (context) => ({
+    SpreadElement: (node: EsSpreadElement): void => {
+      const imported = spreadOfImport(context, node);
+
+      if (!imported || !runsAtImportTime(node)) {
+        return;
+      }
+
+      const suggestion = lazyValueSuggestion(context, node);
+      const report = { node, messageId: 'noImportTimeSpread', data: { name: imported.name } };
+
+      context.report(suggestion ? { ...report, suggest: [suggestion] } : report);
+    },
+  }),
+});
+
 /** Every rule the plugin ships, keyed by the name used in an ESLint config. */
 export const rules: Record<string, RuleModule> = {
   'prefer-provide-auto-spy': preferProvideAutoSpy,
@@ -800,4 +751,5 @@ export const rules: Record<string, RuleModule> = {
   'no-floating-assertion': noFloatingAssertion,
   'no-overridden-provider': noOverriddenProvider,
   'no-inject-before-override': noInjectBeforeOverride,
+  'no-import-time-spread': noImportTimeSpread,
 };

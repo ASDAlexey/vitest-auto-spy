@@ -116,6 +116,12 @@ describe('prefer-provide-auto-spy', () => {
     expect(lint('const p = { useValue: { total: vi.fn() } };', 'prefer-provide-auto-spy')).toEqual([]);
   });
 
+  it('leaves a multi provider alone, because the fix it would ask for does not exist', () => {
+    // `provideAutoSpy` builds one double for a token and takes no registration mode, so following
+    // this advice would quietly turn an accumulating provider into an overriding one.
+    expect(lint('const p = { provide: HOOKS, useValue: { run: vi.fn() }, multi: true };', 'prefer-provide-auto-spy')).toEqual([]);
+  });
+
   it('follows a double declared above and passed by name', () => {
     // Eight doubles in one file of the suite this came from were written this way, and the rule
     // reported none of them.
@@ -855,6 +861,45 @@ describe('no-mocked-for-spy', () => {
     // …and each of those is still reported.
     expect(lint('let cart: Mocked;', 'no-mocked-for-spy')).toHaveLength(1);
   });
+
+  it('demotes the fix to a suggestion when what is assigned is not one of the library’s doubles', () => {
+    // The shape that shipped uncompilable code: the declaration was rewritten, the object literal a
+    // few lines below was not, `eslint --fix` reported clean and the type gate failed afterwards.
+    const literal = 'let register: Mocked<Registry>;\nregister = { metrics: vi.fn() };';
+
+    expect(autofix(literal, 'no-mocked-for-spy')).toBe(literal);
+    expect(suggestionsFor(literal, 'no-mocked-for-spy')).toEqual([
+      'Declare Spy<T> — and rebuild what is assigned to it, which Spy<T> will reject if it is a literal',
+    ]);
+    expect(applySuggestion(literal, 'no-mocked-for-spy')).toContain('Spy<Registry>');
+
+    // The annotation of the real report sat behind an intersection.
+    const intersection = "let register: Mocked<Registry> & { contentType: string };\nregister = { contentType: 'x' };";
+
+    expect(autofix(intersection, 'no-mocked-for-spy')).toBe(intersection);
+
+    // The same question one line up, when the declaration carries the literal itself.
+    const initialised = 'let cart: Mocked<CartService> = { total: vi.fn() };';
+
+    expect(autofix(initialised, 'no-mocked-for-spy')).toBe(initialised);
+
+    // A name assigned twice is only as safe as its worst assignment.
+    const both = 'let cart: Mocked<CartService>;\ncart = createSpyFromClass(CartService);\ncart = { total: vi.fn() };';
+
+    expect(autofix(both, 'no-mocked-for-spy')).toBe(both);
+  });
+
+  it('keeps the plain fix where the declaration really is the whole edit', () => {
+    // A value this library built is a `Spy<T>` already, so the rename cannot break the assignment.
+    expect(autofix('let cart: Mocked<CartService>;\ncart = createSpyFromClass(CartService);', 'no-mocked-for-spy')).toContain(
+      'let cart: Spy<CartService>;',
+    );
+    expect(autofix('let cart: Mocked<CartService> = injectSpy(CartService);', 'no-mocked-for-spy')).toContain('let cart: Spy<CartService>');
+    // An assignment to a member says nothing about the name declared here.
+    expect(autofix('let cart: Mocked<CartService>;\nstate.cart = { total: vi.fn() };', 'no-mocked-for-spy')).toContain(
+      'let cart: Spy<CartService>;',
+    );
+  });
 });
 
 describe('prefer-as-spy', () => {
@@ -1034,6 +1079,88 @@ describe('no-overridden-provider', () => {
     // A hole is not a provider either, and must not be read as one.
     expect(lint('const p = [provideAutoSpy(A), , provideAutoSpy(B)];', 'no-overridden-provider')).toEqual([]);
   });
+
+  it('separates the exact duplicate, and offers to delete it', () => {
+    // The larger half of the first field data: 20 reports across an 8 673-file workspace, most of
+    // them a token registered twice in the same words.
+    const duplicate = 'const p = [provideAutoSpy(KidsModeService), provideAutoSpy(KidsModeService)];';
+    const message = firstMessage(duplicate, 'no-overridden-provider');
+
+    expect(message).toContain('`KidsModeService` is provided twice in this array, in the same words');
+    expect(message).toContain('the copy on line 1');
+    expect(suggestionsFor(duplicate, 'no-overridden-provider')).toEqual(['Delete this duplicate provider for KidsModeService']);
+    // The comma goes with it, or the array is left holding a hole.
+    expect(applySuggestion(duplicate, 'no-overridden-provider')).toBe('const p = [ provideAutoSpy(KidsModeService)];');
+  });
+
+  it('says which provider survives, and that it is the barer of the two', () => {
+    // The smaller and more interesting half: the double the spec configured is not the one it got.
+    const barer = [
+      'const p = [',
+      '  provideAutoSpy(AccountService, { gettersToSpyOn: [], instanceMethodsToSpyOn: [] }),',
+      '  provideAutoSpy(AccountService),',
+      '];',
+    ].join('\n');
+    const message = firstMessage(barer, 'no-overridden-provider');
+
+    expect(message).toContain('follows this one on line 3');
+    expect(message).toContain('the **barer** of the two');
+    // Which of the two to keep is the whole question, so there is nothing to offer.
+    expect(suggestionsFor(barer, 'no-overridden-provider')).toEqual([]);
+
+    // An options value that is not a literal counts as the one thing it is, and still outweighs none.
+    expect(firstMessage('const p = [provideAutoSpy(A, options), provideAutoSpy(A)];', 'no-overridden-provider')).toContain('**barer**');
+  });
+
+  it('leaves two multi providers for one token alone — Angular keeps both', () => {
+    // Angular accumulates multi providers instead of keeping the last, so the second is the feature.
+    // A spec asserting that two BEFORE_INIT hooks run in registration order registers both on
+    // purpose, and reporting it can only be silenced with an eslint-disable over a working test.
+    const multi = [
+      'const p = [',
+      '  { provide: BEFORE_INIT, useValue: first, multi: true },',
+      '  { provide: BEFORE_INIT, useValue: second, multi: true },',
+      '];',
+    ].join('\n');
+
+    expect(lint(multi, 'no-overridden-provider')).toEqual([]);
+    // Three of them accumulate the same way, and none of them buries another.
+    expect(
+      lint(
+        'const p = [{ provide: T, useValue: a, multi: true }, { provide: T, useValue: b, multi: true }, { provide: T, useValue: c, multi: true }];',
+        'no-overridden-provider',
+      ),
+    ).toEqual([]);
+    // A value this rule cannot resolve is read as multi: a missed report costs nothing, a false one
+    // costs a disable comment over correct code.
+    expect(
+      lint('const p = [{ provide: T, useValue: a, multi: flag }, { provide: T, useValue: b, multi: flag }];', 'no-overridden-provider'),
+    ).toEqual([]);
+  });
+
+  it('still reports multi mixed with plain, which Angular refuses at runtime', () => {
+    // `Cannot mix multi providers and regular providers` — a defect whichever half was meant.
+    expect(
+      lint('const p = [{ provide: T, useValue: a, multi: true }, { provide: T, useValue: b }];', 'no-overridden-provider'),
+    ).toHaveLength(1);
+    expect(
+      lint('const p = [{ provide: T, useValue: a }, { provide: T, useValue: b, multi: true }];', 'no-overridden-provider'),
+    ).toHaveLength(1);
+    // `multi: false` is a plain provider written out, not an accumulating one.
+    expect(
+      lint('const p = [{ provide: T, useValue: a, multi: false }, { provide: T, useValue: b, multi: false }];', 'no-overridden-provider'),
+    ).toHaveLength(1);
+    // The library's factories have no multi form, so one beside a multi provider is still a mix.
+    expect(lint('const p = [provideAutoSpy(T), { provide: T, useValue: b, multi: true }];', 'no-overridden-provider')).toHaveLength(1);
+  });
+
+  it('keeps the original wording where neither of those is true', () => {
+    // The eight-tokens case: an auto-spy buried by a configured hand-rolled double.
+    const shadowed = 'const p = [provideAutoSpy(A), { provide: A, useValue: mock }];';
+
+    expect(firstMessage(shadowed, 'no-overridden-provider')).toContain('the one on line 1 is what DI hands out');
+    expect(suggestionsFor(shadowed, 'no-overridden-provider')).toEqual([]);
+  });
 });
 
 describe('no-inject-before-override', () => {
@@ -1129,6 +1256,57 @@ describe('no-inject-before-override', () => {
   });
 });
 
+describe('no-import-time-spread', () => {
+  /** The shape the failure takes: a value another module owns, spread while this one is loading. */
+  const imported = "import { BaseEvents } from './base-events';\n";
+
+  it('flags a module-scope spread of an imported binding', () => {
+    const spread = `${imported}export const webosEvents = [...BaseEvents];`;
+
+    expect(lint(spread, 'no-import-time-spread')).toEqual(['vitest-auto-spy/no-import-time-spread']);
+    expect(firstMessage(spread, 'no-import-time-spread')).toContain('`BaseEvents`');
+  });
+
+  it('reads an object spread and an argument list the same way', () => {
+    expect(lint(`${imported}export const config = { ...BaseEvents };`, 'no-import-time-spread')).toHaveLength(1);
+    expect(lint(`${imported}register(...BaseEvents);`, 'no-import-time-spread')).toHaveLength(1);
+    // A static field is evaluated with the class declaration, which is while the module loads.
+    expect(lint(`${imported}class Events { static all = [...BaseEvents]; }`, 'no-import-time-spread')).toHaveLength(1);
+  });
+
+  it('leaves what runs later, and what this file owns, alone', () => {
+    expect(lint(`${imported}export const make = () => [...BaseEvents];`, 'no-import-time-spread')).toEqual([]);
+    expect(lint(`${imported}class Events { all = [...BaseEvents]; }`, 'no-import-time-spread')).toEqual([]);
+    // A local value is already evaluated by the time the line below it runs.
+    expect(lint('const local = [1];\nexport const all = [...local];', 'no-import-time-spread')).toEqual([]);
+    // A name from nowhere resolvable is not knowably an import.
+    expect(lint('export const all = [...whateverThisIs];', 'no-import-time-spread')).toEqual([]);
+    // The operand is a call, not the binding: whatever that throws is not this rule's business.
+    expect(lint(`${imported}export const all = [...BaseEvents.slice()];`, 'no-import-time-spread')).toEqual([]);
+  });
+
+  it('offers the lazy value, and nothing where there is no value to defer', () => {
+    const spread = `${imported}export const webosEvents = [...BaseEvents];`;
+    const deferred = applySuggestion(spread, 'no-import-time-spread');
+
+    expect(suggestionsFor(spread, 'no-import-time-spread')).toEqual([
+      'Build the value lazily: wrap the initialiser in an arrow, and call it where it is read',
+    ]);
+    expect(deferred).toBe(`${imported}export const webosEvents = () => ([...BaseEvents]);`);
+    // Accepting it puts the spread inside a function body, so the rule falls silent — and every use
+    // of the name is now a call the type checker will point at.
+    expect(lint(deferred, 'no-import-time-spread')).toEqual([]);
+    // An argument list is not an initialiser: there is nothing local to defer.
+    expect(suggestionsFor(`${imported}register(...BaseEvents);`, 'no-import-time-spread')).toEqual([]);
+  });
+
+  it('never fixes on its own — the safe rewrite is not decidable from this file', () => {
+    const spread = `${imported}export const webosEvents = [...BaseEvents];`;
+
+    expect(autofix(spread, 'no-import-time-spread')).toBe(spread);
+  });
+});
+
 describe('the plugin', () => {
   it('ships every rule it recommends, wired to itself for flat config', () => {
     const recommended = Object.keys(plugin.configs.recommended.rules).map((id) => id.replace('vitest-auto-spy/', ''));
@@ -1147,9 +1325,14 @@ describe('the plugin', () => {
 
     // The README and AGENTS.md tables say the same thing in prose; this is what keeps them honest.
     expect(named((rule) => rule.meta.fixable !== undefined)).toEqual(['no-mocked-for-spy', 'prefer-as-spy']);
+    // `no-mocked-for-spy` declares both: the same edit is applied where the declaration is the whole
+    // story and offered where the creation site has to change with it.
     expect(named((rule) => rule.meta.hasSuggestions !== undefined)).toEqual([
       'no-expect-in-subscribe',
+      'no-import-time-spread',
+      'no-mocked-for-spy',
       'no-object-define-property',
+      'no-overridden-provider',
       'prefer-inject-spy',
     ]);
   });
