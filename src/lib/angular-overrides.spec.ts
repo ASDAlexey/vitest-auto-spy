@@ -9,6 +9,7 @@ import { describe, expect, it } from 'vitest';
 
 import '../angular';
 import { assertNgModuleScopes, overrideAutoSpy, overrideComponentProvider } from './angular-overrides';
+import { mockValueProp } from './prop-mock';
 
 @Injectable()
 class NavigationBuilderService {
@@ -31,6 +32,24 @@ class MenuHostComponent {
 class DeclaredHostComponent {
   readonly menu = inject(NavigationBuilderService);
 }
+
+@Injectable()
+class UnrelatedService {
+  ping(): string {
+    return 'real';
+  }
+}
+
+@Component({
+  selector: 'vas-nesting-host',
+  standalone: true,
+  imports: [MenuHostComponent],
+  template: '<vas-menu-host />',
+})
+class NestingHostComponent {}
+
+@Component({ selector: 'vas-unrelated', standalone: true, template: '' })
+class UnrelatedComponent {}
 
 @NgModule({})
 class EmptyScopeModule {}
@@ -77,6 +96,64 @@ describe('overrideComponentProvider', () => {
     const fixture = TestBed.createComponent(DeclaredHostComponent);
 
     expect(fixture.componentInstance.menu).toBe(menu);
+  });
+
+  it('verifies through the element that hosts the component, not only the fixture root', () => {
+    const menu = overrideComponentProvider(MenuHostComponent, NavigationBuilderService);
+
+    menu.build.mockReturnValue([]);
+    TestBed.configureTestingModule({ imports: [NestingHostComponent] });
+    TestBed.createComponent(NestingHostComponent);
+
+    expect(menu.build).toHaveBeenCalled();
+  });
+
+  it('names what the injector answered with when the override did not apply', () => {
+    const menu = overrideComponentProvider(MenuHostComponent, NavigationBuilderService);
+
+    menu.build.mockReturnValue([]);
+    // The case the helper cannot prevent: a later override for the same token wins, and the spy the
+    // spec is about to assert on is not what the component resolves any more.
+    TestBed.overrideProvider(NavigationBuilderService, { useValue: new NavigationBuilderService() });
+
+    expect(() => TestBed.createComponent(MenuHostComponent)).toThrow(
+      /the override did not apply[\s\S]*resolved .* to a NavigationBuilderService.* instance/,
+    );
+  });
+
+  it('prints a non-object answer as it is', () => {
+    // `DeclaredHostComponent` only injects the dependency, so the component itself survives being
+    // handed a string and the check is what reports it.
+    overrideComponentProvider(DeclaredHostComponent, NavigationBuilderService);
+    TestBed.overrideProvider(NavigationBuilderService, { useValue: 'not-a-service' });
+
+    expect(() => TestBed.createComponent(DeclaredHostComponent)).toThrow(/resolved .* to not-a-service/);
+  });
+
+  it('stays silent when the fixture does not contain the component at all', () => {
+    const menu = overrideComponentProvider(MenuHostComponent, NavigationBuilderService);
+    const unrelated = overrideComponentProvider(MenuHostComponent, UnrelatedService);
+
+    TestBed.configureTestingModule({ imports: [UnrelatedComponent] });
+
+    expect(() => TestBed.createComponent(UnrelatedComponent)).not.toThrow();
+    expect(typeof menu.build).toBe('function');
+    expect(typeof unrelated.ping).toBe('function');
+  });
+
+  it('queues nothing when the running TestBed has no createComponent to hook', () => {
+    const createComponent: PropertyKey = 'createComponent';
+    const restore = mockValueProp(TestBed, createComponent, undefined);
+    const menu = overrideComponentProvider(MenuHostComponent, NavigationBuilderService);
+
+    restore();
+    menu.build.mockReturnValue(['unverified']);
+
+    const fixture = TestBed.createComponent(MenuHostComponent);
+
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.items).toEqual(['unverified']);
   });
 });
 

@@ -17,3 +17,8 @@ import { vitestMockAdapter } from './lib/vitest-adapter';
 registerMockAdapter(vitestMockAdapter);
 
 export { injectSpy, provideAutoSpy, type NestModuleRef, type NestValueProvider } from './lib/nestjs';
+
+// `{ provide, useFactory }` is valid in both frameworks (Angular's `deps` and Nest's `inject` are
+// both optional), so the DI seam that records which collaborators an entry point asked for is one
+// implementation exported from both entries rather than two that drift.
+export { trackInjections, type InjectionLog, type TrackInjectionsOptions, type TrackedProvider } from './lib/track-injections';

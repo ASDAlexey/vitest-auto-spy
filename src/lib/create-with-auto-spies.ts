@@ -11,9 +11,8 @@
  */
 import { Injector, type Provider, type ProviderToken, type Type, runInInjectionContext } from '@angular/core';
 
-import { createAutoMock } from './auto-mock';
-import { createSpyFromClass } from './create-spy-from-class';
-import type { ClassType, Spy } from './types';
+import { createSpyForToken } from './track-injections';
+import type { Spy } from './types';
 
 /** Options for {@link createWithAutoSpies}. */
 export interface CreateWithAutoSpiesOptions {
@@ -41,17 +40,6 @@ export interface AutoSpiedInstance<T> {
   instance: T;
   injector: Injector;
   spies: SpyRegistry;
-}
-
-/** Build the stand-in for a token nobody provided: a class spy when there is a class to read, a type mock otherwise. */
-function createSpyForToken(token: unknown): unknown {
-  if (typeof token === 'function') {
-    // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- `ProviderToken` narrowed to `function` is a class or an abstract class; `createSpyFromClass` reads only its prototype chain.
-    return createSpyFromClass(token as ClassType<unknown>, { lazySpies: true });
-  }
-
-  // An `InjectionToken` carries no runtime shape, so the only honest stand-in is a type-level mock.
-  return createAutoMock();
 }
 
 /**

@@ -45,7 +45,19 @@ const INSTRUMENTED: { method: string; counter: 'components' | 'configurations' |
 ];
 
 /** Any instrumented `TestBed` method, viewed loosely enough to wrap. */
-type LooseMethod = (...args: unknown[]) => unknown;
+export type LooseTestBedMethod = (...args: unknown[]) => unknown;
+
+/**
+ * Read a `TestBed` method structurally, so a version that does not have it is a `undefined` rather
+ * than a `TypeError`. Shared with `angular-overrides`, which wraps `createComponent` for a check of
+ * its own.
+ */
+export function readTestBedMethod(method: string): LooseTestBedMethod | undefined {
+  const candidate: unknown = Reflect.get(TestBed, method);
+
+  // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- narrowing a `TestBed` member to the loose call shape this module wraps; only `apply` is ever used on it.
+  return typeof candidate === 'function' ? (candidate as LooseTestBedMethod) : undefined;
+}
 
 /**
  * The clock, captured at import time.
@@ -59,21 +71,30 @@ const now: () => number = performance.now.bind(performance);
 
 let counters = { testBedMs: 0, components: 0, configurations: 0 };
 let fileStartedAt = 0;
-const originals = new Map<string, LooseMethod>();
+const originals = new Map<string, LooseTestBedMethod>();
+
+/**
+ * Called with the config object of every `TestBed.configureTestingModule` call, before Angular sees
+ * it. `enableAngularDiagnostics` is the only registrant; a throw from one surfaces at the
+ * `configureTestingModule` line, which is where the mistake was written.
+ */
+const configInspectors = new Set<(config: unknown) => void>();
+
+/** Register an inspector for every testing-module configuration. Returns the call that removes it. */
+export function onTestingModuleConfigured(inspector: (config: unknown) => void): () => void {
+  configInspectors.add(inspector);
+
+  return () => {
+    configInspectors.delete(inspector);
+  };
+}
 
 function reset(): void {
   counters = { testBedMs: 0, components: 0, configurations: 0 };
 }
 
-function readMethod(method: string): LooseMethod | undefined {
-  const candidate: unknown = Reflect.get(TestBed, method);
-
-  // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- narrowing a `TestBed` member to the loose call shape this module wraps; only `apply` is ever used on it.
-  return typeof candidate === 'function' ? (candidate as LooseMethod) : undefined;
-}
-
 function instrument(method: string, counter: 'components' | 'configurations' | undefined): void {
-  const original = readMethod(method);
+  const original = readTestBedMethod(method);
 
   // Absent on older Angular versions, or already wrapped by a previous call — either way, leave it.
   if (!original || originals.has(method)) {
@@ -86,6 +107,10 @@ function instrument(method: string, counter: 'components' | 'configurations' | u
 
     if (counter) {
       counters[counter] += 1;
+    }
+
+    if (counter === 'configurations') {
+      configInspectors.forEach((inspect) => inspect(args[0]));
     }
 
     try {

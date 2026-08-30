@@ -106,7 +106,7 @@ export function injectSpy<T, Options extends SpyOptions = SpyOptions>(
   // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- `TestBed.inject`'s overloads do not accept our broadened `ClassType<T> | abstract ctor` token union, and it returns the real instance `T`, not the augmented `Spy<T>`; both assertions bridge the public token/return types to the spy surface.
   const injected = TestBed.inject(token as never) as Spy<T, Options>;
 
-  warnWhenNotASpy(token, injected);
+  reportWhenNotASpy(token, injected);
 
   return injected;
 }
@@ -114,25 +114,47 @@ export function injectSpy<T, Options extends SpyOptions = SpyOptions>(
 /** Tokens already reported, so a `beforeEach` does not print the same warning once per test. */
 const reportedTokens = new WeakSet<object>();
 
-function warnWhenNotASpy(token: object, injected: unknown): void {
-  if (isAutoSpyLike(injected) || reportedTokens.has(token)) {
+let unspiedProvidersFail = false;
+
+/**
+ * Raise {@link injectSpy}'s "not an auto-spy" report from a `console.warn` to a thrown failure.
+ *
+ * Exported for `enableAngularDiagnostics({ unspiedProviders })` — the one caller — rather than from
+ * `vitest-auto-spy/angular`: a project that wants this wants it for the whole run, from its setup
+ * file, which is what the diagnostics group is.
+ */
+export function failOnUnspiedProvider(fail: boolean): void {
+  unspiedProvidersFail = fail;
+}
+
+function reportWhenNotASpy(token: object, injected: unknown): void {
+  if (isAutoSpyLike(injected)) {
+    return;
+  }
+
+  const name = 'name' in token ? String(token.name) : String(token);
+  const message = withDocs(
+    `[vitest-auto-spy] injectSpy(${name}): the injector returned a plain instance, not an auto-spy. ` +
+      `Register it with provideAutoSpy(${name}) (or { provide: TOKEN, useValue: createAutoMock<T>() } for a token), ` +
+      'or read it with TestBed.inject() if the real implementation is what this spec wants. As it stands, the ' +
+      'control helpers are typed but absent, and `.mockReturnValue(…)` will throw on the real method.',
+    DOCS_LINKS.angular,
+  );
+
+  // Under `unspiedProviders` every occurrence fails, so the per-token de-duplication that keeps the
+  // warning readable is skipped: a throw is seen once per test by definition.
+  if (unspiedProvidersFail) {
+    throw new Error(message);
+  }
+
+  if (reportedTokens.has(token)) {
     return;
   }
 
   reportedTokens.add(token);
 
-  const name = 'name' in token ? String(token.name) : String(token);
-
   // eslint-disable-next-line no-console -- a dev-time misconfiguration warning, the channel this library already uses for `onlyMethodsToSpyOn` typos.
-  console.warn(
-    withDocs(
-      `[vitest-auto-spy] injectSpy(${name}): the injector returned a plain instance, not an auto-spy. ` +
-        `Register it with provideAutoSpy(${name}) (or { provide: TOKEN, useValue: createAutoMock<T>() } for a token), ` +
-        'or read it with TestBed.inject() if the real implementation is what this spec wants. As it stands, the ' +
-        'control helpers are typed but absent, and `.mockReturnValue(…)` will throw on the real method.',
-      DOCS_LINKS.angular,
-    ),
-  );
+  console.warn(message);
 }
 
 export {

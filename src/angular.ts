@@ -19,6 +19,13 @@ useVitestAdapter();
 
 export { injectSpy, provideAutoSpy, provideAutoSpyForToken, type AngularTokenProvider, type AngularValueProvider } from './lib/angular';
 export { assertNgModuleScopes, overrideAutoSpy, overrideComponentProvider, type AutoSpyOverride } from './lib/angular-overrides';
+export {
+  assertNoPendingRequests,
+  disableAngularDiagnostics,
+  enableAngularDiagnostics,
+  type AngularDiagnosticsOptions,
+} from './lib/angular-diagnostics';
+export { trackInjections, type InjectionLog, type TrackInjectionsOptions, type TrackedProvider } from './lib/track-injections';
 export { setupAngularTestEnv, type AngularTestEnvMode, type AngularTestEnvOptions } from './lib/angular-test-env';
 export { createDirectiveHost, type DirectiveHostOptions } from './lib/directive-host';
 export { registerDirectiveMatchers } from './lib/directive-matchers';

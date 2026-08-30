@@ -20,12 +20,18 @@
  * component as well — which is also what keeps people away from `overrideComponent`, whose JIT
  * recompilation blanks the component's whole dependency scope under an AOT bundle (see
  * {@link assertNgModuleScopes}).
+ *
+ * Queuing the component removes the *usual* cause of a silent no-op; it does not prove the override
+ * landed. So {@link overrideComponentProvider} also checks, on the next `TestBed.createComponent`,
+ * that the component's own injector really answers with the spy — see {@link verifyOnNextCreate}
+ * for why that check is always on rather than an opt-in diagnostic.
  */
 import { type Type, isStandalone } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 
 import { createSpyFromClass } from './create-spy-from-class';
 import { DOCS_LINKS, withDocs } from './docs-links';
+import { type LooseTestBedMethod, readTestBedMethod } from './testbed-diagnostics';
 import type { ClassSpyConfiguration, ClassType, OnlyMethodKeysOf, Spy } from './types';
 
 /** The `{ useValue }` shape `TestBed.overrideProvider` expects, carrying an auto-spy. */
@@ -81,8 +87,123 @@ export function overrideComponentProvider<T>(
 
   TestBed.configureTestingModule(isStandalone(component) ? { imports: [component] } : { declarations: [component] });
   TestBed.overrideProvider(ObjectClass, override);
+  verifyOnNextCreate({ component, token: ObjectClass, spy: override.useValue });
 
   return override.useValue;
+}
+
+/** The `DebugElement` surface the verification walks, read structurally so no `@angular/platform-browser` import is needed. */
+interface DebugElementLike {
+  componentInstance: unknown;
+  injector: { get(token: unknown, notFoundValue?: unknown): unknown };
+  query(predicate: (element: DebugElementLike) => boolean): DebugElementLike | null;
+}
+
+/** The `ComponentFixture` surface the verification reads. */
+interface FixtureLike {
+  componentInstance: unknown;
+  debugElement: DebugElementLike;
+}
+
+/** One queued check: this component, asked for this token, must answer with this spy. */
+interface PendingVerification {
+  component: Type<unknown>;
+  token: ClassType<unknown>;
+  spy: unknown;
+}
+
+const pendingVerifications: PendingVerification[] = [];
+let createComponentWrapper: LooseTestBedMethod | undefined;
+
+/** The injector the component itself resolves through: the fixture's own, or the one of the element hosting it. */
+function injectorOf(fixture: FixtureLike, component: Type<unknown>): DebugElementLike['injector'] | undefined {
+  const root = fixture.debugElement;
+
+  if (root.componentInstance instanceof component) {
+    return root.injector;
+  }
+
+  const hosted = root.query((element) => element.componentInstance instanceof component);
+
+  return hosted ? hosted.injector : undefined;
+}
+
+/** How the injector's answer reads in the failure: a class name where there is one, the value otherwise. */
+function describeResolved(resolved: unknown): string {
+  const constructorName: unknown = readProperty(readProperty(resolved, 'constructor'), 'name');
+
+  return typeof constructorName === 'string' && constructorName.length > 0 ? `a ${constructorName} instance` : String(resolved);
+}
+
+function verify(fixture: FixtureLike, { component, token, spy }: PendingVerification): void {
+  const injector = injectorOf(fixture, component);
+
+  // The component this fixture never rendered — behind an `@if`, on a lazy route, or simply a
+  // different host. There is nothing to check yet, and guessing would fail a correct spec.
+  if (!injector) {
+    return;
+  }
+
+  const resolved = injector.get(token, null);
+
+  if (resolved === spy) {
+    return;
+  }
+
+  throw new Error(
+    withDocs(
+      `[vitest-auto-spy] overrideComponentProvider(${component.name}, ${token.name}): the override did not apply.\n` +
+        `${component.name} resolved ${token.name} to ${describeResolved(resolved)}, not the spy this call created — so every ` +
+        'assertion about that spy is about an object the component never used.\n' +
+        `Check that ${token.name} is the token ${component.name} injects (a component that injects a base class or an ` +
+        'InjectionToken needs *that* token here, not the implementation class), and that nothing re-configured the testing ' +
+        'module with a competing provider afterwards.',
+      DOCS_LINKS.angularOverrides,
+    ),
+  );
+}
+
+/**
+ * Check the queued overrides against the next fixture, then get out of the way.
+ *
+ * Always on, not a member of `enableAngularDiagnostics`: this helper's entire reason to exist is
+ * that the documented alternative fails silently, so an override it did not actually apply is a bug
+ * in the helper rather than an optional extra. It also cannot fire on a spec that never called
+ * `overrideComponentProvider`, and it stays silent when the component was not rendered — the two
+ * properties that make the group opt-in do not apply here.
+ */
+function verifyOnNextCreate(entry: PendingVerification): void {
+  const original = createComponentWrapper ? undefined : readTestBedMethod('createComponent');
+
+  // A running Angular without `createComponent` cannot be hooked; nothing is queued either, so the
+  // helper degrades to "no verification" rather than to a stale check on the next fixture.
+  if (!createComponentWrapper && !original) {
+    return;
+  }
+
+  pendingVerifications.push(entry);
+
+  if (!original) {
+    return;
+  }
+
+  createComponentWrapper = function verifying(this: unknown, ...args: unknown[]): unknown {
+    const fixture = original.apply(this, args);
+    const queued = [...pendingVerifications];
+
+    // Fire once and get out of the way: the check belongs to the fixture this call built, and a
+    // wrapper left installed would run against a later spec's unrelated component.
+    Reflect.set(TestBed, 'createComponent', original);
+    createComponentWrapper = undefined;
+    pendingVerifications.length = 0;
+
+    // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- `createComponent` returns a `ComponentFixture`; only the two members `FixtureLike` names are ever read.
+    queued.forEach((pending) => verify(fixture as FixtureLike, pending));
+
+    return fixture;
+  };
+
+  Reflect.set(TestBed, 'createComponent', createComponentWrapper);
 }
 
 /**
@@ -91,7 +212,7 @@ export function overrideComponentProvider<T>(
  * An NgModule arrives here as its *class*, so `typeof` is `'function'` — the case a plain
  * `typeof value === 'object'` guard silently drops, taking the whole diagnostic with it.
  */
-function readProperty(value: unknown, key: string): unknown {
+export function readProperty(value: unknown, key: string): unknown {
   if (value === null || (typeof value !== 'object' && typeof value !== 'function')) {
     return undefined;
   }
@@ -99,8 +220,15 @@ function readProperty(value: unknown, key: string): unknown {
   return Reflect.get(value, key);
 }
 
+/**
+ * An absent list, or one that flattens to nothing.
+ *
+ * Flattened rather than length-checked because the compiler nests: the `ɵinj.imports` of
+ * `@NgModule({})` is `[[], []]` — the module's own imports and exports, both empty — which a plain
+ * `length === 0` reads as two entries and calls a contribution.
+ */
 function isEmptyList(value: unknown): boolean {
-  return value === undefined || (Array.isArray(value) && value.length === 0);
+  return value === undefined || (Array.isArray(value) && value.flat(Infinity).length === 0);
 }
 
 function hasEmptyRuntimeScope(module: unknown): boolean {
@@ -111,6 +239,27 @@ function hasEmptyRuntimeScope(module: unknown): boolean {
   }
 
   return isEmptyList(readProperty(definition, 'declarations')) && isEmptyList(readProperty(definition, 'exports'));
+}
+
+/**
+ * Whether importing `module` into a testing module contributes *nothing at all* at runtime.
+ *
+ * Stricter than {@link assertNgModuleScopes}'s own test, and deliberately: that one is called with
+ * the modules a spec says it imports for their declarations, so an empty scope is enough to be
+ * suspicious. The automatic check in `enableAngularDiagnostics` sees every import of every testing
+ * module, where a **providers-only module** — `HttpClientTestingModule`, a `forRoot()` result, any
+ * of the dozens a real suite imports — is legitimately scope-empty and would fail every file. A
+ * module with no declarations, no exports, no providers and no imports of its own is the only case
+ * that is a mistake no matter what it was imported for.
+ */
+export function isDeadNgModuleImport(module: unknown): boolean {
+  if (!hasEmptyRuntimeScope(module)) {
+    return false;
+  }
+
+  const injector = readProperty(module, 'ɵinj');
+
+  return isEmptyList(readProperty(injector, 'providers')) && isEmptyList(readProperty(injector, 'imports'));
 }
 
 function moduleName(module: unknown): string {
