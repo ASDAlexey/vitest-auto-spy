@@ -12,6 +12,21 @@ The latest released version here must always match the one published on
 
 ### Added
 
+- **`doctor` reports two coverage settings that configure nothing.** Both are the same defect in two
+  shapes: a coverage key written where the party that assembles the coverage options never looks at
+  it. Nothing fails either way — the run is green and a report is produced, it is simply not the
+  report the setting describes, and no warning says so. `coverage-all-removed` flags `coverage.all`
+  on Vitest 4 or newer, where the key was removed rather than renamed, so the report quietly covers
+  only what the run imported. `coverage-include-misses-bundle` flags a source-only
+  `coverage.include` in the runner config of an `@angular/build:unit-test` target: coverage is
+  matched twice there, first against the executed bundle chunks and only then against the remapped
+  sources, so a list of `.ts` globs loses every counter on the first pass. The reader is lexical,
+  like every other check in this CLI — the cost of that is a missed finding, never a wrong one.
+
+## [3.9.0] - 2026-08-30
+
+### Added
+
 - **`setupAutoSpy({ frozenClockHint })` — a timeout under fake timers now says the clock is why.**
   A frozen clock turns waiting into waiting forever, and the runner's advice ("pass a timeout value
   as the last argument") is the one repair that cannot work: the callback is not late, it is never
@@ -246,6 +261,12 @@ The latest released version here must always match the one published on
   defined on the node — a `defineProperty` there lands in the property store, where every key is
   reported as enumerable, which is precisely what the non-enumerable definition exists to avoid — and
   at every depth, so `using` on a sub-tree resets that sub-tree.
+
+## [3.8.1] - 2026-08-29
+
+No library changes. The patch bump came from a `fix:`-typed commit that only touched `CHANGELOG.md`,
+`TODO.md` and `changes/unreleased.md`; `dist/` is identical to 3.8.0. Recorded here so the changelog
+has no gap against npm — see [CONTRIBUTING.md → Release checklist](./CONTRIBUTING.md#release-checklist--these-four-must-always-match).
 
 ## [3.8.0] - 2026-08-29
 
@@ -2094,7 +2115,9 @@ by hand there, in more than one place, by more than one person.
   `mockAccessorsProp`.
 - Dual ESM + CJS build with type declarations; 100% test coverage.
 
-[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v3.8.0...HEAD
+[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v3.9.0...HEAD
+[3.9.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v3.8.1...v3.9.0
+[3.8.1]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v3.8.0...v3.8.1
 [3.8.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v3.7.0...v3.8.0
 [3.7.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v3.6.0...v3.7.0
 [3.6.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v3.5.0...v3.6.0
