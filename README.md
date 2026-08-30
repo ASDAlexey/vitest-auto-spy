@@ -16,7 +16,7 @@ identical API, with **RxJS** spies and **Angular / NestJS / React / Vue·Pinia /
 [![npm version](https://img.shields.io/npm/v/vitest-auto-spy?color=brightgreen&logo=npm)](https://www.npmjs.com/package/vitest-auto-spy)
 [![npm downloads](https://img.shields.io/npm/dm/vitest-auto-spy?color=brightgreen&logo=npm)](https://www.npmjs.com/package/vitest-auto-spy)
 [![CI](https://github.com/ASDAlexey/vitest-auto-spy/actions/workflows/ci.yml/badge.svg)](https://github.com/ASDAlexey/vitest-auto-spy/actions/workflows/ci.yml)
-[![minzipped size](https://img.shields.io/badge/minzip-14.5%20kB-brightgreen)](#install)
+[![minzipped size](https://img.shields.io/badge/minzip-14.6%20kB-brightgreen)](#install)
 [![types](https://img.shields.io/npm/types/vitest-auto-spy?logo=typescript&logoColor=white)](https://www.npmjs.com/package/vitest-auto-spy)
 [![coverage](https://img.shields.io/badge/coverage-100%25-brightgreen)](https://github.com/ASDAlexey/vitest-auto-spy/actions/workflows/ci.yml)
 [![license](https://img.shields.io/npm/l/vitest-auto-spy?color=blue)](./LICENSE)
