@@ -81,6 +81,21 @@ describe('exportedNames', () => {
     expect(exportedNames(`${root}/src/index.ts`).sort()).toEqual(['Spy', 'a', 'c', 'own']);
   });
 
+  // The root entry re-exports its whole public type surface as `export type * from './lib/types'`.
+  // A walker that only knows the value form loses `Spy<T>` and every type beside it, the import
+  // transform then decides it cannot place the name, and the spec is left on `jest-auto-spies`. The
+  // gap only shows where `dist` is absent and the sources are read, which is how CI runs — so it
+  // survived a green local suite. Pin both spellings.
+  it('follows the type-only form of export * as well as the value form', () => {
+    const root = packageWith({
+      'src/index.ts': ["export type * from './lib/types';", "export * from './lib/values';"].join('\n'),
+      'src/lib/types.ts': 'export type Spy = number;',
+      'src/lib/values.ts': 'export const createSpyFromClass = 1;',
+    });
+
+    expect(exportedNames(`${root}/src/index.ts`).sort()).toEqual(['Spy', 'createSpyFromClass']);
+  });
+
   it('answers nothing for a missing file, a file already seen, or a barrel deeper than the limit', () => {
     const root = packageWith({ 'src/a.ts': "export * from './a';\nexport const one = 1;" });
 

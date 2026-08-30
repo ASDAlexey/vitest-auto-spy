@@ -197,6 +197,16 @@ The latest released version here must always match the one published on
 
 ### Fixed
 
+- **The codemod's entry-point table lost every type when it was read from source.** The table is
+  generated from the installed package's own `exports` map, and the walker that collects the exported
+  names knew `export * from './…'` but not `export type * from './…'` — the one line with which the
+  root entry re-exports its whole public type surface. So `Spy<T>` and everything declared beside it
+  were missing, `auto-spies-import` decided it could not place the name, and the import was left on
+  `jest-auto-spies` with a residue error. Nothing announced it: the table still built and still
+  looked complete. It also only reproduced where `dist` is absent and the sources are read, which is
+  how CI runs the suite and is not how a developer with a built tree runs it — so the specs were
+  green locally and red in CI. Both spellings are now followed, and both are pinned by a test.
+
 - **`mockReadonlyProp` / `mockValueProp` / `mockReadonlyPropGetter` / `mockAccessorsProp` explain a
   property that refuses to be replaced.** They reach the same `Object.defineProperty` as the accessor
   spies behind the adapter, which have named the target and the way out for a while, and used to hand

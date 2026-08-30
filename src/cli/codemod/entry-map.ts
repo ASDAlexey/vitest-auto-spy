@@ -103,8 +103,16 @@ export function resolveTarget(root: string, target: string): string | undefined 
 const NAMED_EXPORT = /export\s+(?:type\s+)?{([^}]*)}/g;
 const DECLARED_EXPORT =
   /export\s+(?:declare\s+)?(?:abstract\s+)?(?:async\s+)?(?:class|const|enum|function|interface|let|type|var)\s+([$A-Z_a-z][\w$]*)/g;
-/** The quote is captured so the specifier's length is known: in the mask its text is blank. */
-const STAR_EXPORT = /export\s+\*\s+from\s*(["'])([^"']+)\1/g;
+/**
+ * The quote is captured so the specifier's length is known: in the mask its text is blank.
+ *
+ * `export type *` matters as much as `export *` here, and missing it is not a cosmetic gap: the root
+ * entry re-exports the whole public type surface with exactly that form, so without the optional
+ * `type` this walker loses `Spy<T>` and every type beside it. The table then looks complete, the
+ * import transform decides it cannot place the name, and the file is left on `jest-auto-spies` with
+ * a residue error — a failure that only appears where `dist` is absent and the sources are read.
+ */
+const STAR_EXPORT = /export\s+(?:type\s+)?\*\s+from\s*(["'])([^"']+)\1/g;
 
 /** `a, b as c, type D, type E as F` → the names the importer writes. */
 export function namesFromClause(clause: string): string[] {
