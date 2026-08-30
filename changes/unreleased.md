@@ -27,6 +27,12 @@ _Last released: **v3.11.0** (2026-08-30) — the git tag and `package.json` agre
   compiled scope, naming the list and the index. Angular otherwise reports it half an hour later as
   `Cannot read properties of undefined (reading 'provide')` from inside its own provider resolution.
   Also answers the related `… (reading 'ɵcmp')` from `imports: [Cmp]`.
+- **Fixed — `using` on Node 22.** Node 22 has no `Symbol.dispose` in V8; it patches one in itself
+  (`Symbol.for('nodejs.dispose')`) on the main realm only, so under Vitest's `jsdom` environment the
+  global is absent, the downlevelled `using` throws `TypeError: Symbol.dispose is not defined.` out
+  of `tslib`, and `spy[Symbol.dispose]` becomes a property named `"undefined"`. The package now
+  installs the symbol where it is missing, with the same registry key, and compares against the
+  resolved key internally (`src/lib/dispose-symbol.ts`). This is what failed the Node 22 leg of CI.
 - **README: an "Error → cure" table**, keyed by what the compiler prints rather than by helper name —
   `asSpy` and `asInstance` are unfindable from the messages that call for them.
 - **Internal:** the reading shared by the two `prefer-*` provider lint rules moved to

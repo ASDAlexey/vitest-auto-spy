@@ -668,6 +668,14 @@ sub-tree). The key is non-enumerable, so a spread does not copy it, and there is
 `[Symbol.dispose]` on a host mock restores the original implementation instead — call
 `resetAutoSpy(spy)` there. If the project does not transpile `using`, call `spy[Symbol.dispose]()`.
 
+`src/lib/dispose-symbol.ts` installs `Symbol.dispose` when the realm has none, and `DISPOSE` — not
+`Symbol.dispose` — is what library code compares against. Node 22 has no explicit resource
+management in V8: it patches the symbol in itself, as `Symbol.for('nodejs.dispose')`, onto the main
+realm only, so under `jsdom` / `happy-dom` (a bare `vm` context) it is absent, the downlevelled
+`using` throws out of `tslib.__addDisposableResource`, and `spy[Symbol.dispose]` degrades into a
+property named `"undefined"`. The shim is the same registry symbol, so it is identical to Node's
+across realms.
+
 ---
 
 ## 8. Observable assertions (core entry — no rxjs needed)

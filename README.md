@@ -1336,10 +1336,14 @@ non-enumerable, so `{ ...spy }` does not carry it into a snapshot, and there is 
 `[Symbol.asyncDispose]` — `resetAutoSpy` is synchronous, and `await using` falls back to `@@dispose`
 anyway.
 
-**The method is ours; the `using` declaration is your toolchain's.** `Symbol.dispose` exists on every
-runtime this package supports, so there is no feature detection; esbuild and `tsc` both downlevel the
-declaration. If your setup does not transpile, call `spy[Symbol.dispose]()` or `resetAutoSpy(spy)`
-directly. A standalone `createFunctionSpy` is **not** covered: it is a host-runner mock, and Vitest
+**The method is ours; the `using` declaration is your toolchain's.** esbuild and `tsc` both downlevel
+the declaration. If your setup does not transpile, call `spy[Symbol.dispose]()` or
+`resetAutoSpy(spy)` directly. On **Node 22** the package installs the missing `Symbol.dispose` when
+it loads: the downlevelled form reads the symbol off the global `Symbol`, and Node 22 patches it in
+only on its main realm — under Vitest's `jsdom` environment, whose globals come from a `vm` context,
+it is absent and `using` throws `TypeError: Symbol.dispose is not defined.`. The shim is
+`Symbol.for('nodejs.dispose')`, the same registry symbol Node uses, so the key is identical across
+realms; a runtime that already has the symbol (Node 24+, Bun) is left untouched. A standalone `createFunctionSpy` is **not** covered: it is a host-runner mock, and Vitest
 puts its own `[Symbol.dispose]` on those, which restores the original implementation rather than
 reverting this library's configuration.
 

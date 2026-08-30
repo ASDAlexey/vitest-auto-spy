@@ -77,6 +77,22 @@ The latest released version here must always match the one published on
   repair is either a provider the file does not have or a `TestBed.inject(X)` that says the real
   implementation was the point.
 
+### Fixed
+
+- **`using` on Node 22: the package installs the missing `Symbol.dispose` itself.** Node 22 ships V8
+  12.4, which has no explicit resource management, so Node supplies `Symbol.dispose` in JavaScript —
+  as `Symbol.for('nodejs.dispose')`, and **onto its main realm only**. Vitest's `jsdom` /
+  `happy-dom` environments put the intrinsics of a bare `vm` context on `globalThis`, and that realm
+  has no such patch: `Symbol.dispose` is `undefined`, `using spy = createSpyFromClass(X)` throws
+  `TypeError: Symbol.dispose is not defined.` out of `tslib.__addDisposableResource` before anything
+  looks at the double, and `spy[Symbol.dispose]` degrades into a property literally named
+  `"undefined"`. Node 24 has the symbol natively in every realm, which is why the same suite passed
+  there and failed one LTS down — including this repository's own, on the Node 22 leg of CI.
+  Importing the package now defines the symbol where it is missing, using that same registry key so
+  it is identical to the one Node patches in (`Symbol.for` is shared by every realm of the process),
+  non-enumerable and `configurable`; a realm that already has `Symbol.dispose` is left untouched.
+  Library code compares against that resolved key rather than reading `Symbol.dispose` at each site.
+
 ### Documentation
 
 - **An "Error → cure" table in the README, keyed by what the compiler prints.** `asSpy` and

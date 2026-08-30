@@ -683,14 +683,22 @@ it('loads', () => {
 directly on the host mock. It is also callable by hand — `cart[Symbol.dispose]()` — and the key has
 a **stable identity** across reads, which a `Disposable` check and a `DisposableStack` both assume.
 
-**The method is ours; the syntax is your toolchain's.** `Symbol.dispose` is a well-known symbol on
-every runtime this package supports (Node 18.18+, which is under the package's own
-`engines: { node: ">=18" }`; Bun 1.4), so there is no runtime guard and no feature detection — the
-key is simply there. The `using` _declaration_ is a separate question: esbuild and `tsc` both
-downlevel it, which is why the specs in this repository use it while CI runs on Node 22, 24 and 26.
-Executed natively — an untranspiled `.js` on Node 22 — it is a `SyntaxError`; Node 24 runs it. If
+**The method is ours; the syntax is your toolchain's.** The `using` _declaration_ is downlevelled by
+esbuild and `tsc`, which is why the specs in this repository use it while CI runs on Node 22, 24 and
+26. Executed natively — an untranspiled `.js` on Node 22 — it is a `SyntaxError`; Node 24 runs it. If
 your setup does not transpile, call `[Symbol.dispose]()` or `resetAutoSpy()` directly; nothing else
 changes.
+
+**On Node 22 the package installs `Symbol.dispose` for you.** The downlevelled form needs the symbol
+to exist as a _global_: `tslib`'s `__addDisposableResource` reads it off `Symbol` and throws
+`TypeError: Symbol.dispose is not defined.` before it ever looks at the double. Node 24 has it
+natively in V8, in every realm. Node 22 does not — it patches the symbol in itself, as
+`Symbol.for('nodejs.dispose')`, **onto the main realm only**, so under Vitest's `jsdom` /
+`happy-dom` environment, whose globals come from a bare `vm` context, it is simply absent and `using`
+throws. Importing this package defines it there, with that same registry symbol — shared by every
+realm of the process, so the key stays identical to the one Node itself uses — non-enumerable and
+`configurable`, and only where it is missing: a realm that already has `Symbol.dispose` is left
+exactly as it was.
 
 **The key is non-enumerable**, so it stays out of a spread. That is the one that had to be defended:
 `{ ...spy }` copies enumerable own _symbol_ properties, so an enumerable dispose method would follow
