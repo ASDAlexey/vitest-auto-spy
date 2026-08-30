@@ -179,6 +179,7 @@
     "llms:check": "node scripts/generate-llms-txt.mjs --check",
     "plugin:sync": "node scripts/sync-plugin-version.mjs",
     "plugin:sync:check": "node scripts/sync-plugin-version.mjs --check",
+    "skill:check": "node scripts/check-skill.mjs",
     "alias:sync": "node scripts/sync-alias.mjs",
     "alias:sync:check": "node scripts/sync-alias.mjs --check",
     "release:notes": "node scripts/release-notes.mjs",
@@ -198,7 +199,7 @@
     "format": "prettier -w \"src/**/*.ts\"",
     "format:check": "prettier -c \"src/**/*.ts\"",
     "jscpd": "jscpd",
-    "check": "npm run typecheck && npm run lint && npm run jscpd && npm run llms:check && npm run plugin:sync:check && npm run alias:sync:check && npm run test:coverage && npm run test:types && npm run test:shared-env && npm run test:zone && npm run test:bun && npm run test:bun:angular",
+    "check": "npm run typecheck && npm run lint && npm run jscpd && npm run llms:check && npm run plugin:sync:check && npm run skill:check && npm run alias:sync:check && npm run test:coverage && npm run test:types && npm run test:shared-env && npm run test:zone && npm run test:bun && npm run test:bun:angular",
     "prepublishOnly": "npm run build",
     "version": "node scripts/sync-plugin-version.mjs && node scripts/sync-alias.mjs && git add .claude-plugin alias"
   },
