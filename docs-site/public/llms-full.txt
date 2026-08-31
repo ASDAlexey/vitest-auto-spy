@@ -22,20 +22,20 @@ spied method earns helpers from its return type — `calledWith`/`mustBeCalledWi
 
 Control helpers that follow each return type, behind one identical API on Vitest, Bun and node:test.
 
-- **Every method, from the real prototype** — createSpyFromClass reads the class, so the double has the methods the class has — including the overloads a generated API client would otherwise collapse onto the last signature, the one nobody calls. A deep Proxy answers every property, so a typo in a mocked method name never fails there; onlyMethodsToSpyOn here reports a name that is not on the prototype. strict, per double or per suite, turns the forty-first method nobody configured from an undefined that fails three frames later into a throw naming the class, the method and the arguments. Every double is Disposable, so using spy = createSpyFromClass(X) retires the afterEach that existed only to reset it. No class to read? createAutoMock&lt;T&gt;() and recursive mockDeep&lt;T&gt;() work from the type alone, and createMock&lt;T&gt;() returns the spy-free data shape a test only reads — with createFixtureFactory&lt;T&gt;() for the one a whole suite shares, checked once as a complete T and stamped into a fresh copy per test. — https://asdalexey.github.io/vitest-auto-spy/core/create-spy-from-class
+- **Every method, from the real prototype** — createSpyFromClass reads the class, so the double has the methods the class has — including the overloads a generated API client would otherwise collapse onto the last signature, the one nobody calls — and each method's only call signature is its own, so a call the real method rejects does not compile on the double, where a Mock-based surface used to accept any arguments at all. A deep Proxy answers every property, so a typo in a mocked method name never fails there; onlyMethodsToSpyOn here reports a name that is not on the prototype. strict, per double or per suite, turns the forty-first method nobody configured from an undefined that fails three frames later into a throw naming the class, the method and the arguments. Every double is Disposable, so using spy = createSpyFromClass(X) retires the afterEach that existed only to reset it. No class to read? createAutoMock&lt;T&gt;() and recursive mockDeep&lt;T&gt;() work from the type alone, and createMock&lt;T&gt;() returns the spy-free data shape a test only reads — with createFixtureFactory&lt;T&gt;() for the one a whole suite shares, checked once as a complete T and stamped into a fresh copy per test. — https://asdalexey.github.io/vitest-auto-spy/core/create-spy-from-class
 - **Helpers that follow the return type** — A method returning a Promise gets resolveWith / rejectWith, one returning an Observable gets nextWith / throwWith, and every method gets calledWith and mustBeCalledWith. Only jest-auto-spies has the same, and it is Jest-only — the deep-Proxy libraries hand you one mockReturnValue for all three cases and no argument dispatch at all. A mustBeCalledWith mismatch prints both sides, with every configured call listed and its matchers shown, because the diagnosis is the comparison and not either half of it. — https://asdalexey.github.io/vitest-auto-spy/core/control-helpers
 - **One core, three runtimes, five frameworks** — The core never imports your runner. vi.fn() and its equivalents sit behind a MockAdapter that each entry point registers on import, so the same spec code runs on Vitest, bun:test and node:test — only native mock methods stay the runner's own. Angular, NestJS, React, Vue / Pinia and Svelte have their own entry points on top of it, and rxjs stays opt-in behind a subpath. — https://asdalexey.github.io/vitest-auto-spy/runtimes/vitest
 - **Getter and setter spies, including where Bun refuses** — bun:test's own spyOn(obj, 'prop', 'get') throws — "does not support accessor properties yet", verified on Bun 1.4.0. And no library that generates a double from a class or a type has accessor spies at all, on any runner — not ng-mocks, spectator, @testing-library/angular, vitest-mock-extended, @golevelup or Suites. accessorSpies never calls the runner's spyOn. It redefines the property with a mock built by the adapter and preserves the half it is not replacing, so getters and setters behave identically on Vitest, Bun and node:test. — https://asdalexey.github.io/vitest-auto-spy/comparison#_1-accessor-spies-on-bun
 - **Angular's TestBed under bun test** — Bun ships no DOM and cannot resolve templateUrl, so Angular specs simply do not run there — no other library in the field claims otherwise. One preload installs a DOM, inlines external templates and styles through a Bun.plugin hook, and boots a zoneless TestBed. provideAutoSpy, injectSpy and the zoneless waits come from one bun-angular entry point and read the same as they do on Vitest. — https://asdalexey.github.io/vitest-auto-spy/runtimes/bun-angular
 - **Fourteen lint rules, underlined as you type** — Fourteen flat-config rules versioned together with the API they recommend, each message linking to its recipe. Seven of them catch a test being wrong rather than verbose — an expect() inside subscribe(), an expect() in a .then() nobody awaits, an Object.defineProperty nothing restores, a module-level mock shared across files, a done callback that makes a test pass having run almost none of its body. Two rewrite the source under --fix and six offer the rewrite as a suggestion, because a fix that silences the rule while the type gate still fails is worse than no fix. No editor plugin of their own — WebStorm runs them natively, VS Code, Cursor and Windsurf through the ESLint extension. — https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-plugin
 - **Signals and resources a spec can drive** — mockSignalProp replaces a signal-valued property with a real WritableSignal and hands back the writable half, so a computed downstream recomputes and an effect runs. runEffect() runs one effect body on demand when its trigger is now static. httpResource() and resource() need a different wait each — measured on 21.2.17, an httpResource settles one tick plus one microtask after its response is flushed, a plain resource() takes two rounds, and neither has issued a request until something ticks. Get it wrong and nothing fails — the spec asserts the resource's default value and passes. settleResource() is the one wait both converge under, mockResourceProp drives a resource with no HTTP in flight at all, and toHaveResourceValue refuses to compare an unresolved resource even when its default happens to match. — https://asdalexey.github.io/vitest-auto-spy/adapters/angular#resources-httpresource-and-resource
-- **Less TestBed, and proof of what was injected** — renderShallow collapses the shallow-TestBed copy-paste into one call — 291 ms down to 174 ms, 1.7×, on real component specs — and createWithAutoSpies builds a class through DI with every unprovided token spied. overrideComponentProvider reaches a dependency a component declares in its own providers, which a testing module cannot, and it verifies on the next fixture that the override actually applied rather than silently doing nothing. Two assertions cover the AOT test bundle that makes all of this necessary — assertNgModuleScopes for an imported NgModule whose runtime scope the bundler stripped, and assertComponentDefIntact for a component whose own providers were baked with a hole in them because the barrel chunk holding one of them had not run yet — which Angular otherwise reports half an hour later as Cannot read properties of undefined (reading 'provide'), from inside its own provider resolution, in a spec nobody touched. trackInjections answers the question most vi.mock() calls were really asking, which collaborators the entry point actually asked for, by registering them as provider factories and reading back the ones that fired — an assertion that survives a bundler removing the module boundary a mock would have needed. — https://asdalexey.github.io/vitest-auto-spy/adapters/angular#shallow-component-rendering
+- **Less TestBed, and proof of what was injected** — renderShallow collapses the shallow-TestBed copy-paste into one call — 291 ms down to 174 ms, 1.7×, on real component specs — and createWithAutoSpies builds a class through DI with every unprovided token spied, while spies.get(token) refuses one the instance never asked for — the base class, or a service a refactor removed — instead of minting a spy the instance never sees, so the wrong stub fails at the stub rather than three frames into the code under test. overrideComponentProvider reaches a dependency a component declares in its own providers, which a testing module cannot, and it verifies on the next fixture that the override actually applied rather than silently doing nothing. Two assertions cover the AOT test bundle that makes all of this necessary — assertNgModuleScopes for an imported NgModule whose runtime scope the bundler stripped, and assertComponentDefIntact for a component whose own providers were baked with a hole in them because the barrel chunk holding one of them had not run yet — which Angular otherwise reports half an hour later as Cannot read properties of undefined (reading 'provide'), from inside its own provider resolution, in a spec nobody touched. trackInjections answers the question most vi.mock() calls were really asking, which collaborators the entry point actually asked for, by registering them as provider factories and reading back the ones that fired — an assertion that survives a bundler removing the module boundary a mock would have needed. — https://asdalexey.github.io/vitest-auto-spy/adapters/angular#shallow-component-rendering
 - **Four Angular failures that pass quietly** — enableAngularDiagnostics() turns four silences into failures in one setup line — a testing module importing an NgModule that contributes nothing at all, schemas sitting next to a standalone component where they can never apply, injectSpy handed a real instance instead of a spy, and a test that ends with unflushed HttpTestingController requests. The third is the one nothing else looks for. injectSpy already warns once per token, naming the token and the provideAutoSpy call that is missing, and the group raises that warning to a failure — where spectator declares inject&lt;T&gt;(token) as SpyObject&lt;T&gt; whether the token was mocked or not, so the compiler hides the mistake until a real method meets .mockReturnValue somewhere else entirely. — https://asdalexey.github.io/vitest-auto-spy/adapters/angular-diagnostics
 - **Assertions that fail on silence** — expectEmission / expectEmissions / expectNoEmission replace the expect() inside a subscribe callback that never runs — the assertion is the await, so a stream that stays quiet fails the test instead of passing it. Duck-typed, so no rxjs is pulled in. assertMocked does the same job one level up, where a vi.mock() specifier did not match under a bundler and the spec has been asserting against the real module all along, and moduleNamespace gives a factory the shape an interop probe recognises. — https://asdalexey.github.io/vitest-auto-spy/core/observable-assertions
 - **When a green suite is lying** — zone.js replaces the global Promise and drains a rejection nobody handled into console.error and no further — it never reaches the channel Vitest listens on, so the runner is never told and the file still exits 0. strayRejections fails the test the rejection surfaced in. One migrated monorepo of 1688 spec files and 11 587 tests, green, was hiding six real defects of that shape, two of them assertions that were simply false. npx vitest-auto-spy doctor reads the other half — a tsconfig include pattern that matches no file, so it type-checks nothing while tsc --noEmit still reports success. On the suite that motivated it, nine of 152 spec tsconfigs still covered their specs. Read-only, zero config, exit 1 in CI. — https://asdalexey.github.io/vitest-auto-spy/utilities/setup#_8-failing-on-a-rejection-zone-js-swallowed
 - **A migration you can verify** — Counters cannot answer whether a port lost a test — a file can lose a whole suite while a flake elsewhere starts passing, and the totals still match. compareTestRuns diffs the two sets of names from the JSON report both runners write, and diffByField turns a collapsed "…(8) to deeply equal" into the field that actually differs. npx vitest-auto-spy codemod does the edit half and declines the rest — it splits the legacy import across the entry points read off the installed package's own exports map rather than a table typed into the tool, transposes jest.Mock&lt;void, [Order]&gt; into the call signature Vitest takes instead of renaming it into the reverse meaning, and leaves every span it cannot decide byte-for-byte as it was, with a file and a line. Dry run by default, and --verify then checks the result by matching what should be gone, which still works on a file somebody migrated by hand. — https://asdalexey.github.io/vitest-auto-spy/migrating
 - **Half the type-checker work, no runtime dependencies** — Deep-Proxy mocking is paid for at tsc time and nobody publishes the bill. On one fixture — an 80-member class, 30 mock declarations, 600 member touches — Spy&lt;T&gt; costs 2 656 type instantiations against @golevelup/ts-vitest's 5 092 and vitest-mock-extended's 5 614, while carrying more helpers on each method. Spies are lazy at runtime too, so a 40-method class costs 10.3 µs against 68.6 µs eager. Zero runtime dependencies, with an in-tree arg serializer and opt-in subpaths keeping rxjs, zone.js and Angular out of your bundle. 100% test coverage, on Node 22, 24 and 26 and on Bun 1.4. — https://asdalexey.github.io/vitest-auto-spy/comparison#_3-type-check-cost
-- **The rest of the toolbox** — The helpers that are not the headline but are why a suite stops flaking — setupFakeTimers / advanceTimers, which drain the microtasks a bare advanceTimersByTime leaves pending; flushEventLoop and settleDynamicImport for the queue the clock does not reach at all; fakeAsync and waitForAsync patched onto Vitest, behind their own specifier so a zoneless project never sees zone.js; mockConstructor / stubConstructor for a double the code under test calls with new, which vi.fn(() => instance) is not; IntersectionObserver, ResizeObserver, MutationObserver, media-element and AbortController stubs for the DOM the runner does not ship; narrow / withOverrides / asInstances / captureArg for fixtures without casts, and createFixture / createFixtureFactory for the model eight specs would otherwise each keep a hundred-line copy of; console spies; and one setupAutoSpy() call for the hygiene a shared environment needs. Every wait here is bounded and names its own cause. — https://asdalexey.github.io/vitest-auto-spy/api
+- **The rest of the toolbox** — The helpers that are not the headline but are why a suite stops flaking — setupFakeTimers / advanceTimers, which drain the microtasks a bare advanceTimersByTime leaves pending; flushEventLoop and settleDynamicImport for the queue the clock does not reach at all; fakeAsync and waitForAsync patched onto Vitest, behind their own specifier so a zoneless project never sees zone.js; mockConstructor / stubConstructor for a double the code under test calls with new, which vi.fn(() => instance) is not; IntersectionObserver, ResizeObserver, MutationObserver, media-element and AbortController stubs for the DOM the runner does not ship; narrow / withOverrides / asInstances / captureArg for fixtures without casts, and createFixture / createFixtureFactory for the model eight specs would otherwise each keep a hundred-line copy of; console spies; and one setupAutoSpy() call for the hygiene a shared environment needs — including the guard that puts back an implementation another file's vi.resetAllMocks() dropped off a shared double, the cross-file failure that never reproduces on the file that caused it. Every wait here is bounded and names its own cause. — https://asdalexey.github.io/vitest-auto-spy/api
 - **Written for the agent in your repo** — One npx vitest-auto-spy init writes the pointer into the files the agents in your repository actually read — AGENTS.md, CLAUDE.md, GEMINI.md, a Claude Code skill stub, and a glob-scoped rule file for each tool already set up here — specialised for this runner, this framework and this setup file, between markers it regenerates on the next run. Behind it sits an AGENTS.md inside the tarball for offline reading, llms.txt and llms-full.txt at the docs root, and every error message ending with a link to the page that explains it. — https://asdalexey.github.io/vitest-auto-spy/agents
 
 ---
@@ -1011,6 +1011,12 @@ myService.getProducts$.nextWithValues([
 | `{ errorValue, delay? }`    | error the stream with `errorValue` (after `delay` ms)   |
 | `{ complete?, delay? }`     | complete the stream — `complete: false` emits nothing   |
 
+An entry is chosen by the **key it carries**, not by whether its value is truthy: `{ value: false }`,
+`{ value: 0 }`, `{ value: '' }` and `{ value: null }` all emit, and so does a falsy `errorValue`. Up to
+3.12.1 a truthiness check sat on top of that, so an ordinary boolean or counter stream emitted
+nothing at all — and the symptom landed elsewhere, as a timed-out `expectEmission` or a component
+still holding its initial state under a green assertion on the default.
+
 `delay` is milliseconds and is applied with RxJS's own `delay()` / `timer()`, so under fake timers
 you have to advance the clock: [`advanceTimers(ms)`](https://asdalexey.github.io/vitest-auto-spy/utilities/fake-timers) does that **and**
 drains the microtasks the emission queues.
@@ -1936,6 +1942,21 @@ overload of a method. On a generated API client (`ng-openapi-gen`, `openapi-gene
 
 `{ overload: 'first' }` types the spy against the first signature instead. For a single method there
 is also `Overload<Client['get'], 0>`, which is what to put in a `MockInstance<…>` or a `vi.fn<…>()`.
+
+## The only call signature is the method's own
+
+The mock surface on each spied method is `MockInstance` — the same helpers (`mockReturnValue`,
+`mockImplementation`, `calls`, …) **without** a call signature of its own. Up to 3.12.1 it was
+`Mock`, which with no type argument is `Mock<Procedure>` — `(...args: any[]) => any` — and an
+intersection accepts a call matching *either* member: on a double of `read(key: string)` all of
+`read(1)`, `read('ok', 'extra')` and `read()` compiled, while none of them compiles on the real
+instance, so a spec could call the double a way production code never could and stay green.
+
+Now the only call signature left is the method's own, and a call the real method rejects fails to
+compile on the double too. Configuring one is unchanged — `MockInstance` defaults to `Procedure` as
+well, so `mockReturnValue` / `mockImplementation` stay as lenient as they were — and a side effect
+worth having: `expectTypeOf(spy.method).parameters` and `.returns` resolve, instead of collapsing to
+`never` against two competing call signatures.
 
 ## `Spy<T>`, not `Mocked<T>`
 
@@ -3064,6 +3085,12 @@ await registerDomGlobals({
 `registerDomGlobals` returns the name of the registrar that installed the DOM, or `undefined` when
 one was already present, and throws with every attempt listed when none worked.
 
+The copy step underneath, `copyWindowGlobals`, **names a forced global the host refused to
+redefine** — `document` and the other four the DOM is useless without — with the error underneath,
+instead of letting the run fail later as `document is not defined` in a spec that names neither the
+helper nor the property. A refused key outside those five stays quiet: a host built-in keeping its
+own implementation is the documented outcome, not a problem.
+
 ## Limits worth knowing
 
 - **The rewrite is textual, not a parse.** It skips comments and string literals — a `templateUrl`
@@ -3786,9 +3813,39 @@ a dynamic `import()` inside a test — and says so explicitly:
 export const navigation = { setFocus: keepMockRegistered(vi.fn()) };
 ```
 
+### The mocks it keeps, it also guards
+
+Staying registered has a second consequence, and it is the one that costs a day to find. `clearAllMocks`
+is not the only thing that walks the set: `vi.resetAllMocks()` walks the same one and calls
+`mockReset()` on everything in it, and `mockReset` puts an implementation back only when it was
+passed to `vi.fn(implementation)`. A `vi.fn()` that got its behaviour from a chained
+`.mockReturnValue(…)` or `.mockReturnThis()` is simply left answering `undefined` — `@vitest/spy`
+spells it `resetToMockImplementation ? mockImplementation : undefined`.
+
+With `isolate: false` the bill arrives somewhere else entirely. One spec calls `vi.resetAllMocks()` in
+its own `afterEach`; a **different** file later in the same worker then dies inside application code,
+because a shared double it never touched now answers `undefined`:
+
+```
+TypeError: Cannot read properties of undefined (reading 'info')
+  app.component.ts:316   AppComponent.syncAllProcesses
+```
+
+Nothing in that failure names the spec that caused it. It moves whenever the runner reorders files, it
+never reproduces on the file that did the resetting, and `vi.restoreAllMocks()` — the call one
+naturally probes with — does not cause it at all: in Vitest 4 that one walks `MOCK_RESTORE`, which only
+`vi.spyOn` writes to, so a probe built around it comes back green and sends the search the wrong way.
+
+So the implementation a long-lived mock carries when it is first classified is remembered, and put
+back before a test that has lost it. Only when it has been lost: a mock a test deliberately
+re-implements is left as that test left it, and a mock that never carried an implementation is never
+touched. The hook is `beforeEach`, because Vitest applies `restoreMocks` / `mockReset` / `clearMocks`
+from `onBeforeTryTask`, which runs *before* the `beforeEach` hooks rather than after them.
+
 The pieces are exported for a suite that wants them without the rest: `trackMockRegistry()` installs
-the same pair of hooks on its own, `keepRegisteredMocks()` marks everything currently registered as
-long-lived, `pruneMockRegistry()` is the one-shot sweep and returns how many went, and
+the same hooks on its own, `keepRegisteredMocks()` marks everything currently registered as
+long-lived, `pruneMockRegistry()` is the one-shot sweep and returns how many went,
+`restoreLongLivedImplementations()` is the repair above and returns how many it put back, and
 `getMockRegistrySize()` reports what is left — `undefined` when the capture never took.
 
 ## 10. Strict doubles for the whole suite
@@ -4641,6 +4698,11 @@ Fails at the line that assumed the mock, naming the module. Without `exports` it
 export is a runner mock; with it, that each named one is — which is what a factory that stubs part
 of a module and re-exports the rest needs, since a factory that lost the one export the test drives
 still looks mocked from the outside.
+
+An **empty** `exports` list is refused rather than accepted. `exports: []` — which is what
+`Object.keys(stubs)` or a filtered constant produces when it comes out empty — used to take the
+named-exports branch, find nothing to check and return, so the one call in the file whose job is to
+prove the mock applied proved nothing.
 
 ### The two ways `vi.mock` becomes a no-op
 
@@ -6899,6 +6961,15 @@ or a `createAutoMock` proxy (an `InjectionToken`); `inject(X, { optional: true }
 instance used — so it returns the explicit provider when there is one — and `spies.autoSpiedTokens()`
 lists what was invented.
 
+`spies.get(token)` **refuses a token the instance never asked for**, naming it and listing the ones
+that were auto-spied. The injector at the bottom of the chain answers anything, so before this the
+wrong token — a base class instead of the implementation, a service the class stopped injecting
+after a refactor, `PricingService` where the class injects `PRICING_TOKEN` — silently minted a
+second spy: `spies.get(X).m.mockReturnValue(…)` configured an object the instance had never seen,
+and the assertion then failed on the real collaborator several frames into the code under test, or
+passed while testing nothing at all. A token the instance asked for **optionally** and got `null`
+for is refused for the same reason: there is no double behind it to configure.
+
 **Plain providers only**
 This builds an `Injector.create()` injector, which does not accept the `EnvironmentProviders`
 returned by `provideHttpClient()` and friends. A class that needs those belongs in a `TestBed` —
@@ -8913,6 +8984,7 @@ The exported surface of `vitest-auto-spy` and its subpaths.
 | `blockNetwork(options?)`                                                                                     | Close `fetch`, XHR and `sendBeacon`, naming what was requested (`/setup`)                                                                             |
 | `trackStrayRejections()` / `countStrayRejections()` / `flushStrayRejections()`                               | Read back the promise rejections zone.js swallowed into `console.error` (`/setup`)                                                                    |
 | `trackMockRegistry()` / `keepMockRegistered(mock)` / `pruneMockRegistry()`                                   | Keep `@vitest/spy`'s ever-growing mock registry to the mocks that outlive a file (`/setup`)                                                           |
+| `restoreLongLivedImplementations()`                                                                          | Put back the implementation a cross-file `vi.resetAllMocks()` took off a shared double (`/setup`) |
 | `guardGlobalPatches(reaction)`                                                                               | Name the test that redefined a global property as non-configurable (`/setup`)                                                                         |
 | `installPerTest(install)`                                                                                    | Re-install a stub before every test of the block, and read back the current handle (`/setup`)                                                         |
 | `stubMediaElement(opts?)`                                                                                    | A `<video>` / `<audio>` that plays, reports a duration and fires the media events                                                                     |

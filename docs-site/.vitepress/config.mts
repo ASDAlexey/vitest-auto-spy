@@ -2,6 +2,98 @@ import { defineConfig } from 'vitepress';
 
 const HOSTNAME = 'https://asdalexey.github.io/vitest-auto-spy/';
 const OG_IMAGE = `${HOSTNAME}og-image.png`;
+const SITE_NAME = 'vitest-auto-spy';
+
+// The sidebar doubles as the source the per-page BreadcrumbList JSON-LD is built from (see
+// transformPageData), so it is hoisted here rather than living inside themeConfig.
+const SIDEBAR = [
+  {
+    text: 'Core',
+    collapsed: false,
+    items: [
+      { text: 'Introduction', link: '/core/introduction' },
+      { text: 'Installation', link: '/core/installation' },
+      { text: 'How it works', link: '/core/how-it-works' },
+      { text: 'createSpyFromClass', link: '/core/create-spy-from-class' },
+      { text: 'Control helpers', link: '/core/control-helpers' },
+      { text: 'Auto-mock by type', link: '/core/auto-mock-by-type' },
+      { text: 'Strict mode', link: '/core/strict-mode' },
+      { text: 'Observable assertions', link: '/core/observable-assertions' },
+      { text: 'Bridging Spy<T> and T', link: '/core/spy-typing' },
+      { text: 'Performance', link: '/core/performance' },
+    ],
+  },
+  {
+    text: 'Spec patterns',
+    collapsed: false,
+    items: [{ text: 'Patterns that hold up', link: '/recipes' }],
+  },
+  {
+    text: 'Runtimes',
+    collapsed: false,
+    items: [
+      { text: 'Vitest', link: '/runtimes/vitest' },
+      { text: 'Bun', link: '/runtimes/bun' },
+      { text: 'Angular on Bun', link: '/runtimes/bun-angular' },
+      { text: 'node:test', link: '/runtimes/node' },
+      { text: 'RxJS', link: '/runtimes/rxjs' },
+    ],
+  },
+  {
+    text: 'Utilities',
+    collapsed: false,
+    items: [
+      { text: 'Console spies', link: '/utilities/console' },
+      { text: 'Test-run hygiene', link: '/utilities/setup' },
+      { text: 'Fake timers', link: '/utilities/fake-timers' },
+      { text: 'Observer stubs', link: '/utilities/observer-stubs' },
+      { text: 'Constructor doubles', link: '/utilities/constructor-doubles' },
+      { text: 'Media element stub', link: '/utilities/media-element' },
+      { text: 'Module mocks', link: '/utilities/module-mocks' },
+      { text: 'Tracking injections', link: '/utilities/track-injections' },
+      { text: 'Fixtures without casts', link: '/utilities/fixtures' },
+      { text: 'fakeAsync on Vitest', link: '/utilities/zone' },
+      { text: 'Waiting and the clock', link: '/utilities/event-loop' },
+      { text: 'ESLint plugin', link: '/utilities/eslint-plugin' },
+      { text: 'CLI — doctor & init', link: '/utilities/cli' },
+      { text: 'CLI — the codemod', link: '/utilities/codemod' },
+      { text: 'Editor diagnostics', link: '/utilities/editor-diagnostics' },
+    ],
+  },
+  {
+    text: 'Adapters',
+    collapsed: false,
+    items: [
+      { text: 'Angular', link: '/adapters/angular' },
+      { text: 'Angular diagnostics', link: '/adapters/angular-diagnostics' },
+      { text: 'Component provider overrides', link: '/adapters/angular-overrides' },
+      { text: 'NestJS', link: '/adapters/nestjs' },
+      { text: 'React', link: '/adapters/react' },
+      { text: 'Vue / Pinia', link: '/adapters/vue' },
+      { text: 'Svelte', link: '/adapters/svelte' },
+    ],
+  },
+  { text: 'Migrating from jest-auto-spies', link: '/migrating' },
+  { text: 'API reference', link: '/api' },
+  { text: 'Comparison', link: '/comparison' },
+  { text: 'For AI agents', link: '/agents' },
+];
+
+/** A sidebar `link` turned into the absolute URL the JSON-LD graphs and canonical tags need. */
+function absolute(link: string): string {
+  return `${HOSTNAME}${link.replace(/^\//, '')}`;
+}
+
+/** page link → the section it sits in (title + the group's first page), for the breadcrumb. */
+const SECTION_OF_LINK = new Map<string, { text: string; first: string }>();
+
+for (const entry of SIDEBAR) {
+  if ('items' in entry) {
+    for (const item of entry.items) {
+      SECTION_OF_LINK.set(item.link, { text: entry.text, first: entry.items[0].link });
+    }
+  }
+}
 
 // https://vitepress.dev/reference/site-config
 export default defineConfig({
@@ -33,9 +125,11 @@ export default defineConfig({
         name: 'keywords',
         content:
           'vitest, auto spy, auto-spies, vitest-auto-spy, jest-auto-spies, test spies, typed mocks, ' +
-          'createSpyFromClass, createAutoMock, mockDeep, deep mock, resolveWith, calledWith, mustBeCalledWith, ' +
+          'createSpyFromClass, createAutoMock, mockDeep, deep mock, createFixture, createFixtureFactory, ' +
+          'resolveWith, calledWith, mustBeCalledWith, nextWithValues, assertMocked, ' +
           'strict mode, onUnstubbedCall, unstubbed call, fallbackMockImplementation, Symbol.dispose, using declaration, ' +
           'bun test, bun 1.4, angular on bun, node:test, angular testing, renderShallow, shallow rendering, zoneless, signal testing, ' +
+          'assertComponentDefIntact, trackInjections, vi.resetAllMocks, isolate false shared environment, ' +
           'nestjs, react, vue, pinia, svelte, rxjs, eslint plugin, mocking, typescript, ' +
           'vitest mock class, mock interface typescript, replace jest-auto-spies, vitest auto spies, ' +
           'jest to vitest codemod, jest.Mock type arguments, migrate jest to vitest, ' +
@@ -45,7 +139,9 @@ export default defineConfig({
     ],
     // max-image-preview:large is what lets Google and Yandex use the OG image in a result card.
     ['meta', { name: 'robots', content: 'index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1' }],
-    ['meta', { property: 'og:type', content: 'website' }],
+    // og:type is set per page in transformPageData (website on the landing, article everywhere else);
+    // a global one here would be a duplicate tag on every page.
+    ['meta', { property: 'og:locale', content: 'en_US' }],
     ['meta', { property: 'og:site_name', content: 'vitest-auto-spy' }],
     ['meta', { property: 'og:image', content: OG_IMAGE }],
     ['meta', { property: 'og:image:width', content: '1200' }],
@@ -120,6 +216,8 @@ export default defineConfig({
               'Angular TestBed helpers: provideAutoSpy, injectSpy, renderShallow',
               'Observable assertions that fail on silence',
               'Fourteen ESLint rules and editor diagnostics for WebStorm and VS Code',
+              'createFixture / createFixtureFactory — a checked model stamped into a fresh copy per test',
+              'A shared-double guard that puts back what a cross-file vi.resetAllMocks() dropped',
             ],
             offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' },
           },
@@ -128,21 +226,60 @@ export default defineConfig({
     ],
   ],
 
-  // Per-page canonical + OG title/description/url for correct indexing of every page.
+  // Per-page canonical, OG/Twitter tags and the BreadcrumbList JSON-LD, for correct indexing of
+  // every page rather than of the landing alone.
   transformPageData(pageData) {
+    const isHome = pageData.relativePath === 'index.md';
     const path = pageData.relativePath.replace(/(index)?\.md$/, '');
     const canonical = `${HOSTNAME}${path}`;
-    const title = pageData.title ? `${pageData.title} | vitest-auto-spy` : 'vitest-auto-spy';
+    // The landing's own frontmatter title is the site name; suffixing it would double the name.
+    const title = pageData.title && pageData.title !== SITE_NAME ? `${pageData.title} | ${SITE_NAME}` : SITE_NAME;
     const description = pageData.description || pageData.frontmatter['description'] || '';
+
+    // The section a page sits in, looked up in the sidebar map above. Top-level pages (api,
+    // comparison, …) sit in no section and get a one-step breadcrumb.
+    const section = SECTION_OF_LINK.get(`/${path}`);
+
+    const crumbs: { name: string; item: string }[] = [
+      { name: 'Home', item: HOSTNAME },
+      ...(section ? [{ name: section.text, item: absolute(section.first) }] : []),
+      { name: pageData.title || SITE_NAME, item: canonical },
+    ];
 
     pageData.frontmatter['head'] ??= [];
     pageData.frontmatter['head'].push(
       ['link', { rel: 'canonical', href: canonical }],
+      ['meta', { property: 'og:type', content: isHome ? 'website' : 'article' }],
       ['meta', { property: 'og:title', content: title }],
       ['meta', { property: 'og:description', content: description }],
       ['meta', { property: 'og:url', content: canonical }],
       ['meta', { name: 'twitter:title', content: title }],
       ['meta', { name: 'twitter:description', content: description }],
+      // What the crawlers read as freshness. lastUpdated comes from git per page (lastUpdated: true).
+      ...(pageData.lastUpdated && !isHome
+        ? [['meta', { property: 'article:modified_time', content: new Date(pageData.lastUpdated).toISOString() }]]
+        : []),
+      // A breadcrumb trail in the result is worth more than any meta tag here, because it is the one
+      // the engine can show: section names a flat URL does not carry. The section level links to the
+      // first page of its group, which is where the sidebar sends a click too.
+      ...(isHome
+        ? []
+        : [
+            [
+              'script',
+              { type: 'application/ld+json' },
+              JSON.stringify({
+                '@context': 'https://schema.org',
+                '@type': 'BreadcrumbList',
+                itemListElement: crumbs.map((crumb, index) => ({
+                  '@type': 'ListItem',
+                  position: index + 1,
+                  name: crumb.name,
+                  item: crumb.item,
+                })),
+              }),
+            ],
+          ]),
     );
   },
 
@@ -158,78 +295,7 @@ export default defineConfig({
       { text: 'AI agents', link: '/agents' },
     ],
 
-    sidebar: [
-      {
-        text: 'Core',
-        collapsed: false,
-        items: [
-          { text: 'Introduction', link: '/core/introduction' },
-          { text: 'Installation', link: '/core/installation' },
-          { text: 'How it works', link: '/core/how-it-works' },
-          { text: 'createSpyFromClass', link: '/core/create-spy-from-class' },
-          { text: 'Control helpers', link: '/core/control-helpers' },
-          { text: 'Auto-mock by type', link: '/core/auto-mock-by-type' },
-          { text: 'Strict mode', link: '/core/strict-mode' },
-          { text: 'Observable assertions', link: '/core/observable-assertions' },
-          { text: 'Bridging Spy<T> and T', link: '/core/spy-typing' },
-          { text: 'Performance', link: '/core/performance' },
-        ],
-      },
-      {
-        text: 'Spec patterns',
-        collapsed: false,
-        items: [{ text: 'Patterns that hold up', link: '/recipes' }],
-      },
-      {
-        text: 'Runtimes',
-        collapsed: false,
-        items: [
-          { text: 'Vitest', link: '/runtimes/vitest' },
-          { text: 'Bun', link: '/runtimes/bun' },
-          { text: 'Angular on Bun', link: '/runtimes/bun-angular' },
-          { text: 'node:test', link: '/runtimes/node' },
-          { text: 'RxJS', link: '/runtimes/rxjs' },
-        ],
-      },
-      {
-        text: 'Utilities',
-        collapsed: false,
-        items: [
-          { text: 'Console spies', link: '/utilities/console' },
-          { text: 'Test-run hygiene', link: '/utilities/setup' },
-          { text: 'Fake timers', link: '/utilities/fake-timers' },
-          { text: 'Observer stubs', link: '/utilities/observer-stubs' },
-          { text: 'Constructor doubles', link: '/utilities/constructor-doubles' },
-          { text: 'Media element stub', link: '/utilities/media-element' },
-          { text: 'Module mocks', link: '/utilities/module-mocks' },
-          { text: 'Tracking injections', link: '/utilities/track-injections' },
-          { text: 'Fixtures without casts', link: '/utilities/fixtures' },
-          { text: 'fakeAsync on Vitest', link: '/utilities/zone' },
-          { text: 'Waiting and the clock', link: '/utilities/event-loop' },
-          { text: 'ESLint plugin', link: '/utilities/eslint-plugin' },
-          { text: 'CLI — doctor & init', link: '/utilities/cli' },
-          { text: 'CLI — the codemod', link: '/utilities/codemod' },
-          { text: 'Editor diagnostics', link: '/utilities/editor-diagnostics' },
-        ],
-      },
-      {
-        text: 'Adapters',
-        collapsed: false,
-        items: [
-          { text: 'Angular', link: '/adapters/angular' },
-          { text: 'Angular diagnostics', link: '/adapters/angular-diagnostics' },
-          { text: 'Component provider overrides', link: '/adapters/angular-overrides' },
-          { text: 'NestJS', link: '/adapters/nestjs' },
-          { text: 'React', link: '/adapters/react' },
-          { text: 'Vue / Pinia', link: '/adapters/vue' },
-          { text: 'Svelte', link: '/adapters/svelte' },
-        ],
-      },
-      { text: 'Migrating from jest-auto-spies', link: '/migrating' },
-      { text: 'API reference', link: '/api' },
-      { text: 'Comparison', link: '/comparison' },
-      { text: 'For AI agents', link: '/agents' },
-    ],
+    sidebar: SIDEBAR,
 
     socialLinks: [{ icon: 'github', link: 'https://github.com/ASDAlexey/vitest-auto-spy' }],
 

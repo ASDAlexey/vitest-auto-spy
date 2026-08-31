@@ -40,13 +40,15 @@ const NOT_A_PAGE = new Set(['README.md']);
  *
  * The config is parsed as text rather than imported: importing it would pull in `vitepress`, which
  * only exists inside `docs-site/node_modules`, and this script has to run from the repo root too.
- * The shape it relies on is narrow — inside `sidebar: [ … ]`, a `text:` immediately followed by a
- * `link:` is a page, and a `text:` without one opens a group.
+ * The shape it relies on is narrow — inside `const SIDEBAR = [ … ]` (the block `themeConfig.sidebar`
+ * and the breadcrumb JSON-LD are both built from), a `text:` immediately followed by a `link:` is a
+ * page, and a `text:` without one opens a group. The block ends at the closing `];` at column zero,
+ * which no nested array produces.
  */
 function readSidebar() {
   const source = readFileSync(CONFIG, 'utf8');
-  const start = source.indexOf('sidebar: [');
-  const end = source.indexOf('socialLinks:', start);
+  const start = source.indexOf('const SIDEBAR = [');
+  const end = source.indexOf('\n];', start);
 
   if (start === -1 || end === -1) {
     throw new Error(`Could not locate the sidebar block in ${relative(ROOT, CONFIG)}`);
