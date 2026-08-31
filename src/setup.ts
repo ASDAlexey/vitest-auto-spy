@@ -42,6 +42,7 @@ export {
   keepRegisteredMocks,
   pruneMockRegistry,
   resetMockRegistryTracking,
+  restoreLongLivedImplementations,
   trackMockRegistry,
 } from './lib/mock-registry';
 export { advanceTimers, setupFakeTimers, type FakeTimersConfig } from './lib/fake-timers';

@@ -12,6 +12,7 @@ import {
   keepRegisteredMocks,
   pruneMockRegistry,
   resetMockRegistryTracking,
+  restoreLongLivedImplementations,
   trackMockRegistry,
 } from './mock-registry';
 
@@ -124,6 +125,72 @@ describe('keepMockRegistered', () => {
     // Out again: this is the real registry, and `vi.clearAllMocks()` calls `mockClear` on whatever
     // it finds there.
     registry?.delete(proxied);
+  });
+});
+
+describe('restoreLongLivedImplementations', () => {
+  afterEach(resetMockRegistryTracking);
+
+  it('has nothing to do while no long-lived mock carries an implementation', () => {
+    expect(restoreLongLivedImplementations()).toBe(0);
+  });
+
+  it('puts back an implementation a reset dropped', () => {
+    const shared = keepMockRegistered(vi.fn().mockReturnValue('kept'));
+
+    // What `vi.resetAllMocks()` does to every mock still in the registry, done here to the one mock
+    // this test owns: the value came from a chained `mockReturnValue`, so `mockReset` leaves nothing.
+    shared.mockReset();
+
+    expect(shared()).toBeUndefined();
+    expect(restoreLongLivedImplementations()).toBe(1);
+    expect(shared()).toBe('kept');
+  });
+
+  it('leaves an implementation a test installed on purpose alone', () => {
+    const shared = keepMockRegistered(vi.fn().mockReturnValue('from the module'));
+
+    shared.mockReturnValue('from this test');
+
+    expect(restoreLongLivedImplementations()).toBe(0);
+    expect(shared()).toBe('from this test');
+  });
+
+  it('ignores a long-lived mock that never carried an implementation', () => {
+    const shared = keepMockRegistered(vi.fn());
+
+    shared.mockReset();
+
+    expect(restoreLongLivedImplementations()).toBe(0);
+    expect(shared()).toBeUndefined();
+  });
+
+  it('ignores a double with no implementation controls to read', () => {
+    const proxied = keepMockRegistered({});
+
+    expect(restoreLongLivedImplementations()).toBe(0);
+    expect(proxied).toEqual({});
+  });
+
+  it('remembers the implementation it saw first, not a later one', () => {
+    const shared = keepMockRegistered(vi.fn().mockReturnValue('from the module'));
+
+    shared.mockReturnValue('from a test');
+    keepMockRegistered(shared);
+    shared.mockReset();
+
+    expect(restoreLongLivedImplementations()).toBe(1);
+    expect(shared()).toBe('from the module');
+  });
+
+  it('forgets what it remembered when tracking is reset', () => {
+    const shared = keepMockRegistered(vi.fn().mockReturnValue('kept'));
+
+    resetMockRegistryTracking();
+    shared.mockReset();
+
+    expect(restoreLongLivedImplementations()).toBe(0);
+    expect(shared()).toBeUndefined();
   });
 });
 

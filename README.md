@@ -1901,7 +1901,7 @@ single-purpose utility you can pick up independently — they all ride on the sa
 | `installPerTest(install)`                                                            | `/setup`                      | Re-install a stub before every test of the block — a `describe`-level stub is restored away after the first                                                   |
 | `setupAngularTestEnv(opts)`                                                          | `/angular`                    | Zone and zoneless spec files in one worker, switching platforms per file                                                                                      |
 | `restoreTimerGlobals()`                                                              | `/setup`                      | Put back timer globals that uninstalling the fakes deleted rather than restored                                                                               |
-| `trackMockRegistry()` / `keepMockRegistered(mock)`                                   | `/setup`                      | Keep @vitest/spy's mock registry to the mocks that outlive a file; mark one the split would miss ([details](#test-run-hygiene))                               |
+| `trackMockRegistry()` / `keepMockRegistered(mock)` / `restoreLongLivedImplementations()` | `/setup`                      | Keep @vitest/spy's mock registry to the mocks that outlive a file; mark one the split would miss; put back an implementation a cross-file `vi.resetAllMocks()` dropped ([details](#test-run-hygiene)) |
 | `errorHandler`                                                                       | core                          | The `mustBeCalledWith` argument-mismatch reporter — swap it to customize failure output                                                                       |
 
 A taste of the DI pair — provide the spy, inject it back fully typed:
@@ -2065,7 +2065,12 @@ expensive to diagnose when it is missing. The first three are on by default:
    component trees. Pruning it is easy to get wrong in one specific way: drop the module-level
    `vi.fn()` that six spec files import from a shared `*.mock.ts` and nothing clears it any more, so
    its calls accumulate and the file that happens to run second fails on calls its predecessor made.
-   `pruneMockRegistry` keeps what a file inherited and drops only what it added.
+   `pruneMockRegistry` keeps what a file inherited and drops only what it added. Keeping a mock
+   registered also means `vi.resetAllMocks()` can reach it — `mockReset` drops an implementation
+   that came from a chained `.mockReturnValue(…)`, which under `isolate: false` kills a *later*
+   file's test on a double it never touched — so `trackMockRegistry()` remembers the implementation
+   each long-lived mock carried and puts it back before a test that has lost it
+   (`restoreLongLivedImplementations()` is that repair on its own, and returns how many it put back).
 9. **A hook that ran out of a budget nobody meant to give it.** On by default, because it only ever
    appends a sentence to a test that has already failed. Jest applies one `testTimeout` to a hook and
    to a test body alike; Vitest resolves `hookTimeout` separately and defaults it to 10 000 ms, so a
@@ -2395,6 +2400,7 @@ names are unfindable from these messages otherwise — no `TS2739` text contains
 | `TS2345: Argument of type 'Spy<X>' is not assignable to parameter of type 'X'`   | the same, in an argument                  | `asInstance(spy)`, or `asInstances(a, b, c)`        |
 | `TS2322: Type 'Spy<X>' is not assignable to type 'Mocked<X>' …`                  | the variable was declared `Mocked<T>`     | declare it `Spy<T>`                                 |
 | `'AddPromiseSpyMethods<unknown>' is missing … from type 'WithMockReturnValue<…>'` | a generic class inferred as `Service<any>` | `asSpy<Service>(…)` / `injectSpy<Service>(…)`      |
+| `TS2345` / `TS2554` **on a call to a spied method** (wrong arguments)            | the arguments the real method rejects — the double's call signature is the method's own; it used to accept anything | fix the call; don't re-widen the spy |
 | `TS2739 … 'Spy<X>' is missing …` **on a line with `injectSpy`**                  | the provider handed back the real object  | `provideAutoSpy(X)`, or an honest `TestBed.inject`  |
 
 Two notes that cost real time when they are missing.

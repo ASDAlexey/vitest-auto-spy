@@ -958,8 +958,19 @@ by a dynamic `import()` inside a test — and says so explicitly:
 export const navigation = { setFocus: keepMockRegistered(vi.fn()) };
 ```
 
-`trackMockRegistry()` installs the pair of hooks on its own, `pruneMockRegistry()` is the one-shot
-sweep (it returns how many went) and `getMockRegistrySize()` reports what is left.
+The mocks it keeps, it also guards. Staying registered means `vi.resetAllMocks()` reaches them too —
+it walks the same set and calls `mockReset()`, which puts an implementation back only when it was
+passed to `vi.fn(implementation)`; behaviour chained on with `.mockReturnValue(…)` or
+`.mockReturnThis()` is simply lost. Under `isolate: false` that surfaces in a *different* file later
+in the same worker, inside application code, as `Cannot read properties of undefined` against a
+shared double that spec never touched — and `vi.restoreAllMocks()` does not cause it (Vitest 4 walks
+`MOCK_RESTORE` there, which only `vi.spyOn` writes to), so probing with that one comes back green and
+sends the search the wrong way. The implementation a long-lived mock carried when it was classified
+is therefore remembered and put back, in `beforeEach`, but only when it has gone missing.
+
+`trackMockRegistry()` installs the hooks on its own, `pruneMockRegistry()` is the one-shot sweep (it
+returns how many went), `restoreLongLivedImplementations()` is that repair (it returns how many it
+put back) and `getMockRegistrySize()` reports what is left.
 
 Two more switches, both about the environment rather than the spies:
 

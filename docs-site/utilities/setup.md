@@ -367,9 +367,39 @@ a dynamic `import()` inside a test — and says so explicitly:
 export const navigation = { setFocus: keepMockRegistered(vi.fn()) };
 ```
 
+### The mocks it keeps, it also guards
+
+Staying registered has a second consequence, and it is the one that costs a day to find. `clearAllMocks`
+is not the only thing that walks the set: `vi.resetAllMocks()` walks the same one and calls
+`mockReset()` on everything in it, and `mockReset` puts an implementation back only when it was
+passed to `vi.fn(implementation)`. A `vi.fn()` that got its behaviour from a chained
+`.mockReturnValue(…)` or `.mockReturnThis()` is simply left answering `undefined` — `@vitest/spy`
+spells it `resetToMockImplementation ? mockImplementation : undefined`.
+
+With `isolate: false` the bill arrives somewhere else entirely. One spec calls `vi.resetAllMocks()` in
+its own `afterEach`; a **different** file later in the same worker then dies inside application code,
+because a shared double it never touched now answers `undefined`:
+
+```
+TypeError: Cannot read properties of undefined (reading 'info')
+  app.component.ts:316   AppComponent.syncAllProcesses
+```
+
+Nothing in that failure names the spec that caused it. It moves whenever the runner reorders files, it
+never reproduces on the file that did the resetting, and `vi.restoreAllMocks()` — the call one
+naturally probes with — does not cause it at all: in Vitest 4 that one walks `MOCK_RESTORE`, which only
+`vi.spyOn` writes to, so a probe built around it comes back green and sends the search the wrong way.
+
+So the implementation a long-lived mock carries when it is first classified is remembered, and put
+back before a test that has lost it. Only when it has been lost: a mock a test deliberately
+re-implements is left as that test left it, and a mock that never carried an implementation is never
+touched. The hook is `beforeEach`, because Vitest applies `restoreMocks` / `mockReset` / `clearMocks`
+from `onBeforeTryTask`, which runs *before* the `beforeEach` hooks rather than after them.
+
 The pieces are exported for a suite that wants them without the rest: `trackMockRegistry()` installs
-the same pair of hooks on its own, `keepRegisteredMocks()` marks everything currently registered as
-long-lived, `pruneMockRegistry()` is the one-shot sweep and returns how many went, and
+the same hooks on its own, `keepRegisteredMocks()` marks everything currently registered as
+long-lived, `pruneMockRegistry()` is the one-shot sweep and returns how many went,
+`restoreLongLivedImplementations()` is the repair above and returns how many it put back, and
 `getMockRegistrySize()` reports what is left — `undefined` when the capture never took.
 
 ## 10. Strict doubles for the whole suite

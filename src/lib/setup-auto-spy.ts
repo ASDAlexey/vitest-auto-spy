@@ -119,6 +119,14 @@ export interface SetupAutoSpyOptions {
    * and through those whole component trees. Turning this on prunes what each file added once the
    * file is over, and keeps what the file inherited. See {@link trackMockRegistry}, and
    * {@link keepMockRegistered} for the one case the split gets wrong on its own.
+   *
+   * It also guards the mocks it keeps. A registered mock is reachable by `vi.resetAllMocks()` as
+   * well as by `vi.clearAllMocks()`, and `mockReset` puts an implementation back only when it was
+   * passed to `vi.fn(implementation)` — a chained `.mockReturnValue(…)` or `.mockReturnThis()` is
+   * simply lost. With `isolate: false` that surfaces as a failure in a later file, inside
+   * application code, blaming a component for a shared double some other spec reset. The
+   * implementation each long-lived mock carried when it was classified is therefore remembered and
+   * put back before a test that has lost it. See {@link restoreLongLivedImplementations}.
    */
   pruneMockRegistry?: boolean;
   /**

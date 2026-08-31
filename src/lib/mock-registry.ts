@@ -31,8 +31,29 @@
  * means, and it is kept. Everything created afterwards belongs to a test or a hook of that file and
  * is pruned when the file ends. A mock created at module scope by a dynamic `import()` inside a
  * test lands on the wrong side of that line — {@link keepMockRegistered} is the way to say so.
+ *
+ * **The other half of keeping a mock registered, and why it needs guarding.** Registered means
+ * reachable, and `vi.clearAllMocks()` is not the only thing that walks the set: `vi.resetAllMocks()`
+ * walks the same one and calls `mockReset()` on everything in it. `mockReset` puts an implementation
+ * back only if it was passed to `vi.fn(implementation)` — a `vi.fn()` that got its behaviour from a
+ * chained `.mockReturnValue(…)` or `.mockReturnThis()` is left answering `undefined`
+ * (`@vitest/spy`: `resetToMockImplementation ? mockImplementation : undefined`). Under
+ * `isolate: false` that is a cross-file failure with nothing to point at: one spec calls
+ * `vi.resetAllMocks()` in its own `afterEach`, and a *different* file later in the same worker dies
+ * inside application code because a shared double now answers `undefined`. It reads as a bug in the
+ * component, it moves whenever the runner reorders files, and it never reproduces on the file that
+ * caused it. `vi.restoreAllMocks()` does not do this — in Vitest 4 it walks `MOCK_RESTORE`, which
+ * only `vi.spyOn` writes to — so a probe built around `restoreAllMocks` shows nothing, and that
+ * asymmetry is what sends the search in the wrong direction.
+ *
+ * So the implementation a long-lived mock carries when it is first classified is remembered, and
+ * {@link restoreLongLivedImplementations} puts it back before a test that would otherwise start
+ * without it. Only when it has gone missing: a mock a spec deliberately re-implements is left alone,
+ * and a mock that never carried an implementation is never touched. The hook is `beforeEach`,
+ * because Vitest applies `restoreMocks`/`mockReset`/`clearMocks` from `onBeforeTryTask`, which runs
+ * *before* the `beforeEach` hooks rather than after them.
  */
-import { afterAll, beforeAll, vi } from 'vitest';
+import { afterAll, beforeAll, beforeEach, vi } from 'vitest';
 
 /** The registry, once captured. `undefined` until {@link captureMockRegistry} has run, and after a failed capture. */
 let registry: Set<unknown> | undefined;
@@ -48,9 +69,84 @@ let captureAttempted = false;
  */
 let longLived = new WeakSet<object>();
 
+/**
+ * A mock's implementation, as this module has to hand it back.
+ *
+ * `never[]` parameters: the value travels from `getMockImplementation()` straight into
+ * `mockImplementation()` without ever being called here, and `never[]` is the one parameter list
+ * every concrete signature is assignable to.
+ */
+type MockImplementation = (...args: never[]) => unknown;
+
+/**
+ * The two methods this module needs to keep a shared implementation alive, declared structurally.
+ *
+ * Method syntax, deliberately: its parameters are compared bivariantly, which is what lets a real
+ * `Mock<…>` — whatever its own signature — satisfy this with no assertion anywhere.
+ */
+interface MockWithImplementation {
+  getMockImplementation(): unknown;
+  mockImplementation(implementation: MockImplementation): unknown;
+}
+
+/** A long-lived mock next to the implementation it carried when it was first classified. */
+interface RememberedImplementation {
+  readonly mock: MockWithImplementation;
+  readonly implementation: MockImplementation;
+}
+
+/**
+ * The long-lived mocks that carry an implementation, so the restore walks a handful rather than the
+ * whole registry before every test.
+ *
+ * Strong references, unlike {@link longLived}, and that costs nothing: everything in here is also in
+ * the registry, which is a strong `Set` that keeps it for the worker's life either way.
+ */
+let rememberedImplementations: RememberedImplementation[] = [];
+
+/** The mocks already considered, so re-marking the same one every file stays a `WeakSet` lookup. */
+let implementationsChecked = new WeakSet<object>();
+
 /** Whether a value can be a `WeakSet` key, which every mock is (they are functions). */
 function isWeakKey(value: unknown): value is object {
   return typeof value === 'function' || (typeof value === 'object' && value !== null);
+}
+
+/** Whether a value can be handed back to `mockImplementation`. */
+function isMockImplementation(value: unknown): value is MockImplementation {
+  return typeof value === 'function';
+}
+
+/** Whether a registry entry exposes the pair of methods {@link restoreLongLivedImplementations} uses. */
+function hasImplementationControls(value: object): value is MockWithImplementation {
+  const getter: unknown = Reflect.get(value, 'getMockImplementation');
+  const setter: unknown = Reflect.get(value, 'mockImplementation');
+
+  return typeof getter === 'function' && typeof setter === 'function';
+}
+
+/**
+ * Remember what `mock` answers with, the first time it is classified as long-lived.
+ *
+ * First time only: the snapshot is meant to be the implementation the module graph installed, not
+ * whatever the file running at the moment happens to have left on it.
+ */
+function rememberImplementation(mock: object): void {
+  if (implementationsChecked.has(mock)) {
+    return;
+  }
+
+  implementationsChecked.add(mock);
+
+  if (!hasImplementationControls(mock)) {
+    return;
+  }
+
+  const implementation: unknown = mock.getMockImplementation();
+
+  if (isMockImplementation(implementation)) {
+    rememberedImplementations.push({ mock, implementation });
+  }
 }
 
 /**
@@ -117,9 +213,33 @@ export function captureMockRegistry(): Set<unknown> | undefined {
 export function keepMockRegistered<T>(mock: T): T {
   if (isWeakKey(mock)) {
     longLived.add(mock);
+    rememberImplementation(mock);
   }
 
   return mock;
+}
+
+/**
+ * Put back the implementation of every long-lived mock that has lost one, and report how many.
+ *
+ * The repair for a `vi.resetAllMocks()` — or a `mockReset: true` — reaching across files: it walks
+ * only the mocks that carried an implementation when they were classified, and only replaces one
+ * that is now missing, so a mock a test deliberately re-implements is left as the test left it.
+ *
+ * Installed on `beforeEach` by {@link trackMockRegistry}; call it directly to repair at some other
+ * moment.
+ */
+export function restoreLongLivedImplementations(): number {
+  let restored = 0;
+
+  for (const remembered of rememberedImplementations) {
+    if (remembered.mock.getMockImplementation() === undefined) {
+      remembered.mock.mockImplementation(remembered.implementation);
+      restored += 1;
+    }
+  }
+
+  return restored;
 }
 
 /**
@@ -176,6 +296,10 @@ export function trackMockRegistry(): void {
     keepRegisteredMocks();
   });
 
+  beforeEach(() => {
+    restoreLongLivedImplementations();
+  });
+
   afterAll(() => {
     pruneMockRegistry();
   });
@@ -196,4 +320,6 @@ export function resetMockRegistryTracking(): void {
   registry = undefined;
   captureAttempted = false;
   longLived = new WeakSet<object>();
+  rememberedImplementations = [];
+  implementationsChecked = new WeakSet<object>();
 }
