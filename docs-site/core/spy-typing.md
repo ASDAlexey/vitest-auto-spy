@@ -117,6 +117,21 @@ overload of a method. On a generated API client (`ng-openapi-gen`, `openapi-gene
 `{ overload: 'first' }` types the spy against the first signature instead. For a single method there
 is also `Overload<Client['get'], 0>`, which is what to put in a `MockInstance<…>` or a `vi.fn<…>()`.
 
+## The only call signature is the method's own
+
+The mock surface on each spied method is `MockInstance` — the same helpers (`mockReturnValue`,
+`mockImplementation`, `calls`, …) **without** a call signature of its own. Up to 3.12.1 it was
+`Mock`, which with no type argument is `Mock<Procedure>` — `(...args: any[]) => any` — and an
+intersection accepts a call matching *either* member: on a double of `read(key: string)` all of
+`read(1)`, `read('ok', 'extra')` and `read()` compiled, while none of them compiles on the real
+instance, so a spec could call the double a way production code never could and stay green.
+
+Now the only call signature left is the method's own, and a call the real method rejects fails to
+compile on the double too. Configuring one is unchanged — `MockInstance` defaults to `Procedure` as
+well, so `mockReturnValue` / `mockImplementation` stay as lenient as they were — and a side effect
+worth having: `expectTypeOf(spy.method).parameters` and `.returns` resolve, instead of collapsing to
+`never` against two competing call signatures.
+
 ## `Spy<T>`, not `Mocked<T>`
 
 ```ts

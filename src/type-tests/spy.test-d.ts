@@ -6,10 +6,12 @@
  * modes are already documented in `AGENTS.md` — a `Spy<T>` that stops being assignable where `T` is
  * expected, and a double that silently loses the members it was configured with.
  *
- * They assert through *calls* rather than through `expectTypeOf(...).parameters` / `.returns`,
- * because a spied method is an intersection of the original signature with the mock surface, and
- * those two matchers resolve to `never` on an intersection. Asserting the call is closer to how a
- * spec uses the double anyway.
+ * A negative case is written as `@ts-expect-error` rather than as a matcher, and deliberately:
+ * `expectTypeOf(fn).not.toBeCallableWith(…)` is itself a call, so it fails to compile on the very
+ * signature it is meant to reject and reports `Type 'never' has no call signatures` instead of
+ * passing. `@ts-expect-error` is a two-way assertion under Vitest's `typecheck` mode — a directive
+ * on a line that turns out to compile is reported as `Unused '@ts-expect-error' directive`, so
+ * these cases fail if the rejection is ever lost.
  */
 import { describe, expectTypeOf, it } from 'vitest';
 
@@ -47,6 +49,31 @@ describe('createSpyFromClass', () => {
 
     expectTypeOf(spy.name).toEqualTypeOf<string>();
     expectTypeOf(spy.size).toEqualTypeOf<number>();
+  });
+
+  it('rejects arguments the real method rejects', () => {
+    const spy = createSpyFromClass(Storage);
+
+    // The mock surface used to contribute `(...args: any[]) => any`, and an intersection accepts a
+    // call matching *either* member — so all three of these compiled on the double and none of them
+    // compiles on an instance. A spec could call the double the way production code never could and
+    // stay green.
+    // @ts-expect-error -- wrong argument type
+    spy.read(1);
+    // @ts-expect-error -- too many arguments
+    spy.read('key', 'extra');
+    // @ts-expect-error -- too few arguments
+    spy.read();
+    // @ts-expect-error -- wrong argument type on the second parameter
+    spy.write('key', 2);
+  });
+
+  it('resolves parameters and returns, which an extra call signature used to collapse to never', () => {
+    const spy = createSpyFromClass(Storage);
+
+    expectTypeOf(spy.read).parameters.toEqualTypeOf<[key: string]>();
+    expectTypeOf(spy.read).returns.toEqualTypeOf<string | null>();
+    expectTypeOf(spy.write).parameters.toEqualTypeOf<[key: string, value: string]>();
   });
 
   it('exposes the mock surface on a method, which is the whole point of Spy<T>', () => {

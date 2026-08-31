@@ -6,7 +6,7 @@
  * what the configuration object accepts.
  */
 import type { Observable, Subject } from 'rxjs';
-import type { Mock } from 'vitest';
+import type { Mock, MockInstance } from 'vitest';
 
 // ---------------------------------------------------------------------------
 // Primitives
@@ -201,9 +201,20 @@ export interface AddVoidReturnHelpers {
  *    `ReturnType extends Promise<…>` distributes over the `infer`-bound parameter, and distributing
  *    over `never` yields `never` — the same collapse by a different route, for a method whose
  *    return type does resolve, to `never`.
+ * 3. **The mock surface is `MockInstance`, not `Mock`.** `Mock` is `Mock<Procedure>` here, and
+ *    `Procedure` is `(...args: any[]) => any` — so it contributed a call signature that swallows
+ *    anything. An intersection accepts a call matching *either* member, so on a double of
+ *    `read(key: string)` all three of `read(1)`, `read('ok', 'extra')` and `read()` compiled, none
+ *    of them compiles on the real instance, and the spec stayed green while calling the double the
+ *    way production code never could. `MockInstance` is the same surface *without* the call and
+ *    construct signatures, so the only call signature left is `Method`'s own. Nothing about
+ *    configuring the double changed: `MockInstance` defaults to `Procedure` too, so
+ *    `mockReturnValue` / `mockImplementation` stay as lenient as they were. Side effect worth
+ *    knowing: with one call signature instead of two, `expectTypeOf(spy.method).parameters` and
+ *    `.returns` resolve instead of collapsing to `never`.
  */
 export type AddSpyMethodsByReturnTypes<Method extends Func> = Method &
-  Mock &
+  MockInstance &
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the `(...args: any[]) => infer ReturnType` conditional only extracts the return type; the parameter shape is irrelevant here and a narrower signature would fail to match arbitrary methods.
   (Method extends (...args: any[]) => infer ReturnType
     ? [ReturnType] extends [Promise<infer P>]

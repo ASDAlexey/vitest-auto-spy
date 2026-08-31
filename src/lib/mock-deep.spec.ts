@@ -127,7 +127,7 @@ describe('mockDeep', () => {
 
     mockReturnValue('bound');
 
-    expect(mock.db.repo.user.find()).toBe('bound');
+    expect(mock.db.repo.user.find(1)).toBe('bound');
   });
 });
 

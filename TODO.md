@@ -138,7 +138,7 @@ callable. Type 'TestContext' has no call signatures.` — text the rule's own de
   `Spy<T>`-in-argument-position case `no-mocked-for-spy` exists to rescue. Worth adding one case
   per helper as each is touched, rather than in one sweep.
 
-- [ ] **A spied method accepts arguments the real one would reject.** Found while writing the type
+- [x] **A spied method accepts arguments the real one would reject — closed 2026-08-30.** Found while writing the type
       tests above, and it is the opposite of what `Spy<T>` is for. The declared signature survives —
       the member's type reads `AddSpyMethodsByReturnTypes<(key: string) => string | null>` — but the
       call is unchecked: with `read(key: string)` on the class, both of these compile on the double
@@ -159,6 +159,26 @@ callable. Type 'TestContext' has no call signatures.` — text the rule's own de
       through calls instead, and say why). Worth deciding deliberately: if the widening is the price
       of the mock surface, `AGENTS.md` should say so next to `Spy<T>`; if it is not, the argument
       tuple is the one thing a typed-double library should never lose.
+
+      **Fixed, and it was not the price of anything.** The widening came from one token:
+      `AddSpyMethodsByReturnTypes` intersected in `Mock`, which with no type argument is
+      `Mock<Procedure>` — `(...args: any[]) => any`. Swapping it for `MockInstance` keeps the whole
+      helper surface and drops only the call and construct signatures, so the single call signature
+      left is the method's own (`src/lib/types.ts:205`). Measured rather than reasoned: a probe file
+      where `read(1)`, `read('ok', 'extra')` and `read()` all compiled now reports `TS2345` and two
+      `TS2554`, and the repository's own suite produced exactly **one** new error —
+      `mock-deep.spec.ts:130` was calling `find()` on a `find(id: number)`, which is precisely the
+      class of mistake this was hiding. Configuring a double is unchanged: `MockInstance` also
+      defaults to `Procedure`, so `mockReturnValue` / `mockImplementation` stay as lenient as they
+      were. The second half of the finding resolved itself — with one call signature instead of two,
+      `expectTypeOf(spy.method).parameters` and `.returns` now resolve, and
+      `src/type-tests/spy.test-d.ts` asserts through them plus four `@ts-expect-error` cases (a
+      two-way assertion under `typecheck` mode: an unused directive is itself an error).
+
+      **What to weigh before releasing it.** This tightens type checking in every consumer: a spec
+      that passed the wrong arguments to a double used to compile and now does not. That is the
+      point, but it is a compile break for suites that have such calls, so it belongs in a minor at
+      least, with the line above quoted in the release note.
 
 ## Timeout budgets — closed 2026-08-30, and the one part that stays out of reach
 
