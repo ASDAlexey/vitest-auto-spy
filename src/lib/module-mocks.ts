@@ -52,6 +52,11 @@ export interface AssertMockedOptions {
    *
    * Worth naming when the factory stubs part of a module and re-exports the rest: without a list,
    * a factory that lost the one export the test drives still looks mocked.
+   *
+   * An **empty** list is rejected rather than accepted: `exports: []` — which is what
+   * `Object.keys(stubs)` or a filtered constant produces when it comes out empty — used to take the
+   * named-exports branch, find nothing to check and return, so the one call in the file whose job
+   * is to prove the mock applied proved nothing.
    */
   exports?: readonly string[];
 }
@@ -86,6 +91,17 @@ const SILENT_NO_OP_CAUSES =
 export const assertMocked = defineHelper(<T extends object>(namespace: T, options: AssertMockedOptions = {}): T => {
   const target = describeTarget(options.specifier);
   const required = options.exports;
+
+  if (required?.length === 0) {
+    throw new Error(
+      withDocs(
+        `[vitest-auto-spy] assertMocked(${target}): the \`exports\` list is empty, so this call cannot fail and ` +
+          `proves nothing. Drop the option to check that at least one export is a mock, or name the exports the ` +
+          `test drives.`,
+        DOCS_LINKS.moduleMocks,
+      ),
+    );
+  }
 
   if (required) {
     const real = required.filter((name) => !isRunnerMock(Reflect.get(namespace, name)));

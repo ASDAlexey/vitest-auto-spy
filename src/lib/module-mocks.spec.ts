@@ -36,6 +36,15 @@ describe('assertMocked', () => {
     expect(() => assertMocked(namespace, { exports: ['a', 'b'] })).toThrow(/a, b are not a mock/);
   });
 
+  it('refuses an empty exports list, which could only ever pass', () => {
+    // `exports: []` — what `Object.keys(stubs)` or a filtered constant produces when it comes out
+    // empty — took the named-exports branch, found nothing to check and returned. The one call in the
+    // file whose job is to prove the mock applied proved nothing.
+    expect(() => assertMocked({ createEngine: (): void => undefined }, { exports: [], specifier: '@app/pricing-engine' })).toThrow(
+      /assertMocked\('@app\/pricing-engine'\): the `exports` list is empty, so this call cannot fail/,
+    );
+  });
+
   it('accepts a listed export that is a mock, and hands the namespace back', () => {
     const namespace = { createEngine: vi.fn() };
 

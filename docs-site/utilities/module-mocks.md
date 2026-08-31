@@ -30,6 +30,11 @@ export is a runner mock; with it, that each named one is — which is what a fac
 of a module and re-exports the rest needs, since a factory that lost the one export the test drives
 still looks mocked from the outside.
 
+An **empty** `exports` list is refused rather than accepted. `exports: []` — which is what
+`Object.keys(stubs)` or a filtered constant produces when it comes out empty — used to take the
+named-exports branch, find nothing to check and return, so the one call in the file whose job is to
+prove the mock applied proved nothing.
+
 ### The two ways `vi.mock` becomes a no-op
 
 **A bundler already inlined the module.** Under `@angular/build:unit-test`, or `vite-node` handed a
