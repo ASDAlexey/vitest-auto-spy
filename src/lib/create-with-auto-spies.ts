@@ -11,6 +11,7 @@
  */
 import { Injector, type Provider, type ProviderToken, type Type, runInInjectionContext } from '@angular/core';
 
+import { DOCS_LINKS, withDocs } from './docs-links';
 import { createSpyForToken } from './track-injections';
 import type { Spy } from './types';
 
@@ -69,6 +70,20 @@ class AutoSpyInjector extends Injector {
   tokens(): unknown[] {
     return [...this.#spies.keys()];
   }
+
+  knows(token: unknown): boolean {
+    return this.#spies.has(token);
+  }
+}
+
+/**
+ * A token as a reader recognises it: a class by its `name`, an `InjectionToken` by the description
+ * its own `toString()` prints.
+ */
+function describeToken(token: unknown): string {
+  const name: unknown = Reflect.get(Object(token), 'name');
+
+  return typeof name === 'string' ? name : String(token);
 }
 
 /** The Angular-generated factory of a decorated class, which resolves constructor dependencies through DI. */
@@ -100,6 +115,31 @@ export function createWithAutoSpies<T>(target: Type<T>, options: CreateWithAutoS
     injector,
     spies: {
       get: <D>(token: ProviderToken<D>): Spy<D> => {
+        // The instance is already built by the time anyone can call this, so "did it ask for this
+        // token" is a settled fact — and a token it never asked for is worth refusing rather than
+        // answering. The injector would otherwise mint a fresh spy on the spot: `spies.get(X).m
+        // .mockReturnValue(…)` then configures an object the instance has never seen, the assertion
+        // fails on the *real* collaborator several frames in, and in the worst case the test is
+        // green because it asserted nothing. Stubbing the base class instead of the implementation,
+        // or a token the class stopped injecting after a refactor, both land here.
+        //
+        // The probe is the optional lookup rather than a sentinel default: Angular's two-argument
+        // `get(token, notFoundValue)` is the deprecated overload, and the auto-spy injector answers
+        // *any* explicit default with that default — which is why `knows` is asked first and the
+        // probe only settles whether `providers` supplies it. A provider whose value is genuinely
+        // `null` is indistinguishable from an absent one here, and reading a spy off it would have
+        // handed back `null` anyway.
+        if (!autoSpies.knows(token) && injector.get(token, null, { optional: true }) === null) {
+          throw new Error(
+            withDocs(
+              `[vitest-auto-spy] createWithAutoSpies(${describeToken(target)}).spies.get(${describeToken(token)}): the instance never ` +
+                `asked for that token, and nothing in \`providers\` supplies it, so the spy you would get back is not the one it uses. ` +
+                `Auto-spied tokens: ${autoSpies.tokens().map(describeToken).join(', ') || '(none)'}.`,
+              DOCS_LINKS.angular,
+            ),
+          );
+        }
+
         // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- the injector returns the real `D` (a user provider) or the `Spy<D>` built for the token; both are read through the spy surface here.
         return injector.get(token) as Spy<D>;
       },

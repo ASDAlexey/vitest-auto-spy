@@ -269,6 +269,15 @@ or a `createAutoMock` proxy (an `InjectionToken`); `inject(X, { optional: true }
 instance used — so it returns the explicit provider when there is one — and `spies.autoSpiedTokens()`
 lists what was invented.
 
+`spies.get(token)` **refuses a token the instance never asked for**, naming it and listing the ones
+that were auto-spied. The injector at the bottom of the chain answers anything, so before this the
+wrong token — a base class instead of the implementation, a service the class stopped injecting
+after a refactor, `PricingService` where the class injects `PRICING_TOKEN` — silently minted a
+second spy: `spies.get(X).m.mockReturnValue(…)` configured an object the instance had never seen,
+and the assertion then failed on the real collaborator several frames into the code under test, or
+passed while testing nothing at all. A token the instance asked for **optionally** and got `null`
+for is refused for the same reason: there is no double behind it to configure.
+
 ::: warning Plain providers only
 This builds an `Injector.create()` injector, which does not accept the `EnvironmentProviders`
 returned by `provideHttpClient()` and friends. A class that needs those belongs in a `TestBed` —

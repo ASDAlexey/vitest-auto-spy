@@ -12,6 +12,7 @@ import { createWithAutoSpies } from './create-with-auto-spies';
 
 const CONFIG = new InjectionToken<{ apiUrl: string }>('CONFIG');
 const MISSING = new InjectionToken<string>('MISSING');
+const UNUSED = new InjectionToken<string>('UNUSED');
 
 @Injectable()
 class PricingService {
@@ -37,6 +38,13 @@ class CartService {
 
   checkout(items: number): number {
     return this.#pricing.total(items) * (1 + this.tax.rate());
+  }
+}
+
+@Injectable()
+class ShippingService {
+  cost(): number {
+    return 5;
   }
 }
 
@@ -87,5 +95,38 @@ describe('createWithAutoSpies', () => {
     const { injector, spies } = createWithAutoSpies(CartService);
 
     expect(injector.get(PricingService)).toBe(spies.get(PricingService));
+  });
+});
+
+describe('createWithAutoSpies: a token the instance never asked for', () => {
+  it('refuses it by name instead of minting a spy nobody uses', () => {
+    // The quiet failure this replaces: `injector.get` answers *anything*, so stubbing the wrong
+    // token — a base class, a service the class stopped injecting — succeeded, and the assertion
+    // then failed on the real collaborator several frames into the code under test.
+    const { spies } = createWithAutoSpies(CartService);
+
+    expect(() => spies.get(ShippingService)).toThrow(/spies\.get\(ShippingService\d*\): the instance never asked for that token/);
+  });
+
+  it('lists what was auto-spied, and names an InjectionToken by its description', () => {
+    const { spies } = createWithAutoSpies(CartService);
+
+    expect(() => spies.get(UNUSED)).toThrow(/spies\.get\(InjectionToken UNUSED\)[\s\S]*Auto-spied tokens: TaxService\d*, PricingService\d*, InjectionToken CONFIG/);
+  });
+
+  it('still refuses a token the instance only asked for optionally, since it was answered with null', () => {
+    // `inject(MISSING, { optional: true })` never reaches the auto-spy branch, so there is no double
+    // for it — and a spec configuring one would be configuring nothing.
+    const { spies } = createWithAutoSpies(CartService);
+
+    expect(() => spies.get(MISSING)).toThrow(/the instance never asked for that token/);
+  });
+
+  it('says `(none)` rather than an empty list when nothing was auto-spied at all', () => {
+    class NoDependencies {}
+
+    const { spies } = createWithAutoSpies(NoDependencies);
+
+    expect(() => spies.get(PricingService)).toThrow(/Auto-spied tokens: \(none\)/);
   });
 });
