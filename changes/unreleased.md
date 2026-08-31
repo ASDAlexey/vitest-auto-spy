@@ -38,5 +38,24 @@ _Last released: **v3.11.0** (2026-08-30) — the git tag and `package.json` agre
 - **Internal:** the reading shared by the two `prefer-*` provider lint rules moved to
   `src/lib/eslint/hand-rolled-doubles.ts`; `rules.ts` had grown past the 500-line ceiling its own
   config sets and was failing `npm run lint` on 3.11.0. No rule behaviour changed.
+- **Fixed — a spied method accepted arguments the real one rejects.** The mock surface came in as
+  `Mock` (i.e. `Mock<Procedure>`, `(...args: any[]) => any`), and an intersection accepts a call
+  matching either member: `read(1)`, `read('ok', 'extra')` and `read()` all compiled on a double of
+  `read(key: string)`. Now `MockInstance`, which carries the same helpers without a call signature.
+  Tightens existing suites; `expectTypeOf(spy.m).parameters` resolves as a bonus.
+- **Fixed — `nextWithValues` dropped a falsy value.** `{ value: false }`, `{ value: 0 }`, `{ value: '' }`
+  and a falsy `{ errorValue }` emitted nothing: a truthiness check sat on top of a presence guard.
+- **Fixed — `createWithAutoSpies(...).spies.get(token)` minted a spy for a token nobody injected**,
+  so stubbing the wrong token succeeded and configured an object the instance never sees. It now
+  throws, naming the token and the ones that were auto-spied.
+- **Fixed — `assertMocked(ns, { exports: [] })` could only pass.** An empty list is now an error.
+- **Fixed — a `vi.resetAllMocks()` in one file killed a shared double in another.** Registered means
+  reachable by `resetAllMocks` too, and `mockReset` drops an implementation that came from a chained
+  `.mockReturnValue(…)`; under `isolate: false` a *later* file then dies inside application code on
+  a double it never touched. The implementation each long-lived mock carried when classified is
+  remembered and put back, in `beforeEach`, only when missing. Exports
+  **`restoreLongLivedImplementations()`** for the repair on its own.
+- **`copyWindowGlobals` names a forced global the host refused**, with the error underneath, instead
+  of failing later as `document is not defined` — which named neither the helper nor the property.
 
 <!-- Add user-facing items here as work lands, mirroring `## [Unreleased]` in the root CHANGELOG. -->

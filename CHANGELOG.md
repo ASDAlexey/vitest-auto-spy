@@ -93,6 +93,58 @@ The latest released version here must always match the one published on
   non-enumerable and `configurable`; a realm that already has `Symbol.dispose` is left untouched.
   Library code compares against that resolved key rather than reading `Symbol.dispose` at each site.
 
+- **A spied method rejects the arguments the real one rejects.** The mock surface on every method
+  of a `Spy<T>` was intersected in as `Mock`, which is `Mock<Procedure>` — and `Procedure` is
+  `(...args: any[]) => any`. An intersection accepts a call matching *either* member, so on a double
+  of `read(key: string)` all of `read(1)`, `read('ok', 'extra')` and `read()` compiled, while none of
+  them compiles on the real instance: a spec could call the double the way production code never
+  could and stay green. The surface is now `MockInstance` — the same helpers without the call and
+  construct signatures — so the only call signature left is the method's own. Nothing about
+  *configuring* a double changed (`mockReturnValue` / `mockImplementation` stay as lenient as they
+  were, because `MockInstance` defaults to `Procedure` too). Side effect worth knowing:
+  `expectTypeOf(spy.method).parameters` and `.returns` now resolve instead of collapsing to `never`.
+  **This tightens type checking on existing suites**: a call that passed the wrong arguments used to
+  compile and now does not. This repository's own suite contained exactly one such call.
+- **`nextWithValues` no longer drops a falsy value.** The entries were mapped with
+  `isNextValueConfig(config) && config.value` — a truthiness test on top of a guard that had already
+  proved the key was present — so `{ value: false }`, `{ value: 0 }`, `{ value: '' }`, `{ value: null }`
+  and a falsy `{ errorValue }` emitted **nothing at all**. An ordinary boolean or counter stream
+  therefore stayed silent, and the symptom arrived elsewhere: a timed-out `expectEmission`, or a
+  component still holding its initial state under a green assertion on the default.
+- **`createWithAutoSpies(...).spies.get(token)` refuses a token the instance never asked for.** The
+  auto-spy injector answers *anything*, so stubbing the wrong token — a base class instead of the
+  implementation, a service the class stopped injecting — used to succeed and configure an object
+  the instance has never seen; the assertion then failed on the real collaborator several frames in,
+  or passed while testing nothing. The call now throws, naming the token and listing the ones that
+  were auto-spied.
+- **`assertMocked(ns, { exports: [] })` is an error rather than a pass.** An empty list took the
+  named-exports branch, found nothing to check and returned — so the one call in the file whose job
+  is to prove `vi.mock` applied proved nothing. `Object.keys(stubs)` and a filtered constant are the
+  two ways to get there by accident.
+- **A `vi.resetAllMocks()` in one file no longer kills a shared double in another.** Registered
+  means reachable, and `vi.resetAllMocks()` walks the same `@vitest/spy` set as
+  `vi.clearAllMocks()`, calling `mockReset()` on everything in it — and `mockReset` reinstalls an
+  implementation only when it was passed to `vi.fn(implementation)`; behaviour chained on with
+  `.mockReturnValue(…)` or `.mockReturnThis()` is simply gone. Under `isolate: false` the bill
+  arrives in a *different* file later in the same worker: it dies inside application code on a
+  double it never touched (`TypeError: Cannot read properties of undefined (reading '…')`), the
+  failure moves with the file order, and it never reproduces on the file that caused it.
+  `vi.restoreAllMocks()` does not do this — in Vitest 4 it walks `MOCK_RESTORE`, which only
+  `vi.spyOn` writes to — so a probe built around it comes back green and sends the search the wrong
+  way. The implementation each long-lived mock carried when it was first classified is now
+  remembered and put back before a test that has lost it, and only when it has gone missing: a mock
+  a spec deliberately re-implements is left as the spec left it, and one that never carried an
+  implementation is never touched. `trackMockRegistry()` installs the `beforeEach` (Vitest applies
+  `restoreMocks` / `mockReset` / `clearMocks` before `beforeEach` hooks, so the repair lands after
+  them); **`restoreLongLivedImplementations()`** is exported for a suite that wants the repair at
+  another moment, and returns how many it put back.
+- **`copyWindowGlobals` names a forced global the host refused.** The five forced keys are the ones
+  the DOM is useless without, and a refusal used to be swallowed whole — the run then failed in the
+  first spec that touched `document`, as `document is not defined`, naming neither the helper nor
+  the property that refused. The warning now lists each refused key with the error underneath, and
+  still leaves the host value in place; a refused key that is not one of the five stays quiet, as
+  the documented outcome.
+
 ### Documentation
 
 - **An "Error → cure" table in the README, keyed by what the compiler prints.** `asSpy` and
