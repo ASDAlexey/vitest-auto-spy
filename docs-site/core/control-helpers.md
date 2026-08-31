@@ -156,6 +156,12 @@ myService.getProducts$.nextWithValues([
 | `{ errorValue, delay? }`    | error the stream with `errorValue` (after `delay` ms)   |
 | `{ complete?, delay? }`     | complete the stream — `complete: false` emits nothing   |
 
+An entry is chosen by the **key it carries**, not by whether its value is truthy: `{ value: false }`,
+`{ value: 0 }`, `{ value: '' }` and `{ value: null }` all emit, and so does a falsy `errorValue`. Up to
+3.12.1 a truthiness check sat on top of that, so an ordinary boolean or counter stream emitted
+nothing at all — and the symptom landed elsewhere, as a timed-out `expectEmission` or a component
+still holding its initial state under a green assertion on the default.
+
 `delay` is milliseconds and is applied with RxJS's own `delay()` / `timer()`, so under fake timers
 you have to advance the clock: [`advanceTimers(ms)`](/utilities/fake-timers) does that **and**
 drains the microtasks the emission queues.

@@ -171,3 +171,77 @@ describe('the backing subject does not outlive the configuration that filled it'
     expect(record(store.products$).values).toEqual(['after']);
   });
 });
+
+describe('nextWithValues on a falsy value', () => {
+  class Flags {
+    isEnabled(): Observable<boolean> {
+      throw new Error('not implemented in the double');
+    }
+
+    count(): Observable<number> {
+      throw new Error('not implemented in the double');
+    }
+  }
+
+  /** Everything one subscription saw, without an `expect` inside a `subscribe` callback. */
+  function collect<T>(source$: Observable<T>): { values: T[]; error?: unknown; completed: boolean } {
+    const seen: { values: T[]; error?: unknown; completed: boolean } = { values: [], completed: false };
+
+    source$.subscribe({
+      next: (value) => seen.values.push(value),
+      error: (error) => (seen.error = error),
+      complete: () => (seen.completed = true),
+    });
+
+    return seen;
+  }
+
+  it('emits `false`, which a truthiness check used to drop', () => {
+    // `{ value: false }` is an ordinary boolean stream, and it emitted nothing at all: the entry was
+    // mapped to EMPTY, so the subscriber kept its initial state and the test failed — if it failed —
+    // somewhere else entirely.
+    const flags = createSpyFromClass(Flags);
+
+    flags.isEnabled.nextWithValues([{ value: false }]);
+
+    expect(collect(flags.isEnabled()).values).toEqual([false]);
+  });
+
+  it('emits `0` and an empty string just the same', () => {
+    const flags = createSpyFromClass(Flags);
+
+    flags.count.nextWithValues([{ value: 0 }, { value: Number.NaN }]);
+
+    expect(collect(flags.count()).values).toEqual([0, Number.NaN]);
+  });
+
+  it('honours a delay on a falsy value rather than skipping the entry', async () => {
+    const flags = createSpyFromClass(Flags);
+
+    flags.isEnabled.nextWithValues([{ delay: 1, value: false }]);
+
+    const seen = collect(flags.isEnabled());
+
+    expect(seen.values).toEqual([]);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    expect(seen.values).toEqual([false]);
+  });
+
+  it('throws a falsy error value instead of ignoring the entry', () => {
+    const flags = createSpyFromClass(Flags);
+
+    flags.isEnabled.nextWithValues([{ errorValue: '' }]);
+
+    expect(collect(flags.isEnabled()).error).toBe('');
+  });
+
+  it('still treats an entry that is neither a value nor an error as nothing to emit', () => {
+    // `{ complete: false }` carries no `value` and no `errorValue`, so it maps to EMPTY — the branch
+    // the presence checks leave standing.
+    const flags = createSpyFromClass(Flags);
+
+    flags.isEnabled.nextWithValues([{ complete: false }, { value: true }]);
+
+    expect(collect(flags.isEnabled()).values).toEqual([true]);
+  });
+});

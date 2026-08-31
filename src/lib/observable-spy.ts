@@ -46,12 +46,19 @@ function mergeSubjectWithDefaultValues<T>(subject: ReplaySubject<T>, valuesConfi
       return true;
     }),
     // Map each remaining entry to its emission: a value, an error, or nothing.
+    //
+    // The guards test *presence* (`'value' in config`), and that is the whole check: an entry that
+    // carries the key is an emission whatever the value is. Adding `&& config.value` on top — which
+    // is what stood here — silently dropped `{ value: false }`, `{ value: 0 }`, `{ value: '' }` and
+    // `{ value: null }`, i.e. an ordinary boolean or counter stream. Nothing was emitted, nothing
+    // was reported, and the symptom arrived a test away as a timed-out `expectEmission` or as a
+    // component still holding its initial state.
     concatMap((config) => {
-      if (isNextValueConfig(config) && config.value) {
+      if (isNextValueConfig(config)) {
         return config.delay ? of(config.value).pipe(delay(config.delay)) : of(config.value);
       }
 
-      if (isErrorConfig(config) && config.errorValue) {
+      if (isErrorConfig(config)) {
         return config.delay
           ? timer(config.delay).pipe(switchMap(() => throwError(() => config.errorValue)))
           : throwError(() => config.errorValue);
