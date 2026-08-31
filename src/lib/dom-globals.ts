@@ -90,6 +90,12 @@ export async function registerDomGlobals(options: RegisterDomGlobalsOptions = {}
  * implementation. A property the target refuses to accept is skipped rather than fatal — a locked
  * global is not worth failing a whole test run over.
  *
+ * Skipped, but **not** in silence when it is one of {@link FORCED_GLOBALS}: those are the five the
+ * DOM is useless without, so a refused `document` means the environment came up half-installed and
+ * the first spec that touches it reports `document is not defined` — naming neither this helper nor
+ * the property that refused. The rest stay quiet, because a host built-in keeping its own
+ * implementation is the documented outcome rather than a problem.
+ *
  * @example
  * ```ts
  * copyWindowGlobals(dom.window as unknown as Record<string, unknown>, globalThis as Record<string, unknown>);
@@ -97,6 +103,7 @@ export async function registerDomGlobals(options: RegisterDomGlobalsOptions = {}
  */
 export function copyWindowGlobals(source: Record<string, unknown>, target: Record<string, unknown>): void {
   const keys = [...FORCED_GLOBALS, ...Object.getOwnPropertyNames(source)];
+  const refused: string[] = [];
 
   for (const key of keys) {
     if (key.startsWith('_')) {
@@ -111,10 +118,27 @@ export function copyWindowGlobals(source: Record<string, unknown>, target: Recor
 
     try {
       Object.defineProperty(target, key, { value, configurable: true, writable: true, enumerable: true });
-    } catch {
+    } catch (error) {
       // A non-configurable global (frozen by the host) stays as it is.
+      if (FORCED_GLOBALS.includes(key)) {
+        refused.push(`${key} (${describeError(error)})`);
+      }
     }
   }
+
+  if (refused.length === 0) {
+    return;
+  }
+
+  // eslint-disable-next-line no-console -- intentional dev-time environment warning; console.warn is allowed per CLAUDE.md.
+  console.warn(
+    withDocs(
+      `[vitest-auto-spy] copyWindowGlobals: the host refused to redefine ${refused.join(', ')}. The DOM is only ` +
+        `half-installed, and the failure will arrive later as "document is not defined" or an unrelated jsdom ` +
+        `assertion, naming neither this helper nor the property. Something sealed that global before the preload ran.`,
+      DOCS_LINKS.bunAngular,
+    ),
+  );
 }
 
 /** The `jsdom` shape {@link createJsdomRegistrar} needs — narrower than the package's own types. */

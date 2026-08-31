@@ -115,6 +115,12 @@ await registerDomGlobals({
 `registerDomGlobals` returns the name of the registrar that installed the DOM, or `undefined` when
 one was already present, and throws with every attempt listed when none worked.
 
+The copy step underneath, `copyWindowGlobals`, **names a forced global the host refused to
+redefine** — `document` and the other four the DOM is useless without — with the error underneath,
+instead of letting the run fail later as `document is not defined` in a spec that names neither the
+helper nor the property. A refused key outside those five stays quiet: a host built-in keeping its
+own implementation is the documented outcome, not a problem.
+
 ## Limits worth knowing
 
 - **The rewrite is textual, not a parse.** It skips comments and string literals — a `templateUrl`

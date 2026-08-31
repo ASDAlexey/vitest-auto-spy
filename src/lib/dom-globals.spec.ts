@@ -91,6 +91,37 @@ describe('copyWindowGlobals', () => {
     expect(target['kept']).toBe('y');
   });
 
+  it('stays quiet when the refused key is not one of the five the DOM needs', () => {
+    // Reachable only through a locked property whose value is `undefined`: any other locked key is
+    // already `!== undefined` and skipped before the define is attempted.
+    const target: Record<string, unknown> = {};
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    Object.defineProperty(target, 'fetch', { value: undefined, configurable: false, writable: false });
+    copyWindowGlobals({ fetch: 'from-window' }, target);
+
+    expect(warn).not.toHaveBeenCalled();
+    expect(target['fetch']).toBeUndefined();
+
+    warn.mockRestore();
+  });
+
+  it('names a forced global the host refused, instead of coming up half-installed in silence', () => {
+    // The five forced keys are the ones the DOM is useless without. A refusal used to be swallowed
+    // whole, and the run then failed in the first spec that touched `document` — naming neither this
+    // helper nor the property.
+    const target: Record<string, unknown> = {};
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    Object.defineProperty(target, 'document', { value: 'host', configurable: false, writable: false });
+    copyWindowGlobals({ document: 'from-window' }, target);
+
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('the host refused to redefine document ('));
+    expect(target['document']).toBe('host');
+
+    warn.mockRestore();
+  });
+
   it('leaves a global the host has locked down', () => {
     const target: Record<string, unknown> = {};
 
