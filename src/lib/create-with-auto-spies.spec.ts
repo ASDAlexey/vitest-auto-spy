@@ -111,7 +111,9 @@ describe('createWithAutoSpies: a token the instance never asked for', () => {
   it('lists what was auto-spied, and names an InjectionToken by its description', () => {
     const { spies } = createWithAutoSpies(CartService);
 
-    expect(() => spies.get(UNUSED)).toThrow(/spies\.get\(InjectionToken UNUSED\)[\s\S]*Auto-spied tokens: TaxService\d*, PricingService\d*, InjectionToken CONFIG/);
+    expect(() => spies.get(UNUSED)).toThrow(
+      /spies\.get\(InjectionToken UNUSED\)[\s\S]*Auto-spied tokens: TaxService\d*, PricingService\d*, InjectionToken CONFIG/,
+    );
   });
 
   it('still refuses a token the instance only asked for optionally, since it was answered with null', () => {
