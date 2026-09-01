@@ -70,6 +70,24 @@ myService.save.calledWith(expect.objectContaining({ id: 1 })).mockReturnValue(tr
 expect(myService.save({ id: 1, name: 'x' })).toBe(true);
 ```
 
+An exact argument list is matched before any of them, and the matcher configs are tried in the
+order they were registered — a narrow config written before a wide one keeps its calls.
+
+Registering the **same** argument list again replaces the answer it gave before, exactly as it does
+for exact arguments:
+
+```ts
+myService.getName.calledWith(expect.anything()).mockReturnValue('first');
+myService.getName.calledWith(expect.anything()).mockReturnValue('second');
+expect(myService.getName(1)).toBe('second');
+```
+
+Each `expect.anything()` call builds a new object, so "the same argument" cannot mean the same
+instance: two matchers are the same when they accept the same values — same matcher class, same
+sample, same inversion. A hand-rolled `{ asymmetricMatch }` object is the exception. Its verdict
+lives in a closure that no comparison can read, so two of them are always two configs, and only
+that very instance, registered again, overrides.
+
 ## Promise-returning methods — `resolveWith`
 
 ```ts

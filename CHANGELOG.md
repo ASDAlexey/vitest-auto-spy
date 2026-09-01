@@ -79,6 +79,29 @@ The latest released version here must always match the one published on
 
 ### Fixed
 
+- **A `calledWith` config holding an asymmetric matcher could not be overridden ([#6](https://github.com/ASDAlexey/vitest-auto-spy/issues/6)).**
+  `spy.load.calledWith(12, expect.anything()).mockReturnValue('a')` followed by the same line
+  returning `'b'` kept answering `'a'`. Exact argument lists are keyed in a map, where the second
+  registration simply overwrites the first; a config containing a matcher cannot be a static key, so
+  it lives in a list that lookup scans front to back — and `expect.anything()` builds a fresh
+  instance per call, so the second config was appended *behind* one that still matched every call it
+  was meant to take over. It never answered, and a `beforeEach` reconfiguring the same spy grew the
+  list once per test. Re-registering an equivalent argument list now replaces the config in place,
+  which also keeps the registration order that decides between two *overlapping* configs — a narrow
+  `expect.any(Number)` written before a wide `expect.anything()` still wins. Two matchers count as
+  equivalent when they accept the same values: same matcher class, same own state (`sample`,
+  `inverse`, `precision`), both carrying the runner's `Symbol.for('jest.asymmetricMatcher')` brand.
+  A hand-rolled `{ asymmetricMatch }` object carries no brand and its verdict is a closure that no
+  serialization can compare, so those are still compared by reference and only the same instance
+  overrides. Affects every helper on the chain — `mockReturnValue`, `resolveWith`, `nextWith`,
+  `nextOneTimeWith`, the per-call variants — and `mustBeCalledWith` alike.
+
+- **A `RegExp` argument keyed as `{}`.** A regular expression has no own enumerable entries, so the
+  argument serializer rendered every one of them identically: `calledWith(/a/)` answered a call made
+  with `/b/`, and a `mustBeCalledWith` mismatch printed `{}` on both sides. It now renders as its
+  literal (`/ab+/giu`). This is also what tells `expect.stringMatching('a')` apart from
+  `expect.stringContaining('a')` when deciding whether a re-registration is an override.
+
 - **`using` on Node 22: the package installs the missing `Symbol.dispose` itself.** Node 22 ships V8
   12.4, which has no explicit resource management, so Node supplies `Symbol.dispose` in JavaScript —
   as `Symbol.for('nodejs.dispose')`, and **onto its main realm only**. Vitest's `jsdom` /

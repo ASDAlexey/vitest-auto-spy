@@ -1231,6 +1231,24 @@ Wanted: getName(1)
 Actual: getName(2)
 ```
 
+### Matching order, and re-configuring the same arguments
+
+An exact argument list is matched first; the asymmetric configs (`expect.any(Number)`,
+`expect.objectContaining({ … })`, …) are then tried in the order they were registered, so a narrow
+config placed before a wide one keeps its calls. Registering the **same** argument list again
+replaces the answer it gave before — matcher arguments included:
+
+```ts
+myService.getName.calledWith(expect.anything()).mockReturnValue('first');
+myService.getName.calledWith(expect.anything()).mockReturnValue('second');
+expect(myService.getName(1)).toBe('second');
+```
+
+Each `expect.anything()` is a new object, so the two are compared by what they accept rather than by
+identity — same matcher class, same sample, same inversion. A hand-rolled `{ asymmetricMatch }`
+object is the exception: its verdict lives in a closure nothing can read, so two of them are always
+two configs and only the very same instance, re-registered, overrides.
+
 ## Promise-returning methods
 
 ```ts
