@@ -209,6 +209,14 @@ it('loads', async () => {
 - **Never assert a resource with `expect(r.value()).toEqual(...)` alone** — an unresolved resource
   still holds its _default_, so that passes while proving nothing. `toHaveResourceValue(v)` after
   `registerResourceMatchers()` fails unless the resource actually resolved.
+- **`calledWith` matches exact arguments first, then the matcher configs in registration order** —
+  so put the narrow `expect.any(Number)` before the wide `expect.anything()` when both can match.
+  Re-registering the same arguments replaces the previous answer, matcher arguments included: two
+  `calledWith(1, expect.anything())` lines are an override, not two configs.
+- **On Bun (`bun:test`), an asymmetric matcher inside `calledWith` matches nothing** — Bun's
+  `expect.any()` / `expect.objectContaining()` are native objects carrying no `asymmetricMatch`, so
+  the config is kept as an ordinary argument and the call falls through to `undefined` instead of
+  failing. Dispatch on exact arguments there, or use `mockImplementation`.
 - **Never put `captureArg()` in `calledWith`** — it matches every value, so it configures a return
   for every call. It belongs in `toHaveBeenCalledWith`; the types enforce this.
 - **Never `vi.mock('@angular/core')`** (or any relative path) under the Angular unit-test builder —

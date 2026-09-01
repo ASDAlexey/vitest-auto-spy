@@ -24,6 +24,11 @@ interface AsymmetricMatcher {
    * `asymmetricMatch`; there the class name (`String(matcher)`) is the best available description.
    */
   toAsymmetricMatcher?: () => string;
+  /**
+   * The brand the runner stamps on its own matcher instances — see {@link ASYMMETRIC_MATCHER_BRAND}.
+   * Optional because a hand-rolled matcher carries none, which is exactly what the check is for.
+   */
+  $$typeof?: unknown;
 }
 
 /**
@@ -57,6 +62,47 @@ function hasAsymmetricMatcher(args: unknown[]): boolean {
   return args.some(isAsymmetricMatcher);
 }
 
+/**
+ * The brand every Vitest/Jest asymmetric matcher instance carries. It is what makes a matcher's own
+ * state a faithful description of it: such an instance is one of the runner's matcher classes, and
+ * everything that decides its verdict — `sample`, `inverse`, `precision` — lives in enumerable own
+ * fields. A hand-rolled `{ asymmetricMatch }` object carries no brand and no such guarantee: two of
+ * them holding different closures serialize identically, so they are only ever compared by
+ * reference.
+ */
+const ASYMMETRIC_MATCHER_BRAND = Symbol.for('jest.asymmetricMatcher');
+
+/**
+ * Whether two config args denote the same expectation, so that registering the second overrides the
+ * first rather than being shadowed by it.
+ *
+ * `expect.anything()` builds a fresh instance per call, so reference equality alone would make
+ * `calledWith(1, expect.anything())` unoverridable. Two branded matchers of the same class whose
+ * own state serializes alike are interchangeable — they accept exactly the same values — and the
+ * class has to be compared as well as the state, because `expect.stringContaining('a')` and
+ * `expect.stringMatching('a')` differ in behaviour and not in fields.
+ */
+function isSameMatcher(configArg: AsymmetricMatcher, candidateArg: unknown): boolean {
+  if (configArg === candidateArg) {
+    return true;
+  }
+
+  if (!isAsymmetricMatcher(candidateArg) || !isBrandedMatcher(configArg) || !isBrandedMatcher(candidateArg)) {
+    return false;
+  }
+
+  if (Object.getPrototypeOf(configArg) !== Object.getPrototypeOf(candidateArg)) {
+    return false;
+  }
+
+  return serializeValue(configArg) === serializeValue(candidateArg);
+}
+
+/** Whether a matcher is one the runner built, and so describes itself through its own fields. */
+function isBrandedMatcher(matcher: AsymmetricMatcher): boolean {
+  return matcher.$$typeof === ASYMMETRIC_MATCHER_BRAND;
+}
+
 export class ArgsMap {
   // Prototype-less so a `'__proto__'` (or `'constructor'`) serialized key is a
   // plain own property, never walking or polluting the object prototype chain.
@@ -72,24 +118,7 @@ export class ArgsMap {
 
   set(key: unknown, value: unknown): void {
     if (Array.isArray(key) && hasAsymmetricMatcher(key)) {
-      const serialized: (string | undefined)[] = [];
-      const described: string[] = [];
-
-      for (const arg of key) {
-        if (isAsymmetricMatcher(arg)) {
-          serialized.push(undefined);
-          described.push(arg.toAsymmetricMatcher?.() ?? String(arg));
-        } else {
-          const rendered = this.#serialize([arg]);
-
-          serialized.push(rendered);
-          // `#serialize` brackets the single-element array it is given; the bare rendering is what
-          // goes between the commas of the failure message.
-          described.push(rendered.slice(1, -1));
-        }
-      }
-
-      this.#matcherConfigs.push({ args: key, serialized, described, value });
+      this.#setMatcherConfig(this.#buildMatcherConfig(key, value));
 
       return;
     }
@@ -127,6 +156,63 @@ export class ArgsMap {
     const asymmetric = this.#matcherConfigs.map((config) => `[${config.described.join(',')}]`);
 
     return [...Object.keys(this.#map), ...asymmetric];
+  }
+
+  /** Render one asymmetric config once, at registration time. See {@link MatcherConfig}. */
+  #buildMatcherConfig(key: unknown[], value: unknown): MatcherConfig {
+    const serialized: (string | undefined)[] = [];
+    const described: string[] = [];
+
+    for (const arg of key) {
+      if (isAsymmetricMatcher(arg)) {
+        serialized.push(undefined);
+        described.push(arg.toAsymmetricMatcher?.() ?? String(arg));
+      } else {
+        const rendered = this.#serialize([arg]);
+
+        serialized.push(rendered);
+        // `#serialize` brackets the single-element array it is given; the bare rendering is what
+        // goes between the commas of the failure message.
+        described.push(rendered.slice(1, -1));
+      }
+    }
+
+    return { args: key, serialized, described, value };
+  }
+
+  /**
+   * Register an asymmetric config, replacing an equivalent one in place.
+   *
+   * Re-registering args is how a test overrides an earlier answer, and on the exact map that falls
+   * out for free — the second `set` writes the same key. The matcher list has to do it by hand:
+   * lookup takes the first predicate that matches, so an appended duplicate would sit behind the
+   * config it was meant to replace and never be reached, and a `beforeEach` that reconfigures the
+   * same spy would grow the list on every test. Replacing in place also keeps the registration
+   * order that decides which of two *overlapping* configs wins.
+   */
+  #setMatcherConfig(config: MatcherConfig): void {
+    const index = this.#matcherConfigs.findIndex((existing) => this.#sameConfigArgs(existing, config));
+
+    if (index === -1) {
+      this.#matcherConfigs.push(config);
+
+      return;
+    }
+
+    this.#matcherConfigs[index] = config;
+  }
+
+  /** Whether two configs were registered for the same argument list, matcher positions included. */
+  #sameConfigArgs(existing: MatcherConfig, candidate: MatcherConfig): boolean {
+    if (existing.args.length !== candidate.args.length) {
+      return false;
+    }
+
+    // A matcher position and a literal one never compare equal: a literal's serialization is a
+    // string where a matcher's is `undefined`, and `isSameMatcher` rejects a non-matcher outright.
+    return existing.args.every((arg, index) =>
+      isAsymmetricMatcher(arg) ? isSameMatcher(arg, candidate.args[index]) : existing.serialized[index] === candidate.serialized[index],
+    );
   }
 
   // Keys are always argument arrays; `serializeValue` renders them to a stable,

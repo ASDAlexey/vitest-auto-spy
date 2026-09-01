@@ -68,9 +68,18 @@ behaviour, and it is worth knowing which is which.
 | `spyOn(obj, 'prop', 'get')`   | supported                    | throws — accessors are not supported yet                | accessor spies go through property redefinition     |
 | Spy names in failure messages | `vi.fn()` names              | `mockName()`                                            | set for you                                         |
 | Fake timers                   | `vi.useFakeTimers()`         | `jest.useFakeTimers()`                                  | not normalised — `vitest-auto-spy/setup` is Vitest-only |
+| `expect.any(...)` inside `calledWith` | matched as a predicate | never matches — see below                              | not normalised — use exact arguments on Bun         |
 
 `mock.settledResults` is documented under
 [Control helpers → Inspecting promise outcomes](/core/control-helpers#settled-results).
+
+The matcher row is the one worth reading twice, because it fails quietly. Vitest's asymmetric
+matchers are JavaScript objects carrying an `asymmetricMatch` method, which is what
+[`calledWith`](/core/control-helpers#asymmetric-matchers-in-calledwith) evaluates against the actual
+arguments. Bun's are native objects that expose no such method and no readable state, so a config
+holding one is stored as an ordinary argument and matches nothing — `read.calledWith(expect.any(Number))`
+answers `undefined` for `read(7)` rather than throwing. On Bun, dispatch on exact arguments, or use
+`mockImplementation` when the answer really does depend on the shape of an argument.
 
 ## Bun 1.4 test-runner flags
 

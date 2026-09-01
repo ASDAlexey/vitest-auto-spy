@@ -30,6 +30,13 @@ describe('serializeValue', () => {
     expect(serializeValue(new Date(0))).toBe('new Date(0)');
   });
 
+  it('renders RegExp by its source and flags (no `{}` collision)', () => {
+    expect(serializeValue(/ab+/giu)).toBe('/ab+/giu');
+    // A regular expression has no own enumerable entries; without its own branch every one of them
+    // keys as `{}` and `calledWith(/a/)` answers a call made with `/b/`.
+    expect(serializeValue(/a/)).not.toBe(serializeValue(/b/));
+  });
+
   it('renders arrays and objects without spaces (matching the error message format)', () => {
     expect(serializeValue([1, 'a'])).toBe("[1,'a']");
     expect(serializeValue({ a: 1, b: 'x' })).toBe("{a:1,b:'x'}");

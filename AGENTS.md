@@ -358,6 +358,8 @@ users.getName.calledWith(1).mockReturnValue('Ada');
 users.getName.mustBeCalledWith(1).mockReturnValue('Ada');
 // asymmetric matchers work in both
 users.save.calledWith(expect.objectContaining({ id: 1 })).mockReturnValue(true);
+// re-registering the same arguments replaces the answer — matcher arguments included
+users.save.calledWith(expect.objectContaining({ id: 1 })).mockReturnValue(false);
 
 // promises
 users.load.resolveWith({ id: 1 });
@@ -373,6 +375,13 @@ const [first$, second$] = feed.watch$.nextWithPerCall([{ value: 'a' }, { value: 
 feed.items$.throwWith('FAKE ERROR');
 const subject = feed.items$.returnSubject(); // ReplaySubject, for anything the helpers miss
 ```
+
+An exact argument list is matched before the asymmetric configs, and those are tried in
+registration order — a narrow config written first keeps its calls. Two matchers count as the same
+argument when they accept the same values (same matcher class, sample and inversion), which is what
+makes a second `calledWith(1, expect.anything())` an override rather than a second config sitting
+behind the first. A hand-rolled `{ asymmetricMatch }` object is compared by identity instead: its
+verdict is a closure, so only re-registering that same instance overrides.
 
 `mock.settledResults` is native on Vitest and polyfilled on Bun / `node:test`, so it is identical on
 all three. Entries are `{ type: 'fulfilled' | 'incomplete' | 'rejected', value }`.

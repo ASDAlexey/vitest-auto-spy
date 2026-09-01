@@ -288,6 +288,57 @@ describe('createSpyFromClass', () => {
     expect(spy.syncMethod('x' as unknown as number)).toBeUndefined();
   });
 
+  // The reproduction from issue #6, as it was reported. Both halves are here on purpose: the
+  // exact-argument one always worked — it overwrites a key in a map — and it is the control that
+  // says the matcher half is failing on the matcher and not on `calledWith` as such.
+  it('overrides calledWith for exact arguments and for matcher arguments alike (issue #6)', () => {
+    class Reported {
+      test(_param: number, _c: { y: number }): string {
+        throw new Error('Not implemented');
+      }
+    }
+
+    const exact = createSpyFromClass(Reported);
+
+    exact.test.calledWith(12, { y: 3 }).mockReturnValue('success');
+    expect(exact.test(12, { y: 3 })).toEqual('success');
+
+    exact.test.calledWith(12, { y: 3 }).mockReturnValue('failure');
+    expect(exact.test(12, { y: 3 })).toEqual('failure');
+
+    const matched = createSpyFromClass(Reported);
+
+    matched.test.calledWith(12, expect.anything()).mockReturnValue('success');
+    expect(matched.test(12, { y: 3 })).toEqual('success');
+
+    // This is the assertion the issue opened on: it returned 'success' before the fix.
+    matched.test.calledWith(12, expect.anything()).mockReturnValue('failure');
+    expect(matched.test(12, { y: 3 })).toEqual('failure');
+  });
+
+  // Regression (issue #6): `expect.anything()` builds a fresh matcher instance per call, so the
+  // second config used to be appended behind the first — which still matched — and never answered.
+  it('calledWith with an equivalent matcher overrides the earlier config', () => {
+    const spy = createSpyFromClass(MyService);
+
+    spy.syncMethod.calledWith(expect.anything()).mockReturnValue('first');
+    expect(spy.syncMethod(7)).toBe('first');
+
+    spy.syncMethod.calledWith(expect.anything()).mockReturnValue('second');
+    expect(spy.syncMethod(7)).toBe('second');
+
+    // A different matcher stays a separate config — and the narrower one, registered first, still
+    // takes precedence over the wider one, because the override replaced it in place.
+    const narrow = createSpyFromClass(MyService);
+
+    narrow.syncMethod.calledWith(expect.any(Number)).mockReturnValue('number');
+    narrow.syncMethod.calledWith(expect.anything()).mockReturnValue('anything');
+    narrow.syncMethod.calledWith(expect.any(Number)).mockReturnValue('number again');
+
+    expect(narrow.syncMethod(7)).toBe('number again');
+    expect(narrow.syncMethod('x' as unknown as number)).toBe('anything');
+  });
+
   it('falls back to the type-driven proxy when the prototype names nothing', () => {
     // An abstract class is the case that matters: `abstract read()` is erased, so the chain ends
     // with an empty method set and the assembled `{}` would fail on the first call in production
@@ -607,6 +658,20 @@ describe('observable methods', () => {
     const b = await collect(spy.getObs(5));
     expect(a.values).toEqual([1]);
     expect(b.values).toEqual([2]);
+  });
+
+  // Regression (issue #6): the same override, on the observable and promise chains.
+  it('calledWith().nextWith and .resolveWith are overridden through an equivalent matcher', async () => {
+    spy.getObs.calledWith(expect.any(Number)).nextWith(1);
+    spy.getObs.calledWith(expect.any(Number)).nextWith(2);
+
+    const emitted = await collect(spy.getObs(5).pipe(take(1)));
+    expect(emitted.values).toEqual([2]);
+
+    spy.getPromise.calledWith(expect.any(Number)).resolveWith('first');
+    spy.getPromise.calledWith(expect.any(Number)).resolveWith('second');
+
+    await expect(spy.getPromise(5)).resolves.toBe('second');
   });
 
   // Regression (bug #1): a delayed per-call OBSERVABLE value must not be treated

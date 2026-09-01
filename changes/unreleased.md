@@ -43,6 +43,15 @@ _Last released: **v3.11.0** (2026-08-30) — the git tag and `package.json` agre
   matching either member: `read(1)`, `read('ok', 'extra')` and `read()` all compiled on a double of
   `read(key: string)`. Now `MockInstance`, which carries the same helpers without a call signature.
   Tightens existing suites; `expectTypeOf(spy.m).parameters` resolves as a bonus.
+- **Fixed — a `calledWith` config with an asymmetric matcher could not be overridden** (issue #6).
+  A second `calledWith(12, expect.anything())` was appended behind the first, which still matched,
+  so the earlier value kept being returned; a `beforeEach` reconfiguring the same spy also grew the
+  matcher list once per test. An equivalent argument list now replaces the config in place, keeping
+  the order that decides between overlapping configs. Matchers count as equivalent when they accept
+  the same values (same class, same own state, runner-branded); hand-rolled `{ asymmetricMatch }`
+  objects stay reference-compared.
+- **Fixed — a `RegExp` argument serialized as `{}`**, so `calledWith(/a/)` answered a call made with
+  `/b/`. It renders as its literal now.
 - **Fixed — `nextWithValues` dropped a falsy value.** `{ value: false }`, `{ value: 0 }`, `{ value: '' }`
   and a falsy `{ errorValue }` emitted nothing: a truthiness check sat on top of a presence guard.
 - **Fixed — `createWithAutoSpies(...).spies.get(token)` minted a spy for a token nobody injected**,
