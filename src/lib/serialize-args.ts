@@ -8,7 +8,7 @@
  * - single-quoted strings (`'a'`, with `\` and `'` escaped),
  * - bracketed arrays / braced objects without spaces,
  * - distinct renderings for the values `JSON.stringify` would mangle or throw on
- *   (`undefined`, `-0`, functions, symbols, `BigInt`, `Date`, `Map`, `Set`),
+ *   (`undefined`, `-0`, functions, symbols, `BigInt`, `Date`, `RegExp`, `Map`, `Set`),
  * - and circular-reference safety (so an object that references itself yields a
  *   stable key instead of overflowing the stack).
  *
@@ -76,6 +76,13 @@ function serializeMap(value: Map<unknown, unknown>, context: SerializeContext): 
 function serializeShape(value: object, context: SerializeContext): string {
   if (value instanceof Date) {
     return `new Date(${value.getTime()})`;
+  }
+
+  // A regular expression has no own enumerable entries, so the generic object branch renders every
+  // one of them as `{}` — `calledWith(/a/)` and `calledWith(/b/)` would share a key and the second
+  // config would silently answer the first one's calls. Its source and flags are the whole value.
+  if (value instanceof RegExp) {
+    return String(value);
   }
 
   if (value instanceof Map) {
