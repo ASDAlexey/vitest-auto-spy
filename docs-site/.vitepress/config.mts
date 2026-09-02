@@ -131,6 +131,10 @@ export default defineConfig({
           'resolveWith, calledWith, mustBeCalledWith, failWith, mockThrow, throw for specific arguments, nextWithValues, assertMocked, ' +
           'extendWithAutoSpies, test.extend fixtures, TestBed fixtures, vitest 4.1, detect-async-leaks, stray timers, onStrayTimers, no-bare-called-with, ' +
           'strict mode, onUnstubbedCall, unstubbed call, fallbackMockImplementation, Symbol.dispose, using declaration, ' +
+          'lazySpies, JavaScript heap out of memory, vitest out of memory, jest worker ran out of memory, ' +
+          'mock memory leak, wide generated client, orval, ng-openapi-gen, ' +
+          'vitest coverage slow, coverage.include slow, isIncluded, picomatch, custom coverage provider, ' +
+          'customProviderModule, cobertura too large, gitlab coverage not showing, ' +
           'bun test, bun 1.4, angular on bun, node:test, angular testing, renderShallow, shallow rendering, zoneless, signal testing, ' +
           'assertComponentDefIntact, trackInjections, vi.resetAllMocks, isolate false shared environment, ' +
           'nestjs, react, vue, pinia, svelte, rxjs, eslint plugin, mocking, typescript, ' +

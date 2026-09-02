@@ -32,10 +32,10 @@ Control helpers that follow each return type, behind one identical API on Vitest
 - **Less TestBed, and proof of what was injected** — renderShallow collapses the shallow-TestBed copy-paste into one call — 291 ms down to 174 ms, 1.7×, on real component specs. On Vitest 4.1, extendWithAutoSpies turns the let + beforeEach + configureTestingModule block into one statement of typed test.extend fixtures — a test that never names a dependency never builds it, and on an older Vitest the call refuses up front instead of handing every test undefined. createWithAutoSpies createWithAutoSpies builds a class through DI with every unprovided token spied, while spies.get(token) refuses one the instance never asked for — the base class, or a service a refactor removed — instead of minting a spy the instance never sees, so the wrong stub fails at the stub rather than three frames into the code under test. overrideComponentProvider reaches a dependency a component declares in its own providers, which a testing module cannot, and it verifies on the next fixture that the override actually applied rather than silently doing nothing. Two assertions cover the AOT test bundle that makes all of this necessary — assertNgModuleScopes for an imported NgModule whose runtime scope the bundler stripped, and assertComponentDefIntact for a component whose own providers were baked with a hole in them because the barrel chunk holding one of them had not run yet — which Angular otherwise reports half an hour later as Cannot read properties of undefined (reading 'provide'), from inside its own provider resolution, in a spec nobody touched. trackInjections answers the question most vi.mock() calls were really asking, which collaborators the entry point actually asked for, by registering them as provider factories and reading back the ones that fired — an assertion that survives a bundler removing the module boundary a mock would have needed. — https://asdalexey.github.io/vitest-auto-spy/adapters/angular#shallow-component-rendering
 - **Four Angular failures that pass quietly** — enableAngularDiagnostics() turns four silences into failures in one setup line — a testing module importing an NgModule that contributes nothing at all, schemas sitting next to a standalone component where they can never apply, injectSpy handed a real instance instead of a spy, and a test that ends with unflushed HttpTestingController requests. The third is the one nothing else looks for. injectSpy already warns once per token, naming the token and the provideAutoSpy call that is missing, and the group raises that warning to a failure — where spectator declares inject&lt;T&gt;(token) as SpyObject&lt;T&gt; whether the token was mocked or not, so the compiler hides the mistake until a real method meets .mockReturnValue somewhere else entirely. — https://asdalexey.github.io/vitest-auto-spy/adapters/angular-diagnostics
 - **Assertions that fail on silence** — expectEmission / expectEmissions / expectNoEmission replace the expect() inside a subscribe callback that never runs — the assertion is the await, so a stream that stays quiet fails the test instead of passing it. Duck-typed, so no rxjs is pulled in. assertMocked does the same job one level up, where a vi.mock() specifier did not match under a bundler and the spec has been asserting against the real module all along, and moduleNamespace gives a factory the shape an interop probe recognises. — https://asdalexey.github.io/vitest-auto-spy/core/observable-assertions
-- **When a green suite is lying** — zone.js replaces the global Promise and drains a rejection nobody handled into console.error and no further — it never reaches the channel Vitest listens on, so the runner is never told and the file still exits 0. strayRejections fails the test the rejection surfaced in. strayTimers cancels the setTimeout a file left running so it cannot fire inside the next one, and with Vitest 4.1's --detect-async-leaks on it says how many it took away — cancelling in afterAll would otherwise empty that leak report silently — while onStrayTimers hands the count to the spec, so expect(cancelled).toBe(0) is one line. One migrated monorepo of 1688 spec files and 11 587 tests, green, was hiding six real defects of that shape, two of them assertions that were simply false. npx vitest-auto-spy doctor reads the other half — a tsconfig include pattern that matches no file, so it type-checks nothing while tsc --noEmit still reports success. On the suite that motivated it, nine of 152 spec tsconfigs still covered their specs. Read-only, zero config, exit 1 in CI. — https://asdalexey.github.io/vitest-auto-spy/utilities/setup#_8-failing-on-a-rejection-zone-js-swallowed
+- **When a green suite is lying** — zone.js replaces the global Promise and drains a rejection nobody handled into console.error and no further — it never reaches the channel Vitest listens on, so the runner is never told and the file still exits 0. strayRejections fails the test the rejection surfaced in. strayTimers cancels the setTimeout a file left running so it cannot fire inside the next one, and with Vitest 4.1's --detect-async-leaks on it says how many it took away — cancelling in afterAll would otherwise empty that leak report silently — while onStrayTimers hands the count to the spec, so expect(cancelled).toBe(0) is one line. One migrated monorepo of 1688 spec files and 11 587 tests, green, was hiding six real defects of that shape, two of them assertions that were simply false. npx vitest-auto-spy doctor reads the other half — a tsconfig include pattern that matches no file, so it type-checks nothing while tsc --noEmit still reports success. On the suite that motivated it, nine of 152 spec tsconfigs still covered their specs. It also names the coverage settings that cost without announcing it; the docs carry the provider wrapper that took one real shard from 229.59 s to 22.88 s with a byte-identical report, because @vitest/coverage-v8 caches the verdict of isIncluded and never the compiled matcher. Read-only, zero config, exit 1 in CI. — https://asdalexey.github.io/vitest-auto-spy/utilities/setup#_8-failing-on-a-rejection-zone-js-swallowed
 - **A jasmine suite that runs before it is rewritten** — jasmine-auto-spies and jest-auto-spies are siblings over one core, so every option name already matches — methodsToSpyOn, observablePropsToSpyOn, gettersToSpyOn, settersToSpyOn — and so does every helper. Exactly one thing differs, and it lands on every async line of every spec — upstream installs the helpers on functionSpy.and. vitest-auto-spy/jasmine puts .and, .calls and .withArgs back, adds createSpyObj and an importable jasmine namespace with the eight asymmetric matchers Vitest has no twin for, so changing the import specifier is the whole first step. Then the codemod takes the suite off it — thirteen transforms — and it refuses to blindly rename the one construct both dialects spell identically with opposite defaults, because jasmine's spyOn stubs the method where vi.spyOn calls through, so that rename silently leaves the real implementation running and the spec passes on whatever it returned. Two upstream defects are simply gone here — a write-only setter its discovery counts as a method and overwrites, and nextWithValues silently dropping a value of 0, null or empty string. The layer registers through the shared-state registry, so a suite that never asks for it pays one undefined check per spy and ships none of the code. — https://asdalexey.github.io/vitest-auto-spy/migrating-jasmine
 - **A migration you can verify** — Counters cannot answer whether a port lost a test — a file can lose a whole suite while a flake elsewhere starts passing, and the totals still match. compareTestRuns diffs the two sets of names from the JSON report both runners write, and diffByField turns a collapsed "…(8) to deeply equal" into the field that actually differs. npx vitest-auto-spy codemod does the edit half and declines the rest — it splits the legacy import across the entry points read off the installed package's own exports map rather than a table typed into the tool, transposes jest.Mock&lt;void, [Order]&gt; into the call signature Vitest takes instead of renaming it into the reverse meaning, and leaves every span it cannot decide byte-for-byte as it was, with a file and a line. Dry run by default, and --verify then checks the result by matching what should be gone, which still works on a file somebody migrated by hand. --from picks the dialect — jest-auto-spies, jasmine-auto-spies, or the default auto, which reads each file and applies the set that file needs. — https://asdalexey.github.io/vitest-auto-spy/migrating
-- **Half the type-checker work, no runtime dependencies** — Deep-Proxy mocking is paid for at tsc time and nobody publishes the bill. On one fixture — an 80-member class, 30 mock declarations, 600 member touches — Spy&lt;T&gt; costs 2 656 type instantiations against @golevelup/ts-vitest's 5 092 and vitest-mock-extended's 5 614, while carrying more helpers on each method. Spies are lazy at runtime too, so a 40-method class costs 10.3 µs against 68.6 µs eager. Zero runtime dependencies, with an in-tree arg serializer and opt-in subpaths keeping rxjs, zone.js and Angular out of your bundle. 100% test coverage, on Node 22, 24 and 26 and on Bun 1.4. — https://asdalexey.github.io/vitest-auto-spy/comparison#_3-type-check-cost
+- **Half the type-checker work, no runtime dependencies** — Deep-Proxy mocking is paid for at tsc time and nobody publishes the bill. On one fixture — an 80-member class, 30 mock declarations, 600 member touches — Spy&lt;T&gt; costs 2 656 type instantiations against @golevelup/ts-vitest's 5 092 and vitest-mock-extended's 5 614, while carrying more helpers on each method. Spies are lazy at runtime too, so a 40-method class costs 10.3 µs against 68.6 µs eager. Above roughly twenty methods lazySpies 'proxy' drops the placeholder per method for one trap object — an untouched 400-method double retains 11.8 kB instead of 101.6 kB, which under isolate false is the difference between a job that finishes and a job the OOM killer takes. Zero runtime dependencies, with an in-tree arg serializer and opt-in subpaths keeping rxjs, zone.js and Angular out of your bundle. 100% test coverage, on Node 22, 24 and 26 and on Bun 1.4. — https://asdalexey.github.io/vitest-auto-spy/comparison#_3-type-check-cost
 - **The rest of the toolbox** — The helpers that are not the headline but are why a suite stops flaking — setupFakeTimers / advanceTimers, which drain the microtasks a bare advanceTimersByTime leaves pending; flushEventLoop and settleDynamicImport for the queue the clock does not reach at all; fakeAsync and waitForAsync patched onto Vitest, behind their own specifier so a zoneless project never sees zone.js; mockConstructor / stubConstructor for a double the code under test calls with new, which vi.fn(() => instance) is not; IntersectionObserver, ResizeObserver, MutationObserver, media-element and AbortController stubs for the DOM the runner does not ship; narrow / withOverrides / asInstances / captureArg for fixtures without casts, and createFixture / createFixtureFactory for the model eight specs would otherwise each keep a hundred-line copy of; console spies; and one setupAutoSpy() call for the hygiene a shared environment needs — including the guard that puts back an implementation another file's vi.resetAllMocks() dropped off a shared double, the cross-file failure that never reproduces on the file that caused it. Every wait here is bounded and names its own cause. — https://asdalexey.github.io/vitest-auto-spy/api
 - **Written for the agent in your repo** — One npx vitest-auto-spy init writes the pointer into the files the agents in your repository actually read — AGENTS.md, CLAUDE.md, GEMINI.md, a Claude Code skill stub, and a glob-scoped rule file for each tool already set up here — specialised for this runner, this framework and this setup file, between markers it regenerates on the next run. Behind it sits an AGENTS.md inside the tarball for offline reading, llms.txt and llms-full.txt at the docs root, and every error message ending with a link to the page that explains it. — https://asdalexey.github.io/vitest-auto-spy/agents
 
@@ -675,7 +675,7 @@ so a never-accessed spy has no recorded calls (which is exactly why `resetAutoSp
 
 ### `lazySpies: 'proxy'` — for classes wide enough to end a CI job
 
-`lazySpies: true` still has to *put something* on the double for every method: one
+`lazySpies: true` still has to _put something_ on the double for every method: one
 `Object.defineProperty` accessor each. On a wide class that placeholder is not a detail — it is
 almost all of what an untouched double retains. `'proxy'` is the same laziness with one trap object
 in place of all of them, so retention stops tracking the width of the class.
@@ -689,12 +689,12 @@ api.findById.resolveWith({ id: 1 }); // built here, like any lazy spy
 
 Measured on Node 24.19, 2 000 doubles held at once, nothing touched:
 
-| Methods on the class | `lazySpies: true` | `lazySpies: 'proxy'` |          Delta |
-| -------------------: | ----------------: | -------------------: | -------------: |
-|                    5 |           1 634 B |              1 737 B |     **+102 B** |
-|                   20 |           5 629 B |              2 219 B |      −3 410 B |
-|                  100 |          25 597 B |              4 135 B |     −21 463 B |
-|                  400 |         101 584 B |             11 813 B |     −89 771 B |
+| Methods on the class | `lazySpies: true` | `lazySpies: 'proxy'` |      Delta |
+| -------------------: | ----------------: | -------------------: | ---------: |
+|                    5 |           1 634 B |              1 737 B | **+102 B** |
+|                   20 |           5 629 B |              2 219 B |   −3 410 B |
+|                  100 |          25 597 B |              4 135 B |  −21 463 B |
+|                  400 |         101 584 B |             11 813 B |  −89 771 B |
 
 That is 253 B per method against 25 B per method — the placeholder against one entry in a set of
 names the prototype already owns. Under `isolate: false`, where every double in a file outlives the
@@ -713,7 +713,7 @@ methods five times each:
 **Why it is opt-in, and will stay opt-in.** A `Proxy` cannot remove itself. Once a method has
 materialised, the accessor path leaves a plain data property behind and every later read is free;
 the proxy still goes through a trap — **+30 ns per read and +43 ns per call, for the life of the
-double**. At five methods it also *loses* 102 B. Both tables cross over somewhere around twenty
+double**. At five methods it also _loses_ 102 B. Both tables cross over somewhere around twenty
 methods, which is why the default does not move.
 
 Reach for it on the shapes that are wide by construction — generated API clients (orval,
@@ -2149,7 +2149,7 @@ The worst case for lazy is a test that really does call every method:
 
 Lazy does not build the spy, but it still has to define **something** for the name: one
 `Object.defineProperty` accessor per method. On a class wide enough to matter, that placeholder is
-not overhead around the real cost — it *is* the cost. Measured on Node 24.19 with 2 000 doubles held
+not overhead around the real cost — it _is_ the cost. Measured on Node 24.19 with 2 000 doubles held
 at once and nothing touched:
 
 | Methods on the class | `lazySpies: true` | `lazySpies: 'proxy'` |      Delta |
@@ -2177,7 +2177,7 @@ behind and every later read is free — 0.33 ns, which is to say the JIT deletes
 goes through a trap: **+30 ns per read, +43 ns per call, for the life of the double**. At five
 methods it loses on memory too. Both tables cross over around twenty methods.
 
-So the rule is about the *shape*, not about the suite: reach for it on classes that are wide by
+So the rule is about the _shape_, not about the suite: reach for it on classes that are wide by
 construction — a generated API client (orval, `ng-openapi-gen`), an ngrx facade, a `Store` double —
 and especially under `isolate: false`, where every double a file made is alive at the same time and
 this table is the difference between a job that finishes and a job that is killed. Everywhere else
@@ -8093,22 +8093,22 @@ the filename — never the compiled matcher. So every filename recompiles every 
 Profiled on one shard of a 1 725-file Angular suite, with a scope of 124 include globs plus 304
 negations:
 
-| Phase of `Generate coverage`, 224.2 s total |     time |
-| ------------------------------------------- | -------: |
-| reading the 432 workers' coverage files     |    2.6 s |
-| before the first conversion                 |   54.3 s |
-| remapping the 1 958 covered files           |   50.5 s |
-| the pass over the 458 untested files        | **0.35 s** |
+| Phase of `Generate coverage`, 224.2 s total |        time |
+| ------------------------------------------- | ----------: |
+| reading the 432 workers' coverage files     |       2.6 s |
+| before the first conversion                 |      54.3 s |
+| remapping the 1 958 covered files           |      50.5 s |
+| the pass over the 458 untested files        |  **0.35 s** |
 | the final `coverageMap.filter`              | **114.1 s** |
 
 The pass over untested files is what a narrowed scope is usually blamed for, and it is a third of a
 second. The filter — a loop whose entire body is one `isIncluded` call per file — is half the run.
 Timed operation by operation against a matcher compiled once, on the same globs:
 
-| Operation                        |      stock | compiled once |
-| -------------------------------- | ---------: | ------------: |
-| `isIncluded`, 8 000 calls        | 167 853 ms |      1 808 ms |
-| `coverageMap.filter`             |  81 393 ms |        713 ms |
+| Operation                          |      stock | compiled once |
+| ---------------------------------- | ---------: | ------------: |
+| `isIncluded`, 8 000 calls          | 167 853 ms |      1 808 ms |
+| `coverageMap.filter`               |  81 393 ms |        713 ms |
 | the pass over 1 816 untested files |  69 779 ms |      9 439 ms |
 
 ### The fix is a provider wrapper, in your own config

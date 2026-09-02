@@ -19,7 +19,7 @@ identical API, with **RxJS** spies and **Angular / NestJS / React / Vue·Pinia /
 [![npm version](https://img.shields.io/npm/v/vitest-auto-spy?color=brightgreen&logo=npm)](https://www.npmjs.com/package/vitest-auto-spy)
 [![npm downloads](https://img.shields.io/npm/dm/vitest-auto-spy?color=brightgreen&logo=npm)](https://www.npmjs.com/package/vitest-auto-spy)
 [![CI](https://github.com/ASDAlexey/vitest-auto-spy/actions/workflows/ci.yml/badge.svg)](https://github.com/ASDAlexey/vitest-auto-spy/actions/workflows/ci.yml)
-[![minzipped size](https://img.shields.io/badge/minzip-15.1%20kB-brightgreen)](#install)
+[![minzipped size](https://img.shields.io/badge/minzip-15.5%20kB-brightgreen)](#install)
 [![types](https://img.shields.io/npm/types/vitest-auto-spy?logo=typescript&logoColor=white)](https://www.npmjs.com/package/vitest-auto-spy)
 [![coverage](https://img.shields.io/badge/coverage-100%25-brightgreen)](https://github.com/ASDAlexey/vitest-auto-spy/actions/workflows/ci.yml)
 [![license](https://img.shields.io/npm/l/vitest-auto-spy?color=blue)](./LICENSE)
@@ -239,20 +239,21 @@ error  tsconfig-glob-matches-nothing libs/users/tsconfig.spec.json
 3 errors, 4 warnings, 1 note
 ```
 
-| Check                            | What it finds                                                                                                    |
-| -------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| `tsconfig-glob-matches-nothing`  | An `include` pattern that matches no file — so it type-checks nothing                                            |
-| `tsconfig-file-missing`          | A `files` entry naming a file that is gone                                                                       |
-| `spec-imported-by-non-spec`      | A production module importing a `*.spec.ts`                                                                      |
-| `spec-exports-fixture`           | A spec importing another spec, whose hooks then run in a foreign file                                            |
-| `foreign-runner-pragma`          | `@jest-environment` left in a spec, which Vitest never reads                                                     |
-| `dead-runner-config`             | `jest.config.*` / `karma.conf.*` for a runner that is not installed                                              |
-| `orphan-runner-file`             | A setup file only that dead config referenced                                                                    |
-| `angular-build-splitting-off`    | `@angular/build` in `[22.1.5, 22.1.7)` — the OOM under `--coverage`                                              |
-| `coverage-all-removed`           | `coverage.all` in a config, on a Vitest that stopped reading the key                                             |
-| `coverage-include-misses-bundle` | A `coverage.include` of sources only, in a runner config over a bundle                                           |
-| `jasmine-era-project`            | `jasmine-core`, `@types/jasmine`, `karma.conf.*` or `@hirez_io/observer-spy` still installed. Info, not an error |
-| `no-agent-instructions`          | No instruction file names the package. A note, not an error                                                      |
+| Check                               | What it finds                                                                                                    |
+| ----------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `tsconfig-glob-matches-nothing`     | An `include` pattern that matches no file — so it type-checks nothing                                            |
+| `tsconfig-file-missing`             | A `files` entry naming a file that is gone                                                                       |
+| `spec-imported-by-non-spec`         | A production module importing a `*.spec.ts`                                                                      |
+| `spec-exports-fixture`              | A spec importing another spec, whose hooks then run in a foreign file                                            |
+| `foreign-runner-pragma`             | `@jest-environment` left in a spec, which Vitest never reads                                                     |
+| `dead-runner-config`                | `jest.config.*` / `karma.conf.*` for a runner that is not installed                                              |
+| `orphan-runner-file`                | A setup file only that dead config referenced                                                                    |
+| `angular-build-splitting-off`       | `@angular/build` in `[22.1.5, 22.1.7)` — the OOM under `--coverage`                                              |
+| `coverage-all-removed`              | `coverage.all` in a config, on a Vitest that stopped reading the key                                             |
+| `coverage-include-misses-bundle`    | A `coverage.include` of sources only, in a runner config over a bundle                                           |
+| `coverage-include-recompiles-globs` | A coverage scope large enough that `picomatch` recompiling it per file costs more than the coverage. Info        |
+| `jasmine-era-project`               | `jasmine-core`, `@types/jasmine`, `karma.conf.*` or `@hirez_io/observer-spy` still installed. Info, not an error |
+| `no-agent-instructions`             | No instruction file names the package. A note, not an error                                                      |
 
 The check that motivated the tool: a spec showing `Cannot find name 'vi'` in the editor while
 `tsc --noEmit` reported zero errors. A migration codemod editing `include` had eaten a `/**`,

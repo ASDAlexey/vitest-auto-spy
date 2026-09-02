@@ -482,15 +482,15 @@ createSpyFromClass(MyService, {
 });
 ```
 
-| Key                      | Semantics                                                                          |
-| ------------------------ | ---------------------------------------------------------------------------------- |
-| `methodsToSpyOn`         | **Additive**, as in `jest-auto-spies`. Same behaviour as `instanceMethodsToSpyOn`. |
-| `onlyMethodsToSpyOn`     | **Exhaustive whitelist.** Skips discovery; anything not listed is absent.          |
-| `instanceMethodsToSpyOn` | **Additive.** The name to prefer in new code (see below).                          |
-| `autoSpyAccessors`       | Merged with the explicit getter/setter lists.                                      |
+| Key                      | Semantics                                                                                                 |
+| ------------------------ | --------------------------------------------------------------------------------------------------------- |
+| `methodsToSpyOn`         | **Additive**, as in `jest-auto-spies`. Same behaviour as `instanceMethodsToSpyOn`.                        |
+| `onlyMethodsToSpyOn`     | **Exhaustive whitelist.** Skips discovery; anything not listed is absent.                                 |
+| `instanceMethodsToSpyOn` | **Additive.** The name to prefer in new code (see below).                                                 |
+| `autoSpyAccessors`       | Merged with the explicit getter/setter lists.                                                             |
 | `lazySpies`              | Behaviour-identical; only changes _when_ each spy is built. `'proxy'` also changes _what holds the name_. |
-| `strict`                 | Throw on a method nobody configured, instead of answering `undefined` (below).     |
-| `onUnstubbedCall`        | The general form of `strict`; its return value becomes the call's return value.    |
+| `strict`                 | Throw on a method nobody configured, instead of answering `undefined` (below).                            |
+| `onUnstubbedCall`        | The general form of `strict`; its return value becomes the call's return value.                           |
 
 **`instanceMethodsToSpyOn` is not an edge case — it is a top-5 option** (103 of ~370 spec files in
 the reference suite). Method discovery walks the _prototype chain_; a callable assigned to an
@@ -2342,7 +2342,11 @@ suite that runs green but does not type-check is not done.
 `doctor` is read-only and finds what a green run cannot: a `tsconfig` `include` pattern that
 matches no file (so it type-checks nothing while `tsc --noEmit` still reports success), a
 production module importing a `*.spec.ts`, a spec importing another spec, a `@jest-environment`
-pragma the runner never reads, and configuration left behind for a runner that is gone. It is
+pragma the runner never reads, and configuration left behind for a runner that is gone. Three of
+its checks are about coverage, where the run is green and the report is simply not the one the
+config describes — `coverage.all` on a Vitest that stopped reading the key, a source-only
+`coverage.include` in a runner config over a bundle, and a scope so large that `picomatch`
+recompiling it per file costs more than collecting the coverage does. It is
 worth one run after any large edit to a test suite — especially after a codemod, which is where
 the eaten glob below came from. Full reference:
 <https://asdalexey.github.io/vitest-auto-spy/utilities/cli>.
