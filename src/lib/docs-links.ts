@@ -29,6 +29,7 @@ export const DOCS_LINKS = {
   installation: `${DOCS}/core/installation`,
   mediaElement: `${DOCS}/utilities/media-element`,
   moduleMocks: `${DOCS}/utilities/module-mocks`,
+  nestjs: `${DOCS}/adapters/nestjs`,
   observerStubs: `${DOCS}/utilities/observer-stubs`,
   // The recipe for the one failure no spy library can work around: a binding the bundler already
   // inlined. Deep-linked to the section rather than the page, because the page's first half is
