@@ -86,17 +86,56 @@ and the differences stop mattering: they read the same on all three runtimes.
 polyfill, so it reads identically to Vitest (`{ type: 'fulfilled' | 'incomplete' | 'rejected', value }`).
 See [Control helpers → Inspecting promise outcomes](/core/control-helpers#settled-results).
 
-## Every mock is retained until `mock.reset()`
+## Every mock is retained until the tracker is dropped
 
 `node:test` registers every `mock.fn()` in its module-level `MockTracker` and keeps the reference for
-the lifetime of the process. Dropping the spy does not free it; nothing the library does can, either
-— `clearAutoSpy()` / `resetAutoSpy()` revert a spy's _configuration_, not the runner's registry.
+the lifetime of the process. Nothing is ever removed from that list one entry at a time: `reset()` is
+the only method that empties it, and it restores everything on the way. So a dropped spy stays
+reachable — and so does everything it closed over, its recorded arguments included.
 
-Measured: 20 000 spies of a 10-method class created and dropped, then two forced collections, held
-**435.6 MB**. One `mock.reset()` brought the same measurement to 0.1 MB.
+Measured on Node v24.19.0, 20 000 spies of a 10-method class created across 20 tests, dropped, then
+two forced collections: **124.5 MB** retained against a 5.5 MB baseline.
 
-That is Node's behaviour rather than this adapter's, and it stays invisible until a long suite runs
-out of heap. Reset the tracker per test and it never comes up:
+### `trackNodeMocks()`
+
+Call it once and the library creates its spies on a `MockTracker` **it owns**, replacing that tracker
+with a fresh one after every test. The retired instance and its list become garbage together.
+
+```js
+import { before, describe, it } from 'node:test';
+import { createSpyFromClass, trackNodeMocks } from 'vitest-auto-spy/node';
+
+before(() => {
+  trackNodeMocks();
+});
+```
+
+Same measurement, same machine, with the helper: **5.9 MB** — a **21×** reduction, and 0.4 MB above
+the baseline rather than 119 MB.
+
+It is opt-in, and a suite that does nothing keeps exactly today's behaviour. Three things it
+deliberately does not do:
+
+- **It never calls `mock.reset()`.** That is the whole reason a private tracker is worth the code:
+  resetting the shared one restores and forgets the `mock.fn()` a spec wrote by hand. Swapping a
+  tracker the library owns touches no spy at all — a `node:test` mock keeps recording calls and keeps
+  its implementation once its tracker is gone, because the tracker exists only for restore/reset.
+- **It does not move spies that already exist.** Anything created before the call stays on the
+  runtime's tracker. Call it once, as early as your file allows.
+- **It never throws.** The class is reached through `mock.constructor`, which is not documented API,
+  so the construction is probed before a single spy is routed at it. If a future runtime does not
+  give it up, `trackNodeMocks()` is a no-op and spies keep going where they go today.
+
+Two more exports come with it, both optional: `pruneNodeMocks()` sweeps by hand — for a suite running
+its tests concurrently, where a shared per-test hook is the wrong granularity — and returns how many
+spies went; `countNodeMocks()` reads the current number back, for a suite that would rather assert on
+it than trust it.
+
+### The fallback, for a suite that does not want the helper
+
+`mock.reset()` in `afterEach` still works and still frees everything. It is the blunter instrument —
+it also restores and forgets any `mock.fn()` the spec made itself — but it needs nothing from this
+package:
 
 ```js
 import { afterEach, mock } from 'node:test';
@@ -106,8 +145,8 @@ afterEach(() => {
 });
 ```
 
-Vitest and Bun both drop their own registries between files, so this is specific to
-`vitest-auto-spy/node`.
+Vitest and Bun both drop their own registries between files, so none of this applies to
+`vitest-auto-spy` or `vitest-auto-spy/bun`.
 
 ::: tip Which runtime
 `node:test` needs no dependency at all beyond Node, which makes it a good fit for a library with no

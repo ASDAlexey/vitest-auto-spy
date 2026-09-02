@@ -13,12 +13,19 @@
  * `node:test` is a Node built-in that Vitest cannot bundle, so it is imported
  * only here (this entry never runs under Vitest) and injected into the adapter
  * factory — mirroring how the Bun entry injects `bun:test`.
+ *
+ * The tracker the adapter is built on is resolved per call rather than captured,
+ * so `trackNodeMocks()` can move spies onto a `MockTracker` this library owns
+ * long after the adapter was built — see {@link createSwappableNodeTracker}.
+ * Nothing changes until a suite asks for it.
  */
-import { mock } from 'node:test';
+import { afterEach, mock } from 'node:test';
 
 import { registerMockAdapter } from './lib/mock-adapter';
 import { createNodeMockAdapter } from './lib/node-adapter';
+import { createSwappableNodeTracker } from './lib/node-mock-tracker';
 
-registerMockAdapter(createNodeMockAdapter(mock));
+registerMockAdapter(createNodeMockAdapter(createSwappableNodeTracker({ mock, afterEach })));
 
 export * from './auto-spy';
+export { countNodeMocks, pruneNodeMocks, trackNodeMocks, type StopTrackingNodeMocks } from './lib/node-mock-tracker';
