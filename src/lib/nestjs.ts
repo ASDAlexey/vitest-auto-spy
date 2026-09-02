@@ -51,6 +51,15 @@ export function provideAutoSpy<T>(
  *
  * users.findByEmail.resolveWith({ id: 1 });
  * ```
+ *
+ * @remarks
+ * The module reference is the first argument. Nest has no ambient injector, so the one-argument
+ * `injectSpy(token)` of `vitest-auto-spy/angular` — which reads the global `TestBed` — has no
+ * counterpart here and the `moduleRef` from `Test.createTestingModule(…).compile()` has to be
+ * passed in. It has no counterpart of that helper's "not an auto-spy" warning either: a provider
+ * listed as the bare class instead of `provideAutoSpy(X)` is built for real, comes back typed
+ * `Spy<T>` all the same, and the failure arrives a line later when `.mockReturnValue(…)` is called
+ * on the real method.
  */
 export function injectSpy<T>(moduleRef: NestModuleRef, token: ClassType<T> | (abstract new (...args: never[]) => T)): Spy<T> {
   // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- `moduleRef.get`'s structural signature returns `unknown`, and Nest hands back the real instance `T`, not the augmented `Spy<T>` we registered via `useValue`; the assertion bridges the lookup result to the spy surface.

@@ -141,8 +141,12 @@ export interface AddObservableSpyMethods<T> {
    * Every helper here exists only once the observable layer is registered: `import
    * 'vitest-auto-spy/rxjs'` once, in the setup file. Without it they are absent from a method spy
    * (`… .nextWith is not a function`) and `observablePropsToSpyOn` throws
-   * `Observable spies require rxjs`. Prefer {@link returnSubject} when the spec drives the stream
-   * itself, {@link nextWithPerCall} when each call needs its own.
+   * `Observable spies require rxjs`. The buffer is a `ReplaySubject(1)` and it is *configuration*,
+   * in the sense a `calledWith` chain is — `vi.clearAllMocks()` cannot reach it, so a spy that
+   * outlives its test (a `TestBed` built in `beforeAll`) replays the previous test's value ahead of
+   * whatever this one configured; call `resetAutoSpy(spy)` in `beforeEach` there. Prefer
+   * {@link returnSubject} when the spec drives the stream itself, {@link nextWithPerCall} when each
+   * call needs its own.
    */
   nextWith(value?: T): void;
   /** Emit one value then complete. */
@@ -181,7 +185,10 @@ export interface AddCalledWithSpyMethods<Method extends Func> {
    * (`mockReturnValue`, `resolveWith`, … — or `undefined`), so a wrong expectation here is silent.
    * {@link mustBeCalledWith} throws instead, printing wanted beside actual. Matching is positional
    * and arity-exact — `calledWith(1)` never answers `load(1, undefined)` — and accepts asymmetric
-   * matchers (`expect.any(String)`, `expect.objectContaining({…})`).
+   * matchers (`expect.any(String)`, `expect.objectContaining({…})`). The chain is built at the call,
+   * from the spy this helper is reached through, so `const { calledWith } = spy.load` compiles and
+   * then throws `calledWith was called off its spy`: call it as a method — `spy.load.calledWith(…)`
+   * — or bind it first.
    */
   calledWith(...args: Parameters<Method>): WithMockReturnValue<Method>;
   mustBeCalledWith(...args: Parameters<Method>): WithMockReturnValue<Method>;
@@ -369,7 +376,11 @@ export type DeepMockProxy<T> = SpyDisposable & {
  * to `T`. Declare the variable as `Spy<T>` — never as `T`, `Mocked<T>` or `MockedObject<T>` — and
  * call `asInstance(spy)` at the one place a real `T` is wanted. The compiler reports this as missing
  * private fields and says nothing about the real cause, which is why the `no-mocked-for-spy` lint
- * rule exists.
+ * rule exists. `vi.mocked(…)` is not the bridge either: it retypes the value as `MockedObject<T>`,
+ * which brings `T`'s private members back and carries the runner's `mockReturnValue` but none of
+ * `calledWith`, `resolveWith` or `accessorSpies` — so the assignment it was reached for still fails
+ * and the helpers stop compiling. `asInstance` and `asSpy` are typed identity functions; nothing
+ * about them changes at runtime.
  */
 export type Spy<T, Options extends SpyOptions = SpyOptions> = AddAccessorsSpies<T> &
   SpyDisposable & {

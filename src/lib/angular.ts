@@ -97,6 +97,10 @@ export function provideAutoSpyForToken<T>(
  * arrives, in four unrelated files.
  *
  * @remarks
+ * The signature is `injectSpy(token)` — the token alone, resolved through the global `TestBed`. The
+ * two-argument `injectSpy(moduleRef, token)` belongs to `vitest-auto-spy/nestjs`, which has no
+ * ambient injector to read.
+ *
  * When the injector hands back a real instance rather than a double, that is reported — a provider
  * the spec forgot to register is otherwise found much later, when `.mockReturnValue` is called on
  * the real method. It is a `console.warn`, once per token; raise it to a thrown failure with
