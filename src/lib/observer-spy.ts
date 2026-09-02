@@ -28,6 +28,8 @@
  */
 import type { Observable, Subscription } from 'rxjs';
 
+import { DISPOSE } from './dispose-symbol';
+
 /** Upstream's one configuration flag. */
 export interface ObserverSpyConfig {
   /**
@@ -233,8 +235,12 @@ export class SubscriberSpy<T> extends ObserverSpy<T> {
    * This is what `autoUnsubscribe()` exists for upstream — a global `afterEach` that tears down
    * every spy the file created. `using` scopes it to the block that made it instead, so there is no
    * setup file to remember and no registry that has to be right.
+   *
+   * Keyed by {@link DISPOSE} rather than by `Symbol.dispose` directly, like every other double here:
+   * reading the constant is what loads the shim on a realm that has no `Symbol.dispose` — Node 22
+   * under `jsdom` — before `using` asks for it.
    */
-  [Symbol.dispose](): void {
+  [DISPOSE](): void {
     this.unsubscribe();
   }
 }
