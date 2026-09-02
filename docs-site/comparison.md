@@ -19,6 +19,12 @@ Download counts are the npm window **2026-07-29 → 2026-08-27**, from a field s
 below were re-read from the npm registry and the published tarballs on **2026-08-30** — every one of
 them reproduced. Treat all of it as a dated snapshot, not a live feed: re-check before quoting.
 
+Re-verified since: the two `@testing-library/angular` `createMock` defects quoted under
+[Angular](#angular) were re-read in the published 19.4.2 tarball on **2026-09-02** and both still
+hold, at the same two lines. The `renderShallow` ratios under
+[Beyond the class spy](#beyond-the-class-spy) are this package's own measurements and carry their
+own dates.
+
 The one figure not re-measured against the competitors is the type-instantiation count in
 [Type-check cost](#_3-type-check-cost), which is carried from the 2026-08-29 survey. The package's
 own cost has had a CI-measured number since 2026-09-02 — see the same section.
@@ -48,17 +54,23 @@ corrections to claims this page used to make, and to claims still made elsewhere
   with the Angular builder. The old line here ("no ttsc transformer to install") undersold it: the
   true statement is that it cannot run on a modern toolchain at all.
 - **`@ngneat/spectator` is a maintenance risk, not just a stale version.** 22.1.0 shipped
-  2025-11-02; the `ngneat` org was wiped around 2026-06-05 with every issue and PR, and
-  `github.com/ngneat/spectator` returns 404 (verified 2026-08-30). It is still pulled **771 498
-  times a month**, so plenty of suites are sitting on it. Three runtime dependencies — `tslib`,
-  `@testing-library/dom` and **`jquery`** — and `lib/matchers-types.d.ts` opens with
-  `declare namespace jasmine`, so installing it drags the Jasmine global types into a Vitest
-  project. It has been broken on new workspaces since 2026-07-16: it imports
-  `BrowserDynamicTestingModule` from `@angular/platform-browser-dynamic/testing`, a package Angular
-  20 deprecated and no longer installs, so a fresh Angular 22 workspace errors. The
-  [`@openng/spectator`](https://www.npmjs.com/package/@openng/spectator) fork
-  ([openng-org/spectator](https://github.com/openng-org/spectator), 1.0.1, 2026-07-10) is
-  a straight continuation fork with an Angular 22 build, at 18 092 downloads — 2.3% of the original.
+  2025-11-02; `github.com/ngneat/spectator` returns **404** and took every issue and PR with it,
+  though the `ngneat` org itself still resolves. A third-party snapshot sits at
+  [ngneat-archive/spectator](https://github.com/ngneat-archive/spectator) (created 2026-06-07,
+  already archived). It is still pulled **739 852 times a month** (2026-07-31 → 2026-08-29), so
+  plenty of suites are sitting on it. Three runtime dependencies — `tslib`, `@testing-library/dom`
+  and **`jquery`** — and `lib/mock.d.ts:11` declares `CompatibleSpy … extends jasmine.Spy`, which
+  `SpyObject<T>` is built from, so even `@ngneat/spectator/vitest` drags the Jasmine global types
+  into a Vitest project. It does not resolve on a clean Angular 22 workspace: it imports
+  `BrowserDynamicTestingModule` from `@angular/platform-browser-dynamic/testing` while declaring
+  that package in neither `dependencies` nor `peerDependencies`, so the install errors with
+  `ERR_MODULE_NOT_FOUND` — the package itself still ships (22.1.4) and is merely npm-deprecated, so
+  adding it by hand is a workaround. The [`@openng/spectator`](https://www.npmjs.com/package/@openng/spectator)
+  fork ([openng-org/spectator](https://github.com/openng-org/spectator), 1.0.1, 2026-07-10, at
+  16 251 downloads — 2.1 % of the original) is an active repository, but its Angular 22 build is a
+  recompile: it carries the same undeclared import and fails identically, and the fix
+  ([#13](https://github.com/openng-org/spectator/pull/13)) has been open since 2026-07-26.
+  [The full migration path is its own page](/migrating-spectator). Verified 2026-09-02.
 
 ## The live field
 
@@ -134,7 +146,7 @@ unconditionally while `peerDependenciesMeta` marks it optional.
 |                                   | vitest-auto-spy | jest-auto-spies | vitest-mock-extended | jest-mock-extended | @golevelup/ts-vitest | @suites/unit |   ng-mocks   | @testing-library/angular | @ngneat/spectator |   sinon    |
 | --------------------------------- | :-------------: | :-------------: | :------------------: | :----------------: | :------------------: | :----------: | :----------: | :----------------------: | :---------------: | :--------: |
 | Vitest                            |       ✅        |       ❌        |          ✅          |         ❌         |          ✅          |      ✅      |      ✅      |            ✅            |     partial¹      | own stubs³ |
-| Jest                              |    via API²     |       ✅        |          ❌          |         ✅         |          ❌          |      ✅      |      ✅      |            ✅            |        ✅         | own stubs³ |
+| Jest                              |    not yet²     |       ✅        |          ❌          |         ✅         |          ❌          |      ✅      |      ✅      |            ✅            |        ✅         | own stubs³ |
 | Bun (`bun:test`)                  |     **✅**      |       ❌        |          ❌          |         ❌         |          ❌          |      ❌      |      ❌      |            ❌            |        ❌         | own stubs³ |
 | `node:test`                       |     **✅**      |       ❌        |          ❌          |         ❌         |          ❌          |      ❌      |      ❌      |            ❌            |        ❌         | own stubs³ |
 | Angular `TestBed` helpers         |       ✅        |       ✅        |          ❌          |         ❌         |          ❌          |    **❌**    |      ✅      |            ✅            |        ✅         |     ❌     |
@@ -152,8 +164,11 @@ unconditionally while `peerDependenciesMeta` marks it optional.
 `declare namespace jasmine` in its own typings, so installing it drags the Jasmine globals into a
 Vitest project, and it imports a package Angular 20 deprecated — see
 [above](#half-the-field-has-stopped-shipping).
-² The core is runner-agnostic behind a `MockAdapter`; Vitest, Bun and `node:test` have shipped
-adapters — see [Runtimes](/runtimes/vitest).
+² The core is runner-agnostic behind a `MockAdapter`, and Vitest, Bun and `node:test` have shipped
+adapters — see [Runtimes](/runtimes/vitest). **Jest is not one of them today**: the adapter registry
+is internal, `registerMockAdapter` is not exported from any entry point, and a Jest consumer
+therefore has no supported way to plug one in. The architecture allows it; the package does not yet
+expose it. Checked 2026-09-02.
 ³ sinon is a library rather than a runner integration: its stubs are its own, so the runner's
 matchers and its `clearMocks` / `restoreMocks` housekeeping do not see them.
 
@@ -257,14 +272,20 @@ by those e2e projects only.
 **[@testing-library/angular](https://github.com/testing-library/angular-testing-library)** — 19.4.2
 on 2026-08-07. Usually filed as complementary; it is not. Its `/vitest-utils` entry exports
 `createMock` / `provideMock` doing the same job as `createSpyFromClass` / `provideAutoSpy`. Reading
-`fesm2022/testing-library-angular-vitest-utils.mjs` at 19.4.2, it is worse in three specific ways:
+`fesm2022/testing-library-angular-vitest-utils.mjs` at 19.4.2 — the whole file is 52 lines, and both
+defects below were re-read in the published tarball on **2026-09-02** — it is worse in three
+specific ways:
 
-- **No accessor handling.** The walk assigns a mock only when
+- **No accessor handling** (line 14). The walk assigns a mock only when
   `typeof descriptor?.value === 'function'`; a getter's descriptor has no `value`, so accessors are
-  skipped silently.
-- **No `Object.prototype` guard.** `mockFunctions(Object.getPrototypeOf(proto))` recurses until the
-  prototype is null — so `hasOwnProperty`, `toString`, `valueOf` and `isPrototypeOf` end up mocked
-  on the double.
+  skipped silently. A service's `get isLoggedIn()` is therefore absent from the double while
+  `Mock<T>` still types it as callable — the two defects compound, and the failure surfaces as
+  `undefined` at the reading site rather than at the double.
+- **No `Object.prototype` guard** (line 18). `mockFunctions(Object.getPrototypeOf(proto))` recurses
+  until the prototype is null — so `hasOwnProperty`, `toString`, `valueOf` and `isPrototypeOf` end
+  up mocked on the double. `createSpyFromClass` stops before it —
+  `walkOwnPrototypes` (`src/lib/create-spy-from-class.ts:81`) visits a prototype only when it still
+  has a parent, so `Object.prototype`'s own members are never collected.
 - **Eager only.** Every method is built up front; [lazy spies](/core/performance) exist because that
   costs 68.6 µs against 10.3 µs on a 40-method service.
 
@@ -312,6 +333,10 @@ The contrast:
   [`onlyMethodsToSpyOn` reports a name that is not on it](/core/create-spy-from-class), and `createNestUnit` builds every class token with it.
 - **v4 has been in beta since 2025-11-04** (`4.0.0-beta.0`), unreleased.
 
+The spec-by-spec translation — `unitRef.get` to `spies.get`, `.mock().impl()` to a control helper or
+`providers`, string and symbol tokens, `@Optional()`, and the `await` that disappears — is
+[Migrating from @suites/unit](/migrating-suites).
+
 **[@golevelup/ts-vitest](https://github.com/golevelup/nestjs)** — 4.0.0 on 2026-03-18, 353 803
 downloads a month, the community default. `createMock<T>()` is a deep Proxy with no return-type
 helpers and no argument matching; it costs about twice the type instantiations
@@ -327,7 +352,14 @@ alongside it:
   resolve `templateUrl`, so Angular specs do not run there at all. One preload closes both gaps.
 - [`renderShallow`](/adapters/angular#shallow-component-rendering) and
   [`createWithAutoSpies`](/adapters/angular#building-a-class-with-auto-spied-dependencies) — the
-  shallow-`TestBed` copy-paste and DI-driven instantiation as one call each.
+  shallow-`TestBed` copy-paste and DI-driven instantiation as one call each. What the first saves
+  is however much markup the component owns, so it is a range and not a headline number: per render
+  it is flat at ~0.5 ms while `TestBed.createComponent` scales with the subtree — **1.2×** with no
+  children, **5.7×** at 100 child instances, **16.2×** at 400, measured 2026-08-26. Per spec file,
+  where imports and the module are also on the clock, the same conversion on three specs of a
+  private Angular 22 suite came to **1.7×** together, with the leaf component among them a genuine
+  **0.8×** — slower, because it had no subtree to remove. Both tables, and the `keepTemplate: true`
+  middle rung, are in [Performance](/core/performance#_2-rendering-the-child-subtree).
 - [`stable` / `flushEffects`](/adapters/angular#zoneless-waiting) and `toHaveSignalValue` — zoneless
   waiting and a signal matcher, for a codebase where `detectChanges()` is no longer enough.
 - [Observable assertions](/core/observable-assertions) that fail when the stream stays silent,

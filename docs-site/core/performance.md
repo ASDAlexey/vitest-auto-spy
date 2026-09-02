@@ -347,8 +347,8 @@ what scales: aggregate setup 6.3 s → 0.23 s, environment 5.2 s → 0.19 s, tra
 ### 2. Rendering the child subtree
 
 [`renderShallow`](../adapters/angular#shallow-component-rendering) brings the component up through
-the real `TestBed` without its children and without its template. Per render, on a component holding
-two `@for` tables whose row count is varied:
+the real `TestBed` without its children and without its template. Per render, measured 2026-08-26 on
+a component holding two `@for` tables whose row count is varied:
 
 | Child instances | `TestBed.createComponent` | `renderShallow` | Ratio |
 | --------------: | ------------------------: | --------------: | ----: |
@@ -356,6 +356,9 @@ two `@for` tables whose row count is varied:
 |              10 |                   1.00 ms |         0.55 ms |  1.8× |
 |             100 |                   2.72 ms |     **0.48 ms** |  5.7× |
 |             400 |                   8.52 ms |     **0.53 ms** | 16.2× |
+
+These are Angular figures and therefore not part of `npm run bench`, which deliberately covers only
+the plain core — treat the ratios as the result, not the absolute times.
 
 The shape is the point: `renderShallow` is flat at ~0.5 ms because it never builds the subtree, while
 `createComponent` scales linearly with it. So the win is not a fixed percentage — it is however much
@@ -365,6 +368,19 @@ to save (1.2×); on a table or a dashboard it is an order of magnitude.
 This is only worth taking because [templates are not what a spec asserts on](../recipes). A test that
 reads component state pays for the subtree and gets nothing back for it.
 
+**What that becomes on a real file, and why the two numbers differ.** The README quotes **1.7×**
+for the same helper, and both figures are true of different things. The table above isolates one
+render; a spec file's wall clock also pays for imports, the `TestBed` module and the assertions,
+none of which shallow rendering touches. Converted on a private Angular 22 zoneless suite (784
+specs, the AOT `@angular/build:unit-test` builder), three of its most expensive component specs
+went 129 ms → 61 ms (2.1×), 133 ms → 75 ms (1.8×) and 29 ms → 38 ms (**0.8× — slower**), for 291 ms
+→ 174 ms together. The regression is the leaf component: with almost no subtree to remove, the
+per-test `overrideComponent` costs more than it saves, exactly as the 1.2× row predicts. So the
+per-render ratio is the upper bound on what a file can gain, and
+[`enableTestBedDiagnostics()`](../adapters/angular#where-a-spec-spends-its-time) is how to find the
+files where the bound is worth chasing — across those ten files `TestBed` was 25 % of the total, but
+per file it ranged from 13 % to 66 %.
+
 #### The middle rung, `keepTemplate: true`
 
 A spec that needs a `viewChild`, content projection or a host binding needs the component's own
@@ -372,6 +388,8 @@ template, and the table above reads as if that meant paying for the whole tree a
 `buildOverride` (`lib/render-shallow.ts:83-98`) applies `imports: options.keepChildren ?? []`
 whether or not the template is kept, so with `keepTemplate: true` the template renders while every
 child in it resolves to nothing under `NO_ERRORS_SCHEMA`:
+
+Measured 2026-08-30:
 
 |                                          |          per render |
 | ---------------------------------------- | ------------------: |
