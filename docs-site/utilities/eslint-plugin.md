@@ -34,6 +34,7 @@ which a subpath export of this package can never be.
 | `no-mocked-for-spy`               |   `warn`    | `--fix` / suggest | `Mocked<T>` in any type position → `Spy<T>`, import and all — a suggestion where the value assigned is not one of this library's factories |
 | `no-done-callback`                |   `error`   | —                 | `it('x', (done) => …)` → `async` + an awaited assertion, and `done.fail(…)` at the call site                                               |
 | `no-floating-assertion`           |   `error`   | —                 | `expect()` in a `.then()` nobody awaits → `expect(await promise)`                                                                          |
+| `no-bare-called-with`             |   `error`   | —                 | `spy.m.calledWith(1);` as a statement of its own — a stub nobody continued, asserting nothing                                              |
 | `no-overridden-provider`          |   `error`   | suggest           | two providers for one token in one array → the earlier one never runs; the exact duplicate can be deleted                                  |
 | `no-inject-before-override`       |   `warn`    | —                 | `TestBed.inject()` in a hook, in a suite that still calls `override*`                                                                      |
 | `no-import-time-spread`           |   `error`   | suggest           | `export const x = [...Imported]` at module scope → a `TypeError` while the bundle loads                                                    |
@@ -47,7 +48,28 @@ The last four are for a suite that has not arrived yet — one running on
 [`vitest-auto-spy/jasmine`](/migrating-jasmine), or one that thinks it does. They are covered
 [below](#the-four-jasmine-rules).
 
-The nine `error` rules are the ones that catch a test being _wrong_ rather than verbose.
+The ten `error` rules are the ones that catch a test being _wrong_ rather than verbose.
+
+### `no-bare-called-with` — one word, two opposite meanings
+
+`calledWith` is this library's **stub** configurator. Since Vitest 4.1 it is also, in chai's
+bundle, an **assertion**:
+
+```ts
+expect(fn).to.have.been.calledWith('example'); // chai: checks that the call happened
+cart.checkout.calledWith(1); // this library: configures what a call answers
+```
+
+The second line asserts nothing. It registers "for the argument `1`, answer `undefined`" — which is
+what an unconfigured spy already does — so the test passes whether or not `checkout` was ever
+called. The rule reports it and names both repairs: continue the chain
+(`.mockReturnValue(v)`, `.resolveWith(v)`, `.nextWith(v)`, `.failWith(err)`), or assert with
+`expect(spy.method).toHaveBeenCalledWith(...)`. Chains rooted at `expect(...)` are left alone, so
+chai's own form never trips it.
+
+`mustBeCalledWith` on its own gets a different message, because it is wrong in a different way: with
+nothing configured for the arguments it was given, it rejects **every** call — the matching one
+included.
 `Object.defineProperty` leaves no way back — nothing restores the original descriptor, so the patch
 leaks into the next file under `isolate: false`. An `expect()` inside `subscribe()` never runs if
 the stream stays silent, leaving a green test that asserted nothing.
@@ -649,6 +671,7 @@ that cannot be true.
 | `no-expect-in-subscribe`       | nothing — [4 of 4 forms green across 4 stream behaviours](/core/observable-assertions#measured-four-forms-against-four-streams)                                                                                                                                  |  green  |
 | `no-done-callback`             | nothing, when `done()` sits in a callback: the body returns `undefined`, the test ends, the assertion lands after it                                                                                                                                             |  green  |
 | `no-floating-assertion`        | zoneless: `Unhandled Rejection`, exit 1, no test named. Under zone.js: one of two rejections vanishes entirely                                                                                                                                                   |  green  |
+| `no-bare-called-with`          | nothing — the spy answers `undefined` for those arguments, which is what it did before, and the test that meant to assert a call asserts none                                                                                                                    |  green  |
 | `no-shared-module-level-mock`  | nothing — the fixture's own state crosses files under `isolate: false`                                                                                                                                                                                           |  green  |
 | `no-object-define-property`    | nothing in the file that patched; the **next** file reads the patched value                                                                                                                                                                                      |  green  |
 | `no-mocked-for-spy`            | `TS2322 … missing the following properties from type 'CartService': http, cache`                                                                                                                                                                                 | compile |

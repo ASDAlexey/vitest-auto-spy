@@ -62,6 +62,7 @@ const recommendedRules: Record<string, RuleSeverity> = {
   [`${PLUGIN_NAME}/no-mocked-for-spy`]: 'warn',
   [`${PLUGIN_NAME}/no-done-callback`]: 'error',
   [`${PLUGIN_NAME}/no-floating-assertion`]: 'error',
+  [`${PLUGIN_NAME}/no-bare-called-with`]: 'error',
   [`${PLUGIN_NAME}/no-overridden-provider`]: 'error',
   [`${PLUGIN_NAME}/no-inject-before-override`]: 'warn',
   [`${PLUGIN_NAME}/no-import-time-spread`]: 'error',

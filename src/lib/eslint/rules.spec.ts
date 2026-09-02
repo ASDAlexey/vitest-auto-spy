@@ -1000,6 +1000,35 @@ describe('no-done-callback', () => {
   });
 });
 
+/**
+ * The one name this library shares with the runner, and the reason it needs a rule.
+ *
+ * `spy.method.calledWith(x)` configures a stub; `expect(fn).to.have.been.calledWith(x)` — chai
+ * style, added in Vitest 4.1 for suites arriving from sinon — asserts. A migrating author writes
+ * the first meaning the second, and gets a green test that checks nothing.
+ */
+describe('no-bare-called-with', () => {
+  it('reports a chain nothing continues', () => {
+    expect(lint('cart.checkout.calledWith(1);', 'no-bare-called-with')).toEqual(['vitest-auto-spy/no-bare-called-with']);
+  });
+
+  it('says something different about `mustBeCalledWith`, which rejects the matching call too', () => {
+    expect(lint('cart.checkout.mustBeCalledWith(1);', 'no-bare-called-with')).toEqual(['vitest-auto-spy/no-bare-called-with']);
+  });
+
+  it('leaves a continued chain alone, whatever continues it', () => {
+    expect(lint('cart.checkout.calledWith(1).mockReturnValue(2);', 'no-bare-called-with')).toEqual([]);
+    expect(lint('cart.save.calledWith(1).resolveWith(2);', 'no-bare-called-with')).toEqual([]);
+    expect(lint('cart.checkout.calledWith(1).failWith(new Error("x"));', 'no-bare-called-with')).toEqual([]);
+    expect(lint('const configured = cart.checkout.calledWith(1);', 'no-bare-called-with')).toEqual([]);
+  });
+
+  it("leaves chai's assertion of the same name alone", () => {
+    expect(lint("expect(fn).to.have.been.calledWith('example');", 'no-bare-called-with')).toEqual([]);
+    expect(lint("expect(spy.method).to.have.been.calledWith('example');", 'no-bare-called-with')).toEqual([]);
+  });
+});
+
 describe('no-floating-assertion', () => {
   it('flags an assertion in a .then() nobody awaits', () => {
     expect(lint('testBed.compileComponents().then(() => { expect(spy).toHaveBeenCalled(); });', 'no-floating-assertion')).toEqual([

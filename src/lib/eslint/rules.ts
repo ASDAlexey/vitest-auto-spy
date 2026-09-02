@@ -76,8 +76,10 @@ import {
   buildsRunnerFnAtModuleScope,
   enclosingFunction,
   findProperty,
+  isCallExpression,
   isCallee,
   isIdentifier,
+  isMemberExpression,
   propertyName,
 } from './rule-types';
 import { type EsNamedCall, type SubscribeRepair, enclosingSubscribe, helperAssertions, repairFor } from './subscribe-repair';
@@ -532,6 +534,57 @@ const noFloatingAssertion = defineRule({
   }),
 });
 
+/**
+ * Whether a member chain is rooted at `expect(...)` — i.e. it is chai's assertion, not this
+ * library's stub.
+ *
+ * The two spell `calledWith` identically, and Vitest 4.1 made the collision common rather than
+ * theoretical by adding `expect(fn).to.have.been.calledWith(x)` for suites arriving from sinon.
+ * Reading the *root* of the chain is what separates them: an assertion always begins at a call to
+ * `expect`, a stub always begins at a spy.
+ */
+function rootsAtExpect(node: EsNode): boolean {
+  let current: EsNode = node;
+
+  for (;;) {
+    if (isMemberExpression(current)) {
+      current = current.object;
+    } else if (isCallExpression(current)) {
+      current = current.callee;
+    } else {
+      return isIdentifier(current) && current.name === 'expect';
+    }
+  }
+}
+
+/** `spy.method.calledWith(1);` as a statement of its own → a stub nobody configured, asserting nothing. */
+const noBareCalledWith = defineRule({
+  anchor: '-argument-matching',
+  description: 'Continue a calledWith / mustBeCalledWith chain — on its own it configures nothing and asserts nothing',
+  messages: {
+    noBareCalledWith:
+      'This is a stub, not an assertion: `calledWith(...)` on its own configures the method to answer `undefined` for these arguments and checks nothing, so the test passes whether or not the call ever happened. Continue the chain (`.mockReturnValue(v)`, `.resolveWith(v)`, `.nextWith(v)`, `.failWith(err)`), or assert with `expect(spy.method).toHaveBeenCalledWith(...)`.',
+    noBareMustBeCalledWith:
+      'On its own, `mustBeCalledWith(...)` rejects *every* call — the matching one included, since nothing was configured for it — so the failure it produces names the arguments it was given. Continue the chain (`.mockReturnValue(v)`, `.resolveWith(v)`, `.failWith(err)`), or assert with `expect(spy.method).toHaveBeenCalledWith(...)`.',
+  },
+  // One selector per chain rather than one alternation and a branch: the two say different things,
+  // and reading the name back off a node the selector already matched is a check that cannot fail.
+  create: (context) => ({
+    'ExpressionStatement > CallExpression[callee.property.name="calledWith"]': (node: EsCallExpression): void => {
+      // The chai assertion shares the name and is a bare statement by design — see `rootsAtExpect`.
+      if (!rootsAtExpect(node)) {
+        context.report({ node, messageId: 'noBareCalledWith' });
+      }
+    },
+    // No `rootsAtExpect` guard here, and that is not an oversight: chai's bundle has `calledWith`
+    // and nothing named `mustBeCalledWith`, so there is no assertion of this name to mistake a stub
+    // for. A guard would be a branch no input can take.
+    'ExpressionStatement > CallExpression[callee.property.name="mustBeCalledWith"]': (node: EsCallExpression): void => {
+      context.report({ node, messageId: 'noBareMustBeCalledWith' });
+    },
+  }),
+});
+
 /** `export const events = [...BaseEvents]` at module scope → a TypeError while the bundle loads. */
 const noImportTimeSpread = defineRule({
   anchor: '-a-double-more-than-one-spec-uses',
@@ -603,6 +656,7 @@ export const rules: Record<string, RuleModule> = {
   'prefer-as-spy': preferAsSpy,
   'no-done-callback': noDoneCallback,
   'no-floating-assertion': noFloatingAssertion,
+  'no-bare-called-with': noBareCalledWith,
   'no-overridden-provider': noOverriddenProvider,
   'no-inject-before-override': noInjectBeforeOverride,
   'no-import-time-spread': noImportTimeSpread,
