@@ -11,3 +11,6 @@ coverage/
 # a three-line pointer at `AGENTS.md`, there so an agent working in a fresh clone is not left with
 # nothing. A per-directory rule beats the global one, which is why this negation is here at all.
 !CLAUDE.md
+
+# Local working document — priority breakdown, not part of the published repo
+PRIORITIES.md
