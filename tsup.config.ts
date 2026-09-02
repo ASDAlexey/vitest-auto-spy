@@ -45,6 +45,9 @@ const CHUNKED_ENTRIES = [
   'src/node.ts',
   'src/rxjs.ts',
   'src/console.ts',
+  'src/jasmine.ts',
+  'src/jasmine-compat.ts',
+  'src/observer-spy.ts',
   'src/nestjs.ts',
   'src/react.ts',
   'src/vue.ts',
@@ -74,6 +77,10 @@ rmSync(OUT_DIR, { recursive: true, force: true });
  *                            "Observable spies require rxjs" failure.
  *   * `observable-support` — `registeredSupport`, registered by `vitest-auto-spy/rxjs` and read by
  *                            every other entry.
+ *   * `jasmine-support`    — `registeredSupport` for the `.and` / `.calls` layer, registered by
+ *                            `vitest-auto-spy/jasmine` (or `…/jasmine-compat`) and read by the spy
+ *                            factories every other entry uses. A second copy means a suite that
+ *                            called `enableJasmineCompat()` still gets spies without `.and`.
  *   * `package-identity`   — the duplicate-copy report.
  *   * `expect-emission`    — `defaultTimeoutMs`, which `setEmissionTimeout()` documents as
  *                            process-wide. The root entry and `/angular` both export the pair and
@@ -85,7 +92,7 @@ rmSync(OUT_DIR, { recursive: true, force: true });
  * makes the single-registry invariant structural instead of emergent — and it is what lets the
  * unsplit pass below exist at all, since a parallel pass cannot read another pass's chunk names.
  */
-const SHARED_STATE_MODULES = ['expect-emission', 'mock-adapter', 'observable-support', 'package-identity'] as const;
+const SHARED_STATE_MODULES = ['expect-emission', 'jasmine-support', 'mock-adapter', 'observable-support', 'package-identity'] as const;
 
 const SHARED_STATE_FILE = 'shared-state';
 

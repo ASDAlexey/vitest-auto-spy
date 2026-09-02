@@ -42,6 +42,7 @@
  */
 import { type EsPromiseExecutor, type EsSubscribeCall, awaitedRewriteFor } from './await-emission';
 import { bindingState, findBinding } from './bindings';
+import { defineRule } from './define-rule';
 import { isFloatingChain, isPromiseCallback } from './floating-assertion';
 import {
   countRunnerFns,
@@ -53,6 +54,7 @@ import {
 } from './hand-rolled-doubles';
 import { lazyValueSuggestion, runsAtImportTime, spreadOfImport } from './import-time-spread';
 import { type EsSpyCast, asSpyFixes, assertedValue, injectSpySuggestion, injectedFromVariable, isTestBedInject } from './injected-spy';
+import { jasmineRules } from './jasmine-rules';
 import { type EsMockedTypeName, namesOneType, rewritesTheWholeDeclaration, spyTypeFixes } from './mocked-declaration';
 import { OVERRIDE_MESSAGES, deleteProviderSuggestion, overriddenProviders } from './overridden-provider';
 import { patchKey, propHelperSuggestion } from './prop-helpers';
@@ -63,53 +65,24 @@ import {
   type EsFix,
   type EsFixer,
   type EsFunction,
+  type EsMemberExpression,
   type EsNode,
   type EsObjectExpression,
   type EsSpreadElement,
   type EsVariableDeclarator,
   type RuleContext,
-  type RuleListener,
   type RuleModule,
   type SuggestionDescriptor,
   buildsRunnerFnAtModuleScope,
   enclosingFunction,
   findProperty,
+  isCallee,
   isIdentifier,
   propertyName,
 } from './rule-types';
 import { type EsNamedCall, type SubscribeRepair, enclosingSubscribe, helperAssertions, repairFor } from './subscribe-repair';
 import { breaksAnOverride } from './testbed-order';
 import { emptyRegistrations, readCall, readProviders, unregisteredInjections } from './unregistered-spy';
-
-const README = 'https://github.com/ASDAlexey/vitest-auto-spy#how-to-mock';
-
-/** Build a rule, appending the recipe link to every message so the fix is one click away. */
-function defineRule(options: {
-  anchor: string;
-  description: string;
-  messages: Record<string, string>;
-  fixable?: true;
-  hasSuggestions?: true;
-  schema?: readonly object[];
-  create: (context: RuleContext) => RuleListener;
-}): RuleModule {
-  const url = `${README}${options.anchor}`;
-  const messages = Object.fromEntries(Object.entries(options.messages).map(([id, text]) => [id, `${text} Recipe: ${url}`]));
-
-  return {
-    meta: {
-      type: 'suggestion',
-      docs: { description: options.description, url },
-      messages,
-      schema: options.schema ?? [],
-      // Spread rather than assigned: ESLint reads the presence of these keys, and
-      // `exactOptionalPropertyTypes` will not let an absent one be spelled as `undefined`.
-      ...(options.fixable ? { fixable: 'code' as const } : {}),
-      ...(options.hasSuggestions ? { hasSuggestions: true } : {}),
-    },
-    create: options.create,
-  };
-}
 
 /** `{ provide: X, useValue: { a: vi.fn() } }` → `provideAutoSpy(X)`. */
 const preferProvideAutoSpy = defineRule({
@@ -481,6 +454,23 @@ const preferAsSpy = defineRule({
   }),
 });
 
+/**
+ * Whether `node` is the first parameter of a test callback this rule has already reported.
+ *
+ * Resolved through the scope manager rather than matched by name: `done` is what the parameter is
+ * called in nine files out of ten and in none of the tenth, and a `fail` method on anything else —
+ * a matcher bag, a domain object, an `AbortController` wrapper — is somebody's API.
+ */
+function isTestCallbackParameter(context: RuleContext, node: EsNode, callbacks: ReadonlySet<EsNode>): boolean {
+  if (!isIdentifier(node)) {
+    return false;
+  }
+
+  const binding = findBinding(context.sourceCode.getScope(node), node.name);
+
+  return Boolean(binding?.defs.some((definition) => definition.type === 'Parameter' && callbacks.has(definition.node)));
+}
+
 /** `it('x', (done) => …)` → `async` + an awaited assertion. */
 const noDoneCallback = defineRule({
   anchor: '-an-observable',
@@ -488,17 +478,32 @@ const noDoneCallback = defineRule({
   messages: {
     noDoneCallback:
       'Vitest passes a `TestContext` here, not a `done` callback: calling it throws `TestContext is not a function` inside a promise nobody awaits, so the test **passes** having run almost none of its body. Make the callback `async` and await the result (`firstValueFrom`, `expectEmission`), or destructure the context (`({ task })`) if that is what you meant.',
+    doneFail:
+      '`done.fail(…)` is jasmine’s failure channel, and the `TestContext` Vitest passes instead has no `fail` on it: this throws `done.fail is not a function` — and it throws where the line sits, which is almost always an `error` callback or a `.catch()`, i.e. inside a promise nobody awaits. The rejection is unhandled, the test body returned long ago, and the run is **green** on the exact path that was supposed to fail it. Assert on the failure instead: `await expect(firstValueFrom(source$)).rejects.toMatchObject({ status: 404 })`, or `expect.fail(message)` where the line is simply unreachable.',
   },
-  create: (context) => ({
-    'CallExpression[callee.name=/^(it|test|beforeAll|beforeEach|afterAll|afterEach)$/] > :matches(ArrowFunctionExpression, FunctionExpression)':
-      (node: EsFunction): void => {
-        // An identifier parameter, not a destructuring pattern: Vitest's own fixtures must be
-        // destructured, so a plain name here is a `done` carried over from Jest.
-        if (node.params[0]?.type === 'Identifier') {
-          context.report({ node: node.params[0], messageId: 'noDoneCallback' });
+  create: (context) => {
+    // The functions whose first parameter has already been reported. `done.fail(…)` is only this
+    // rule's business when `done` is one of those parameters — a `fail` method on anything else is
+    // somebody's API — and the parameter is visited before the body, so the set is complete by then.
+    const callbacks = new Set<EsNode>();
+
+    return {
+      'CallExpression[callee.name=/^(it|test|beforeAll|beforeEach|afterAll|afterEach)$/] > :matches(ArrowFunctionExpression, FunctionExpression)':
+        (node: EsFunction): void => {
+          // An identifier parameter, not a destructuring pattern: Vitest's own fixtures must be
+          // destructured, so a plain name here is a `done` carried over from Jest.
+          if (node.params[0]?.type === 'Identifier') {
+            callbacks.add(node);
+            context.report({ node: node.params[0], messageId: 'noDoneCallback' });
+          }
+        },
+      'MemberExpression[property.name="fail"]': (node: EsMemberExpression): void => {
+        if (isCallee(node) && isTestCallbackParameter(context, node.object, callbacks)) {
+          context.report({ node: node.parent, messageId: 'doneFail' });
         }
       },
-  }),
+    };
+  },
 });
 
 /** `p.then(() => expect(…))` as a statement of its own → `expect(await p)`. */
@@ -579,7 +584,14 @@ const noUnregisteredInjectSpy = defineRule({
   },
 });
 
-/** Every rule the plugin ships, keyed by the name used in an ESLint config. */
+/**
+ * Every rule the plugin ships, keyed by the name used in an ESLint config.
+ *
+ * The jasmine set is merged in rather than written out: those four are about a suite that has not
+ * finished arriving, they are configured differently (two of them are for a migration and one of
+ * them is off by default), and keeping them in their own module is what stops this file from
+ * growing a second half nobody reads.
+ */
 export const rules: Record<string, RuleModule> = {
   'prefer-provide-auto-spy': preferProvideAutoSpy,
   'prefer-create-spy-from-class': preferCreateSpyFromClass,
@@ -595,4 +607,5 @@ export const rules: Record<string, RuleModule> = {
   'no-inject-before-override': noInjectBeforeOverride,
   'no-import-time-spread': noImportTimeSpread,
   'no-unregistered-inject-spy': noUnregisteredInjectSpy,
+  ...jasmineRules,
 };

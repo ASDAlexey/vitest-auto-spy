@@ -12,8 +12,9 @@ into the component under test (props, context, or a mocked module) exactly the w
 receives the real one.
 
 ```ts
-import { createSpyFromClass } from 'vitest-auto-spy/svelte';
 import { render } from '@testing-library/svelte';
+import { createSpyFromClass } from 'vitest-auto-spy/svelte';
+
 import Cart from './Cart.svelte';
 import { CartStore } from './cart-store';
 

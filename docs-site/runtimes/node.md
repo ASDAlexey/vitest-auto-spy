@@ -8,7 +8,9 @@ description: Run vitest-auto-spy on Node's built-in test runner — a runnable e
 The `vitest-auto-spy/node` entry runs the same core on `node:test`'s `mock.fn()`.
 
 ```ts
-import { createSpyFromClass } from 'vitest-auto-spy/node'; // node:test
+import { createSpyFromClass } from 'vitest-auto-spy/node';
+
+// node:test
 ```
 
 The public API is identical to the Vitest entry. Importing the entry registers the `node:test`
@@ -59,13 +61,13 @@ node --test
 `node:test`'s mock is not Jest-compatible, and this is the one place that shows through. The
 auto-spy helpers hide it; reading the raw mock does not.
 
-| What you want            | Vitest / Bun                         | `node:test`                                        |
-| ------------------------ | ------------------------------------ | -------------------------------------------------- |
-| Recorded calls           | `spy.method.mock.calls[0]` → args    | `spy.method.mock.calls[0].arguments`                |
-| Replace the implementation | `spy.method.mockImplementation(fn)` | `spy.method.mock.mockImplementation(fn)`            |
-| Reset                    | `spy.method.mockReset()`             | `spy.method.mock.resetCalls()` / `restore()`        |
-| Return value             | `spy.method.mockReturnValue(v)`      | **absent** — see the note below                     |
-| Spy name in diagnostics  | set for you                          | `mock.fn()` has no name — names are absent          |
+| What you want              | Vitest / Bun                        | `node:test`                                  |
+| -------------------------- | ----------------------------------- | -------------------------------------------- |
+| Recorded calls             | `spy.method.mock.calls[0]` → args   | `spy.method.mock.calls[0].arguments`         |
+| Replace the implementation | `spy.method.mockImplementation(fn)` | `spy.method.mock.mockImplementation(fn)`     |
+| Reset                      | `spy.method.mockReset()`            | `spy.method.mock.resetCalls()` / `restore()` |
+| Return value               | `spy.method.mockReturnValue(v)`     | **absent** — see the note below              |
+| Spy name in diagnostics    | set for you                         | `mock.fn()` has no name — names are absent   |
 
 The last row is the one that bites: `spy.method.mockReturnValue('x')` is a **native** Vitest/Bun
 method, and `node:test` has none, so it is `undefined` here. The library's own
@@ -88,7 +90,7 @@ See [Control helpers → Inspecting promise outcomes](/core/control-helpers#sett
 
 `node:test` registers every `mock.fn()` in its module-level `MockTracker` and keeps the reference for
 the lifetime of the process. Dropping the spy does not free it; nothing the library does can, either
-— `clearAutoSpy()` / `resetAutoSpy()` revert a spy's *configuration*, not the runner's registry.
+— `clearAutoSpy()` / `resetAutoSpy()` revert a spy's _configuration_, not the runner's registry.
 
 Measured: 20 000 spies of a 10-method class created and dropped, then two forced collections, held
 **435.6 MB**. One `mock.reset()` brought the same measurement to 0.1 MB.

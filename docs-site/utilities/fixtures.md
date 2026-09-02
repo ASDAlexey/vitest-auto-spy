@@ -74,7 +74,7 @@ and under `isolate: false` that sharing reaches across files.
 
 The copy is deep through plain objects and arrays and stops there: a `Date`, a `Map`, a DOM node or a
 class instance is carried across by reference, because rebuilding one would strip its prototype —
-accessors included. When the defaults *are* a class instance with getters, snapshot it with
+accessors included. When the defaults _are_ a class instance with getters, snapshot it with
 [`withOverrides`](#withoverrides-model-overrides-a-model-whose-getters-survive) first and hand the
 result here.
 

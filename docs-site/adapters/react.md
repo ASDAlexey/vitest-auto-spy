@@ -6,11 +6,11 @@ description: Spy the classes a React app owns — services, stores, API clients 
 # React
 
 React has no DI container, so `vitest-auto-spy/react` ships **no** `provide*` helper — it is a
-*recipe*: spy the **classes** you own (services, stores, API clients, the deps you inject into
+_recipe_: spy the **classes** you own (services, stores, API clients, the deps you inject into
 hooks or hand to a Context provider), not the components themselves.
 
 ```ts
-import { createSpyFromClass, type Spy } from 'vitest-auto-spy/react';
+import { type Spy, createSpyFromClass } from 'vitest-auto-spy/react';
 ```
 
 The spy is a plain object of mocks, so you pass it straight into a `<Context.Provider value={spy}>`
@@ -82,8 +82,8 @@ import { renderHook, waitFor } from '@testing-library/react';
 import { expect, it } from 'vitest';
 import { createSpyFromClass } from 'vitest-auto-spy/react';
 
-import { UserApi } from './user-api';
 import { useUser } from './use-user';
+import { UserApi } from './user-api';
 
 it('exposes the loaded user', async () => {
   const api = createSpyFromClass(UserApi);

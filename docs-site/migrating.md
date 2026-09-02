@@ -19,6 +19,19 @@ is a **find-and-replace of the import**:
 The only API-shape change is that the Angular helpers and the observable layer live behind the
 `/angular` and `/rxjs` subpaths (see [Installation → Entry points](/core/installation)).
 
+::: tip Coming from `jasmine-auto-spies` instead?
+The two upstream packages are siblings over the same `@hirez_io/auto-spies-core`, so everything on
+this page applies — with one addition and one hazard. The addition: upstream parks its async helpers
+on `.and`, so `spy.load.and.nextWith(v)` is `spy.load.nextWith(v)` here, and
+[`vitest-auto-spy/jasmine`](/migrating-jasmine) puts `.and` back so the suite runs green before
+anything is rewritten. The hazard: jasmine's `spyOn` **stubs** where `vi.spyOn` **calls through**, so
+the rename is a silent behaviour inversion.
+
+**→ [Migrating from jasmine-auto-spies](/migrating-jasmine)** has the full mapping for both the
+auto-spies API and jasmine's own globals (`createSpyObj`, the asymmetric matchers, `clock()`,
+`withContext`, `DEFAULT_TIMEOUT_INTERVAL`, `fdescribe`/`xit`, `done` callbacks).
+:::
+
 ## Mapping table
 
 This also covers migrating from
@@ -192,10 +205,12 @@ the whitelist lives under its own name, `onlyMethodsToSpyOn`.
    npx vitest-auto-spy codemod --verify   # then check the result, not the diff
    ```
 
-   Seven transforms: the import split below, `TestBed.inject(X) as Spy<X>` → `asSpy<X>(…)`,
-   `@jest/globals` → `vitest`, the `jest.*` members that have a `vi.*` twin, the `jest.Mock<R, [A]>`
-   transposition [the type-names section](#the-type-names) is about, the jasmine aliases, and
-   `mockImplementation()` with no argument. Everything in
+   Seven transforms run on a Jest file: the import split below, `TestBed.inject(X) as Spy<X>` →
+   `asSpy<X>(…)`, `@jest/globals` → `vitest`, the `jest.*` members that have a `vi.*` twin, the
+   `jest.Mock<R, [A]>` transposition [the type-names section](#the-type-names) is about, the jasmine
+   aliases, and `mockImplementation()` with no argument. Six more exist for the
+   [jasmine dialect](/migrating-jasmine) and are selected per file by `--from`, which defaults to
+   `auto`; pass `--from jest-auto-spies` to pin it. Everything in
    [the table above that has no twin](#the-jest-calls-that-have-no-vi-twin) is left exactly as it
    was and named with a `path:line`, which is why the run exits 1 while having done its job — the
    remaining rows are decisions, not renames.
@@ -343,7 +358,7 @@ resulting `include` in full rather than a count — "fixed: 152" hides the case 
 produced two different wrong shapes, which is what happened on the first attempt at the repair.
 
 [`npx vitest-auto-spy codemod --verify`](/utilities/codemod#verifying-by-matching-not-by-diffing) is
-that check, built into the codemod above. Each of its seven transforms declares the pattern it is
+that check, built into the codemod above. Each of its thirteen transforms declares the pattern it is
 supposed to have removed; `--verify` transforms nothing and matches those patterns against the
 **result**, naming every survivor with a `file:line`. Two consequences fall out of matching rather
 than diffing, and neither is available to a check built on the diff: it answers the same way on a

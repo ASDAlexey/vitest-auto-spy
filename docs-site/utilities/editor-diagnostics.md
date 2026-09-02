@@ -1,6 +1,6 @@
 ---
 title: Editor diagnostics — WebStorm and VS Code
-description: Underline the vitest-auto-spy anti-patterns while the spec is being written — the fourteen shipped ESLint rules, shown natively by WebStorm and the other JetBrains IDEs, and by the ESLint extension in VS Code, Cursor and Windsurf.
+description: Underline the vitest-auto-spy anti-patterns while the spec is being written — the eighteen shipped ESLint rules, shown natively by WebStorm and the other JetBrains IDEs, and by the ESLint extension in VS Code, Cursor and Windsurf.
 ---
 
 # Editor diagnostics
@@ -11,7 +11,7 @@ cheap to fix while the cursor is still on the line and expensive to find afterwa
 one of them **passes**.
 
 There is one channel, and it is already in the package:
-[`vitest-auto-spy/eslint-plugin`](/utilities/eslint-plugin). Fourteen rules over a real syntax tree,
+[`vitest-auto-spy/eslint-plugin`](/utilities/eslint-plugin). Eighteen rules over a real syntax tree,
 with a fix or a suggestion where the rewrite is decidable — the same rules in the editor and in CI,
 so nothing passes locally and fails on the build. No editor needs a plugin of this package's own;
 it needs its ESLint integration switched on, which every IDE below has.
@@ -19,7 +19,7 @@ it needs its ESLint integration switched on, which every IDE below has.
 ## WebStorm and the other JetBrains IDEs
 
 WebStorm, IntelliJ IDEA Ultimate, PhpStorm, PyCharm Professional and RubyMine all run ESLint
-natively, so the rules light up **inline, with no plugin to install** — the same fourteen checks, in
+natively, so the rules light up **inline, with no plugin to install** — the same eighteen checks, in
 the editor, in the Problems tool window, and under **Code → Inspect Code** for the whole project.
 
 Install and configure once:
@@ -43,7 +43,7 @@ export default [
 Then in **Settings → Languages & Frameworks → JavaScript → Code Quality Tools → ESLint**, pick
 **Automatic ESLint configuration** — WebStorm finds `eslint.config.js` and the local `eslint`
 itself. Choose **Manual** only when the config lives outside the project root; there the fields that
-matter are *ESLint package* (`node_modules/eslint`) and *Configuration file*.
+matter are _ESLint package_ (`node_modules/eslint`) and _Configuration file_.
 
 Three things worth knowing, because each one looks like "the rules do not work":
 
@@ -52,7 +52,7 @@ Three things worth knowing, because each one looks like "the rules do not work":
   supports flat config from 2023.3; on an older build, upgrade the IDE rather than the config.
 - **Scope the block to spec files yourself.** `Object.defineProperty` and an object of `vi.fn()`s are
   perfectly reasonable in application code — every rule here is about test code.
-- **The quick fixes are ESLint's.** `⌥⏎` on a highlighted line offers *ESLint: Fix current file* and,
+- **The quick fixes are ESLint's.** `⌥⏎` on a highlighted line offers _ESLint: Fix current file_ and,
   where a rule ships a suggestion, the individual rewrite. `no-mocked-for-spy` and `prefer-as-spy`
   fix on their own — both touch a type, so the worst a wrong one can do is fail to compile. The rest
   suggest, because the replacement changes behaviour and should be read before it is accepted.
@@ -63,7 +63,7 @@ still hand-rolls its doubles" question actually needs.
 
 ::: tip A native JetBrains plugin is not planned
 A plugin in the JetBrains Marketplace would duplicate an integration the IDE already has, and would
-then have to keep a second copy of fourteen rules — in Kotlin — in step with the TypeScript ones.
+then have to keep a second copy of eighteen rules — in Kotlin — in step with the TypeScript ones.
 Where the ESLint route genuinely cannot reach (a repository with no ESLint at all), the honest fix
 is four lines of `eslint.config.js`, not a second implementation.
 :::
@@ -71,7 +71,7 @@ is four lines of `eslint.config.js`, not a second implementation.
 ## VS Code, Cursor, Windsurf, VSCodium
 
 Install the [ESLint extension](https://marketplace.visualstudio.com/items?itemName=dbaeumer.vscode-eslint)
-and the flat config above is enough: the same fourteen rules, inline and in the Problems panel.
+and the flat config above is enough: the same eighteen rules, inline and in the Problems panel.
 
 ```jsonc
 // .vscode/settings.json
@@ -82,7 +82,7 @@ and the flat config above is enough: the same fourteen rules, inline and in the 
   "editor.codeActionsOnSave": { "source.fixAll.eslint": "explicit" },
 
   // Flat config is the default from ESLint 9; this line only matters on an older ESLint.
-  "eslint.useFlatConfig": true
+  "eslint.useFlatConfig": true,
 }
 ```
 
@@ -91,20 +91,28 @@ Cursor, Windsurf and VSCodium install that ESLint extension from Open VSX and re
 
 ## What gets underlined
 
-| Shape                                                  | Why it is wrong                                                                        | Rule                          |
-| -------------------------------------------------------- | ---------------------------------------------------------------------------------------- | ------------------------------- |
-| `expect()` inside `subscribe()`                        | a silent stream never runs the callback — the test passes having asserted nothing       | `no-expect-in-subscribe`      |
-| `it('x', (done) => …)`                                 | Vitest passes a `TestContext`; the test passes having run almost none of its body       | `no-done-callback`            |
-| a `.then()` chain that asserts and is never awaited    | the assertion lands after the test has finished, where nothing fails                    | `no-floating-assertion`       |
-| `{ provide: X, useValue: { m: vi.fn() } }`             | `provideAutoSpy(X)` stays in step when the class grows a method                         | `prefer-provide-auto-spy`     |
-| an object of `vi.fn()`s standing in for a class        | `createSpyFromClass(X)` reads the prototype instead of a list that goes stale            | `prefer-create-spy-from-class` |
-| `TestBed.inject<X>()`, or a cast on the way out        | `injectSpy(X)` returns `Spy<X>` with no generic and no assertion                        | `prefer-inject-spy`           |
-| `vi.mocked()` over something that is already a spy     | `Mocked<T>` loses `calledWith`, `resolveWith` and `nextWith` — auto-fixed                | `no-mocked-for-spy`           |
-| `TestBed.inject(X) as Spy<X>`                          | the cast a `jest-auto-spies` suite carries everywhere stops compiling here — `asSpy(…)` makes the same claim without one, and is auto-fixed | `prefer-as-spy` |
-| `Object.defineProperty` in a spec                      | nothing records the undo — `mockReadonlyProp` / `mockValueProp` do                      | `no-object-define-property`   |
-| an exported module-level object of `vi.fn()`s          | under `isolate: false` every spec file shares one set of spies                          | `no-shared-module-level-mock` |
-| the same token provided twice in one array             | the second provider silently replaces the first                                          | `no-overridden-provider`      |
-| `TestBed.inject()` before an `override*` in the suite  | injecting instantiates the module, and every later override throws                       | `no-inject-before-override`   |
+| Shape                                                        | Why it is wrong                                                                                                                             | Rule                              |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------- |
+| `expect()` inside `subscribe()`                              | a silent stream never runs the callback — the test passes having asserted nothing                                                           | `no-expect-in-subscribe`          |
+| `it('x', (done) => …)`, and `done.fail(…)`                   | Vitest passes a `TestContext`; the test passes having run almost none of its body, and `done.fail` throws into a promise nobody awaits      | `no-done-callback`                |
+| a `.then()` chain that asserts and is never awaited          | the assertion lands after the test has finished, where nothing fails                                                                        | `no-floating-assertion`           |
+| `{ provide: X, useValue: { m: vi.fn() } }`                   | `provideAutoSpy(X)` stays in step when the class grows a method                                                                             | `prefer-provide-auto-spy`         |
+| an object of `vi.fn()`s standing in for a class              | `createSpyFromClass(X)` reads the prototype instead of a list that goes stale                                                               | `prefer-create-spy-from-class`    |
+| `TestBed.inject<X>()`, or a cast on the way out              | `injectSpy(X)` returns `Spy<X>` with no generic and no assertion                                                                            | `prefer-inject-spy`               |
+| `vi.mocked()` over something that is already a spy           | `Mocked<T>` loses `calledWith`, `resolveWith` and `nextWith` — auto-fixed                                                                   | `no-mocked-for-spy`               |
+| `TestBed.inject(X) as Spy<X>`                                | the cast a `jest-auto-spies` suite carries everywhere stops compiling here — `asSpy(…)` makes the same claim without one, and is auto-fixed | `prefer-as-spy`                   |
+| `Object.defineProperty` in a spec                            | nothing records the undo — `mockReadonlyProp` / `mockValueProp` do                                                                          | `no-object-define-property`       |
+| an exported module-level object of `vi.fn()`s                | under `isolate: false` every spec file shares one set of spies                                                                              | `no-shared-module-level-mock`     |
+| the same token provided twice in one array                   | the second provider silently replaces the first                                                                                             | `no-overridden-provider`          |
+| `TestBed.inject()` before an `override*` in the suite        | injecting instantiates the module, and every later override throws                                                                          | `no-inject-before-override`       |
+| `spyOn(o, 'm')`, `jasmine.*`, `fail(`, `.withContext(`       | jasmine's `spyOn` **stubs** and `vi.spyOn` **calls through**, so the rename inverts the behaviour silently; the rest are `ReferenceError`s  | `no-jasmine-globals`              |
+| `.and` / `.calls` / `.withArgs` with nothing installing them | the namespaces come from `vitest-auto-spy/jasmine` — without them the line reads `undefined`                                                | `jasmine-namespace-without-entry` |
+| `spy.calls.saveArgumentsByValue()`                           | a no-op here, so the spec quietly starts asserting on post-mutation state                                                                   | `no-save-arguments-by-value`      |
+
+The last three are for a suite [migrating off `jasmine-auto-spies`](/migrating-jasmine).
+`prefer-native-spy-api`, which finishes that migration under `--fix`, is `off` in the recommended
+config — it reports working code, so it is switched on for the last mile rather than left underlining
+a bridge that is still being crossed.
 
 Each message ends with a link to the README recipe that shows the replacement, so the rule never
 only says "don't". The full descriptions, severities and the reasoning behind which rules fix and

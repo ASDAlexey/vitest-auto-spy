@@ -15,8 +15,8 @@ import { readProfile } from '../profile';
 import type { Finding } from '../report';
 import { formatFindings, summarize } from '../report';
 import { ownPackageRoot } from '../self';
-import type { FileResult } from './codemod';
-import { TRANSFORMS, residueOf, runTransforms, selectTransforms } from './codemod';
+import type { FileResult, FromMode } from './codemod';
+import { FROM_ACCEPTED, TRANSFORMS, residueOf, resolveFrom, runTransforms, selectTransforms, transformsFor } from './codemod';
 import { unifiedDiff } from './diff';
 import type { EntryMap } from './entry-map';
 import { buildEntryMap, findPackageRoot } from './entry-map';
@@ -28,6 +28,8 @@ export interface CodemodOptions {
   readonly list: boolean;
   readonly only: string | undefined;
   readonly skip: string | undefined;
+  /** `--from`, as it was typed. Resolved here so an unknown value is one error message. */
+  readonly from: string | undefined;
   /** Repository-relative paths to restrict the run to. Empty means every spec file. */
   readonly paths: readonly string[];
 }
@@ -106,8 +108,8 @@ export function readAll(cwd: string, files: readonly string[]): [string, string]
   });
 }
 
-function verifyCommand(cwd: string, files: readonly string[], selected: readonly TransformSpec[], io: CliIo): number {
-  const findings = readAll(cwd, files).flatMap(([file, text]) => residueOf(file, text, selected));
+function verifyCommand(cwd: string, files: readonly string[], selected: readonly TransformSpec[], mode: FromMode, io: CliIo): number {
+  const findings = readAll(cwd, files).flatMap(([file, text]) => residueOf(file, text, transformsFor(mode, selected, text)));
 
   io.out(`${files.length} files matched against ${selected.length} transform patterns.\n`);
 
@@ -128,19 +130,23 @@ interface RunTotals {
   readonly findings: readonly Finding[];
 }
 
-function transformAll(
-  cwd: string,
-  files: readonly string[],
-  options: CodemodOptions,
-  selected: readonly TransformSpec[],
-  profileEntry: string,
-): RunTotals {
+interface RunPlan {
+  readonly options: CodemodOptions;
+  readonly selected: readonly TransformSpec[];
+  readonly mode: FromMode;
+  readonly profileEntry: string;
+}
+
+function transformAll(cwd: string, files: readonly string[], plan: RunPlan): RunTotals {
+  const { options, profileEntry } = plan;
   const entries = buildEntryMap(findPackageRoot(cwd, ownPackageRoot()));
-  const results = readAll(cwd, files).flatMap(([file, source]) =>
-    selected.some((transform) => transform.residue.test(source))
+  const results = readAll(cwd, files).flatMap(([file, source]) => {
+    const selected = transformsFor(plan.mode, plan.selected, source);
+
+    return selected.some((transform) => transform.residue.test(source))
       ? [runTransforms({ file, source, entries, preferredEntry: profileEntry, selected })]
-      : [],
-  );
+      : [];
+  });
   const touched = results.filter((result) => result.before !== result.after || result.notes.length > 0 || result.residue.length > 0);
 
   if (options.write) {
@@ -170,22 +176,32 @@ export function runCodemod(cwd: string, options: CodemodOptions, io: CliIo): num
     return 2;
   }
 
+  const mode = resolveFrom(options.from);
+
+  if (mode === undefined) {
+    io.err(`Unknown --from value: ${options.from}. Accepted values: ${FROM_ACCEPTED}.`);
+
+    return 2;
+  }
+
   const profile = readProfile(cwd);
   const files = selectFiles(profile.files, options.paths);
 
   io.out(`vitest-auto-spy codemod — ${cwd}`);
 
   if (options.list) {
-    io.out(listing(buildEntryMap(findPackageRoot(cwd, ownPackageRoot())), selected));
+    // `auto` decides per file, so the listing shows every transform it might reach; a named
+    // dialect narrows the table to what this run would actually apply.
+    io.out(listing(buildEntryMap(findPackageRoot(cwd, ownPackageRoot())), mode === 'auto' ? selected : transformsFor(mode, selected, '')));
 
     return 0;
   }
 
   if (options.verify) {
-    return verifyCommand(cwd, files, selected, io);
+    return verifyCommand(cwd, files, selected, mode, io);
   }
 
-  return report(transformAll(cwd, files, options, selected, profile.entry), options, io);
+  return report(transformAll(cwd, files, { options, selected, mode, profileEntry: profile.entry }), options, io);
 }
 
 function report(totals: RunTotals, options: CodemodOptions, io: CliIo): number {

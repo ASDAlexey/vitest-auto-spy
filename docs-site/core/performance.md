@@ -7,7 +7,7 @@ description: What each factory costs, which one to reach for, and why none of th
 
 Short version: **use `provideAutoSpy` on Angular and `createSpyFromClass` everywhere else, call it in
 `beforeEach`, and stop thinking about it.** The numbers below exist so that claim is checkable, and
-so the two settings that *do* cost something are named.
+so the two settings that _do_ cost something are named.
 
 ## Measured
 
@@ -16,14 +16,14 @@ times). The figures are the **`p75`** column: these cases allocate spy objects b
 thousand, so `hz` swings several-fold between runs as GC pauses land in different samples, while
 `p75` reproduces to the fourth decimal.
 
-| Operation | per call (p75) |
-| --- | ---: |
-| spy a 10-method class, call 2 methods — lazy (the default) | **5.4 µs** |
-| the same, eager (`lazySpies: false`) | 17.5 µs |
-| spy a 40-method class, call 3 methods — lazy | **10.3 µs** |
-| the same, eager | 68.6 µs |
-| `createAutoMock<Service>()` + 4 accesses | 7.8 µs |
-| `calledWith` dispatch, 3 configured calls | 0.5 µs |
+| Operation                                                  | per call (p75) |
+| ---------------------------------------------------------- | -------------: |
+| spy a 10-method class, call 2 methods — lazy (the default) |     **5.4 µs** |
+| the same, eager (`lazySpies: false`)                       |        17.5 µs |
+| spy a 40-method class, call 3 methods — lazy               |    **10.3 µs** |
+| the same, eager                                            |        68.6 µs |
+| `createAutoMock<Service>()` + 4 accesses                   |         7.8 µs |
+| `calledWith` dispatch, 3 configured calls                  |         0.5 µs |
 
 Lazy widens as the class does, and gives it back only when a single test really calls every method
 (10 methods, all 10: 20.7 µs lazy against 19.2 µs eager — a rounding error against the order of
@@ -50,10 +50,10 @@ tests walks its prototype once.
 The same benchmark shape, but holding the spies (2000 of them, a 40-method class, two methods
 touched per spy — a large spec file's worth):
 
-| | time | heap |
-| --- | ---: | ---: |
-| lazy (the default) | **22 ms** | **35.4 MB** |
-| eager (`lazySpies: false`) | 203 ms | 372.7 MB |
+|                            |      time |        heap |
+| -------------------------- | --------: | ----------: |
+| lazy (the default)         | **22 ms** | **35.4 MB** |
+| eager (`lazySpies: false`) |    203 ms |    372.7 MB |
 
 Nine times the speed and a tenth of the memory, because 38 of the 40 spies are never built. Each
 one that is skipped is a function, its argument map, and the promise/observable helper bundles
@@ -61,9 +61,9 @@ attached to it.
 
 The worst case for lazy is a test that really does call every method:
 
-| | time | heap |
-| --- | ---: | ---: |
-| lazy | 228 ms | 372.9 MB |
+|       |   time |     heap |
+| ----- | -----: | -------: |
+| lazy  | 228 ms | 372.9 MB |
 | eager | 216 ms | 372.4 MB |
 
 ### What a single spy costs
@@ -74,10 +74,10 @@ include two `calledWith` chains built with every spy, each an object plus an arg
 or not the spec ever called `calledWith`. They are now built on first use, which is nearly always
 never:
 
-| 2000 spies × 40 methods, all materialised | heap |
-| --- | ---: |
-| chains built eagerly (before) | 417.3 MB |
-| chains built on first use | **372.7 MB** |
+| 2000 spies × 40 methods, all materialised |         heap |
+| ----------------------------------------- | -----------: |
+| chains built eagerly (before)             |     417.3 MB |
+| chains built on first use                 | **372.7 MB** |
 
 That is ~560 B off every materialised spy, ~11% of the total, and it costs nothing when a spec does
 use `calledWith` — the chain is then built exactly as before. `resetAutoSpy()` drops the chains
@@ -96,12 +96,12 @@ a container.
 The badge says 6.2 kB min+gzip, and that is the whole core entry bundled together. What a consumer
 actually pays is less, because the package is side-effect-free per entry and every bundler shakes it:
 
-| Imported | min+gzip |
-| --- | ---: |
-| the whole core entry (what the badge measures) | 6.2 kB |
-| `createSpyFromClass` alone | **3.6 kB** |
-| `createSpyFromClass` + `createMock` | 3.6 kB |
-| the observer stubs alone | 1.4 kB |
+| Imported                                       |   min+gzip |
+| ---------------------------------------------- | ---------: |
+| the whole core entry (what the badge measures) |     6.2 kB |
+| `createSpyFromClass` alone                     | **3.6 kB** |
+| `createSpyFromClass` + `createMock`            |     3.6 kB |
+| the observer stubs alone                       |     1.4 kB |
 
 The framework adapters, rxjs layer, console spies and setup helpers live behind their own subpaths,
 so a project that never imports them never pays for them — and none of this reaches a production
@@ -118,11 +118,11 @@ spies require rxjs" — two bundles, two disconnected registries. CommonJS now s
 `vitest-auto-spy/eslint-plugin`. Folding `bun-angular` into the same ESM pass as everything else
 removed a second inlined copy of the core on top of that.
 
-| | Before | After |
-| --- | ---: | ---: |
-| `dist/` | 625 kB | **241 kB** |
-| published tarball | 187 kB | **108 kB** |
-| files in the package | 74 | **54** |
+|                      | Before |      After |
+| -------------------- | -----: | ---------: |
+| `dist/`              | 625 kB | **241 kB** |
+| published tarball    | 187 kB | **108 kB** |
+| files in the package |     74 |     **54** |
 
 ## Which Node version
 
@@ -132,25 +132,25 @@ underneath it, not about compatibility. Measured on one machine across six versi
 `p75` of ns/op, no runner inside the measurement), the repo's own 39-file suite through
 `vitest run` (best of three), and a cold `import('vitest-auto-spy/node')`.
 
-| Core operation (p75, ns/op) | 18 | 20 | 22 | 24 | 25 | 26 |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| `createSpyFromClass`, 10 methods | 1410 | 1433 | 1264 | 1323 | 1416 | **1285** |
-| lazy, 10 methods / 2 called | 3056 | 3578 | 3096 | 2869 | 2934 | **2852** |
-| eager, 10 methods / 2 called | 5180 | 4703 | 4222 | **3954** | 4073 | 4096 |
-| eager, 40 methods / 3 called | 20026 | 18145 | 17206 | **15635** | 16373 | 15945 |
-| lazy, 40 methods / all 40 called | 42028 | 43630 | 40384 | 34933 | 35748 | **34325** |
-| `createAutoMock<T>()` + 4 accesses | 2237 | 2489 | 2074 | **1756** | 1821 | 1782 |
+| Core operation (p75, ns/op)        |    18 |    20 |    22 |        24 |    25 |        26 |
+| ---------------------------------- | ----: | ----: | ----: | --------: | ----: | --------: |
+| `createSpyFromClass`, 10 methods   |  1410 |  1433 |  1264 |      1323 |  1416 |  **1285** |
+| lazy, 10 methods / 2 called        |  3056 |  3578 |  3096 |      2869 |  2934 |  **2852** |
+| eager, 10 methods / 2 called       |  5180 |  4703 |  4222 |  **3954** |  4073 |      4096 |
+| eager, 40 methods / 3 called       | 20026 | 18145 | 17206 | **15635** | 16373 |     15945 |
+| lazy, 40 methods / all 40 called   | 42028 | 43630 | 40384 |     34933 | 35748 | **34325** |
+| `createAutoMock<T>()` + 4 accesses |  2237 |  2489 |  2074 |  **1756** |  1821 |      1782 |
 
 The break is between 22 and 24 — V8 12.4 to 13.6 — and it is 9–15% on every case that allocates
 spies. 24, 25 and 26 are the same speed within noise; 20 is not an improvement on 18.
 
-| | 20 | 22 | 24 | 25 | 26 |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| the 39-file suite, `vitest run` | 3.75 s | 3.31 s | 2.67 s | 2.69 s | **2.54 s** |
-| cold `import('vitest-auto-spy/node')` | 10.2 ms | 11.8 ms | 4.9 ms | **4.3 ms** | 4.5 ms |
-| process startup | 9.9 ms | 10.8 ms | 7.9 ms | **7.4 ms** | 7.7 ms |
-| peak RSS of the suite | 2647 MB | **2565 MB** | 3599 MB | 3432 MB | 3019 MB |
-| RSS after the import | **40 MB** | 51 MB | 51 MB | 54 MB | 57 MB |
+|                                       |        20 |          22 |      24 |         25 |         26 |
+| ------------------------------------- | --------: | ----------: | ------: | ---------: | ---------: |
+| the 39-file suite, `vitest run`       |    3.75 s |      3.31 s |  2.67 s |     2.69 s | **2.54 s** |
+| cold `import('vitest-auto-spy/node')` |   10.2 ms |     11.8 ms |  4.9 ms | **4.3 ms** |     4.5 ms |
+| process startup                       |    9.9 ms |     10.8 ms |  7.9 ms | **7.4 ms** |     7.7 ms |
+| peak RSS of the suite                 |   2647 MB | **2565 MB** | 3599 MB |    3432 MB |    3019 MB |
+| RSS after the import                  | **40 MB** |       51 MB |   51 MB |      54 MB |      57 MB |
 
 Import cost more than halves at 24, which is per worker rather than per run — it is the one number
 that scales with how many files a suite spreads across.
@@ -180,14 +180,14 @@ honest way to do that — but it is no longer the GC it was measuring.
 
 ## What to reach for
 
-| Situation | Use | Why |
-| --- | --- | --- |
-| Angular dependency | `provideAutoSpy(Service)` | the DI provider, written for you |
-| A class, no Angular | `createSpyFromClass(Service)` | same factory, same lazy default |
-| No class at runtime — an interface, a type | `createAutoMock<T>()` | Proxy; materialises on access |
-| An ngrx `signalStore()` | `createAutoMock<T>()` | its members live on the instance, so there is no prototype to read |
-| A data shape the code only reads | `createMock<T>(partial)` | no spies at all — it is one checked assertion |
-| Nested object graph | `mockDeep<T>()` | auto-creates chainable spies down the tree |
+| Situation                                  | Use                           | Why                                                                |
+| ------------------------------------------ | ----------------------------- | ------------------------------------------------------------------ |
+| Angular dependency                         | `provideAutoSpy(Service)`     | the DI provider, written for you                                   |
+| A class, no Angular                        | `createSpyFromClass(Service)` | same factory, same lazy default                                    |
+| No class at runtime — an interface, a type | `createAutoMock<T>()`         | Proxy; materialises on access                                      |
+| An ngrx `signalStore()`                    | `createAutoMock<T>()`         | its members live on the instance, so there is no prototype to read |
+| A data shape the code only reads           | `createMock<T>(partial)`      | no spies at all — it is one checked assertion                      |
+| Nested object graph                        | `mockDeep<T>()`               | auto-creates chainable spies down the tree                         |
 
 ## The two settings that cost
 
@@ -225,10 +225,10 @@ of a real component-heavy spec.
 The default run gives each file its own environment. A shared one — `isolate: false` plus
 `fileParallelism: false` — pays for jsdom and the zoneless `TestBed` once for the whole run:
 
-| Suite | Default run | Shared environment | Change |
-| --- | ---: | ---: | ---: |
-| 100 files | 1.78 s | **1.12 s** | −37% |
-| 400 files | 4.90 s | **2.54 s** | −48% |
+| Suite     | Default run | Shared environment | Change |
+| --------- | ----------: | -----------------: | -----: |
+| 100 files |      1.78 s |         **1.12 s** |   −37% |
+| 400 files |      4.90 s |         **2.54 s** |   −48% |
 
 Three runs per cell, spread under ±0.03 s. The saving is per file, so it grows with the suite: the
 400-file run saves twice what the 100-file run saves.
@@ -238,7 +238,7 @@ Two things that measurement corrects, both worth knowing before you copy a confi
 - **`fileParallelism: false` is the lever, not `isolate: false`.** Flipping `isolate` alone, with the
   default pool, measured 1.76 s against the default's 1.78 s — inside the noise. What collapses the
   per-file cost is landing every file in one worker (`fileParallelism: false` forces `maxWorkers` to
-  1). `isolate: false` is what makes running that way *safe to leave on*, which is the whole reason
+  1). `isolate: false` is what makes running that way _safe to leave on_, which is the whole reason
   [`setupAutoSpy()`](../utilities/setup) exists — it is not itself the speed-up.
 - **`poolOptions: { threads: { singleThread: true } }` does nothing on Vitest 4.** `test.poolOptions`
   was removed; Vitest logs `was removed in Vitest 4` and ignores it. The top-level
@@ -260,11 +260,11 @@ the real `TestBed` without its children and without its template. Per render, on
 two `@for` tables whose row count is varied:
 
 | Child instances | `TestBed.createComponent` | `renderShallow` | Ratio |
-| ---: | ---: | ---: | ---: |
-| 0 | 0.65 ms | 0.55 ms | 1.2× |
-| 10 | 1.00 ms | 0.55 ms | 1.8× |
-| 100 | 2.72 ms | **0.48 ms** | 5.7× |
-| 400 | 8.52 ms | **0.53 ms** | 16.2× |
+| --------------: | ------------------------: | --------------: | ----: |
+|               0 |                   0.65 ms |         0.55 ms |  1.2× |
+|              10 |                   1.00 ms |         0.55 ms |  1.8× |
+|             100 |                   2.72 ms |     **0.48 ms** |  5.7× |
+|             400 |                   8.52 ms |     **0.53 ms** | 16.2× |
 
 The shape is the point: `renderShallow` is flat at ~0.5 ms because it never builds the subtree, while
 `createComponent` scales linearly with it. So the win is not a fixed percentage — it is however much
@@ -282,10 +282,10 @@ template, and the table above reads as if that meant paying for the whole tree a
 whether or not the template is kept, so with `keepTemplate: true` the template renders while every
 child in it resolves to nothing under `NO_ERRORS_SCHEMA`:
 
-| | per render |
-| --- | ---: |
-| the full `TestBed.createComponent` cycle | 1.933 ms |
-| `renderShallow({ keepTemplate: true })` | **1.074 ms** — 1.8× |
+|                                          |          per render |
+| ---------------------------------------- | ------------------: |
+| the full `TestBed.createComponent` cycle |            1.933 ms |
+| `renderShallow({ keepTemplate: true })`  | **1.074 ms** — 1.8× |
 
 So there are three rungs, not two: the full cycle, the component's own template with an empty
 subtree, and no template at all. Reach for the middle one when the spec reads something the template

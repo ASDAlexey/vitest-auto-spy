@@ -53,5 +53,10 @@ export function installDisposeSymbol(host: object): symbol {
  *
  * Read it instead of `Symbol.dispose` in library code: the constant is what forces this module — and
  * with it the install above — to load before the first double is built.
+ *
+ * Typed as the well-known symbol rather than as a plain `symbol` so it can key a class member —
+ * TypeScript accepts a computed member name only from a literal or `unique symbol` type, and
+ * {@link ObserverSpy} declares its `[DISPOSE]()` that way.
  */
-export const DISPOSE: symbol = installDisposeSymbol(Symbol);
+// eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- `installDisposeSymbol` takes any host, so it can only promise `symbol`; called on the global `Symbol` it returns that realm's own `Symbol.dispose`, or the registered shim standing in for it. The `unique symbol` type is what lets the constant key a class member — see {@link DISPOSE}.
+export const DISPOSE: typeof Symbol.dispose = installDisposeSymbol(Symbol) as typeof Symbol.dispose;

@@ -89,6 +89,7 @@ function memberOutput(context: TransformContext, match: Match, name: string): Tr
 /** `jest.fn` → `vi.fn`, and a report for every member where that rename would be a lie. */
 export const jestNamespace: TransformSpec = {
   id: 'jest-namespace',
+  family: 'jest',
   summary: 'jest.<member> → vi.<member>, reporting the members with no vi twin instead of renaming them.',
   residue: /\bjest\s*\./,
   run: (context) =>
@@ -198,6 +199,7 @@ function unreadableTypeArguments(context: TransformContext, index: number, name:
  */
 export const jestTypes: TransformSpec = {
   id: 'jest-types',
+  family: 'jest',
   summary:
     'jest.Mock<R, [A]> → Mock<(a: A) => R>, jest.SpyInstance → MockInstance the same way, and the four plain type renames, importing the Vitest name.',
   residue: /\bjest\s*\.\s*(?:Mock|MockedClass|MockedFunction|MockedObject|Mocked|SpyInstance)\b/,
@@ -222,6 +224,7 @@ const NO_ARGUMENT = /\.\s*(mockImplementation(?:Once)?)\s*\(\s*\)/g;
  */
 export const mockImplementationArity: TransformSpec = {
   id: 'mock-implementation-arity',
+  family: 'shared',
   summary: 'mockImplementation() with no argument → mockImplementation(() => undefined).',
   residue: /\.\s*mockImplementation(?:Once)?\s*\(\s*\)/,
   run: (context) => ({
@@ -242,6 +245,7 @@ export const mockImplementationArity: TransformSpec = {
  */
 export const jasmineAliases: TransformSpec = {
   id: 'jasmine-aliases',
+  family: 'shared',
   summary: 'xit / xdescribe / fit / fdescribe → it.skip / describe.skip / it.only / describe.only.',
   residue: /(?:^|[^\w$.])(?:fdescribe|fit|xdescribe|xit|xtest)\s*\(/,
   run: (context) => ({
@@ -266,6 +270,7 @@ const JEST_GLOBALS = '@jest/globals';
  */
 export const jestGlobalsImport: TransformSpec = {
   id: 'jest-globals-import',
+  family: 'jest',
   summary: "import … from '@jest/globals' → from 'vitest', with the jest binding renamed to vi.",
   residue: /["']@jest\/globals["']/,
   run: (context) => ({

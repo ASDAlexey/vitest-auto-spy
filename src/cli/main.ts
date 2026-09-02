@@ -91,6 +91,7 @@ function codemodCommand(cwd: string, argv: readonly string[], io: CliIo): number
       list: flagEnabled(args, 'list'),
       only: flagValue(args, 'only'),
       skip: flagValue(args, 'skip'),
+      from: flagValue(args, 'from'),
       paths: args.positionals,
     },
     io,

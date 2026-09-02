@@ -10,13 +10,10 @@ The `vitest-auto-spy/nestjs` entry ships a `{ provide, useValue }` provider tail
 the resulting `TestingModule`.
 
 ```ts
-import { provideAutoSpy, injectSpy } from 'vitest-auto-spy/nestjs';
+import { injectSpy, provideAutoSpy } from 'vitest-auto-spy/nestjs';
 
 const moduleRef = await Test.createTestingModule({
-  providers: [
-    provideAutoSpy(MyService),
-    provideAutoSpy(ApiService, { onlyMethodsToSpyOn: ['get', 'post'] }),
-  ],
+  providers: [provideAutoSpy(MyService), provideAutoSpy(ApiService, { onlyMethodsToSpyOn: ['get', 'post'] })],
 }).compile();
 
 const myService = injectSpy(moduleRef, MyService);

@@ -10,7 +10,10 @@
 import type { Finding } from '../report';
 import type { Edit, ImportNeed, TransformOutput } from './edits';
 import { EMPTY_OUTPUT, note } from './edits';
-import { entryFor } from './entry-map';
+import type { FileHint } from './entry-hint';
+import { hintFor } from './entry-hint';
+import type { EntryMap } from './entry-map';
+import { chooseEntry, entryFor } from './entry-map';
 import type { ImportStatement } from './imports';
 import { listImports } from './imports';
 import { LEGACY_PACKAGES } from './jest-api';
@@ -57,6 +60,26 @@ function statementFor(entry: string, typeOnly: boolean, specifiers: readonly Spe
   return `import ${typeOnly ? 'type ' : ''}{ ${specifiers.map((one) => one.raw).join(', ')} } from '${entry}';`;
 }
 
+/**
+ * Several entries export the name and nothing decided which — so one was picked and said so.
+ *
+ * Kept separate from {@link unresolvedNote} because the two used to be the same message, and it was
+ * false: "no entry point exports `provideAutoSpy`" is the opposite of the truth, which is that five
+ * of them do. A reader who believed it went looking for a renamed helper that was never renamed.
+ */
+function ambiguousNote(context: TransformContext, statement: ImportStatement, guess: Guess): Finding {
+  const others = guess.candidates.filter((candidate) => candidate !== guess.entry).map((candidate) => `'${candidate}'`);
+
+  return note({
+    check: 'ambiguous-entry-point',
+    severity: 'warning',
+    file: context.file,
+    line: lineOf(context.source, statement.start),
+    message: `${guess.candidates.length} entry points of the installed ${ROOT} export \`${guess.name}\`, and nothing in this file says which one this spec wants.`,
+    fix: `Placed on '${guess.entry}', the common case for a suite migrating off '${statement.specifier}'. The others are ${others.join(', ')} — importing the wrong entry leaves the wrong mock adapter registered, so change the specifier by hand if this spec is one of those.`,
+  });
+}
+
 function unresolvedNote(context: TransformContext, statement: ImportStatement, names: readonly string[]): Finding {
   return note({
     check: 'unmapped-legacy-export',
@@ -68,47 +91,73 @@ function unresolvedNote(context: TransformContext, statement: ImportStatement, n
   });
 }
 
-function splitOne(context: TransformContext, statement: ImportStatement, braces: Range): TransformOutput {
+/** A name several entries export that nothing in the file decided — placed, and reported. */
+interface Guess {
+  readonly name: string;
+  readonly entry: string;
+  readonly candidates: readonly string[];
+}
+
+/** One clause, sorted into the entries it goes to, the names nothing exports, and the coin tosses. */
+interface Split {
+  readonly groups: ReadonlyMap<string, Specifier[]>;
+  readonly unresolved: readonly Specifier[];
+  readonly guessed: readonly Guess[];
+}
+
+function partition(entries: EntryMap, specifiers: readonly Specifier[], preferred: string, hint: FileHint): Split {
+  const groups = new Map<string, Specifier[]>();
+  const unresolved: Specifier[] = [];
+  const guessed: Guess[] = [];
+
+  for (const specifier of specifiers) {
+    const choice = chooseEntry(entries, specifier.imported, preferred, hint);
+
+    if (choice.kind === 'absent') {
+      unresolved.push(specifier);
+
+      continue;
+    }
+
+    groups.set(choice.entry, [...(groups.get(choice.entry) ?? []), specifier]);
+
+    if (choice.kind === 'guessed') {
+      guessed.push({ name: specifier.imported, entry: choice.entry, candidates: choice.candidates });
+    }
+  }
+
+  return { groups, unresolved, guessed };
+}
+
+function splitOne(context: TransformContext, statement: ImportStatement, braces: Range, hint: FileHint): TransformOutput {
   const { entries } = context;
 
   if (entries === undefined) {
     return { ...EMPTY_OUTPUT, notes: [undecidableSplit(context, statement, true)] };
   }
 
-  const groups = new Map<string, Specifier[]>();
-  const unresolved: Specifier[] = [];
-
-  for (const specifier of parseSpecifiers(context.source, braces)) {
-    const entry = entryFor(entries, specifier.imported, context.preferredEntry);
-
-    if (entry === undefined) {
-      unresolved.push(specifier);
-    } else {
-      groups.set(entry, [...(groups.get(entry) ?? []), specifier]);
-    }
-  }
-
-  return rewrite(context, statement, groups, unresolved);
+  return rewrite(context, statement, partition(entries, parseSpecifiers(context.source, braces), context.preferredEntry, hint));
 }
 
-function rewrite(
-  context: TransformContext,
-  statement: ImportStatement,
-  groups: ReadonlyMap<string, Specifier[]>,
-  unresolved: readonly Specifier[],
-): TransformOutput {
-  const lines = ordered(groups).map(([entry, specifiers]) => statementFor(entry, statement.typeOnly, specifiers));
-  const kept = unresolved.length === 0 ? [] : [statementFor(statement.specifier, statement.typeOnly, unresolved)];
-  const notes =
-    unresolved.length === 0
+function notesFor(context: TransformContext, statement: ImportStatement, split: Split): Finding[] {
+  const missing =
+    split.unresolved.length === 0
       ? []
       : [
           unresolvedNote(
             context,
             statement,
-            unresolved.map((one) => one.imported),
+            split.unresolved.map((one) => one.imported),
           ),
         ];
+
+  return [...missing, ...split.guessed.map((guess) => ambiguousNote(context, statement, guess))];
+}
+
+function rewrite(context: TransformContext, statement: ImportStatement, split: Split): TransformOutput {
+  const lines = ordered(split.groups).map(([entry, specifiers]) => statementFor(entry, statement.typeOnly, specifiers));
+  const kept = split.unresolved.length === 0 ? [] : [statementFor(statement.specifier, statement.typeOnly, split.unresolved)];
+  const notes = notesFor(context, statement, split);
 
   if (lines.length === 0) {
     return { ...EMPTY_OUTPUT, notes };
@@ -144,18 +193,27 @@ function undecidableSplit(context: TransformContext, statement: ImportStatement,
  * repository has, so it is right for that version and not for the one this file was written
  * against. A name no entry exports is left where it is and reported — never moved to a plausible
  * guess, which is the one outcome that would still compile and mean something else.
+ *
+ * A name *several* entries export is a different case and gets a different answer. It used to be
+ * folded into the first one and reported as "no entry point exports it", which was false for 23
+ * names — `provideAutoSpy`, `injectSpy`, `renderShallow` and the rest of the Angular surface — and
+ * left every migrated file still importing the legacy package. Now the file decides where it can
+ * (an entry it already imports from, the framework its own text names) and a named fallback with a
+ * warning decides where it cannot.
  */
 export const autoSpiesImport: TransformSpec = {
   id: 'auto-spies-import',
-  summary: `import … from 'jest-auto-spies' → the ${ROOT} entry points that export each name.`,
-  residue: /from\s*["'](?:@bugsplat\/vitest-auto-spies|jest-auto-spies)["']/,
+  family: 'shared',
+  summary: `import … from 'jest-auto-spies' / 'jasmine-auto-spies' → the ${ROOT} entry points that export each name.`,
+  residue: /from\s*["'](?:@bugsplat\/vitest-auto-spies|j(?:asmine|est)-auto-spies)["']/,
   run: (context) => {
+    const hint = hintFor(context);
     const outputs = listImports(context.source, context.masked)
       .filter((statement) => LEGACY_PACKAGES.includes(statement.specifier))
       .map((statement) =>
         statement.braces === undefined
           ? { ...EMPTY_OUTPUT, notes: [undecidableSplit(context, statement, false)] }
-          : splitOne(context, statement, statement.braces),
+          : splitOne(context, statement, statement.braces, hint),
       );
 
     return {
@@ -233,6 +291,7 @@ function missingHelperNote(context: TransformContext): Finding {
  */
 export const injectCast: TransformSpec = {
   id: 'inject-cast',
+  family: 'shared',
   summary: 'TestBed.inject(X) as Spy<X> → asSpy<X>(TestBed.inject(X)), adding the import.',
   residue: /\bas\s+Spy\s*</,
   run: (context) => {

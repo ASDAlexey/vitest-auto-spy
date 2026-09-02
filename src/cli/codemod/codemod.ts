@@ -12,8 +12,10 @@ import { applyEdits, mergeOutputs, note } from './edits';
 import type { EntryMap } from './entry-map';
 import { applyImportPlan, listImports } from './imports';
 import { lineOf, maskCode, maskComments } from './mask';
-import type { Match, TransformContext, TransformSpec } from './transform-context';
+import type { Match, TransformContext, TransformFamily, TransformSpec } from './transform-context';
 import { scan } from './transform-context';
+import { jasmineAndHelpers, jasmineSpyOn, jasmineStrategies } from './transforms-jasmine';
+import { jasmineGlobals, jasmineMatchers, jasmineTypes } from './transforms-jasmine-globals';
 import { jasmineAliases, jestGlobalsImport, jestNamespace, jestTypes, mockImplementationArity } from './transforms-jest';
 import { autoSpiesImport, injectCast } from './transforms-spies';
 
@@ -25,6 +27,12 @@ export const TRANSFORMS: readonly TransformSpec[] = [
   jestTypes,
   jasmineAliases,
   mockImplementationArity,
+  jasmineAndHelpers,
+  jasmineStrategies,
+  jasmineSpyOn,
+  jasmineGlobals,
+  jasmineTypes,
+  jasmineMatchers,
 ];
 
 export interface FileResult {
@@ -118,7 +126,7 @@ export function runTransforms(input: RunInput): FileResult {
   };
 }
 
-const RELEVANT = /^(?:@jest\/globals|jest-auto-spies|vitest)|^@bugsplat\/vitest-auto-spies|^vitest-auto-spy/;
+const RELEVANT = /^(?:@jest\/globals|j(?:asmine|est)-auto-spies|vitest)|^@bugsplat\/vitest-auto-spies|^vitest-auto-spy/;
 
 /**
  * The resulting imports, in full rather than as a count. `migrating.md` makes the argument on the
@@ -143,6 +151,60 @@ export function selectTransforms(only: string | undefined, skip: string | undefi
   const unwanted = split(skip);
 
   return TRANSFORMS.filter((transform) => (wanted.length === 0 || wanted.includes(transform.id)) && !unwanted.includes(transform.id));
+}
+
+/** Which dialect a run migrates from. `auto` decides it per file. */
+export type FromMode = 'auto' | 'jasmine' | 'jest';
+
+/** What `--from` accepts. `jasmine` is the alias, because nobody types the package name twice. */
+const FROM_VALUES: Readonly<Record<string, FromMode>> = {
+  auto: 'auto',
+  jasmine: 'jasmine',
+  'jasmine-auto-spies': 'jasmine',
+  'jest-auto-spies': 'jest',
+};
+
+export const FROM_ACCEPTED = 'auto, jasmine-auto-spies (alias: jasmine), jest-auto-spies';
+
+/**
+ * `--from`, resolved. `undefined` means the value is not one of {@link FROM_ACCEPTED}, and the
+ * caller prints that rather than falling back — a misspelled dialect that silently ran the other
+ * one is a migration that looks finished and is not.
+ *
+ * It answers `FromMode | undefined` rather than `FromMode | string` because `FromMode` *is* a union
+ * of strings: the two would collapse into `string` and the error branch would stop being a type.
+ */
+export function resolveFrom(value: string | undefined): FromMode | undefined {
+  return value === undefined ? 'auto' : FROM_VALUES[value];
+}
+
+/**
+ * What makes a file jasmine's, under `--from auto`.
+ *
+ * Read against the residue view, so an import specifier is visible and an ordinary string is not.
+ * Three markers, and each of them is a thing only a jasmine suite has: the legacy import, the
+ * compatibility entry that replaces it, and the `jasmine` global itself — plus `.and.`, which is
+ * the namespace both jasmine's strategies and `jasmine-auto-spies`' helpers live behind and which
+ * has no meaning at all on a Jest double.
+ *
+ * A bare `spyOn(` is deliberately **not** a marker. It is the one construct both dialects spell the
+ * same way and give opposite defaults to, so guessing which one a file meant is exactly the silent
+ * behaviour inversion `jasmine-spy-on` exists to avoid. A suite that has nothing but `spyOn` needs
+ * `--from jasmine` said out loud.
+ */
+const JASMINE_MARKER = /\bjasmine\s*\.|\.\s*and\s*\.|from\s*["'](?:jasmine-auto-spies|vitest-auto-spy\/jasmine)["']/;
+
+/** The transforms `--from` leaves in play for one file. */
+export function transformsFor(mode: FromMode, selected: readonly TransformSpec[], source: string): TransformSpec[] {
+  if (mode === 'auto') {
+    return JASMINE_MARKER.test(maskComments(source)) ? [...selected] : without(selected, 'jasmine');
+  }
+
+  return without(selected, mode === 'jasmine' ? 'jest' : 'jasmine');
+}
+
+function without(selected: readonly TransformSpec[], family: TransformFamily): TransformSpec[] {
+  return selected.filter((transform) => transform.family !== family);
 }
 
 function split(value: string | undefined): string[] {

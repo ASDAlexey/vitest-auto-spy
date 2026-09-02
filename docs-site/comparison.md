@@ -57,7 +57,7 @@ corrections to claims this page used to make, and to claims still made elsewhere
   20 deprecated and no longer installs, so a fresh Angular 22 workspace errors. The
   [`@openng/spectator`](https://www.npmjs.com/package/@openng/spectator) fork
   ([openng-org/spectator](https://github.com/openng-org/spectator), 1.0.1, 2026-07-10) is
-  byte-identical plus an Angular 22 build, at 18 092 downloads — 2.3% of the original.
+  a straight continuation fork with an Angular 22 build, at 18 092 downloads — 2.3% of the original.
 
 ## The live field
 
@@ -70,6 +70,7 @@ The competition that is actually shipping, with the same window's downloads:
 | [vitest-mock-extended](https://www.npmjs.com/package/vitest-mock-extended)         | 5.1.1, 2026-08-02   | 5 443 915    | [eratio08/vitest-mock-extended](https://github.com/eratio08/vitest-mock-extended)                     | the same, ported to Vitest                                                  |
 | [ng-mocks](https://www.npmjs.com/package/ng-mocks)                                 | 14.17.3, 2026-08-24 | 2 502 024    | [help-me-mom/ng-mocks](https://github.com/help-me-mom/ng-mocks)                                       | healthy; mocks an Angular **declaration graph**, not one class              |
 | [@testing-library/angular](https://www.npmjs.com/package/@testing-library/angular) | 19.4.2, 2026-08-07  | 1 020 821    | [testing-library/angular-testing-library](https://github.com/testing-library/angular-testing-library) | rendering-first, but `/vitest-utils` ships a `createMock` of its own        |
+| [vitest-when](https://www.npmjs.com/package/vitest-when)                           | 0.10.0, 2025-11-11  | 702 637      | [mcous/vitest-when](https://github.com/mcous/vitest-when)                                             | `when(mock).calledWith(…).thenReturn(…)` for mocks you already have         |
 | [@suites/unit](https://www.npmjs.com/package/@suites/unit)                         | 3.1.1, 2026-05-08   | 473 130      | [suites-dev/suites](https://github.com/suites-dev/suites)                                             | DI-driven unit builder, recommended by the NestJS docs                      |
 | [@golevelup/ts-vitest](https://www.npmjs.com/package/@golevelup/ts-vitest)         | 4.0.0, 2026-03-18   | 353 803      | [golevelup/nestjs](https://github.com/golevelup/nestjs)                                               | `createMock<T>()` deep Proxy, the Nest community default                    |
 | [Vitest's own `vi`](https://vitest.dev/api/vi)                                     | Vitest 4            | —            | [vitest-dev/vitest](https://github.com/vitest-dev/vitest)                                             | `vi.fn` / `vi.spyOn` / `vi.mockObject` — increasingly the default answer    |
@@ -99,7 +100,10 @@ Two cells worth expanding, both read out of the published tarballs on 2026-08-30
 
 - **ng-mocks returns `T`.** `index.d.ts:1473` declares `MockService<T>(service: AnyType<T>,
 spyNamePrefix?: string): T` — the double is typed as the real service, so `.mockReturnValue(…)`
-  does not compile and their own e2e specs launder it through `vi.mocked(...)` to get it back.
+  does not compile and their own e2e specs launder it through `vi.mocked(...)` to get it back. This
+  is a typing gap, not a runtime one: since 14.17.0 (2026-08-10) `ngMocks.autoSpy('vitest')` makes
+  every mocked method a real `vi.fn()`, and a dedicated `e2e/vitest` project exercises it on CI. The
+  methods are spies; the type just will not admit it.
 - **`@testing-library/angular`'s `Mock<T>` over-promises.** Its type is
   `T & { [K in keyof T]: T[K] & Mock }` — _every_ member is typed callable — while the runtime
   factory assigns a `vi.fn()` only where `typeof descriptor.value === 'function'`. A data property
@@ -107,6 +111,22 @@ spyNamePrefix?: string): T` — the double is typed as the real service, so `.mo
 
 `vitest-mock-extended` and `jest-mock-extended` share the `*-mock-extended` column: same API, same
 `ts-essentials` deep-Proxy core, different runner.
+
+**`vitest-when` is the direct competitor for `calledWith`, and only for that.** 702 637 downloads in
+the same window against a two-function API: `when(mock).calledWith(args).thenReturn(v)`, plus
+`thenResolve`, `thenReject`, `thenThrow`, `thenDo`, a `debug()` helper and `{ ignoreExtraArgs, times }`.
+Argument matching is deep equality through `@vitest/expect`'s `equals`, so Vitest's asymmetric matchers
+work inside it — the same semantics as `calledWith` here.
+
+It starts one step later. `when()` stubs a mock you already have; it never produces one. There is no
+class reading, no type-only mocking, no getter spies, no return-type-aware promise or observable
+helpers, no Angular, Bun or `node:test` story, and no `mustBeCalledWith` — an unmatched call falls
+through to `undefined` rather than failing. The two compose cleanly, and if argument-matched stubbing
+on Vitest is genuinely all that is wanted, it is the smaller tool. Two packaging notes: **pin 0.10.0**
+— `0.10.1` (2026-09-01, currently `latest`) ships `dist/vitest-when.mjs` and `.d.mts` while its
+`exports` map still points at `dist/vitest-when.js` and `.d.ts`, so the published package cannot be
+imported at all — and install `@vitest/expect` explicitly under pnpm, since the bundle imports it
+unconditionally while `peerDependenciesMeta` marks it optional.
 
 ### Where it runs, and what it costs
 
@@ -124,8 +144,11 @@ spyNamePrefix?: string): T` — the double is typed as the real service, so `.mo
 | React / Vue / Svelte recipes      |       ✅        |       ❌        |          ❌          |         ❌         |          ❌          |      ❌      |      ❌      |            ❌            |        ❌         |     ❌     |
 | Runtime dependencies              |      **0**      |        1        |          1           |         2          |          0           |      4       |      0       |            1             | 3 (incl. jQuery)  |     4      |
 
-¹ Runs, but ships `declare namespace jasmine` in its own typings and imports a package Angular 20
-deprecated — see [above](#half-the-field-has-stopped-shipping).
+¹ There is a real `@ngneat/spectator/vitest` secondary entry point, shipped since 19.2.0
+(2024-12-17) — Vitest is supported, not bolted on. The asterisk is elsewhere: it ships
+`declare namespace jasmine` in its own typings, so installing it drags the Jasmine globals into a
+Vitest project, and it imports a package Angular 20 deprecated — see
+[above](#half-the-field-has-stopped-shipping).
 ² The core is runner-agnostic behind a `MockAdapter`; Vitest, Bun and `node:test` have shipped
 adapters — see [Runtimes](/runtimes/vitest).
 ³ sinon is a library rather than a runner integration: its stubs are its own, so the runner's
@@ -209,7 +232,11 @@ at once, `MockInstance` reaches a dependency read in a **field initializer of a 
 loses on typing (`MockService<T>` returns `T`, quoted above), on type-only mocking, on **AOT** —
 it requires `aot: false`, where specs here go through full AOT template type-checking — on
 [resources](/adapters/angular#resources-httpresource-and-resource), and on zoneless, where it has
-nothing.
+nothing. Its Vitest support is real and current: `ngMocks.autoSpy('vitest')` landed in 14.17.0
+(2026-08-10) and rides a dedicated `e2e/vitest` project against `@angular/build:unit-test` with
+`runner: vitest`. Note it declares no `vitest` peer dependency — `vi` is resolved off the global at
+runtime — and that the vitest branch is marked `istanbul ignore` in the unit suite, so it is covered
+by those e2e projects only.
 
 **[@testing-library/angular](https://github.com/testing-library/angular-testing-library)** — 19.4.2
 on 2026-08-07. Usually filed as complementary; it is not. Its `/vitest-utils` entry exports
@@ -291,7 +318,7 @@ alongside it:
   of, kept to the mocks that outlive a file. On `isolate: false` it is what makes `clearMocks` cost
   more with every test already run, and what keeps a whole run's recorded arguments — and the
   component trees behind them — alive in one worker.
-- [Fourteen ESLint rules](/utilities/eslint-plugin) versioned together with the API they recommend, and
+- [Eighteen ESLint rules](/utilities/eslint-plugin) versioned together with the API they recommend, and
   [`setupAutoSpy()`](/utilities/setup) for the test-run hygiene a shared environment needs.
 - [Per-file `TestBed` diagnostics](/adapters/angular#where-a-spec-spends-its-time) — which specs
   actually pay for `TestBed`, and by how much.
@@ -303,6 +330,10 @@ alongside it:
 - **You are on Jest and staying there.** [`jest-auto-spies`](https://github.com/hirezio/auto-spies)
   is the same API; there is nothing to gain from switching runner just for this. It is quiet —
   3.0.1 from 2025-09-22, on a core package last published 2023-06-03 — but it works.
+
+- **You already have your mocks and only want argument-matched stubbing.**
+  [`vitest-when`](https://github.com/mcous/vitest-when) is 700k downloads a month of exactly that and
+  nothing else. Pin 0.10.0 — see above.
 - **You need to mock a whole Angular declaration graph.**
   [`ng-mocks`](https://github.com/help-me-mom/ng-mocks) is the tool: `MockBuilder`, `MockInstance`
   into a nested child's field initializer, `ngMocks.findInstance`. This package spies classes, not

@@ -106,7 +106,7 @@ out of your spy.
 
 **Getters.** If the class declares `get isReady()`, reading the property would execute the getter —
 on a class that was never constructed, that usually throws. So names are collected from property
-*descriptors* rather than by reading:
+_descriptors_ rather than by reading:
 
 ```ts
 const descriptors = Object.getOwnPropertyDescriptors(current);
@@ -152,16 +152,15 @@ userService.getName.calledWith(1).mockReturnValue('Ann'); // plain → mockRetur
 There is no runtime here at all — only types. The tool is a conditional type:
 
 ```ts
-type ChooseHelpers<Method> =
-  Method extends (...args: any[]) => Promise<infer P> // returns Promise<P>?
-    ? { resolveWith(value: P): void; rejectWith(err: unknown): void }
-    : Method extends (...args: any[]) => Observable<infer O> // Observable<O>?
-      ? { nextWith(value: O): void; complete(): void }
-      : { mockReturnValue(value: ReturnType<Method>): void }; // plain method
+type ChooseHelpers<Method> = Method extends (...args: any[]) => Promise<infer P> // returns Promise<P>?
+  ? { resolveWith(value: P): void; rejectWith(err: unknown): void }
+  : Method extends (...args: any[]) => Observable<infer O> // Observable<O>?
+    ? { nextWith(value: O): void; complete(): void }
+    : { mockReturnValue(value: ReturnType<Method>): void }; // plain method
 ```
 
-It reads like `if / else if / else`: *if the method returns a Promise give it these helpers, else if
-an Observable these, otherwise those.* `infer P` means "remember what the Promise was parameterized
+It reads like `if / else if / else`: _if the method returns a Promise give it these helpers, else if
+an Observable these, otherwise those._ `infer P` means "remember what the Promise was parameterized
 with", so `resolveWith` accepts the right type instead of `any`.
 
 The second half maps that over every key of the class:
@@ -204,14 +203,14 @@ same class**, and therefore produce the same set of keys.
 
 Everything else is scaffolding around those two ideas:
 
-| Layer                                        | What it does                                                                                                                          |
-| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| `createFunctionSpy`                          | implements at runtime what the types promise: `calledWith`, `resolveWith`, `nextWith`, `mustBeCalledWith`                              |
-| `ArgsMap`                                    | argument matching: `calledWith(1, 'a')` resolves in O(1) through a prototype-less map, with a predicate path for `expect.any(…)` and friends |
-| `MockAdapter`                                | the core never imports a test runner directly — it sits behind an interface, which is why the same library runs on Vitest, Bun and `node:test` |
-| `/rxjs`                                      | Observable helpers are a separate entry point; don't import it and not a byte of rxjs enters your bundle                               |
-| `resetAutoSpy`                               | resets every spy on an object in one call (`calledWith` configs live in closures, where `mockClear` can't reach)                       |
-| `/angular`, `/nestjs`, `/react`, `/vue`, `/svelte` | thin per-framework wrappers — `provideAutoSpy` for the Angular TestBed, and so on                                                  |
+| Layer                                              | What it does                                                                                                                                   |
+| -------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `createFunctionSpy`                                | implements at runtime what the types promise: `calledWith`, `resolveWith`, `nextWith`, `mustBeCalledWith`                                      |
+| `ArgsMap`                                          | argument matching: `calledWith(1, 'a')` resolves in O(1) through a prototype-less map, with a predicate path for `expect.any(…)` and friends   |
+| `MockAdapter`                                      | the core never imports a test runner directly — it sits behind an interface, which is why the same library runs on Vitest, Bun and `node:test` |
+| `/rxjs`                                            | Observable helpers are a separate entry point; don't import it and not a byte of rxjs enters your bundle                                       |
+| `resetAutoSpy`                                     | resets every spy on an object in one call (`calledWith` configs live in closures, where `mockClear` can't reach)                               |
+| `/angular`, `/nestjs`, `/react`, `/vue`, `/svelte` | thin per-framework wrappers — `provideAutoSpy` for the Angular TestBed, and so on                                                              |
 
 ## One compatibility note
 

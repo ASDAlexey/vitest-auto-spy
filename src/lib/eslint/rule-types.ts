@@ -74,6 +74,8 @@ export interface EsCallExpression extends EsNode {
 export interface EsMemberExpression extends EsNode {
   object: EsNode;
   property: EsNode;
+  /** `true` for `a[b]`. A computed key is not the name it happens to spell, so every name check reads it. */
+  computed: boolean;
 }
 
 /** An assignment — `register = { … }`, the statement that decides what a `let` above it holds. */
@@ -101,6 +103,8 @@ export interface EsImportSpecifier extends EsNode {
 export interface EsImportDeclaration extends EsNode {
   specifiers: EsNode[];
   source: EsLiteral;
+  /** `'type'` for an `import type { … }`, which the compiler erases — so it runs nothing at all. */
+  importKind?: string;
 }
 
 /** The arguments of a generic type reference — `<CartService>` in `Mocked<CartService>`. */
@@ -270,6 +274,26 @@ export function isVariableDeclarator(node: EsNode): node is EsVariableDeclarator
 /** Narrow to an identifier — the shape a non-computed member key takes. */
 export function isIdentifier(node: EsNode): node is EsIdentifier {
   return node.type === 'Identifier';
+}
+
+/**
+ * The name a member expression reads — `and` for `spy.and`, `undefined` for `spy[key]`.
+ *
+ * A computed key is not the name it happens to spell, so the whole point of the guard is that
+ * `spy['and']` and `spy[and]` both come back `undefined`: neither is a name a rewrite may take
+ * apart, and the second one is not even known until the test runs.
+ */
+export function memberName(node: EsNode): string | undefined {
+  if (!isMemberExpression(node) || node.computed || !isIdentifier(node.property)) {
+    return undefined;
+  }
+
+  return node.property.name;
+}
+
+/** Whether `node` is what a call calls — `spy.withArgs(…)` rather than `report(spy.withArgs)`. */
+export function isCallee(node: EsNode): boolean {
+  return isCallExpression(node.parent) && node.parent.callee === node;
 }
 
 /** The static name of a property key (`{ foo: … }`, `{ 'foo': … }`), or `undefined` when computed. */

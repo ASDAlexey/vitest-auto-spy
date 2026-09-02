@@ -10,6 +10,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { runTransforms } from './codemod';
+import { hintFor } from './entry-hint';
 import type { EntryMap } from './entry-map';
 import { maskCode } from './mask';
 import type { TransformContext, TransformSpec } from './transform-context';
@@ -23,7 +24,7 @@ const ENTRIES: EntryMap = {
     ['Spy', ['vitest-auto-spy']],
     ['asSpy', ['vitest-auto-spy']],
     ['createSpyFromClass', ['vitest-auto-spy']],
-    ['provideAutoSpy', ['vitest-auto-spy/angular', 'vitest-auto-spy/nestjs']],
+    ['provideAutoSpy', ['vitest-auto-spy/bun-angular', 'vitest-auto-spy/angular', 'vitest-auto-spy/nestjs']],
     ['nextWith', ['vitest-auto-spy/rxjs']],
     ['shared', ['vitest-auto-spy/vue', 'vitest-auto-spy/svelte']],
   ]),
@@ -45,6 +46,18 @@ function notesOf(source: string, transform: TransformSpec): string[] {
 /** The same, with no installed copy of the package to read an export map from. */
 function notesWithoutTable(source: string, transform: TransformSpec): string[] {
   return transform.run({ ...contextFor(source), entries: undefined }).notes.map((note) => `${note.check} ${note.message}`);
+}
+
+/**
+ * The same, in a repository whose `package.json` names no framework — which is where the
+ * multi-entry names have nothing but the file itself to go on.
+ */
+function applyPlain(source: string, transform: TransformSpec): string {
+  return runTransforms({ file: 'a.spec.ts', source, entries: ENTRIES, preferredEntry: 'vitest-auto-spy', selected: [transform] }).after;
+}
+
+function notesPlain(source: string, transform: TransformSpec): string[] {
+  return transform.run({ ...contextFor(source), preferredEntry: 'vitest-auto-spy' }).notes.map((note) => `${note.check} ${note.message}`);
 }
 
 describe('jest-types — the argument-order trap', () => {
@@ -212,8 +225,38 @@ describe('auto-spies-import — the split', () => {
     expect(notesOf(source, autoSpiesImport)[0]).toContain('unmapped-legacy-export');
   });
 
-  it('does not choose between two non-root entries', () => {
-    expect(notesOf("import { shared } from 'jest-auto-spies';", autoSpiesImport)[0]).toContain('unmapped-legacy-export');
+  it('places a name several entries export, instead of reporting that none of them does', () => {
+    const source = "import { provideAutoSpy } from 'jest-auto-spies';";
+
+    expect(applyPlain(source, autoSpiesImport)).toBe("import { provideAutoSpy } from 'vitest-auto-spy/angular';");
+    expect(notesPlain(source, autoSpiesImport)[0]).toContain('ambiguous-entry-point');
+    expect(notesPlain(source, autoSpiesImport)[0]).toContain('3 entry points');
+  });
+
+  it('names the alternatives it did not take, and never calls the name unexported', () => {
+    const note = autoSpiesImport.run({ ...contextFor("import { shared } from 'jest-auto-spies';"), preferredEntry: 'vitest-auto-spy' })
+      .notes[0];
+
+    expect(note?.severity).toBe('warning');
+    expect(note?.message).not.toContain('No entry point');
+    expect(note?.fix).toContain("Placed on 'vitest-auto-spy/vue'");
+    expect(note?.fix).toContain("'vitest-auto-spy/svelte'");
+  });
+
+  it('lets the file decide it silently — the framework it is written against, or the entry it already uses', () => {
+    const angular = ["import { provideAutoSpy } from 'jest-auto-spies';", 'TestBed.configureTestingModule({});'].join('\n');
+    const nest = ["import { provideAutoSpy } from 'jest-auto-spies';", "import { Test } from '@nestjs/testing';"].join('\n');
+    const already = ["import { provideAutoSpy } from 'jest-auto-spies';", "import { injectSpy } from 'vitest-auto-spy/nestjs';"].join('\n');
+
+    expect(applyPlain(angular, autoSpiesImport)).toContain("import { provideAutoSpy } from 'vitest-auto-spy/angular';");
+    expect(notesPlain(angular, autoSpiesImport)).toEqual([]);
+    expect(applyPlain(nest, autoSpiesImport)).toContain("import { provideAutoSpy } from 'vitest-auto-spy/nestjs';");
+    expect(notesPlain(nest, autoSpiesImport)).toEqual([]);
+    expect(applyPlain(already, autoSpiesImport)).toContain("import { provideAutoSpy } from 'vitest-auto-spy/nestjs';");
+  });
+
+  it('still reports, as an error, a name no entry point exports at all', () => {
+    expect(notesOf("import { createSpyObj } from 'jest-auto-spies';", autoSpiesImport)[0]).toContain('unmapped-legacy-export');
   });
 
   it('leaves the statement untouched when every name is unresolved', () => {
@@ -264,6 +307,35 @@ describe('inject-cast', () => {
   it('says why it cannot add the import when there is no entry table', () => {
     expect(notesWithoutTable('const s = TestBed.inject(S) as Spy<S>;', injectCast)[0]).toContain('no-entry-table');
     expect(notesWithoutTable('const s = TestBed.inject(S);', injectCast)).toEqual([]);
+  });
+});
+
+describe('hintFor', () => {
+  it('collects the entries of this package the file already imports from, and nothing else', () => {
+    const source = [
+      "import { injectSpy } from 'vitest-auto-spy/angular';",
+      "import { Spy } from 'vitest-auto-spy';",
+      "import { Service } from './service';",
+    ].join('\n');
+
+    // `vitest-auto-spy/angular` is an *entry*, not a framework marker: an import of this package
+    // says which adapter the spec uses and nothing about what the spec is written against. The
+    // root is left out because it is never a candidate — it wins before the file is ever asked.
+    expect(hintFor(contextFor(source))).toEqual({ imported: ['vitest-auto-spy/angular'], framework: undefined });
+  });
+
+  it('recognises each framework by the marker only that framework has', () => {
+    expect(hintFor(contextFor('TestBed.inject(S);')).framework).toBe('angular');
+    expect(hintFor(contextFor('provideAutoSpyForToken(TOKEN);')).framework).toBe('angular');
+    expect(hintFor(contextFor('Test.createTestingModule({});')).framework).toBe('nestjs');
+    expect(hintFor(contextFor("import { Test } from '@nestjs/testing';")).framework).toBe('nestjs');
+    expect(hintFor(contextFor("import { mount } from '@vue/test-utils';")).framework).toBe('vue');
+    expect(hintFor(contextFor('defineComponent({});')).framework).toBe('vue');
+  });
+
+  it('answers nothing for a file that says nothing, and is not fooled by a comment or a string', () => {
+    expect(hintFor(contextFor('const a = 1;'))).toEqual({ imported: [], framework: undefined });
+    expect(hintFor(contextFor('// TestBed.inject(S)\nconst help = "@nestjs/testing";')).framework).toBeUndefined();
   });
 });
 

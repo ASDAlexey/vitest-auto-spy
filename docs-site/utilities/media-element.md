@@ -14,14 +14,14 @@ const media = stubMediaElement({ duration: 120 });
 jsdom implements the media elements as a shell, and every player, advertising or subtitle suite hits
 the same list:
 
-| What the code under test does    | What jsdom does                                     |
-| -------------------------------- | --------------------------------------------------- |
-| `await video.play()`             | throws `Not implemented: HTMLMediaElement.play()`   |
-| `video.duration`                 | `NaN`, and it is an accessor — assigning it throws  |
-| `video.canPlayType('video/mp4')` | `''` for every type, so feature detection says no   |
-| `video.readyState`               | `0`, forever                                        |
-| `video.error`                    | not on the prototype at all                         |
-| `video.load()`                   | nothing                                             |
+| What the code under test does    | What jsdom does                                    |
+| -------------------------------- | -------------------------------------------------- |
+| `await video.play()`             | throws `Not implemented: HTMLMediaElement.play()`  |
+| `video.duration`                 | `NaN`, and it is an accessor — assigning it throws |
+| `video.canPlayType('video/mp4')` | `''` for every type, so feature detection says no  |
+| `video.readyState`               | `0`, forever                                       |
+| `video.error`                    | not on the prototype at all                        |
+| `video.load()`                   | nothing                                            |
 
 So the spec writes forty lines of `Object.defineProperty` against `HTMLMediaElement.prototype` —
 which leaks into the next file, because nothing takes it off again.
@@ -47,13 +47,13 @@ expect(component.finished()).toBe(true);
 the component stays on its initial state while the assertion reads the element and sees the new
 value — a disagreement that looks like a bug in the component.
 
-| Field passed to `set`  | Event dispatched |
-| ---------------------- | ---------------- |
-| `duration`             | `durationchange` |
-| `readyState` ≥ 1       | `loadedmetadata` |
-| `currentTime`          | `timeupdate`     |
-| `ended: true`          | `ended`          |
-| a non-null `error`     | `error`          |
+| Field passed to `set` | Event dispatched |
+| --------------------- | ---------------- |
+| `duration`            | `durationchange` |
+| `readyState` ≥ 1      | `loadedmetadata` |
+| `currentTime`         | `timeupdate`     |
+| `ended: true`         | `ended`          |
+| a non-null `error`    | `error`          |
 
 `ended: false` and `error: null` announce nothing: those clear a state, and the platform has no
 event for that.

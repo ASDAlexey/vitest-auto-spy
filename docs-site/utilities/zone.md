@@ -7,9 +7,9 @@ description: vitest-auto-spy/zone — the ProxyZone patch zone.js/testing does n
 
 ```ts
 // vitest.setup.ts
+import 'vitest-auto-spy/zone';
 import 'zone.js';
 import 'zone.js/testing';
-import 'vitest-auto-spy/zone';
 ```
 
 `zone.js/testing` patches three runners: jasmine, mocha and jest. Vitest is not one of them, so in an
@@ -19,10 +19,40 @@ Angular project on Vitest **every** `fakeAsync` fails:
 Error: Expected to be running in 'ProxyZone', but it was not found.
 ```
 
-A message about a zone, in a test that never mentions one. Exactly one package does something about
-it today — `@analogjs/vitest-angular`, as a side effect of importing `…/setup-zone` — which means a
-project moving to the native `@angular/build:unit-test` builder loses the patch along with Analog:
-the builder loads `zone.js/testing`, but installs no wrapper for Vitest.
+A message about a zone, in a test that never mentions one.
+
+zone.js 0.16.2 (2026-05-06) does ship a patch of its own — `zone.js/plugins/vitest-patch` — but it is
+opt-in and nothing installs it for you: `zone.js/testing` does not include it (its bundle carries the
+jasmine, mocha and jest patches and the string `vitest` zero times), and neither does
+`@angular/build:unit-test`, which in every version from 20 to 22 only ever appends `zone.js/testing`
+to the polyfills. The one package that wires a patch up as a side effect is `@analogjs/vitest-angular`,
+via `…/setup-zone` — so a project moving to the native builder loses that one along with Analog.
+
+Importing the official plugin by hand is not the answer either, and people are actively being told to.
+ng-mocks prescribes exactly this load order in its install guide — `zone.js`, then `zone.js/testing`,
+then `zone.js/plugins/vitest-patch` — alongside a tested compatibility matrix (Angular 20 / Vitest 3 /
+jsdom 26, zoneless only; Angular 21 and 22 / Vitest 4 / jsdom 28, zoned or zoneless). Follow it and you
+get the plugin's behaviour, which is this. Measured on Vitest 4.1.9 with zone.js 0.16.2, one spec file
+per API:
+
+| In the spec                             | Without the plugin   | With `zone.js/plugins/vitest-patch`                                                        |
+| --------------------------------------- | -------------------- | ------------------------------------------------------------------------------------------ |
+| `it.skip` / `it.todo` / `it.concurrent` | reported             | **the test is gone, and the run exits 0**                                                  |
+| `it.only`                               | only that test runs  | **that test is gone; the unfocused one runs**                                              |
+| `it.each`                               | passes               | **`TypeError: Cannot read properties of undefined (reading 'apply')`, no tests collected** |
+| `describe.skip`                         | skipped              | **the suite runs**                                                                         |
+| `describe.only`                         | only that suite runs | **every suite runs**                                                                       |
+| `test.extend`                           | fixtures work        | **`TypeError: test.extend is not a function`**                                             |
+| `test: { globals: false }`              | —                    | patches nothing, warns nothing, every `fakeAsync` still throws                             |
+
+The cause is that it replaces the runner globals with plain functions and reattaches ten hard-coded
+names to them, so `it.extend`, `it.fails` and `it.scoped` are lost outright while `it.skip`, `it.only`
+and `it.todo` become factories that return a function instead of registering a test. It preserves
+`fn.length` but not `fn.toString()`, which is what Vitest reads to find destructured fixtures. The same
+file under `vitest-auto-spy/zone` reproduces the unpatched run exactly.
+
+In fairness: a plain `fakeAsync` in a bare `it` inside a bare `describe` does work under the official
+plugin. It solves the problem it set out to solve, for specs that use no test modifier at all.
 
 ## What it does
 
@@ -30,15 +60,15 @@ the builder loads `zone.js/testing`, but installs no wrapper for Vitest.
 `ProxyZoneSpec`, because that is the spec it swaps its own `FakeAsyncTestZoneSpec` into. So the patch
 runs every test and hook body inside a forked proxy zone.
 
-The difficulty is doing that without disturbing the runner, and the three ways a hand-written version
-gets it wrong are all failures in *other people's files*:
+The difficulty is doing that without disturbing the runner, and the three ways a patch gets it wrong
+are all failures in _other people's files_ — each one measured above on the official plugin, not
+hypothetical:
 
-| Detail                                            | What goes wrong without it                                                                                                                       |
-| ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| the wrapper declares **no** parameters            | Vitest reads `fn.toString()` to find fixtures; `function (...args)` fails every file with `FixtureParseError: … must use object destructuring`    |
-| `fn.length` and `fn.toString()` are carried over  | the runner reads both to decide how to call the callback — a wrapper of arity 0 silently changes that decision, and hides the fixtures            |
-| `it` is **proxied**, not replaced                 | `each` is a method that reads `this`; called detached it returns `undefined` and the line after it explodes. `it.skip` / `test.each` come free    |
-
+| Detail                                           | What goes wrong without it                                                                                                                     |
+| ------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| the wrapper declares **no** parameters           | Vitest reads `fn.toString()` to find fixtures; `function (...args)` fails every file with `FixtureParseError: … must use object destructuring` |
+| `fn.length` and `fn.toString()` are carried over | the runner reads both to decide how to call the callback — a wrapper of arity 0 silently changes that decision, and hides the fixtures         |
+| `it` is **proxied**, not replaced                | `each` is a method that reads `this`; called detached it returns `undefined` and the line after it explodes. `it.skip` / `test.each` come free |
 
 ## One zone for the run, or one per callback
 

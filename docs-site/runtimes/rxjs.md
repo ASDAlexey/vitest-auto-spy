@@ -18,16 +18,12 @@ get the same control surface:
 
 ```ts
 myService.getProducts$.nextWith([{ name: 'Product 1' }]); // emit, stream stays open
-myService.getProducts$.nextOneTimeWith([{ name: 'X' }]);  // emit one value, then complete
-myService.getProducts$.throwWith('FAKE ERROR');           // error the stream
-myService.getProducts$.complete();                        // complete the stream
+myService.getProducts$.nextOneTimeWith([{ name: 'X' }]); // emit one value, then complete
+myService.getProducts$.throwWith('FAKE ERROR'); // error the stream
+myService.getProducts$.complete(); // complete the stream
 
 // emit a precise sequence — values, errors, completion, optional delays
-myService.getProducts$.nextWithValues([
-  { value: [{ name: 'Product 1' }] },
-  { errorValue: 'FAKE ERROR' },
-  { complete: true },
-]);
+myService.getProducts$.nextWithValues([{ value: [{ name: 'Product 1' }] }, { errorValue: 'FAKE ERROR' }, { complete: true }]);
 
 // a fresh stream per call
 myService.getProducts$.nextWithPerCall([{ value: ['a'] }, { value: ['b'] }]);
@@ -103,11 +99,7 @@ myService.getProducts$.nextWithValues([{ value: 'a' }, { value: 'b' }, { complet
 ```
 
 ```ts
-myService.getProducts$.nextWithValues([
-  { value: 'a' },
-  { value: 'b', delay: 20 },
-  { complete: true, delay: 10 },
-]);
+myService.getProducts$.nextWithValues([{ value: 'a' }, { value: 'b', delay: 20 }, { complete: true, delay: 10 }]);
 // a 20ms b 10ms |
 ```
 
@@ -125,7 +117,7 @@ form. Everything after the first `{ complete: true }` is dropped.
   (errors). It is real time, not a virtual scheduler.
 - **Without a delay, emission is synchronous.** `nextWith` pushes onto a `ReplaySubject` right away,
   so a subscriber that has already run sees the value in the same tick.
-- **The backing subject is a `ReplaySubject`**, so a subscriber that arrives *after* the emission
+- **The backing subject is a `ReplaySubject`**, so a subscriber that arrives _after_ the emission
   still receives it. This is what makes `spy.thing$.nextWith(v)` work regardless of whether the code
   under test subscribed first.
 - **Under fake timers**, a delayed entry needs the clock advanced.
@@ -163,3 +155,44 @@ myService.getProducts$.nextWith(['x']);
 
 expect(await emitted).toEqual(['x']);
 ```
+
+## `subscribeSpyTo`, for a suite arriving with observer-spy
+
+`@hirez_io/observer-spy` sits beside `jasmine-auto-spies` in almost every suite that has one — same
+author, and the larger of the two by downloads — and it was last published in 2022. This entry ships
+its surface so a migrating suite runs before its stream assertions are rewritten:
+
+```ts
+import { subscribeSpyTo } from 'vitest-auto-spy/observer-spy';
+
+const spy = subscribeSpyTo(service.load());
+
+expect(spy.getValues()).toEqual(['a', 'b']);
+expect(spy.receivedComplete()).toBe(true);
+```
+
+**It is a bridge, and the assertions above are the destination.** `subscribeSpyTo` is synchronous
+inspection: subscribe, let things happen, then read the spy. Its failure mode is silence — a stream
+that never emits gives `getValues() === []`, a spec asserts something about that, and the test passes
+having observed nothing. `expectEmission` makes the assertion _be_ the await, so silence is a
+timeout naming the stream.
+
+Four things behave better here than upstream, and a migrated spec will notice the last one:
+`getValues()` hands back a copy rather than the spy's own live array, and is typed `T[]` rather than
+`any[]`; `getFirstValue()` and `getValueAt(i)` throw instead of answering `undefined` from a
+signature that promised `T`; and an unexpected error is thrown by the value reader that asked,
+carrying the original as `cause`, rather than rethrown from the observer. That last one is not a
+preference — upstream's rethrow stopped working when rxjs 7 began routing anything thrown out of an
+observer callback through `reportUnhandledError`, which reports it asynchronously, so it never
+reaches the subscribing line. Pass `{ expectErrors: true }` (or call `.expectErrors()`) when the
+error is the point, and read `getError()`.
+
+`SubscriberSpy` is disposable, so the subscription can be scoped to its block instead of to a global
+`afterEach`:
+
+```ts
+using spy = subscribeSpyTo(service.load());
+```
+
+`fakeTime()` has no counterpart here — it is built on rxjs's `TestScheduler` virtual time and on the
+`done` callback protocol. Use [fake timers](/utilities/fake-timers), or `TestScheduler` directly.

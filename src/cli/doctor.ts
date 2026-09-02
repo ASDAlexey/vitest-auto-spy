@@ -11,6 +11,7 @@ import { checkAngularBuild } from './checks/angular-build';
 import { checkCoverageConfig } from './checks/coverage-config';
 import { checkForeignPragma } from './checks/foreign-pragma';
 import { buildGraph } from './checks/graph';
+import { checkJasmineEra } from './checks/jasmine-era';
 import { checkOrphanRunnerConfig } from './checks/orphan-runner-config';
 import { checkSpecImports } from './checks/spec-imports';
 import { checkTsconfigGlobs } from './checks/tsconfig-globs';
@@ -28,5 +29,6 @@ export function runDoctor(profile: Profile): Finding[] {
     ...checkAngularBuild(profile),
     ...checkCoverageConfig(profile),
     ...checkAgentInstructions(profile),
+    ...checkJasmineEra(profile),
   ];
 }

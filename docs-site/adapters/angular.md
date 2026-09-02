@@ -919,7 +919,7 @@ TypeError: Cannot read properties of undefined (reading 'provide')
 ```
 
 The stack names neither the barrel, nor the symbol, nor the component. Worse, the spec that breaks is
-usually one nobody touched: chunk boundaries move with file *contents*, so editing a type in a
+usually one nobody touched: chunk boundaries move with file _contents_, so editing a type in a
 neighbouring file is enough to move a symbol across one. Both obvious cures fail for the same reason
 — `await import('@scope/lib')` at the top of `beforeEach` is already too late, and a static import in
 the spec header does not fix the order this bundler emits.

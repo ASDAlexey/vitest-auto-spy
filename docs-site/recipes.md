@@ -11,16 +11,16 @@ roughly 370 spec files that has been on this library since early versions.
 
 The distribution is lopsided, and worth knowing before you learn the whole surface:
 
-| Helper                                             | Spec files using it |
-| -------------------------------------------------- | ------------------: |
-| [`provideAutoSpy`](/adapters/angular)               |                 371 |
-| [`injectSpy`](/adapters/angular)                    |                 308 |
-| [`mockReadonlyProp`](/adapters/angular#signal-readonly-property-mocking) |           127 |
-| [`mockValueProp`](/adapters/angular#signal-readonly-property-mocking)    |           104 |
-| `instanceMethodsToSpyOn`                            |                 103 |
-| `observablePropsToSpyOn`                            |                  79 |
-| [console spies](/utilities/console)                 |                  68 |
-| [`createSpyFromClass`](/core/create-spy-from-class) |                  41 |
+| Helper                                                                   | Spec files using it |
+| ------------------------------------------------------------------------ | ------------------: |
+| [`provideAutoSpy`](/adapters/angular)                                    |                 371 |
+| [`injectSpy`](/adapters/angular)                                         |                 308 |
+| [`mockReadonlyProp`](/adapters/angular#signal-readonly-property-mocking) |                 127 |
+| [`mockValueProp`](/adapters/angular#signal-readonly-property-mocking)    |                 104 |
+| `instanceMethodsToSpyOn`                                                 |                 103 |
+| `observablePropsToSpyOn`                                                 |                  79 |
+| [console spies](/utilities/console)                                      |                  68 |
+| [`createSpyFromClass`](/core/create-spy-from-class)                      |                  41 |
 
 Two things follow. **`createSpyFromClass` is the exception, not the rule** — in an Angular app the
 spy almost always arrives through DI. And **`instanceMethodsToSpyOn` is not an edge case**: in a
@@ -33,7 +33,7 @@ signals codebase it appears in more than a quarter of all spec files, because `s
 import { signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { of } from 'rxjs';
-import { injectSpy, provideAutoSpy, type Spy } from 'vitest-auto-spy/angular';
+import { type Spy, injectSpy, provideAutoSpy } from 'vitest-auto-spy/angular';
 
 describe('TaskService', () => {
   let projects: Spy<ProjectStore>;
@@ -128,13 +128,13 @@ The distinction trips people up because the names look the same:
 ```ts
 class NewsFeedService {
   readonly connected$ = new BehaviorSubject(false); // a PROPERTY  → observablePropsToSpyOn
-  watch(id: number): Observable<Item> {}            // a METHOD    → nothing to configure
+  watch(id: number): Observable<Item> {} // a METHOD    → nothing to configure
 }
 
 provideAutoSpy(NewsFeedService, { observablePropsToSpyOn: ['connected$'] });
 
-feed.connected$.nextWith(true);     // the property, driven by the helpers
-feed.watch.nextWith(item);          // the method, spied automatically
+feed.connected$.nextWith(true); // the property, driven by the helpers
+feed.watch.nextWith(item); // the method, spied automatically
 ```
 
 A method that returns an `Observable` is discovered on the prototype like any other, and gets the
@@ -309,7 +309,7 @@ If you are on `isolate: false`, assume you need this before you need it.
 happy-dom implements `fetch`; jsdom does not. Move a suite from one to the other and a component
 that pulls a remote asset starts issuing real requests. Nothing asserts on them, so every test still
 passes — and then the runner tears the environment down, the in-flight requests abort, and the
-aborts arrive as unhandled rejections *after* the summary:
+aborts arrive as unhandled rejections _after_ the summary:
 
 ```text
  Test Files  260 passed (260)
@@ -423,7 +423,7 @@ export const anArticle = createFixtureFactory<Article>({
 
 // article-list.component.spec.ts
 const draft = anArticle({ header: { title: 'Draft' } }); // header.subtitle survives
-const tagged = anArticle({ tags: ['news'] });            // the array is replaced, not merged
+const tagged = anArticle({ tags: ['news'] }); // the array is replaced, not merged
 ```
 
 Two properties are what make it worth the move rather than a matter of taste. The defaults are a
@@ -435,23 +435,23 @@ file the runner happened to schedule second.
 
 One caveat worth knowing before you reach for it: the copy is deep through plain objects and arrays
 and stops there. A `Date`, a `Map` or a class instance travels by reference, because rebuilding one
-would strip its prototype. For defaults that *are* a model instance with getters,
+would strip its prototype. For defaults that _are_ a model instance with getters,
 [`withOverrides`](/utilities/fixtures#withoverrides-model-overrides-a-model-whose-getters-survive)
 snapshots them first.
 
 ## What not to do
 
-| ❌                                                          | ✅                                                            |
-| ----------------------------------------------------------- | ------------------------------------------------------------- |
-| a hand-written `{ provide: X, useValue: { a: vi.fn() } }`     | `provideAutoSpy(X)`                                            |
-| the same 100-line model literal copied into eight specs        | one `createFixtureFactory<T>(defaults)`, called with the diff   |
-| `vi.spyOn(TestBed.inject(X), 'method')`                       | `injectSpy(X).method`                                          |
-| `Object.defineProperty(service, 'ready', { value: true })`    | `mockReadonlyProp(service, 'ready', true)`                     |
-| `let s: MyService = createSpyFromClass(MyService)`             | `let s: Spy<MyService>`                                        |
-| `source$.subscribe(v => expect(v).toBe(1))`                    | `await expect(expectEmission(source$)).resolves.toBe(1)`       |
-| `expect(component.total).toBeTruthy()` on a signal             | `expect(component.total).toHaveSignalValue(3)`                 |
-| `configureTestingModule` inside every `it()`                   | one per `describe`                                             |
-| `methodsToSpyOn` used to *restrict* the set                    | `onlyMethodsToSpyOn` restricts; `methodsToSpyOn` adds           |
+| ❌                                                         | ✅                                                            |
+| ---------------------------------------------------------- | ------------------------------------------------------------- |
+| a hand-written `{ provide: X, useValue: { a: vi.fn() } }`  | `provideAutoSpy(X)`                                           |
+| the same 100-line model literal copied into eight specs    | one `createFixtureFactory<T>(defaults)`, called with the diff |
+| `vi.spyOn(TestBed.inject(X), 'method')`                    | `injectSpy(X).method`                                         |
+| `Object.defineProperty(service, 'ready', { value: true })` | `mockReadonlyProp(service, 'ready', true)`                    |
+| `let s: MyService = createSpyFromClass(MyService)`         | `let s: Spy<MyService>`                                       |
+| `source$.subscribe(v => expect(v).toBe(1))`                | `await expect(expectEmission(source$)).resolves.toBe(1)`      |
+| `expect(component.total).toBeTruthy()` on a signal         | `expect(component.total).toHaveSignalValue(3)`                |
+| `configureTestingModule` inside every `it()`               | one per `describe`                                            |
+| `methodsToSpyOn` used to _restrict_ the set                | `onlyMethodsToSpyOn` restricts; `methodsToSpyOn` adds         |
 
 Row five is the one worth being convinced of rather than told: the same false assertion written
 four ways against four streams, and [the run that leaves every `subscribe` form
