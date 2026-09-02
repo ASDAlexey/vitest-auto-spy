@@ -69,6 +69,21 @@
       "import": "./console.js",
       "default": "./console.js"
     },
+    "./jasmine": {
+      "types": "./jasmine.d.ts",
+      "import": "./jasmine.js",
+      "default": "./jasmine.js"
+    },
+    "./jasmine-compat": {
+      "types": "./jasmine-compat.d.ts",
+      "import": "./jasmine-compat.js",
+      "default": "./jasmine-compat.js"
+    },
+    "./observer-spy": {
+      "types": "./observer-spy.d.ts",
+      "import": "./observer-spy.js",
+      "default": "./observer-spy.js"
+    },
     "./angular": {
       "types": "./angular.d.ts",
       "import": "./angular.js",
@@ -152,6 +167,9 @@
     "./node.cjs",
     "./rxjs.js",
     "./console.js",
+    "./jasmine.js",
+    "./jasmine-compat.js",
+    "./observer-spy.js",
     "./angular.js",
     "./nestjs.js",
     "./react.js",
