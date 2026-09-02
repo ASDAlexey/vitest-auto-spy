@@ -64,6 +64,24 @@ The latest released version here must always match the one published on
   and hand back exactly the memory the mode exists to save — the trap reports the accessor descriptor
   the placeholder path would have installed instead.
 
+  **What it costs, measured against the published 3.15.1.** The module adds **+0.38 to +0.40 kB
+  min+gzip to every entry that carries `createSpyFromClass`** — `.` 15.14 → 15.53 kB, `./angular`
+  16.45 → 16.84 kB, `./nestjs` 7.71 → 8.09 kB (+4.8 %, the largest percentage only because that
+  entry is the smallest one carrying the core), `./jasmine` 9.48 → 9.86 kB (+4.0 %). The seven
+  entries that do not carry the core — `/rxjs`, `/console`, `/jasmine-compat`, `/observer-spy`,
+  `/setup`, `/zone`, `/eslint-plugin` — are byte-identical, which is what confirms the delta is this
+  one module and nothing else. 390 B of shipped code against 89 771 B retained per double at width
+  400 is not a trade that needs arguing. Nothing new is imported: the module reaches only
+  `./function-spy` and a type.
+
+  Creation on the **default** path is unchanged. The cross-process harness reported +5.6 %, +12.5 %
+  and +7.3 % on three runs while its own baseline moved 19.98 → 23.93 µs, so the noise floor there is
+  several times the effect; measured properly — both `dist` builds loaded into one process and the
+  blocks interleaved, median of 21 — head is **2.4 % to 3.6 % faster**, stable in sign across four
+  runs. Heap per spy and per spied method are byte-identical on the default path (25.73 kB and
+  2.78 kB, unchanged), which is the expected result: the new branch is two string comparisons per
+  double, not per method.
+
 - **`doctor` check `coverage-include-recompiles-globs` — the coverage scope that costs more than the
   coverage.** `@vitest/coverage-v8` memoises the *verdict* of `isIncluded`, keyed by filename, and
   never the compiled matcher, so `picomatch` recompiles the whole pattern array once per file.

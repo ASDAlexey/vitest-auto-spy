@@ -20,7 +20,8 @@ _Last released: **v3.15.0** — the git tag and `package.json` agree._
   `Object.defineProperty` placeholder per method. 101 584 B → 11 813 B retained on a 400-method class
   (253 B per method against 25 B), and 5.67× faster to build and touch there. Opt-in: a `Proxy`
   cannot remove itself, so it costs +30 ns per read and +43 ns per call forever, and it loses below
-  ~20 methods. For generated API clients and ngrx facades under `isolate: false`.
+  ~20 methods. For generated API clients and ngrx facades under `isolate: false`. Costs +0.38–0.40 kB
+  min+gzip on every entry carrying the core; the default path is unchanged in time and in heap.
 
 - **`doctor` check `coverage-include-recompiles-globs`** (`info`) — a coverage scope large enough
   that `picomatch` recompiling it per file costs more than collecting the coverage: 114.1 s of a
