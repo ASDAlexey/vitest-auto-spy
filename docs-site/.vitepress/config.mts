@@ -128,7 +128,8 @@ export default defineConfig({
         content:
           'vitest, auto spy, auto-spies, vitest-auto-spy, jest-auto-spies, test spies, typed mocks, ' +
           'createSpyFromClass, createAutoMock, mockDeep, deep mock, createFixture, createFixtureFactory, ' +
-          'resolveWith, calledWith, mustBeCalledWith, nextWithValues, assertMocked, ' +
+          'resolveWith, calledWith, mustBeCalledWith, failWith, mockThrow, throw for specific arguments, nextWithValues, assertMocked, ' +
+          'extendWithAutoSpies, test.extend fixtures, TestBed fixtures, vitest 4.1, detect-async-leaks, stray timers, onStrayTimers, no-bare-called-with, ' +
           'strict mode, onUnstubbedCall, unstubbed call, fallbackMockImplementation, Symbol.dispose, using declaration, ' +
           'bun test, bun 1.4, angular on bun, node:test, angular testing, renderShallow, shallow rendering, zoneless, signal testing, ' +
           'assertComponentDefIntact, trackInjections, vi.resetAllMocks, isolate false shared environment, ' +

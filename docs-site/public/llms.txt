@@ -60,7 +60,7 @@ spied method earns helpers from its return type — `calledWith`/`mustBeCalledWi
 
 ## Adapters
 
-- [Angular](https://asdalexey.github.io/vitest-auto-spy/adapters/angular): provideAutoSpy, injectSpy, renderShallow, createWithAutoSpies, zoneless waiting and TestBed diagnostics — on Vitest and on bun test.
+- [Angular](https://asdalexey.github.io/vitest-auto-spy/adapters/angular): provideAutoSpy, injectSpy, extendWithAutoSpies, renderShallow, createWithAutoSpies, zoneless waiting and TestBed diagnostics — on Vitest and on bun test.
 - [Angular diagnostics](https://asdalexey.github.io/vitest-auto-spy/adapters/angular-diagnostics): enableAngularDiagnostics — four silent Angular-testing failures (dead NgModule imports, dead schemas, unspied providers, unflushed HTTP requests) turned into loud ones.
 - [Component provider overrides](https://asdalexey.github.io/vitest-auto-spy/adapters/angular-overrides): overrideComponentProvider and overrideAutoSpy — replace a dependency a component declares for itself, and get told when the override did not apply.
 - [NestJS](https://asdalexey.github.io/vitest-auto-spy/adapters/nestjs): provideAutoSpy and injectSpy(moduleRef, token) for Test.createTestingModule, with no @nestjs dependency.

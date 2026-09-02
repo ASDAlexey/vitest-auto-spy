@@ -12,6 +12,62 @@ The latest released version here must always match the one published on
 
 ### Added
 
+- **`failWith(error)` on the sync bundle — the outcome the container could not carry.** Vitest 4.1
+  added `mockThrow` / `mockThrowOnce`; Bun 1.4 and `node:test` have no equivalent (checked, not
+  assumed), so a suite that runs on all three still wrote `mockImplementation(() => { throw e })` by
+  hand. More to the point, **no** runtime can make one `calledWith` chain throw while its siblings
+  answer normally — `mockImplementation` replaces the whole dispatch, which is the opposite of
+  configuring one set of arguments. `cart.checkout.failWith(err)` throws on every call;
+  `cart.checkout.calledWith(BAD_ID).failWith(err)` throws only for those arguments. It supersedes a
+  `resolveWith` / `nextWith` / per-call batch configured before it and is superseded by one
+  configured after, so what a call does never depends on the order the spec was written in.
+  **Not** named `throwWith`: that is the observable helper that errors the stream, every spy carries
+  every bundle at runtime (only the types tell them apart), and one name for both means whichever is
+  attached last silently wins — which is exactly what happened the first time this was written that
+  way.
+
+- **`extendWithAutoSpies(test, spec)` (`/angular`) — the `TestBed` half of a spec as Vitest
+  fixtures.** Replaces the `let cart: Spy<CartService>` + `beforeEach(configureTestingModule …)`
+  block with one statement whose types are inferred, and a test that never destructures a fixture
+  never builds it. Entries are a class, `[Class, config]`, or an `InjectionToken`. It takes the whole
+  map at once rather than composing as a chain of `.extend`s, and that is a `TestBed` constraint
+  rather than a typing one: fixtures resolve independently, so the first one would configure *and*
+  inject — instantiating the module — and the second would then hit Angular's "Cannot configure the
+  test module when the test module has already been instantiated". A `beforeEach` that configures
+  further still composes; one that *injects* cannot. Needs Vitest 4.1 for the builder form of
+  `test.extend`, and says so: on an older runner it throws `needs Vitest 4.1 or newer` before doing
+  anything, because the object-form `extend` handed a string does not fail — it registers fixtures
+  named `"0"`, `"1"`, … and every test then dies on `undefined` with no mention of why. Vitest exports
+  no version, so the check reads the arity of `extend` (one parameter through 4.0, three from 4.1).
+
+- **`onStrayTimers` on `setupAutoSpy`, and a warning when `detectAsyncLeaks` is on.** Running
+  `setupAutoSpy({ strayTimers: true })` under Vitest 4.1's `--detect-async-leaks` reported **no
+  leaks at all**: the sweep cancels in `afterAll`, Vitest collects afterwards, and a cancelled timer
+  is no longer referenced — so a suite that leaks timers was handed a clean bill of health, which is
+  worse than either feature alone. Cancelling is still right (a callback firing during a later file
+  is the more expensive failure), so the sweep now says what it took away. `onStrayTimers` takes the
+  count instead, which also makes `expect(cancelled).toBe(0)` a one-liner. The warning goes to
+  stderr, not `console.warn`: the sweep runs after the file's last test, and Vitest attributes
+  intercepted console output to a task — with no task left, the line is dropped.
+
+- **ESLint `no-bare-called-with`** (in `recommended`, `error`). `spy.method.calledWith(1);` as a
+  statement of its own configures a stub that answers `undefined` and asserts nothing, so the test
+  passes whether or not the call ever happened. Vitest 4.1 turned this from a theoretical trap into a
+  likely one by adding chai-style `expect(fn).to.have.been.calledWith(x)` for suites arriving from
+  sinon — the same word, the opposite meaning. Chains rooted at `expect(...)` are left alone.
+  `mustBeCalledWith` gets its own message: on its own it rejects *every* call, the matching one
+  included, since nothing was configured for it.
+
+### Fixed
+
+- **A stray-timer leak was framed inside `node_modules/vitest-auto-spy`.** `trackStrayTimers()`
+  wraps the global schedulers, so the stack Vitest 4.1's `detectAsyncLeaks` captures at resource
+  creation ran through this package — the reported file stayed right, but the code frame the
+  reporter prints, and the line a reader or an agent opens, was `stray-timers.ts` instead of the
+  `setTimeout` the author wrote. The wrappers now go through `vi.defineHelper`, which drops those
+  frames; the frame is the spec line again. No-op on Bun, `node:test` and Vitest below 4.1, where the
+  probe degrades to identity.
+
 - **`subscribeSpyTo` / `ObserverSpy` / `SubscriberSpy` (`/observer-spy`) — the other half of a
   jasmine-era suite.** `@hirez_io/observer-spy` sits beside `jasmine-auto-spies` in almost every suite that has
   one, is by the same author, and is the larger of the two by downloads; it was last published in

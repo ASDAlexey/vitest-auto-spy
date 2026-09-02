@@ -1,6 +1,6 @@
 ---
 name: vitest-auto-spy
-description: Write or fix tests that use vitest-auto-spy — typed spies generated from a class or a type on Vitest, bun:test and node:test. Use when a spec imports `vitest-auto-spy` or any of its subpaths (`/angular`, `/bun-angular`, `/bun`, `/node`, `/rxjs`, `/nestjs`, `/jasmine`, `/jasmine-compat`, `/observer-spy`, `/setup`, `/zone`, `/eslint-plugin`), when the user mentions createSpyFromClass, createAutoMock, createMock, createFixture, createFixtureFactory, mockDeep, createFunctionSpy, createSpyObj, enableJasmineCompat, subscribeSpyTo, provideAutoSpy, provideAutoSpyForToken, injectSpy, renderShallow, createWithAutoSpies, createDirectiveHost, overrideComponentProvider, enableAngularDiagnostics, assertNgModuleScopes, assertComponentDefIntact, trackInjections, runEffect, settleResource, mockResourceProp, mockSignalProp, mockReadonlyProp, captureArg, expectEmission, expectError, setupAutoSpy, stubIntersectionObserver, stubConstructor, mockSystemTime, assertMocked, Spy<T>, calledWith, mustBeCalledWith, onlyMethodsToSpyOn, instanceMethodsToSpyOn, observablePropsToSpyOn, strict, onUnstubbedCall, resolveWith or nextWith, when migrating a suite off jest-auto-spies or jasmine-auto-spies (`npx vitest-auto-spy codemod --from jasmine`), or when a test fails with "No mock adapter registered", "Observable spies require rxjs", "not found on the class prototype", "strict mode is on", "the override did not apply", "is not a constructor", "Expected to be running in 'ProxyZone'", "jasmine is not defined" or "Spy<T> is not assignable".
+description: Write or fix tests that use vitest-auto-spy — typed spies generated from a class or a type on Vitest, bun:test and node:test. Use when a spec imports `vitest-auto-spy` or any of its subpaths (`/angular`, `/bun-angular`, `/bun`, `/node`, `/rxjs`, `/nestjs`, `/jasmine`, `/jasmine-compat`, `/observer-spy`, `/setup`, `/zone`, `/eslint-plugin`), when the user mentions createSpyFromClass, createAutoMock, createMock, createFixture, mockDeep, createFunctionSpy, createSpyObj, enableJasmineCompat, subscribeSpyTo, provideAutoSpy, injectSpy, extendWithAutoSpies, renderShallow, createWithAutoSpies, createDirectiveHost, overrideComponentProvider, enableAngularDiagnostics, assertNgModuleScopes, assertComponentDefIntact, trackInjections, runEffect, settleResource, mockResourceProp, mockSignalProp, mockReadonlyProp, captureArg, expectEmission, expectError, setupAutoSpy, stubIntersectionObserver, stubConstructor, mockSystemTime, assertMocked, Spy<T>, calledWith, mustBeCalledWith, failWith, onlyMethodsToSpyOn, instanceMethodsToSpyOn, observablePropsToSpyOn, strict, onUnstubbedCall, resolveWith or nextWith, when migrating a suite off jest-auto-spies or jasmine-auto-spies (`npx vitest-auto-spy codemod --from jasmine`), or when a test fails with "No mock adapter registered", "Observable spies require rxjs", "not found on the class prototype", "strict mode is on", "the override did not apply", "is not a constructor", "Expected to be running in 'ProxyZone'", "jasmine is not defined" or "Spy<T> is not assignable".
 ---
 
 # vitest-auto-spy
@@ -126,11 +126,13 @@ it('loads', async () => {
 | a resource field, when the HTTP round trip is not the point         | `mockResourceProp(obj, prop, initial)` — `set` / `fail` / `loading`                                  |
 | asserting a resource's value _and_ status together                  | `registerResourceMatchers()` → `toHaveResourceValue` / `toBeLoading`                                 |
 | a callback or config object the code under test built               | `captureArg<T>()` in the assertion, then read `.value`                                               |
+| a method that has to throw — for all calls, or for some arguments   | `spy.m.failWith(err)` / `spy.m.calledWith(x).failWith(err)` — **not** `throwWith`                    |
+| a `TestBed` spec on Vitest 4.1+, to drop `let` + `beforeEach`       | `extendWithAutoSpies(test, { cart: CartService })` (`/angular`)                                       |
 | an `effect()` whose trigger is now a static signal                  | `runEffect(effectRef)`                                                                               |
 | the component constructs its own `IntersectionObserver`             | `stubIntersectionObserver()` (+ `Resize` / `Mutation`)                                               |
 | a green run exiting 1 with `AbortError` under happy-dom             | `setupAutoSpy({ blockNetwork: true })`                                                               |
 | a real request going out of a unit run (`fetch`, XHR, `sendBeacon`) | `setupAutoSpy({ blockNetwork: true })` — `{ xhr: 'empty' }` for pings                                |
-| timers or frames from a previous file failing this one              | `setupAutoSpy({ strayTimers: true })`                                                                |
+| timers or frames from a previous file failing this one              | `setupAutoSpy({ strayTimers: true })` — mutes `--detect-async-leaks`, see below                      |
 | an assertion error in stderr, every test green and the run at 0     | `setupAutoSpy({ strayRejections: true })` — zone.js swallowed it                                     |
 | a run getting slower the longer it goes, on `isolate: false`        | `setupAutoSpy({ pruneMockRegistry: true })` — the mock registry                                      |
 | `Cannot read properties of undefined (reading 'now')`               | `restoreTimerGlobals` — on by default                                                                |
@@ -204,6 +206,16 @@ it('loads', async () => {
   reach accessor spies, observable-property spies, `mockDeep` nodes, `console-spy`,
   `mockResourceProp`'s `reload` or a standalone `createFunctionSpy`, and `mockReturnValue` /
   `mockImplementation` / `returns:` bypass it by replacing the dispatch.
+- **`calledWith(x);` on its own is a stub, not an assertion.** It configures "answer `undefined`
+  for these arguments" and checks nothing, so the test passes whether or not the call happened.
+  Vitest 4.1's chai-style `expect(fn).to.have.been.calledWith(x)` is the one that asserts — the same
+  word, the opposite meaning. Continue the chain, or use `toHaveBeenCalledWith`. The
+  `no-bare-called-with` lint rule catches it.
+- **`setupAutoSpy({ strayTimers: true })` empties Vitest 4.1's `--detect-async-leaks` report.** The
+  sweep cancels in `afterAll`, Vitest collects afterwards, and a cancelled timer is no longer
+  referenced — so a leaking file is reported as clean. When both are on, the sweep prints the count
+  it took to stderr. To find *where* a stray timer was scheduled, re-run that file with `strayTimers`
+  off; `onStrayTimers` takes the count instead of the warning.
 - **Never assert a signal with `toBeTruthy()`** — every signal is truthy. Use
   `toHaveSignalValue(v)` after `registerSignalMatchers()`.
 - **Never assert a resource with `expect(r.value()).toEqual(...)` alone** — an unresolved resource

@@ -63,7 +63,7 @@ identical API, with **RxJS** spies and **Angular / NestJS / React / Vue·Pinia /
 - 🧩 Module mocks that prove they applied — `assertMocked`, `moduleNamespace`, for a `vi.mock()` a bundler quietly ignored
 - 🧾 Fixtures without casts — deep-partial `createMock`, `createFixture` / `createFixtureFactory`, `narrow()`, `withOverrides()`, `asInstances()`, `captureArg()`
 - 🚚 A migration you can verify — `compareTestRuns` on the two JSON reports, `diffByField` for the assertion the reporter collapses
-- 📏 Lint rules and one-line test-run hygiene — eighteen rules in `vitest-auto-spy/eslint-plugin` (three `--fix`, seven suggestions, four of them for a suite mid-migration off jasmine), `setupAutoSpy()`
+- 📏 Lint rules and one-line test-run hygiene — nineteen rules in `vitest-auto-spy/eslint-plugin` (three `--fix`, seven suggestions, four of them for a suite mid-migration off jasmine), `setupAutoSpy()`
 - 🩺 [Editor diagnostics](#editor-diagnostics--webstorm--vs-code) — the same anti-patterns underlined while you type: native ESLint inspections in **WebStorm** and the other JetBrains IDEs, the ESLint extension in **VS Code**, no extra plugin either way
 - 🔎 [`npx vitest-auto-spy doctor`](#the-cli--doctor-codemod-and-init) — suite-level defects **that never fail a run**: a `tsconfig` `include` matching no file, a production module importing a spec, a `@jest-environment` pragma the runner never reads, config left behind for a runner that is gone. Read-only, no config, exits 1 in CI
 - 🚚 [`npx vitest-auto-spy codemod`](#codemod--migrating-a-suite-off-jest-auto-spies) — thirteen transforms that move a suite off `jest-auto-spies` and Jest, or off `jasmine-auto-spies` and jasmine (`--from jasmine`), dry-run by default, with a `--verify` pass that also checks a file somebody edited by hand
@@ -604,6 +604,23 @@ cart.total.mockReturnValue(42);
 `CartService` and the spy has it. A hand-written `{ provide: CartService, useValue: { total:
 vi.fn() } }` silently keeps mocking yesterday's class.
 
+On **Vitest 4.1+**, the same thing as fixtures — one statement, types inferred, and a test that
+never names a dependency never builds it:
+
+```ts
+import { test as base } from 'vitest';
+import { extendWithAutoSpies } from 'vitest-auto-spy/angular';
+
+const test = extendWithAutoSpies(base, { cart: CartService, api: [ApiService, { returns: { get: of([]) } }] });
+
+test('checks out', ({ cart }) => cart.total.mockReturnValue(42));
+```
+
+It takes the whole map at once because every provider has to be known before the first injection —
+[why, in full](https://asdalexey.github.io/vitest-auto-spy/adapters/angular#fixtures-instead-of-let-beforeeach-extendwithautospies).
+On an older Vitest it throws `needs Vitest 4.1 or newer` up front, instead of letting the object-form
+`extend` register nonsense and every test die on `undefined`.
+
 ### How to mock: a service without DI
 
 ```ts
@@ -667,6 +684,18 @@ await expect(expectEmission(component.visible$)).resolves.toBe(true); // the fir
 Not `source$.subscribe(value => expect(value).toEqual(…))`: if the stream never emits, the callback
 never runs, nothing is asserted, and the test is green and empty. `expectEmission` **is** the
 assertion — a silent stream fails it, with the stream's name and the timeout in the message.
+
+### How to mock: a call that has to throw
+
+```ts
+cart.checkout.failWith(new HttpErrorResponse({ status: 500 })); // every call throws
+cart.checkout.calledWith(BAD_ID).failWith(new Error('unknown cart')); // only these arguments
+```
+
+`failWith` works on a spy of any return type. Vitest 4.1's `mockThrow` covers the first line; Bun
+and `node:test` have no equivalent, and **no** runtime has one for the second — `mockImplementation`
+replaces the whole dispatch, which is the opposite of configuring one set of arguments. It is not
+called `throwWith` because that name already means _error the stream_ on an observable spy.
 
 ### How to mock: a promise a test forgets to await
 
@@ -2235,20 +2264,21 @@ expensive to diagnose when it is missing. The first three are on by default:
     timer in sight: a request matching no Express route is ended by `finalhandler` on `setImmediate`,
     so the 404 is never written and a routing mistake is reported as a slow test.
 
-| Option                | Default   | Notes                                                                           |
-| --------------------- | --------- | ------------------------------------------------------------------------------- |
-| `duplicateCopies`     | `'throw'` | `'warn'` to report without failing, `'off'` to skip the check                   |
-| `restoreProps`        | `true`    | `restoreMockedProps()` in a global `afterEach`                                  |
-| `restoreMocks`        | `false`   | `vi.restoreAllMocks()` in a global `afterEach` — turn on for `isolate: false`   |
-| `strayTimers`         | `false`   | Cancel timeouts, intervals and frames that outlive their file                   |
-| `strayRejections`     | `false`   | Fail the test a rejection zone.js swallowed surfaced in — needs zone.js         |
-| `blockNetwork`        | `false`   | Close every network channel the environment has — `true`, or a narrowing object |
-| `guardGlobals`        | `'off'`   | Report a test that redefines a global property as non-configurable              |
-| `globalFakeTimers`    | `false`   | Fake timers for every test **and between them** — Jest's `enableGlobally`       |
-| `restoreTimerGlobals` | `true`    | Put back timer globals that uninstalling the fakes deleted                      |
-| `pruneMockRegistry`   | `false`   | Keep @vitest/spy's ever-growing mock registry to the mocks that outlive a file  |
-| `hookTimeoutHint`     | `true`    | Explain a hook that ran out of `hookTimeout` while `testTimeout` is larger      |
-| `frozenClockHint`     | `true`    | Explain a timeout that happened because nothing advanced the fake clock         |
+| Option                | Default   | Notes                                                                                 |
+| --------------------- | --------- | ------------------------------------------------------------------------------------- |
+| `duplicateCopies`     | `'throw'` | `'warn'` to report without failing, `'off'` to skip the check                         |
+| `restoreProps`        | `true`    | `restoreMockedProps()` in a global `afterEach`                                        |
+| `restoreMocks`        | `false`   | `vi.restoreAllMocks()` in a global `afterEach` — turn on for `isolate: false`         |
+| `strayTimers`         | `false`   | Cancel timeouts, intervals and frames that outlive their file                         |
+| `onStrayTimers`       | —         | Takes the per-file count the sweep cancelled — see the note on `--detect-async-leaks` |
+| `strayRejections`     | `false`   | Fail the test a rejection zone.js swallowed surfaced in — needs zone.js               |
+| `blockNetwork`        | `false`   | Close every network channel the environment has — `true`, or a narrowing object       |
+| `guardGlobals`        | `'off'`   | Report a test that redefines a global property as non-configurable                    |
+| `globalFakeTimers`    | `false`   | Fake timers for every test **and between them** — Jest's `enableGlobally`             |
+| `restoreTimerGlobals` | `true`    | Put back timer globals that uninstalling the fakes deleted                            |
+| `pruneMockRegistry`   | `false`   | Keep @vitest/spy's ever-growing mock registry to the mocks that outlive a file        |
+| `hookTimeoutHint`     | `true`    | Explain a hook that ran out of `hookTimeout` while `testTimeout` is larger            |
+| `frozenClockHint`     | `true`    | Explain a timeout that happened because nothing advanced the fake clock               |
 
 `restoreMocks` is off by default because it also drops `vi.spyOn` stubs a suite installed in
 `beforeAll`; it is the knob to reach for when the run shares one environment across files.
@@ -2395,6 +2425,7 @@ export can never be.
 | `prefer-as-spy`                   |   `warn`    | `--fix`           | `TestBed.inject(X) as Spy<X>` → `asSpy<X>(TestBed.inject(X))`, import and all                                                              |
 | `no-done-callback`                |   `error`   | —                 | `it('x', (done) => …)` → `async` + an awaited assertion, and `done.fail(…)` at the call site                                               |
 | `no-floating-assertion`           |   `error`   | —                 | `expect()` in a `.then()` nobody awaits → `expect(await promise)`                                                                          |
+| `no-bare-called-with`             |   `error`   | —                 | `spy.m.calledWith(1);` as a statement of its own — a stub nobody continued, asserting nothing                                              |
 | `no-overridden-provider`          |   `error`   | suggest           | two providers for one token in one array → the earlier one never runs; the exact duplicate can be deleted                                  |
 | `no-inject-before-override`       |   `warn`    | —                 | `TestBed.inject()` in a hook, in a suite that still calls `override*`                                                                      |
 | `no-import-time-spread`           |   `error`   | suggest           | `export const x = [...Imported]` at module scope → a `TypeError` while the bundle loads                                                    |
@@ -2408,7 +2439,7 @@ Every message ends with a link to the matching [recipe](#how-to-mock): a rule th
 "don't" moves the problem rather than solving it. Rules travel with the API they recommend, so they
 are versioned together and stop being re-written in every project that installs the package.
 
-**Three of the eighteen fix on their own, seven offer suggestions**, and the split is not about how hard
+**Three of the nineteen fix on their own, seven offer suggestions**, and the split is not about how hard
 the rewrite is. `no-mocked-for-spy` touches a _declaration_: get it wrong and the file stops
 compiling, which is the loudest, cheapest failure there is — so `--fix` rewrites the type, adds
 `import type { Spy } from 'vitest-auto-spy'` and drops the `Mocked` import once nothing else uses
@@ -2510,7 +2541,7 @@ package's own — it needs its ESLint integration switched on.
 ### WebStorm and the other JetBrains IDEs
 
 No plugin to install: WebStorm, IntelliJ IDEA Ultimate, PhpStorm, PyCharm Professional and RubyMine
-all run ESLint natively, so the eighteen rules appear inline, in the **Problems** tool window, and
+all run ESLint natively, so the nineteen rules appear inline, in the **Problems** tool window, and
 under **Code → Inspect Code** for the whole project.
 
 ```js
@@ -2527,7 +2558,7 @@ has supported flat config since 2023.3); scope the block to spec files yourself;
 the fixes and suggestions live.
 
 A native JetBrains plugin is **not** planned — it would duplicate an integration the IDE already has
-and then keep a second copy of eighteen rules, in Kotlin, in step with the TypeScript ones.
+and then keep a second copy of nineteen rules, in Kotlin, in step with the TypeScript ones.
 
 ### VS Code, Cursor, Windsurf, VSCodium
 

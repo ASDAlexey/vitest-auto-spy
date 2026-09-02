@@ -4,17 +4,34 @@
 > local staging mirror — GitHub Releases are auto-generated from Conventional Commits on push to
 > `master`, so nothing here is pasted anywhere. See `CONTRIBUTING.md` → "Releasing".
 
-_Last released: **v3.11.0** (2026-08-30) — the git tag and `package.json` agree._
+_Last released: **v3.14.0** — the git tag and `package.json` agree._
 
-> ⚠️ **`CHANGELOG.md` is two releases behind the tags.** Its newest released heading is
-> `## [3.9.0]`, while the latest tag and `package.json` are both `3.11.0` — so whatever shipped as
-> 3.10.0 and 3.11.0 is still sitting under `## [Unreleased]` there, mixed in with work that has not
+> ⚠️ **`CHANGELOG.md` is five releases behind the tags.** Its newest released heading is
+> `## [3.9.0]`, while the latest tag and `package.json` are both `3.14.0` — so whatever shipped as
+> 3.10.0 through 3.14.0 is still sitting under `## [Unreleased]` there, mixed in with work that has not
 > shipped at all. This is the one manual step the automation does not do (`CONTRIBUTING.md` →
-> "Releasing", step 2): split that section into `## [3.10.0]` and `## [3.11.0]` by reading the
+> "Releasing", step 2): split that section into one heading per tag, `## [3.10.0]` … `## [3.14.0]`, by reading the
 > Conventional Commits between the tags, fix the compare links, and commit it as `docs(changelog):`
 > — a `docs` commit does not trigger a release.
 
 ## Staged for the next release
+
+- **`failWith(error)`** on the sync bundle and on a `calledWith` chain — the cross-runtime answer to
+  Vitest 4.1's `mockThrow`, and the only way any runtime offers to make *one* argument set throw.
+  Not named `throwWith`: that is the observable helper, and every spy carries every bundle.
+
+- **`extendWithAutoSpies(test, spec)`** (`/angular`) — a map of dependencies as typed `TestBed`
+  fixtures in one `configureTestingModule`. Vitest 4.1+, and it throws a named error on anything
+  older instead of letting the object-form `extend` hand every test `undefined`.
+
+- **`onStrayTimers`**, and a stderr warning when `strayTimers` and Vitest 4.1's `detectAsyncLeaks`
+  are both on — the sweep used to empty that report silently.
+
+- **ESLint `no-bare-called-with`** — `spy.m.calledWith(1);` as a statement asserts nothing, and 4.1's
+  chai-style `expect(fn).to.have.been.calledWith(x)` made the confusion likely.
+
+- **Fixed:** a stray-timer leak was framed inside `node_modules/vitest-auto-spy`; the scheduler
+  wrappers now go through `vi.defineHelper`, so the code frame is the spec line again.
 
 - **`subscribeSpyTo` / `ObserverSpy` / `SubscriberSpy`** (`/observer-spy`) — the `@hirez_io/observer-spy`
   surface, with its live-array, `any[]`, read-past-the-end and rxjs-7 rethrow defects fixed.
