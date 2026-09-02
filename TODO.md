@@ -920,6 +920,23 @@ with zoneless support: a `./zoneless` entry added in 19.2.0 on 2026-03-17.
   `comparison.md` row and a CI budget test, which is the cheapest way to stop `Spy<T>` from
   degenerating into a deep proxy.
 
+### Tried and rejected — do not re-open
+
+- **`aroundEach` / `aroundAll` do not replace the proxy-zone patch.** Vitest 4.1 added hooks that
+  wrap a test (`aroundEach((runTest) => …)`) and a suite, and on paper they are exactly what
+  `lib/proxy-zone.ts` hand-rolls: run every callback inside a forked `ProxyZoneSpec`, without
+  replacing the runner globals and therefore without the `globals: true` requirement, the
+  `fn.toString()` fixture parsing, the preserved `fn.length` or the `it.each` receiver Proxy.
+  **Measured: it does not work.** With `aroundEach((runTest) => proxyZone.run(runTest))` registered
+  from a setup file, `Zone.current.name` is `<root>` in `beforeAll`, in `beforeEach` and in the test
+  body, and `fakeAsync` fails with `Expected to be running in 'ProxyZone', but it was not found`. The
+  hooks fire — that was verified separately — but `zone.run()` only holds for the synchronous part of
+  the call, and the runner reaches the test body through native `await`, which zone.js does not
+  patch. Angular's own jasmine patch wraps the *test function itself* for this reason, and so must
+  this one. What `aroundEach` does get right, and what is worth knowing if it is ever useful for
+  something else: it is collected from parent suites, so a file-level registration covers nested
+  `describe`s, and it wraps `beforeEach` + body + `afterEach` together.
+
 ### Worth stealing — ranked
 
 - [ ] **`vi.defineHelper` on the three `expectEmission` helpers — the part that did not work.** The
@@ -970,10 +987,21 @@ with zoneless support: a `./zoneless` entry added in 19.2.0 on 2026-03-17.
   fails" weakness it would be added for — while a suite-wide `strict: true` would then throw on
   every existing deep tree, including the `selfReturning` shape.
 
-Runners-up: `throwWith` on the sync bundle, to match Vitest 4.1's new `mockThrow` / `mockThrowOnce`
-on the runtimes that lack it; an `ignoreExtraArgs` option on `calledWith`, since `ArgsMap#argsMatch`
-requires exact arity while testdouble and substitute allow partial; and a documentation note that
-`bun:test`'s `mock.module` is **not hoisted**, which silently breaks migrated suites.
+Runners-up: an `ignoreExtraArgs` option on `calledWith`, since `ArgsMap#argsMatch` requires exact
+arity while testdouble and substitute allow partial; and a documentation note that `bun:test`'s
+`mock.module` is **not hoisted**, which silently breaks migrated suites.
+
+- [x] **The sync throw helper — shipped as `failWith`, not `throwWith`.** Matching Vitest 4.1's
+      `mockThrow` / `mockThrowOnce` on the runtimes that lack them (confirmed absent on Bun 1.4.0 and
+      `node:test` under Node 24.19.0). The name is the part worth recording: `throwWith` is the
+      obvious choice and is **wrong**, because it is already the observable helper that errors the
+      stream. Every spy carries every bundle at runtime — only the return type in `Spy<T>` tells them
+      apart — and both are attached with `Object.assign`, so whichever comes last wins for every spy
+      in the run. Writing it as `throwWith` broke `getObs.throwWith(err)` immediately, which is the
+      cheap version of that lesson. The capability that justified shipping it at all is not the
+      spy-level throw (`mockImplementation` can do that everywhere) but
+      `calledWith(x).failWith(err)`: no runtime can make *one* argument set throw while its siblings
+      answer normally.
 
 ### A distribution opening, not a feature gap
 

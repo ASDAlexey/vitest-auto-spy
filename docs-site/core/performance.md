@@ -298,6 +298,22 @@ With a shared environment more workers stop helping early: each one re-imports t
 and has nobody to share that work with. Measure before raising it — on the suites above, one worker
 beat the default pool outright at both sizes.
 
+### Finding your own number 1, 2 and 3
+
+Everything above is measurement, and Vitest 4.1 ships two flags that produce the same kind of
+evidence for **your** suite rather than this one. Neither is part of this library; both are worth
+knowing before optimising anything.
+
+- **`experimental.importDurations: { limit, print }`** names the imports a spec file waits on, with
+  a threshold and an optional failure. It answers the question the numbers above cannot: whether a
+  file's cost is the `TestBed`, the doubles, or one heavy barrel import that nothing in the spec
+  uses. On an Angular suite the usual finding is the third.
+- **`experimental.preParse`** (4.1.3) moves parsing off the critical path at start-up.
+
+They sit alongside [`enableTestBedDiagnostics()`](../adapters/angular#where-a-spec-spends-its-time),
+which reports the same per-file cost from inside the `TestBed`. Use the Vitest flags to find which
+files are expensive, and the diagnostics to find where inside one the time goes.
+
 ## Why this is not written in Rust
 
 The question arrives with scale: a suite of ten or twenty thousand tests, a CI bill that is a real

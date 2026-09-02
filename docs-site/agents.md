@@ -55,6 +55,20 @@ whether it loads) over a body that only points at the tarball, so the copy canno
 installed. But something still has to tell the agent to read it. That one line is what `init`
 writes.
 
+## Cheaper run output — `--reporter=agent`
+
+Vitest 4.1 ships a reporter written for this: the same failures, without the passing-test roll call
+and the repeated banners that make a run's output expensive for an agent to read and expensive to
+carry in context.
+
+```bash
+npx vitest run --reporter=agent src/app/cart.component.spec.ts
+```
+
+It is Vitest's own, not this package's — nothing here has to be configured for it. Combine it with a
+path filter: an agent almost never needs the whole suite, and the file it just edited is the one that
+answers the question it has.
+
 ## One command
 
 ```bash
