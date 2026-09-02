@@ -318,7 +318,7 @@ alongside it:
   of, kept to the mocks that outlive a file. On `isolate: false` it is what makes `clearMocks` cost
   more with every test already run, and what keeps a whole run's recorded arguments — and the
   component trees behind them — alive in one worker.
-- [Fourteen ESLint rules](/utilities/eslint-plugin) versioned together with the API they recommend, and
+- [Eighteen ESLint rules](/utilities/eslint-plugin) versioned together with the API they recommend, and
   [`setupAutoSpy()`](/utilities/setup) for the test-run hygiene a shared environment needs.
 - [Per-file `TestBed` diagnostics](/adapters/angular#where-a-spec-spends-its-time) — which specs
   actually pay for `TestBed`, and by how much.

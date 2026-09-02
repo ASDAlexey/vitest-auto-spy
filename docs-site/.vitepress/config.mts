@@ -99,7 +99,8 @@ for (const entry of SIDEBAR) {
 // https://vitepress.dev/reference/site-config
 export default defineConfig({
   title: 'vitest-auto-spy',
-  description: 'Automatic, fully-typed test spies from a class — runtime-agnostic across Vitest, Bun and node:test.',
+  description:
+    'Automatic, fully-typed test spies from a class — runtime-agnostic across Vitest, Bun and node:test. A drop-in replacement for jest-auto-spies and jasmine-auto-spies.',
 
   // Served from https://asdalexey.github.io/vitest-auto-spy/ — required for asset/link paths.
   // If you add a custom domain (CNAME), change this to '/'.
@@ -166,7 +167,7 @@ export default defineConfig({
         '@type': 'SoftwareSourceCode',
         name: 'vitest-auto-spy',
         description:
-          'Auto-generate fully-typed test spies from a class across Vitest, Bun and node:test. A drop-in replacement for jest-auto-spies.',
+          'Auto-generate fully-typed test spies from a class across Vitest, Bun and node:test. A drop-in replacement for jest-auto-spies and for jasmine-auto-spies, with a codemod that finishes the move.',
         codeRepository: 'https://github.com/ASDAlexey/vitest-auto-spy',
         programmingLanguage: 'TypeScript',
         license: 'https://opensource.org/licenses/MIT',
@@ -211,16 +212,17 @@ export default defineConfig({
             author: { '@id': `${HOSTNAME}#author` },
             url: HOSTNAME,
             description:
-              'Generate fully-typed test spies from a class, an interface or nothing at all. One API across Vitest, Bun and node:test, with Angular, NestJS, React, Vue and Svelte recipes, RxJS observable spies and fourteen ESLint rules. A drop-in replacement for jest-auto-spies.',
+              'Generate fully-typed test spies from a class, an interface or nothing at all. One API across Vitest, Bun and node:test, with Angular, NestJS, React, Vue and Svelte recipes, RxJS observable spies and eighteen ESLint rules. A drop-in replacement for jest-auto-spies and for jasmine-auto-spies, whose .and / .calls / .withArgs namespaces it restores so a Karma-era suite runs before it is rewritten.',
             featureList: [
               'Typed spies generated from a class prototype',
               'createAutoMock<T>() — a mock from a type alone, no class required',
               'One mock adapter core across Vitest, bun:test and node:test',
               'Angular TestBed helpers: provideAutoSpy, injectSpy, renderShallow',
               'Observable assertions that fail on silence',
-              'Fourteen ESLint rules and editor diagnostics for WebStorm and VS Code',
+              'Eighteen ESLint rules and editor diagnostics for WebStorm and VS Code',
               'createFixture / createFixtureFactory — a checked model stamped into a fresh copy per test',
               'A shared-double guard that puts back what a cross-file vi.resetAllMocks() dropped',
+              'jasmine-auto-spies and Karma migration — the .and namespace restored, then a codemod that removes it',
             ],
             offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' },
           },
