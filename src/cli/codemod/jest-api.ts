@@ -84,5 +84,13 @@ export const JASMINE_ALIASES: Readonly<Record<string, string>> = {
   xtest: 'test.skip',
 };
 
-/** The packages whose `jest-auto-spies`-shaped API this codemod splits across our entry points. */
-export const LEGACY_PACKAGES = ['jest-auto-spies', '@bugsplat/vitest-auto-spies'];
+/**
+ * The packages whose `jest-auto-spies`-shaped API this codemod splits across our entry points.
+ *
+ * `jasmine-auto-spies` is the upstream both of the others descend from, and every name in it —
+ * `createSpyFromClass`, `createFunctionSpy`, `provideAutoSpy`, `Spy`, `ClassSpyConfiguration` — is
+ * exported under the same name here. Which entry each one goes to is still read off the installed
+ * package's export map rather than assumed: that is how `createObservableWithValues` ends up on
+ * `vitest-auto-spy/rxjs` without this file having to know that it does.
+ */
+export const LEGACY_PACKAGES = ['jest-auto-spies', 'jasmine-auto-spies', '@bugsplat/vitest-auto-spies'];

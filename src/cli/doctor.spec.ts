@@ -11,6 +11,7 @@ import { checkAngularBuild, compareVersions, isAffectedVersion, parseVersion } f
 import { canMatchBundleChunk, checkCoverageConfig, coverageBlock, declaresKey, includePatterns } from './checks/coverage-config';
 import { checkForeignPragma, findPragmas } from './checks/foreign-pragma';
 import { buildGraph, extractSpecifiers, resolveRelative } from './checks/graph';
+import { checkJasmineEra } from './checks/jasmine-era';
 import { checkOrphanRunnerConfig, referencedPaths } from './checks/orphan-runner-config';
 import { checkSpecImports } from './checks/spec-imports';
 import { checkTsconfigGlobs, expandInclude, globToRegExp, isExemptPattern } from './checks/tsconfig-globs';
@@ -406,6 +407,52 @@ describe('checkAgentInstructions', () => {
 
     expect(checks(checkAgentInstructions(silent))).toEqual(['no-agent-instructions']);
     expect(checkAgentInstructions(told)).toEqual([]);
+  });
+});
+
+describe('checkJasmineEra', () => {
+  it('gathers every trace into one line and names the two steps out, in order', () => {
+    const root = createTempRepo({
+      'package.json': JSON.stringify({ devDependencies: { 'jasmine-core': '^5', 'karma-jasmine': '^5', 'jasmine-auto-spies': '^7' } }),
+      'karma.conf.js': 'module.exports = {};',
+      'tsconfig.spec.json': JSON.stringify({ compilerOptions: { types: ['jasmine', 'node'] } }),
+    });
+    const findings = checkJasmineEra(readProfile(root));
+
+    expect(checks(findings)).toEqual(['jasmine-era-project']);
+    expect(findings[0]?.severity).toBe('info');
+    expect(findings[0]?.message).toContain('jasmine-auto-spies, jasmine-core, karma-jasmine, karma.conf.js, tsconfig.spec.json');
+    expect(findings[0]?.fix).toContain('vitest-auto-spy/jasmine');
+    expect(findings[0]?.fix).toContain('codemod --from jasmine');
+  });
+
+  it('fires on the observer-spy package and on the jasmine types alone', () => {
+    const bySpy = readProfile(createTempRepo({ 'package.json': JSON.stringify({ devDependencies: { '@hirez_io/observer-spy': '^2' } }) }));
+    const byTypes = readProfile(
+      createTempRepo({ 'package.json': '{}', 'tsconfig.json': JSON.stringify({ compilerOptions: { types: ['jasmine'] } }) }),
+    );
+
+    expect(checks(checkJasmineEra(bySpy))).toEqual(['jasmine-era-project']);
+    expect(checks(checkJasmineEra(byTypes))).toEqual(['jasmine-era-project']);
+  });
+
+  it('stays quiet on a repository that carries none of it', () => {
+    const clean = createTempRepo({
+      'package.json': JSON.stringify({ devDependencies: { vitest: '^4' } }),
+      'tsconfig.json': JSON.stringify({ compilerOptions: { types: ['node'] } }),
+      'tsconfig.spec.json': JSON.stringify({ include: ['src/**/*.spec.ts'] }),
+      'tsconfig.broken.json': '{ not json',
+      'src/karma.conf.md': '',
+    });
+
+    expect(checkJasmineEra(readProfile(clean))).toEqual([]);
+  });
+
+  it('reads a tsconfig that vanished, and one whose compilerOptions is not an object, as saying nothing', () => {
+    const odd = createTempRepo({ 'package.json': '{}', 'tsconfig.json': JSON.stringify({ compilerOptions: 'inherited' }) });
+
+    expect(checkJasmineEra(profileWith({ files: ['tsconfig.json'] }))).toEqual([]);
+    expect(checkJasmineEra(readProfile(odd))).toEqual([]);
   });
 });
 

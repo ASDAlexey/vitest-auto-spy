@@ -22,9 +22,21 @@ export interface TransformContext {
   readonly preferredEntry: string;
 }
 
+/**
+ * Which dialect a transform is about, and therefore which `--from` runs it.
+ *
+ * `shared` is not "both halves of the migration" — it is the transforms whose input exists in a
+ * jasmine suite and a Jest suite alike: the legacy auto-spies import, the `Spy<T>` cast, `xit`, and
+ * `mockImplementation()` with no argument. They run whatever `--from` says, because narrowing them
+ * would mean a `--from jasmine` run leaving `xit` behind.
+ */
+export type TransformFamily = 'jasmine' | 'jest' | 'shared';
+
 export interface TransformSpec {
   /** The id `--only` and `--skip` name, and the id the report prints. */
   readonly id: string;
+  /** Which `--from` selects it — see {@link TransformFamily}. */
+  readonly family: TransformFamily;
   /** One line, for `--help` and `--list`. */
   readonly summary: string;
   /**

@@ -13,7 +13,7 @@ import { readTextFile } from '../fs-scan';
 import { runCli } from '../main';
 import type { CliIo } from '../main';
 import { createTempRepo, removeTempRepos } from '../temp-repo';
-import { TRANSFORMS, residueOf, selectTransforms } from './codemod';
+import { TRANSFORMS, residueOf, resolveFrom, selectTransforms } from './codemod';
 import { listing, readAll, selectFiles } from './run';
 
 afterEach(() => {
@@ -45,6 +45,33 @@ const LEGACY = [
   '    service = TestBed.inject(Service) as Spy<Service>;',
   '    jest.spyOn(service, "load").mockImplementation();',
   '    hook = jest.fn();',
+  '  });',
+  '});',
+  '',
+].join('\n');
+
+/**
+ * The same suite as it was written under jasmine: the upstream package, the `.and` namespace over
+ * both APIs at once, a bare `spyOn`, and the two globals nothing imports.
+ */
+const JASMINE = [
+  "import { createSpyFromClass, provideAutoSpy, Spy } from 'jasmine-auto-spies';",
+  '',
+  "import { Service } from './service';",
+  '',
+  'describe("Service", () => {',
+  '  let service: Spy<Service>;',
+  '',
+  '  beforeEach(() => {',
+  '    jasmine.clock().install();',
+  '    service = createSpyFromClass(Service);',
+  "    spyOn(service, 'reset');",
+  '    service.load.and.nextWith(1);',
+  '    service.save.and.returnValue(2);',
+  '  });',
+  '',
+  '  it("loads", () => {',
+  '    expect(service.ready).toBeTrue();',
   '  });',
   '});',
   '',
@@ -86,6 +113,17 @@ describe('selectTransforms', () => {
 
   it('reports an unknown id instead of silently running everything', () => {
     expect(selectTransforms('jest-typo', undefined)).toContain('Unknown transform: jest-typo');
+  });
+});
+
+describe('resolveFrom', () => {
+  it('defaults to auto, takes both spellings of jasmine, and answers undefined for anything else', () => {
+    expect(resolveFrom(undefined)).toBe('auto');
+    expect(resolveFrom('auto')).toBe('auto');
+    expect(resolveFrom('jasmine')).toBe('jasmine');
+    expect(resolveFrom('jasmine-auto-spies')).toBe('jasmine');
+    expect(resolveFrom('jest-auto-spies')).toBe('jest');
+    expect(resolveFrom('jest')).toBeUndefined();
   });
 });
 
@@ -199,11 +237,74 @@ describe('codemod', () => {
     expect(io.stdout.join('\n')).toContain('0 files would change, 0 edits');
   });
 
+  it('migrates a jasmine suite under --from jasmine, spyOn included', () => {
+    const root = createTempRepo({ ...REPO, 'src/app/service.spec.ts': JASMINE });
+    const io = recorder();
+
+    expect(runCli(['codemod', '--cwd', root, '--from', 'jasmine', '--write'], io)).toBe(0);
+
+    const written = readTextFile(`${root}/src/app/service.spec.ts`) ?? '';
+
+    expect(written).toContain("import { createSpyFromClass, Spy } from 'vitest-auto-spy';");
+    expect(written).toContain("import { provideAutoSpy } from 'vitest-auto-spy/angular';");
+    expect(written).toContain('vi.useFakeTimers();');
+    expect(written).toContain("vi.spyOn(service, 'reset').mockImplementation(() => undefined);");
+    expect(written).toContain('service.load.nextWith(1);');
+    expect(written).toContain('service.save.mockReturnValue(2);');
+    expect(written).toContain('expect(service.ready).toBe(true);');
+
+    const verify = recorder();
+
+    expect(runCli(['codemod', '--cwd', root, '--from', 'jasmine', '--verify'], verify)).toBe(0);
+    expect(verify.stdout.join('\n')).toContain('Nothing left to migrate.');
+  });
+
+  it('reaches the same result with no --from at all, because the file says which dialect it is', () => {
+    const root = createTempRepo({ ...REPO, 'src/app/service.spec.ts': JASMINE });
+
+    expect(runCli(['codemod', '--cwd', root, '--write'], recorder())).toBe(0);
+    expect(readTextFile(`${root}/src/app/service.spec.ts`) ?? '').toContain('service.load.nextWith(1);');
+  });
+
+  it('leaves every jasmine construct alone when the run was told it is a Jest suite', () => {
+    const root = createTempRepo({ ...REPO, 'src/app/service.spec.ts': JASMINE });
+
+    expect(runCli(['codemod', '--cwd', root, '--from', 'jest-auto-spies', '--write'], recorder())).toBe(0);
+
+    const written = readTextFile(`${root}/src/app/service.spec.ts`) ?? '';
+
+    expect(written).toContain('service.load.and.nextWith(1);');
+    expect(written).toContain("spyOn(service, 'reset');");
+    expect(written).toContain('jasmine.clock().install();');
+    expect(written).toContain("from 'vitest-auto-spy'");
+  });
+
+  it('rejects an unknown --from with exit code 2, naming what it accepts', () => {
+    const io = recorder();
+
+    expect(runCli(['codemod', '--cwd', createTempRepo(REPO), '--from', 'karma'], io)).toBe(2);
+    expect(io.stderr.join('\n')).toContain('Unknown --from value: karma');
+    expect(io.stderr.join('\n')).toContain('jasmine-auto-spies (alias: jasmine)');
+  });
+
+  it('narrows the --list table to the dialect that was named', () => {
+    const io = recorder();
+
+    expect(runCli(['codemod', '--cwd', createTempRepo(REPO), '--list', '--from', 'jasmine'], io)).toBe(0);
+
+    const output = io.stdout.join('\n');
+
+    expect(output).toContain('- jest-namespace');
+    expect(output).toContain('  jasmine-spy-on');
+    expect(output).toContain('  jasmine-aliases');
+  });
+
   it('is listed on the help screen', () => {
     const io = recorder();
 
     runCli(['help'], io);
 
     expect(io.stdout.join('\n')).toContain('codemod   Migrate a suite off jest-auto-spies');
+    expect(io.stdout.join('\n')).toContain('--from <pkg>');
   });
 });

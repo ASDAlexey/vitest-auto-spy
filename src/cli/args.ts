@@ -14,7 +14,7 @@ export interface ParsedArgs {
 }
 
 /** Flags that take a value; everything else is boolean. */
-const VALUE_FLAGS = new Set(['cwd', 'only', 'skip']);
+const VALUE_FLAGS = new Set(['cwd', 'from', 'only', 'skip']);
 
 const ALIASES: Record<string, string> = { h: 'help', v: 'version' };
 

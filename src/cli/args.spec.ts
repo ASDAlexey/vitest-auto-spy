@@ -17,6 +17,7 @@ describe('parseArgs', () => {
   it('reads a value flag in both spellings', () => {
     expect(flagValue(parseArgs(['init', '--cwd', '/tmp/x']), 'cwd')).toBe('/tmp/x');
     expect(flagValue(parseArgs(['init', '--cwd=/tmp/y']), 'cwd')).toBe('/tmp/y');
+    expect(flagValue(parseArgs(['codemod', '--from', 'jasmine']), 'from')).toBe('jasmine');
   });
 
   it('does not swallow the next flag as a value', () => {

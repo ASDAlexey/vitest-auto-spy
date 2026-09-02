@@ -27,6 +27,12 @@ Usage of codemod
   With no path it visits every *.spec.ts / *.test.ts in the repository; with a
   path it visits every TypeScript file under it.
 
+  A jasmine-auto-spies suite migrates the same way, with --from jasmine: the
+  \`.and\` namespace comes off the auto-spies helpers, jasmine's own strategies
+  become their mock* twins, and \`spyOn\` gains the stub it had for free — that
+  last one is why the rewrite is not a rename. Land the suite green on
+  \`vitest-auto-spy/jasmine\` first, then run this and drop that import.
+
 Options
   --cwd <dir>    Run against another directory instead of the current one.
   --check        init only. Write nothing; exit 1 if the block is out of date.
@@ -36,6 +42,9 @@ Options
   --verify       codemod only. Transform nothing; match the files against the
                  patterns the codemod removes and report what is left. Exit 1
                  if anything matched — the check that survives a hand edit.
+  --from <pkg>   codemod only. Which suite this is: jest-auto-spies,
+                 jasmine-auto-spies (alias: jasmine), or auto — the default,
+                 which reads each file and applies the set that file needs.
   --only <ids>   codemod only. Run only these transforms, comma-separated.
   --skip <ids>   codemod only. Run everything except these.
   --list         codemod only. Print the transforms and the entry-point table
