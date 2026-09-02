@@ -16,6 +16,30 @@ _Last released: **v3.11.0** (2026-08-30) — the git tag and `package.json` agre
 
 ## Staged for the next release
 
+- **`subscribeSpyTo` / `ObserverSpy` / `SubscriberSpy`** (`/observer-spy`) — the `@hirez_io/observer-spy`
+  surface, with its live-array, `any[]`, read-past-the-end and rxjs-7 rethrow defects fixed.
+
+- **`codemod --from jasmine`** (13 transforms) and a `doctor` check that recognises a jasmine-era
+  repository. `spyOn` is rewritten with an explicit stub, because jasmine's stubs and Vitest's calls
+  through.
+
+- **Fixed:** the codemod declined to place 23 multi-entry exports (`provideAutoSpy`, `injectSpy`, …)
+  and reported "no entry point exports it", which was false. It now resolves from evidence in the
+  file and warns with the alternatives when there is none.
+
+- **ESLint:** `jasmine-namespace-without-entry`, `no-jasmine-globals`, `no-save-arguments-by-value`
+  and `prefer-native-spy-api` (off by default), plus `no-done-callback` now catching `done.fail(…)`.
+
+- **`vitest-auto-spy/jasmine`** — the drop-in surface for a suite coming from `jasmine-auto-spies`:
+  `.and` / `.calls` / `.withArgs` on every spy, `createSpyObj`, an importable `jasmine` namespace,
+  and the eight asymmetric matchers Vitest lacks. `enableJasmineCompat()` from `/jasmine-compat`
+  gives the same surface without pulling Vitest in. Bridge, not destination — the codemod
+  (`--from jasmine`) rewrites the suite off it.
+
+- **Fixed:** a write-only prototype setter was classified as a method and its function spy overwrote
+  the setter spy, so `settersToSpyOn` recorded nothing. Discovery now excludes both halves of an
+  accessor.
+
 - **`createFixture<T>(defaults, overrides?)` / `createFixtureFactory<T>(defaults)`** (core) — the
   model a whole suite shares, written out and checked once instead of copied into eight specs.
   `defaults` is a complete `T`, so a removed field is one compile error rather than eight silent

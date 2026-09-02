@@ -12,6 +12,80 @@ The latest released version here must always match the one published on
 
 ### Added
 
+- **`subscribeSpyTo` / `ObserverSpy` / `SubscriberSpy` (`/observer-spy`) — the other half of a
+  jasmine-era suite.** `@hirez_io/observer-spy` sits beside `jasmine-auto-spies` in almost every suite that has
+  one, is by the same author, and is the larger of the two by downloads; it was last published in
+  2022. Without a bridge, moving means rewriting every stream assertion at the same time as
+  everything else. Four departures from upstream, each closing a defect rather than adding a feature:
+  `getValues()` returns a **copy** (upstream hands back its live internal array, so sorting what you
+  read corrupts the spy you are still reading) and is typed `T[]` rather than `any[]` (upstream's own
+  issue #69, which turns every downstream inference into `any`); `getFirstValue()` / `getValueAt(i)`
+  **throw** where upstream types them `T` and answers `undefined`; and an unexpected error surfaces
+  at the value reader that asked, naming it, instead of being rethrown from the observer — under
+  rxjs 7 that rethrow goes through `reportUnhandledError`, so it never reaches the subscribing line
+  and lands as an unattributed asynchronous failure. A `SubscriberSpy` is also disposable, so `using`
+  scopes the subscription to its block and there is no `autoUnsubscribe()` setup file to remember.
+  It stays a bridge: `subscribeSpyTo` is synchronous inspection, so a stream that never emits gives
+  an empty spy and a green test, while `expectEmission` / `expectEmissions` fail on silence.
+
+- **`codemod --from jasmine` — thirteen transforms that take a suite off the compatibility layer.**
+  `--from` accepts `jest-auto-spies`, `jasmine-auto-spies` (alias `jasmine`) and `auto`, the default,
+  which reads each file and applies the set that file needs. The jasmine set drops `.and.` from the
+  auto-spies helpers, maps jasmine's own strategies to their `mock*` twins
+  (`returnValue` → `mockReturnValue`, `callFake` → `mockImplementation`, `returnValues` → a
+  `mockReturnValueOnce` chain, `withArgs(…)` → `calledWith(…)`), and rewrites the jasmine globals —
+  `createSpy`, `createSpyObj`, the asymmetric matchers, `clock()`, `addMatchers`, `fail`,
+  `withContext`, `toBeTrue`, `toHaveSize`, `toHaveBeenCalledOnceWith`, `jasmine.Spy` / `SpyObj`.
+  The one it treats as dangerous rather than mechanical is **`spyOn`**: jasmine's stubs the method,
+  Vitest's calls through, so a rename silently inverts every unstubbed spy in the suite and the test
+  only fails if the real implementation happens to do something observable. It emits
+  `.mockImplementation(() => undefined)` unless a strategy is already chained. A bare `spyOn(` is
+  deliberately **not** an auto-detection marker for the same reason — the one construct both dialects
+  spell identically with opposite defaults has to be asked for out loud. Anything it cannot rewrite
+  safely is reported, never silently changed: `callThrough`, `DEFAULT_TIMEOUT_INTERVAL` and seven
+  other members with no runtime twin come back as findings with the config-level answer.
+
+- **`doctor` recognises a jasmine-era repository** — `jasmine-auto-spies`, `@hirez_io/observer-spy`,
+  `jasmine-core`, `@types/jasmine`, `karma*`, a `karma.conf.js`, or `"types": ["jasmine"]` — and
+  prints the two steps in order: land the suite green on `vitest-auto-spy/jasmine`, then run the
+  codemod and drop the import.
+
+- **Four ESLint rules for a suite mid-migration, and `no-done-callback` now catches `done.fail(…)`.**
+  `jasmine-namespace-without-entry` (warn) reports `.and` / `.calls` / `.withArgs` used on a spy this
+  library built in a file that installs nothing — the runtime failure is
+  `Cannot read properties of undefined (reading 'returnValue')`, which names neither the spy nor the
+  missing import. `no-jasmine-globals` reports `jasmine.*`, a bare `spyOn` / `spyOnProperty` /
+  `spyOnAllFunctions` / `fail` / `pending`, and `.withContext(` — that last one is the quiet one:
+  Vitest's chai layer ships an `@internal` `withContext` that walks a string's character indices as
+  though they were flags and hands the assertion back, so a `.withContext('why')` left in a migrated
+  spec keeps compiling, keeps passing, and has silently dropped its message.
+  `no-save-arguments-by-value` reports jasmine's defensive argument copy, which no Vitest-family
+  runner has — a suite that relied on it starts asserting on post-mutation state with nothing to see.
+  `prefer-native-spy-api` ships **off**: it rewrites the shim to the native spelling, autofixing only
+  where the receiver provably came from a library factory and offering a suggestion elsewhere, and it
+  reports working code, so it is the rule for the last mile rather than the first.
+
+- **`vitest-auto-spy/jasmine` — a suite arriving from `jasmine-auto-spies` runs before it is
+  rewritten.** The two libraries are siblings over the same `@hirez_io/auto-spies-core`, so every
+  configuration key already matches (`methodsToSpyOn`, `observablePropsToSpyOn`, `gettersToSpyOn`,
+  `settersToSpyOn`) and so does every helper name. Exactly one thing differs, and it is on every
+  async line of every spec: upstream installs the helpers on `functionSpy.and`, because that is where
+  jasmine's own strategies live, so `spy.load.and.nextWith(v)` is a `TypeError` here. This entry
+  installs `.and`, `.calls` and `.withArgs` on every spy built afterwards, plus `createSpyObj` and an
+  importable `jasmine` namespace (`objectContaining`, `any`, `clock()`, and the eight asymmetric
+  matchers Vitest has no twin for — `truthy`, `falsy`, `empty`, `notEmpty`, `is`, `mapContaining`,
+  `setContaining`, `arrayWithExactContents`). It is a bridge, not a destination: land the suite green,
+  then run the codemod and drop the import. Two differences from upstream are deliberate.
+  `.and.callThrough()` restores *this library's* dispatch, so `calledWith` decides again — upstream
+  has no original to call through to and silently yields `undefined`. And `Spy<T>` here does not open
+  with `/// <reference types="jasmine" />`, so importing it does not require `@types/jasmine` in a
+  project that has no other use for it. The namespaces are written against the mock adapter rather
+  than against Vitest, so `enableJasmineCompat()` from `vitest-auto-spy/jasmine-compat` or `…/node` gives a Bun
+  or `node:test` suite the same surface without pulling Vitest into the process — proven by
+  `src/bun-tests/jasmine.bun.test.ts` rather than asserted. Nothing is installed on `globalThis`, and
+  a project that never imports the entry pays one `undefined` check per spy and ships none of the
+  code.
+
 - **`createFixture<T>(defaults, overrides?)` and `createFixtureFactory<T>(defaults)` — somewhere to
   put a model, so it is written out and checked once.** `createMock` answers "this spec reads two
   fields of a big shape"; it has nothing to say about the more expensive habit, which is a content
@@ -78,6 +152,32 @@ The latest released version here must always match the one published on
   implementation was the point.
 
 ### Fixed
+
+- **The codemod refused to place 23 of its own exports, and said the wrong thing about why.**
+  `provideAutoSpy` — the second-most-common import in a `jest-auto-spies` or `jasmine-auto-spies`
+  spec — came back as `No entry point of the installed vitest-auto-spy exports provideAutoSpy`, which
+  is false: five of them do. The resolver collapsed "the table has no such name" and "the table has it
+  under several entries and none is the root" into one `undefined`, and the caller printed the first
+  message for both. It affected every multi-entry name with no root export — `injectSpy`,
+  `renderShallow`, `createWithAutoSpies`, `stable`, `trackInjections` and eighteen more — in any
+  repository whose detected entry was not among the candidates, so the migrated file kept importing
+  the legacy package and then failed the residue check for doing so. Resolution now reads the file:
+  an entry it already imports from, or the framework its own code names (`TestBed`,
+  `Test.createTestingModule`, `shallowMount`), decides it silently; with nothing to go on it places
+  the common case and reports `ambiguous-entry-point` listing the alternatives. The runtime outranks
+  the guess — in a Bun repository `injectSpy` lands on `/bun-angular`, since `/angular` there would
+  register the Vitest adapter and every spy would fail at run time.
+
+- **A write-only setter was spied as a method, and the method spy overwrote its own setter spy.**
+  `set nickname(value: string)` declared with no getter beside it has an `undefined` `get` on its
+  prototype descriptor, and method discovery asked only about `get` — so the name was counted as a
+  method, and the function spy, assigned after `createAccessorsSpies` had installed the spied
+  accessor, replaced it. `settersToSpyOn: ['nickname']` therefore produced an
+  `accessorSpies.setters.nickname` that recorded nothing, `service.nickname = 'x'` overwrote the spy
+  with a string rather than being observed, and nothing in the failure named either cause.
+  Discovery now excludes **both** halves of an accessor: a name is a method when its descriptor
+  carries a value. (`jasmine-auto-spies` has the identical defect, from the identical one-sided
+  filter — a suite migrating with `settersToSpyOn` arrives here already broken and lands fixed.)
 
 - **A `calledWith` config holding an asymmetric matcher could not be overridden ([#6](https://github.com/ASDAlexey/vitest-auto-spy/issues/6)).**
   `spy.load.calledWith(12, expect.anything()).mockReturnValue('a')` followed by the same line
