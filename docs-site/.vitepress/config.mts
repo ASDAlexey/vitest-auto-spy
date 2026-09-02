@@ -76,6 +76,8 @@ const SIDEBAR = [
   },
   { text: 'Migrating from jest-auto-spies', link: '/migrating' },
   { text: 'Migrating from jasmine-auto-spies', link: '/migrating-jasmine' },
+  { text: 'Migrating from @ngneat/spectator', link: '/migrating-spectator' },
+  { text: 'Migrating from Suites', link: '/migrating-suites' },
   { text: 'After the refactor-jasmine-vitest schematic', link: '/migrating-angular-schematic' },
   { text: 'API reference', link: '/api' },
   { text: 'Comparison', link: '/comparison' },
@@ -145,7 +147,19 @@ export default defineConfig({
           'jasmine-auto-spies, jasmine to vitest, karma to vitest, migrate jasmine, jasmine.createSpyObj, ' +
           'jasmine spyOn call through, withContext vitest, DEFAULT_TIMEOUT_INTERVAL, ' +
           'webstorm eslint inspections, vs code extension, anti-patterns, spy typing, ' +
-          'llms.txt, AGENTS.md, ai agent, claude code skill, openai codex, glm z.ai, cursor, copilot, gemini cli',
+          'llms.txt, AGENTS.md, ai agent, claude code skill, openai codex, glm z.ai, cursor, copilot, gemini cli' +
+          'spectator, ngneat spectator, spectator angular 22, spectator alternative, spectator replacement, ' +
+          'spectator not maintained, spectator deprecated, spectator 404, ngneat github deleted, openng spectator, ' +
+          'createSpyObject, mockProvider, SpectatorService, createServiceFactory, createComponentFactory, SpyObject, ' +
+          'Cannot find package @angular/platform-browser-dynamic, BrowserDynamicTestingModule, ' +
+          'platform-browser-dynamic deprecated, ERR_MODULE_NOT_FOUND platform-browser-dynamic, ' +
+          'spectator jquery dependency, spectator jasmine types in vitest, migrate off spectator, ' +
+          'suites unit testing nestjs, @suites/unit, suites dev, TestBed.solitary, TestBed.sociable, unitRef, ' +
+          'solitary unit test, sociable unit test, nestjs unit test without Test.createTestingModule, ' +
+          'nestjs mock all dependencies, nestjs auto mock providers, nest service unit test vitest, ' +
+          'nestjs testing module too slow, nest constructor changed test broke, mock nestjs injected service, ' +
+          '@Inject token test, nestjs optional dependency test, nest property injection test, ' +
+          'reflect-metadata emitDecoratorMetadata test, suites alternative, migrate off suites, ',
       },
     ],
     // max-image-preview:large is what lets Google and Yandex use the OG image in a result card.
