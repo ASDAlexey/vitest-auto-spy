@@ -1,6 +1,6 @@
 ---
 title: ESLint plugin
-description: Fourteen flat-config lint rules that steer a suite onto the auto-spy helpers, versioned with the API they recommend.
+description: Eighteen flat-config lint rules that steer a suite onto the auto-spy helpers, versioned with the API they recommend — including four for a suite mid-migration off jasmine-auto-spies.
 ---
 
 # ESLint plugin
@@ -22,24 +22,32 @@ which a subpath export of this package can never be.
 
 ## Rules
 
-| Rule                           | Recommended | Fix               | Flags                                                                                                                                      |
-| ------------------------------ | :---------: | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| `prefer-provide-auto-spy`      |   `warn`    | —                 | a hand-rolled `useValue` **or** `useFactory` → `provideAutoSpy(Class)` / `provideAutoSpyForToken(TOKEN)`                                   |
-| `prefer-create-spy-from-class` |   `warn`    | —                 | an object literal of two or more `vi.fn()`s → `createSpyFromClass` / `createAutoMock`, unless it is a factory's own seed                   |
-| `prefer-inject-spy`            |   `warn`    | suggest           | `vi.spyOn(TestBed.inject(X), 'm')`, inline or via a `const` → `injectSpy(X).m`                                                             |
-| `prefer-as-spy`                |   `warn`    | `--fix`           | `TestBed.inject(X) as Spy<X>` → `asSpy(TestBed.inject(X))`, import and all                                                                 |
-| `no-object-define-property`    |   `error`   | suggest           | `Object.defineProperty` in a spec → `mockReadonlyProp` / `mockValueProp`                                                                   |
-| `no-expect-in-subscribe`       |   `error`   | suggest           | `expect()` inside a `subscribe()` callback → `expectEmission` / `firstValueFrom`                                                           |
-| `no-shared-module-level-mock`  |   `error`   | —                 | an **exported** value holding `vi.fn()`s → export a factory that returns it                                                                |
-| `no-mocked-for-spy`            |   `warn`    | `--fix` / suggest | `Mocked<T>` in any type position → `Spy<T>`, import and all — a suggestion where the value assigned is not one of this library's factories |
-| `no-done-callback`             |   `error`   | —                 | `it('x', (done) => …)` → `async` + an awaited assertion                                                                                    |
-| `no-floating-assertion`        |   `error`   | —                 | `expect()` in a `.then()` nobody awaits → `expect(await promise)`                                                                          |
-| `no-overridden-provider`       |   `error`   | suggest           | two providers for one token in one array → the earlier one never runs; the exact duplicate can be deleted                                  |
-| `no-inject-before-override`    |   `warn`    | —                 | `TestBed.inject()` in a hook, in a suite that still calls `override*`                                                                      |
-| `no-import-time-spread`        |   `error`   | suggest           | `export const x = [...Imported]` at module scope → a `TypeError` while the bundle loads                                                    |
-| `no-unregistered-inject-spy`   |   `warn`    | —                 | `injectSpy(X)` for a token this file never registered → the real instance, whose spy helpers exist only for the compiler                    |
+| Rule                              | Recommended | Fix               | Flags                                                                                                                                      |
+| --------------------------------- | :---------: | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `prefer-provide-auto-spy`         |   `warn`    | —                 | a hand-rolled `useValue` **or** `useFactory` → `provideAutoSpy(Class)` / `provideAutoSpyForToken(TOKEN)`                                   |
+| `prefer-create-spy-from-class`    |   `warn`    | —                 | an object literal of two or more `vi.fn()`s → `createSpyFromClass` / `createAutoMock`, unless it is a factory's own seed                   |
+| `prefer-inject-spy`               |   `warn`    | suggest           | `vi.spyOn(TestBed.inject(X), 'm')`, inline or via a `const` → `injectSpy(X).m`                                                             |
+| `prefer-as-spy`                   |   `warn`    | `--fix`           | `TestBed.inject(X) as Spy<X>` → `asSpy(TestBed.inject(X))`, import and all                                                                 |
+| `no-object-define-property`       |   `error`   | suggest           | `Object.defineProperty` in a spec → `mockReadonlyProp` / `mockValueProp`                                                                   |
+| `no-expect-in-subscribe`          |   `error`   | suggest           | `expect()` inside a `subscribe()` callback → `expectEmission` / `firstValueFrom`                                                           |
+| `no-shared-module-level-mock`     |   `error`   | —                 | an **exported** value holding `vi.fn()`s → export a factory that returns it                                                                |
+| `no-mocked-for-spy`               |   `warn`    | `--fix` / suggest | `Mocked<T>` in any type position → `Spy<T>`, import and all — a suggestion where the value assigned is not one of this library's factories |
+| `no-done-callback`                |   `error`   | —                 | `it('x', (done) => …)` → `async` + an awaited assertion, and `done.fail(…)` at the call site                                               |
+| `no-floating-assertion`           |   `error`   | —                 | `expect()` in a `.then()` nobody awaits → `expect(await promise)`                                                                          |
+| `no-overridden-provider`          |   `error`   | suggest           | two providers for one token in one array → the earlier one never runs; the exact duplicate can be deleted                                  |
+| `no-inject-before-override`       |   `warn`    | —                 | `TestBed.inject()` in a hook, in a suite that still calls `override*`                                                                      |
+| `no-import-time-spread`           |   `error`   | suggest           | `export const x = [...Imported]` at module scope → a `TypeError` while the bundle loads                                                    |
+| `no-unregistered-inject-spy`      |   `warn`    | —                 | `injectSpy(X)` for a token this file never registered → the real instance, whose spy helpers exist only for the compiler                   |
+| `jasmine-namespace-without-entry` |   `warn`    | —                 | `.and` / `.calls` / `.withArgs` on a library spy in a file that installs the compatibility layer nowhere                                   |
+| `no-jasmine-globals`              |   `error`   | —                 | `jasmine.*`, bare `spyOn(` / `spyOnProperty(` / `spyOnAllFunctions(` / `fail(` / `pending(`, and `.withContext(`                           |
+| `no-save-arguments-by-value`      |   `error`   | —                 | `spy.calls.saveArgumentsByValue()` — a no-op here, so the spec silently asserts on post-mutation state                                     |
+| `prefer-native-spy-api`           |    `off`    | `--fix` / suggest | `.and` / `.calls` where the spy's own API says the same thing — the last mile off the jasmine shim                                         |
 
-The seven `error` rules are the ones that catch a test being _wrong_ rather than verbose.
+The last four are for a suite that has not arrived yet — one running on
+[`vitest-auto-spy/jasmine`](/migrating-jasmine), or one that thinks it does. They are covered
+[below](#the-four-jasmine-rules).
+
+The nine `error` rules are the ones that catch a test being _wrong_ rather than verbose.
 `Object.defineProperty` leaves no way back — nothing restores the original descriptor, so the patch
 leaks into the next file under `isolate: false`. An `expect()` inside `subscribe()` never runs if
 the stream stays silent, leaving a green test that asserted nothing.
@@ -55,7 +63,7 @@ export const createActionContext = () => ({ actions: { navigateToSection: vi.fn(
 ```
 
 Under `isolate: false` a module is evaluated once per worker, so every importing file shares one
-object. `clearMocks: true` does reach the spies inside it — [measured](#no-shared-module-level-mock-one-module-two-files) — and
+object. `clearMocks: true` does reach the spies inside it — [measured](#no-shared-module-level-mock-%E2%80%94-one-module-two-files) — and
 clears their calls; what it cannot clear is the state the fixture keeps next to them, which crosses
 from whichever file ran first into all the rest. The rule
 stops at every function boundary, so the factory form — the fix — is not flagged along with the
@@ -64,7 +72,7 @@ problem. Scope it to fixture modules and spec files alike; a spec file
 
 And a `done` parameter is not a style question. Vitest passes a callable `TestContext` there, so
 calling it throws — `done() callback is deprecated, use promise instead` on Vitest 4, [measured
-below](#no-done-callback-what-the-first-parameter-actually-is). That is the harmless case. In the
+below](#no-done-callback-%E2%80%94-what-the-first-parameter-actually-is). That is the harmless case. In the
 shape a Jasmine suite is actually full of, the call sits at the bottom of a callback, the body
 returns `undefined` before it runs, and the test **passes** having run almost none of itself. Four such tests sat green for years in the suite this
 rule came from; nothing but a type-checker ever noticed, and only indirectly.
@@ -401,13 +409,108 @@ Anything inside a call to `autoMocked`, `createAutoMock`, `createMock`, `createS
 is exempt. `prefer-provide-auto-spy` needs no such exemption: a `useValue` a factory built is a
 call, and it only ever looked at object literals.
 
+## The four jasmine rules
+
+They steer in the opposite direction from the rest of the plugin. The other fourteen push a Vitest
+suite towards this library's API; these four are about a suite that has not arrived yet — one
+running on [`vitest-auto-spy/jasmine`](/migrating-jasmine), or one that thinks it is.
+
+### `no-jasmine-globals` — the one that pays for itself on the first run
+
+`jasmine`, `spyOn`, `spyOnProperty`, `spyOnAllFunctions`, `fail` and `pending` are globals jasmine's
+own runner installs. Nothing installs them here, so most of them fail loudly on the first run with a
+`ReferenceError`. **One does not, and it is the reason this is a rule rather than a line in a
+migration guide:**
+
+```diff
+- spyOn(analytics, 'track');        // jasmine: track() never runs
++ vi.spyOn(analytics, 'track');     // Vitest: track() runs on every call
+```
+
+jasmine's `spyOn` installs a **stub**; `vi.spyOn` **calls through**. The rename compiles, the spec
+runs, and the code under test now really talks to its collaborator — which is how a migrated suite
+ends up making network calls, or passing while asserting on a value the real implementation happened
+to return. The message says `vi.spyOn(obj, 'm').mockImplementation(() => undefined)` where the
+jasmine line meant "stub it", and points at `createSpyFromClass` / `provideAutoSpy`, which stub every
+method by construction.
+
+The rule extends the same courtesy every other rule here does to a name that turns out to be
+somebody else's: a `jasmine` the file declares itself, or an `import { spyOn } from 'bun:test'` —
+a different function with the same name, and the right one on that runtime — is left alone.
+`.withContext(` is reported from the same rule, because
+[Vitest's chai layer swallows it silently](/migrating-jasmine#withcontext-does-not-throw-it-loses-the-message)
+rather than throwing.
+
+### `jasmine-namespace-without-entry` — why it warns rather than errors
+
+`.and`, `.calls` and `.withArgs` are not members of a spy this library builds; they are installed by
+`vitest-auto-spy/jasmine`, or by `enableJasmineCompat()` on a runtime that cannot import it. A spy
+built before that call has none of them, and the spec dies on
+`Cannot read properties of undefined (reading 'returnValue')` — which names neither the missing
+import nor the spy.
+
+Whether the **project** installs the layer is not knowable from one file: the call usually sits in a
+Vitest `setupFiles` entry that no spec imports. So the question is narrowed until one file can answer
+it honestly — "this file uses a namespace on a spy **this file built**, and this file installs
+nothing" — and the answer is a `warn`, not an `error`, for the same reason
+`no-unregistered-inject-spy` is. Two escape hatches: importing any entry that _cannot_ load the
+jasmine one (`vitest-auto-spy/bun`, `…/node`, which necessarily install the layer from a setup file)
+silences the file, and a project can name its own setup module:
+
+```js
+{
+  rules: {
+    'vitest-auto-spy/jasmine-namespace-without-entry': ['warn', { setupModules: ['./test-setup'] }],
+  },
+}
+```
+
+### `no-save-arguments-by-value` — the purest silent case on this page
+
+`spy.calls.saveArgumentsByValue()` is a **no-op** here, deliberately: jasmine copies every call's
+arguments defensively, Vitest, Bun and `node:test` all keep the reference, and snapshotting every
+argument of every call to match would tax every spy in the suite. The call still runs. Nothing
+fails. And the spec, which asked for the arguments _as they were passed_, now reads whatever the code
+under test left in the object afterwards — an assertion about the state at call time has become one
+about the state at assertion time, with no diff, no warning and no failing run to point at it.
+
+### `prefer-native-spy-api` — `off`, and that is the point
+
+It reports code that **works**. The compatibility layer is what a suite runs on _while_ it is being
+migrated, and a rule that flags every line of a bridge for as long as the bridge is needed is noise
+that gets the whole config switched off. Turn it on for the last mile, once the suite is green:
+
+```js
+{ rules: { 'vitest-auto-spy/prefer-native-spy-api': 'error' } }
+```
+
+`eslint --fix` then does the renames whose receiver it can trace to one of this library's factories
+— `.and.returnValue(x)` → `.mockReturnValue(x)`, `.and.callFake(f)` → `.mockImplementation(f)`,
+`.and.nextWith(v)` → `.nextWith(v)` and the nine other delegated helpers,
+`.withArgs(a).and.returnValue(v)` → `.calledWith(a).mockReturnValue(v)`, `.calls.count()` →
+`.mock.calls.length`, `.calls.reset()` → `.mockClear()`, `.calls.argsFor(i)` → `.mock.calls[i]`.
+Everywhere else the identical edit is offered as a **suggestion**, because a `.calls` on somebody
+else's object is somebody else's method — the same licence
+[`no-mocked-for-spy`](#which-rules-fix-and-why-so-few) draws.
+
+Three things it deliberately will not rewrite. A strategy with no equivalent — `.and.returnValues`,
+`.and.callThrough`, `.and.stub`, `.and.throwError`, `.and.resolveTo` — is not in its table at all,
+because there is no rename that says the same thing. `.calls.mostRecent()` and `.calls.all()` are
+out for the same reason: the native shape is not one expression. And a chain carrying an **optional
+link** is left alone entirely — the replacement is built from the receiver's source text plus a
+member name, so `spy?.and.returnValue(1)` would come back as `spy.mockReturnValue(1)`: the same call
+with the guard silently removed.
+
+`npx vitest-auto-spy codemod --from jasmine` does the whole suite in one pass, including the parts
+this rule declines. See [Migrating from jasmine-auto-spies](/migrating-jasmine).
+
 ## Which rules fix, and why so few
 
-Two of the fourteen rewrite the source on their own, six offer the rewrite as a suggestion, and the
-split is about what a wrong guess costs rather than about how hard the rewrite is.
+Three of the eighteen rewrite the source on their own, seven offer the rewrite as a suggestion, and
+the split is about what a wrong guess costs rather than about how hard the rewrite is.
 
 `no-mocked-for-spy` touches nothing but a **declaration**. Get it wrong and the file stops
-compiling — the loudest and cheapest failure a codebase has — so it is one of the two rules that run
+compiling — the loudest and cheapest failure a codebase has — so it is one of the three rules that run
 under `--fix`, and it does the whole edit:
 
 ```ts
@@ -555,10 +658,15 @@ that cannot be true.
 | `no-inject-before-override`    | `Cannot override provider when the test module has already been instantiated. Make sure you are not using \`inject\` before \`overrideProvider\``                                                                                                                |   red   |
 | `no-overridden-provider`       | nothing, where the hand-rolled double happens to answer: the `provideAutoSpy` beside it is dead and the assertions pass. Read back with `injectSpy` instead, it is red — and [`injectSpy` says why](/adapters/angular#injectspy-says-when-it-got-the-real-thing) |  green  |
 
-The column that matters is the last one. Six rules guard against a test that is **green and wrong**,
-which is the only failure mode a suite cannot report on itself; four guard against a red test whose
-message is already clear; one is a compiler error. Severity in `configs.recommended` follows exactly
-that split.
+The column that matters is the last one. Six of the eleven probed here guard against a test that is
+**green and wrong**, which is the only failure mode a suite cannot report on itself; four guard
+against a red test whose message is already clear; one is a compiler error. Severity in
+`configs.recommended` follows exactly that split.
+
+The [four jasmine rules](#the-four-jasmine-rules) are not in this table because they were not probed
+the same way — their subject is a migration, not a runner behaviour. Two of them belong on the green
+side by construction and the source says so plainly: `saveArgumentsByValue()` is a function whose
+body is `undefined`, and `vi.spyOn`'s call-through default is documented behaviour, not a defect.
 
 `no-overridden-provider` is the one whose verdict depends on the rest of the file, which is why it
 is worth having as a rule rather than a runtime check. Read the token back with `injectSpy` and the
@@ -591,6 +699,15 @@ it('loads', (done) => {
 The body returns `undefined`, so the test is over before the timer fires. Measured: **green**, with
 the `AssertionError` arriving afterwards as one of the run's unhandled errors, and the deprecation
 error never reached at all. The rule exists because the loud case is the rare one.
+
+`done.fail(…)` is reported too, at the call site rather than at the parameter. It is jasmine's
+failure channel, and the `TestContext` Vitest passes has no `fail` on it, so the line throws
+`done.fail is not a function` — and it throws _where it sits_, which is almost always an `error`
+callback or a `.catch()`, i.e. inside a promise nobody awaits. The rejection is unhandled, the test
+body returned long ago, and the run is **green on the exact path that was supposed to fail it**.
+Assert on the failure instead:
+`await expect(firstValueFrom(source$)).rejects.toMatchObject({ status: 404 })`, or
+`expect.fail(message)` where the line is simply unreachable.
 
 ### `no-floating-assertion` — three runners, three different silences
 

@@ -42,10 +42,10 @@ argument any more.
 The source is duck-typed, so nothing here depends on rxjs at runtime. Two subscription contracts are
 accepted, and both are needed in an Angular codebase:
 
-| Source                                                            | `subscribe` takes  |
-| ----------------------------------------------------------------- | ------------------ |
+| Source                                                                  | `subscribe` takes  |
+| ----------------------------------------------------------------------- | ------------------ |
 | rxjs `Observable` / `Subject`, Angular `toObservable()`, `EventEmitter` | an observer object |
-| Angular `output()` — `OutputEmitterRef` — and other callback APIs  | a bare callback    |
+| Angular `output()` — `OutputEmitterRef` — and other callback APIs       | a bare callback    |
 
 The second one used to hang. `OutputEmitterRef.subscribe(callback)` stores whatever it is handed and
 calls it on `emit()` inside a `try/catch` that routes failures to Angular's `ErrorHandler`, so
@@ -106,7 +106,7 @@ throws that away.
 
 ## `advance` — the window between subscribing and awaiting
 
-A stream driven by a `debounceTime`, a retry or a poll needs the clock moved *after* something is
+A stream driven by a `debounceTime`, a retry or a poll needs the clock moved _after_ something is
 listening, and `await` gives control away before the next statement runs:
 
 ```ts
@@ -131,12 +131,12 @@ clocks differently, and only the spec knows which one it is on.
 
 ### The watchdog runs on real time — even under fake timers
 
-That is deliberate, and there are two reasons. The helper *is* the assertion, so its clock must be
+That is deliberate, and there are two reasons. The helper _is_ the assertion, so its clock must be
 the one thing a spec cannot stop; and a virtual watchdog would race the timers the spec advances —
 `expectEmission(source$, { timeout: 200 })` followed by `vi.advanceTimersByTime(5_000)` would fire at
 200 virtual ms and reject the stream the spec was about to advance into.
 
-The cost is that in a suite running under global fake timers a *failing* assertion spends a real
+The cost is that in a suite running under global fake timers a _failing_ assertion spends a real
 second before it reports. Do not answer that with `{ timeout: 0 }` at every call site: that disables
 the watchdog, and the next silent stream hangs until the runner's own timeout with no message worth
 reading. Lower the default once instead:
@@ -235,11 +235,11 @@ Sixteen tests, every one of them asserting something that is false. Twelve fail:
 
 The four that pass are the four `bare subscribe` rows — all of them, in every scenario.
 
-| | `of(1)` — wrong value | `throwError(boom)` | `EMPTY` | `NEVER` |
-| --- | --- | --- | --- | --- |
-| 1. bare `subscribe` | **green** ⁽¹⁾ | **green** ⁽¹⁾ | **green** | **green** |
-| 2. `new Promise(done)` | `Test timed out in 1200ms` | `Test timed out in 1200ms` | `Test timed out in 1200ms` | `Test timed out in 1200ms` |
-| 3. `await firstValueFrom` | `expected 1 to be 999` + diff | `Error: boom` | `EmptyError: no elements in sequence` | `Test timed out in 1200ms` |
+|                           | `of(1)` — wrong value         | `throwError(boom)`                                 | `EMPTY`                                              | `NEVER`                               |
+| ------------------------- | ----------------------------- | -------------------------------------------------- | ---------------------------------------------------- | ------------------------------------- |
+| 1. bare `subscribe`       | **green** ⁽¹⁾                 | **green** ⁽¹⁾                                      | **green**                                            | **green**                             |
+| 2. `new Promise(done)`    | `Test timed out in 1200ms`    | `Test timed out in 1200ms`                         | `Test timed out in 1200ms`                           | `Test timed out in 1200ms`            |
+| 3. `await firstValueFrom` | `expected 1 to be 999` + diff | `Error: boom`                                      | `EmptyError: no elements in sequence`                | `Test timed out in 1200ms`            |
 | 4. `await expectEmission` | `expected 1 to be 999` + diff | `source$ errored instead of emitting: Error: boom` | `source$ completed after 0 emission(s), expected 1…` | `source$ did not emit within 300 ms…` |
 
 Read the table by column and the ranking is the same in each: form 1 says nothing, form 2 says only

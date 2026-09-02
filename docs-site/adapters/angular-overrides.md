@@ -158,7 +158,7 @@ TypeError: Cannot read properties of undefined (reading 'provide')
 ```
 
 The stack names neither the barrel, nor the symbol, nor the component. Worse, the spec it breaks is
-usually one nobody touched: chunk boundaries move with file *contents*, so editing a type in a
+usually one nobody touched: chunk boundaries move with file _contents_, so editing a type in a
 neighbouring file is enough to move a symbol across one. Both obvious cures fail for the same reason
 — an `await import()` at the top of `beforeEach` is already too late, and a static import at the top
 of the spec does not fix the order this bundler emits.

@@ -94,7 +94,7 @@ rather than on the event loop — timers stay frozen here, and only `advanceTime
 ```
 
 The first of the three is the one that costs the most time to diagnose, which is why it is named
-first: a **cold** chunk takes more turns than the budget, and the giveaway is that only the *first*
+first: a **cold** chunk takes more turns than the budget, and the giveaway is that only the _first_
 such test in a file fails while every later one passes off the module cache. That reads as a flake,
 and it is not — the answer is to await the module rather than count turns, with
 [`settleDynamicImport`](#settledynamicimport-load-turns) below.

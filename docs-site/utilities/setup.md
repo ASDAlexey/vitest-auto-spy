@@ -394,7 +394,7 @@ So the implementation a long-lived mock carries when it is first classified is r
 back before a test that has lost it. Only when it has been lost: a mock a test deliberately
 re-implements is left as that test left it, and a mock that never carried an implementation is never
 touched. The hook is `beforeEach`, because Vitest applies `restoreMocks` / `mockReset` / `clearMocks`
-from `onBeforeTryTask`, which runs *before* the `beforeEach` hooks rather than after them.
+from `onBeforeTryTask`, which runs _before_ the `beforeEach` hooks rather than after them.
 
 The pieces are exported for a suite that wants them without the rest: `trackMockRegistry()` installs
 the same hooks on its own, `keepRegisteredMocks()` marks everything currently registered as

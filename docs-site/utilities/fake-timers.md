@@ -50,7 +50,7 @@ setupFakeTimers({ toFake: ['setTimeout'] }); // leave Date and queueMicrotask re
 
 ### Taking `setImmediate` out of `toFake`
 
-Vitest's default `toFake` is *every* timer the environment has except `process.nextTick` and
+Vitest's default `toFake` is _every_ timer the environment has except `process.nextTick` and
 `queueMicrotask` (Vitest 4.1.9). In Node that includes `setImmediate`, and `setImmediate` is the one
 whose absence is felt well outside timer code.
 
@@ -89,11 +89,11 @@ setupFakeTimers(undefined, { betweenTests: true });
 ```
 
 Off by default, because a scoped call belongs to its `describe` and has to leave the clock as it
-found it. Turned on, the clock stays fake in the gaps *between* tests too — which is what Jest's
+found it. Turned on, the clock stays fake in the gaps _between_ tests too — which is what Jest's
 `fakeTimers.enableGlobally` did, and what a suite ported from it was written against.
 
 Arming in `beforeEach` alone does not reproduce that, and the gap is not hypothetical: a `beforeAll`
-inside a **nested** `describe` runs *after* the previous test's `afterEach`, so it meets whatever
+inside a **nested** `describe` runs _after_ the previous test's `afterEach`, so it meets whatever
 that hook left behind. A block that prepares its samples there — driving an animation clock with
 `vi.advanceTimersByTimeAsync`, say — fails with `A function to advance timers was called but the
 timers APIs are not mocked`, in a set whose own tests never touch a timer.
@@ -111,7 +111,7 @@ turns this on from the setup file — that option exists for exactly this case a
 
 `vi.advanceTimersByTime()` plus the step that is easy to miss.
 
-Advancing runs the timer callbacks synchronously — but whatever they *queue* is still sitting in
+Advancing runs the timer callbacks synchronously — but whatever they _queue_ is still sitting in
 the microtask queue when the next line executes: a resolved promise, an `await` continuation, an
 RxJS `delay()` handing control back. The assertion then reads state from before the callback
 finished, and the test fails in a way that reads like a race in the code under test.

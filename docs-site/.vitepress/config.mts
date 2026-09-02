@@ -74,6 +74,7 @@ const SIDEBAR = [
     ],
   },
   { text: 'Migrating from jest-auto-spies', link: '/migrating' },
+  { text: 'Migrating from jasmine-auto-spies', link: '/migrating-jasmine' },
   { text: 'API reference', link: '/api' },
   { text: 'Comparison', link: '/comparison' },
   { text: 'For AI agents', link: '/agents' },
@@ -133,6 +134,8 @@ export default defineConfig({
           'nestjs, react, vue, pinia, svelte, rxjs, eslint plugin, mocking, typescript, ' +
           'vitest mock class, mock interface typescript, replace jest-auto-spies, vitest auto spies, ' +
           'jest to vitest codemod, jest.Mock type arguments, migrate jest to vitest, ' +
+          'jasmine-auto-spies, jasmine to vitest, karma to vitest, migrate jasmine, jasmine.createSpyObj, ' +
+          'jasmine spyOn call through, withContext vitest, DEFAULT_TIMEOUT_INTERVAL, ' +
           'webstorm eslint inspections, vs code extension, anti-patterns, spy typing, ' +
           'llms.txt, AGENTS.md, ai agent, claude code skill, openai codex, glm z.ai, cursor, copilot, gemini cli',
       },

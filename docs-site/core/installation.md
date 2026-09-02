@@ -19,18 +19,18 @@ Peer dependencies are all **provided by your project**; `rxjs` and `@angular/cor
 — install them only for the matching entry point. The package itself has **zero runtime
 dependencies**.
 
-| Peer            | Needed for                                                                  | Optional? |
-| --------------- | --------------------------------------------------------------------------- | --------- |
-| `vitest`        | the default runner                                                          | no        |
+| Peer            | Needed for                                                                   | Optional? |
+| --------------- | ---------------------------------------------------------------------------- | --------- |
+| `vitest`        | the default runner                                                           | no        |
 | `rxjs`          | `vitest-auto-spy/rxjs` observable spies — `>=7`, no upper bound (rxjs 8 too) | yes       |
 | `@angular/core` | `vitest-auto-spy/angular` and `vitest-auto-spy/bun-angular` helpers          | yes       |
 
-| Tool       | Minimum                                                          |
-| ---------- | ---------------------------------------------------------------- |
-| Node.js    | ≥ 18 for the library — in practice, whatever your runner needs   |
-| Vitest     | ≥ 2.1                                                            |
+| Tool       | Minimum                                                            |
+| ---------- | ------------------------------------------------------------------ |
+| Node.js    | ≥ 18 for the library — in practice, whatever your runner needs     |
+| Vitest     | ≥ 2.1                                                              |
 | Bun        | ≥ 1.4 for `vitest-auto-spy/bun-angular`; any recent Bun for `/bun` |
-| TypeScript | ≥ 4.7 for the typed helpers (plain JS works too, just untyped)   |
+| TypeScript | ≥ 4.7 for the typed helpers (plain JS works too, just untyped)     |
 
 Vitest **≥ 2.1** because the typed `spy.method.mock.settledResults` surface is Vitest's own `Mock`
 type, and `@vitest/spy` only grew `settledResults` in 2.0 — 2.1 is where the 2.x line actually sits.
@@ -59,24 +59,33 @@ the published package roughly in half.
 The library ships a framework-agnostic core plus runtime and framework layers, so a plain
 Node / Bun / React / Vue project pulls **neither rxjs nor Angular into its runtime bundle**:
 
-| Import                          | Provides                                                                                                                                                                                                        | Pulls in                    |
-| ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------- |
-| `vitest-auto-spy`               | `createSpyFromClass`, `createAutoMock`, `mockDeep`, `createMock`, `createFixture` / `createFixtureFactory`, `createFunctionSpy`, the `mock*Prop` helpers, the [observable assertions](./observable-assertions), the [type bridges](./spy-typing), `errorHandler`, types | `vitest`                    |
-| `vitest-auto-spy/bun`           | the same core, driven by Bun's `bun:test` mocks                                                                                                                                                                 | `bun:test`                  |
-| `vitest-auto-spy/bun-angular`   | Angular's `TestBed` under `bun test` — DOM, JIT `templateUrl` resolution and a zoneless environment from one preload, plus the core and the Angular helpers                                                     | `bun:test`, `@angular/core` |
-| `vitest-auto-spy/node`          | the same core, driven by `node:test`'s `mock.fn()`                                                                                                                                                              | `node:test`                 |
-| `vitest-auto-spy/rxjs`          | observable spies (`nextWith`, `nextWithValues`, `observablePropsToSpyOn`, …) + `createObservableWithValues`                                                                                                     | `rxjs`                      |
-| `vitest-auto-spy/angular`       | `provideAutoSpy`, `injectSpy`, `renderShallow`, `createWithAutoSpies`, `stable`/`flushEffects`, signal matchers, TestBed diagnostics, the `mock*Prop` helpers                                                   | `@angular/core`             |
-| `vitest-auto-spy/nestjs`        | `provideAutoSpy`, `injectSpy` for `Test.createTestingModule`                                                                                                                                                    | — (your `@nestjs/*`)        |
-| `vitest-auto-spy/react`         | the core, with a natural import for React Testing Library suites                                                                                                                                                | — (your `react`)            |
-| `vitest-auto-spy/vue`           | `provideAutoSpy` for `global.provide` + Pinia store spying                                                                                                                                                      | — (your `vue`/`pinia`)      |
-| `vitest-auto-spy/svelte`        | the core, with a natural import for Svelte suites                                                                                                                                                               | — (your `svelte`)           |
-| `vitest-auto-spy/console`       | [console spies](../utilities/console) — silent typed spies over the global `console`                                                                                                                            | `vitest`                    |
-| `vitest-auto-spy/setup`         | [`setupAutoSpy()`](../utilities/setup) and [`setupFakeTimers()`](../utilities/fake-timers)                                                                                                                      | `vitest`                    |
-| `vitest-auto-spy/eslint-plugin` | [the lint rules](../utilities/eslint-plugin) that steer a suite onto these helpers                                                                                                                              | — (your `eslint`)           |
+| Import                           | Provides                                                                                                                                                                                                                                                                | Pulls in                    |
+| -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------- |
+| `vitest-auto-spy`                | `createSpyFromClass`, `createAutoMock`, `mockDeep`, `createMock`, `createFixture` / `createFixtureFactory`, `createFunctionSpy`, the `mock*Prop` helpers, the [observable assertions](./observable-assertions), the [type bridges](./spy-typing), `errorHandler`, types | `vitest`                    |
+| `vitest-auto-spy/bun`            | the same core, driven by Bun's `bun:test` mocks                                                                                                                                                                                                                         | `bun:test`                  |
+| `vitest-auto-spy/bun-angular`    | Angular's `TestBed` under `bun test` — DOM, JIT `templateUrl` resolution and a zoneless environment from one preload, plus the core and the Angular helpers                                                                                                             | `bun:test`, `@angular/core` |
+| `vitest-auto-spy/node`           | the same core, driven by `node:test`'s `mock.fn()`                                                                                                                                                                                                                      | `node:test`                 |
+| `vitest-auto-spy/rxjs`           | observable spies (`nextWith`, `nextWithValues`, `observablePropsToSpyOn`, …) and `createObservableWithValues`                                                                                                                                                           | `rxjs`                      |
+| `vitest-auto-spy/angular`        | `provideAutoSpy`, `injectSpy`, `renderShallow`, `createWithAutoSpies`, `stable`/`flushEffects`, signal matchers, TestBed diagnostics, the `mock*Prop` helpers                                                                                                           | `@angular/core`             |
+| `vitest-auto-spy/nestjs`         | `provideAutoSpy`, `injectSpy` for `Test.createTestingModule`                                                                                                                                                                                                            | — (your `@nestjs/*`)        |
+| `vitest-auto-spy/react`          | the core, with a natural import for React Testing Library suites                                                                                                                                                                                                        | — (your `react`)            |
+| `vitest-auto-spy/vue`            | `provideAutoSpy` for `global.provide` + Pinia store spying                                                                                                                                                                                                              | — (your `vue`/`pinia`)      |
+| `vitest-auto-spy/svelte`         | the core, with a natural import for Svelte suites                                                                                                                                                                                                                       | — (your `svelte`)           |
+| `vitest-auto-spy/console`        | [console spies](../utilities/console) — silent typed spies over the global `console`                                                                                                                                                                                    | `vitest`                    |
+| `vitest-auto-spy/jasmine`        | [the drop-in surface for a `jasmine-auto-spies` suite](../migrating-jasmine) — `.and` / `.calls` / `.withArgs` on every spy, `createSpyObj`, the `jasmine` namespace, `registerJasmineMatchers`                                                                         | `vitest`                    |
+| `vitest-auto-spy/setup`          | [`setupAutoSpy()`](../utilities/setup) and [`setupFakeTimers()`](../utilities/fake-timers)                                                                                                                                                                              | `vitest`                    |
+| `vitest-auto-spy/jasmine-compat` | `enableJasmineCompat()` alone — the same `.and` / `.calls` layer, registering no adapter, for `bun test` and `node --test`                                                                                                                                              | — (your runner)             |
+| `vitest-auto-spy/observer-spy`   | [`subscribeSpyTo`](../runtimes/rxjs#subscribespyto-for-a-suite-arriving-with-observer-spy) — the `@hirez_io/observer-spy` surface                                                                                                                                       | `rxjs`                      |
+| `vitest-auto-spy/zone`           | [the zone patch](../utilities/zone) that makes Angular's `fakeAsync` work under Vitest                                                                                                                                                                                  | `vitest`, `zone.js`         |
+| `vitest-auto-spy/eslint-plugin`  | [the lint rules](../utilities/eslint-plugin) that steer a suite onto these helpers                                                                                                                                                                                      | — (your `eslint`)           |
 
 Each entry registers its mock adapter **on import**, so import the one matching your test runner —
 mixing `vitest-auto-spy` into a `bun test` run leaves the wrong adapter installed.
+
+`vitest-auto-spy/jasmine` is Vitest-only for that reason — it registers the Vitest adapter, which
+means importing `vitest`. On `bun test` and `node --test`, call `enableJasmineCompat()` from
+`vitest-auto-spy/jasmine-compat` once in the setup file instead; it registers no adapter, so it
+composes with whichever runtime entry you already import.
 
 ## Wiring it up
 
@@ -87,7 +96,8 @@ file is only needed for things that are global by nature — the rxjs layer and 
 
 ```ts
 // vitest.setup.ts
-import 'vitest-auto-spy/rxjs'; // once — enables observable spies everywhere
+import 'vitest-auto-spy/rxjs';
+// once — enables observable spies everywhere
 import { setupAutoSpy } from 'vitest-auto-spy/setup';
 
 setupAutoSpy();

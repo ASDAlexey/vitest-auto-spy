@@ -14,7 +14,7 @@ Manually mocking a service is tedious and brittle — one `vi.fn()` line per met
 by hand. Instead:
 
 ```ts
-import { createSpyFromClass, type Spy } from 'vitest-auto-spy';
+import { type Spy, createSpyFromClass } from 'vitest-auto-spy';
 
 let userService: Spy<UserService>;
 

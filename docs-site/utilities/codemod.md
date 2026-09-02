@@ -1,6 +1,6 @@
 ---
 title: The codemod — npx vitest-auto-spy codemod
-description: Seven transforms that migrate a suite off jest-auto-spies and Jest — splitting the legacy import across the entry points the installed package actually exports, transposing jest.Mock<R, [A]> into the call signature Vitest takes, and reporting every span it refused to rewrite. Dry run by default; --verify checks the result by matching, not by diffing.
+description: Thirteen transforms that migrate a suite off jest-auto-spies and Jest, or off jasmine-auto-spies and jasmine — splitting the legacy import across the entry points the installed package actually exports, transposing jest.Mock<R, [A]> into the call signature Vitest takes, giving spyOn back the stub jasmine installed for free, and reporting every span it refused to rewrite. Dry run by default; --verify checks the result by matching, not by diffing.
 ---
 
 # The codemod
@@ -18,7 +18,11 @@ becomes `TypeError: vi.requireMock is not a function`, which reads as "the runne
 import moved to `vitest-auto-spy` wholesale puts `provideAutoSpy` behind an entry that does not
 export it.
 
-So this is a codemod rather than a `sed` script, and most of what it does is **decline**: seven
+And on the jasmine side the same sentence has a worse example: `spyOn(o, 'm')` renamed to
+`vi.spyOn(o, 'm')` inverts the default — jasmine stubs the method, Vitest calls through — so the
+real implementation starts running inside every spec that installed the spy to stop it, silently.
+
+So this is a codemod rather than a `sed` script, and most of what it does is **decline**: thirteen
 transforms, each of which either rewrites a span it can decide or leaves it exactly as it was and
 names it in the report.
 
@@ -102,24 +106,62 @@ on its first run does not get a second one. A file whose text matches none of th
 transforms' patterns is never read into the report at all, so the output is the files that have
 something to say.
 
-## The seven transforms
+## The thirteen transforms
 
 Each has an id, and each is individually skippable. Nothing is applied until every transform has
 looked at the same untouched source, so `--skip` removes one transform's edits and nothing else —
 it cannot change what the others saw.
 
-| Id                          | Rewrites                                                                                | Declines                                                                 |
-| --------------------------- | --------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| `auto-spies-import`         | `import … from 'jest-auto-spies'` → the entry points that export each name              | A default or namespace import; a name no entry exports                   |
-| `inject-cast`               | `TestBed.inject(X) as Spy<X>` → `asSpy<X>(TestBed.inject(X))`, adding the import        | `as Spy<T>` over anything else                                           |
-| `jest-globals-import`       | `from '@jest/globals'` → `from 'vitest'`, renaming the `jest` binding to `vi`           | The rest of the clause — `describe` / `it` / `expect` are named the same |
-| `jest-namespace`            | `jest.<member>` → `vi.<member>` for the 26 members that have a twin                     | A member with no twin, and any member it does not know                   |
-| `jest-types`                | `jest.Mock<R, [A]>` → `Mock<(a: A) => R>`, plus four renames, importing the Vitest name | A type argument list it cannot split at the top level                    |
-| `jasmine-aliases`           | `xit` / `xdescribe` / `fit` / `fdescribe` / `xtest` → `it.skip` / `describe.skip` / …   | A method of the same name — `shape.fit(box)` is untouched                |
-| `mock-implementation-arity` | `mockImplementation()` with no argument → `mockImplementation(() => undefined)`         | A call that already has its function                                     |
+They come in three families. **Four are shared**, because both dialects have the construct:
+
+| Id                          | Rewrites                                                                                            | Declines                                                  |
+| --------------------------- | --------------------------------------------------------------------------------------------------- | --------------------------------------------------------- |
+| `auto-spies-import`         | `import … from 'jest-auto-spies'` / `'jasmine-auto-spies'` → the entry points that export each name | A default or namespace import; a name no entry exports    |
+| `inject-cast`               | `TestBed.inject(X) as Spy<X>` → `asSpy<X>(TestBed.inject(X))`, adding the import                    | `as Spy<T>` over anything else                            |
+| `jasmine-aliases`           | `xit` / `xdescribe` / `fit` / `fdescribe` / `xtest` → `it.skip` / `describe.skip` / …               | A method of the same name — `shape.fit(box)` is untouched |
+| `mock-implementation-arity` | `mockImplementation()` with no argument → `mockImplementation(() => undefined)`                     | A call that already has its function                      |
+
+**Three are Jest's:**
+
+| Id                    | Rewrites                                                                                | Declines                                                                 |
+| --------------------- | --------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| `jest-globals-import` | `from '@jest/globals'` → `from 'vitest'`, renaming the `jest` binding to `vi`           | The rest of the clause — `describe` / `it` / `expect` are named the same |
+| `jest-namespace`      | `jest.<member>` → `vi.<member>` for the 26 members that have a twin                     | A member with no twin, and any member it does not know                   |
+| `jest-types`          | `jest.Mock<R, [A]>` → `Mock<(a: A) => R>`, plus four renames, importing the Vitest name | A type argument list it cannot split at the top level                    |
+
+**Six are jasmine's** — see [Migrating from jasmine-auto-spies](/migrating-jasmine) for what each
+one is protecting:
+
+| Id                    | Rewrites                                                                                                                                     | Declines                                                                                            |
+| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| `jasmine-and-helpers` | `spy.load.and.nextWith(v)` → `spy.load.nextWith(v)` — the ten auto-spies helpers lose the namespace                                          | Nothing; the list is closed                                                                         |
+| `jasmine-strategies`  | `.and.returnValue` / `callFake` / `stub` / `throwError` / `returnValues` / `resolveTo` → the `mock*` twin, and `.withArgs(` → `.calledWith(` | `.and.callThrough()`, which has no original to call through to; a strategy it does not know         |
+| `jasmine-spy-on`      | `spyOn(o, 'm')` → `vi.spyOn(o, 'm').mockImplementation(() => undefined)`                                                                     | A call that already chains a strategy — there the stub would be redundant                           |
+| `jasmine-globals`     | `jasmine.createSpy` / `createSpyObj` / `any` / `clock()` / `addMatchers` → their `vi`, `expect` and `vitest-auto-spy` twins                  | `getEnv`, `truthy` / `falsy` / `empty` / `notEmpty`, `DEFAULT_TIMEOUT_INTERVAL`, the spy strategies |
+| `jasmine-types`       | `jasmine.Spy` → `Mock` from `vitest`, `jasmine.SpyObj<T>` → `Spy<T>` from this package                                                       | Either name when the entry table could not be generated                                             |
+| `jasmine-matchers`    | `toBeTrue` / `toBeFalse` / `toHaveSize` / `toHaveBeenCalledOnceWith` / `withContext` / `fail` → their Vitest spellings                       | Nothing; each is a closed rename                                                                    |
 
 `auto-spies-import` runs first, because it is what creates the `vitest-auto-spy` import that
 `inject-cast` then adds `asSpy` to. Everything after that is order-independent.
+
+### `--from` picks the family
+
+```bash
+npx vitest-auto-spy codemod --from jasmine   # or jasmine-auto-spies
+npx vitest-auto-spy codemod --from jest-auto-spies
+npx vitest-auto-spy codemod                  # --from auto, the default
+```
+
+`auto` reads each file and decides: a file carrying a `jasmine.` member, a `.and.`, an import of
+`jasmine-auto-spies` or one of `vitest-auto-spy/jasmine` gets the jasmine family; a file with none
+of those does not. The shared four always run.
+
+A bare `spyOn(` is deliberately **not** a marker. It is the one construct both dialects spell the
+same way and give opposite defaults to — jasmine stubs, Vitest calls through — so guessing which one
+a file meant is exactly the silent behaviour inversion `jasmine-spy-on` exists to prevent. A suite
+whose only jasmine construct is `spyOn` has to say `--from jasmine` out loud. An unrecognised value
+is an error naming the accepted ones, never a silent fallback: a misspelled dialect that quietly ran
+the other family is a migration that looks finished and is not.
 
 The two `import` rules and `jest-namespace` are worth reading together. `jest.dontMock` becomes
 `vi.doUnmock` — a rename, not a copy — and `jest.SpyInstance` becomes `MockInstance`. A `vi.mock()`
@@ -204,13 +246,14 @@ build fails.
 4. Two non-root entries and no preference is **not decidable from the file**. The name is left
    importing from the legacy package and reported as `unmapped-legacy-export`.
 
-When no installed copy can be found at all, the table is unavailable, and the two transforms that
-need it decline to run and say so rather than guessing. A wrong entry that still compiles is the
+When no installed copy can be found at all, the table is unavailable, and the four transforms that
+need it — `auto-spies-import`, `inject-cast`, and the two jasmine ones that have to place
+`createSpyObj` and `Spy<T>` — decline to run and say so rather than guessing. A wrong entry that still compiles is the
 exact failure this command exists to avoid.
 
 ### Auditing it before trusting it
 
-`--list` prints the transforms and the whole generated table — **247 rows** against the export map
+`--list` prints the transforms and the whole generated table — **270 rows** against the export map
 this package ships today — so it can be read before it is believed:
 
 ```
@@ -317,6 +360,7 @@ going to check by hand anyway.
 | _(none)_       | Dry run. Print the diff, the transform tally, the resulting imports and the report. Write nothing |
 | `--write`      | Apply the edits. Spans that were left alone are still left alone, and still reported              |
 | `--verify`     | Transform nothing; match the files against the residue patterns. Exit 1 if anything matched       |
+| `--from <pkg>` | Which dialect this suite is: `jest-auto-spies`, `jasmine-auto-spies` (alias `jasmine`), or `auto` |
 | `--only <ids>` | Run only these transforms, comma-separated                                                        |
 | `--skip <ids>` | Run everything except these                                                                       |
 | `--list`       | Print the transforms and the generated entry-point table, and exit 0                              |

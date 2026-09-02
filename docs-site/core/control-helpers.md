@@ -148,9 +148,9 @@ Enabled by importing the rxjs layer once (`import 'vitest-auto-spy/rxjs';`). See
 
 ```ts
 myService.getProducts$.nextWith([{ name: 'Product 1' }]); // emit, stream stays open
-myService.getProducts$.nextOneTimeWith([{ name: 'X' }]);  // emit once, then complete
-myService.getProducts$.throwWith('FAKE ERROR');           // error the stream
-myService.getProducts$.complete();                        // complete the stream
+myService.getProducts$.nextOneTimeWith([{ name: 'X' }]); // emit once, then complete
+myService.getProducts$.throwWith('FAKE ERROR'); // error the stream
+myService.getProducts$.complete(); // complete the stream
 ```
 
 ### A precise sequence — `nextWithValues`
@@ -168,11 +168,11 @@ myService.getProducts$.nextWithValues([
 
 #### `ValueConfig`
 
-| Shape                       | Effect                                                  |
-| --------------------------- | ------------------------------------------------------- |
-| `{ value, delay? }`         | emit `value` (after `delay` ms, if given)               |
-| `{ errorValue, delay? }`    | error the stream with `errorValue` (after `delay` ms)   |
-| `{ complete?, delay? }`     | complete the stream — `complete: false` emits nothing   |
+| Shape                    | Effect                                                |
+| ------------------------ | ----------------------------------------------------- |
+| `{ value, delay? }`      | emit `value` (after `delay` ms, if given)             |
+| `{ errorValue, delay? }` | error the stream with `errorValue` (after `delay` ms) |
+| `{ complete?, delay? }`  | complete the stream — `complete: false` emits nothing |
 
 An entry is chosen by the **key it carries**, not by whether its value is truthy: `{ value: false }`,
 `{ value: 0 }`, `{ value: '' }` and `{ value: null }` all emit, and so does a falsy `errorValue`. Up to
@@ -190,10 +190,7 @@ drains the microtasks the emission queues.
 per entry so a test can push more values into a specific call later.
 
 ```ts
-const [first$, second$] = myService.watch$.nextWithPerCall([
-  { value: 'a' },
-  { value: 'b', doNotComplete: true },
-]);
+const [first$, second$] = myService.watch$.nextWithPerCall([{ value: 'a' }, { value: 'b', doNotComplete: true }]);
 
 expect(await firstValueFrom(myService.watch$())).toBe('a');
 

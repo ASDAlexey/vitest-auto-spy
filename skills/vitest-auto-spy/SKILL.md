@@ -1,6 +1,6 @@
 ---
 name: vitest-auto-spy
-description: Write or fix tests that use vitest-auto-spy — typed spies generated from a class or a type on Vitest, bun:test and node:test. Use when a spec imports `vitest-auto-spy` or any of its subpaths (`/angular`, `/bun-angular`, `/bun`, `/node`, `/rxjs`, `/nestjs`, `/setup`, `/zone`, `/eslint-plugin`), when the user mentions createSpyFromClass, createAutoMock, autoMocked, createMock, createFixture, createFixtureFactory, mockDeep, createFunctionSpy, provideAutoSpy, provideAutoSpyForToken, injectSpy, renderShallow, createWithAutoSpies, createDirectiveHost, overrideComponentProvider, enableAngularDiagnostics, assertNoPendingRequests, assertNgModuleScopes, assertComponentDefIntact, setupAngularTestEnv, trackInjections, runEffect, settleResource, mockResourceProp, mockSignalProp, mockReadonlyProp, captureArg, expectEmission, expectError, setupAutoSpy, installPerTest, stubIntersectionObserver, stubMediaElement, stubConstructor, mockSystemTime, assertMocked, moduleNamespace, compareTestRuns, Spy<T>, calledWith, mustBeCalledWith, onlyMethodsToSpyOn, instanceMethodsToSpyOn, observablePropsToSpyOn, strict, onUnstubbedCall, resolveWith or nextWith, when migrating a suite off jest-auto-spies (`npx vitest-auto-spy codemod`), or when a test fails with "No mock adapter registered", "Observable spies require rxjs", "not found on the class prototype", "strict mode is on", "the override did not apply", "is not a constructor", "Expected to be running in 'ProxyZone'" or "Spy<T> is not assignable".
+description: Write or fix tests that use vitest-auto-spy — typed spies generated from a class or a type on Vitest, bun:test and node:test. Use when a spec imports `vitest-auto-spy` or any of its subpaths (`/angular`, `/bun-angular`, `/bun`, `/node`, `/rxjs`, `/nestjs`, `/jasmine`, `/jasmine-compat`, `/observer-spy`, `/setup`, `/zone`, `/eslint-plugin`), when the user mentions createSpyFromClass, createAutoMock, createMock, createFixture, createFixtureFactory, mockDeep, createFunctionSpy, createSpyObj, enableJasmineCompat, subscribeSpyTo, provideAutoSpy, provideAutoSpyForToken, injectSpy, renderShallow, createWithAutoSpies, createDirectiveHost, overrideComponentProvider, enableAngularDiagnostics, assertNgModuleScopes, assertComponentDefIntact, trackInjections, runEffect, settleResource, mockResourceProp, mockSignalProp, mockReadonlyProp, captureArg, expectEmission, expectError, setupAutoSpy, stubIntersectionObserver, stubConstructor, mockSystemTime, assertMocked, Spy<T>, calledWith, mustBeCalledWith, onlyMethodsToSpyOn, instanceMethodsToSpyOn, observablePropsToSpyOn, strict, onUnstubbedCall, resolveWith or nextWith, when migrating a suite off jest-auto-spies or jasmine-auto-spies (`npx vitest-auto-spy codemod --from jasmine`), or when a test fails with "No mock adapter registered", "Observable spies require rxjs", "not found on the class prototype", "strict mode is on", "the override did not apply", "is not a constructor", "Expected to be running in 'ProxyZone'", "jasmine is not defined" or "Spy<T> is not assignable".
 ---
 
 # vitest-auto-spy
@@ -237,6 +237,49 @@ it('loads', async () => {
   `whenStable()` — with an animation renderer it degrades to `Promise.resolve()`. Use
   `await stable(fixture)`.
 
+## A suite arriving from `jasmine-auto-spies`
+
+`jasmine-auto-spies` and `jest-auto-spies` are the same library over the same core; every
+configuration key and helper name is identical. **One thing differs**: upstream parks its async
+helpers behind `.and`, so `spy.load.and.nextWith(v)` is `spy.load.nextWith(v)` here.
+
+Land it green before rewriting anything — change only the import specifier:
+
+```ts
+import { createSpyFromClass, provideAutoSpy, type Spy } from 'vitest-auto-spy/jasmine';
+```
+
+That entry registers the Vitest adapter and installs `.and`, `.calls` and `.withArgs` on every spy.
+`import { jasmine } from 'vitest-auto-spy/jasmine'` restores the whole `jasmine` namespace
+(`objectContaining`, `any`, `createSpyObj`, `clock()`, the eight matchers Vitest has no twin for);
+nothing is put on `globalThis`. On `bun test` / `node --test` that entry cannot load — call
+`enableJasmineCompat()` from `vitest-auto-spy/jasmine-compat` once, in a setup file, before any spy
+is built.
+
+Then `npx vitest-auto-spy codemod --from jasmine` does the rewriting and the import goes.
+
+**Three things that fail silently, and are worth checking by hand:**
+
+- `spyOn(o, 'm')` → `vi.spyOn(o, 'm')` **inverts the default**. jasmine stubs, Vitest calls through.
+  Write `vi.spyOn(o, 'm').mockImplementation(() => undefined)` where the line meant "stub it".
+- `.withContext('msg')` does **not** throw under Vitest — chai has an internal method of that name
+  that swallows a string — so the label vanishes from the failure output. Write
+  `expect(actual, 'msg').toBe(expected)`.
+- `.calls.saveArgumentsByValue()` is a **no-op** here, so the spec starts asserting on post-mutation
+  state. Take the copy at call time in a `mockImplementation`.
+
+`.and.callThrough()` also means something different: here it restores this library's own dispatch,
+so `calledWith` decides the value again.
+
+**`@hirez_io/observer-spy` comes with it.** `vitest-auto-spy/observer-spy` exports `subscribeSpyTo`,
+`SubscriberSpy` and `ObserverSpy`, so stream assertions do not have to be rewritten in the same
+commit. `autoUnsubscribe()` and `fakeTime()` are **not** implemented — use
+`using spy = subscribeSpyTo(source$)` and `setupFakeTimers()` + `await advanceTimers(ms)`. In new
+specs prefer `expectEmission` / `expectEmissions`: observer-spy passes on silence, those fail on it.
+
+Full mapping:
+<https://asdalexey.github.io/vitest-auto-spy/migrating-jasmine>.
+
 ## Finish
 
 ```bash
@@ -249,12 +292,17 @@ npx vitest-auto-spy codemod --verify  # after a migration: anything the transfor
 Most of this library's guarantees are type-level, so a green run that does not type-check is not
 done. Report failures with their output rather than describing them as passing.
 
-**After any `eslint --fix` over specs, run `npx tsc --noEmit`.** The fourteen rules in
+**After any `eslint --fix` over specs, run `npx tsc --noEmit`.** The eighteen rules in
 `vitest-auto-spy/eslint-plugin` are lint, not typecheck: `no-mocked-for-spy` rewrites a declaration
 to `Spy<T>` and cannot see what the name is assigned two lines below, so a clean lint pass is not
 evidence that the types still hold. Where it cannot prove the rename it downgrades to a suggestion —
 accept those together with the repair at the creation site, usually `createAutoMock<T>()` in place of
 an object literal.
+
+Four of those rules are for a suite mid-migration off `jasmine-auto-spies`:
+`jasmine-namespace-without-entry`, `no-jasmine-globals`, `no-save-arguments-by-value`, and
+`prefer-native-spy-api` — the last one is **`off`** in the recommended config on purpose, because it
+reports working code. Turn it on for the last mile, once the suite is green, and not before.
 
 `doctor` is read-only. It reports what neither the runner nor the compiler can: a `tsconfig`
 `include` pattern that matches no file, a production module importing a spec, a spec importing

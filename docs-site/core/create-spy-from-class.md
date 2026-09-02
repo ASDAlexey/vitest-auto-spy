@@ -199,8 +199,7 @@ directly on the host mock. It is also callable by hand — `cart[Symbol.dispose]
 a **stable identity** across reads, which a `Disposable` check and a `DisposableStack` both assume.
 
 **The method is ours; the syntax is your toolchain's.** The `using` _declaration_ is downlevelled by
-esbuild and `tsc`, which is why the specs in this repository use it while CI runs on Node 22, 24 and
-26. Executed natively — an untranspiled `.js` on Node 22 — it is a `SyntaxError`; Node 24 runs it. If
+esbuild and `tsc`, which is why the specs in this repository use it while CI runs on Node 22, 24 and 26. Executed natively — an untranspiled `.js` on Node 22 — it is a `SyntaxError`; Node 24 runs it. If
 your setup does not transpile, call `[Symbol.dispose]()` or `resetAutoSpy()` directly; nothing else
 changes.
 

@@ -52,10 +52,11 @@ From here a spec reads exactly like its Vitest counterpart.
 // greeting.test.ts
 import { TestBed } from '@angular/core/testing';
 import { describe, expect, it } from 'bun:test';
-
-import { GreetingComponent } from './greeting.component'; // declared with templateUrl
-import { GreetingService } from './greeting.service';
 import { injectSpy, provideAutoSpy, stable } from 'vitest-auto-spy/bun-angular';
+
+import { GreetingComponent } from './greeting.component';
+// declared with templateUrl
+import { GreetingService } from './greeting.service';
 
 describe('GreetingComponent', () => {
   it('renders the name the service returns', async () => {
@@ -78,15 +79,15 @@ bun test              # add --isolate for a fresh global per file
 
 ## What you get
 
-| Helper                                    | Works on Bun | Notes                                                   |
-| ----------------------------------------- | :----------: | ------------------------------------------------------- |
-| `provideAutoSpy` / `injectSpy`            |      ✅      | identical to the Vitest entry, lazy spies by default    |
-| `renderShallow`                           |      ✅      | real `ComponentFixture`, child subtree dropped          |
-| `createWithAutoSpies`                     |      ✅      | builds a class through Angular DI with every dep spied  |
-| `stable` / `flushEffects`                 |      ✅      | zoneless waiting                                        |
-| the whole core (`createSpyFromClass`, …)  |      ✅      | re-exported from this entry                             |
-| `registerSignalMatchers`                  |      ❌      | needs the runner's `expect.extend` — Vitest only        |
-| TestBed diagnostics (`instrumentTestBed`) |      ❌      | needs suite-level runner hooks — Vitest only            |
+| Helper                                    | Works on Bun | Notes                                                  |
+| ----------------------------------------- | :----------: | ------------------------------------------------------ |
+| `provideAutoSpy` / `injectSpy`            |      ✅      | identical to the Vitest entry, lazy spies by default   |
+| `renderShallow`                           |      ✅      | real `ComponentFixture`, child subtree dropped         |
+| `createWithAutoSpies`                     |      ✅      | builds a class through Angular DI with every dep spied |
+| `stable` / `flushEffects`                 |      ✅      | zoneless waiting                                       |
+| the whole core (`createSpyFromClass`, …)  |      ✅      | re-exported from this entry                            |
+| `registerSignalMatchers`                  |      ❌      | needs the runner's `expect.extend` — Vitest only       |
+| TestBed diagnostics (`instrumentTestBed`) |      ❌      | needs suite-level runner hooks — Vitest only           |
 
 ## Stylesheets
 

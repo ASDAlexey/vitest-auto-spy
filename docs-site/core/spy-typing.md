@@ -97,7 +97,7 @@ const config = injectSpy<FeatureFlagService>(FeatureFlagService); // same, in An
 factory = webSsoAuthCheckFactory(...asInstances(account, authCheck, domainEvents, storage), document);
 ```
 
-One wrapper per argument is not merely longer, it is *discovered* one argument at a time: TypeScript
+One wrapper per argument is not merely longer, it is _discovered_ one argument at a time: TypeScript
 stops checking a call at the first argument that does not fit, so a factory taking five spies reports
 one `TS2345`, and the next only after the previous is fixed and `tsc` is run again. A non-spy in the
 list passes through unchanged, so a call that mixes spies with real values does not have to be split.
@@ -122,7 +122,7 @@ is also `Overload<Client['get'], 0>`, which is what to put in a `MockInstance<�
 The mock surface on each spied method is `MockInstance` — the same helpers (`mockReturnValue`,
 `mockImplementation`, `calls`, …) **without** a call signature of its own. Up to 3.12.1 it was
 `Mock`, which with no type argument is `Mock<Procedure>` — `(...args: any[]) => any` — and an
-intersection accepts a call matching *either* member: on a double of `read(key: string)` all of
+intersection accepts a call matching _either_ member: on a double of `read(key: string)` all of
 `read(1)`, `read('ok', 'extra')` and `read()` compiled, while none of them compiles on the real
 instance, so a spec could call the double a way production code never could and stay green.
 
@@ -139,7 +139,7 @@ let modal: Spy<KdsModalService>; // ✅
 let modal: Mocked<KdsModalService>; // ❌
 ```
 
-`Mocked<T>` is Vitest's own type and it intersects with `T` *completely*, private members included.
+`Mocked<T>` is Vitest's own type and it intersects with `T` _completely_, private members included.
 Assigning a spy to it fails with `Type 'Spy<…>' is missing the following properties: _modalOpened,
 body, rendererFactory, …` — a list of private field names, from which it is impossible to guess that
 the **declaration** is what is wrong rather than the spy. The

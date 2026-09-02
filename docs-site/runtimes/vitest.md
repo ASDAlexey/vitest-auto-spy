@@ -9,7 +9,9 @@ The default, zero-config entry point. Importing `vitest-auto-spy` registers the 
 adapter (`vi.fn()` / `vi.spyOn()`) and exposes the full core API.
 
 ```ts
-import { createSpyFromClass } from 'vitest-auto-spy'; // Vitest (default, zero-config)
+import { createSpyFromClass } from 'vitest-auto-spy';
+
+// Vitest (default, zero-config)
 ```
 
 The core is runner-agnostic behind a `MockAdapter`; the Vitest entry registers the default adapter
@@ -22,8 +24,8 @@ Vitest's own — only the auto-spy helpers are normalised across runtimes.
 import { beforeEach, describe, expect, it } from 'vitest';
 import { type Spy, createSpyFromClass } from 'vitest-auto-spy';
 
-import { UserService } from './user.service';
 import { Greeter } from './greeter';
+import { UserService } from './user.service';
 
 describe('Greeter', () => {
   let users: Spy<UserService>;
@@ -50,7 +52,8 @@ Nothing is required to create a spy. Two things are global by nature and belong 
 
 ```ts
 // vitest.setup.ts
-import 'vitest-auto-spy/rxjs'; // once — enables nextWith / observablePropsToSpyOn everywhere
+import 'vitest-auto-spy/rxjs';
+// once — enables nextWith / observablePropsToSpyOn everywhere
 import { setupAutoSpy } from 'vitest-auto-spy/setup';
 
 setupAutoSpy();
@@ -102,7 +105,7 @@ declared, and they pass. They keep passing until the run isolates — which is t
 because coverage forces isolation — and then they fail with `NG0201: No provider found`, in files
 nobody touched.
 
-The general shape is a spec that only passes because a *neighbour in the same worker* configured the
+The general shape is a spec that only passes because a _neighbour in the same worker_ configured the
 container. It is cheap to check and there is no other way to find it: **run any suite with a shared
 `TestBed` patch isolated once before trusting it.**
 
