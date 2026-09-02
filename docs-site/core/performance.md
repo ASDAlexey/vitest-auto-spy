@@ -24,6 +24,7 @@ thousand, so `hz` swings several-fold between runs as GC pauses land in differen
 | the same, eager                                            |        68.6 µs |
 | `createAutoMock<Service>()` + 4 accesses                   |         7.8 µs |
 | `calledWith` dispatch, 3 configured calls                  |         0.5 µs |
+| unconfigured dispatch, 3 calls with two object arguments   |         0.4 µs |
 
 Lazy widens as the class does, and gives it back only when a single test really calls every method
 (10 methods, all 10: 20.7 µs lazy against 19.2 µs eager — a rounding error against the order of
@@ -296,3 +297,108 @@ creates, and keep `keepChildren` for the handful of children it genuinely needs 
 With a shared environment more workers stop helping early: each one re-imports the whole module graph
 and has nobody to share that work with. Measure before raising it — on the suites above, one worker
 beat the default pool outright at both sizes.
+
+## Why this is not written in Rust
+
+The question arrives with scale: a suite of ten or twenty thousand tests, a CI bill that is a real
+line item, and a library sitting on the hot path of every one of those tests. Rewriting the core as
+a native addon sounds like the obvious lever.
+
+It was measured, and native loses twice over. It is slower at the work, and the work is not where
+the time is.
+
+### Native is slower at the one job a spy has
+
+A spy does two things on every call: it crosses into the recording code, and it retains its
+arguments so `mock.calls` can be read afterwards. Both were measured against a minimal
+[napi-rs](https://napi.rs) addon doing the identical work — the same push into the same kind of
+container, once from Rust and once from JavaScript:
+
+| per call                              | native (napi-rs) |         JS |             |
+| ------------------------------------- | ---------------: | ---------: | ----------- |
+| cross the boundary, do nothing at all |           9.0 ns | **3.7 ns** | 2.4× slower |
+| retain two object arguments           |          35.9 ns | **9.3 ns** | 3.8× slower |
+
+The second row is the load-bearing one. Arguments to a spied method are live JavaScript values —
+component instances, `Subject`s, DOM nodes, class instances — and `toHaveBeenCalledWith` compares
+them by identity as well as by structure. Retaining one from Rust means an N-API reference per
+argument, which is what that 35.9 ns buys; serializing them instead would be cheaper and would
+destroy the identity every matcher depends on. Pushing them into a JavaScript array is four times
+cheaper and keeps the semantics.
+
+::: details Reproducing the two rows
+
+Apple silicon, Node 24.19, napi-rs 2.16, `--release` with LTO. Median of nine runs of 2 000 000
+calls; both sides are drained every 100 000 calls, untimed, so that neither row measures its own
+garbage collector rather than its own work — without that the JavaScript row varies by 3× between
+runs as the retained array grows.
+
+```rust
+#[napi]
+pub fn noop() {}
+
+#[napi]
+pub fn record_refs(env: Env, a: Object, b: Object) -> Result<()> {
+  let ra = env.create_reference(a)?;
+  let rb = env.create_reference(b)?;
+  REFS.with(|r| { let mut r = r.borrow_mut(); r.push(ra); r.push(rb); });
+  Ok(())
+}
+```
+
+against `() => {}` and `(a, b) => { calls.push([a, b]); }`, timed with `process.hrtime.bigint()`
+around a `CHUNK`-sized loop.
+
+:::
+
+### It would own 9 ns of a 117 ns call
+
+The `unconfigured dispatch` row in [Measured](#measured) is 0.4 µs for three calls — about 117 ns
+each, with the `mockClear` that keeps the benchmark honest charged in. Argument retention is the
+~9 ns of that a native version would take over, and turn into ~36 ns.
+
+The other ~108 ns is the host runner's own mock, and it stays JavaScript whatever this library is
+written in. `spy.mock.calls` has to be a plain JavaScript array because Vitest's matchers walk it
+synchronously; `mockReturnValue` has to hand back a JavaScript value; the mock object itself comes
+from `vi.fn()` / `mock()` / `t.mock.fn()` and belongs to the runner. There is no version of this
+where the state lives on the other side of the boundary.
+
+### And spies are ~0.1 % of a CI job
+
+The arithmetic that prompts the question is the one that answers it. Take a 10 500-test Angular
+suite run in CI as three shards with coverage on — one shard, timed from its own job log:
+
+| shard, ~107 s total                                  | share |
+| ---------------------------------------------------- | ----: |
+| before Vitest starts — clone, cache, install, bundle | ~38 s |
+| Vitest: coverage instrumentation and remapping       | ~47 s |
+| Vitest: **running the tests**                        | ~12 s |
+| artifact upload                                      |  ~5 s |
+
+Everything this library does lives inside that 12 s. At the measured 5.6 µs per spy, 10 500 tests
+that each materialise four of them come to **~0.23 s of CPU spread over three workers** — around a
+tenth of one percent of the job. Deleting spy construction entirely, down to zero, would take a
+107-second job to about 107 seconds.
+
+Under coverage the ratio gets worse rather than better. With coverage scoped to application sources,
+as it normally is, the library is not instrumented at all — so the multiplier that coverage costs
+lands on application code and misses the spies completely.
+
+### What a native build would cost
+
+Against a saving indistinguishable from noise:
+
+- **Six or more platform binaries** in every consumer's `devDependencies`, plus the install-time
+  failure mode that comes with them — the one thing a testing library must never introduce, because
+  it breaks the tool you would use to diagnose it.
+- **The runners this package supports.** `bun:test`, `node:test` and browser mode are first-class
+  here, and a native addon does not load uniformly across them, or at all in a browser. A WASM
+  fallback gives up the premise, since it would be slower than the JavaScript it replaced.
+- **Sandboxes** — StackBlitz, WebContainers, a bare CI image without a matching prebuild.
+
+The native wins available in a JavaScript test stack are real, and they have all already been taken
+by someone else: the bundler, the transformer, the linter. Those tools chew through the whole source
+tree once per run, which is the shape of problem native code is good at. A spy factory does not
+process a tree; it hands back an object, a few hundred nanoseconds at a time, and then gets out of
+the way. The right thing for it to be is small, lazy and boring — which is what the rest of this
+page is about.

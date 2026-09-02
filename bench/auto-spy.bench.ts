@@ -144,6 +144,31 @@ describe('createAutoMock (type-only, lazy Proxy)', () => {
   });
 });
 
+describe('spy invocation', () => {
+  // What a spy costs *per call*, as opposed to per creation — the number to hold against the cost
+  // of the same bookkeeping done anywhere other than in JS. The spy is created at module scope and
+  // the body only calls it, like the `calledWith` case below.
+  //
+  // `mockClear()` is charged into the body on purpose. `@vitest/spy` retains every call it ever
+  // records, so without it this case would measure an argument array growing past a hundred million
+  // entries and the GC pauses that follow, not a call. It is the same trade `dropCreatedMocks()`
+  // makes in the creation cases: the bookkeeping a real `beforeEach` does anyway, charged to the
+  // case that caused it.
+  const spy = createSpyFromClass(WIDE) as unknown as Record<string, ((a: object, b: object) => unknown) & { mockClear: () => void }>;
+  const argA = { id: 1 };
+  const argB = { id: 2 };
+
+  bench('unconfigured call, two object arguments (x3)', () => {
+    spy['m0'](argA, argB);
+    spy['m1'](argA, argB);
+    spy['m2'](argA, argB);
+
+    spy['m0'].mockClear();
+    spy['m1'].mockClear();
+    spy['m2'].mockClear();
+  });
+});
+
 describe('calledWith dispatch', () => {
   // The one case whose spy outlives its iterations: it is created here, at module scope, and the
   // body only calls it. Nothing inside the body allocates a mock, so there is nothing to prune.
