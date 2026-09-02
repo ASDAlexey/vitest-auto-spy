@@ -3,15 +3,30 @@
  *
  * The point of these cases is that nothing here is a list of names: the table comes out of a
  * `package.json` written by the spec, so a table that went stale would have to go stale in the
- * fixture too. The `entryFor` cases pin the precedence — root, then the repository's own entry,
- * then a name only one entry exports — and the one case that must answer `undefined`, which is the
- * name two non-root entries both export.
+ * fixture too. The `chooseEntry` cases pin the precedence — root, then the repository's own entry,
+ * then a name only one entry exports, then what the file itself says — and the one case that must
+ * answer `absent`, which is a name the table does not have at all.
+ *
+ * The multi-entry cases carry the weight. `provideAutoSpy` is exported by five entries and by
+ * neither the root nor a plain repository's own entry, and answering "no entry point exports it"
+ * there was a lie that left every migrated spec still importing the legacy package.
  */
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { createTempRepo, removeTempRepos } from '../temp-repo';
+import type { FileHint } from './entry-hint';
+import { NO_HINT } from './entry-hint';
 import type { EntryMap } from './entry-map';
-import { buildEntryMap, entryFor, exportedNames, findPackageRoot, namesFromClause, pickTarget, resolveTarget } from './entry-map';
+import {
+  buildEntryMap,
+  chooseEntry,
+  entryFor,
+  exportedNames,
+  findPackageRoot,
+  namesFromClause,
+  pickTarget,
+  resolveTarget,
+} from './entry-map';
 
 afterEach(() => {
   removeTempRepos();
@@ -142,26 +157,94 @@ describe('findPackageRoot', () => {
   });
 });
 
-describe('entryFor', () => {
+describe('chooseEntry', () => {
   const map: EntryMap = {
     source: 'test',
     byName: new Map([
       ['Spy', ['vitest-auto-spy']],
       ['expectEmission', ['vitest-auto-spy/rxjs', 'vitest-auto-spy']],
-      ['provideAutoSpy', ['vitest-auto-spy/angular', 'vitest-auto-spy/nestjs']],
       ['mockSignalProp', ['vitest-auto-spy/angular']],
+      // The real shapes, read off the installed package: several entries, and no root among them.
+      [
+        'provideAutoSpy',
+        [
+          'vitest-auto-spy/bun-angular',
+          'vitest-auto-spy/jasmine',
+          'vitest-auto-spy/angular',
+          'vitest-auto-spy/nestjs',
+          'vitest-auto-spy/vue',
+        ],
+      ],
+      ['injectSpy', ['vitest-auto-spy/bun-angular', 'vitest-auto-spy/angular', 'vitest-auto-spy/nestjs']],
       ['shared', ['vitest-auto-spy/vue', 'vitest-auto-spy/svelte']],
+      ['tick', ['vitest-auto-spy/node', 'vitest-auto-spy/console']],
     ]),
   };
 
+  const hint = (over: Partial<FileHint>): FileHint => ({ ...NO_HINT, ...over });
+
   it('prefers the root, then the repository entry, then the only entry that has it', () => {
-    expect(entryFor(map, 'expectEmission', 'vitest-auto-spy/angular')).toBe('vitest-auto-spy');
-    expect(entryFor(map, 'provideAutoSpy', 'vitest-auto-spy/angular')).toBe('vitest-auto-spy/angular');
-    expect(entryFor(map, 'mockSignalProp', 'vitest-auto-spy')).toBe('vitest-auto-spy/angular');
+    expect(chooseEntry(map, 'expectEmission', 'vitest-auto-spy/angular', NO_HINT)).toEqual({ kind: 'chosen', entry: 'vitest-auto-spy' });
+    expect(chooseEntry(map, 'provideAutoSpy', 'vitest-auto-spy/nestjs', NO_HINT)).toEqual({
+      kind: 'chosen',
+      entry: 'vitest-auto-spy/nestjs',
+    });
+    expect(chooseEntry(map, 'mockSignalProp', 'vitest-auto-spy', NO_HINT)).toEqual({ kind: 'chosen', entry: 'vitest-auto-spy/angular' });
   });
 
-  it('refuses to choose between two non-root entries, and reports nothing for an unknown name', () => {
-    expect(entryFor(map, 'shared', 'vitest-auto-spy/angular')).toBeUndefined();
+  it('answers absent only for a name the table really does not have', () => {
+    expect(chooseEntry(map, 'createSpyObj', 'vitest-auto-spy', NO_HINT)).toEqual({ kind: 'absent' });
+  });
+
+  it('takes the entry the file already imports from, over everything else it could weigh', () => {
+    expect(chooseEntry(map, 'provideAutoSpy', 'vitest-auto-spy', hint({ imported: ['vitest-auto-spy/vue'] }))).toEqual({
+      kind: 'chosen',
+      entry: 'vitest-auto-spy/vue',
+    });
+  });
+
+  it('takes the framework the file is written against, and the runtime the repository runs', () => {
+    expect(chooseEntry(map, 'provideAutoSpy', 'vitest-auto-spy', hint({ framework: 'nestjs' }))).toEqual({
+      kind: 'chosen',
+      entry: 'vitest-auto-spy/nestjs',
+    });
+    expect(chooseEntry(map, 'injectSpy', 'vitest-auto-spy', hint({ framework: 'angular' }))).toEqual({
+      kind: 'chosen',
+      entry: 'vitest-auto-spy/angular',
+    });
+    // The same Angular helper under `bun test`: `/angular` there registers the Vitest adapter.
+    expect(chooseEntry(map, 'injectSpy', 'vitest-auto-spy/bun', hint({ framework: 'angular' }))).toEqual({
+      kind: 'chosen',
+      entry: 'vitest-auto-spy/bun-angular',
+    });
+  });
+
+  it('guesses, and says so, when neither the repository nor the file decides', () => {
+    expect(chooseEntry(map, 'provideAutoSpy', 'vitest-auto-spy', NO_HINT)).toEqual({
+      kind: 'guessed',
+      entry: 'vitest-auto-spy/angular',
+      candidates: map.byName.get('provideAutoSpy'),
+    });
+    expect(chooseEntry(map, 'provideAutoSpy', 'vitest-auto-spy/bun', NO_HINT)).toMatchObject({
+      kind: 'guessed',
+      entry: 'vitest-auto-spy/bun-angular',
+    });
+  });
+
+  it('guesses too when the framework the file names is not one of the candidates', () => {
+    expect(chooseEntry(map, 'shared', 'vitest-auto-spy', hint({ framework: 'nestjs' }))).toMatchObject({
+      kind: 'guessed',
+      entry: 'vitest-auto-spy/vue',
+    });
+  });
+
+  it('keeps every candidate when none of them matches the runtime, and breaks a rank tie by name', () => {
+    expect(chooseEntry(map, 'shared', 'vitest-auto-spy/bun', NO_HINT)).toMatchObject({ entry: 'vitest-auto-spy/vue' });
+    expect(chooseEntry(map, 'tick', 'vitest-auto-spy', NO_HINT)).toMatchObject({ entry: 'vitest-auto-spy/console' });
+  });
+
+  it('answers entryFor with the decided entry, and undefined only for a name that is absent', () => {
+    expect(entryFor(map, 'shared', 'vitest-auto-spy/angular')).toBe('vitest-auto-spy/vue');
     expect(entryFor(map, 'createSpyObj', 'vitest-auto-spy')).toBeUndefined();
   });
 });
