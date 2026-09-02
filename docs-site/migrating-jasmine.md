@@ -554,7 +554,9 @@ Where the schematic and this page disagree on a rewrite, the schematic is the mo
 the two by design: it emits `throw new Error(msg)` for `fail(msg)` in v21 (and `expect.fail(msg)` in
 v22), and two statements — `toHaveBeenCalledTimes(1)` plus `toHaveBeenCalledWith(args)` — where
 `toHaveBeenCalledExactlyOnceWith(args)` says the same thing in one. Either is correct; the single
-matcher fails with a better message.
+matcher fails with a better message. What the schematic makes of `jasmine.createSpyObj` — an object
+literal of `vi.fn()`, and three TODO comments it cannot resolve — has
+[its own page](/migrating-angular-schematic), with the real output beside the one-liner.
 
 ## What else you gain
 

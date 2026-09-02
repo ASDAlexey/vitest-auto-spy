@@ -447,6 +447,24 @@ The wait ends on any settled status, `error` and `idle` included — waiting for
 waiting for something that cannot happen. On expiry it names the resource and the flush it is
 missing.
 
+::: tip Three of those lines are one — `vitest-auto-spy/angular-http`
+The snippet above is the general form, and it is what to reach for when the wait is not tied to one
+request. When it is, [`expectRequest()`](/adapters/angular-http) collapses the tick, the controller,
+the `expectOne`, the flush and the settling into a single line:
+
+```ts
+import { expectRequest, provideHttpTesting } from 'vitest-auto-spy/angular-http';
+
+await expectRequest('/api/products').flush([product]);
+
+expect(products.value()).toEqual([product]);
+```
+
+It lives behind its own subpath because it is the only part of the package that imports
+`@angular/common` — an optional peer, paid for by the suites that ask for it. `settleResource` stays
+exactly as it is for `resource()`, `rxResource()`, reloads and anything not driven by HTTP.
+:::
+
 ::: tip Not `flushEventLoopUntil`
 `flushEventLoopUntil` takes real event-loop turns and never ticks. A resource awaited through it
 finishes the whole budget having issued zero requests, then fails saying the condition was never
@@ -661,6 +679,14 @@ be:
 
 PR #33961 restores a `splitting` option with splitting **on** by default, so 22.1.7 closes the
 window: upgrade and set `"splitting": true` on the test target.
+
+Neither the doctor nor this page is where the failure is noticed, so
+[`setupAutoSpy()`](/utilities/setup#_13-the-builder-version-that-eats-memory-named-in-the-run)
+says it in the run itself: when the process is a worker of the unit-test builder and the installed
+`@angular/build` is in the window, the setup file writes one line to stderr — once per worker, since
+the builder evaluates it once — naming the version, both exits and the opt-out. It reads a single
+`node_modules/@angular/build/package.json` for that, and nothing else depends on the read.
+`setupAutoSpy({ angularBuildHint: false })` silences it.
 
 ### The escape hatch, and why it is not shipped here
 

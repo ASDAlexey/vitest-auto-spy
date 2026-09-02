@@ -562,6 +562,34 @@ run in reverse registration order, so a spec's own hook runs before the one `set
 and the clock is real again by the time the hint reads it. Nothing is reported then, rather than
 something wrong.
 
+## 13. The builder version that eats memory, named in the run
+
+On by default, and silent unless the process is a worker of `@angular/build:unit-test` **and** the
+installed `@angular/build` is in `[22.1.5, 22.1.7)`.
+
+```ts
+setupAutoSpy({ angularBuildHint: false }); // off
+```
+
+In that window the builder compiles the unit-test bundle with esbuild code splitting off, so every
+spec is a self-contained bundle and `--coverage` grows by hundreds of megabytes with no plateau —
+791 chunks / 596 MB on a 784-spec suite, until the OOM killer ends the run. The builder emits no
+warning, and the two places that already say so — the
+[`doctor` check](/utilities/cli#doctor-defects-that-never-fail) `angular-build-splitting-off` and the
+[Angular page](/adapters/angular#when-the-unit-test-build-has-code-splitting-off) — both have to
+be sought out. This one line is printed from inside the run where it hurts, to stderr, once per
+worker: the builder runs Vitest with `isolate: false` and evaluates the setup file once, and the
+notice keeps a flag on `globalThis` so a second evaluation says nothing.
+
+The builder is recognised by the marker its own `vitest-mock-patch` setup file leaves on
+`globalThis` (`Symbol.for('@angular/cli/vitest-mock-patch')`, set before any user setup file runs),
+so a plain Vitest run never reads anything. Under the builder the version comes from the nearest
+`node_modules/@angular/build/package.json` above the working directory — **the one place this
+library reads the disk**: one file, read-only, through `process.getBuiltinModule` rather than a
+static `node:fs` import so the `/setup` entry still loads where there is no `process`, and nothing
+but the line depends on what it finds. On a Node without `getBuiltinModule` (before 20.16 / 22.3)
+it stays silent rather than guessing.
+
 ## The two buffers teardown drains
 
 Two of the checks above keep what they find in a buffer until something takes it out, and both
@@ -625,6 +653,7 @@ each test: a stub installed for the previous test is exactly what must not still
 | `pruneMockRegistry`   | `false`   | Keep @vitest/spy's ever-growing mock registry to the mocks that outlive a file  |
 | `hookTimeoutHint`     | `true`    | Explain a hook that ran out of `hookTimeout` while `testTimeout` is larger      |
 | `frozenClockHint`     | `true`    | Explain a timeout that happened because nothing advanced the fake clock         |
+| `angularBuildHint`    | `true`    | Say once per worker that `@angular/build` builds the test bundle unsplit        |
 | `strict`              | `false`   | Every double built afterwards throws on a method nobody configured              |
 | `onUnstubbedCall`     | —         | The general form of `strict` — its return value becomes the call's result       |
 

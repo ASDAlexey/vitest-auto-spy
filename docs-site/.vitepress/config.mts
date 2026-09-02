@@ -65,6 +65,7 @@ const SIDEBAR = [
     collapsed: false,
     items: [
       { text: 'Angular', link: '/adapters/angular' },
+      { text: 'Angular HTTP', link: '/adapters/angular-http' },
       { text: 'Angular diagnostics', link: '/adapters/angular-diagnostics' },
       { text: 'Component provider overrides', link: '/adapters/angular-overrides' },
       { text: 'NestJS', link: '/adapters/nestjs' },
@@ -75,6 +76,7 @@ const SIDEBAR = [
   },
   { text: 'Migrating from jest-auto-spies', link: '/migrating' },
   { text: 'Migrating from jasmine-auto-spies', link: '/migrating-jasmine' },
+  { text: 'After the refactor-jasmine-vitest schematic', link: '/migrating-angular-schematic' },
   { text: 'API reference', link: '/api' },
   { text: 'Comparison', link: '/comparison' },
   { text: 'For AI agents', link: '/agents' },
