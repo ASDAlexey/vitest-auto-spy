@@ -523,7 +523,7 @@ createSpyFromClass(MyService, {
   gettersToSpyOn: ['userName'],
   settersToSpyOn: ['userName'],
   autoSpyAccessors: true, // auto-discover every getter/setter on the prototype chain
-  lazySpies: true, // build each method spy on first access (see below)
+  lazySpies: true, // build each method spy on first access; 'proxy' for very wide classes (see below)
   strict: true, // a method nobody configured throws instead of returning undefined
 });
 ```
@@ -672,6 +672,60 @@ eager spies. See [Adapters → Angular](https://asdalexey.github.io/vitest-auto-
 `resetAutoSpy` / `clearAutoSpy` and enumeration all work the same; lazy only changes _when_ each spy
 is constructed, not what it does. The one nuance: a lazy method is an accessor until first touched,
 so a never-accessed spy has no recorded calls (which is exactly why `resetAutoSpy` can skip it).
+
+### `lazySpies: 'proxy'` — for classes wide enough to end a CI job
+
+`lazySpies: true` still has to *put something* on the double for every method: one
+`Object.defineProperty` accessor each. On a wide class that placeholder is not a detail — it is
+almost all of what an untouched double retains. `'proxy'` is the same laziness with one trap object
+in place of all of them, so retention stops tracking the width of the class.
+
+```ts
+// a generated API client: 400 operations, a test touches two
+const api = createSpyFromClass(GeneratedVenuesClient, { lazySpies: 'proxy' });
+
+api.findById.resolveWith({ id: 1 }); // built here, like any lazy spy
+```
+
+Measured on Node 24.19, 2 000 doubles held at once, nothing touched:
+
+| Methods on the class | `lazySpies: true` | `lazySpies: 'proxy'` |          Delta |
+| -------------------: | ----------------: | -------------------: | -------------: |
+|                    5 |           1 634 B |              1 737 B |     **+102 B** |
+|                   20 |           5 629 B |              2 219 B |      −3 410 B |
+|                  100 |          25 597 B |              4 135 B |     −21 463 B |
+|                  400 |         101 584 B |             11 813 B |     −89 771 B |
+
+That is 253 B per method against 25 B per method — the placeholder against one entry in a set of
+names the prototype already owns. Under `isolate: false`, where every double in a file outlives the
+test that made it, this is the difference between a job that finishes and a job that is killed.
+
+Building is cheaper too, because there is nothing to define. Create a double and call two of its
+methods five times each:
+
+| Methods on the class | `lazySpies: true` | `lazySpies: 'proxy'` |     Ratio |
+| -------------------: | ----------------: | -------------------: | --------: |
+|                    5 |          6 515 ns |             8 180 ns | **0.80×** |
+|                   20 |          8 938 ns |             6 643 ns |     1.35× |
+|                  100 |         20 713 ns |            11 638 ns |     1.78× |
+|                  400 |         61 212 ns |            10 798 ns |     5.67× |
+
+**Why it is opt-in, and will stay opt-in.** A `Proxy` cannot remove itself. Once a method has
+materialised, the accessor path leaves a plain data property behind and every later read is free;
+the proxy still goes through a trap — **+30 ns per read and +43 ns per call, for the life of the
+double**. At five methods it also *loses* 102 B. Both tables cross over somewhere around twenty
+methods, which is why the default does not move.
+
+Reach for it on the shapes that are wide by construction — generated API clients (orval,
+`ng-openapi-gen`), ngrx facades, a `Store` double — and leave it alone on an ordinary service.
+
+**It is not a different double.** `Object.keys`, spread, `JSON.stringify`, `in`,
+`hasOwnProperty`, `Object.getOwnPropertyDescriptor`, `delete`, `Object.freeze`, key order, `returns`,
+`overrides` and `fillMissing` all behave exactly as they do on the accessor path — `src/lib/lazy-spy-proxy.spec.ts`
+asserts the two against each other rather than against hand-written expectations. Reading a
+descriptor deliberately does **not** build the spy, for the same reason `resetAutoSpy` can skip an
+untouched method: `Object.keys` and a teardown both read descriptors, and materialising there would
+hand back the memory the mode exists to save.
 
 ## `using` — reset at the end of the block
 
@@ -2091,6 +2145,44 @@ The worst case for lazy is a test that really does call every method:
 | lazy  | 228 ms | 372.9 MB |
 | eager | 216 ms | 372.4 MB |
 
+### Where the remaining memory is, and `lazySpies: 'proxy'`
+
+Lazy does not build the spy, but it still has to define **something** for the name: one
+`Object.defineProperty` accessor per method. On a class wide enough to matter, that placeholder is
+not overhead around the real cost — it *is* the cost. Measured on Node 24.19 with 2 000 doubles held
+at once and nothing touched:
+
+| Methods on the class | `lazySpies: true` | `lazySpies: 'proxy'` |      Delta |
+| -------------------: | ----------------: | -------------------: | ---------: |
+|                    5 |           1 634 B |              1 737 B | **+102 B** |
+|                   20 |           5 629 B |              2 219 B |   −3 410 B |
+|                  100 |          25 597 B |              4 135 B |  −21 463 B |
+|                  400 |         101 584 B |             11 813 B |  −89 771 B |
+
+**253 B per method against 25 B per method.** `'proxy'` answers every method from one trap object,
+so all it retains per name is an entry in a set of strings the prototype already owns. Creation
+follows, because there is nothing to define — create a double and call two of its methods five times
+each:
+
+| Methods on the class | `lazySpies: true` | `lazySpies: 'proxy'` |     Ratio |
+| -------------------: | ----------------: | -------------------: | --------: |
+|                    5 |          6 515 ns |             8 180 ns | **0.80×** |
+|                   20 |          8 938 ns |             6 643 ns |     1.35× |
+|                  100 |         20 713 ns |            11 638 ns |     1.78× |
+|                  400 |         61 212 ns |            10 798 ns |     5.67× |
+
+**It is opt-in and stays opt-in**, for a reason that no benchmark of a wide class shows: a `Proxy`
+cannot remove itself. Once a method has materialised the accessor path leaves a plain data property
+behind and every later read is free — 0.33 ns, which is to say the JIT deletes it. The proxy still
+goes through a trap: **+30 ns per read, +43 ns per call, for the life of the double**. At five
+methods it loses on memory too. Both tables cross over around twenty methods.
+
+So the rule is about the *shape*, not about the suite: reach for it on classes that are wide by
+construction — a generated API client (orval, `ng-openapi-gen`), an ngrx facade, a `Store` double —
+and especially under `isolate: false`, where every double a file made is alive at the same time and
+this table is the difference between a job that finishes and a job that is killed. Everywhere else
+the default is the right answer.
+
 ### What a single spy costs
 
 A materialised spy is mostly the host runner's own mock — under Vitest that is the larger part of
@@ -2258,6 +2350,10 @@ honest way to do that — but it is no longer the GC it was measuring.
 | Nested object graph                        | `mockDeep<T>()`               | auto-creates chainable spies down the tree                         |
 
 ## The two settings that cost
+
+**`{ lazySpies: 'proxy' }`** is the other direction: same laziness, one trap object instead of a
+placeholder per method, for classes wide enough that the placeholders are the memory. See
+[the table above](#where-the-remaining-memory-is-and-lazyspies-proxy).
 
 **`{ lazySpies: false }`** gives up the win above, and costs an order of magnitude in both time and
 memory on a wide class. It is worth it only when a spec inspects the spy object itself through
@@ -7464,6 +7560,10 @@ suite. If a spec feels slow, the time is in `TestBed` — which is what
 
 Two things do cost more, and both are avoidable:
 
+- **`{ lazySpies: 'proxy' }`** keeps the laziness and drops the per-method placeholder, which is
+  nearly all of what an untouched wide double retains — 11.8 kB against 101.6 kB on a 400-method
+  generated client. Opt-in: it taxes every read by ~30 ns forever and loses below ~20 methods. See
+  [Performance](https://asdalexey.github.io/vitest-auto-spy/core/performance#where-the-remaining-memory-is-and-lazyspies-proxy).
 - **`{ lazySpies: false }`** gives up the win above. Only worth it when a spec enumerates the spy
   object itself rather than calling methods on it.
 - **`autoSpyAccessors: true`** walks the prototype chain for getters and setters on every call, and
@@ -7980,6 +8080,118 @@ pass over files no test imported is driven by the presence of `coverage.include`
 carried over from Vitest 3 with `all: true` and no `include` reports only the files the run touched,
 with no error and no warning — verified on 4.1.9 against a fixture whose second module nothing
 imports: absent with `all: true`, present once `include` is declared.
+
+## Coverage matching costs more than coverage
+
+Narrowing the scope with `coverage.include` is supposed to make the report smaller and the run
+faster. On a large workspace it makes the run **slower**, and the reason is not in your config.
+
+`@vitest/coverage-v8` decides whether a file belongs in the report by calling `isIncluded`, which
+calls `picomatch` with the whole pattern array. Its `globCache` memoises the **verdict**, keyed by
+the filename — never the compiled matcher. So every filename recompiles every pattern.
+
+Profiled on one shard of a 1 725-file Angular suite, with a scope of 124 include globs plus 304
+negations:
+
+| Phase of `Generate coverage`, 224.2 s total |     time |
+| ------------------------------------------- | -------: |
+| reading the 432 workers' coverage files     |    2.6 s |
+| before the first conversion                 |   54.3 s |
+| remapping the 1 958 covered files           |   50.5 s |
+| the pass over the 458 untested files        | **0.35 s** |
+| the final `coverageMap.filter`              | **114.1 s** |
+
+The pass over untested files is what a narrowed scope is usually blamed for, and it is a third of a
+second. The filter — a loop whose entire body is one `isIncluded` call per file — is half the run.
+Timed operation by operation against a matcher compiled once, on the same globs:
+
+| Operation                        |      stock | compiled once |
+| -------------------------------- | ---------: | ------------: |
+| `isIncluded`, 8 000 calls        | 167 853 ms |      1 808 ms |
+| `coverageMap.filter`             |  81 393 ms |        713 ms |
+| the pass over 1 816 untested files |  69 779 ms |      9 439 ms |
+
+### The fix is a provider wrapper, in your own config
+
+`coverage.provider: 'custom'` is a supported seam, and the provider it returns is an ordinary
+object. Re-export `@vitest/coverage-v8` and replace one method:
+
+```ts
+// tools/coverage-provider.ts
+import * as v8 from '@vitest/coverage-v8';
+import { cleanUrl, slash } from '@vitest/utils/helpers';
+import pm from 'picomatch';
+
+export * from '@vitest/coverage-v8';
+
+export async function getProvider() {
+  const provider = await v8.getProvider();
+  const original = provider.isIncluded.bind(provider);
+  let match;
+
+  provider.isIncluded = (filename) => {
+    const { include, exclude, allowExternal } = provider.options ?? {};
+
+    // A `--changed` run selects by its own file list, and a config with no `include` has nothing
+    // to compile: the only two questions this wrapper genuinely cannot answer.
+    if (!include) {
+      return original(filename);
+    }
+
+    match ??= pm(include, { contains: true, dot: true, ignore: exclude });
+
+    const path = slash(cleanUrl(filename));
+
+    // Inline, NOT delegated — see the note below.
+    if (!allowExternal && !path.startsWith(workspaceRoot) && !path.startsWith(projectRoot)) {
+      return false;
+    }
+
+    return match(path);
+  };
+
+  return provider;
+}
+```
+
+```ts
+// vitest.config.ts
+coverage: {
+  provider: 'custom',
+  customProviderModule: './tools/coverage-provider.ts',
+}
+```
+
+Measured on the same real shard, same reporters: the Vitest phase drops **229.59 s → 22.88 s**,
+432/432 files both ways, a cobertura report of 8.0 MB both ways, and the numbers do not move —
+`Statements 41.77 %`, 27 292/65 325 before and 27 289/65 325 after, the same denominator and three
+statements of the shared environment's ordinary drift. Per file, on 200 distinct paths: 1.13 ms
+stock against 0.018 ms compiled, with identical verdicts on every path.
+
+**The one mistake that makes a correct wrapper measure as zero**
+Do **not** delegate the `allowExternal: false` case back to the original method "to be safe".
+`@angular/build:unit-test` turns that option on, so every call would take the slow path: the first
+attempt at this came out at 227.6 s against a 229.6 s baseline, which reads as "the idea does not
+work" rather than "the fast path was never entered". Do the test inline, with two `startsWith`
+against the workspace and project roots.
+
+Two more mechanics worth not rediscovering. `getProvider()` runs **before** Vitest calls
+`initialize()`, so `provider.options` does not exist yet at swap time and the matcher has to be
+built lazily on the first question. And the filename must be normalised exactly as the original does
+it — `slash(cleanUrl(filename))`, both helpers from `@vitest/utils/helpers` — or the verdicts
+diverge on the paths the two forms disagree about. The provider's own `globCache` stays a cache and
+keeps working.
+
+### Narrowing the scope is not only about speed
+
+In the same series the cobertura report was **10.78 MB** without `include` and 8.89 MB with it,
+against GitLab's **10 MB** parse limit. Over that limit the report is dropped **silently**: the job
+is green, the percentages are in the log, and there is no line highlighting in the merge request at
+all. That failure names nothing, which is why it is worth knowing the number.
+
+`npx vitest-auto-spy doctor` reports `coverage-include-recompiles-globs` when it sees a scope large
+enough for this to be worth the twenty lines above. It is an `info` finding — nothing is broken, and
+the report it produces is correct.
 
 ## Asserting a signal
 
@@ -10212,7 +10424,7 @@ descriptor, not about the value's type, so a signal-valued getter is nameable), 
 values installed as the spy is built), `autoSpyAccessors` (auto-discover getters/setters),
 `fillMissing` (answer a name the prototype never carried with a spy — for a **partially** abstract
 class, where the erased members leave the empty-prototype fallback unable to fire),
-`lazySpies` (build each method spy on first access — the `provideAutoSpy` default on Angular), plus
+`lazySpies` (build each method spy on first access — the `provideAutoSpy` default on Angular; `'proxy'` swaps the per-method placeholder for one trap object, which is what keeps a 400-method double from retaining 100 kB), plus
 the two strict-mode fields below.
 
 **`AutoMockConfiguration`** (the third argument of `createAutoMock` / `provideAutoSpyForToken`):

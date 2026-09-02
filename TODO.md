@@ -314,9 +314,7 @@ by reading the installed sources, and is worth not re-deriving:
   that this is not _this library's_ surface: it is a coverage provider, it has nothing to do
   with spies, it pins `isIncluded` — a method that is not public API — into a package whose
   users mostly do not run coverage over a bundle at all, and it would fail silently the day
-  that method is renamed. The shipping vehicles that fit are the recipe in
-  `articles/COVERAGE.md` and, if the numbers repeat on a second consumer, a `doctor` note that
-  points at it when it sees a large `coverage.include`.
+  that method is renamed.
 
 ## Considered & intentionally skipped
 
@@ -361,23 +359,6 @@ factories together cost **13.8 ms of a 1.32 s run — 1.0% of wall clock, 0.07% 
 (`createSpyFromClass` 4.7 ms / 117 calls, `createFunctionSpy` 9.0 ms / 186 calls). **No item here
 may be argued on suite wall time.** The arguments are memory, pathological input, and per-file
 import cost.
-
-- [ ] **Opt-in `lazySpies: 'proxy'` — one `Proxy` instead of N accessor placeholders.** Creation is
-      O(1) in class width: 30–43 ns against 504 ns at 5 methods, 1 958 ns at 20, 11 326 ns at 100
-      and **48 951 ns at 400**. On the realistic shape (create + touch 2 + call each 5×) that is
-      1.11× / 1.41× / 2.69× / **8.71×**. Retained memory is **744 B flat whatever the width**,
-      against 238 B per method — **−3.7 kB at 20 methods, −23 kB at 100, −94 kB at 400** per spy,
-      which under `isolate: false` is the number that ends CI jobs. Load-bearing detail: 74–97% of
-      what an untouched lazy spy retains is the `Object.defineProperty` placeholder itself.
-      **Must stay opt-in** — the Proxy cannot remove itself, so it imposes a permanent +25.3 ns per
-      read (4.09 → 29.43 ns) and +29.5 ns per call, and at width 5 with methods touched it _loses_
-      158 B. Break-even is ~16 calls per spy at width 5, ~64 at width 20. A v2 prototype reached
-      full semantic parity with `defineProperty` on every probe (`Object.keys`, `in`,
-      `hasOwnProperty`, spread, `Object.entries`, JSON, `defineProperty`, `freeze`, `delete`, key
-      order after assignment, identity) and improves on one: materialising in
-      `getOwnPropertyDescriptor` removes the documented reason to reach for `lazySpies: false`.
-      Target consumers are the wide generated clients — orval / ng-openapi-gen services, ngrx
-      facades.
 
 - [ ] **A bundle-size reduction pass.** Asked for as the next piece of work, and it opens partly
       against the de-chunking that just landed, which bought **−0.8 to −1.0 ms per spec file for

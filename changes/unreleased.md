@@ -16,6 +16,18 @@ _Last released: **v3.15.0** — the git tag and `package.json` agree._
 
 ## Staged for the next release
 
+- **`lazySpies: 'proxy'`** — the same laziness with one trap object instead of one
+  `Object.defineProperty` placeholder per method. 101 584 B → 11 813 B retained on a 400-method class
+  (253 B per method against 25 B), and 5.67× faster to build and touch there. Opt-in: a `Proxy`
+  cannot remove itself, so it costs +30 ns per read and +43 ns per call forever, and it loses below
+  ~20 methods. For generated API clients and ngrx facades under `isolate: false`.
+
+- **`doctor` check `coverage-include-recompiles-globs`** (`info`) — a coverage scope large enough
+  that `picomatch` recompiling it per file costs more than collecting the coverage: 114.1 s of a
+  224.2 s `Generate coverage` on one real shard, against 0.35 s for the untested-files pass usually
+  blamed for it. Points at the provider-wrapper recipe now on the Angular page — 229.59 s → 22.88 s
+  with a byte-identical report.
+
 - **Control helpers shared across spies** — one set of `this`-based functions for the run instead
   of eight to twenty closures per materialised method; reset and clear hooks moved onto the spy's
   state under its mark. Heap per spied method −17 % on `node:test`, −33 % with rxjs, −39 % on Bun

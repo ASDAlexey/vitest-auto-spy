@@ -38,6 +38,53 @@ The latest released version here must always match the one published on
 
 ### Added
 
+- **`lazySpies: 'proxy'` — one trap object where there were N placeholders.** `lazySpies: true` does
+  not build the spy, but it still has to define *something* per method: one `Object.defineProperty`
+  accessor. On a class wide enough to matter that placeholder is not overhead around the cost, it
+  **is** the cost. Measured on Node 24.19 with 2 000 doubles held at once and nothing touched:
+  **101 584 B → 11 813 B on a 400-method class**, 25 597 B → 4 135 B at 100, 5 629 B → 2 219 B at 20
+  — 253 B per method against 25 B. Creation follows, because there is nothing to define: creating a
+  double and calling two of its methods five times each is **5.67× faster at 400 methods**, 1.78× at
+  100, 1.35× at 20. Under `isolate: false`, where every double a file made is alive at once, this is
+  the difference between a job that finishes and a job that is killed — the shapes it exists for are
+  generated API clients (orval, `ng-openapi-gen`) and ngrx facades.
+
+  **Opt-in, and it stays opt-in.** A `Proxy` cannot remove itself: once a method has materialised the
+  accessor path leaves a plain data property behind and every later read is free (0.33 ns — the JIT
+  deletes it), while the proxy still goes through a trap, **+30 ns per read and +43 ns per call for
+  the life of the double**. At five methods it loses on memory too (+102 B) and on time (0.80×).
+  Both tables cross over around twenty methods, so the default does not move.
+
+  It is not a different double: `Object.keys`, spread, `JSON.stringify`, `in`, `hasOwnProperty`,
+  `Object.getOwnPropertyDescriptor`, `delete`, `Object.freeze`, key order, `returns`, `overrides` and
+  `fillMissing` all behave exactly as on the accessor path, and the suite asserts the two against
+  each other rather than against hand-written expectations. One decision worth recording: reading a
+  descriptor deliberately does **not** materialise. `Object.keys`, a spread and `resetAutoSpy` each
+  read a descriptor per key, so materialising there would build the whole class on the first teardown
+  and hand back exactly the memory the mode exists to save — the trap reports the accessor descriptor
+  the placeholder path would have installed instead.
+
+- **`doctor` check `coverage-include-recompiles-globs` — the coverage scope that costs more than the
+  coverage.** `@vitest/coverage-v8` memoises the *verdict* of `isIncluded`, keyed by filename, and
+  never the compiled matcher, so `picomatch` recompiles the whole pattern array once per file.
+  Profiled on one shard of a 1 725-file Angular suite with 124 include globs plus 304 negations:
+  `Generate coverage` 224.2 s, of which **114.1 s is the final `coverageMap.filter`** — a loop whose
+  entire body is one `isIncluded` call — against **0.35 s** for the pass over untested files that a
+  narrowed scope usually gets blamed for. The check is `info`: nothing is broken and the report is
+  correct, it is just paid for once per file per pattern.
+
+  The fix ships as a recipe rather than as surface, because it is a coverage provider and has nothing
+  to do with spies: `coverage.provider: 'custom'` plus a `customProviderModule` that re-exports
+  `@vitest/coverage-v8` and overwrites `isIncluded` in `getProvider()` with one that compiles the
+  list once. On the same real shard the Vitest phase drops **229.59 s → 22.88 s**, 432/432 files both
+  ways, cobertura 8.0 MB both ways, and the report does not move (`Statements 41.77 %`, 27 292/65 325
+  before and 27 289/65 325 after). Documented on the Angular page, together with the trap that makes
+  a correct wrapper measure as zero — delegating the `allowExternal: false` case back to the original
+  method, which `@angular/build:unit-test` turns on, so every call takes the slow path and the run
+  comes out at 227.6 s against a 229.6 s baseline. The same section records the other reason to
+  narrow a scope: cobertura at 10.78 MB against GitLab's 10 MB parse limit, over which the report is
+  dropped silently — green job, percentages in the log, no line highlighting in the merge request.
+
 - **`failWith(error)` on the sync bundle — the outcome the container could not carry.** Vitest 4.1
   added `mockThrow` / `mockThrowOnce`; Bun 1.4 and `node:test` have no equivalent (checked, not
   assumed), so a suite that runs on all three still wrote `mockImplementation(() => { throw e })` by
