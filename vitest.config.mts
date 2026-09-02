@@ -33,6 +33,7 @@ export default defineConfig({
         'src/auto-spy.ts',
         'src/index.ts',
         'src/rxjs.ts',
+        'src/jasmine.ts',
         'src/angular.ts',
         'src/setup.ts',
         'src/eslint-plugin.ts',

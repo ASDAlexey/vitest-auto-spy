@@ -1,7 +1,7 @@
 {
   "name": "vitest-auto-spy",
   "version": "3.13.1",
-  "description": "Auto-generate fully-typed test spies from a class — across Vitest, Bun and node:test, with Angular/NestJS/React/Vue/Svelte recipes. Drop-in replacement for jest-auto-spies.",
+  "description": "Auto-generate fully-typed test spies from a class — across Vitest, Bun and node:test, with Angular/NestJS/React/Vue/Svelte recipes. Drop-in replacement for jest-auto-spies and jasmine-auto-spies.",
   "keywords": [
     "auto-mock",
     "automock",
@@ -18,6 +18,9 @@
     "vitest-mock",
     "sinon-alternative",
     "jest-auto-spies",
+    "jasmine-auto-spies",
+    "jasmine",
+    "karma",
     "vitest",
     "bun",
     "bun-test",
@@ -95,6 +98,21 @@
       "import": "./dist/console.js",
       "default": "./dist/console.js"
     },
+    "./jasmine": {
+      "types": "./dist/jasmine.d.ts",
+      "import": "./dist/jasmine.js",
+      "default": "./dist/jasmine.js"
+    },
+    "./jasmine-compat": {
+      "types": "./dist/jasmine-compat.d.ts",
+      "import": "./dist/jasmine-compat.js",
+      "default": "./dist/jasmine-compat.js"
+    },
+    "./observer-spy": {
+      "types": "./dist/observer-spy.d.ts",
+      "import": "./dist/observer-spy.js",
+      "default": "./dist/observer-spy.js"
+    },
     "./angular": {
       "types": "./dist/angular.d.ts",
       "import": "./dist/angular.js",
@@ -162,6 +180,9 @@
     "**/svelte.js",
     "**/rxjs.js",
     "**/console.js",
+    "**/jasmine.js",
+    "**/jasmine-compat.js",
+    "**/observer-spy.js",
     "**/setup.js",
     "**/zone.js"
   ],
@@ -190,7 +211,7 @@
     "test:shared-env": "vitest run --config vitest.shared-env.config.mts",
     "test:zone": "vitest run --config vitest.zone.config.mts",
     "test:types": "vitest run --config vitest.types.config.mts",
-    "test:bun": "bun test ./src/bun-tests/core.bun.test.ts ./src/bun-tests/rxjs.bun.test.ts",
+    "test:bun": "bun test ./src/bun-tests/core.bun.test.ts ./src/bun-tests/rxjs.bun.test.ts ./src/bun-tests/jasmine.bun.test.ts",
     "test:bun:angular": "bun test --preload ./src/bun-angular.ts ./src/bun-tests",
     "test:bun:isolate": "bun test --isolate --preload ./src/bun-angular.ts ./src/bun-tests",
     "bench": "vitest bench --run --config vitest.bench.config.mts",

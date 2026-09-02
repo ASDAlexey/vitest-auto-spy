@@ -8,6 +8,7 @@ import { ArgsMap } from './args-map';
 import { DOCS_LINKS, withDocs } from './docs-links';
 import { errorHandler } from './error-handler';
 import type { CalledWithObject, ReturnValueContainer } from './internal-types';
+import { getJasmineSupport } from './jasmine-support';
 import { getMockAdapter } from './mock-adapter';
 import { getObservableSupport } from './observable-support';
 import { addPromiseHelpersToCalledWithObject, addPromiseHelpersToFunctionSpy } from './promise-spy';
@@ -300,6 +301,16 @@ export function createFunctionSpy<FunctionType extends Func>(
       addMethodsToCalledWith(ensureCalledWithObject(state, 'calledWith'), calledWithArgs),
     mustBeCalledWith: (...calledWithArgs: unknown[]): CalledWithObject =>
       addMethodsToCalledWith(ensureCalledWithObject(state, 'mustBeCalledWith'), calledWithArgs),
+  });
+
+  // `.and` / `.calls` / `.withArgs`, for a suite arriving from `jasmine-auto-spies`. Installed only
+  // when `vitest-auto-spy/jasmine` has been imported — one `undefined` check for everyone else.
+  // It goes last so the namespaces can delegate to every helper attached above.
+  getJasmineSupport()?.addToFunctionSpy(spy, {
+    name,
+    restoreDispatch: (): void => {
+      getMockAdapter().restoreImplementation(functionSpy, dispatch);
+    },
   });
 
   // `resetAutoSpy` reverts this spy's configuration; the state lives in these

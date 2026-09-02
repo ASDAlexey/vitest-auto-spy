@@ -5,6 +5,7 @@
  * active {@link MockAdapter}'s accessor spy, exposing the resulting mocks under
  * `accessorSpies`.
  */
+import { getJasmineSupport } from './jasmine-support';
 import { type MockFn, getMockAdapter } from './mock-adapter';
 import { markAsMock } from './spy-mark';
 
@@ -29,6 +30,9 @@ function spyOnAccessor(autoSpy: Record<string, unknown>, accessorName: string, a
   const adapter = getMockAdapter();
   const mock = accessorType === 'setter' ? adapter.spyOnSetter(autoSpy, accessorName) : adapter.spyOnGetter(autoSpy, accessorName);
   markAsMock(mock);
+  // `spy.accessorSpies.getters.name.and.returnValue(…)` is how a `jasmine-auto-spies` suite
+  // configures a getter, so an accessor spy gets the namespaces too — see `jasmine-support.ts`.
+  getJasmineSupport()?.addToAccessorSpy(mock);
 
   return mock;
 }
