@@ -17,15 +17,15 @@ _Last released: **v3.14.0** — the git tag and `package.json` agree._
 ## Staged for the next release
 
 - **`failWith(error)`** on the sync bundle and on a `calledWith` chain — the cross-runtime answer to
-  Vitest 4.1's `mockThrow`, and the only way any runtime offers to make *one* argument set throw.
+  Vitest 4.1's `mockThrow`, and the only way any runtime offers to make _one_ argument set throw.
   Not named `throwWith`: that is the observable helper, and every spy carries every bundle.
 
 - **`extendWithAutoSpies(test, spec)`** (`/angular`) — a map of dependencies as typed `TestBed`
   fixtures in one `configureTestingModule`. Vitest 4.1+, and it throws a named error on anything
   older instead of letting the object-form `extend` hand every test `undefined`.
 
-- **`onStrayTimers`**, and a stderr warning when `strayTimers` and Vitest 4.1's `detectAsyncLeaks`
-  are both on — the sweep used to empty that report silently.
+- **`onStrayTimers(({ cancelled }) => …)`**, and a stderr warning when `strayTimers` and Vitest 4.1's
+  `detectAsyncLeaks` are both on — the sweep used to empty that report silently.
 
 - **ESLint `no-bare-called-with`** — `spy.m.calledWith(1);` as a statement asserts nothing, and 4.1's
   chai-style `expect(fn).to.have.been.calledWith(x)` made the confusion likely.
