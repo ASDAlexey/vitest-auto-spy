@@ -226,6 +226,7 @@
     "test:shared-env": "vitest run --config vitest.shared-env.config.mts",
     "test:zone": "vitest run --config vitest.zone.config.mts",
     "test:types": "vitest run --config vitest.types.config.mts",
+    "types:budget": "node scripts/check-type-budget.mjs",
     "test:bun": "bun test ./src/bun-tests/core.bun.test.ts ./src/bun-tests/rxjs.bun.test.ts ./src/bun-tests/jasmine.bun.test.ts",
     "test:bun:angular": "bun test --preload ./src/bun-angular.ts ./src/bun-tests",
     "test:bun:isolate": "bun test --isolate --preload ./src/bun-angular.ts ./src/bun-tests",

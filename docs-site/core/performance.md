@@ -35,6 +35,10 @@ tenth of a second for the entire run. Spy construction is not where a slow suite
 `TestBed` is, which is what [`enableTestBedDiagnostics()`](../adapters/angular#where-a-spec-spends-its-time)
 measures and [`renderShallow`](../adapters/angular#shallow-component-rendering) usually fixes.
 
+The type-checker's share is measured too: `npm run types:budget` counts the instantiations `Spy<T>`
+costs `tsc` on a generated fixture and fails the gate past a budget — the numbers are in
+[Type-check cost](../comparison#_3-type-check-cost).
+
 ## Why it is fast
 
 `lazySpies` is on by default for every factory: a spy is built on first access rather than for every

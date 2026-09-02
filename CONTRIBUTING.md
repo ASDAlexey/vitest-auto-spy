@@ -19,6 +19,7 @@ npm ci
 | `npm run test:coverage` | Run tests with coverage (100% thresholds enforced) |
 | `npm run typecheck` | Type-check the project with `tsc --noEmit` |
 | `npm run test:types` | Assert what callers **infer** — `expectTypeOf` cases under `src/type-tests` |
+| `npm run types:budget` | Count the type instantiations `Spy<T>` costs `tsc` on a generated fixture; fails past the budget in `scripts/check-type-budget.mjs` (`--measure` prints the numbers, `--print` the fixture) |
 | `npm run build` | Build the ESM + CJS bundles and type declarations |
 
 ## Guidelines
