@@ -19,6 +19,8 @@ export interface ReturnValueContainer {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- holds the raw fake value (sync value, Promise, or Observable) of arbitrary element type assembled dynamically by the spy decorators.
   value: any;
   _isRejectedPromise?: boolean;
+  /** Set by `failWith`: the call throws {@link ReturnValueContainer.value} instead of returning it. */
+  _isThrown?: boolean;
   valuesPerCalls?: PerCallValue[];
 }
 

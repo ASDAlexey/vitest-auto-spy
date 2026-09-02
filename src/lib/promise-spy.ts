@@ -41,6 +41,8 @@ export function addPromiseHelpersToFunctionSpy(spyFunction: object, valueContain
   addPromiseHelpers(spyFunction, (container) => {
     valueContainer.value = container.value;
     valueContainer._isRejectedPromise = container._isRejectedPromise ?? false;
+    // `failWith` supersedes and is superseded in turn — see its own note in `function-spy`.
+    valueContainer._isThrown = false;
     valueContainer.valuesPerCalls = container.valuesPerCalls ?? [];
   });
 }

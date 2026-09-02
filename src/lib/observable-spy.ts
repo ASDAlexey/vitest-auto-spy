@@ -131,7 +131,7 @@ function addObservableHelpers<T>(
 /**
  * Forget what the previous configuration of `container` left behind.
  *
- * A function spy owns one container for its whole life, and `unwrapContainer` reads
+ * A function spy owns one container for its whole life, and `unwrapContainer` reads `_isThrown`,
  * `_isRejectedPromise` and `valuesPerCalls` *before* it reads `value`. Without this, a
  * `rejectWith(err)` (or a `*PerCall` batch) keeps answering for every later `nextWith` /
  * `nextWithPerCall` on the same spy, silently ignoring the newer configuration. The promise
@@ -140,6 +140,7 @@ function addObservableHelpers<T>(
  */
 function clearPreviousConfig(container: ReturnValueContainer): void {
   container._isRejectedPromise = false;
+  container._isThrown = false;
   delete container.valuesPerCalls;
 }
 

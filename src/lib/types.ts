@@ -100,6 +100,38 @@ export type ValueConfig<T> = CompleteValueConfig | ErrorValueConfig | NextValueC
 // Helper bundles attached to a method spy by its return type
 // ---------------------------------------------------------------------------
 
+/**
+ * The one helper every method spy carries regardless of what it returns.
+ *
+ * Kept apart from the three return-type bundles because it is attached at a different place — once,
+ * to the spy itself — and because putting it inside any of them would claim it for the observable
+ * *properties* that reuse {@link AddObservableSpyMethods}, where nothing attaches it.
+ */
+export interface AddThrowHelper {
+  /**
+   * Throw `error` on every call, until something else configures the spy.
+   *
+   * The sync counterpart of {@link AddPromiseSpyMethods.rejectWith} and of the observable
+   * {@link AddObservableSpyMethods.throwWith}, and the cross-runtime answer to Vitest 4.1's
+   * `mockThrow`: Bun and `node:test` ship no equivalent, so a suite that has to run on all three
+   * would otherwise write `mockImplementation(() => { throw error })` by hand — and no runtime at
+   * all can make one `calledWith` chain throw while its siblings answer normally.
+   *
+   * ```ts
+   * cart.checkout.failWith(new HttpErrorResponse({ status: 500 }));
+   * expect(() => cart.checkout(1)).toThrow();
+   *
+   * cart.checkout.calledWith(BAD_ID).failWith(new Error('unknown cart'));
+   * ```
+   *
+   * **Not `throwWith`.** That name belongs to the observable helper that errors the stream
+   * ({@link AddObservableSpyMethods.throwWith}), and at runtime every spy carries every bundle —
+   * only the types tell them apart. One name for both would mean whichever bundle is attached last
+   * silently wins, on every spy in the run.
+   */
+  failWith(error?: unknown): void;
+}
+
 /** Helpers attached to an `Observable`-returning spy. */
 export interface AddObservableSpyMethods<T> {
   /**
@@ -134,7 +166,7 @@ export interface AddPromiseSpyMethods<T> {
  * chain. `mockReturnValue` is the native name; `returnValue` is the
  * `jest-auto-spies` alias, kept so migrating tests are a pure import swap.
  */
-export type WithMockReturnValue<Method extends Func> = {
+export type WithMockReturnValue<Method extends Func> = AddThrowHelper & {
   mockReturnValue: (value: ReturnType<Method>) => void;
   returnValue: (value: ReturnType<Method>) => void;
 };
@@ -158,15 +190,15 @@ export interface AddCalledWithSpyMethods<Method extends Func> {
 /** Argument-matching helpers that resolve to observable helpers. */
 export type AddCalledWithObservable<Method extends Func, O> = {
   /** Argument-matched and lenient on a miss — see {@link AddCalledWithSpyMethods.calledWith}. */
-  calledWith(...args: Parameters<Method>): AddObservableSpyMethods<O>;
-  mustBeCalledWith(...args: Parameters<Method>): AddObservableSpyMethods<O>;
+  calledWith(...args: Parameters<Method>): AddObservableSpyMethods<O> & AddThrowHelper;
+  mustBeCalledWith(...args: Parameters<Method>): AddObservableSpyMethods<O> & AddThrowHelper;
 };
 
 /** Argument-matching helpers that resolve to promise helpers. */
 export type AddCalledWithPromise<Method extends Func, P> = {
   /** Argument-matched and lenient on a miss — see {@link AddCalledWithSpyMethods.calledWith}. */
-  calledWith(...args: Parameters<Method>): AddPromiseSpyMethods<P>;
-  mustBeCalledWith(...args: Parameters<Method>): AddPromiseSpyMethods<P>;
+  calledWith(...args: Parameters<Method>): AddPromiseSpyMethods<P> & AddThrowHelper;
+  mustBeCalledWith(...args: Parameters<Method>): AddPromiseSpyMethods<P> & AddThrowHelper;
 };
 
 /**
@@ -213,7 +245,8 @@ export interface AddVoidReturnHelpers {
  *    knowing: with one call signature instead of two, `expectTypeOf(spy.method).parameters` and
  *    `.returns` resolve instead of collapsing to `never`.
  */
-export type AddSpyMethodsByReturnTypes<Method extends Func> = Method &
+export type AddSpyMethodsByReturnTypes<Method extends Func> = AddThrowHelper &
+  Method &
   MockInstance &
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the `(...args: any[]) => infer ReturnType` conditional only extracts the return type; the parameter shape is irrelevant here and a narrower signature would fail to match arbitrary methods.
   (Method extends (...args: any[]) => infer ReturnType

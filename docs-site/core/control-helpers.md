@@ -31,6 +31,36 @@ myService.getName.mustBeCalledWith(1).mockReturnValue('Fake Name');
 expect(() => myService.getName(2)).toThrow();
 ```
 
+### Making a call throw — `failWith`
+
+```ts
+// every call throws
+cart.checkout.failWith(new HttpErrorResponse({ status: 500 }));
+expect(() => cart.checkout(1)).toThrow();
+
+// only these arguments throw; the rest answer normally
+cart.checkout.calledWith(BAD_ID).failWith(new Error('unknown cart'));
+cart.checkout.calledWith(GOOD_ID).mockReturnValue(receipt);
+```
+
+`failWith` is available on a spy of **any** return type, and on a `calledWith` /
+`mustBeCalledWith` chain. It supersedes a `resolveWith`, `nextWith` or per-call batch configured
+before it, and is superseded by one configured after — so what a call does never depends on the
+order the spec happens to be written in. A `resetAutoSpy` drops it like any other configuration.
+
+::: tip Why not `throwWith`
+`throwWith` already means *error the stream* on an observable spy. Every spy carries every helper
+bundle at runtime — only the return type in `Spy<T>` tells them apart — so a shared name would mean
+whichever bundle is attached last silently wins, on every spy in the run.
+:::
+
+::: info Compared with the runners
+Vitest 4.1 added `mockThrow` / `mockThrowOnce`, which do the spy-level half. Bun and `node:test`
+have neither, so `failWith` is what makes the same spec run on all three. And no runtime has an
+equivalent of the second example above: `mockImplementation` replaces the whole dispatch, which is
+the opposite of configuring one set of arguments.
+:::
+
 ### What a `mustBeCalledWith` failure prints
 
 Both sides, the way `td.explain` and sinon do — because the diagnosis is the comparison, not either

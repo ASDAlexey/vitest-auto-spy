@@ -30,6 +30,12 @@ function isReturnValueContainer(value: unknown): value is ReturnValueContainer {
  * here.
  */
 function unwrapContainer(container: ReturnValueContainer): unknown {
+  // First, because throwing is the one outcome that is not a value: a container carrying both a
+  // stale per-call queue and a `throwWith` has to throw, not hand back the queue's next entry.
+  if (container._isThrown) {
+    throw container.value;
+  }
+
   if (container._isRejectedPromise) {
     return Promise.reject(container.value);
   }
@@ -167,6 +173,7 @@ function isUnconfigured(state: SpyState): boolean {
     state.mustBeCalledWith === undefined &&
     container.value === undefined &&
     !container._isRejectedPromise &&
+    !container._isThrown &&
     !container.valuesPerCalls?.length
   );
 }
@@ -225,6 +232,9 @@ function addMethodsToCalledWith(calledWith: CalledWithObject, calledWithArgs: un
     mockReturnValue: setReturnValue,
     // `returnValue` is the `jest-auto-spies` name — aliased so migrating tests need no rewrite.
     returnValue: setReturnValue,
+    failWith: (error?: unknown): void => {
+      calledWith.argsToValuesMap.set(calledWithArgs, { value: error, _isThrown: true });
+    },
   });
   addPromiseHelpersToCalledWithObject(calledWith, calledWithArgs);
   getObservableSupport()?.addToCalledWithObject(calledWith, calledWithArgs);
@@ -297,6 +307,24 @@ export function createFunctionSpy<FunctionType extends Func>(
   const resetObservableStream = getObservableSupport()?.addToFunctionSpy(functionSpy, valueContainer);
 
   const spy = decorate(functionSpy, {
+    // The sync twin of `resolveWith` / `nextWith`, and the reason it is here rather than left to
+    // the runner: Vitest 4.1 grew `mockThrow`, but Bun and `node:test` have nothing like it, and
+    // no runtime has a way to make a *`calledWith` chain* throw — `mockImplementation` replaces the
+    // whole dispatch, which is the opposite of configuring one set of arguments.
+    //
+    // `failWith` and not `throwWith`, which is the name the shape asks for: `throwWith` is already
+    // the observable helper that *errors the stream*, it is attached to every spy at runtime (the
+    // return type that tells the two apart exists only in the types), and whichever is installed
+    // last wins. Sharing the name therefore breaks one of them on every spy in the run — which it
+    // did, loudly, the first time this was written that way.
+    failWith: (error?: unknown): void => {
+      valueContainer.value = error;
+      valueContainer._isThrown = true;
+      // A default configured earlier is superseded, not layered under: leaving either behind would
+      // make the next call's outcome depend on which helper ran first.
+      valueContainer._isRejectedPromise = false;
+      valueContainer.valuesPerCalls = [];
+    },
     calledWith: (...calledWithArgs: unknown[]): CalledWithObject =>
       addMethodsToCalledWith(ensureCalledWithObject(state, 'calledWith'), calledWithArgs),
     mustBeCalledWith: (...calledWithArgs: unknown[]): CalledWithObject =>
@@ -323,6 +351,7 @@ export function createFunctionSpy<FunctionType extends Func>(
     delete state.mustBeCalledWith;
     valueContainer.value = undefined;
     delete valueContainer._isRejectedPromise;
+    delete valueContainer._isThrown;
     delete valueContainer.valuesPerCalls;
     // The observable layer keeps its `ReplaySubject` in a closure the container cannot reach, and
     // its buffer is configuration in exactly the sense `calledWith` is: without this, a value from
