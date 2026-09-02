@@ -482,41 +482,14 @@ What is left here is the part that is still undone.
 Sources: <https://github.blog/changelog/2026-07-31-restricting-npm-bypass-2fa-granular-access-tokens/>,
 <https://docs.npmjs.com/trusted-publishers>
 
-## Claude Code plugin directory — submission (future)
+## Claude Code plugin directory — submission — DECIDED 2026-09-02: submit
+
+Re-checked against the live catalogues on 2026-09-02. Every assumption the previous note weighed
+was out of date, and the cost that made it "future" is gone.
 
 The repo is already its own marketplace: `.claude-plugin/marketplace.json` +
 `.claude-plugin/plugin.json` + `skills/vitest-auto-spy/SKILL.md`, all on `master`,
 public, installable by anyone with
-
-```
-/plugin marketplace add ASDAlexey/vitest-auto-spy
-/plugin install vitest-auto-spy@vitest-auto-spy
-```
-
-Getting into the **official directory** (`anthropics/claude-plugins-official`,
-installed as `claude-plugin-directory`) is a separate, optional step — it only
-buys discoverability via `/plugin > Discover`.
-
-- **Not a PR.** `.github/workflows/close-external-prs.yml` auto-closes any pull
-  request from an author without write access and replies with the
-  submission link. The only channel is the form:
-  <https://clau.de/plugin-directory-submission>.
-- **Entry shape.** The directory stores third-party plugins under
-  `external_plugins/<name>/` with just `.claude-plugin/plugin.json` (plus
-  `.mcp.json` where relevant), and lists them in the root `marketplace.json`
-  with `source: "./external_plugins/<name>"`, a `category`, and sometimes a
-  `tags: ["community-managed"]` marker. Content is copied in by Anthropic —
-  our repo is not referenced as a git source, so a directory entry would
-  have to be re-synced on every release.
-- **Known risk.** All 13 current external entries are MCP-server wrappers; none
-  is a skill-only plugin. A skills-only submission may simply not fit what
-  they curate today. Re-check the directory before spending time on the form.
-- **Before submitting** — what a reviewer would look at: - `plugin.json` / `marketplace.json` version in lockstep with
-  `package.json` (already automated by `scripts/sync-plugin-version.mjs`
-  on `npm version`). - `SKILL.md` frontmatter passes their
-  `.github/scripts/validate-frontmatter.ts` (`name` + `description`;
-  values containing YAML special chars must be quoted). - a `README.md` in the plugin root — their documented plugin layout
-  expects one; ours currently lives only at repo root. - LICENSE (MIT) and `SECURITY.md` — both already present.
 
 ## Migration wishlist — what remains, and the mechanism that stops it
 
@@ -815,11 +788,16 @@ with no `--fix` at all**: trust before edit rights.
       so spy names are absent in `node:test` diagnostics (Vitest/Bun set them).
       Acceptable, but documenting the gap (or attaching a `displayName`) would
       make cross-runtime diagnostics uniform.
-- [ ] **`node:test` retains every mock forever** — `MockTracker` holds each `mock.fn()` for the life
-      of the process: 20 000 spies of a 10-method class held 435.6 MB after being dropped and
-      GC'd; `mock.reset()` released all of it. Documented in `docs-site/runtimes/node.md`, but worth
-      deciding whether the `/node` entry should do something about it (a `resetAutoSpy` hook cannot
-      — the tracker is global, and resetting it would clobber mocks the spec created by hand).
+- [x] **`node:test` retains every mock forever — SHIPPED 2026-09-02.** `trackNodeMocks()` /
+      `pruneNodeMocks()` / `countNodeMocks()` on `/node`, backed by `src/lib/node-mock-tracker.ts`.
+      The library creates its spies on a `MockTracker` reached through `mock.constructor` and
+      **replaces** that tracker per test rather than calling `reset()`, so `restoreAll()` never runs
+      and a spec's own `mockImplementation()` survives. Guarded end to end — an unusable
+      `constructor`, a throwing construction and a tracker that does not record all fall back to
+      `node:test`'s own `mock`, silently. Measured on Node v24.19.0 with `--expose-gc`, 20 000 spies
+      of a 10-method class across 20 tests: **124.5 MB → 5.9 MB** (5.4 MB baseline), 21×. `/node`
+      +327 B min+gzip. `docs-site/runtimes/node.md` rewritten in the same change; the
+      `mock.reset()`-in-`afterEach` advice is kept there as the fallback.
 
 ---
 
@@ -1054,3 +1032,21 @@ population being handed the boilerplate `createSpyFromClass(Service)` deletes.
       `migrating-jasmine.md` already covers under "If the suite is Angular's"; and it does not claim
       the schematic's mocks are nameless — with a base name it emits `vi.fn().mockName('Api.get')`,
       and the page says so.
+
+- [ ] **A `renderShallow` bench, so the per-render table is reproducible.** The 1.2× / 1.8× / 5.7× /
+      16.2× table in `docs-site/core/performance.md` and the 1.933 ms → 1.074 ms `keepTemplate` rung
+      are not produced by anything in the repo — `bench/` holds only `auto-spy.bench.ts` and
+      `vitest.bench.config.mts` scopes benchmarks to the plain core, deliberately, to keep the spy
+      numbers free of the Angular transform. The Angular figures are therefore unreproducible by a
+      reader or by CI, and were re-dated rather than re-measured on 2026-09-02. An Angular bench
+      project (`bench-angular/`, its own config with the Angular plugin) would let `npm run bench`
+      regenerate them and would catch a regression the type budget cannot see.
+- [ ] **Reconcile or retire the 4.1× figure in `PRIORITIES.md`.** It is listed there as
+      "4.1× on an ordinary form … shipped, sitting in `performance.md`", and it is in neither
+      `performance.md` nor anywhere else in the tree. Either produce the measurement (an "ordinary
+      form" is probably somewhere between the 10- and 100-child rows) or strike the line, because
+      it currently reads as a published number that a reader cannot find.
+- [ ] **A `@testing-library/angular` migration note.** It is the only competitor with zoneless
+      support and its `/vitest-utils` overlap is now documented; a short "coming from
+      `createMock` / `provideMock`" page would convert the traffic the comparison section attracts.
+      No page exists yet, same gap as the `@suites/unit` page already on this list.

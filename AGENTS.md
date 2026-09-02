@@ -2020,6 +2020,56 @@ and type the value against the member's **own** type. For a signal-valued member
 `mockSignalProp(service, 'state', initial)` over `gettersToSpyOn`: a spied getter returns `undefined`
 until configured, a real signal keeps everything downstream reactive.
 
+**A spec importing `@ngneat/spectator`** is on a package whose repository is a 404 and which does not
+resolve on Angular 22 (it imports `@angular/platform-browser-dynamic/testing` without declaring it).
+`createSpyObject` → `createSpyFromClass`, `mockProvider` → `provideAutoSpy`, `spectator.inject` →
+`injectSpy`, `SpyObject<T>` → `Spy<T>`, `createComponentFactory` → `renderShallow`. There is no
+replacement here for `spectator.query`, the event helpers or the DOM matchers — leave those on
+`@testing-library/angular` rather than inventing an equivalent. Full mapping:
+[Migrating from @ngneat/spectator](https://asdalexey.github.io/vitest-auto-spy/migrating-spectator).
+
+A suite coming off [`@suites/unit`](https://github.com/suites-dev/suites) maps one to one:
+`TestBed.solitary(S).compile()` → `createNestUnit(S)`, `TestBed.sociable(S).expose(D).compile()` →
+`createNestUnit(S, { expose: [D] })`, `unitRef.get` → `spies.get`, `.final(v)` →
+`{ provide, useValue }`, and the `await` goes away because the graph is built synchronously. The one
+thing to check by hand after the swap: Suites' double answers every property name, so a spec that
+stubbed a since-renamed method was passing over nothing and will now fail. Full mapping:
+<https://asdalexey.github.io/vitest-auto-spy/migrating-suites>.
+
+- **`renderShallow` has no single speed number, and quoting one is a bug.** Per render it ranges
+  from 1.2× (no children) to 16.2× (400 child instances) — `docs-site/core/performance.md`,
+  measured 2026-08-26. Per spec file, where imports and the `TestBed` module are also on the clock,
+  the published conversion is 1.7× over three specs with one of them a 0.8× regression. The two are
+  not interchangeable: the per-render ratio is the upper bound on what a file can gain. Any surface
+  that mentions the helper's speed quotes the range and links to
+  `/core/performance#_2-rendering-the-child-subtree`. A figure of **4.1×** appears in
+  `PRIORITIES.md` and is backed by nothing in this repository — do not publish it until someone
+  produces the measurement.
+- **Competitor defects are quoted from the published tarball, with a file, a line and a date.** The
+  `@testing-library/angular` `createMock` claims in `docs-site/comparison.md` are pinned to
+  `fesm2022/testing-library-angular-vitest-utils.mjs` lines 14 and 18 at 19.4.2. Re-`npm pack` and
+  re-read before restating them against a new version; the "Where the numbers come from" box records
+  each re-verification date rather than replacing the previous one.
+
+`node:test` keeps every `mock.fn()` in one process-wide `MockTracker` for the life of the process.
+On a long suite that is real memory — 20 000 spies of a 10-method class retained 124.5 MB on
+Node v24.19.0. `trackNodeMocks()` puts this library's spies on a tracker it owns and replaces it per
+test: 5.9 MB for the same run, against a 5.4 MB baseline.
+
+\```ts
+import { before } from 'node:test';
+import { trackNodeMocks } from 'vitest-auto-spy/node';
+
+before(() => trackNodeMocks()); // opt-in, idempotent, returns the undo
+
+// by hand, for a concurrent suite: pruneNodeMocks() → how many were dropped; countNodeMocks() → how many are held
+\```
+
+It never calls `mock.reset()` — that would restore and forget the `mock.fn()` the spec made itself —
+and it never throws: the class is reached through the undocumented `mock.constructor`, so the
+constructed tracker is probed first and any failure leaves spies on `node:test`'s own tracker.
+Spies created **before** the call stay there too. `mock.reset()` in `afterEach` is the fallback.
+
 ---
 
 ## 14. `fakeAsync` needs `vitest-auto-spy/zone`

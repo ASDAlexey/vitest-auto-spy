@@ -36,7 +36,90 @@ The latest released version here must always match the one published on
   incremental cost is the two small classes. The same 0.2 kB reads as +5 % on `/console`, the
   smallest entry that carries the core.
 
+- **The three moats are now sold where a reader lands, not only on the comparison page.** Accessor
+  spies on Bun — `bun:test`'s `spyOn(obj, 'prop', 'get')` throws
+  _"does not support accessor properties yet"_ (Bun 1.4.0) and no library that generates a double
+  from a class or a type has accessor spies on any runner — reached the README feature bullet, which
+  previously said only "Getter / setter spies via `accessorSpies`". `injectSpy`'s
+  `reportWhenNotASpy` warning, against Spectator typing every `inject<T>(token)` as `SpyObject<T>`
+  whether it was mocked or not, reached the README bullet for `enableAngularDiagnostics()`.
+- **`@testing-library/angular` is documented in the README as a direct competitor, not a
+  complement.** Its `/vitest-utils` `createMock` / `provideMock` overlap `createSpyFromClass` /
+  `provideAutoSpy` directly. Re-read in the published 19.4.2 tarball on 2026-09-02
+  (`fesm2022/testing-library-angular-vitest-utils.mjs`, 52 lines): accessors are skipped silently
+  because the walk assigns a mock only where `typeof descriptor?.value === 'function'` (line 14),
+  and the recursion has no `Object.prototype` guard, so `hasOwnProperty`, `toString`, `valueOf` and
+  `isPrototypeOf` are mocked on the double (line 18). Its `./zoneless` entry point, since 19.2.0
+  (2026-03-17), is recorded as the point in its favour. New README `### @testing-library/angular
+  /vitest-utils` section, a row in the README comparison table, and the defect made concrete on the
+  landing page's accessor-spies card. `comparison.md` gained line numbers, the 2026-09-02
+  re-verification note in the "Where the numbers come from" box, and the counterpart citation for
+  this package's own guard (`walkOwnPrototypes`, `src/lib/create-spy-from-class.ts:81`).
+
 ### Added
+
+- **`node:test` no longer retains every spy for the life of the process — `trackNodeMocks()` on
+  `vitest-auto-spy/node` cuts the retained heap 21×.** `node:test` pushes every `mock.fn()` onto the
+  private `#mocks` array of one module-level `MockTracker` and never removes an entry: `reset()` is
+  the only method that empties it, and it restores everything on the way. So a dropped spy stayed
+  reachable, and with it every argument it had recorded. This package's own docs concluded there was
+  no library-side fix because the tracker is global — **that conclusion was wrong, and this release
+  corrects it.** The tracker _this library uses_ was global; `MockTracker` is an ordinary class
+  reachable as `mock.constructor`, and `createNodeMockAdapter()` already took the tracker as a
+  parameter. `trackNodeMocks()` creates spies on a tracker the library owns and replaces it with a
+  fresh instance after every test, so the retired instance and its array become garbage together.
+  Measured on Node v24.19.0 with `--expose-gc`, 20 000 spies of a 10-method class created across 20
+  tests and dropped: **124.5 MB retained before, 5.9 MB after** against a 5.4 MB baseline — 119.0 MB
+  down to 0.4 MB net. `/node` grows **0.3 kB min+gzip** (15.8 → 16.1 kB); no other entry moves.
+  Three things it deliberately does not do. It **never calls `mock.reset()`** — that is the advice it
+  replaces, and it restores and forgets the `mock.fn()` a spec wrote by hand; swapping a tracker the
+  library owns touches no spy at all, because a `node:test` mock keeps recording calls and keeps its
+  implementation once its tracker is gone. It **does not move spies that already exist**, so it
+  belongs as early in the file as the imports allow. And it **never throws**: `mock.constructor` is
+  not documented API, so the constructed tracker is probed — a mock is created, called, and its
+  recorded call read back — before a single spy is routed at it, and every failure leaves spies going
+  to `node:test`'s own tracker exactly as before. Opt-in, idempotent and reversible, the shape
+  `trackStrayTimers()` and `trackMockRegistry()` already use. `pruneNodeMocks()` sweeps by hand for a
+  suite whose tests run concurrently and reports how many spies went; `countNodeMocks()` reads the
+  number back. `mock.reset()` in `afterEach` still works and is documented as the fallback for a
+  suite that wants nothing from this package.
+
+- **A migration page from `@suites/unit`.**
+  [Migrating from `@suites/unit`](https://asdalexey.github.io/vitest-auto-spy/migrating-suites) is
+  the practical translation the [comparison](https://asdalexey.github.io/vitest-auto-spy/comparison#nestjs)
+  points at, now that `createNestUnit` answers Suites' solitary / sociable model directly:
+  `TestBed.solitary(S).compile()` → `createNestUnit(S)`, `TestBed.sociable(S).expose(D).compile()` →
+  `createNestUnit(S, { expose: [D] })`, `unitRef.get` → `spies.get`, `.mock(D).impl(…)` → a control
+  helper after the fact or `providers: [provideAutoSpy(D, config)]`, `.final(v)` →
+  `{ provide, useValue }` — and the `await` disappears, because the graph is built synchronously.
+  It covers string and symbol tokens, `@Optional()` (which `@suites/di.nestjs` does not read:
+  `optional:paramtypes` is not among the three metadata keys its reflectors touch), property
+  injection, and a side-by-side table of what each side refuses. The load-bearing difference has its
+  own section: `@suites/doubles.vitest` builds its double as a `Proxy` over `{}` whose `get` trap
+  mints `new Proxy(vi.fn(), handler())` for any missing name, so `unitRef.get(Api).getUserz` is a
+  working mock of nothing and a renamed method leaves a green spec, where `spies.get(Api).getUserz`
+  is `undefined` because the double is read off the real prototype. Also an honest list of what the
+  move costs — no Inversify adapter, no Jest entry point, no `identifierMetadata`, and configuring a
+  double *before* construction needs `providers` rather than a line after the fact. Read against the
+  published tarballs of `@suites/unit` 3.1.1 (2026-05-08), `@suites/di.nestjs` and
+  `@suites/doubles.vitest` 3.1.0.
+
+- **[Migrating from `@ngneat/spectator`](https://asdalexey.github.io/vitest-auto-spy/migrating-spectator)** —
+  a migration page for the 739 852 downloads a month sitting on a package whose repository returns
+  404. Every claim is verified against the published tarball rather than repeated: the four
+  `BrowserDynamicTestingModule` call sites in `fesm2022/ngneat-spectator.mjs`, the three runtime
+  dependencies including jQuery, and `jasmine.Spy` reaching the Vitest entry point through
+  `lib/mock.d.ts:11` — so `@ngneat/spectator/vitest` does not escape the Jasmine globals either.
+  Three widely repeated claims did **not** hold and the page says so: the `ngneat` **org** still
+  returns 200 (only the repository is gone), `@angular/platform-browser-dynamic` still ships at
+  22.1.4 and still exports the symbol (the real defect is that Spectator declares it in neither
+  `dependencies` nor `peerDependencies`, reproduced as a clean-install `ERR_MODULE_NOT_FOUND`), and
+  the `@openng/spectator` fork is **not** byte-identical and **does not fix the Angular 22 failure** —
+  it carries the same undeclared import, and the fix, `openng-org/spectator#13`, has been open since
+  2026-07-26. The translation table maps `createSpyObject` → `createSpyFromClass`, `mockProvider` →
+  `provideAutoSpy`, `spectator.inject` → `injectSpy` and `SpyObject<T>` → `Spy<T>`, and states plainly
+  that DOM querying, events and the DOM matchers are **not** covered here — that half belongs to
+  `@testing-library/angular`. Checks run 2026-09-02.
 
 - **`provideHttpTesting()` and `expectRequest(url)` — `httpResource()` and `HttpClient` answered in
   two lines, behind a new `vitest-auto-spy/angular-http` entry.** `httpResource()` is Angular's
@@ -591,6 +674,24 @@ The latest released version here must always match the one published on
   TestBed, and whether it sits somewhere the answer must be "leave it alone". That now lives in
   `eslint/hand-rolled-doubles.ts`, which is also what stops the two rules from drifting into
   disagreeing about the same literal. No rule behaviour changed.
+
+### Fixed
+
+- **The README and `performance.md` quoted different `renderShallow` numbers and neither said so.**
+  The README's feature bullet advertised a flat **1.7×** — an aggregate over three converted specs
+  of a private Angular 22 suite, one of which is a **0.8×** regression — while
+  `docs-site/core/performance.md` carried a per-render table running from **1.2×** (no children) to
+  **16.2×** (400 child instances) that appeared nowhere a prospective user looks. Both figures were
+  correct and they answer different questions: the table isolates one render, the README row is a
+  whole spec file's wall clock, which also pays for imports, the `TestBed` module and the
+  assertions. Neither page acknowledged the other, so they read as a contradiction. Both now carry
+  both numbers and explain the gap — the per-render ratio is the upper bound on what a file can
+  gain, and a leaf component with no subtree to remove loses. The landing card, the README feature
+  bullet and the comparison page now quote the range rather than a single headline. The
+  measurements themselves are unchanged and re-dated in place (per-render 2026-08-26,
+  `keepTemplate: true` 2026-08-30, the suite conversion as previously published); nothing was
+  re-run. `performance.md` also now says the Angular figures are not part of `npm run bench`, which
+  deliberately covers only the plain core.
 
 ## [3.9.0] - 2026-08-30
 
