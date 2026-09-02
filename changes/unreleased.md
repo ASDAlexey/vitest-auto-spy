@@ -84,11 +84,20 @@ _Last released: **v3.11.0** (2026-08-30) — the git tag and `package.json` agre
 - **Fixed — `assertMocked(ns, { exports: [] })` could only pass.** An empty list is now an error.
 - **Fixed — a `vi.resetAllMocks()` in one file killed a shared double in another.** Registered means
   reachable by `resetAllMocks` too, and `mockReset` drops an implementation that came from a chained
-  `.mockReturnValue(…)`; under `isolate: false` a *later* file then dies inside application code on
+  `.mockReturnValue(…)`; under `isolate: false` a _later_ file then dies inside application code on
   a double it never touched. The implementation each long-lived mock carried when classified is
   remembered and put back, in `beforeEach`, only when missing. Exports
   **`restoreLongLivedImplementations()`** for the repair on its own.
 - **`copyWindowGlobals` names a forced global the host refused**, with the error underneath, instead
   of failing later as `document is not defined` — which named neither the helper nor the property.
+
+- **Docs — "Why this is not written in Rust"** (`core/performance.md`), because the question is a fair
+  one at ten or twenty thousand tests and deserved a measured answer rather than an opinion. A
+  minimal napi-rs addon doing a spy's exact job was benchmarked against the JavaScript it would
+  replace: crossing the boundary and doing nothing costs 9.0 ns against 3.7 ns, and retaining two
+  object arguments — the one thing a spy must do, and it must retain them by identity for
+  `toHaveBeenCalledWith` — costs 35.9 ns against 9.3 ns. Native is 2.4× and 3.8× slower at the work,
+  and the work is ~0.1 % of a CI job. A new bench case, **`spy invocation`**, backs the per-call
+  figure the section argues from (~117 ns, `mockClear` charged in).
 
 <!-- Add user-facing items here as work lands, mirroring `## [Unreleased]` in the root CHANGELOG. -->
