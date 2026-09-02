@@ -680,6 +680,14 @@ export interface ClassSpyConfiguration<T> extends StrictSpyConfiguration {
    *
    * Set `false` only when a spec inspects the spy through property descriptors; enumeration
    * (`Object.keys`, spread, snapshots) already works, since the placeholders are enumerable.
+   *
+   * `'proxy'` is the same laziness with a different placeholder: one trap object for the whole
+   * class instead of one `Object.defineProperty` accessor per method. What an untouched double
+   * retains then stops scaling with the width of the class, which is the figure that ends a CI job
+   * under `isolate: false` — and it is the only reason to reach for it, since a `Proxy` cannot
+   * remove itself and taxes every read and every call for the life of the double. Worth it on the
+   * wide generated clients (orval, ng-openapi-gen, ngrx facades) and a loss on an ordinary
+   * five-method service; `docs-site/core/performance.md` has the break-even.
    */
-  lazySpies?: boolean;
+  lazySpies?: boolean | 'proxy';
 }

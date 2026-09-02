@@ -27,7 +27,7 @@ createSpyFromClass(MyService, {
   gettersToSpyOn: ['userName'],
   settersToSpyOn: ['userName'],
   autoSpyAccessors: true, // auto-discover every getter/setter on the prototype chain
-  lazySpies: true, // build each method spy on first access (see below)
+  lazySpies: true, // build each method spy on first access; 'proxy' for very wide classes (see below)
   strict: true, // a method nobody configured throws instead of returning undefined
 });
 ```
@@ -177,6 +177,60 @@ eager spies. See [Adapters → Angular](/adapters/angular#lazy-spies-by-default)
 `resetAutoSpy` / `clearAutoSpy` and enumeration all work the same; lazy only changes _when_ each spy
 is constructed, not what it does. The one nuance: a lazy method is an accessor until first touched,
 so a never-accessed spy has no recorded calls (which is exactly why `resetAutoSpy` can skip it).
+
+### `lazySpies: 'proxy'` — for classes wide enough to end a CI job
+
+`lazySpies: true` still has to *put something* on the double for every method: one
+`Object.defineProperty` accessor each. On a wide class that placeholder is not a detail — it is
+almost all of what an untouched double retains. `'proxy'` is the same laziness with one trap object
+in place of all of them, so retention stops tracking the width of the class.
+
+```ts
+// a generated API client: 400 operations, a test touches two
+const api = createSpyFromClass(GeneratedVenuesClient, { lazySpies: 'proxy' });
+
+api.findById.resolveWith({ id: 1 }); // built here, like any lazy spy
+```
+
+Measured on Node 24.19, 2 000 doubles held at once, nothing touched:
+
+| Methods on the class | `lazySpies: true` | `lazySpies: 'proxy'` |          Delta |
+| -------------------: | ----------------: | -------------------: | -------------: |
+|                    5 |           1 634 B |              1 737 B |     **+102 B** |
+|                   20 |           5 629 B |              2 219 B |      −3 410 B |
+|                  100 |          25 597 B |              4 135 B |     −21 463 B |
+|                  400 |         101 584 B |             11 813 B |     −89 771 B |
+
+That is 253 B per method against 25 B per method — the placeholder against one entry in a set of
+names the prototype already owns. Under `isolate: false`, where every double in a file outlives the
+test that made it, this is the difference between a job that finishes and a job that is killed.
+
+Building is cheaper too, because there is nothing to define. Create a double and call two of its
+methods five times each:
+
+| Methods on the class | `lazySpies: true` | `lazySpies: 'proxy'` |     Ratio |
+| -------------------: | ----------------: | -------------------: | --------: |
+|                    5 |          6 515 ns |             8 180 ns | **0.80×** |
+|                   20 |          8 938 ns |             6 643 ns |     1.35× |
+|                  100 |         20 713 ns |            11 638 ns |     1.78× |
+|                  400 |         61 212 ns |            10 798 ns |     5.67× |
+
+**Why it is opt-in, and will stay opt-in.** A `Proxy` cannot remove itself. Once a method has
+materialised, the accessor path leaves a plain data property behind and every later read is free;
+the proxy still goes through a trap — **+30 ns per read and +43 ns per call, for the life of the
+double**. At five methods it also *loses* 102 B. Both tables cross over somewhere around twenty
+methods, which is why the default does not move.
+
+Reach for it on the shapes that are wide by construction — generated API clients (orval,
+`ng-openapi-gen`), ngrx facades, a `Store` double — and leave it alone on an ordinary service.
+
+**It is not a different double.** `Object.keys`, spread, `JSON.stringify`, `in`,
+`hasOwnProperty`, `Object.getOwnPropertyDescriptor`, `delete`, `Object.freeze`, key order, `returns`,
+`overrides` and `fillMissing` all behave exactly as they do on the accessor path — `src/lib/lazy-spy-proxy.spec.ts`
+asserts the two against each other rather than against hand-written expectations. Reading a
+descriptor deliberately does **not** build the spy, for the same reason `resetAutoSpy` can skip an
+untouched method: `Object.keys` and a teardown both read descriptors, and materialising there would
+hand back the memory the mode exists to save.
 
 ## `using` — reset at the end of the block {#using}
 

@@ -265,6 +265,14 @@ across two thousand tests is under a tenth of a second. Call the factory in `bef
 `provideAutoSpy` defaults to, and `autoSpyAccessors: true` walks the prototype chain uncached on
 every call — name the accessors instead.
 
+Memory is the exception, and only on classes wide enough for it to matter. `lazySpies: true` still
+defines one accessor per method, and that placeholder is nearly all of what an untouched double
+retains: 101.6 kB on a 400-method class against 11.8 kB with `lazySpies: 'proxy'`, which answers
+every method from a single trap object instead (25 B per method against 253 B). It is opt-in because
+a `Proxy` cannot remove itself — +30 ns per read and +43 ns per call, forever — and it loses on a
+five-method service. Reach for it on generated API clients and ngrx facades under `isolate: false`,
+where the doubles of a whole file are alive at once; leave the default everywhere else.
+
 ---
 
 ## 3. The 90% recipe
@@ -468,7 +476,7 @@ createSpyFromClass(MyService, {
   gettersToSpyOn: ['userName'],
   settersToSpyOn: ['userName'],
   autoSpyAccessors: true, // discover every accessor on the prototype chain
-  lazySpies: true, // build each method spy on first access
+  lazySpies: true, // build each method spy on first access ('proxy' for very wide classes)
   returns: { getProducts: of([]) }, // what a spied METHOD answers
   overrides: { products$: subject }, // a member that is not a method result
 });
@@ -480,7 +488,7 @@ createSpyFromClass(MyService, {
 | `onlyMethodsToSpyOn`     | **Exhaustive whitelist.** Skips discovery; anything not listed is absent.          |
 | `instanceMethodsToSpyOn` | **Additive.** The name to prefer in new code (see below).                          |
 | `autoSpyAccessors`       | Merged with the explicit getter/setter lists.                                      |
-| `lazySpies`              | Behaviour-identical; only changes _when_ each spy is built.                        |
+| `lazySpies`              | Behaviour-identical; only changes _when_ each spy is built. `'proxy'` also changes _what holds the name_. |
 | `strict`                 | Throw on a method nobody configured, instead of answering `undefined` (below).     |
 | `onUnstubbedCall`        | The general form of `strict`; its return value becomes the call's return value.    |
 

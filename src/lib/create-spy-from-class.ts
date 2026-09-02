@@ -8,6 +8,7 @@ import { createAutoMock } from './auto-mock';
 import { DOCS_LINKS, withDocs } from './docs-links';
 import { fillMissingMembers } from './fill-missing';
 import { type UnstubbedGuard, createFunctionSpy, resolveUnstubbedGuard } from './function-spy';
+import { createLazySpyProxy } from './lazy-spy-proxy';
 import { getMockAdapter } from './mock-adapter';
 import { requireObservableSupport } from './observable-support';
 import { attachDispose } from './reset-auto-spy';
@@ -23,7 +24,7 @@ interface ResolvedSpyConfiguration {
   gettersToSpyOn: string[];
   autoSpyAccessors: boolean;
   fillMissing: boolean;
-  lazySpies: boolean;
+  lazySpies: boolean | 'proxy';
   returns: Record<string, unknown>;
   overrides: object;
   strict: boolean | undefined;
@@ -498,20 +499,30 @@ function assembleSpy<T, Options extends SpyOptions>(ObjectClass: ClassType<T>, c
   // Lazy path materializes each method spy on first access (cheaper for large
   // classes where a test touches few methods); enumeration stays intact because
   // the placeholder is an enumerable accessor. Eager path is the default.
-  methodNames.forEach((methodName) => {
-    if (config.lazySpies) {
-      defineLazyMethodSpy(autoSpy, methodName, unstubbed);
-    } else {
-      autoSpy[methodName] = createFunctionSpy(methodName, unstubbed);
-    }
-  });
+  //
+  // `'proxy'` defines nothing at all for the methods — one trap object answers all of them, so what
+  // an untouched double retains stops scaling with the width of the class. The names are handed to
+  // the wrapper below instead of being defined here.
+  if (config.lazySpies !== 'proxy') {
+    methodNames.forEach((methodName) => {
+      if (config.lazySpies) {
+        defineLazyMethodSpy(autoSpy, methodName, unstubbed);
+      } else {
+        autoSpy[methodName] = createFunctionSpy(methodName, unstubbed);
+      }
+    });
+  }
 
   attachDispose(autoSpy);
+
+  // Wrapped after `attachDispose`, so the dispose symbol is on the record the traps forward to
+  // rather than on a key the proxy has to special-case.
+  const assembled = config.lazySpies === 'proxy' ? createLazySpyProxy(autoSpy, methodNames, unstubbed) : autoSpy;
 
   // `autoSpy` is assembled key-by-key from the runtime method/accessor names;
   // its concrete `Spy<T>` shape only exists structurally after assembly.
   // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- the spy object is built dynamically from runtime-discovered names; its `Spy<T>` shape cannot be expressed before assembly.
-  return (config.fillMissing ? fillMissingMembers(autoSpy, unstubbed) : autoSpy) as Spy<T, Options>;
+  return (config.fillMissing ? fillMissingMembers(assembled, unstubbed) : assembled) as Spy<T, Options>;
 }
 
 /**

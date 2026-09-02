@@ -67,6 +67,44 @@ The worst case for lazy is a test that really does call every method:
 | lazy  | 228 ms | 372.9 MB |
 | eager | 216 ms | 372.4 MB |
 
+### Where the remaining memory is, and `lazySpies: 'proxy'`
+
+Lazy does not build the spy, but it still has to define **something** for the name: one
+`Object.defineProperty` accessor per method. On a class wide enough to matter, that placeholder is
+not overhead around the real cost — it *is* the cost. Measured on Node 24.19 with 2 000 doubles held
+at once and nothing touched:
+
+| Methods on the class | `lazySpies: true` | `lazySpies: 'proxy'` |      Delta |
+| -------------------: | ----------------: | -------------------: | ---------: |
+|                    5 |           1 634 B |              1 737 B | **+102 B** |
+|                   20 |           5 629 B |              2 219 B |   −3 410 B |
+|                  100 |          25 597 B |              4 135 B |  −21 463 B |
+|                  400 |         101 584 B |             11 813 B |  −89 771 B |
+
+**253 B per method against 25 B per method.** `'proxy'` answers every method from one trap object,
+so all it retains per name is an entry in a set of strings the prototype already owns. Creation
+follows, because there is nothing to define — create a double and call two of its methods five times
+each:
+
+| Methods on the class | `lazySpies: true` | `lazySpies: 'proxy'` |     Ratio |
+| -------------------: | ----------------: | -------------------: | --------: |
+|                    5 |          6 515 ns |             8 180 ns | **0.80×** |
+|                   20 |          8 938 ns |             6 643 ns |     1.35× |
+|                  100 |         20 713 ns |            11 638 ns |     1.78× |
+|                  400 |         61 212 ns |            10 798 ns |     5.67× |
+
+**It is opt-in and stays opt-in**, for a reason that no benchmark of a wide class shows: a `Proxy`
+cannot remove itself. Once a method has materialised the accessor path leaves a plain data property
+behind and every later read is free — 0.33 ns, which is to say the JIT deletes it. The proxy still
+goes through a trap: **+30 ns per read, +43 ns per call, for the life of the double**. At five
+methods it loses on memory too. Both tables cross over around twenty methods.
+
+So the rule is about the *shape*, not about the suite: reach for it on classes that are wide by
+construction — a generated API client (orval, `ng-openapi-gen`), an ngrx facade, a `Store` double —
+and especially under `isolate: false`, where every double a file made is alive at the same time and
+this table is the difference between a job that finishes and a job that is killed. Everywhere else
+the default is the right answer.
+
 ### What a single spy costs
 
 A materialised spy is mostly the host runner's own mock — under Vitest that is the larger part of
@@ -235,6 +273,10 @@ honest way to do that — but it is no longer the GC it was measuring.
 | Nested object graph                        | `mockDeep<T>()`               | auto-creates chainable spies down the tree                         |
 
 ## The two settings that cost
+
+**`{ lazySpies: 'proxy' }`** is the other direction: same laziness, one trap object instead of a
+placeholder per method, for classes wide enough that the placeholders are the memory. See
+[the table above](#where-the-remaining-memory-is-and-lazyspies-proxy).
 
 **`{ lazySpies: false }`** gives up the win above, and costs an order of magnitude in both time and
 memory on a wide class. It is worth it only when a spec inspects the spy object itself through

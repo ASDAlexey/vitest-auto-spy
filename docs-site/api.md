@@ -98,7 +98,7 @@ descriptor, not about the value's type, so a signal-valued getter is nameable), 
 values installed as the spy is built), `autoSpyAccessors` (auto-discover getters/setters),
 `fillMissing` (answer a name the prototype never carried with a spy — for a **partially** abstract
 class, where the erased members leave the empty-prototype fallback unable to fire),
-`lazySpies` (build each method spy on first access — the `provideAutoSpy` default on Angular), plus
+`lazySpies` (build each method spy on first access — the `provideAutoSpy` default on Angular; `'proxy'` swaps the per-method placeholder for one trap object, which is what keeps a 400-method double from retaining 100 kB), plus
 the two strict-mode fields below.
 
 **`AutoMockConfiguration`** (the third argument of `createAutoMock` / `provideAutoSpyForToken`):
