@@ -783,22 +783,22 @@ the filename — never the compiled matcher. So every filename recompiles every 
 Profiled on one shard of a 1 725-file Angular suite, with a scope of 124 include globs plus 304
 negations:
 
-| Phase of `Generate coverage`, 224.2 s total |     time |
-| ------------------------------------------- | -------: |
-| reading the 432 workers' coverage files     |    2.6 s |
-| before the first conversion                 |   54.3 s |
-| remapping the 1 958 covered files           |   50.5 s |
-| the pass over the 458 untested files        | **0.35 s** |
+| Phase of `Generate coverage`, 224.2 s total |        time |
+| ------------------------------------------- | ----------: |
+| reading the 432 workers' coverage files     |       2.6 s |
+| before the first conversion                 |      54.3 s |
+| remapping the 1 958 covered files           |      50.5 s |
+| the pass over the 458 untested files        |  **0.35 s** |
 | the final `coverageMap.filter`              | **114.1 s** |
 
 The pass over untested files is what a narrowed scope is usually blamed for, and it is a third of a
 second. The filter — a loop whose entire body is one `isIncluded` call per file — is half the run.
 Timed operation by operation against a matcher compiled once, on the same globs:
 
-| Operation                        |      stock | compiled once |
-| -------------------------------- | ---------: | ------------: |
-| `isIncluded`, 8 000 calls        | 167 853 ms |      1 808 ms |
-| `coverageMap.filter`             |  81 393 ms |        713 ms |
+| Operation                          |      stock | compiled once |
+| ---------------------------------- | ---------: | ------------: |
+| `isIncluded`, 8 000 calls          | 167 853 ms |      1 808 ms |
+| `coverageMap.filter`               |  81 393 ms |        713 ms |
 | the pass over 1 816 untested files |  69 779 ms |      9 439 ms |
 
 ### The fix is a provider wrapper, in your own config

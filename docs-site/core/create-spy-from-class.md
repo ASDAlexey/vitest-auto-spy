@@ -180,7 +180,7 @@ so a never-accessed spy has no recorded calls (which is exactly why `resetAutoSp
 
 ### `lazySpies: 'proxy'` — for classes wide enough to end a CI job
 
-`lazySpies: true` still has to *put something* on the double for every method: one
+`lazySpies: true` still has to _put something_ on the double for every method: one
 `Object.defineProperty` accessor each. On a wide class that placeholder is not a detail — it is
 almost all of what an untouched double retains. `'proxy'` is the same laziness with one trap object
 in place of all of them, so retention stops tracking the width of the class.
@@ -194,12 +194,12 @@ api.findById.resolveWith({ id: 1 }); // built here, like any lazy spy
 
 Measured on Node 24.19, 2 000 doubles held at once, nothing touched:
 
-| Methods on the class | `lazySpies: true` | `lazySpies: 'proxy'` |          Delta |
-| -------------------: | ----------------: | -------------------: | -------------: |
-|                    5 |           1 634 B |              1 737 B |     **+102 B** |
-|                   20 |           5 629 B |              2 219 B |      −3 410 B |
-|                  100 |          25 597 B |              4 135 B |     −21 463 B |
-|                  400 |         101 584 B |             11 813 B |     −89 771 B |
+| Methods on the class | `lazySpies: true` | `lazySpies: 'proxy'` |      Delta |
+| -------------------: | ----------------: | -------------------: | ---------: |
+|                    5 |           1 634 B |              1 737 B | **+102 B** |
+|                   20 |           5 629 B |              2 219 B |   −3 410 B |
+|                  100 |          25 597 B |              4 135 B |  −21 463 B |
+|                  400 |         101 584 B |             11 813 B |  −89 771 B |
 
 That is 253 B per method against 25 B per method — the placeholder against one entry in a set of
 names the prototype already owns. Under `isolate: false`, where every double in a file outlives the
@@ -218,7 +218,7 @@ methods five times each:
 **Why it is opt-in, and will stay opt-in.** A `Proxy` cannot remove itself. Once a method has
 materialised, the accessor path leaves a plain data property behind and every later read is free;
 the proxy still goes through a trap — **+30 ns per read and +43 ns per call, for the life of the
-double**. At five methods it also *loses* 102 B. Both tables cross over somewhere around twenty
+double**. At five methods it also _loses_ 102 B. Both tables cross over somewhere around twenty
 methods, which is why the default does not move.
 
 Reach for it on the shapes that are wide by construction — generated API clients (orval,

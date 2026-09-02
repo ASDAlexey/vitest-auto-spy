@@ -71,7 +71,7 @@ The worst case for lazy is a test that really does call every method:
 
 Lazy does not build the spy, but it still has to define **something** for the name: one
 `Object.defineProperty` accessor per method. On a class wide enough to matter, that placeholder is
-not overhead around the real cost — it *is* the cost. Measured on Node 24.19 with 2 000 doubles held
+not overhead around the real cost — it _is_ the cost. Measured on Node 24.19 with 2 000 doubles held
 at once and nothing touched:
 
 | Methods on the class | `lazySpies: true` | `lazySpies: 'proxy'` |      Delta |
@@ -99,7 +99,7 @@ behind and every later read is free — 0.33 ns, which is to say the JIT deletes
 goes through a trap: **+30 ns per read, +43 ns per call, for the life of the double**. At five
 methods it loses on memory too. Both tables cross over around twenty methods.
 
-So the rule is about the *shape*, not about the suite: reach for it on classes that are wide by
+So the rule is about the _shape_, not about the suite: reach for it on classes that are wide by
 construction — a generated API client (orval, `ng-openapi-gen`), an ngrx facade, a `Store` double —
 and especially under `isolate: false`, where every double a file made is alive at the same time and
 this table is the difference between a job that finishes and a job that is killed. Everywhere else
