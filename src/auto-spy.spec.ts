@@ -796,6 +796,26 @@ describe('accessor pairs', () => {
 
     expect(Object.keys(service.accessorSpies.setters)).toEqual([]);
   });
+
+  it('spies a write-only setter, which method discovery used to claim as a method and overwrite', () => {
+    // `set nickname(v)` with no getter beside it has an `undefined` `get`, so a discovery filter
+    // that asks only about `get` counted it as a method — and the method spy, assigned after the
+    // accessor spy, replaced it. The setter recorded nothing and the assignment below overwrote the
+    // spy with a string, with nothing in the failure naming either.
+    class WriteOnly {
+      set nickname(_value: string) {
+        /* real */
+      }
+    }
+
+    const service = createSpyFromClass(WriteOnly, { settersToSpyOn: ['nickname'] });
+
+    service.nickname = 'nick';
+
+    expect(service.accessorSpies.setters.nickname).toHaveBeenCalledWith('nick');
+    // And the name is not also standing there as a callable method spy.
+    expect(typeof Object.getOwnPropertyDescriptor(service, 'nickname')?.set).toBe('function');
+  });
 });
 
 describe('createObservableWithValues', () => {

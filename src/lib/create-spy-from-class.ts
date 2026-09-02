@@ -52,11 +52,23 @@ const EMPTY_CONFIGURATION: ResolvedSpyConfiguration = {
   onUnstubbedCall: undefined,
 };
 
-/** Own, non-getter method names of a single prototype object (excluding the constructor). */
+/**
+ * Own, non-accessor method names of a single prototype object (excluding the constructor).
+ *
+ * **Both** halves of an accessor are excluded, not just the getter. A setter-only member —
+ * `set nickname(value: string)`, with no matching getter — has an `undefined` `get`, so a filter
+ * that asks only about `get` classified it as a method and put a function spy on the key. That spy
+ * was assigned *after* `createAccessorsSpies` had installed the spied accessor, so it replaced it:
+ * `settersToSpyOn: ['nickname']` produced an `accessorSpies.setters.nickname` that recorded nothing,
+ * `service.nickname = 'x'` overwrote the spy with a string, and the failure named neither. (The
+ * same one-sided filter is why `jasmine-auto-spies` has the identical defect.)
+ *
+ * A name is a method when the prototype descriptor carries a value, which is what this now asks.
+ */
 function extractMethodsFromObject(obj: object): string[] {
   const descriptors = Object.getOwnPropertyDescriptors(obj);
 
-  return Object.keys(descriptors).filter((name) => name !== 'constructor' && !descriptors[name]?.get);
+  return Object.keys(descriptors).filter((name) => name !== 'constructor' && !descriptors[name]?.get && !descriptors[name]?.set);
 }
 
 /**
