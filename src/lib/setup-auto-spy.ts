@@ -25,12 +25,18 @@ import { type BlockNetworkOptions, blockNetwork } from './network-stub';
 import { describeDuplicateCopies } from './package-identity';
 import { countMockedProps, restoreMockedProps } from './prop-mock';
 import { type StrayRejection, flushStrayRejections, trackStrayRejections } from './stray-rejections';
-import { cancelStrayTimers, trackStrayTimers } from './stray-timers';
+import { cancelStrayTimers, detectsAsyncLeaks, trackStrayTimers } from './stray-timers';
 import { restoreTimerGlobals } from './timer-globals';
 import type { UnstubbedCallHandler } from './types';
 
 /** How `setupAutoSpy` should react to more than one install of the library. */
 export type DuplicateCopiesReaction = 'off' | 'throw' | 'warn';
+
+/** What `strayTimers` swept up at the end of a file. Handed to {@link SetupAutoSpyOptions.onStrayTimers}. */
+export interface StrayTimerReport {
+  /** Timeouts, intervals and animation frames that were still outstanding when the file ended. */
+  cancelled: number;
+}
 
 /** Options for {@link setupAutoSpy}. */
 export interface SetupAutoSpyOptions {
@@ -51,6 +57,20 @@ export interface SetupAutoSpyOptions {
    * reported against it — see {@link trackStrayTimers}.
    */
   strayTimers?: boolean;
+  /**
+   * What to do with the count `strayTimers` cancelled at the end of a file. Default: nothing, unless
+   * Vitest's `detectAsyncLeaks` is on, in which case one warning is printed — see
+   * {@link warnAboutSuppressedLeaks} for why that combination cannot stay quiet.
+   *
+   * Pass a handler to decide for yourself. Failing the run on any stray callback is one line:
+   *
+   * ```ts
+   * setupAutoSpy({ strayTimers: true, onStrayTimers: ({ cancelled }) => expect(cancelled).toBe(0) });
+   * ```
+   *
+   * Called only when something was actually cancelled, and only once per file.
+   */
+  onStrayTimers?: (info: StrayTimerReport) => void;
   /**
    * Fail the test a swallowed promise rejection surfaced in, instead of letting it scroll past in
    * stderr. Default `false`, because it needs zone.js loaded and claims a hook on it.
@@ -195,6 +215,73 @@ export interface SetupAutoSpyOptions {
    * A double's own `onUnstubbedCall` wins over this one.
    */
   onUnstubbedCall?: UnstubbedCallHandler;
+}
+
+/**
+ * The one sentence that keeps `strayTimers` from quietly emptying somebody else's leak report.
+ *
+ * Vitest 4.1's `detectAsyncLeaks` remembers every async resource a file created and, once the file
+ * is over, asks each whether anything still holds it. `cancelStrayTimers()` runs in `afterAll` —
+ * *before* that question — so every timer it swept up answers no, and a suite that leaks timers is
+ * told it leaks nothing. That is a worse outcome than either feature alone: the reader turned the
+ * flag on precisely to find out, and got a clean bill of health as the answer.
+ *
+ * Cancelling anyway is still right — a callback that fires during a later file is the failure
+ * `strayTimers` exists to prevent, and it is the more expensive one — so the fix is to say what was
+ * taken away and where to look for it instead, once per file, only when there was something.
+ *
+ * **Not `console.warn`.** The sweep runs after the file's last test, and Vitest attributes
+ * intercepted console output to the task that produced it — with no task left, the line is dropped
+ * and the warning is never seen (checked on 4.1.9: it reappears only under
+ * `disableConsoleIntercept`). `process.stderr` is the channel that survives, so this borrows the
+ * one {@link reportSpecTiming} already uses, console-last for an environment with no `process`.
+ */
+export function warnAboutSuppressedLeaks(cancelled: number, write: (message: string) => void = writeWarning): void {
+  write(
+    withDocs(
+      `[vitest-auto-spy] setupAutoSpy({ strayTimers: true }) cancelled ${cancelled} scheduled callback(s) at the end of this ` +
+        'file, and it did so before Vitest collected async leaks — so none of them appear under "Async Leaks" and this ' +
+        "run's leak report is not the whole story. To see where each one was scheduled, re-run the file with " +
+        '`strayTimers` off; to take the count yourself and say nothing, pass `onStrayTimers`.',
+      DOCS_LINKS.setup,
+    ),
+  );
+}
+
+/** The warning's channel: stderr where there is one, the console where there is not. */
+function writeWarning(message: string): void {
+  const stderr = globalThis.process?.stderr;
+
+  if (stderr) {
+    stderr.write(`${message}\n`);
+
+    return;
+  }
+
+  // eslint-disable-next-line no-console -- browser-like environment with no `process`: the console is the only channel left.
+  console.warn(message);
+}
+
+/**
+ * Hand the sweep's count to whoever asked for it — the caller's handler, or the warning above.
+ *
+ * Exported for its spec: the sweep it belongs to runs in an `afterAll` at the very end of a file,
+ * where a test can neither choose the count nor observe what was printed.
+ */
+export function reportStrayTimers(cancelled: number, handler: SetupAutoSpyOptions['onStrayTimers']): void {
+  if (cancelled === 0) {
+    return;
+  }
+
+  if (handler) {
+    handler({ cancelled });
+
+    return;
+  }
+
+  if (detectsAsyncLeaks()) {
+    warnAboutSuppressedLeaks(cancelled);
+  }
 }
 
 /**
@@ -500,7 +587,7 @@ export function setupAutoSpy(options: SetupAutoSpyOptions = {}): void {
     // becomes an unambiguous no once the file is over.
     trackStrayTimers();
     afterAll(() => {
-      cancelStrayTimers();
+      reportStrayTimers(cancelStrayTimers(), options.onStrayTimers);
     });
   }
 

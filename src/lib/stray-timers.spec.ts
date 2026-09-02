@@ -1,6 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { type ScheduledCallback, type SchedulerHost, cancelStrayTimers, countStrayTimers, trackStrayTimers } from './stray-timers';
+import {
+  type ScheduledCallback,
+  type SchedulerHost,
+  cancelStrayTimers,
+  countStrayTimers,
+  detectsAsyncLeaks,
+  trackStrayTimers,
+} from './stray-timers';
 
 /**
  * A stand-in scheduler: handles are plain numbers, and every call is recorded, so a test can assert
@@ -306,5 +313,28 @@ describe('stray timers', () => {
     }
 
     expect(() => countStrayTimers()).toThrow();
+  });
+});
+
+/**
+ * `detectsAsyncLeaks` decides whether the sweep is allowed to stay quiet, so what matters is that
+ * every shape it cannot read answers "no" rather than throwing: it is consulted from an `afterAll`
+ * that has already done its real work, and a throw there would fail a file over a warning.
+ */
+describe('detectsAsyncLeaks', () => {
+  it('reads the flag the runner resolved', () => {
+    expect(detectsAsyncLeaks({ __vitest_worker__: { config: { detectAsyncLeaks: true } } })).toBe(true);
+  });
+
+  it('is false when the run left the flag off', () => {
+    expect(detectsAsyncLeaks({ __vitest_worker__: { config: { detectAsyncLeaks: false } } })).toBe(false);
+  });
+
+  it('is false when the config says nothing about it — an older Vitest has no such option', () => {
+    expect(detectsAsyncLeaks({ __vitest_worker__: { config: {} } })).toBe(false);
+  });
+
+  it('is false outside a Vitest worker, rather than throwing on the way there', () => {
+    expect(detectsAsyncLeaks({})).toBe(false);
   });
 });

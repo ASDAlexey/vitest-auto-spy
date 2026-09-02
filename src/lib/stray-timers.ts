@@ -19,7 +19,17 @@
  * callback *should* still run — by `afterAll` the answer is always no.
  *
  * Under `isolate: true` this is close to a no-op: the environment is discarded per file anyway.
+ *
+ * **The wrappers are `defineHelper`-wrapped, and that is not cosmetic.** Vitest 4.1's
+ * `detectAsyncLeaks` builds its stack at the moment the resource is created — inside the real
+ * scheduler, which from here is called by this file. Without the wrap the leak is still reported
+ * against the right spec *file*, but the code frame the reporter prints — the part a reader
+ * actually reads, and the first thing an agent opens — points at `stray-timers.ts` inside
+ * `node_modules/vitest-auto-spy` instead of the `setTimeout` the author wrote. With it, the frame
+ * is the spec line again. See {@link defineHelper} for why the probe degrades to identity
+ * everywhere the API does not exist.
  */
+import { defineHelper } from './define-helper';
 import { DOCS_LINKS, withDocs } from './docs-links';
 
 /**
@@ -151,7 +161,9 @@ function wrapTimerScheduler(host: SchedulerHost, name: 'setInterval' | 'setTimeo
   // Only a timeout is one-shot; an interval outlives its first run.
   const oneShot = name === 'setTimeout';
 
-  defineScheduler(host, name, (callback: ScheduledCallback, ...rest: unknown[]): unknown => {
+  // `defineHelper` so a leak `detectAsyncLeaks` finds is framed at the spec's `setTimeout` rather
+  // than at the line below it — see this module's docblock.
+  const wrapper = defineHelper((callback: ScheduledCallback, ...rest: unknown[]): unknown => {
     if (oneShot && typeof callback === 'string') {
       const handle = original(callback, ...rest);
       sets.opaque.add(handle);
@@ -161,6 +173,8 @@ function wrapTimerScheduler(host: SchedulerHost, name: 'setInterval' | 'setTimeo
 
     return scheduleTracked((tracked) => original(tracked, ...rest), callback, sets.handles, oneShot);
   });
+
+  defineScheduler(host, name, wrapper);
 
   return () => defineScheduler(host, name, original);
 }
@@ -200,8 +214,9 @@ function wrapFrameScheduler(host: SchedulerHost, frames: Set<number>): () => voi
     return () => undefined;
   }
 
-  host.requestAnimationFrame = (callback: ScheduledCallback): number =>
-    scheduleTracked((tracked) => original(tracked), callback, frames, true);
+  host.requestAnimationFrame = defineHelper((callback: ScheduledCallback): number =>
+    scheduleTracked((tracked) => original(tracked), callback, frames, true),
+  );
 
   if (originalCancel) {
     host.cancelAnimationFrame = (handle: number): void => {
@@ -339,4 +354,25 @@ export function countStrayTimers(host: SchedulerHost = defaultHost()): number {
   }
 
   return tracked.handles.size + tracked.frames.size;
+}
+
+/**
+ * Whether this run has Vitest 4.1's `detectAsyncLeaks` turned on.
+ *
+ * It matters because the two features arrive at the same timer from opposite ends and, run
+ * together, the quiet one wins **silently**. `cancelStrayTimers()` clears the handle in `afterAll`;
+ * Vitest collects its leaks after that and asks each remembered resource whether it is still
+ * referenced. A cancelled timeout is not, so the run reports *no leaks* — and a suite that has just
+ * been told its timers are clean is worse off than one that was never told anything.
+ *
+ * Read off `globalThis.__vitest_worker__` for the reason {@link readRunnerTimeouts} gives: the
+ * resolved config is not on any public export. Defensive at every step and silent on any surprise —
+ * an unrecognised shape means "cannot tell", never a failure, because the whole feature is one
+ * warning line.
+ *
+ * `host` is a parameter so a spec can hand over a stand-in worker; production passes the real
+ * global.
+ */
+export function detectsAsyncLeaks(host: object = globalThis): boolean {
+  return Reflect.get(Object(Reflect.get(Object(Reflect.get(host, '__vitest_worker__')), 'config')), 'detectAsyncLeaks') === true;
 }

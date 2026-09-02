@@ -111,6 +111,44 @@ Each takes an optional host, defaulting to the real globals, so a test can conta
 instead. Under `isolate: true` this is close to a no-op — the environment is discarded per file
 anyway.
 
+`onStrayTimers` is the same count without leaving `setupAutoSpy`:
+
+```ts
+setupAutoSpy({ strayTimers: true, onStrayTimers: ({ cancelled }) => expect(cancelled).toBe(0) });
+```
+
+### With Vitest 4.1's `--detect-async-leaks`
+
+::: warning The two cancel each other out, and the quiet one wins
+`detectAsyncLeaks` remembers every async resource a file created and, once the file is over, asks
+each whether anything still holds it. The sweep runs in `afterAll` — **before** that question — so
+every timer it cancelled answers no, and a file that leaks timers is reported as leaking nothing.
+:::
+
+Cancelling is still the right default: a callback that fires during a later file is the more
+expensive failure, and it is the one `strayTimers` exists to prevent. So when both are on and no
+`onStrayTimers` is given, the sweep prints one line to stderr saying how many it took away — enough
+to know the leak report is not the whole story.
+
+To find out **where** each stray timer was scheduled, re-run that file with `strayTimers` off and
+read Vitest's own report. The code frame points at the `setTimeout` in the spec: the library's
+scheduler wrappers go through `vi.defineHelper`, so the frames inside `vitest-auto-spy` are dropped
+from the stack rather than shown in place of the spec's.
+
+```
+⎯⎯⎯⎯⎯⎯⎯ Async Leaks 1 ⎯⎯⎯⎯⎯⎯⎯⎯
+
+Timeout leaking in src/app/cart.component.spec.ts
+  12|   it('polls', () => {
+  13|     component.startPolling();
+  14|     setTimeout(() => refresh(), 60_000);
+     |     ^
+```
+
+The warning goes to stderr rather than `console.warn` on purpose: the sweep runs after the file's
+last test, and Vitest attributes intercepted console output to the task that produced it — with no
+task left, the line is dropped.
+
 ## 5. Keeping the run off the network
 
 Opt-in, and the reason it exists is a run that is green and still fails.
@@ -578,6 +616,7 @@ each test: a stub installed for the previous test is exactly what must not still
 | `restoreProps`        | `true`    | `restoreMockedProps()` in a global `afterEach`                                  |
 | `restoreMocks`        | `false`   | `vi.restoreAllMocks()` in a global `afterEach` — turn on for `isolate: false`   |
 | `strayTimers`         | `false`   | Track and cancel timeouts, intervals and frames that outlive their file         |
+| `onStrayTimers`       | —         | Takes the per-file count the sweep cancelled, instead of the stderr warning     |
 | `strayRejections`     | `false`   | Fail the test a rejection zone.js swallowed surfaced in — needs zone.js         |
 | `blockNetwork`        | `false`   | Close every network channel the environment has — `true`, or a narrowing object |
 | `guardGlobals`        | `'off'`   | Report a test that redefines a global property as non-configurable              |

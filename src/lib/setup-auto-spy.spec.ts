@@ -15,9 +15,11 @@ import {
   annotateTimedOutHooks,
   describeStrayRejections,
   reportStrayRejections,
+  reportStrayTimers,
   reportedErrors,
   runTeardown,
   setupAutoSpy,
+  warnAboutSuppressedLeaks,
 } from './setup-auto-spy';
 import { type StrayRejection, flushStrayRejections } from './stray-rejections';
 import { countStrayTimers, trackStrayTimers } from './stray-timers';
@@ -270,6 +272,122 @@ describe('stray-timer containment (opted in)', () => {
     setupAutoSpy({ duplicateCopies: 'off', restoreProps: false, strayTimers: true });
 
     expect(globalThis.setTimeout).toBe(scheduler);
+  });
+});
+
+/**
+ * What the per-file sweep says about what it swept.
+ *
+ * Asserted on the reporter directly rather than through the option, because the sweep runs in an
+ * `afterAll` at the very end of a file: a test can neither choose the count it will see nor watch
+ * what it printed. The pairing that matters is the one with Vitest 4.1's `detectAsyncLeaks` —
+ * cancelling in `afterAll` empties that report, and saying nothing about it leaves a leaking suite
+ * with a clean bill of health.
+ */
+describe('reporting what the stray-timer sweep cancelled', () => {
+  /** Turn the runner's own flag on for the duration of `run`, whatever it was before. */
+  function withLeakDetection<T>(run: () => T): T {
+    const config: object = Object(Reflect.get(Object(Reflect.get(globalThis, '__vitest_worker__')), 'config'));
+    const before: unknown = Reflect.get(config, 'detectAsyncLeaks');
+
+    Reflect.set(config, 'detectAsyncLeaks', true);
+
+    try {
+      return run();
+    } finally {
+      Reflect.set(config, 'detectAsyncLeaks', before);
+    }
+  }
+
+  /** Watch the channel the warning actually uses — stderr, not the intercepted console. */
+  function captureStderr(): { written: string[]; restore: () => void } {
+    const written: string[] = [];
+    const spy = vi.spyOn(process.stderr, 'write').mockImplementation((chunk: unknown) => {
+      written.push(String(chunk));
+
+      return true;
+    });
+
+    return { written, restore: () => spy.mockRestore() };
+  }
+
+  it('says nothing when the file left nothing behind', () => {
+    const { written, restore } = captureStderr();
+    const handler = vi.fn();
+
+    try {
+      withLeakDetection(() => reportStrayTimers(0, handler));
+    } finally {
+      restore();
+    }
+
+    expect(handler).not.toHaveBeenCalled();
+    expect(written).toEqual([]);
+  });
+
+  it('hands the count to a handler instead of printing anything', () => {
+    const { written, restore } = captureStderr();
+    const handler = vi.fn();
+
+    try {
+      withLeakDetection(() => reportStrayTimers(3, handler));
+    } finally {
+      restore();
+    }
+
+    expect(handler).toHaveBeenCalledWith({ cancelled: 3 });
+    expect(written).toEqual([]);
+  });
+
+  it('stays quiet with no handler when the run is not looking for leaks', () => {
+    const { written, restore } = captureStderr();
+
+    try {
+      reportStrayTimers(3, undefined);
+    } finally {
+      restore();
+    }
+
+    expect(written).toEqual([]);
+  });
+
+  it('warns when the sweep emptied a leak report nobody else will fill', () => {
+    const { written, restore } = captureStderr();
+
+    try {
+      withLeakDetection(() => reportStrayTimers(2, undefined));
+    } finally {
+      restore();
+    }
+
+    expect(written).toHaveLength(1);
+    expect(written[0]).toContain('cancelled 2 scheduled callback(s)');
+  });
+
+  it('names the count, the reason the leak report is empty, and both ways out', () => {
+    const printed: string[] = [];
+
+    warnAboutSuppressedLeaks(4, (message) => printed.push(message));
+
+    expect(printed[0]).toContain('cancelled 4 scheduled callback(s)');
+    expect(printed[0]).toContain('before Vitest collected async leaks');
+    expect(printed[0]).toContain('`strayTimers` off');
+    expect(printed[0]).toContain('onStrayTimers');
+  });
+
+  it('falls back to the console where the environment has no process', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const real = globalThis.process;
+
+    Reflect.deleteProperty(globalThis, 'process');
+
+    try {
+      warnAboutSuppressedLeaks(1);
+    } finally {
+      Reflect.set(globalThis, 'process', real);
+    }
+
+    expect(warn).toHaveBeenCalledTimes(1);
   });
 });
 
