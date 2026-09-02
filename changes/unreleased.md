@@ -4,13 +4,13 @@
 > local staging mirror — GitHub Releases are auto-generated from Conventional Commits on push to
 > `master`, so nothing here is pasted anywhere. See `CONTRIBUTING.md` → "Releasing".
 
-_Last released: **v3.15.0** — the git tag and `package.json` agree._
+_Last released: **v3.16.0** — the git tag and `package.json` agree._
 
-> ⚠️ **`CHANGELOG.md` is six releases behind the tags.** Its newest released heading is
+> ⚠️ **`CHANGELOG.md` is seven releases behind the tags.** Its newest released heading is
 > `## [3.9.0]`, while the latest tag and `package.json` are both `3.15.0` — so whatever shipped as
 > 3.10.0 through 3.15.0 is still sitting under `## [Unreleased]` there, mixed in with work that has not
 > shipped at all. This is the one manual step the automation does not do (`CONTRIBUTING.md` →
-> "Releasing", step 2): split that section into one heading per tag, `## [3.10.0]` … `## [3.15.0]`, by reading the
+> "Releasing", step 2): split that section into one heading per tag, `## [3.10.0]` … `## [3.16.0]`, by reading the
 > Conventional Commits between the tags, fix the compare links, and commit it as `docs(changelog):`
 > — a `docs` commit does not trigger a release.
 
@@ -136,5 +136,29 @@ _Last released: **v3.15.0** — the git tag and `package.json` agree._
   `toHaveBeenCalledWith` — costs 35.9 ns against 9.3 ns. Native is 2.4× and 3.8× slower at the work,
   and the work is ~0.1 % of a CI job. A new bench case, **`spy invocation`**, backs the per-call
   figure the section argues from (~117 ns, `mockClear` charged in).
+
+- **`provideHttpTesting()` + `expectRequest(url)`** (`/angular-http`) — the six-step `httpResource()`
+  dance (tick → inject controller → `expectOne` → flush → microtask → tick) as
+  `await expectRequest('/api/products').flush([product])`, with the value readable on the next line.
+  Nothing in the field has an answer for `httpResource()`: the string does not appear in the tarballs
+  of ng-mocks 14.17.3, `@ngneat/spectator` 22.1.0 or `@testing-library/angular` 19.4.2. Its own
+  2.2 kB subpath because it is the only part of the package importing `@angular/common`, which is an
+  **optional** peer — `/angular` still loads without it.
+
+- **`createNestUnit(Target, { expose, providers })`** (`/nestjs`) — the unit built from the metadata
+  Nest already emits, every unprovided collaborator spied, `expose` for the sociable case. The answer
+  to `@suites/unit`'s model, with `createSpyFromClass` behind each token instead of a Proxy, so a
+  typo still fails. +1.45 kB on that entry.
+
+- **`setupAutoSpy({ angularBuildHint })`** — one stderr line per worker when `@angular/build` is in
+  `[22.1.5, 22.1.7)`, where the unit-test bundle is built unsplit and `--coverage` grows without
+  plateau. The builder says nothing, and the `doctor` check that reports it has to be sought out.
+  +0.66 kB on `/setup`.
+
+- **A type-instantiation budget in `npm run check`** — `npm run types:budget` measures what `Spy<T>`
+  costs `tsc` on a generated fixture (delta 9 126 against a budget of 11 000) so it cannot quietly
+  become a deep proxy. Plus `@remarks` on the six declarations people get wrong, so the correction
+  arrives in `dist/*.d.ts`, and a page for what Angular's own `refactor-jasmine-vitest` schematic
+  leaves behind.
 
 <!-- Add user-facing items here as work lands, mirroring `## [Unreleased]` in the root CHANGELOG. -->

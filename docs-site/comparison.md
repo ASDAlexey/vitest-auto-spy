@@ -19,8 +19,9 @@ Download counts are the npm window **2026-07-29 → 2026-08-27**, from a field s
 below were re-read from the npm registry and the published tarballs on **2026-08-30** — every one of
 them reproduced. Treat all of it as a dated snapshot, not a live feed: re-check before quoting.
 
-The one figure not re-measured here is the type-instantiation count in
-[Type-check cost](#_3-type-check-cost), which is carried from the 2026-08-29 survey.
+The one figure not re-measured against the competitors is the type-instantiation count in
+[Type-check cost](#_3-type-check-cost), which is carried from the 2026-08-29 survey. The package's
+own cost has had a CI-measured number since 2026-09-02 — see the same section.
 :::
 
 ## Half the field has stopped shipping
@@ -139,8 +140,10 @@ unconditionally while `peerDependenciesMeta` marks it optional.
 | Angular `TestBed` helpers         |       ✅        |       ✅        |          ❌          |         ❌         |          ❌          |    **❌**    |      ✅      |            ✅            |        ✅         |     ❌     |
 | Angular **TestBed under `bun`**   |     **✅**      |       ❌        |          ❌          |         ❌         |          ❌          |      ❌      |      ❌      |            ❌            |        ❌         |     ❌     |
 | Angular **zoneless** helpers      |       ✅        |       ❌        |          ❌          |         ❌         |          ❌          |      ❌      |      ❌      |    ✅ (`./zoneless`)     |        ❌         |     ❌     |
+| `httpResource()` test helper      |     **✅**      |       ❌        |          ❌          |         ❌         |          ❌          |      ❌      |      ❌      |            ❌            |        ❌         |     ❌     |
 | Works with specs compiled **AOT** |       ✅        |        —        |          —           |         —          |          —           |      —       | `aot: false` |            —             |         —         |     —      |
 | NestJS recipe                     |       ✅        |       ❌        |          ❌          |         ❌         |          ✅          |      ✅      |      ❌      |            ❌            |        ❌         |     ❌     |
+| NestJS unit from DI metadata      |       ✅        |       ❌        |          ❌          |         ❌         |          ❌          |      ✅      |      ❌      |            ❌            |        ❌         |     ❌     |
 | React / Vue / Svelte recipes      |       ✅        |       ❌        |          ❌          |         ❌         |          ❌          |      ❌      |      ❌      |            ❌            |        ❌         |     ❌     |
 | Runtime dependencies              |      **0**      |        1        |          1           |         2          |          0           |      4       |      0       |            1             | 3 (incl. jQuery)  |     4      |
 
@@ -220,6 +223,19 @@ survey — one fixture, an 80-member class, 30 mock declarations, 600 member tou
 Roughly half the type-checker work of the deep-proxy libraries, while carrying more helpers on each
 method. This is the one number on the page not re-measured on 2026-08-30.
 
+The figure is guarded now. `npm run types:budget`, part of `npm run check`, regenerates a fixture of
+the same shape — an 80-member class mixing sync, `Promise` and `Observable` methods with a few
+properties and getters, 30 `createSpyFromClass` declarations typed `Spy<T>`, 600 member touches —
+into a temporary directory, type-checks it against the library's **sources** with
+`tsc --extendedDiagnostics`, subtracts a control program with the same class and imports but no
+spies, and fails the gate when the instantiations attributable to `Spy<T>` and its helpers exceed
+the budget. On 2026-09-02, TypeScript 5.9.3: total 19 933, control 10 807, **delta 9 126** against
+a budget of **11 000** — about 20 % of headroom, where a deep-proxy regression would roughly double
+the delta. It is a different fixture from the survey's (which was never committed) and it counts
+against the sources rather than the published declarations, so the delta is not comparable to the
+2 656 above — only to itself across commits. `node scripts/check-type-budget.mjs --print` dumps the
+fixture, `--measure` prints the numbers without failing.
+
 ## Angular
 
 Two Angular libraries are direct competition, and the honest summary is that one of them beats this
@@ -256,12 +272,29 @@ It is also the only third party on this page with **zoneless support** — a `./
 added in 19.2.0 on 2026-03-17 (verified in the tarball's `exports` map). That is a real point in its
 favour, and its rendering API remains a genuinely different tool from a spy factory.
 
+**`httpResource()` is the one place where the whole field is empty.** It is Angular's flagship data
+primitive, and none of the three Angular libraries above ships anything for it — no helper, no
+recipe, no mention — `httpResource` does not appear anywhere in the published tarballs of ng-mocks
+14.17.3, `@ngneat/spectator` 22.1.0 or `@testing-library/angular` 19.4.2, read on 2026-09-02. A spec is left with the six-step dance in full: tick, because a resource created
+in an injection context has issued nothing yet; inject the `HttpTestingController`; `expectOne`;
+`flush`; let one microtask run so the response reaches the resource; tick again so the view reading it
+is current. Both halves fail quietly. Skip the first tick and `expectOne` reports a request that was
+never sent, which reads as a bug in the code under test. Skip the microtask and the assertion runs
+against the resource's **default** value — the test is green, and it stays green until the day the
+default changes.
+[`expectRequest(url).flush(body)`](/adapters/angular-http) is all six steps, and the value is readable
+on the next line. That is not a claim about ergonomics: the measurement behind it (Angular 21.2.17,
+zoneless `TestBed`) is that an `httpResource()` settles exactly one microtask plus one tick after its
+response is flushed, and a plain `resource()` takes two rounds — which is also why
+[`settleResource`](/adapters/angular#resources-httpresource-and-resource) still exists for every wait
+that is not tied to a single request. The cost is honest and confined: one **optional** peer
+(`@angular/common`) behind one 2.2 kB subpath, so a project that never tests an HTTP call never
+installs it.
+
 ## NestJS
 
 **[@suites/unit](https://github.com/suites-dev/suites)** — 473 130 downloads a month, recommended by
-the NestJS docs, and the most serious live competitor to the [NestJS recipe](/recipes). Its
-solitary/sociable model is the thing this package's Nest entry does not have: Suites builds the unit
-under test from its DI metadata, so a constructor change does not rewrite the spec.
+the NestJS docs, and the most serious live competitor to the [NestJS recipe](/recipes). Its solitary/sociable model — the unit built from its DI metadata, so a constructor change does not rewrite the spec — is now [`createNestUnit`](/adapters/nestjs#building-the-unit-from-its-metadata) on this package's Nest entry: `expose` is `sociable().expose()`, `providers` wins over both. The differences are the ones below — the double behind every token is `createSpyFromClass`, which reads the real prototype, so a typo fails instead of being answered; it reads the same metadata Suites reads and needs nothing beyond what Nest itself needs (`reflect-metadata`, `emitDecoratorMetadata`), with no adapter packages; and it runs wherever the core runs.
 
 The contrast:
 
@@ -273,10 +306,10 @@ The contrast:
   emits no such metadata. (There is no open Angular request on the repo; issue #931 is the
   maintainer's own injection-js item, not one.)
 - **`reflect-metadata` plus `emitDecoratorMetadata` are mandatory**, which is a `tsconfig` and a
-  runtime import a Vite/esbuild project may not otherwise need.
+  runtime import a Vite/esbuild project may not otherwise need — the same requirement a Nest app already meets, and the one `createNestUnit` shares; it adds none.
 - **Its Proxy answers every property**, so a typo in a mocked method name never fails — where
   `createSpyFromClass` reads the real prototype and
-  [`onlyMethodsToSpyOn` reports a name that is not on it](/core/create-spy-from-class).
+  [`onlyMethodsToSpyOn` reports a name that is not on it](/core/create-spy-from-class), and `createNestUnit` builds every class token with it.
 - **v4 has been in beta since 2025-11-04** (`4.0.0-beta.0`), unreleased.
 
 **[@golevelup/ts-vitest](https://github.com/golevelup/nestjs)** — 4.0.0 on 2026-03-18, 353 803

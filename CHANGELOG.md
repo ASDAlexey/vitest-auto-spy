@@ -38,6 +38,162 @@ The latest released version here must always match the one published on
 
 ### Added
 
+- **`provideHttpTesting()` and `expectRequest(url)` — `httpResource()` and `HttpClient` answered in
+  two lines, behind a new `vitest-auto-spy/angular-http` entry.** `httpResource()` is Angular's
+  flagship data primitive, and nothing in the testing field has an answer for it: no helper in
+  ng-mocks, none in Spectator, none in `@testing-library/angular`. What a spec has instead is a
+  six-step dance whose order is not guessable — tick (a resource created in an injection context has
+  issued **nothing** until something does), inject the `HttpTestingController`, `expectOne`, `flush`,
+  let one microtask run so the response reaches the resource, tick again so the view reading it is
+  current. Miss the first tick and `expectOne` reports a request that was never sent; miss the
+  microtask and the assertion reads the resource's _default_ value — a green test that asserts
+  nothing until the day the default changes. `await expectRequest('/api/products').flush([product])`
+  is all six, and `products.value()` is readable on the next line: the spec proves that with a real
+  `httpResource()`, a real `HttpClient` and a real component whose rendered text is asserted with no
+  `tick`, no `await Promise.resolve()` and no `detectChanges()` of its own. `provideHttpTesting()` is
+  `provideHttpClient()` + `provideHttpClientTesting()` in one spread, and its `verifyOnTeardown`
+  (default `true`) fails the test that ends holding a request nothing answered, naming it — instead
+  of letting it leak into the next test's `expectRequest`. `expectNoRequest()` and
+  `verifyNoPendingRequests()` are the two smaller halves. Every failure names the fix, and the one
+  that matters lists **the requests that were actually made**: "the only request made was
+  `GET /api/product`" ends the search that "expected one matching request, found none" starts.
+  **The second optional peer, and why it is confined.** `expectRequest` has to name the
+  `HttpTestingController` before the caller has configured anything, so — unlike
+  `enableAngularDiagnostics({ pendingRequests })`, which reads the token structurally out of the
+  caller's own `configureTestingModule` and needs no peer at all — it costs `@angular/common`. It is
+  declared **optional**, and it is confined to one entry: `vitest-auto-spy/angular` has to keep
+  loading in a project that has `@angular/core` and not `@angular/common`, so a static import inside
+  `dist/angular.js` was never an option. The package already had this exact situation with rxjs and
+  solved it the same way, so `angular-http` is a subpath of its own and `grep -l "@angular/common"
+  dist/*.js` lists `dist/angular-http.js` and nothing else. **The entry weighs 2.2 kB min+gzip**
+  (2 198 B, esbuild bundle, minified, gzipped, peers external — the README badge's own method); the
+  core entry is byte-identical at 15 530 B. **What it deliberately does not do:** it does not
+  re-export the core (the one subpath that does not — it is a companion to `vitest-auto-spy/angular`,
+  and staying narrow is what keeps the peer confined); it does not wrap interceptor configuration, so
+  a suite testing its own interceptors keeps `provideHttpClient(withInterceptors([…]))` and adds
+  `provideHttpClientTesting()` after it; it does not replace `settleResource`, which is still the
+  answer whenever the wait is not tied to one request; and it changes nothing about
+  `enableAngularDiagnostics({ pendingRequests })`, which keeps working unchanged — both take the open
+  requests with the one-shot `match(() => true)`, so one unanswered request is still reported once.
+  One honest limit: `verifyOnTeardown` is armed by `provideHttpTesting()` but the hook itself is
+  registered when your spec file imports the entry, because a hook cannot be registered from inside a
+  running `beforeEach` — measured on Vitest 4.1, `afterEach()` called there is accepted and never
+  runs, and `onTestFinished()` runs after Angular's teardown has already destroyed the injector.
+
+- **`@remarks` on the six declarations people get wrong, so the correction arrives in
+  `dist/*.d.ts`.** A declaration file is the one document an agent opens without being told to and
+  the one an editor reads on hover, and it is the only channel that costs nothing and needs no
+  configuration: no import, no setup file, no plugin, nothing the consumer has to opt into. Four of
+  the six carried a block since 3.10.0; this completes the set and brings the older ones up to what
+  the package now does. `createSpyFromClass` says that discovery walks the **prototype chain**, so
+  an arrow-function property, an Angular `signal()` field and every method of an ngrx
+  `signalStore()` need `instanceMethodsToSpyOn` — or `createAutoMock<T>()`, which reads no
+  prototype. `methodsToSpyOn` says it is **additive**, `jest-auto-spies`' semantics, and names
+  `onlyMethodsToSpyOn` as the exhaustive whitelist a migrating spec usually meant. `Spy<T>` says it
+  is a mapped type and therefore not assignable to `T`, that `asInstance(spy)` is the one place to
+  bridge it, and — new — that `vi.mocked(…)` is not that bridge: it retypes the value as
+  `MockedObject<T>`, which brings the private members back and carries the runner's
+  `mockReturnValue` but none of `calledWith`, `resolveWith` or `accessorSpies`, so the assignment it
+  was reached for still fails and the helpers stop compiling. `nextWith` says the helpers exist only
+  once `vitest-auto-spy/rxjs` is imported, and — new — that the `ReplaySubject(1)` behind it is
+  *configuration* rather than a call record: `vi.clearAllMocks()` cannot reach it, so a spy that
+  outlives its test replays the previous test's value ahead of what this one configured, and
+  `resetAutoSpy(spy)` in `beforeEach` is the fix. `calledWith` says it is lenient on a miss and
+  arity-exact, and — new — that the chain is built at the call from the spy it is reached through,
+  so `const { calledWith } = spy.load` compiles and then throws `calledWith was called off its spy`,
+  in the same words the runtime message uses. `injectSpy` now carries one block on **each**
+  declaration naming its own shape: Angular's `injectSpy(token)` off the global `TestBed`, and
+  NestJS's `injectSpy(moduleRef, token)` — which had no `@remarks` at all, and which also says that
+  the Angular helper's "not an auto-spy" warning has no counterpart there, so a provider listed as
+  the bare class comes back as the real instance typed `Spy<T>` and fails a line later on
+  `.mockReturnValue(…)`. Comment-only: every bundle is byte-identical — `dist/**/*.js` totals
+  743 916 B before and after — and the whole cost is 1 903 B of prose spread across four declaration
+  files (`dist/bun.d.ts`, the shared `dist/types-*.d.ts` chunk, `dist/zoneless-*.d.ts` and
+  `dist/nestjs.d.ts`), none of which any runtime loads.
+
+- **`createNestUnit(Target, { expose, providers })` on `vitest-auto-spy/nestjs` — the unit built
+  from its own DI metadata, every collaborator spied.** The spec this replaces lists
+  `provideAutoSpy(X)` once per constructor parameter and is rewritten whenever the constructor
+  changes; `@suites/unit` (recommended by the NestJS docs) avoids that with its solitary / sociable
+  model, and until now that was the one thing the Nest entry did not have. `createNestUnit` reads
+  the five keys Nest's decorators already emit — `design:paramtypes`, `@Inject`'s
+  `self:paramtypes` (with `forwardRef` unwrapped), `@Optional()`'s `optional:paramtypes`, and the
+  two property-injection keys — through whatever `Reflect.getMetadata` the project loaded, and
+  answers each token with the doubles the rest of the library builds: a class spy read off the real
+  prototype, so a mistyped method name is still `undefined` rather than a fresh function, and a
+  type mock for a string or symbol token. One instance per token across the graph, as Nest's
+  singleton scope gives. `expose` builds a collaborator for real with its own dependencies spied
+  (Suites' `sociable().expose()`); `providers` — `provideAutoSpy(X)` output, `useValue`,
+  `useClass`, a zero-argument `useFactory` called once — wins over both. `spies.get(token)` keeps
+  the Angular helper's guard: a token the unit never asked for is refused with the list of what was
+  auto-spied, and an exposed class is refused as real, not a spy. It refuses, by name and with the
+  fix, a parameter whose type has no runtime class (`Object` for an interface, `undefined` for a
+  circular import) unless `@Inject(TOKEN)` names it or `@Optional()` allows `undefined`; a class
+  with parameters and no metadata at all, saying what emits it; and a cycle among the classes built
+  for real (`A -> B -> A`). Two limits, both deliberate: it does not resolve `forwardRef` cycles —
+  expose one side less, or provide it — and the metadata is the compiler's, so tsc and SWC
+  (`decoratorMetadata`) emit it and esbuild / Vite do not, exactly as for Nest itself. No new
+  dependency: `@nestjs/*` stay optional peers read structurally, and `reflect-metadata` is Nest's
+  own requirement. Verified end to end outside the repository against the packed tarball, with
+  services compiled by tsc 7.0.2 and decorated by `@nestjs/common` 12.0.1. Size: `/nestjs` 8.09 → 9.54 kB min+gzip against the published 3.16.0
+  (**+1.45 kB, +18 %** — the largest percentage in the package only because that entry is the
+  smallest one carrying the core; the module and its five messages); the main entry is unchanged at 15.53 kB, since
+  nothing outside `/nestjs` imports it.
+
+- **`docs-site/migrating-angular-schematic.md` — what Angular's own `refactor-jasmine-vitest`
+  leaves behind.** `ng generate @schematics/angular:refactor-jasmine-vitest` expands
+  `jasmine.createSpyObj('Api', ['get', 'post'])` into a hand-written
+  `{ get: vi.fn().mockName('Api.get'), post: … }` literal and emits a `// TODO: vitest-migration:`
+  comment for three shapes it cannot resolve — `createSpyObj-single-argument`,
+  `createSpyObj-dynamic-variable` and `createSpyObj-dynamic-property-map`, the last of which it
+  rewrites anyway, dropping the property map on the floor. The page shows the schematic's real
+  output (22.1.6, run, not reasoned from source) beside `createSpyFromClass(Api)`, which closes all
+  three by construction because it reads the prototype rather than the call site; what the
+  `MockedObject<T>` literal costs afterwards; the `/jasmine` entry as the way to stop at jasmine
+  syntax first; and the record with versions — Karma was deprecated by its own maintainers in 2023,
+  not by Angular; Vitest became the `ng new` default in 21.0.0; 22.0.0 deprecated the webpack
+  builder family and removed the experimental `:jest` and `:web-test-runner` builders. It is not the
+  codemod's job: `npx vitest-auto-spy codemod --from jasmine` takes a `jasmine-auto-spies` suite
+  onto this library; this page takes the output of Angular's schematic onto it.
+
+- **`setupAutoSpy()` says once, in the run itself, when `@angular/build` is building the test bundle
+  unsplit.** `@angular/build` in `[22.1.5, 22.1.7)` compiles the unit-test bundle with esbuild code
+  splitting off: every spec becomes a self-contained bundle, and `--coverage` grows by hundreds of
+  megabytes with no plateau until the OOM killer ends the run — 791 chunks / 596 MB on a 784-spec
+  suite. The builder emits no warning, and the two places that already said so — the `doctor` check
+  `angular-build-splitting-off` and the Angular page — both have to be sought out. Now the setup file
+  writes one line to stderr from inside the affected run, naming the version, both exits (22.1.7 with
+  `"splitting": true`; the doctor check) and the opt-out. Once per worker: the builder runs Vitest
+  with `isolate: false` and evaluates the setup file once, and a flag on `globalThis` keeps a second
+  evaluation quiet. The builder is recognised by the marker its own `vitest-mock-patch` setup file
+  leaves on `globalThis` (verified in 22.1.5 and 22.1.6), so a plain Vitest run reads nothing; under
+  the builder the version comes from the nearest `node_modules/@angular/build/package.json` above the
+  working directory. That is the one place the library reads the disk — one file, read-only, through
+  `process.getBuiltinModule` rather than a static `node:fs` import so `/setup` still loads where there
+  is no `process`, silent on a Node before 20.16 / 22.3 — and `check-dist` now allows `node:fs` in
+  `dist/setup.js` for exactly that and nothing else. The window and the wording are shared with the
+  doctor check (`src/lib/angular-build-notice.ts`), so the two cannot drift. Off with
+  `setupAutoSpy({ angularBuildHint: false })`. Size: `/setup` 9.93 → 10.59 kB min+gzip against the
+  published 3.16.0 (**+0.66 kB, +6.6 %**), the module and its message; `writeWarning` moved into its own module
+  without changing behaviour, and no other entry carries the new code.
+
+- **A type-instantiation budget in the gate, so `Spy<T>` cannot quietly become a deep proxy.** The
+  comparison page's one type-level claim — half the type-checker work of `@golevelup/ts-vitest` and
+  `vitest-mock-extended` — was measured once, on a fixture that was never committed, and nothing
+  since would have noticed a conditional type or a distributive branch doubling the bill every
+  consumer pays on every `tsc` run. `npm run types:budget`, now part of `npm run check`, generates a
+  fixture of the survey's shape (an 80-member class mixing sync, `Promise` and `Observable` methods
+  with properties and getters, 30 `createSpyFromClass` declarations, 600 member touches) into a
+  temporary directory, type-checks it against the sources with `tsc --extendedDiagnostics`,
+  subtracts a control with the same class and no spies, and fails when the instantiations
+  attributable to `Spy<T>` exceed the budget. On 2026-09-02 with TypeScript 5.9.3: total 19 933,
+  control 10 807, delta **9 126** against a budget of **11 000** — 20 % of headroom, where a
+  deep-proxy regression roughly doubles the delta. The fixture is generated, not committed, so it is
+  neither linted nor scanned by jscpd; `--print` dumps it and `--measure` prints the numbers
+  without failing. The delta is measured on a different fixture from the survey and against the
+  sources rather than the published declarations, so it is not comparable to the 2 656 — only to
+  itself across commits. About one second per run.
+
 - **`lazySpies: 'proxy'` — one trap object where there were N placeholders.** `lazySpies: true` does
   not build the spy, but it still has to define *something* per method: one `Object.defineProperty`
   accessor. On a class wide enough to matter that placeholder is not overhead around the cost, it

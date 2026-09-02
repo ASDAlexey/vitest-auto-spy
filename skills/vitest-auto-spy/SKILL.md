@@ -1,6 +1,6 @@
 ---
 name: vitest-auto-spy
-description: Write or fix tests that use vitest-auto-spy — typed spies generated from a class or a type on Vitest, bun:test and node:test. Use when a spec imports `vitest-auto-spy` or any of its subpaths (`/angular`, `/bun-angular`, `/bun`, `/node`, `/rxjs`, `/nestjs`, `/jasmine`, `/jasmine-compat`, `/observer-spy`, `/setup`, `/zone`, `/eslint-plugin`), when the user mentions createSpyFromClass, createAutoMock, createMock, createFixture, mockDeep, createFunctionSpy, createSpyObj, enableJasmineCompat, subscribeSpyTo, provideAutoSpy, injectSpy, extendWithAutoSpies, renderShallow, createWithAutoSpies, createDirectiveHost, overrideComponentProvider, enableAngularDiagnostics, assertNgModuleScopes, assertComponentDefIntact, trackInjections, runEffect, settleResource, mockResourceProp, mockSignalProp, mockReadonlyProp, captureArg, expectEmission, expectError, setupAutoSpy, stubIntersectionObserver, stubConstructor, mockSystemTime, assertMocked, Spy<T>, calledWith, mustBeCalledWith, failWith, lazySpies, onlyMethodsToSpyOn, instanceMethodsToSpyOn, observablePropsToSpyOn, strict, onUnstubbedCall, resolveWith or nextWith, when migrating a suite off jest-auto-spies or jasmine-auto-spies (`npx vitest-auto-spy codemod --from jasmine`), or when a test fails with "No mock adapter registered", "Observable spies require rxjs", "not found on the class prototype", "strict mode is on", "the override did not apply", "is not a constructor", "Expected to be running in 'ProxyZone'", "jasmine is not defined" or "Spy<T> is not assignable".
+description: Write or fix tests that use vitest-auto-spy — typed spies from a class or a type on Vitest, bun:test and node:test. Use when a spec imports `vitest-auto-spy` or any of its subpaths (`/angular`, `/angular-http`, `/bun-angular`, `/bun`, `/node`, `/rxjs`, `/nestjs`, `/jasmine`, `/jasmine-compat`, `/observer-spy`, `/setup`, `/zone`, `/eslint-plugin`), when the user mentions createSpyFromClass, createAutoMock, createMock, mockDeep, createFunctionSpy, createSpyObj, enableJasmineCompat, subscribeSpyTo, provideAutoSpy, provideHttpTesting, expectRequest, injectSpy, createNestUnit, extendWithAutoSpies, renderShallow, createWithAutoSpies, createDirectiveHost, overrideComponentProvider, enableAngularDiagnostics, assertNgModuleScopes, trackInjections, runEffect, settleResource, httpResource, mockResourceProp, mockSignalProp, mockReadonlyProp, captureArg, expectEmission, expectError, setupAutoSpy, stubIntersectionObserver, assertMocked, Spy<T>, calledWith, mustBeCalledWith, onlyMethodsToSpyOn, instanceMethodsToSpyOn, observablePropsToSpyOn, strict, onUnstubbedCall, resolveWith or nextWith, when migrating a suite off jest-auto-spies or jasmine-auto-spies (`npx vitest-auto-spy codemod --from jasmine`), or when a test fails with "No mock adapter registered", "Observable spies require rxjs", "not found on the class prototype", "strict mode is on", "the override did not apply", "is not a constructor", "Expected to be running in 'ProxyZone'", "jasmine is not defined", "no HttpTestingController" or "Spy<T> is not assignable".
 ---
 
 # vitest-auto-spy
@@ -75,9 +75,11 @@ describe('TaskService', () => {
 One `configureTestingModule` per `describe` — reconfiguring per `it()` recompiles the module every
 test. Use `mockReadonlyProp(component, 'selected', signal(true))` for the signals of the class under
 test, `await stable(fixture)` before asserting zoneless state, `renderShallow` for components. For an
-`httpResource()` / `resource()`: `flushEffects()` (the request is issued there, not on creation),
-flush it, then `await settleResource(r)` — asserting earlier reads the resource's default value and
-passes emptily. When the request is not what the spec is about, skip it: `mockResourceProp(service,
+`httpResource()`, `await expectRequest(url).flush(body)` from `vitest-auto-spy/angular-http` is the
+whole dance — the request is issued by `flushEffects()`, not on creation, and the value is settled
+before the promise resolves; by hand it is six steps and asserting early reads the resource's
+default value and passes emptily. For a `resource()` with no single request behind it, drive it and
+`await settleResource(r)`. When the request is not what the spec is about, skip it: `mockResourceProp(service,
 'products', [])` gives a double whose `set` / `fail` / `loading` move it directly, with nothing in
 flight to await.
 
@@ -124,6 +126,8 @@ it('loads', async () => {
 | ----------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
 | a `signal()` / `computed()` field on the class under test               | `mockSignalProp(obj, prop, initial)` — returns the writable                                          |
 | a resource field, when the HTTP round trip is not the point             | `mockResourceProp(obj, prop, initial)` — `set` / `fail` / `loading`                                  |
+| the HTTP round trip _is_ the point                                      | `expectRequest(url).flush(body)` — `/angular-http`, settling included                                |
+| a Nest provider whose constructor keeps changing                        | `createNestUnit(Target, { expose })` — built from its DI metadata                                    |
 | asserting a resource's value _and_ status together                      | `registerResourceMatchers()` → `toHaveResourceValue` / `toBeLoading`                                 |
 | a callback or config object the code under test built                   | `captureArg<T>()` in the assertion, then read `.value`                                               |
 | a method that has to throw — for all calls, or for some arguments       | `spy.m.failWith(err)` / `spy.m.calledWith(x).failWith(err)` — **not** `throwWith`                    |
