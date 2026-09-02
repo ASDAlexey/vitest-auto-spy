@@ -1,6 +1,6 @@
 {
   "name": "vitest-auto-spies",
-  "version": "3.13.1",
+  "version": "3.14.0",
   "description": "Alias of vitest-auto-spy — auto-generate fully-typed test spies from a class across Vitest, Bun and node:test, with RxJS/Angular/NestJS/React/Vue/Svelte recipes. Install vitest-auto-spy (singular) directly; this package re-exports it.",
   "keywords": [
     "vitest-auto-spies",
@@ -138,7 +138,7 @@
     "README.md"
   ],
   "dependencies": {
-    "vitest-auto-spy": "^3.13.1"
+    "vitest-auto-spy": "^3.14.0"
   },
   "peerDependencies": {
     "@angular/core": ">=16.0.0",
