@@ -4,11 +4,16 @@
 //   1. **No runtime dependencies.** This is a test-double library; a `dependencies` entry would be
 //      installed into every consumer's tree, and a dev dependency with a supply chain is exactly
 //      what the ecosystem has spent the last two years learning to refuse.
-//   2. **`node:fs` stays in the two entries that have a reason for it.** The library never reads
-//      the disk — the moment it does, a spec's behaviour depends on a file nobody wrote down.
-//      `dist/cli.js` must (`doctor` and `init` are about a repository), and `dist/bun-angular.js`
-//      must (Bun has no Angular compiler, so the preload inlines `templateUrl` / `styleUrl` from
-//      disk itself). Anything else reaching for a filesystem is the regression this catches.
+//   2. **`node:fs` stays in the three entries that have a reason for it.** The library does not
+//      read the disk to decide anything — the moment it does, a spec's behaviour depends on a file
+//      nobody wrote down. `dist/cli.js` must (`doctor` and `init` are about a repository), and
+//      `dist/bun-angular.js` must (Bun has no Angular compiler, so the preload inlines
+//      `templateUrl` / `styleUrl` from disk itself). `dist/setup.js` is the one deliberate
+//      exception on the library side: `setupAutoSpy()` reads a single `node_modules/@angular/build/
+//      package.json`, read-only and through `process.getBuiltinModule` so the entry still loads
+//      where there is no `process`, and the only thing that depends on what it finds is one warning
+//      line. Anything else reaching for a filesystem — and the literal landing in a shared chunk
+//      instead of `setup.js` — is the regression this catches.
 //
 // Both are cheap to state and impossible to keep by intention alone, which is what makes them
 // worth a script rather than a paragraph in CONTRIBUTING.md.
@@ -17,7 +22,7 @@ import { join } from 'node:path';
 
 const DIST = 'dist';
 const CLI_BUNDLE = 'cli.js';
-const FILESYSTEM_ALLOWED = new Set([CLI_BUNDLE, 'bun-angular.js']);
+const FILESYSTEM_ALLOWED = new Set([CLI_BUNDLE, 'bun-angular.js', 'setup.js']);
 const NODE_BUILTINS = /(?:^|[^\w])(?:node:fs|node:os|node:child_process)(?:$|[^\w])/;
 
 function fail(message) {

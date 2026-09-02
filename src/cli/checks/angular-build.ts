@@ -1,45 +1,19 @@
 /**
  * `@angular/build` in the window where the unit-test build has code splitting off.
  *
- * From 22.1.5 the builder disabled splitting for the unit-test bundle to dodge a live-binding /
- * undefined-export class of failures. The cost is invisible until it is fatal: every spec becomes
- * a self-contained bundle, a mid-size suite emits hundreds of chunks, and `--coverage` grows by
- * hundreds of megabytes with no plateau until the run is killed. The builder emits no warning.
- *
- * PR #33961 restores the option with splitting on by default, so 22.1.7 closes the window.
+ * The window and the wording live in `lib/angular-build-notice`, shared with the notice
+ * `setupAutoSpy()` prints from inside the run; this is the half a person runs by hand, against the
+ * repository rather than the process.
  */
 import { join } from 'node:path';
 
+import { SPLITTING_OFF_FIX, describeSplittingOff, isAffectedRelease } from '../../lib/angular-build-notice';
 import { parseJsonc, readTextFile } from '../fs-scan';
 import type { Profile } from '../profile';
 import { isRecord } from '../profile';
 import type { Finding } from '../report';
 
-const FIRST_AFFECTED = [22, 1, 5];
-const FIRST_FIXED = [22, 1, 7];
-
-/** Parses `major.minor.patch`, ignoring any prerelease or build suffix. */
-export function parseVersion(raw: string): number[] | undefined {
-  const match = /^(\d+)\.(\d+)\.(\d+)/.exec(raw.trim());
-
-  return match === null ? undefined : [Number(match[1]), Number(match[2]), Number(match[3])];
-}
-
-export function compareVersions(left: readonly number[], right: readonly number[]): number {
-  for (let index = 0; index < 3; index += 1) {
-    const difference = (left[index] ?? 0) - (right[index] ?? 0);
-
-    if (difference !== 0) {
-      return difference;
-    }
-  }
-
-  return 0;
-}
-
-export function isAffectedVersion(version: readonly number[]): boolean {
-  return compareVersions(version, FIRST_AFFECTED) >= 0 && compareVersions(version, FIRST_FIXED) < 0;
-}
+export { compareVersions, isAffectedVersion, parseVersion } from '../../lib/angular-build-notice';
 
 function installedVersion(cwd: string): string | undefined {
   const text = readTextFile(join(cwd, 'node_modules', '@angular', 'build', 'package.json'));
@@ -53,10 +27,9 @@ function installedVersion(cwd: string): string | undefined {
 }
 
 export function checkAngularBuild(profile: Profile): Finding[] {
-  const raw = installedVersion(profile.cwd);
-  const version = raw === undefined ? undefined : parseVersion(raw);
+  const version = installedVersion(profile.cwd);
 
-  if (version === undefined || !isAffectedVersion(version)) {
+  if (version === undefined || !isAffectedRelease(version)) {
     return [];
   }
 
@@ -65,8 +38,8 @@ export function checkAngularBuild(profile: Profile): Finding[] {
       check: 'angular-build-splitting-off',
       severity: 'warning',
       file: 'node_modules/@angular/build/package.json',
-      message: `@angular/build ${raw} builds the unit-test bundle with code splitting off: one self-contained bundle per spec, and \`--coverage\` grows by hundreds of megabytes with no plateau.`,
-      fix: 'Upgrade to 22.1.7 or newer and set `"splitting": true` on the test target. Nothing warns about this — the run either finishes slowly or is killed by the OOM killer.',
+      message: describeSplittingOff(version),
+      fix: `${SPLITTING_OFF_FIX} The builder emits no warning — the run either finishes slowly or is killed by the OOM killer.`,
     },
   ];
 }

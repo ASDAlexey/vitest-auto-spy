@@ -6,6 +6,7 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import '../index';
+import { resetAngularBuildNotice } from './angular-build-notice';
 import { createSpyFromClass } from './create-spy-from-class';
 import { getMockRegistrySize, resetMockRegistryTracking } from './mock-registry';
 import { getPackageCopies, registerPackageCopy, resetPackageCopies } from './package-identity';
@@ -650,6 +651,41 @@ describe('every step opted out', () => {
 
   it('installed no per-test hook at all', () => {
     expect(reset).not.toHaveBeenCalled();
+  });
+});
+
+describe('setupAutoSpy({ angularBuildHint })', () => {
+  // The check itself is pinned in its own spec; here only the seam is: the builder's marker is set
+  // while the setup call runs, so the notice records that it looked — this repository's own
+  // `@angular/build` is outside the window, so it prints nothing.
+  const marker = Symbol.for('@angular/cli/vitest-mock-patch');
+
+  function withBuilderMarker(run: () => void): boolean | undefined {
+    resetAngularBuildNotice();
+    Reflect.set(globalThis, marker, true);
+
+    try {
+      run();
+    } finally {
+      Reflect.deleteProperty(globalThis, marker);
+    }
+
+    const looked = globalThis.__vitestAutoSpyAngularBuildNoticed__;
+
+    resetAngularBuildNotice();
+
+    return looked;
+  }
+
+  const onByDefault = withBuilderMarker(() => setupAutoSpy({ duplicateCopies: 'off' }));
+  const optedOut = withBuilderMarker(() => setupAutoSpy({ duplicateCopies: 'off', angularBuildHint: false }));
+
+  it('looks for the builder by default', () => {
+    expect(onByDefault).toBe(true);
+  });
+
+  it('does not look when opted out', () => {
+    expect(optedOut).toBeUndefined();
   });
 });
 

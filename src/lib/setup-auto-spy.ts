@@ -14,6 +14,7 @@
  */
 import { afterAll, afterEach, beforeEach, onTestFinished, vi } from 'vitest';
 
+import { noticeAngularBuildSplitting } from './angular-build-notice';
 import { DOCS_LINKS, withDocs } from './docs-links';
 import { type FakeTimersConfig, setupFakeTimers } from './fake-timers';
 import { annotateFrozenClockTimeout, readFrozenClock } from './frozen-clock';
@@ -28,6 +29,7 @@ import { type StrayRejection, flushStrayRejections, trackStrayRejections } from 
 import { cancelStrayTimers, detectsAsyncLeaks, trackStrayTimers } from './stray-timers';
 import { restoreTimerGlobals } from './timer-globals';
 import type { UnstubbedCallHandler } from './types';
+import { writeWarning } from './write-warning';
 
 /** How `setupAutoSpy` should react to more than one install of the library. */
 export type DuplicateCopiesReaction = 'off' | 'throw' | 'warn';
@@ -180,6 +182,21 @@ export interface SetupAutoSpyOptions {
    */
   frozenClockHint?: boolean;
   /**
+   * Say once per worker when `@angular/build:unit-test` is in the window where it builds the
+   * unit-test bundle with code splitting off — `[22.1.5, 22.1.7)`. Default `true`; like
+   * {@link hookTimeoutHint}, it only ever adds a line, here to stderr at the start of the run.
+   *
+   * In that window every spec becomes a self-contained bundle, and `--coverage` grows by hundreds
+   * of megabytes with no plateau until the run is killed — 791 chunks / 596 MB on a 784-spec suite.
+   * The builder emits no warning, and the `doctor` check that reports it has to be sought out; this
+   * fires in the run where it hurts. See {@link noticeAngularBuildSplitting}.
+   *
+   * Silent outside the builder, outside the window, and wherever the installed version cannot be
+   * read (no `process`, a Node before `getBuiltinModule`). It is the one place the library reads the
+   * disk: a single `package.json`, read-only, and nothing but the line depends on it.
+   */
+  angularBuildHint?: boolean;
+  /**
    * Clear the `vitest-auto-spy/console` spies after every test. Default `true`.
    *
    * They are plain mocks over the real `console`, and nothing the runner offers empties them:
@@ -233,8 +250,8 @@ export interface SetupAutoSpyOptions {
  * **Not `console.warn`.** The sweep runs after the file's last test, and Vitest attributes
  * intercepted console output to the task that produced it — with no task left, the line is dropped
  * and the warning is never seen (checked on 4.1.9: it reappears only under
- * `disableConsoleIntercept`). `process.stderr` is the channel that survives, so this borrows the
- * one {@link reportSpecTiming} already uses, console-last for an environment with no `process`.
+ * `disableConsoleIntercept`). `process.stderr` is the channel that survives — see
+ * {@link writeWarning}, console-last for an environment with no `process`.
  */
 export function warnAboutSuppressedLeaks(cancelled: number, write: (message: string) => void = writeWarning): void {
   write(
@@ -246,20 +263,6 @@ export function warnAboutSuppressedLeaks(cancelled: number, write: (message: str
       DOCS_LINKS.setup,
     ),
   );
-}
-
-/** The warning's channel: stderr where there is one, the console where there is not. */
-function writeWarning(message: string): void {
-  const stderr = globalThis.process?.stderr;
-
-  if (stderr) {
-    stderr.write(`${message}\n`);
-
-    return;
-  }
-
-  // eslint-disable-next-line no-console -- browser-like environment with no `process`: the console is the only channel left.
-  console.warn(message);
 }
 
 /**
@@ -581,6 +584,10 @@ function watchStrayRejections(enabled: boolean): TeardownStep[] {
  */
 export function setupAutoSpy(options: SetupAutoSpyOptions = {}): void {
   reportDuplicateCopies(options.duplicateCopies ?? 'throw');
+
+  if (options.angularBuildHint ?? true) {
+    noticeAngularBuildSplitting();
+  }
 
   if (options.strayTimers ?? false) {
     // Wrapping happens now, once per worker; the sweep is per file, because "still wanted?" only
