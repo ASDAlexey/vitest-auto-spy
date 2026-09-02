@@ -1,6 +1,6 @@
 ---
 title: Angular
-description: provideAutoSpy, injectSpy, renderShallow, createWithAutoSpies, zoneless waiting and TestBed diagnostics — on Vitest and on bun test.
+description: provideAutoSpy, injectSpy, extendWithAutoSpies, renderShallow, createWithAutoSpies, zoneless waiting and TestBed diagnostics — on Vitest and on bun test.
 ---
 
 # Angular
@@ -36,6 +36,64 @@ Angular wiring (`@analogjs/vite-plugin-angular` plus a TestBed setup file).
 `templateUrl`. [`vitest-auto-spy/bun-angular`](/runtimes/bun-angular) closes both from one preload
 and re-exports everything on this page except `registerSignalMatchers` and the `TestBed`
 diagnostics, which need the runner's `expect.extend` and suite-level hooks.
+:::
+
+## Fixtures instead of `let` + `beforeEach` — `extendWithAutoSpies`
+
+Vitest 4.1 infers a fixture's type from its factory, which makes the block above one statement with
+no type written twice and no `let` that is `undefined` between tests:
+
+```ts
+import { test as base } from 'vitest';
+import { extendWithAutoSpies } from 'vitest-auto-spy/angular';
+
+const test = extendWithAutoSpies(base, {
+  cart: CartService,
+  api: [ApiService, { onlyMethodsToSpyOn: ['get', 'post'] }],
+  passcode: PASSCODE_TOKEN,
+});
+
+test('checks out', async ({ cart }) => {
+  cart.checkout.resolveWith(true);
+
+  await expect(cart.checkout(1)).resolves.toBe(true);
+});
+
+test('does not build what it does not name', ({ api }) => {
+  // `cart` and `passcode` are never constructed for this test.
+  api.get.mockReturnValue(of([]));
+});
+```
+
+Each entry is a class, a `[Class, config]` pair taking whatever `provideAutoSpy` takes, or an
+`InjectionToken` — built from the token's own type, exactly as `provideAutoSpyForToken` does.
+Anything else the module needs goes in the third argument and is registered in the same call, ahead
+of the generated providers, so a token named there wins:
+
+```ts
+const test = extendWithAutoSpies(base, { cart: CartService }, { providers: [provideHttpClient(), CartComponent] });
+```
+
+::: info Why the whole map at once, rather than a chain of `.extend`s
+This is a `TestBed` rule, not a typing limitation. Fixtures resolve lazily and independently, so in
+`base.extend('cart', …).extend('api', …)` the `cart` fixture would configure the testing module
+**and** inject — instantiating it — and `api` would then reach `configureTestingModule` after
+instantiation and fail with Angular's own _"Cannot configure the test module when the test module has
+already been instantiated"_. Every provider has to be known before the first injection.
+:::
+
+A `beforeEach` that configures the module further still composes: it runs before any fixture
+resolves, and repeated `configureTestingModule` calls merge right up until the first injection. A
+`beforeEach` that **injects** does not, and nothing can repair that from here — by then Angular has
+already made the decision.
+
+::: warning Needs Vitest 4.1
+The builder form of `test.extend` is what infers the types. On an older Vitest the call throws at
+once — `extendWithAutoSpies needs Vitest 4.1 or newer` — rather than letting the older `extend` take
+the string, register fixtures named `"0"`, `"1"`, … and hand every test `undefined`. There is no
+version to ask, so the check reads the arity of `extend`: one parameter through 4.0, three from 4.1.
+Until the upgrade, keep the `let` + `beforeEach` form at the top of this page — everything else on
+it works unchanged.
 :::
 
 ## An `abstract class` DI token
