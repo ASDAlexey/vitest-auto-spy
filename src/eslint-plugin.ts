@@ -36,7 +36,21 @@ export interface AutoSpyEslintPlugin {
 
 const PLUGIN_NAME = 'vitest-auto-spy';
 
-/** Everything on: the five "there is a helper for this" rules plus the nine guards. */
+/**
+ * Everything on: the five "there is a helper for this" rules plus the guards.
+ *
+ * Two of the jasmine rules are set differently from the rest, and both settings are the honest one:
+ *
+ * - `jasmine-namespace-without-entry` warns rather than errors for the same reason
+ *   `no-unregistered-inject-spy` does — the fact that settles it (does the project install the
+ *   compatibility layer?) is usually written in a setup file the linted spec never imports, so the
+ *   rule reads one file and can be wrong about the other. Its `setupModules` option is how a project
+ *   tells it where the layer comes from.
+ * - `prefer-native-spy-api` is **off**. It reports code that works: the compatibility layer is what
+ *   a suite runs on while it is being migrated, and a rule that flags every line of a bridge for as
+ *   long as the bridge is needed is noise. Turn it on when the suite is green and the migration is
+ *   being finished — `eslint --fix` then does most of the rewrite, and the codemod does the rest.
+ */
 const recommendedRules: Record<string, RuleSeverity> = {
   [`${PLUGIN_NAME}/prefer-provide-auto-spy`]: 'warn',
   [`${PLUGIN_NAME}/prefer-create-spy-from-class`]: 'warn',
@@ -52,6 +66,10 @@ const recommendedRules: Record<string, RuleSeverity> = {
   [`${PLUGIN_NAME}/no-inject-before-override`]: 'warn',
   [`${PLUGIN_NAME}/no-import-time-spread`]: 'error',
   [`${PLUGIN_NAME}/no-unregistered-inject-spy`]: 'warn',
+  [`${PLUGIN_NAME}/jasmine-namespace-without-entry`]: 'warn',
+  [`${PLUGIN_NAME}/no-jasmine-globals`]: 'error',
+  [`${PLUGIN_NAME}/no-save-arguments-by-value`]: 'error',
+  [`${PLUGIN_NAME}/prefer-native-spy-api`]: 'off',
 };
 
 const plugin: AutoSpyEslintPlugin = {
