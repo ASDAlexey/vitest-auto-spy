@@ -268,7 +268,7 @@ by reading the installed sources, and is worth not re-deriving:
   the cost directly: 8000 `isIncluded` calls take **167 853 ms** against 1 808 ms with a compiled
   matcher, `coverageMap.filter` 81 393 ms against 713 ms, the untested pass over 1816 files
   69 779 ms against 9 439 ms. None of that is coverage work. It is `picomatch` compiling 428
-  patterns again for every filename, because `globCache` memoises the *verdict*, keyed by filename,
+  patterns again for every filename, because `globCache` memoises the _verdict_, keyed by filename,
   and never the matcher.
 - **The fix is a coverage-provider wrapper in the consumer's config — no Vitest patch, no glued
   globs.** `coverage.provider: 'custom'` plus a `customProviderModule` that re-exports
@@ -295,28 +295,28 @@ by reading the installed sources, and is worth not re-deriving:
   a cache and keeps working.
 
 - [~] **A runtime notice from `setupAutoSpy` when coverage is on and the include list cannot
-      match** — not implementable, and the reason is worth recording. The serialized worker config
-      carries only `{ reportsDirectory, provider, enabled, htmlDir }` under `coverage`; `include`
-      and `exclude` are not sent to workers at all (probed on 4.1.9 by dumping
-      `globalThis.__vitest_worker__.config.coverage` from a spec). There is no public read either,
-      so a setup file cannot see the list, and the report it would be wrong about is assembled in
-      the main process after the run. The static check is the only honest place for this.
+  match** — not implementable, and the reason is worth recording. The serialized worker config
+  carries only `{ reportsDirectory, provider, enabled, htmlDir }` under `coverage`; `include`
+  and `exclude` are not sent to workers at all (probed on 4.1.9 by dumping
+  `globalThis.__vitest_worker__.config.coverage` from a spec). There is no public read either,
+  so a setup file cannot see the list, and the report it would be wrong about is assembled in
+  the main process after the run. The static check is the only honest place for this.
 - [~] **Shipping the cached-matcher wrapper as library surface.** Still not shipped, but for a
-      different reason than the one that stood here until 2026-08-30, and the old reason is
-      recorded rather than quietly deleted because it is the kind of conclusion a reader
-      re-derives: this entry used to say the cost lives inside Vitest, that "glue your globs" was
-      the only workaround and a footgun at that, and that the item was worth revisiting only if
-      Vitest accepted a cached matcher upstream. That verdict is **wrong**. A cost inside Vitest is
-      not the same as a cost out of reach — `coverage.provider: 'custom'` is a supported seam, the
-      provider object is an ordinary object, and 20 lines of consumer config bought 229.59 s →
-      22.88 s on a real shard with a byte-identical report. Nobody has to wait for upstream and
-      nobody has to hand-verify a glued glob list against the unglued one. What is still true is
-      that this is not *this library's* surface: it is a coverage provider, it has nothing to do
-      with spies, it pins `isIncluded` — a method that is not public API — into a package whose
-      users mostly do not run coverage over a bundle at all, and it would fail silently the day
-      that method is renamed. The shipping vehicles that fit are the recipe in
-      `articles/COVERAGE.md` and, if the numbers repeat on a second consumer, a `doctor` note that
-      points at it when it sees a large `coverage.include`.
+  different reason than the one that stood here until 2026-08-30, and the old reason is
+  recorded rather than quietly deleted because it is the kind of conclusion a reader
+  re-derives: this entry used to say the cost lives inside Vitest, that "glue your globs" was
+  the only workaround and a footgun at that, and that the item was worth revisiting only if
+  Vitest accepted a cached matcher upstream. That verdict is **wrong**. A cost inside Vitest is
+  not the same as a cost out of reach — `coverage.provider: 'custom'` is a supported seam, the
+  provider object is an ordinary object, and 20 lines of consumer config bought 229.59 s →
+  22.88 s on a real shard with a byte-identical report. Nobody has to wait for upstream and
+  nobody has to hand-verify a glued glob list against the unglued one. What is still true is
+  that this is not _this library's_ surface: it is a coverage provider, it has nothing to do
+  with spies, it pins `isIncluded` — a method that is not public API — into a package whose
+  users mostly do not run coverage over a bundle at all, and it would fail silently the day
+  that method is renamed. The shipping vehicles that fit are the recipe in
+  `articles/COVERAGE.md` and, if the numbers repeat on a second consumer, a `doctor` note that
+  points at it when it sees a large `coverage.include`.
 
 ## Considered & intentionally skipped
 
@@ -442,7 +442,7 @@ import cost.
 ## Release infrastructure — move npm publishing to OIDC (deadline ~Jan 2027)
 
 npm is retiring granular access tokens with **Bypass 2FA**. The scriptable half of
-the move is done for *both* packages — `auto-release.yml` and `publish-alias.yml`
+the move is done for _both_ packages — `auto-release.yml` and `publish-alias.yml`
 publish over OIDC with no `NODE_AUTH_TOKEN`, `release.yml` no longer publishes at
 all, the npm floor is pinned exactly in both and `--provenance` is gone (the
 registry attaches it). No workflow reads `secrets.NPM_TOKEN` any more. What is left
@@ -473,8 +473,8 @@ What is left here is the part that is still undone.
       permissions `npm publish`. npm did not demand 2FA to save it.
 - [ ] **Publish `vitest-auto-spies` again, then register its publisher.** The
       package was unpublished in full on **2026-08-29T20:35:25Z**, and npm's policy
-      is *"If you entirely unpublish all versions of a package, you may not publish
-      any new versions of that package until 24 hours have passed"* — so the name is
+      is _"If you entirely unpublish all versions of a package, you may not publish
+      any new versions of that package until 24 hours have passed"_ — so the name is
       blocked until **2026-08-30T20:35:25Z** (23:35 MSK). A trusted publisher is
       configured on a package's settings page, which a non-existent package does not
       have, so the order is: one manual `cd alias && npm publish --access public` (a
@@ -484,15 +484,15 @@ What is left here is the part that is still undone.
       with `alias_ref` set to the current tag would find that version already on npm,
       report "nothing to do" and go green without touching the handshake. The first
       real OIDC publish of the alias is the next release. Its old versions 1.6.0 /
-      1.9.2 / 1.9.3 can never be reused — *"Once `package@version` has been used, you
-      can never use it again."*
+      1.9.2 / 1.9.3 can never be reused — _"Once `package@version` has been used, you
+      can never use it again."_
 - [ ] **Delete the `NPM_TOKEN` repository secret and revoke the token on npm.**
       Nothing reads it any more, but do it only once both packages have gone out
       over OIDC — the "skip if version already exists" guards make a retry safe, a
       missing fallback during a half-finished migration is not.
-- [ ] **Tighten *Publishing access* on both packages** — npmjs.com → package →
-      Settings → *Publishing access* → *"Require two-factor authentication and
-      disallow bypass 2fa tokens"*, then **Update Package Settings**. Both packages
+- [ ] **Tighten _Publishing access_ on both packages** — npmjs.com → package →
+      Settings → _Publishing access_ → _"Require two-factor authentication and
+      disallow bypass 2fa tokens"_, then **Update Package Settings**. Both packages
       currently sit on the permissive option. Trusted publishers keep working under
       either, so this changes nothing operationally; it removes the bypass-token
       escape hatch, which is only worth removing once it is no longer the fallback.
@@ -922,6 +922,19 @@ with zoneless support: a `./zoneless` entry added in 19.2.0 on 2026-03-17.
 
 ### Tried and rejected — do not re-open
 
+- **Cheaper lazy-spy creation by sharing the accessor descriptors across spies.** Building a
+  100-method double is ~15 µs on V8 / ~7 µs on JSC, almost all of it one `defineProperty` per lazy
+  accessor; sharing the getter/setter pair per class (via `this`) measured ~30 % faster to build and
+  then up to **10× slower to materialise** — V8 keeps an object whose accessors all came from the same
+  descriptors on a shared fast-mode map, and reconfiguring accessor → data there rewrites the map
+  (`materializeMethodSpy` went from 2.5 % to 25 % of the first-call profile). With fresh closures the
+  object drops into dictionary mode and the same step is a hash update. `Object.create(proto,
+descriptors)` behaves the same way. Forcing dictionary mode with a probe property + `delete`
+  fixes V8 and doubles creation and materialisation on JSC (Bun 1.4: 8.2 → 16.7 µs). Keyed-store
+  placeholders before the accessors are deterministic on both engines and land exactly at the
+  baseline. The only real cut is accessors on a shared prototype, which changes what `Object.keys`
+  and `{ ...spy }` report — observable, so no. Measured 2026-09-02, Node 24.19 / Bun 1.4.0.
+
 - **`aroundEach` / `aroundAll` do not replace the proxy-zone patch.** Vitest 4.1 added hooks that
   wrap a test (`aroundEach((runTest) => …)`) and a suite, and on paper they are exactly what
   `lib/proxy-zone.ts` hand-rolls: run every callback inside a forked `ProxyZoneSpec`, without
@@ -932,7 +945,7 @@ with zoneless support: a `./zoneless` entry added in 19.2.0 on 2026-03-17.
   body, and `fakeAsync` fails with `Expected to be running in 'ProxyZone', but it was not found`. The
   hooks fire — that was verified separately — but `zone.run()` only holds for the synchronous part of
   the call, and the runner reaches the test body through native `await`, which zone.js does not
-  patch. Angular's own jasmine patch wraps the *test function itself* for this reason, and so must
+  patch. Angular's own jasmine patch wraps the _test function itself_ for this reason, and so must
   this one. What `aroundEach` does get right, and what is worth knowing if it is ever useful for
   something else: it is collected from parent suites, so a file-level registration covers nested
   `describe`s, and it wraps `beforeEach` + body + `afterEach` together.
@@ -1000,7 +1013,7 @@ arity while testdouble and substitute allow partial; and a documentation note th
       in the run. Writing it as `throwWith` broke `getObs.throwWith(err)` immediately, which is the
       cheap version of that lesson. The capability that justified shipping it at all is not the
       spy-level throw (`mockImplementation` can do that everywhere) but
-      `calledWith(x).failWith(err)`: no runtime can make *one* argument set throw while its siblings
+      `calledWith(x).failWith(err)`: no runtime can make _one_ argument set throw while its siblings
       answer normally.
 
 ### A distribution opening, not a feature gap

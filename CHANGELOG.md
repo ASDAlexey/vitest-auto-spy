@@ -10,6 +10,32 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+### Changed
+
+- **The control helpers are shared across spies, and the memory per spied method drops by a third
+  under rxjs.** `calledWith`, `mustBeCalledWith`, `failWith`, `resolveWith`, `rejectWith`,
+  `resolveWithPerCall`, the stream helpers and the reset and clear hooks used to be a closure each,
+  created for every method a spec touched — eight to twenty function objects before the runner's own
+  mock. They are now one set for the run that finds its spy through `this`; the reset and clear hooks
+  became methods of the spy's state, which sits under the spy's mark in place of `true`, so brand
+  and hooks cost one property definition where they cost three. Measured on 1 000 spies × 100
+  methods, every method touched once: heap per spied method 3.34 → 2.78 kB on `node:test`,
+  4.29 → 2.88 kB with rxjs loaded (−33 %), 2.72 → 1.66 kB on Bun with rxjs (−39 %); first call of a
+  method −10 % on `node:test`, −12 % with rxjs, −20 % / −28 % on Bun (medians, against the
+  published 3.15.0). Creating a spy is unchanged:
+  its cost is V8's `defineProperty` per lazy accessor, and every cheaper layout that was tried
+  either made materialising the method slower on V8 or building the spy slower on JSC — the
+  measurements are in `core/performance.md` so nobody re-runs them. **One thing changes for a
+  caller:** a helper destructured off its spy (`const { resolveWith } = spy.load`) used to work by
+  accident and now throws at the call, naming the helper and the two shapes that work. The core
+  entry grows by 0.2 kB min+gzip for the shared code and that message. Two per-entry figures need
+  reading with care: `/setup` gained 1.2 kB the first time this was built, from a module-level
+  helper call the bundler could not prove pure — it carries `@__PURE__` marks now and is back at its
+  size — and `/rxjs` bundled *alone* grows by 0.7 kB, of which 0.5 kB is the docs-link table its new
+  error message shares with the core; a consumer of `/rxjs` has the core loaded already, so the
+  incremental cost is the two small classes. The same 0.2 kB reads as +5 % on `/console`, the
+  smallest entry that carries the core.
+
 ### Added
 
 - **`failWith(error)` on the sync bundle — the outcome the container could not carry.** Vitest 4.1

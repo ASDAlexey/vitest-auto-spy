@@ -92,6 +92,50 @@ Memory matters more than the time here. Under `isolate: false` a worker keeps ev
 allocated until the run ends, and it is the heap — not the clock — that ends up killing a CI job in
 a container.
 
+### Helpers shared across spies
+
+The other thing the library used to add to every materialised method was a closure per helper:
+`calledWith`, `mustBeCalledWith`, `failWith`, `resolveWith`, `rejectWith`, `resolveWithPerCall`, the
+reset and clear hooks — and, once `vitest-auto-spy/rxjs` is loaded, seven more for the stream
+helpers plus the handle that owns the subject. Eight to twenty function objects, each with a
+context, before the runner's own mock. They are now one set of functions for the whole run that
+find their spy through `this`, and the reset and clear hooks live on the spy's state object, which
+sits under the spy's mark in place of `true` — so the brand and both hooks cost one property
+definition where they cost three.
+
+Measured on 1 000 spies of a 100-method class, every method touched once, against the published
+3.15.0, medians of five runs on Node 24.19 and three on Bun 1.4.0, nothing else on the machine:
+
+| runtime            | first call of a method, ns | heap per spied method |
+| ------------------ | -------------------------: | --------------------: |
+| `node:test`        |          4 355 → **3 902** |    3.34 → **2.78 kB** |
+| `node:test` + rxjs |          5 958 → **5 261** |    4.29 → **2.88 kB** |
+| Bun 1.4            |              792 → **636** |                     — |
+| Bun 1.4 + rxjs     |            1 095 → **790** |    2.72 → **1.66 kB** |
+
+The time saved is modest on V8 because the floor there is the runner's: `node:test` captures a
+stack trace into every recorded call (≈1.8 µs of the 4.1) and creates its mock as a Proxy, through
+which every property this library attaches has to pass. The memory is the larger win — a third of
+every materialised method under rxjs — and it is the heap that decides whether a large suite fits
+under `isolate: false`.
+
+One thing changes for a caller: a helper taken _off_ its spy — `const { resolveWith } = spy.load` —
+used to work because it was a closure over that spy. It now throws at the call, naming the helper
+and the two shapes that work (`spy.load.resolveWith(v)`, or `bind` it first). The jasmine
+namespaces bind, so nothing changes there.
+
+**Creating** a spy did not move, and not for lack of trying. A 100-method class costs ~15 µs on V8
+and ~7 µs on JSC, and nearly all of it is one `defineProperty` per lazy accessor. Sharing the
+accessor descriptors across spies looked like the obvious cut and measured 30 % faster to build —
+and then up to ten times _slower_ to materialise, because V8 keeps an object whose accessors all
+came from the same descriptors on a shared fast-mode map, and turning an accessor into a data
+property there rewrites the whole map; with fresh closures the object falls into dictionary mode,
+where that same step is a hash update. Forcing dictionary mode with a `delete` fixes V8 and
+doubles the cost on JSC. `Object.create(prototype, descriptors)` has the same fast-mode problem.
+The only cut left is putting the accessors on a shared prototype, which would make
+`Object.keys(spy)` and `{ ...spy }` stop listing methods nobody has touched yet — a change a
+spec can observe, so it is not made.
+
 ## Bundle size
 
 The badge says 6.2 kB min+gzip, and that is the whole core entry bundled together. What a consumer

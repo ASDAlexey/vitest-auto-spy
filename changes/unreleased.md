@@ -4,17 +4,24 @@
 > local staging mirror — GitHub Releases are auto-generated from Conventional Commits on push to
 > `master`, so nothing here is pasted anywhere. See `CONTRIBUTING.md` → "Releasing".
 
-_Last released: **v3.14.0** — the git tag and `package.json` agree._
+_Last released: **v3.15.0** — the git tag and `package.json` agree._
 
-> ⚠️ **`CHANGELOG.md` is five releases behind the tags.** Its newest released heading is
-> `## [3.9.0]`, while the latest tag and `package.json` are both `3.14.0` — so whatever shipped as
-> 3.10.0 through 3.14.0 is still sitting under `## [Unreleased]` there, mixed in with work that has not
+> ⚠️ **`CHANGELOG.md` is six releases behind the tags.** Its newest released heading is
+> `## [3.9.0]`, while the latest tag and `package.json` are both `3.15.0` — so whatever shipped as
+> 3.10.0 through 3.15.0 is still sitting under `## [Unreleased]` there, mixed in with work that has not
 > shipped at all. This is the one manual step the automation does not do (`CONTRIBUTING.md` →
-> "Releasing", step 2): split that section into one heading per tag, `## [3.10.0]` … `## [3.14.0]`, by reading the
+> "Releasing", step 2): split that section into one heading per tag, `## [3.10.0]` … `## [3.15.0]`, by reading the
 > Conventional Commits between the tags, fix the compare links, and commit it as `docs(changelog):`
 > — a `docs` commit does not trigger a release.
 
 ## Staged for the next release
+
+- **Control helpers shared across spies** — one set of `this`-based functions for the run instead
+  of eight to twenty closures per materialised method; reset and clear hooks moved onto the spy's
+  state under its mark. Heap per spied method −17 % on `node:test`, −33 % with rxjs, −39 % on Bun
+  with rxjs; first call −10 % to −28 % by runtime. A helper destructured off its spy now throws with
+  a named message instead of working by accident. Spy creation unchanged; the layouts that were
+  tried and rejected are recorded in `core/performance.md`.
 
 - **`failWith(error)`** on the sync bundle and on a `calledWith` chain — the cross-runtime answer to
   Vitest 4.1's `mockThrow`, and the only way any runtime offers to make _one_ argument set throw.
