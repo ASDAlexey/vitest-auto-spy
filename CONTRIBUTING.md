@@ -50,7 +50,7 @@ are checked in CI, the rest are not, and the ones that are not are the ones that
 | README section | a `##` section, and its line in the table of contents | — |
 | Docs page | `docs-site/<area>/<page>.md` | — |
 | Docs sidebar | `docs-site/.vitepress/config.mts` — a page missing here is also missing from `llms.txt` | `npm run llms:check` |
-| Landing | the `features:` cards in `docs-site/index.md` | — |
+| Landing | the `features:` cards in `docs-site/index.md` — prose inside YAML, so no `: ` in an unquoted value | `npm run docs:check` |
 | Agent reference | `AGENTS.md` — the file an agent reads instead of the README | — |
 | Claude Code skill | `skills/vitest-auto-spy/SKILL.md` | — |
 | Agent guide | `docs-site/agents.md`, when the change is about how an agent uses the package | — |
