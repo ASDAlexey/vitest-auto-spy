@@ -246,6 +246,10 @@ suite. If a spec feels slow, the time is in `TestBed` — which is what
 
 Two things do cost more, and both are avoidable:
 
+- **`{ lazySpies: 'proxy' }`** keeps the laziness and drops the per-method placeholder, which is
+  nearly all of what an untouched wide double retains — 11.8 kB against 101.6 kB on a 400-method
+  generated client. Opt-in: it taxes every read by ~30 ns forever and loses below ~20 methods. See
+  [Performance](/core/performance#where-the-remaining-memory-is-and-lazyspies-proxy).
 - **`{ lazySpies: false }`** gives up the win above. Only worth it when a spec enumerates the spy
   object itself rather than calling methods on it.
 - **`autoSpyAccessors: true`** walks the prototype chain for getters and setters on every call, and
@@ -766,6 +770,119 @@ pass over files no test imported is driven by the presence of `coverage.include`
 carried over from Vitest 3 with `all: true` and no `include` reports only the files the run touched,
 with no error and no warning — verified on 4.1.9 against a fixture whose second module nothing
 imports: absent with `all: true`, present once `include` is declared.
+
+## Coverage matching costs more than coverage
+
+Narrowing the scope with `coverage.include` is supposed to make the report smaller and the run
+faster. On a large workspace it makes the run **slower**, and the reason is not in your config.
+
+`@vitest/coverage-v8` decides whether a file belongs in the report by calling `isIncluded`, which
+calls `picomatch` with the whole pattern array. Its `globCache` memoises the **verdict**, keyed by
+the filename — never the compiled matcher. So every filename recompiles every pattern.
+
+Profiled on one shard of a 1 725-file Angular suite, with a scope of 124 include globs plus 304
+negations:
+
+| Phase of `Generate coverage`, 224.2 s total |     time |
+| ------------------------------------------- | -------: |
+| reading the 432 workers' coverage files     |    2.6 s |
+| before the first conversion                 |   54.3 s |
+| remapping the 1 958 covered files           |   50.5 s |
+| the pass over the 458 untested files        | **0.35 s** |
+| the final `coverageMap.filter`              | **114.1 s** |
+
+The pass over untested files is what a narrowed scope is usually blamed for, and it is a third of a
+second. The filter — a loop whose entire body is one `isIncluded` call per file — is half the run.
+Timed operation by operation against a matcher compiled once, on the same globs:
+
+| Operation                        |      stock | compiled once |
+| -------------------------------- | ---------: | ------------: |
+| `isIncluded`, 8 000 calls        | 167 853 ms |      1 808 ms |
+| `coverageMap.filter`             |  81 393 ms |        713 ms |
+| the pass over 1 816 untested files |  69 779 ms |      9 439 ms |
+
+### The fix is a provider wrapper, in your own config
+
+`coverage.provider: 'custom'` is a supported seam, and the provider it returns is an ordinary
+object. Re-export `@vitest/coverage-v8` and replace one method:
+
+```ts
+// tools/coverage-provider.ts
+import * as v8 from '@vitest/coverage-v8';
+import { cleanUrl, slash } from '@vitest/utils/helpers';
+import pm from 'picomatch';
+
+export * from '@vitest/coverage-v8';
+
+export async function getProvider() {
+  const provider = await v8.getProvider();
+  const original = provider.isIncluded.bind(provider);
+  let match;
+
+  provider.isIncluded = (filename) => {
+    const { include, exclude, allowExternal } = provider.options ?? {};
+
+    // A `--changed` run selects by its own file list, and a config with no `include` has nothing
+    // to compile: the only two questions this wrapper genuinely cannot answer.
+    if (!include) {
+      return original(filename);
+    }
+
+    match ??= pm(include, { contains: true, dot: true, ignore: exclude });
+
+    const path = slash(cleanUrl(filename));
+
+    // Inline, NOT delegated — see the note below.
+    if (!allowExternal && !path.startsWith(workspaceRoot) && !path.startsWith(projectRoot)) {
+      return false;
+    }
+
+    return match(path);
+  };
+
+  return provider;
+}
+```
+
+```ts
+// vitest.config.ts
+coverage: {
+  provider: 'custom',
+  customProviderModule: './tools/coverage-provider.ts',
+}
+```
+
+Measured on the same real shard, same reporters: the Vitest phase drops **229.59 s → 22.88 s**,
+432/432 files both ways, a cobertura report of 8.0 MB both ways, and the numbers do not move —
+`Statements 41.77 %`, 27 292/65 325 before and 27 289/65 325 after, the same denominator and three
+statements of the shared environment's ordinary drift. Per file, on 200 distinct paths: 1.13 ms
+stock against 0.018 ms compiled, with identical verdicts on every path.
+
+::: danger The one mistake that makes a correct wrapper measure as zero
+Do **not** delegate the `allowExternal: false` case back to the original method "to be safe".
+`@angular/build:unit-test` turns that option on, so every call would take the slow path: the first
+attempt at this came out at 227.6 s against a 229.6 s baseline, which reads as "the idea does not
+work" rather than "the fast path was never entered". Do the test inline, with two `startsWith`
+against the workspace and project roots.
+:::
+
+Two more mechanics worth not rediscovering. `getProvider()` runs **before** Vitest calls
+`initialize()`, so `provider.options` does not exist yet at swap time and the matcher has to be
+built lazily on the first question. And the filename must be normalised exactly as the original does
+it — `slash(cleanUrl(filename))`, both helpers from `@vitest/utils/helpers` — or the verdicts
+diverge on the paths the two forms disagree about. The provider's own `globCache` stays a cache and
+keeps working.
+
+### Narrowing the scope is not only about speed
+
+In the same series the cobertura report was **10.78 MB** without `include` and 8.89 MB with it,
+against GitLab's **10 MB** parse limit. Over that limit the report is dropped **silently**: the job
+is green, the percentages are in the log, and there is no line highlighting in the merge request at
+all. That failure names nothing, which is why it is worth knowing the number.
+
+`npx vitest-auto-spy doctor` reports `coverage-include-recompiles-globs` when it sees a scope large
+enough for this to be worth the twenty lines above. It is an `info` finding — nothing is broken, and
+the report it produces is correct.
 
 ## Asserting a signal
 

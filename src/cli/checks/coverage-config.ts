@@ -1,10 +1,14 @@
 /**
- * Coverage keys that read as configuration and configure nothing.
+ * Coverage settings that cost something and announce nothing.
  *
- * Both findings here are the same defect in two shapes: a coverage setting written where the party
- * that assembles the coverage options never looks at it, or written in a form the first of the two
- * matching passes throws away. Nothing fails either way — the run is green and a report is
+ * The first two findings are the same defect in two shapes: a coverage setting written where the
+ * party that assembles the coverage options never looks at it, or written in a form the first of the
+ * two matching passes throws away. Nothing fails either way — the run is green and a report is
  * produced; it is simply not the report the setting describes, and no warning says so.
+ *
+ * The third is the same silence about time rather than about content: a scope large enough that
+ * matching it costs more than collecting the coverage does. That one is `info`, because the report
+ * it produces is correct.
  */
 import { join } from 'node:path';
 
@@ -32,6 +36,17 @@ const UNIT_TEST_BUILDER = '@angular/build:unit-test';
 
 /** Vitest 4 is where `coverage.all` stopped existing. */
 const ALL_REMOVED_IN = 4;
+
+/**
+ * Patterns above which `isIncluded` stops being free.
+ *
+ * The provider memoises the *verdict*, keyed by filename, and never the compiled matcher, so
+ * `picomatch` recompiles the whole list once per file. The number is a floor, not a cliff: on a real
+ * shard the surcharge was linear in the list, and 50 is simply where a hand-written scope ends and a
+ * generated one begins. A list this long is also evidence the workspace is large enough for the
+ * per-file cost to be multiplied by thousands.
+ */
+const RECOMPILE_THRESHOLD = 50;
 
 /**
  * The first `coverage: { … }` object literal of a config, brace-balanced from its opening brace.
@@ -89,11 +104,16 @@ export function declaresKey(block: string, key: string): boolean {
   return new RegExp(`(?:^|[\\s,])${key}\\s*:`).test(ownKeysText(block));
 }
 
-/** The quoted entries of the block's own `include` array. */
-export function includePatterns(block: string): string[] {
-  const arrays = captures(ownKeysText(block), /(?:^|[\s,])include\s*:\s*\[([^\]]*)]/g);
+/** The quoted entries of one of the block's own array-valued keys. */
+export function arrayPatterns(block: string, key: string): string[] {
+  const arrays = captures(ownKeysText(block), new RegExp(`(?:^|[\\s,])${key}\\s*:\\s*\\[([^\\]]*)]`, 'g'));
 
   return arrays.flatMap((body) => captures(body, /["'`]([^"'`]+)["'`]/g));
+}
+
+/** The quoted entries of the block's own `include` array. */
+export function includePatterns(block: string): string[] {
+  return arrayPatterns(block, 'include');
 }
 
 /**
@@ -112,6 +132,48 @@ export function canMatchBundleChunk(pattern: string): boolean {
   const extension = segment.slice(segment.lastIndexOf('.') + 1);
 
   return extension === '*' || /^[cm]?js$/.test(extension) || /^{[^}]*\b[cm]?js\b[^}]*}$/.test(extension);
+}
+
+/** Pattern counts from an `@angular/build:unit-test` target's own coverage options. */
+function collectTargetScope(value: unknown, into: { patterns: number }): void {
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      collectTargetScope(item, into);
+    }
+
+    return;
+  }
+
+  if (!isRecord(value)) {
+    return;
+  }
+
+  const options = value['options'];
+
+  if ((value['builder'] === UNIT_TEST_BUILDER || value['executor'] === UNIT_TEST_BUILDER) && isRecord(options)) {
+    for (const key of ['coverageInclude', 'coverageExclude']) {
+      const list = options[key];
+
+      if (Array.isArray(list)) {
+        into.patterns += list.length;
+      }
+    }
+  }
+
+  for (const nested of Object.values(value)) {
+    collectTargetScope(nested, into);
+  }
+}
+
+/** How many coverage globs the workspace's unit-test targets declare between them. */
+export function targetScopeSize(profile: Profile): number {
+  const total = { patterns: 0 };
+
+  for (const file of profile.files.filter((candidate) => WORKSPACE_FILE.test(candidate))) {
+    collectTargetScope(parseJsonc(readTextFile(join(profile.cwd, file)) ?? ''), total);
+  }
+
+  return total.patterns;
 }
 
 function collectRunnerConfigs(value: unknown, into: Set<string>): void {
@@ -165,6 +227,7 @@ function installedMajor(cwd: string, packageName: string): number | undefined {
 
 export function checkCoverageConfig(profile: Profile): Finding[] {
   const runnerConfigs = unitTestRunnerConfigs(profile);
+  const targetScope = targetScopeSize(profile);
   const major = installedMajor(profile.cwd, 'vitest');
   const findings: Finding[] = [];
 
@@ -183,6 +246,18 @@ export function checkCoverageConfig(profile: Profile): Finding[] {
         file,
         message: `\`coverage.all\` no longer exists in Vitest ${major}: the key is absent from \`coverageConfigDefaults\` and nothing reads it. The pass over files no test imported is driven by \`coverage.include\` now.`,
         fix: 'Delete `all` and declare `coverage.include` instead. Without an include the report has been covering only the files the run imported — which is what this config has been silently doing since the upgrade.',
+      });
+    }
+
+    const scopeSize = arrayPatterns(block, 'include').length + arrayPatterns(block, 'exclude').length + targetScope;
+
+    if (scopeSize >= RECOMPILE_THRESHOLD) {
+      findings.push({
+        check: 'coverage-include-recompiles-globs',
+        severity: 'info',
+        file,
+        message: `The coverage scope here is ${scopeSize} globs, and \`@vitest/coverage-v8\` recompiles all of them for every filename: its \`globCache\` memoises the verdict, keyed by the file, and never the matcher. Nothing fails — the report is correct, it is just paid for once per file per pattern.`,
+        fix: 'Swap the provider for a wrapper that compiles the list once: `coverage.provider: "custom"` plus a `customProviderModule` that re-exports `@vitest/coverage-v8` and overwrites `isIncluded` in `getProvider()`. Measured on one 1 725-file suite: 229.59 s → 22.88 s on a shard, with a byte-identical report. The recipe is in the docs — Adapters → Angular, "Coverage matching costs more than coverage".',
       });
     }
 

@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import { checkAgentInstructions } from './checks/agent-instructions';
 import { checkAngularBuild, compareVersions, isAffectedVersion, parseVersion } from './checks/angular-build';
-import { canMatchBundleChunk, checkCoverageConfig, coverageBlock, declaresKey, includePatterns } from './checks/coverage-config';
+import { arrayPatterns, canMatchBundleChunk, checkCoverageConfig, coverageBlock, declaresKey, includePatterns } from './checks/coverage-config';
 import { checkForeignPragma, findPragmas } from './checks/foreign-pragma';
 import { buildGraph, extractSpecifiers, resolveRelative } from './checks/graph';
 import { checkJasmineEra } from './checks/jasmine-era';
@@ -373,6 +373,66 @@ describe('checkCoverageConfig', () => {
 
   it('reads a workspace file that vanished as empty', () => {
     expect(checkCoverageConfig(profileWith({ files: ['angular.json'] }))).toEqual([]);
+  });
+
+  it('reports a coverage scope large enough that matching it costs more than collecting it', () => {
+    const globs = (prefix: string, count: number): string[] => Array.from({ length: count }, (_, index) => `${prefix}${index}/**/*.ts`);
+    const wide = createTempRepo({
+      'package.json': '{}',
+      'vitest.config.ts': `export default { test: { coverage: { include: ${JSON.stringify(globs('libs/a', 30))}, exclude: ${JSON.stringify(globs('libs/b', 25))} } } };`,
+    });
+
+    expect(checks(checkCoverageConfig(readProfile(wide)))).toEqual(['coverage-include-recompiles-globs']);
+  });
+
+  it('counts the globs a unit-test target declares towards the same scope', () => {
+    const target = (coverageInclude: string[], coverageExclude: string[]): string =>
+      JSON.stringify({
+        projects: {
+          app: {
+            architect: {
+              test: {
+                builder: '@angular/build:unit-test',
+                options: { runnerConfig: './vitest-runner.config.ts', coverageInclude, coverageExclude },
+              },
+            },
+          },
+        },
+      });
+    const wide = Array.from({ length: 60 }, (_, index) => `libs/p${index}/**/*.ts`);
+    const root = createTempRepo({
+      'package.json': '{}',
+      'angular.json': target(['spec-*.js', ...wide], ['**/*.spec.ts']),
+      'vitest-runner.config.ts': 'export default { test: { coverage: { provider: "v8" } } };',
+    });
+
+    expect(checks(checkCoverageConfig(readProfile(root)))).toEqual(['coverage-include-recompiles-globs']);
+  });
+
+  it('stays quiet on a scope a person could have written by hand', () => {
+    const narrow = createTempRepo({
+      'package.json': '{}',
+      'vitest.config.ts': 'export default { test: { coverage: { include: ["src/**/*.ts"], exclude: ["**/*.spec.ts"] } } };',
+    });
+
+    expect(checkCoverageConfig(readProfile(narrow))).toEqual([]);
+  });
+
+  it('reads an array-valued coverage key, and ignores one nested a level deeper', () => {
+    expect(arrayPatterns('coverage: { exclude: ["a", "b"] }', 'exclude')).toEqual(['a', 'b']);
+    expect(arrayPatterns('coverage: { thresholds: { exclude: ["a"] } }', 'exclude')).toEqual([]);
+  });
+
+  it('reads a target whose coverage options are not arrays as declaring no globs', () => {
+    const odd = createTempRepo({
+      'package.json': '{}',
+      'project.json': JSON.stringify({
+        targets: { test: { executor: '@angular/build:unit-test', options: { coverageInclude: 'libs/**/*.ts' } } },
+      }),
+      'vitest.config.ts': 'export default { test: { coverage: { include: ["src/**/*.ts"] } } };',
+    });
+
+    expect(checkCoverageConfig(readProfile(odd))).toEqual([]);
   });
 
   it('reads the coverage block lexically, and gives up rather than guess on an unbalanced one', () => {
