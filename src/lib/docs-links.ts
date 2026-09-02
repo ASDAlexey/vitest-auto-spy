@@ -18,6 +18,7 @@ export const DOCS_LINKS = {
   // from a failure, not from reading, and the page they want is the one about that check — not the
   // one about the adapter that hosts it.
   angularDiagnostics: `${DOCS}/adapters/angular-diagnostics`,
+  angularHttp: `${DOCS}/adapters/angular-http`,
   angularOverrides: `${DOCS}/adapters/angular-overrides`,
   autoMockByType: `${DOCS}/core/auto-mock-by-type`,
   bunAngular: `${DOCS}/runtimes/bun-angular`,

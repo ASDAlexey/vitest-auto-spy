@@ -4,6 +4,12 @@ import { resolve } from 'node:path';
 import { defineConfig } from 'tsup';
 
 const EXTERNAL = [
+  // The three specifiers of the optional second peer. `vitest-auto-spy/angular-http` is the only
+  // entry that reaches them, and bundling `@angular/common` would both bloat the entry and defeat
+  // the point of keeping the peer optional.
+  '@angular/common',
+  '@angular/common/http',
+  '@angular/common/http/testing',
   '@angular/compiler',
   '@angular/core',
   '@angular/core/testing',
@@ -40,6 +46,7 @@ const OUT_DIR = 'dist';
 
 // Every ESM entry except the two below, built together so they share the emitted chunks.
 const CHUNKED_ENTRIES = [
+  'src/angular-http.ts',
   'src/bun.ts',
   'src/bun-angular.ts',
   'src/node.ts',
@@ -166,7 +173,7 @@ export default defineConfig([
     entry: CHUNKED_ENTRIES,
     format: ['esm'] as const,
     clean: false,
-    // Types for *all fourteen* ESM entries, not just the twelve this pass bundles. The declaration
+    // Types for *all eighteen* ESM entries, not just the sixteen this pass bundles. The declaration
     // build has no reason to follow the JavaScript split — one pass over every entry keeps the
     // shared `.d.ts` chunks shared, where letting the unsplit pass below emit its own gave
     // `index.d.ts` and `angular.d.ts` a private copy of the type graph and cost ~106 kB.
@@ -191,7 +198,7 @@ export default defineConfig([
     // reproduced here and is not claimed. The trade is +120 kB of `dist` in a dev-only dependency
     // that never reaches a production bundle.
     //
-    // Only these two: full de-chunking of all fourteen entries costs +429 kB and duplicates the
+    // Only these two: full de-chunking of every entry costs +429 kB and duplicates the
     // registries. Every other entry keeps the shared chunks.
     entry: SOLO_ENTRIES,
     format: ['esm'] as const,

@@ -89,6 +89,11 @@
       "import": "./angular.js",
       "default": "./angular.js"
     },
+    "./angular-http": {
+      "types": "./angular-http.d.ts",
+      "import": "./angular-http.js",
+      "default": "./angular-http.js"
+    },
     "./nestjs": {
       "types": "./nestjs.d.ts",
       "import": "./nestjs.js",
@@ -141,11 +146,15 @@
     "vitest-auto-spy": "^3.16.0"
   },
   "peerDependencies": {
+    "@angular/common": ">=16.0.0",
     "@angular/core": ">=16.0.0",
     "rxjs": ">=7.0.0",
     "vitest": ">=2.1.0"
   },
   "peerDependenciesMeta": {
+    "@angular/common": {
+      "optional": true
+    },
     "@angular/core": {
       "optional": true
     },
@@ -171,6 +180,7 @@
     "./jasmine-compat.js",
     "./observer-spy.js",
     "./angular.js",
+    "./angular-http.js",
     "./nestjs.js",
     "./react.js",
     "./vue.js",

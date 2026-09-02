@@ -40,6 +40,7 @@ Every entry point of `vitest-auto-spy` is re-exported here, under the same names
 | `vitest-auto-spies`                | the core — `createSpyFromClass`, `createAutoMock`, `mockDeep`, …                     |
 | `vitest-auto-spies/bun`            | the `bun:test` mock adapter                                                          |
 | `vitest-auto-spies/bun-angular`    | Angular's `TestBed` under `bun test` (a preload)                                     |
+| `vitest-auto-spies/angular-http`   | `provideHttpTesting`, `expectRequest` — `httpResource()` in two lines                |
 | `vitest-auto-spies/node`           | the `node:test` mock adapter — the one entry that also ships CJS                     |
 | `vitest-auto-spies/rxjs`           | Observable spies (`nextWith`, `observablePropsToSpyOn`, …)                           |
 | `vitest-auto-spies/console`        | silent, typed `console` spies                                                        |

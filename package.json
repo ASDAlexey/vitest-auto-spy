@@ -126,6 +126,11 @@
       "import": "./dist/angular.js",
       "default": "./dist/angular.js"
     },
+    "./angular-http": {
+      "types": "./dist/angular-http.d.ts",
+      "import": "./dist/angular-http.js",
+      "default": "./dist/angular-http.js"
+    },
     "./nestjs": {
       "types": "./dist/nestjs.d.ts",
       "import": "./dist/nestjs.js",
@@ -182,6 +187,7 @@
     "**/node.js",
     "**/node.cjs",
     "**/angular.js",
+    "**/angular-http.js",
     "**/nestjs.js",
     "**/react.js",
     "**/vue.js",
@@ -229,16 +235,20 @@
     "format": "prettier -w \"src/**/*.ts\"",
     "format:check": "prettier -c \"src/**/*.ts\"",
     "jscpd": "jscpd",
-    "check": "npm run typecheck && npm run lint && npm run jscpd && npm run llms:check && npm run docs:check && npm run plugin:sync:check && npm run skill:check && npm run alias:sync:check && npm run test:coverage && npm run test:types && npm run test:shared-env && npm run test:zone && npm run test:bun && npm run test:bun:angular",
+    "check": "npm run typecheck && npm run lint && npm run jscpd && npm run llms:check && npm run docs:check && npm run plugin:sync:check && npm run skill:check && npm run alias:sync:check && npm run test:coverage && npm run test:types && npm run types:budget && npm run test:shared-env && npm run test:zone && npm run test:bun && npm run test:bun:angular",
     "prepublishOnly": "npm run build",
     "version": "node scripts/sync-plugin-version.mjs && node scripts/sync-alias.mjs && git add .claude-plugin alias"
   },
   "peerDependencies": {
+    "@angular/common": ">=16.0.0",
     "@angular/core": ">=16.0.0",
     "rxjs": ">=7.0.0",
     "vitest": ">=2.1.0"
   },
   "peerDependenciesMeta": {
+    "@angular/common": {
+      "optional": true
+    },
     "@angular/core": {
       "optional": true
     },
