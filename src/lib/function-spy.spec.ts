@@ -183,3 +183,41 @@ describe('createFunctionSpy — failWith', () => {
     expect(load()).toBeUndefined();
   });
 });
+
+/**
+ * The helpers are shared functions that find their spy through `this` — one set for the run instead
+ * of a closure per helper per spy. The one thing that changes for a caller is a *detached* helper:
+ * it used to work by accident, and now fails at the call, naming the helper and the two shapes that
+ * do work.
+ */
+describe('createFunctionSpy — helpers are methods of their spy', () => {
+  it('refuses a helper destructured off its spy, naming the helper and the shapes that work', () => {
+    const load = createFunctionSpy<() => Promise<string>>('load');
+    const { resolveWith } = load;
+
+    expect(() => resolveWith('value')).toThrow(/resolveWith was called off its spy/);
+    expect(() => resolveWith('value')).toThrow(/spy\.method\.resolveWith/);
+  });
+
+  it('refuses a receiver that is not an object at all', () => {
+    const load = createFunctionSpy<() => string>('load');
+
+    expect(() => load.failWith.call(undefined, new Error('x'))).toThrow(/failWith was called off its spy/);
+    expect(() => load.failWith.call(null, new Error('x'))).toThrow(/failWith was called off its spy/);
+  });
+
+  it('refuses a receiver that carries no spy state', () => {
+    const load = createFunctionSpy<(n: number) => string>('load');
+
+    expect(() => load.calledWith.call({}, 1)).toThrow(/calledWith was called off its spy/);
+  });
+
+  it('works once bound, which is how the jasmine namespaces delegate', async () => {
+    const load = createFunctionSpy<() => Promise<string>>('load');
+    const resolveWith = load.resolveWith.bind(load);
+
+    resolveWith('value');
+
+    await expect(load()).resolves.toBe('value');
+  });
+});

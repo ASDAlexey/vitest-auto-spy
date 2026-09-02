@@ -9,13 +9,13 @@ import { DOCS_LINKS, withDocs } from './docs-links';
 import { errorHandler } from './error-handler';
 import type { CalledWithObject, ReturnValueContainer } from './internal-types';
 import { getJasmineSupport } from './jasmine-support';
-import { getMockAdapter } from './mock-adapter';
-import { getObservableSupport } from './observable-support';
-import { addPromiseHelpersToCalledWithObject, addPromiseHelpersToFunctionSpy } from './promise-spy';
+import { type MockFn, getMockAdapter } from './mock-adapter';
+import { type ObservableStream, getObservableSupport } from './observable-support';
+import { addPromiseHelpersToCalledWithObject, promiseHelpers, storePromiseConfig } from './promise-spy';
 import { serializeValue } from './serialize-args';
 import { type SettledResultsRecorder, installSettledResultsPolyfill } from './settled-results';
-import { decorate } from './spy-decoration';
-import { attachClearHook, attachConfigReset, markAsMock } from './spy-mark';
+import { decorate, detachedHelperError } from './spy-decoration';
+import { AUTO_SPY_MARK, type MarkHooks, markAsMock } from './spy-mark';
 import type { AddSpyMethodsByReturnTypes, Func, UnstubbedCall, UnstubbedCallHandler } from './types';
 
 /** Narrow the loosely-typed map lookup back to a `ReturnValueContainer`. */
@@ -257,6 +257,125 @@ function ensureCalledWithObject(state: SpyState, chain: 'calledWith' | 'mustBeCa
 }
 
 /**
+ * What every shared helper reaches through `this`: the spy's whole mutable state, kept under the
+ * spy's own mark.
+ *
+ * The helpers a spy carries — `calledWith`, `mustBeCalledWith`, `failWith`, `resolveWith`,
+ * `rejectWith`, `resolveWithPerCall`, and the reset and clear hooks — used to be a closure each,
+ * created per spy at materialisation: eight function objects and their contexts for every method
+ * a spec touched, before the host mock itself. They are now six shared functions and two methods
+ * of this class, and the class instance is what sits under {@link AUTO_SPY_MARK} in place of
+ * `true` — so the brand, the reset hook and the clear hook cost one `defineProperty` where they
+ * cost three. Measured on the `/node` entry, materialising a method cost ~2.3 µs of this library's
+ * own time on top of the runner's; the closures and the extra symbol properties were most of it.
+ */
+class FunctionSpyInternals implements MarkHooks {
+  observable: ObservableStream | undefined = undefined;
+
+  constructor(
+    readonly state: SpyState,
+    readonly valueContainer: ReturnValueContainer,
+    readonly host: MockFn,
+    readonly dispatch: Func,
+    readonly recorder: SettledResultsRecorder,
+  ) {}
+
+  /**
+   * `resetAutoSpy` reverts this spy's configuration; the state lives here, where the host runner's
+   * own reset cannot reach it. Clearing the container in place keeps the reference the mock
+   * implementation closed over.
+   */
+  reset(): void {
+    const { state, valueContainer } = this;
+
+    // Dropping the chains reverts the configuration *and* releases the argument maps a configured
+    // spy allocated, so a reset spy costs exactly what a fresh one costs.
+    delete state.calledWith;
+    delete state.mustBeCalledWith;
+    valueContainer.value = undefined;
+    delete valueContainer._isRejectedPromise;
+    delete valueContainer._isThrown;
+    delete valueContainer.valuesPerCalls;
+    // The observable layer keeps its `ReplaySubject` in a closure the container cannot reach, and
+    // its buffer is configuration in exactly the sense `calledWith` is: without this, a value from
+    // one test is replayed to the next one — ahead of the error that test configured.
+    this.observable?.reset();
+    // Re-install the library dispatch so a bare `spy.method.mockReturnValue(…)`
+    // set directly on the host mock is reverted too (mockClear alone can't).
+    getMockAdapter().restoreImplementation(this.host, this.dispatch);
+  }
+
+  /** Empties the polyfilled `settledResults` on `clearAutoSpy` / `resetAutoSpy` (a no-op on Vitest, where the host clears its native array). */
+  clear(): void {
+    this.recorder.clear();
+  }
+}
+
+/**
+ * The internals behind `this`, or a message naming the helper that was called off its spy.
+ *
+ * `const { resolveWith } = spy.method` compiles — the helper is a plain property — and used to
+ * work, because each helper was a closure over its own spy. With shared helpers a detached call
+ * has no spy to configure, so it fails here, at the call, naming the helper and the two shapes
+ * that do work.
+ */
+function internalsOf(self: unknown, helper: string): FunctionSpyInternals {
+  const mark: unknown =
+    typeof self === 'function' || (typeof self === 'object' && self !== null) ? Reflect.get(self, AUTO_SPY_MARK) : undefined;
+
+  if (mark instanceof FunctionSpyInternals) {
+    return mark;
+  }
+
+  throw detachedHelperError(helper);
+}
+
+/**
+ * The helpers every function spy carries, shared across the run — see {@link FunctionSpyInternals}.
+ *
+ * `failWith` is here and not left to the runner: Vitest 4.1 grew `mockThrow`, but Bun and
+ * `node:test` have nothing like it, and no runtime has a way to make a *`calledWith` chain* throw —
+ * `mockImplementation` replaces the whole dispatch, which is the opposite of configuring one set of
+ * arguments. It is `failWith` and not `throwWith`, which is the name the shape asks for: `throwWith`
+ * is already the observable helper that *errors the stream*, it is attached to every spy at runtime
+ * (the return type that tells the two apart exists only in the types), and whichever is installed
+ * last wins. Sharing the name therefore breaks one of them on every spy in the run — which it did,
+ * loudly, the first time this was written that way.
+ */
+// `@__PURE__` on the `Object.assign`, and `Object.assign` rather than a spread: a call at module
+// level is a side effect to a bundler, and so is a spread (it may run getters). Without the mark an
+// entry that never builds a spy (`/setup`) still carried this object and everything it reaches —
+// measured at +1.2 kB min+gzip on that entry.
+const SPY_HELPERS = /* @__PURE__ */ Object.assign(
+  // The inner call carries its own mark: a pure annotation covers the call it precedes, not its
+  // arguments, and an unmarked argument call is evaluated — and everything it reaches kept.
+  /* @__PURE__ */ promiseHelpers<unknown>((self, container, helper) => {
+    storePromiseConfig(internalsOf(self, helper).valueContainer, container);
+  }),
+  {
+    failWith(this: unknown, error?: unknown): void {
+      const { valueContainer } = internalsOf(this, 'failWith');
+
+      valueContainer.value = error;
+      valueContainer._isThrown = true;
+      // A default configured earlier is superseded, not layered under: leaving either behind would
+      // make the next call's outcome depend on which helper ran first.
+      valueContainer._isRejectedPromise = false;
+      valueContainer.valuesPerCalls = [];
+    },
+    calledWith(this: unknown, ...calledWithArgs: unknown[]): CalledWithObject {
+      return addMethodsToCalledWith(ensureCalledWithObject(internalsOf(this, 'calledWith').state, 'calledWith'), calledWithArgs);
+    },
+    mustBeCalledWith(this: unknown, ...calledWithArgs: unknown[]): CalledWithObject {
+      return addMethodsToCalledWith(
+        ensureCalledWithObject(internalsOf(this, 'mustBeCalledWith').state, 'mustBeCalledWith'),
+        calledWithArgs,
+      );
+    },
+  },
+);
+
+/**
  * Create a single host-runner-backed function spy with all return-type helpers attached.
  *
  * @example
@@ -286,7 +405,7 @@ export function createFunctionSpy<FunctionType extends Func>(
   let settledResultsRecorder: SettledResultsRecorder | undefined = undefined;
 
   // The library's dispatch: pick the configured value for the call, then record
-  // its settled outcome. Captured by name so `resetAutoSpy` can re-install it,
+  // its settled outcome. Kept in the internals so `resetAutoSpy` can re-install it,
   // discarding any host-level `mockReturnValue`/`mockImplementation` a test set.
   const dispatch = (...actualArgs: unknown[]): unknown => {
     const returned = returnTheCorrectFakeValue(state, actualArgs, name, unstubbed);
@@ -298,38 +417,14 @@ export function createFunctionSpy<FunctionType extends Func>(
 
   // Bun / node:test don't track `mock.settledResults`; polyfill it so the typed
   // `spy.method.mock.settledResults` surface works on every runtime (Vitest keeps
-  // its native array — the recorder is then a no-op). Also held in a second, definitely-assigned
-  // binding, so the clear hook below carries no presence check that could never fail.
+  // its native array — the recorder is then a no-op).
   const recorder = installSettledResultsPolyfill(functionSpy);
   settledResultsRecorder = recorder;
 
-  addPromiseHelpersToFunctionSpy(functionSpy, valueContainer);
-  const resetObservableStream = getObservableSupport()?.addToFunctionSpy(functionSpy, valueContainer);
+  const internals = new FunctionSpyInternals(state, valueContainer, functionSpy, dispatch, recorder);
+  const spy = decorate(functionSpy, SPY_HELPERS);
 
-  const spy = decorate(functionSpy, {
-    // The sync twin of `resolveWith` / `nextWith`, and the reason it is here rather than left to
-    // the runner: Vitest 4.1 grew `mockThrow`, but Bun and `node:test` have nothing like it, and
-    // no runtime has a way to make a *`calledWith` chain* throw — `mockImplementation` replaces the
-    // whole dispatch, which is the opposite of configuring one set of arguments.
-    //
-    // `failWith` and not `throwWith`, which is the name the shape asks for: `throwWith` is already
-    // the observable helper that *errors the stream*, it is attached to every spy at runtime (the
-    // return type that tells the two apart exists only in the types), and whichever is installed
-    // last wins. Sharing the name therefore breaks one of them on every spy in the run — which it
-    // did, loudly, the first time this was written that way.
-    failWith: (error?: unknown): void => {
-      valueContainer.value = error;
-      valueContainer._isThrown = true;
-      // A default configured earlier is superseded, not layered under: leaving either behind would
-      // make the next call's outcome depend on which helper ran first.
-      valueContainer._isRejectedPromise = false;
-      valueContainer.valuesPerCalls = [];
-    },
-    calledWith: (...calledWithArgs: unknown[]): CalledWithObject =>
-      addMethodsToCalledWith(ensureCalledWithObject(state, 'calledWith'), calledWithArgs),
-    mustBeCalledWith: (...calledWithArgs: unknown[]): CalledWithObject =>
-      addMethodsToCalledWith(ensureCalledWithObject(state, 'mustBeCalledWith'), calledWithArgs),
-  });
+  internals.observable = getObservableSupport()?.addToFunctionSpy(spy, valueContainer);
 
   // `.and` / `.calls` / `.withArgs`, for a suite arriving from `jasmine-auto-spies`. Installed only
   // when `vitest-auto-spy/jasmine` has been imported — one `undefined` check for everyone else.
@@ -341,30 +436,8 @@ export function createFunctionSpy<FunctionType extends Func>(
     },
   });
 
-  // `resetAutoSpy` reverts this spy's configuration; the state lives in these
-  // closures, so the host runner's own reset can't reach it. Clearing the
-  // container in place keeps the reference the mock implementation closed over.
-  attachConfigReset(spy, () => {
-    // Dropping the chains reverts the configuration *and* releases the argument maps a configured
-    // spy allocated, so a reset spy costs exactly what a fresh one costs.
-    delete state.calledWith;
-    delete state.mustBeCalledWith;
-    valueContainer.value = undefined;
-    delete valueContainer._isRejectedPromise;
-    delete valueContainer._isThrown;
-    delete valueContainer.valuesPerCalls;
-    // The observable layer keeps its `ReplaySubject` in a closure the container cannot reach, and
-    // its buffer is configuration in exactly the sense `calledWith` is: without this, a value from
-    // one test is replayed to the next one — ahead of the error that test configured.
-    resetObservableStream?.();
-    // Re-install the library dispatch so a bare `spy.method.mockReturnValue(…)`
-    // set directly on the host mock is reverted too (mockClear alone can't).
-    getMockAdapter().restoreImplementation(functionSpy, dispatch);
-  });
-  // Empties the polyfilled `settledResults` on `clearAutoSpy`/`resetAutoSpy`
-  // (a no-op on Vitest, where the host clears its native array).
-  attachClearHook(spy, () => recorder.clear());
-  markAsMock(spy);
+  // The brand, the reset hook and the clear hook, in one property — see `FunctionSpyInternals`.
+  markAsMock(spy, internals);
 
   return exposeAsSpy<FunctionType>(spy);
 }

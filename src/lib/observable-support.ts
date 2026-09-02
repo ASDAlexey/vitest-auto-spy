@@ -13,13 +13,19 @@ import { DOCS_LINKS, withDocs } from './docs-links';
 import type { CalledWithObject, ReturnValueContainer } from './internal-types';
 
 /** The observable helpers the `/rxjs` entry plugs into the core. */
+/** What the rxjs layer hands back for a function spy: its stream state, with the reset `resetAutoSpy` calls. */
+export interface ObservableStream {
+  reset(): void;
+}
+
 export interface ObservableSupport {
   /**
    * @returns the spy's observable reset, which {@link createFunctionSpy} folds into its
    *   configuration reset — the backing `ReplaySubject`'s buffer is configuration, and a spy that
    *   outlives a test must not carry it into the next one.
    */
-  addToFunctionSpy(spyFunction: object, valueContainer: ReturnValueContainer): () => void;
+  /** Install the stream helpers and hand back the spy's stream state, whose `reset` `resetAutoSpy` calls. */
+  addToFunctionSpy(spyFunction: object, valueContainer: ReturnValueContainer): ObservableStream;
   addToCalledWithObject(calledWithObject: CalledWithObject, calledWithArgs: unknown[]): void;
   createPropSpy(): object;
 }

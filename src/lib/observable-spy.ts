@@ -10,7 +10,9 @@ import { concatMap, delay, switchMap, take, takeUntil, takeWhile } from 'rxjs/op
 
 import { REPLAY_BUFFER_SIZE } from './constants';
 import type { CalledWithObject, ReturnValueContainer } from './internal-types';
-import { decorate } from './spy-decoration';
+import { type ObservableStream } from './observable-support';
+import { decorate, detachedHelperError } from './spy-decoration';
+import { hooksOf } from './spy-mark';
 import type { AddObservableSpyMethods, ValueConfig, ValueConfigPerCall } from './types';
 import { isCompleteConfig, isErrorConfig, isNextValueConfig } from './value-config-guards';
 
@@ -72,145 +74,126 @@ function mergeSubjectWithDefaultValues<T>(subject: ReplaySubject<T>, valuesConfi
 }
 
 /**
- * Attach the core observable helpers to `objectToDecorate`. Every helper calls
- * `onSubjectConfigured` so the caller can publish the resulting observable.
+ * The backing subject of one observable target, created on first use and replaced after it closes.
  *
- * The backing subject is reached through `getSubject`, not a live instance, so a
- * function spy that never uses an observable helper (the common case for a
- * sync/promise method once rxjs is loaded) never allocates a `ReplaySubject`.
- * `getSubject` is expected to memoize, so every helper sees the same instance.
+ * A class with two fields rather than a closure over two variables: every function spy the rxjs
+ * layer touches used to allocate the handle as an object plus three closures, on top of six more
+ * closures for the helpers themselves — a dozen objects per method a spec called, before the mock.
+ * The targets below extend it, so a function spy's whole observable state is one object.
+ *
+ * `terminated` is tracked here rather than read off the subject: rxjs's own `isStopped` is
+ * deprecated, and the three helpers that close it are the only things that can, so this cannot drift.
  */
-function addObservableHelpers<T>(
-  objectToDecorate: object,
-  handle: SubjectHandle<T>,
-  onSubjectConfigured: (subject: Observable<T>) => void,
-): void {
-  decorate(objectToDecorate, {
-    nextWith: (value: T): void => {
-      const subject = handle.get();
+abstract class ObservableTarget<T> {
+  subject: ReplaySubject<T> | undefined = undefined;
+  terminated = false;
+
+  get(): ReplaySubject<T> {
+    if (!this.subject || this.terminated) {
+      this.subject = createReplaySubject<T>();
+      this.terminated = false;
+    }
+
+    return this.subject;
+  }
+
+  terminate(): void {
+    this.terminated = true;
+  }
+
+  reset(): void {
+    this.subject = undefined;
+    this.terminated = false;
+  }
+
+  /** Where a configured stream goes: the spy's return container, a `calledWith` slot, or a prop's published stream. */
+  abstract publish(stream: Observable<T>): void;
+}
+
+/** What `nextWithPerCall` needs on top: the container it fills, and a hook for a target that has to register it. */
+interface PerCallTarget {
+  readonly container: ReturnValueContainer;
+  configured(): void;
+}
+
+/** How a helper finds its target from `this` — a closure over one target, or a lookup through the spy's mark. */
+type Resolve<Self, Target> = (self: Self, helper: string) => Target;
+
+/**
+ * Close the target's subject the way `close` says, then publish it.
+ *
+ * Closed for good, so the next configuration on this target has to start a new subject — otherwise
+ * it pushes into a dead one and emits nothing, which is what used to happen.
+ */
+function closeAndPublish<T>(target: ObservableTarget<T>, close: (subject: ReplaySubject<T>) => void): void {
+  const subject = target.get();
+  close(subject);
+  target.terminate();
+  target.publish(subject);
+}
+
+/**
+ * The six stream helpers, written against `this` and built once per *resolver*.
+ *
+ * On a function spy the resolver reads the spy's state through its mark, so one set of six
+ * functions serves every spy in the run and materialising a method allocates none of them. A
+ * `calledWith` chain and an observable prop still get a set each, because their resolver closes
+ * over the one target — a chain is configuration built on demand, and a class has a handful of
+ * observable props, so there is nothing to save there.
+ */
+function observableHelpers<Self, T>(
+  resolve: Resolve<Self, ObservableTarget<T>>,
+): {
+  nextWith(this: Self, value: T): void;
+  nextOneTimeWith(this: Self, value: T): void;
+  nextWithValues(this: Self, valuesConfigs: ValueConfig<T>[]): void;
+  throwWith(this: Self, value: unknown): void;
+  complete(this: Self): void;
+  returnSubject(this: Self): ReplaySubject<T>;
+} {
+  return {
+    nextWith(this: Self, value: T): void {
+      const target = resolve(this, 'nextWith');
+      const subject = target.get();
       subject.next(value);
-      onSubjectConfigured(subject);
+      target.publish(subject);
     },
-    nextOneTimeWith: (value: T): void => {
-      const subject = handle.get();
-      subject.next(value);
-      subject.complete();
-      // Closed for good, so the next configuration on this spy has to start a new one — otherwise
-      // it pushes into a dead subject and emits nothing, which is what used to happen.
-      handle.terminate();
-      onSubjectConfigured(subject);
+    nextOneTimeWith(this: Self, value: T): void {
+      closeAndPublish(resolve(this, 'nextOneTimeWith'), (subject) => {
+        subject.next(value);
+        subject.complete();
+      });
     },
-    nextWithValues: (valuesConfigs: ValueConfig<T>[]): void => {
+    nextWithValues(this: Self, valuesConfigs: ValueConfig<T>[]): void {
       if (valuesConfigs.length === 0) {
         return;
       }
 
-      onSubjectConfigured(mergeSubjectWithDefaultValues(handle.get(), valuesConfigs));
+      const target = resolve(this, 'nextWithValues');
+      target.publish(mergeSubjectWithDefaultValues(target.get(), valuesConfigs));
     },
-    throwWith: (value: unknown): void => {
-      const subject = handle.get();
-      subject.error(value);
-      handle.terminate();
-      onSubjectConfigured(subject);
+    throwWith(this: Self, value: unknown): void {
+      closeAndPublish(resolve(this, 'throwWith'), (subject) => subject.error(value));
     },
-    complete: (): void => {
-      const subject = handle.get();
-      subject.complete();
-      handle.terminate();
-      onSubjectConfigured(subject);
+    complete(this: Self): void {
+      closeAndPublish(resolve(this, 'complete'), (subject) => subject.complete());
     },
-    returnSubject: (): ReplaySubject<T> => {
-      const subject = handle.get();
-      onSubjectConfigured(subject);
+    returnSubject(this: Self): ReplaySubject<T> {
+      const target = resolve(this, 'returnSubject');
+      const subject = target.get();
+      target.publish(subject);
 
       return subject;
     },
-  });
+  };
 }
 
-/**
- * Forget what the previous configuration of `container` left behind.
- *
- * A function spy owns one container for its whole life, and `unwrapContainer` reads `_isThrown`,
- * `_isRejectedPromise` and `valuesPerCalls` *before* it reads `value`. Without this, a
- * `rejectWith(err)` (or a `*PerCall` batch) keeps answering for every later `nextWith` /
- * `nextWithPerCall` on the same spy, silently ignoring the newer configuration. The promise
- * helpers clear both on every store; the observable helpers publish through this instead of
- * repeating it at each of their two publication points.
- */
 function clearPreviousConfig(container: ReturnValueContainer): void {
   container._isRejectedPromise = false;
   container._isThrown = false;
   delete container.valuesPerCalls;
 }
 
-/**
- * The backing subject of one spy, and its lifetime.
- *
- * It used to be a plain memoizing factory — one `ReplaySubject(1)` created on first use and kept
- * for the life of the spy — and that made the buffer outlive the configuration that filled it. Two
- * failures came out of it, both silent, and the first is the quietest defect in this library's
- * history: **a failing call became a successful one carrying the previous test's data.**
- *
- * ```ts
- * // test 1
- * service.createSeamlessTransition.nextWith(uri); // buffered, for the rest of the run
- *
- * // test 2 — the failure path is what this test is about
- * service.createSeamlessTransition.throwWith(error);
- * // the subscriber gets `uri` first, and the error only after it
- * ```
- *
- * The code under test therefore walks the *success* branch on stale data, and the branch the test
- * was written for is reached — if at all — one emission late. Nothing in the failure points at the
- * previous test. It needs a spy that outlives a test, which is the ordinary shape when the TestBed
- * is built in `beforeAll`.
- *
- * The second is worse in a quieter way: `error()` and `complete()` **close a Subject permanently**,
- * so every later `nextWith` on that spy pushed into a dead subject and emitted nothing at all —
- * even after `resetAutoSpy`, which is supposed to return the spy to pristine and could not reach
- * this state.
- *
- * Hence a handle rather than a factory. `get()` hands back a live subject, making a fresh one when
- * the current one has been terminated; `terminate()` records that a helper closed it; `reset()`
- * drops it, and is wired into the spy's configuration reset — the buffer *is* configuration, in
- * exactly the sense `calledWith` is.
- */
-interface SubjectHandle<T> {
-  /** The current subject — a new one when there is none, or when the last was closed. */
-  get(): ReplaySubject<T>;
-  /** Record that a helper has just errored or completed the subject. */
-  terminate(): void;
-  /** Forget the subject, so the next configuration starts from an empty stream. */
-  reset(): void;
-}
-
-function subjectHandle<T>(): SubjectHandle<T> {
-  let subject: ReplaySubject<T> | undefined;
-  // Tracked here rather than read off the subject: rxjs's own `isStopped` is deprecated, and the
-  // three helpers that close it are the only things that can, so this cannot drift.
-  let terminated = false;
-
-  return {
-    get: (): ReplaySubject<T> => {
-      if (!subject || terminated) {
-        subject = createReplaySubject<T>();
-        terminated = false;
-      }
-
-      return subject;
-    },
-    terminate: (): void => {
-      terminated = true;
-    },
-    reset: (): void => {
-      subject = undefined;
-      terminated = false;
-    },
-  };
-}
-
-/** Build the per-call observable for one `ValueConfigPerCall` entry. */
 function buildPerCallObservable<T>(replaySubject: ReplaySubject<T>, config: ValueConfigPerCall<T>): Observable<T> {
   let observable: Observable<T> = replaySubject.asObservable();
 
@@ -225,20 +208,19 @@ function buildPerCallObservable<T>(replaySubject: ReplaySubject<T>, config: Valu
   return observable;
 }
 
-/** Attach `nextWithPerCall`, which returns one controllable subject per call. */
-function addNextWithPerCall<T>(
-  objectToDecorate: object,
-  returnValueContainer: ReturnValueContainer,
-  onConfigured: (container: ReturnValueContainer) => void = (): void => undefined,
-): void {
-  decorate(objectToDecorate, {
-    nextWithPerCall: (valueConfigsPerCall: ValueConfigPerCall<T>[]): ReplaySubject<T>[] => {
+/** `nextWithPerCall`, written against `this` like the six above — see {@link observableHelpers}. */
+function nextWithPerCallHelper<Self, T>(
+  resolve: Resolve<Self, PerCallTarget>,
+): { nextWithPerCall(this: Self, valueConfigsPerCall: ValueConfigPerCall<T>[]): ReplaySubject<T>[] } {
+  return {
+    nextWithPerCall(this: Self, valueConfigsPerCall: ValueConfigPerCall<T>[]): ReplaySubject<T>[] {
       const returnedSubjects: ReplaySubject<T>[] = [];
 
       if (valueConfigsPerCall.length === 0) {
         return returnedSubjects;
       }
 
+      const target = resolve(this, 'nextWithPerCall');
       const valuesPerCalls: ReturnValueContainer['valuesPerCalls'] = [];
       valueConfigsPerCall.forEach((config) => {
         const replaySubject = createReplaySubject<T>();
@@ -247,52 +229,91 @@ function addNextWithPerCall<T>(
 
         valuesPerCalls.push({ wrappedValue: buildPerCallObservable(replaySubject, config) });
       });
-      clearPreviousConfig(returnValueContainer);
-      returnValueContainer.valuesPerCalls = valuesPerCalls;
+      clearPreviousConfig(target.container);
+      target.container.valuesPerCalls = valuesPerCalls;
 
-      onConfigured(returnValueContainer);
+      target.configured();
 
       return returnedSubjects;
     },
-  });
+  };
 }
 
 /**
- * @returns the spy's observable reset, for {@link createFunctionSpy} to fold into its configuration
- *   reset. Returned rather than attached here because a spy owns exactly one reset hook, and the
- *   core already uses it for the container and the dispatch.
+ * A function spy's observable state: the subject handle and the spy's own return container, in one
+ * object. Reached from `this` through the spy's mark, so it costs no property of its own on the
+ * spy; `reset` — inherited — is what `resetAutoSpy` calls to drop the buffered subject.
  */
-export function addObservableHelpersToFunctionSpy(spyFunction: object, valueContainer: ReturnValueContainer): () => void {
-  const handle = subjectHandle();
-  addObservableHelpers(spyFunction, handle, (configuredSubject) => {
-    clearPreviousConfig(valueContainer);
-    valueContainer.value = configuredSubject;
-  });
-  addNextWithPerCall(spyFunction, valueContainer);
+class SpyObservableState<T> extends ObservableTarget<T> implements ObservableStream, PerCallTarget {
+  constructor(readonly container: ReturnValueContainer) {
+    super();
+  }
 
-  return handle.reset;
+  publish(stream: Observable<T>): void {
+    clearPreviousConfig(this.container);
+    this.container.value = stream;
+  }
+
+  configured(): void {
+    // The spy's own container is what its dispatch already reads; there is nothing to register.
+  }
+}
+
+/** The observable state behind `this`, for a helper installed on a function spy. */
+function spyObservableStateOf(self: unknown, helper: string): SpyObservableState<unknown> {
+  const state = typeof self === 'function' || (typeof self === 'object' && self !== null) ? hooksOf(self)?.observable : undefined;
+
+  if (state instanceof SpyObservableState) {
+    return state;
+  }
+
+  throw detachedHelperError(helper);
+}
+
+/** One set for every function spy in the run — see {@link observableHelpers}. `@__PURE__` keeps it out of entries that build no spy. */
+const SPY_OBSERVABLE_HELPERS = /* @__PURE__ */ Object.assign(
+  /* @__PURE__ */ observableHelpers<unknown, unknown>(spyObservableStateOf),
+  /* @__PURE__ */ nextWithPerCallHelper<unknown, unknown>(spyObservableStateOf),
+);
+
+export function addObservableHelpersToFunctionSpy(spyFunction: object, valueContainer: ReturnValueContainer): ObservableStream {
+  decorate(spyFunction, SPY_OBSERVABLE_HELPERS);
+
+  return new SpyObservableState(valueContainer);
+}
+
+/** A `calledWith` chain's observable target: its own container, registered for the chain's arguments once configured. */
+class ChainObservableTarget<T> extends ObservableTarget<T> implements PerCallTarget {
+  readonly container: ReturnValueContainer = { value: undefined };
+
+  constructor(
+    private readonly calledWithObject: CalledWithObject,
+    private readonly calledWithArgs: unknown[],
+  ) {
+    super();
+  }
+
+  publish(stream: Observable<T>): void {
+    clearPreviousConfig(this.container);
+    this.container.value = stream;
+    this.configured();
+  }
+
+  configured(): void {
+    this.calledWithObject.argsToValuesMap.set(this.calledWithArgs, this.container);
+  }
 }
 
 export function addObservableHelpersToCalledWithObject(calledWithObject: CalledWithObject, calledWithArgs: unknown[]): void {
-  const returnValueContainer: ReturnValueContainer = { value: undefined };
-  addObservableHelpers(calledWithObject, subjectHandle(), (configuredSubject) => {
-    clearPreviousConfig(returnValueContainer);
-    returnValueContainer.value = configuredSubject;
-    calledWithObject.argsToValuesMap.set(calledWithArgs, returnValueContainer);
-  });
-  addNextWithPerCall(calledWithObject, returnValueContainer, (configured) => {
-    calledWithObject.argsToValuesMap.set(calledWithArgs, configured);
+  const target = new ChainObservableTarget<unknown>(calledWithObject, calledWithArgs);
+  const resolve = (): ChainObservableTarget<unknown> => target;
+
+  decorate(calledWithObject, {
+    ...observableHelpers<CalledWithObject, unknown>(resolve),
+    ...nextWithPerCallHelper<CalledWithObject, unknown>(resolve),
   });
 }
 
-/**
- * Build a standalone Observable that emits the provided value configs.
- *
- * @example
- * ```ts
- * const source$ = createObservableWithValues([{ value: 'a' }, { value: 'b', delay: 100 }, { complete: true }]);
- * ```
- */
 export function createObservableWithValues<T>(valuesConfigs: ValueConfig<T>[]): Observable<T>;
 export function createObservableWithValues<T>(
   valuesConfigs: ValueConfig<T>[],
@@ -309,21 +330,32 @@ export function createObservableWithValues<T>(
 }
 
 /** Create an observable property spy (deferred subscription to a controllable subject). */
-export function createObservablePropSpy<T>(): AddObservableSpyMethods<T> & Observable<T> {
-  const handle = subjectHandle<T>();
-  // The currently-published stream: starts as the backing subject, but `nextWithValues` swaps in a
-  // merged observable. `defer` re-reads it on each subscription, so late reconfiguration is
-  // honoured — and it re-reads the *handle* too, so a `nextWith` after a `complete()` publishes the
-  // fresh subject rather than pushing into the closed one.
-  let published$: Observable<T> = defer(() => handle.get());
-  const observableSpy: Observable<T> = defer(() => published$);
-  addObservableHelpers(observableSpy, handle, (configuredSubject) => {
-    published$ = configuredSubject;
-  });
+/**
+ * An observable prop's target: the currently-published stream. It starts as the backing subject,
+ * but `nextWithValues` swaps in a merged observable; `defer` re-reads it on each subscription, so
+ * late reconfiguration is honoured — and it re-reads the *subject* too, so a `nextWith` after a
+ * `complete()` publishes the fresh subject rather than pushing into the closed one.
+ */
+class PropObservableTarget<T> extends ObservableTarget<T> {
+  published$: Observable<T> = defer(() => this.get());
 
-  // `addObservableHelpers` attaches the `AddObservableSpyMethods<T>` helpers onto
-  // `observableSpy` at runtime; the assertion re-exposes those dynamically-attached
-  // methods to the type system.
-  // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- the helpers are assembled at runtime via `decorate`; their presence cannot be expressed without an assertion on the in-place-mutated Observable.
+  publish(stream: Observable<T>): void {
+    this.published$ = stream;
+  }
+}
+
+export function createObservablePropSpy<T>(): AddObservableSpyMethods<T> & Observable<T> {
+  const target = new PropObservableTarget<T>();
+  // Read back as the plain `Observable<T>` it is at the type level: a prop spy carries the six
+  // stream helpers but not `nextWithPerCall`, and the public type below claims the full set.
+  const observableSpy: Observable<T> = decorate(
+    defer(() => target.published$),
+    observableHelpers<Observable<T>, T>(() => target),
+  );
+
+  // `observableHelpers` attaches the `AddObservableSpyMethods<T>` helpers onto the deferred
+  // observable at runtime, as methods that read `this`; the assertion restates them as the
+  // public interface, whose methods carry no `this` parameter.
+  // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- the helpers are assembled at runtime via `decorate`; their `this`-typed signatures cannot be stated as the public interface without an assertion.
   return observableSpy as AddObservableSpyMethods<T> & Observable<T>;
 }

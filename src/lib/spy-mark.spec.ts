@@ -8,10 +8,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { createAutoMock } from './auto-mock';
 import { createSpyFromClass } from './create-spy-from-class';
-import { attachClearHook, attachConfigReset, isAutoSpyLike, isMarkedMock, markAsMock, runClearHook, runConfigReset } from './spy-mark';
-
-const RESET_CONFIG = Symbol.for('vitest-auto-spy.resetConfig');
-const CLEAR_HOOK = Symbol.for('vitest-auto-spy.clearHook');
+import { isAutoSpyLike, isMarkedMock, markAsMock, runClearHook, runConfigReset } from './spy-mark';
 
 describe('spy-mark', () => {
   it('isMarkedMock recognises branded functions only', () => {
@@ -26,36 +23,64 @@ describe('spy-mark', () => {
     expect(isMarkedMock('x')).toBe(false);
   });
 
-  it('runConfigReset runs an attached hook and is a no-op without one', () => {
-    const withHook = {};
+  it('runConfigReset runs the reset hook a mark carries and is a no-op without one', () => {
+    const withHooks = {};
     const reset = vi.fn();
-    attachConfigReset(withHook, reset);
+    markAsMock(withHooks, { reset, clear: vi.fn() });
 
-    runConfigReset(withHook);
+    runConfigReset(withHooks);
     expect(reset).toHaveBeenCalledTimes(1);
 
     expect(() => runConfigReset({})).not.toThrow();
   });
 
-  it('runClearHook runs an attached hook and is a no-op without one', () => {
-    const withHook = {};
+  it('runClearHook runs the clear hook a mark carries and is a no-op without one', () => {
+    const withHooks = {};
     const clear = vi.fn();
-    attachClearHook(withHook, clear);
+    markAsMock(withHooks, { reset: vi.fn(), clear });
 
-    runClearHook(withHook);
+    runClearHook(withHooks);
     expect(clear).toHaveBeenCalledTimes(1);
 
     expect(() => runClearHook({})).not.toThrow();
   });
 
-  it('ignores a hook slot that does not hold a function', () => {
-    const configTarget = {};
-    Object.defineProperty(configTarget, RESET_CONFIG, { value: 'not-a-fn', configurable: true });
-    expect(() => runConfigReset(configTarget)).not.toThrow();
+  it('treats a plain `true` mark, or an object that is not a pair of hooks, as carrying no hooks', () => {
+    const plain = {};
+    markAsMock(plain);
+    expect(() => runConfigReset(plain)).not.toThrow();
+    expect(() => runClearHook(plain)).not.toThrow();
 
-    const clearTarget = {};
-    Object.defineProperty(clearTarget, CLEAR_HOOK, { value: 42, configurable: true });
-    expect(() => runClearHook(clearTarget)).not.toThrow();
+    // Half a pair is not a pair: both hooks are required, so a stray object under the mark runs nothing.
+    const halfway = {};
+    Object.defineProperty(halfway, Symbol.for('vitest-auto-spy.mock'), { value: { reset: vi.fn() }, configurable: true });
+    expect(() => runConfigReset(halfway)).not.toThrow();
+
+    const empty = {};
+    Object.defineProperty(empty, Symbol.for('vitest-auto-spy.mock'), { value: {}, configurable: true });
+    expect(() => runClearHook(empty)).not.toThrow();
+  });
+
+  it('calls the hooks with the mark as receiver, which is how a function spy reaches its state', () => {
+    const state = { count: 0 };
+    const hooks = {
+      count: 0,
+      reset(): void {
+        this.count += 1;
+        state.count = this.count;
+      },
+      clear(): void {
+        this.count += 10;
+        state.count = this.count;
+      },
+    };
+    const spy = {};
+    markAsMock(spy, hooks);
+
+    runConfigReset(spy);
+    runClearHook(spy);
+
+    expect(state.count).toBe(11);
   });
 });
 

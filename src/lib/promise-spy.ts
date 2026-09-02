@@ -18,37 +18,58 @@ function toResolvedPerCallValues<T>(valueConfigsPerCall: ValueConfigPerCall<T>[]
   }));
 }
 
-/** Attach `resolveWith` / `rejectWith` / `resolveWithPerCall`, publishing each result via `store`. */
-function addPromiseHelpers<T>(target: object, store: (container: ReturnValueContainer) => void): void {
-  decorate(target, {
-    resolveWith: (value?: T): void => {
-      store({ value: Promise.resolve(value) });
+/** Where a promise helper writes its container: the spy's own, or one argument list of a `calledWith` chain. */
+export type ContainerStore<Self> = (self: Self, container: ReturnValueContainer, helper: string) => void;
+
+/**
+ * The three promise helpers, written against `this` and built once per *store* rather than once
+ * per spy.
+ *
+ * On a function spy the store reads the spy's container off `this`, so one set of three functions
+ * serves every spy in the run, and materialising a method allocates none of them — where each used
+ * to be a closure of its own. A `calledWith` chain still gets a set per chain, because its store
+ * captures the argument list: a chain is configuration, built only when a spec asks for it, and
+ * there is nothing to save there.
+ *
+ * `helper` travels with every write so a store that has to reject a detached call (`const
+ * { resolveWith } = spy.method`) can name the helper in its message.
+ */
+export function promiseHelpers<Self>(store: ContainerStore<Self>): {
+  resolveWith(this: Self, value?: unknown): void;
+  rejectWith(this: Self, value?: unknown): void;
+  resolveWithPerCall(this: Self, valueConfigsPerCall: ValueConfigPerCall<unknown>[]): void;
+} {
+  return {
+    resolveWith(this: Self, value?: unknown): void {
+      store(this, { value: Promise.resolve(value) }, 'resolveWith');
     },
-    rejectWith: (value?: unknown): void => {
-      store({ value, _isRejectedPromise: true });
+    rejectWith(this: Self, value?: unknown): void {
+      store(this, { value, _isRejectedPromise: true }, 'rejectWith');
     },
-    resolveWithPerCall: (valueConfigsPerCall: ValueConfigPerCall<T>[]): void => {
+    resolveWithPerCall(this: Self, valueConfigsPerCall: ValueConfigPerCall<unknown>[]): void {
       if (valueConfigsPerCall.length === 0) {
         return;
       }
 
-      store({ value: undefined, valuesPerCalls: toResolvedPerCallValues(valueConfigsPerCall) });
+      store(this, { value: undefined, valuesPerCalls: toResolvedPerCallValues(valueConfigsPerCall) }, 'resolveWithPerCall');
     },
-  });
+  };
 }
 
-export function addPromiseHelpersToFunctionSpy(spyFunction: object, valueContainer: ReturnValueContainer): void {
-  addPromiseHelpers(spyFunction, (container) => {
-    valueContainer.value = container.value;
-    valueContainer._isRejectedPromise = container._isRejectedPromise ?? false;
-    // `failWith` supersedes and is superseded in turn — see its own note in `function-spy`.
-    valueContainer._isThrown = false;
-    valueContainer.valuesPerCalls = container.valuesPerCalls ?? [];
-  });
+/** Write a promise configuration into a spy's long-lived container, superseding whatever was there. */
+export function storePromiseConfig(valueContainer: ReturnValueContainer, container: ReturnValueContainer): void {
+  valueContainer.value = container.value;
+  valueContainer._isRejectedPromise = container._isRejectedPromise ?? false;
+  // `failWith` supersedes and is superseded in turn — see its own note in `function-spy`.
+  valueContainer._isThrown = false;
+  valueContainer.valuesPerCalls = container.valuesPerCalls ?? [];
 }
 
 export function addPromiseHelpersToCalledWithObject(calledWithObject: CalledWithObject, calledWithArgs: unknown[]): void {
-  addPromiseHelpers(calledWithObject, (container) => {
-    calledWithObject.argsToValuesMap.set(calledWithArgs, container);
-  });
+  decorate(
+    calledWithObject,
+    promiseHelpers<CalledWithObject>((_self, container) => {
+      calledWithObject.argsToValuesMap.set(calledWithArgs, container);
+    }),
+  );
 }

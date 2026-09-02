@@ -245,3 +245,36 @@ describe('nextWithValues on a falsy value', () => {
     expect(collect(flags.isEnabled()).values).toEqual([true]);
   });
 });
+
+/**
+ * The stream helpers on a function spy are shared functions that find the spy's stream state
+ * through its mark — one set for the run, not seven closures per method. A detached call has no
+ * spy to configure and fails at the call, naming the helper.
+ */
+describe('stream helpers are methods of their spy', () => {
+  it('refuses a helper destructured off its spy', () => {
+    const load = createFunctionSpy<() => Observable<string>>('load');
+    const { nextWith } = load;
+
+    expect(() => nextWith('value')).toThrow(/nextWith was called off its spy/);
+  });
+
+  it('refuses a receiver that is not an object, or one that carries no stream state', () => {
+    const load = createFunctionSpy<() => Observable<string>>('load');
+
+    expect(() => load.complete.call(undefined)).toThrow(/complete was called off its spy/);
+    expect(() => load.throwWith.call(null, new Error('x'))).toThrow(/throwWith was called off its spy/);
+    expect(() => load.nextWithPerCall.call({}, [{ value: 'x' }])).toThrow(/nextWithPerCall was called off its spy/);
+  });
+
+  it('works once bound, and on a calledWith chain, where the helpers close over their target', async () => {
+    const load = createFunctionSpy<(id: number) => Observable<string>>('load');
+    const nextWith = load.nextWith.bind(load);
+
+    nextWith('bound');
+    load.calledWith(1).nextWith('chained');
+
+    await expect(firstValueFrom(load(2))).resolves.toBe('bound');
+    await expect(firstValueFrom(load(1))).resolves.toBe('chained');
+  });
+});
