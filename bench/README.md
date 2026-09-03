@@ -136,20 +136,28 @@ counts stay equal and the comparison stays fair whichever one you run.
 
 ### What this stand can and cannot resolve
 
-Five independent runs of the whole file, each in its own process, moved the published `p75` by a
-**median of 6.7%, worst case 17.0%**, across 42 rows. That is machine state — thermal, memory
-layout, neighbouring processes — not sampling: raising every budget fourfold lowered `rme` and left
-this untouched.
+Two different questions hide behind "how accurate is this", and they have different answers.
 
-**So a difference under about 20% is not measurable here, and must not be claimed.** The ~6× gap to
-the `jest-auto-spies` family is far above it and stands. The type-mock and deep-mock losses stand.
-`calledWith` against `vitest-mock-extended` does not: 0.92× with 16.8% spread on that very row, which
-is parity and nothing more.
+**How noisy is one run?** Seven independent runs of the whole file moved the `p75` of a given row by
+a median of 6.9% and at worst 15.3%. That is machine state — thermal, memory layout, neighbouring
+processes — not sampling: raising every budget fourfold lowered `rme` and left it untouched. It does
+not improve with more runs either, because it is a property of the machine rather than of the
+estimate.
 
-`npm run bench:vs -- --repeat 5` is what the published numbers come from. It runs five passes
-sequentially — never concurrently, which would measure the scheduler — publishes the median `p75`
-and replaces the `rme` column with the run-to-run spread of the figure it actually prints. A single
-`npm run bench:vs` is for iterating on the file, not for quoting.
+**How far off is the published number?** That is a different quantity, and it does improve. The
+published figure is the median of the runs, and the `uncertainty` column is its standard error —
+`1.253·σ/√n`. On the seven-run `--precise` profile it comes out at a median of **±1.2%**, worst
+**±3.0%**, with one row out of forty-two above ±3%.
+
+So the published numbers are good to a couple of per cent, while any single run is not. That is why
+`--precise` runs the file seven times and publishes the median, and why the column reports the
+median's error rather than the spread of the runs — an earlier version showed the spread, which does
+not fall with repeats and made the extra passes look like they bought nothing.
+
+**A difference under about 20% between two libraries is still not measurable here**, because that
+comparison is limited by the run-to-run noise and not by the median's error. The ~6x gap to the
+`jest-auto-spies` family is far above it and stands; the type-mock and deep-mock losses stand;
+`calledWith` against `vitest-mock-extended` does not, and is parity.
 
 ### Why every arm runs the same number of iterations
 

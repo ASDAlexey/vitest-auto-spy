@@ -32,7 +32,7 @@ const STRINGS = {
     perSec: 'operations/sec',
     ratio: 'vs this package',
     rme: 'rme',
-    spread: 'run spread',
+    spread: 'uncertainty',
     samples: 'samples',
     reproduce: 'Reproduce',
     legend: [
@@ -48,8 +48,9 @@ const STRINGS = {
       '  elapsed time, so an equal time budget would make the faster arm pay for its own speed.',
       '- **vs this package** — that arm divided by this package. Above 1.00x is slower, below is',
       '  faster. The ratio is what transfers to another machine; the microseconds do not.',
-      '- **rme / run spread** — `rme` bounds the mean, which GC tails dominate; run spread is how far',
-      '  the published p75 moved between whole runs, and is the figure to trust.',
+      '- **rme / uncertainty** — a single run reports `rme`, which bounds the *mean* and is dominated',
+      '  by GC tails. A repeated run reports how far the *published median* can be off, which falls as',
+      '  more whole runs are added. That is the figure to trust, and the one `--precise` buys.',
       '',
       'Compare only within a table. A gap under about 20% is not a gap on this stand.',
     ],
@@ -71,7 +72,7 @@ const STRINGS = {
     perSec: 'операций/сек',
     ratio: 'к этому пакету',
     rme: 'погрешн.',
-    spread: 'разброс',
+    spread: 'неопредел.',
     samples: 'выборок',
     reproduce: 'Воспроизвести',
     legend: [
@@ -86,8 +87,10 @@ const STRINGS = {
       '  времени, поэтому равный бюджет по времени заставил бы быструю руку платить за свою скорость.',
       '- **к этому пакету** — время руки, делённое на время пакета. Больше 1.00x — медленнее, меньше',
       '  — быстрее. На другую машину переносимо отношение, а не микросекунды.',
-      '- **погрешность / разброс** — `rme` ограничивает среднее, которым правят хвосты сборщика;',
-      '  разброс показывает, насколько публикуемый p75 сдвинулся между целыми прогонами. Верить ему.',
+      '- **погрешность / неопределённость** — одиночный прогон печатает `rme`, а он ограничивает',
+      '  *среднее*, которым правят хвосты сборщика. Повторный печатает, насколько может ошибаться',
+      '  *публикуемая медиана*; она падает с числом целых прогонов. Верить надо ей — её и покупает',
+      '  `--precise`.',
       '',
       'Сравнивать только внутри одной таблицы. Разрыв меньше примерно 20 % на этом стенде не разрыв.',
     ],
@@ -109,7 +112,7 @@ const STRINGS = {
     perSec: 'opérations/s',
     ratio: 'face à ce paquet',
     rme: 'marge',
-    spread: 'écart entre runs',
+    spread: 'incertitude',
     samples: 'échantillons',
     reproduce: 'Reproduire',
     legend: [
@@ -126,8 +129,9 @@ const STRINGS = {
       '- **face à ce paquet** — le temps de cette bibliothèque divisé par celui de ce paquet.',
       '  Au-dessus de 1.00x elle est plus lente. C\'est le rapport qui se transpose à une autre',
       '  machine, pas les microsecondes.',
-      '- **marge / écart** — `rme` borne la moyenne, que dominent les pauses du ramasse-miettes ;',
-      '  l\'écart dit de combien le p75 publié a bougé entre des runs entiers. C\'est lui qui compte.',
+      '- **marge / incertitude** — un run isolé affiche `rme`, qui borne la *moyenne*, dominée par les',
+      '  pauses du ramasse-miettes. Un run répété affiche de combien la *médiane publiée* peut se',
+      '  tromper ; elle diminue avec le nombre de runs. C\'est elle qui compte.',
       '',
       'Ne comparez qu\'au sein d\'un même tableau. Un écart sous 20 % environ n\'en est pas un ici.',
     ],
@@ -149,7 +153,7 @@ const STRINGS = {
     perSec: '操作/秒',
     ratio: '相对本包',
     rme: '误差',
-    spread: '多轮波动',
+    spread: '不确定度',
     samples: '样本数',
     reproduce: '复现方式',
     legend: [
@@ -162,8 +166,9 @@ const STRINGS = {
       '  垃圾回收的频率取决于创建的对象数量而非耗时，若按相同时间预算，更快的库反而要为自己的速度付费。',
       '- **相对本包** — 该库耗时除以本包耗时。大于 1.00x 表示更慢，小于表示更快。可迁移到其他机器的',
       '  是这个比值，而不是微秒数。',
-      '- **误差 / 多轮波动** — `rme` 约束的是平均值，而平均值由垃圾回收的长尾主导；多轮波动表示所',
-      '  发布的 p75 在完整重复运行之间移动了多少，应以它为准。',
+      '- **误差 / 不确定度** — 单次运行给出 `rme`，它约束的是*平均值*，而平均值由垃圾回收长尾主导。',
+      '  重复运行给出*所发布中位数*的可能偏差，它随完整运行次数增加而减小。应以它为准，`--precise`',
+      '  买的正是它。',
       '',
       '只在同一表格内比较。在本测试台上，小于约 20% 的差距不构成差距。',
     ],
@@ -185,7 +190,7 @@ const STRINGS = {
     perSec: 'operaciones/s',
     ratio: 'frente a este paquete',
     rme: 'margen',
-    spread: 'dispersión',
+    spread: 'incertidumbre',
     samples: 'muestras',
     reproduce: 'Reproducir',
     legend: [
@@ -202,9 +207,9 @@ const STRINGS = {
       '- **frente a este paquete** — el tiempo de esa biblioteca dividido por el de este paquete. Por',
       '  encima de 1.00x es más lenta. Lo que se traslada a otra máquina es la proporción, no los',
       '  microsegundos.',
-      '- **margen / dispersión** — `rme` acota la media, dominada por las colas del recolector; la',
-      '  dispersión indica cuánto se movió el p75 publicado entre ejecuciones completas. Esa es la',
-      '  cifra fiable.',
+      '- **margen / incertidumbre** — una ejecución única da `rme`, que acota la *media*, dominada por',
+      '  las colas del recolector. Una repetida da cuánto puede errar la *mediana publicada*, que baja',
+      '  con el número de ejecuciones completas. Esa es la cifra fiable.',
       '',
       'Compare solo dentro de una misma tabla. Una diferencia por debajo del 20 % aquí no lo es.',
     ],
@@ -226,7 +231,7 @@ const STRINGS = {
     perSec: 'operações/s',
     ratio: 'ante este pacote',
     rme: 'margem',
-    spread: 'variação',
+    spread: 'incerteza',
     samples: 'amostras',
     reproduce: 'Reproduzir',
     legend: [
@@ -241,8 +246,9 @@ const STRINGS = {
       '  propósito: estes casos alocam, e a coleta acompanha os objetos criados e não o tempo.',
       '- **ante este pacote** — o tempo daquela biblioteca dividido pelo deste pacote. Acima de 1.00x',
       '  é mais lenta. O que se transfere para outra máquina é a razão, não os microssegundos.',
-      '- **margem / variação** — `rme` limita a média, dominada pelas caudas do coletor; a variação',
-      '  diz o quanto o p75 publicado se moveu entre execuções inteiras. É nela que se deve confiar.',
+      '- **margem / incerteza** — uma execução única dá `rme`, que limita a *média*, dominada pelas',
+      '  caudas do coletor. Uma repetida dá o quanto a *mediana publicada* pode errar, e isso cai com o',
+      '  número de execuções inteiras. É nela que se deve confiar.',
       '',
       'Compare apenas dentro de uma mesma tabela. Uma diferença abaixo de cerca de 20 % não é uma.',
     ],
@@ -343,6 +349,24 @@ function renderTable(headers, rows, aligned) {
 const median = (values) => [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)];
 
 /**
+ * How far the PUBLISHED figure — the median of the runs — can be off, as a percentage of itself.
+ *
+ * Not the spread of the individual runs: that is a property of the machine and does not fall as more
+ * runs are added, which made the extra passes of `--precise` look like they bought nothing. The
+ * median's own standard error does fall, as 1.253·σ/√n, and it is what a reader depends on.
+ */
+function medianUncertainty(values) {
+  if (values.length < 2) {
+    return 0;
+  }
+
+  const mean = values.reduce((total, value) => total + value, 0) / values.length;
+  const variance = values.reduce((total, value) => total + (value - mean) ** 2, 0) / (values.length - 1);
+
+  return (1.253 * Math.sqrt(variance)) / Math.sqrt(values.length);
+}
+
+/**
  * Across repeated runs the published figure is the median p75, and the trust column becomes how far
  * that figure moved between runs — which is what a reader actually needs, and what `rme` cannot
  * tell them: `rme` bounds the MEAN, and the mean here is dominated by garbage-collection tails.
@@ -358,14 +382,14 @@ function renderGroup(group, t, aligned, runs) {
     const name = self && !aligned ? `**${row.name}**` : row.name;
     const value = repeated ? median(row.p75Runs) : row.p75;
     const base = repeated ? median(baseline.p75Runs) : baseline.p75;
-    const spread = repeated ? ((Math.max(...row.p75Runs) - Math.min(...row.p75Runs)) / value) * 100 : row.rme;
+    const spread = repeated ? (medianUncertainty(row.p75Runs) / value) * 100 : row.rme;
 
     return [
       name,
       `${(value * 1000).toFixed(2)} µs`,
       Math.round(1000 / value).toLocaleString(t.locale),
       self ? '—' : `${(value / base).toFixed(2)}×`,
-      `${repeated ? '' : '±'}${spread.toFixed(1)}%`,
+      `±${spread.toFixed(1)}%`,
       row.sampleCount.toLocaleString(t.locale),
     ];
   });
