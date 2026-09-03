@@ -9,10 +9,10 @@ within a release, so this one is a pointer and nothing else.
 Three things worth knowing before you start, because they are the ones that cost time:
 
 - **Never commit, push or tag.** The maintainer does that by hand.
-- `npm run check` is the gate — typecheck, lint, jscpd, `llms:check`, `docs:check`, the sync checks,
-  coverage at **100 %** over `src/lib/**` and `src/cli/**`, the type tests, the type-instantiation
-  budget (`types:budget`), and the shared-env, zone, Bun and Bun-Angular suites. A change is not
-  finished until it passes.
+- `npm run check` is the gate — `deps:check`, typecheck, lint, `format:check`, jscpd, `llms:check`,
+  `docs:check`, the sync checks, coverage at **100 %** over `src/lib/**` and `src/cli/**`, the type
+  tests, the type-instantiation budget (`types:budget`), and the shared-env, zone, Bun and
+  Bun-Angular suites. A change is not finished until it passes.
 - **The landing cards in `docs-site/index.md` are prose inside YAML.** A `: ` in an unquoted
   `details:` or `title:` value ends the value and starts a new key, and the only thing that reads
   that frontmatter is `vitepress build` — in the pages workflow, after the gate, so it fails on

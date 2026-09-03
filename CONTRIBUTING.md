@@ -18,6 +18,8 @@ npm ci
 | `npm run test:watch` | Run tests in watch mode |
 | `npm run test:coverage` | Run tests with coverage (100% thresholds enforced) |
 | `npm run typecheck` | Type-check the project with `tsc --noEmit` |
+| `npm run check` | The full gate CI runs — everything below plus lint, `format:check`, jscpd, the sync checks and every suite |
+| `npm run deps:check` | Fail when `node_modules` drifted from `package-lock.json`, so the gate tests the versions `npm ci` installs |
 | `npm run test:types` | Assert what callers **infer** — `expectTypeOf` cases under `src/type-tests` |
 | `npm run types:budget` | Count the type instantiations `Spy<T>` costs `tsc` on a generated fixture; fails past the budget in `scripts/check-type-budget.mjs` (`--measure` prints the numbers, `--print` the fixture) |
 | `npm run build` | Build the ESM + CJS bundles and type declarations |
@@ -290,7 +292,7 @@ optional local staging mirror and is not required by the release flow.
 
 1. Fork the repo and create a branch from `master`.
 2. Make your change with tests.
-3. Run `npm run typecheck && npm run test:coverage && npm run test:types && npm run build` locally.
+3. Run `npm run check && npm run build` locally — it is the same gate CI runs.
 4. Open a pull request describing the change and the motivation.
 
 By contributing you agree that your contributions are licensed under the project's
