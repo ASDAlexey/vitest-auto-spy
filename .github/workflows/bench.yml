@@ -59,8 +59,10 @@ jobs:
 
       # One job, one machine, every arm back-to-back. Splitting the arms across matrix jobs would
       # compare two different runners and report the difference as a library difference.
+      # `bench:vs` writes bench-results.json and prints the rendered table itself, so this step is
+      # the measurement and the next one only re-renders it into the summary.
       - name: Run benchmarks
-        run: npm run bench:vs -- --outputJson bench-results.json
+        run: npm run bench:vs
 
       - name: Publish table to the job summary
         run: node scripts/bench-report.mjs bench-results.json >> "$GITHUB_STEP_SUMMARY"
