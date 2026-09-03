@@ -73,6 +73,9 @@ const REPO_ROOT = path.resolve(SCRIPT_DIR, '..');
 
 const KNOWN_ARMS = ['ours', 'ours-proxy', 'hirez', 'manual'];
 const PACKAGE_NAME = 'vitest-auto-spy';
+// `manual` is the floor, not a rival: it imports no library at all, so no library can beat it and
+// the frame must not turn red when this one merely fails to. Colour is decided against these.
+const COMPETITOR_ARMS = ['hirez'];
 const TESTS_PER_FILE = 10;
 const SAMPLE_INTERVAL_MS = 200;
 
@@ -585,6 +588,68 @@ function fmt(n, digits = 2) {
   return Number(n).toFixed(digits);
 }
 
+// The table prints ratios and a colour; both mean nothing without saying what they are measured
+// against, and the one arm a reader is most likely to misread is `manual`. Written from the numbers
+// actually in hand, so it can never claim a win the table does not show.
+function resultsFootnote(arms, sizes, cellOf) {
+  const lines = ['Reading the table', ''];
+  lines.push('  Ratios are against vitest-auto-spy: below 1.00× is faster than this package, above it slower.');
+
+  const competitors = arms.filter((arm) => COMPETITOR_ARMS.includes(arm));
+  if (arms.includes('ours') && competitors.length > 0) {
+    lines.push(`  The frame is green only while vitest-auto-spy beats ${competitors.map(armLabel).join(' and ')} at every size.`);
+  }
+
+  if (arms.includes('manual') && arms.includes('ours')) {
+    const ratios = sizes
+      .map((size) => {
+        const ours = cellOf(size, 'ours')?.wallMedian;
+        const manual = cellOf(size, 'manual')?.wallMedian;
+
+        return typeof ours === 'number' && typeof manual === 'number' && manual > 0 ? ours / manual : null;
+      })
+      .filter((value) => value !== null);
+
+    lines.push('');
+    lines.push('  hand-written vi.fn() is the floor, not a rival, and it does not decide the colour: it imports no');
+    lines.push('  library, so no library can be faster than it — parity is the best result available.');
+
+    if (ratios.length > 0) {
+      const span =
+        ratios.length === 1
+          ? `${fmt(ratios[0], 2)}×`
+          : `${fmt(Math.min(...ratios), 2)}×–${fmt(Math.max(...ratios), 2)}× across the sizes measured`;
+      lines.push(`  This run puts vitest-auto-spy at ${span} of it.`);
+    }
+  }
+
+  // A single-digit ratio gap next to a double-digit spread is machine state, not a result. The
+  // reader cannot know which they are looking at unless the run says how noisy it was.
+  const spreads = roundSpreads(arms, sizes, cellOf);
+  if (spreads.length > 0) {
+    lines.push('');
+    lines.push(`  Widest round-to-round spread in this run: ${fmt(Math.max(...spreads) * 100, 0)}% of the cell's median.`);
+    lines.push('  Read any ratio closer to 1.00 than that as noise, not as a result.');
+  }
+
+  lines.push('');
+
+  return lines;
+}
+
+function roundSpreads(arms, sizes, cellOf) {
+  const spreads = [];
+  for (const size of sizes) {
+    for (const arm of arms) {
+      const cell = cellOf(size, arm);
+      const times = (cell?.runs ?? []).filter((run) => !run.failed).map((run) => run.wallSeconds);
+      if (times.length > 1 && cell.wallMedian > 0) spreads.push((Math.max(...times) - Math.min(...times)) / cell.wallMedian);
+    }
+  }
+
+  return spreads;
+}
+
 // --- Main ------------------------------------------------------------------------------------
 
 async function main() {
@@ -746,16 +811,24 @@ async function main() {
   const arms = [...new Set(results.map((r) => r.arm))];
   const cellOf = (size, arm) => results.find((r) => r.size === size && r.arm === arm);
 
-  // Green only when this package is the fastest arm at every size measured, red the moment it is
-  // not: the suite-scale row this project loses is the one a reader most needs to notice, and the
-  // frame says so before the numbers are read.
+  // Green only when this package beats every competing *library* at every size measured, red the
+  // moment it does not: the suite-scale row this project loses to a rival is the one a reader most
+  // needs to notice, and the frame says so before the numbers are read. `manual` is excluded on
+  // purpose — see COMPETITOR_ARMS.
+  const competitors = arms.filter((arm) => COMPETITOR_ARMS.includes(arm));
   const oursWinsEverywhere = sizes.every((size) => {
-    const times = arms.map((arm) => cellOf(size, arm)?.wallMedian).filter((value) => typeof value === 'number');
     const ours = cellOf(size, 'ours')?.wallMedian;
 
-    return typeof ours === 'number' && times.length > 0 && ours === Math.min(...times);
+    return (
+      typeof ours === 'number' &&
+      competitors.every((arm) => {
+        const rival = cellOf(size, arm)?.wallMedian;
+
+        return typeof rival !== 'number' || ours < rival;
+      })
+    );
   });
-  const color = arms.includes('ours') ? (oursWinsEverywhere ? 'green' : 'red') : undefined;
+  const color = arms.includes('ours') && competitors.length > 0 ? (oursWinsEverywhere ? 'green' : 'red') : undefined;
 
   // One cell per arm rather than one row: wall-clock and peak RSS are read together — an arm that
   // wins the clock and loses the heap is the whole reason this harness measures both — and a
@@ -788,6 +861,7 @@ async function main() {
     ).join('\n'),
   );
   console.log('');
+  for (const line of resultsFootnote(arms, sizes, cellOf)) console.log(line);
 
   // The spread the medians above hide: same cell, same machine, minutes apart.
   console.log(renderHeading('Wall-clock per round, and the ratio to ours', style, 3).join('\n'));
@@ -815,7 +889,7 @@ async function main() {
           return rounds.join('  ');
         }),
       ]),
-      { style },
+      { style, color: style === 'box' ? color : undefined },
     ).join('\n'),
   );
   console.log('');
