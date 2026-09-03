@@ -4,14 +4,13 @@
  * Not part of the public API; consumed by the function/promise/observable spy
  * factories to decide what a spy returns when invoked.
  */
-import type { Observable } from 'rxjs';
-
 import type { ArgsMap } from './args-map';
+import type { ObservableLike } from './types';
 
 /** A single pre-wrapped value used by the `*PerCall` helpers, consumed one per call. */
 export interface PerCallValue {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- a per-call value is an opaque Promise/Observable of arbitrary element type produced by the spy decorators; the element type is not known here.
-  wrappedValue: Observable<any> | Promise<any>;
+  wrappedValue: ObservableLike<any> | Promise<any>;
 }
 
 /** What a spy returns when invoked (unless overridden by a `calledWith` match). */

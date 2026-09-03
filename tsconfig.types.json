@@ -3,5 +3,14 @@
   // those files are never executed: Vitest's `typecheck` mode only compiles them and reports the
   // diagnostics, so they need the sources in the program and nothing from the test setup.
   "extends": "./tsconfig.json",
-  "include": ["src/type-tests/**/*.test-d.ts", "src/**/*.d.ts"]
+  // `tsconfig.json` excludes `rxjs-seam.test-d.ts` because that program has `src/rxjs.ts` in it and
+  // the file asserts the shape of a program that does not. This *is* that program, so the exclusion
+  // is dropped rather than inherited.
+  "exclude": [],
+  // `src/index.ts` is here for `src/rxjs.ts`'s sake, not its own: a module augmentation only
+  // compiles when the module it names is already in the program, so a type test that ever imports
+  // `../rxjs` would otherwise fail with `TS2664: Invalid module name in augmentation` while the
+  // specifier itself resolves perfectly well. No test imports it today — the fallback shape is the
+  // whole point of this program — and the failure would be a puzzle when one does.
+  "include": ["src/type-tests/**/*.test-d.ts", "src/**/*.d.ts", "src/index.ts"]
 }

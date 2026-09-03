@@ -5,8 +5,82 @@
  * to a method spy based on its return type, how accessor spies are exposed, and
  * what the configuration object accepts.
  */
-import type { Observable, Subject } from 'rxjs';
 import type { Mock, MockInstance } from 'vitest';
+
+// ---------------------------------------------------------------------------
+// The rxjs seam
+// ---------------------------------------------------------------------------
+
+/**
+ * Structural stand-in for an rxjs `Observable`, and the reason this file names no rxjs type.
+ *
+ * `import type { Observable } from 'rxjs'` in a shipped declaration is neither free nor erasable:
+ * TypeScript resolves the module for the type-only form exactly as it does for the value form, so
+ * the emitted `dist/types-*.d.ts` pulled **189 rxjs `.d.ts` files** into the program of every
+ * React / Vue / Svelte / Node consumer — against this package's own 1 494 lines — and raised
+ * `TS2307` for anyone without the optional peer and `skipLibCheck: false`. Both halves were
+ * measured against `import type` and it changes neither. Only removing the reference does.
+ *
+ * **`forEach` carries the element type, not `subscribe`.** TypeScript infers a type argument from
+ * an overloaded source method by pairing the *trailing* signature, and rxjs 7's last `subscribe`
+ * overload is the deprecated positional `subscribe(next?, error?, complete?)`; inferring `T`
+ * through it yields `unknown` — the same trap {@link https://rxjs.dev/deprecations/subscribe-arguments | rxjs's own deprecation}
+ * set for `expectEmission`, which is why `CallbackSubscribable` exists in `expect-emission.ts`.
+ * `forEach` also keeps the match *tight*, which matters now that the check is structural rather
+ * than nominal: `Array.prototype.forEach` returns `void` rather than `Promise<void>`, and
+ * Angular's `OutputEmitterRef` and `Signal` have no `forEach` at all, so none of them starts
+ * counting as an observable. What now matches that did not before is a second copy of rxjs in the
+ * tree — `Subject` is nominal (`private currentObservers`), so a duplicated `Observable<T>` used
+ * to fall through to the plain-spy branch with no hint of why.
+ */
+export interface ObservableLike<T> {
+  subscribe(...args: never[]): { unsubscribe(): void };
+  forEach(next: (value: T) => void, ...rest: never[]): Promise<void>;
+}
+
+/**
+ * Structural stand-in for an rxjs `Subject` — what {@link SubjectOf} resolves to when the
+ * observable layer's types are not in the program.
+ */
+export interface SubjectLike<T> extends ObservableLike<T> {
+  next(value: T): void;
+  error(err: unknown): void;
+  complete(): void;
+  unsubscribe(): void;
+  asObservable(): ObservableLike<T>;
+  readonly closed: boolean;
+}
+
+/**
+ * The augmentation seam `vitest-auto-spy/rxjs` fills in, and the whole reason `returnSubject()`
+ * still hands back a real rxjs `Subject` to the suites that have one.
+ *
+ * Empty here on purpose. `import 'vitest-auto-spy/rxjs'` — the same one import that makes the
+ * observable helpers *exist* at runtime — merges `subject: Subject<T>` into this interface, and
+ * every {@link SubjectOf} in the program resolves to rxjs's own type from that point on. A
+ * consumer that never registers the observable layer never names rxjs, so nothing loads it.
+ *
+ * The consequence worth knowing: the type follows the *import*, not the installed package. A suite
+ * whose only `import 'vitest-auto-spy/rxjs'` sits in a setup file outside its `tsconfig` program
+ * gets {@link SubjectLike} back, which is honest — those helpers are not registered there either —
+ * but reads as a puzzle. Put the import where the compiler sees it.
+ */
+export interface AutoSpyRxjsTypes<T> {
+  /**
+   * Phantom. Never present, never read, and not a key to augment.
+   *
+   * A registry interface has no members of its own — that is what makes it a registry — but one
+   * that never mentions its own type parameter fails `noUnusedParameters`, and the parameter
+   * cannot be renamed to `_T` to silence it: interface merging requires every declaration to
+   * spell the parameter the same way, so an augmentation written `<T>` against a `<_T>`
+   * declaration fails with `TS2428: All declarations of 'AutoSpyRxjsTypes' must have identical
+   * type parameters` — a message that explains none of this.
+   */
+  readonly '~element'?: T;
+}
+
+/** rxjs's `Subject<T>` where {@link AutoSpyRxjsTypes} is augmented, {@link SubjectLike} otherwise. */
+export type SubjectOf<T> = AutoSpyRxjsTypes<T> extends { subject: infer S } ? S : SubjectLike<T>;
 
 // ---------------------------------------------------------------------------
 // Primitives
@@ -52,8 +126,8 @@ type StringKeysForPropertyType<ObjectType, PropType> = Extract<
 export type OnlyMethodKeysOf<T> = StringKeysForPropertyType<T, Func>;
 
 /** Keys of `T` that are `Observable` properties. */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- `Observable<any>` matches an observable property of *any* element type; `Observable<unknown>` would not structurally match e.g. `Observable<number>` here.
-export type OnlyObservablePropsOf<T> = StringKeysForPropertyType<T, Observable<any>>;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- `ObservableLike<any>` matches an observable property of *any* element type; `ObservableLike<unknown>` would not structurally match e.g. `Observable<number>` here.
+export type OnlyObservablePropsOf<T> = StringKeysForPropertyType<T, ObservableLike<any>>;
 
 /** Keys of `T` that are *not* methods (plain props, getters, setters). */
 export type OnlyPropsOf<ObjectType> = Extract<
@@ -152,10 +226,10 @@ export interface AddObservableSpyMethods<T> {
   /** Emit one value then complete. */
   nextOneTimeWith(value?: T): void;
   nextWithValues(valuesConfigs: ValueConfig<T>[]): void;
-  nextWithPerCall(valuesPerCall?: ValueConfigPerCall<T>[]): Subject<T>[];
+  nextWithPerCall(valuesPerCall?: ValueConfigPerCall<T>[]): SubjectOf<T>[];
   throwWith(value: unknown): void;
   complete(): void;
-  returnSubject(): Subject<T>;
+  returnSubject(): SubjectOf<T>;
 }
 
 /** Helpers attached to a `Promise`-returning spy. */
@@ -259,7 +333,7 @@ export type AddSpyMethodsByReturnTypes<Method extends Func> = AddThrowHelper &
   (Method extends (...args: any[]) => infer ReturnType
     ? [ReturnType] extends [Promise<infer P>]
       ? AddCalledWithPromise<Method, P> & AddPromiseSpyMethods<P>
-      : [ReturnType] extends [Observable<infer O>]
+      : [ReturnType] extends [ObservableLike<infer O>]
         ? AddCalledWithObservable<Method, O> & AddObservableSpyMethods<O>
         : [ReturnType] extends [void]
           ? AddCalledWithSpyMethods<Method> & AddVoidReturnHelpers
@@ -386,7 +460,7 @@ export type Spy<T, Options extends SpyOptions = SpyOptions> = AddAccessorsSpies<
   SpyDisposable & {
     [K in keyof T]: T[K] extends Func
       ? AddSpyMethodsByReturnTypes<SelectOverload<T[K], Options>>
-      : T[K] extends Observable<infer O>
+      : T[K] extends ObservableLike<infer O>
         ? AddObservableSpyMethods<O> & T[K]
         : T[K];
   };

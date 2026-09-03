@@ -22,7 +22,11 @@ module.exports = {
   root: true,
   parser: '@typescript-eslint/parser',
   parserOptions: {
-    project: ['./tsconfig.json', './tsconfig.spec.json'],
+    // `tsconfig.types.json` is here for one file: `src/type-tests/rxjs-seam.test-d.ts` describes a
+    // program without `vitest-auto-spy/rxjs` in it and is excluded from `tsconfig.json` for that
+    // reason, which would otherwise leave it unlintable ("The file was not found in any of the
+    // provided project(s)").
+    project: ['./tsconfig.json', './tsconfig.spec.json', './tsconfig.types.json'],
     tsconfigRootDir: __dirname,
   },
   plugins: ['@typescript-eslint', 'rxjs', 'optimize-regex', 'import', '@eslint-community/eslint-plugin-eslint-comments'],

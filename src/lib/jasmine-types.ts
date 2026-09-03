@@ -10,7 +10,6 @@
  * The runtime half lives in `jasmine-namespaces.ts` and is installed only by the
  * `vitest-auto-spy/jasmine` entry.
  */
-import type { Observable } from 'rxjs';
 import type { Mock } from 'vitest';
 
 import type { JasmineCallInfo } from './jasmine-namespaces';
@@ -19,6 +18,7 @@ import type {
   AddPromiseSpyMethods,
   AddSpyMethodsByReturnTypes,
   Func,
+  ObservableLike,
   SpyDisposable,
   ValueConfig,
   ValueConfigPerCall,
@@ -75,7 +75,7 @@ export type JasmineAnd<Method extends Func> = JasmineStrategies<Method> &
   (Method extends (...args: any[]) => infer Returned
     ? [Returned] extends [Promise<infer P>]
       ? AddPromiseSpyMethods<P>
-      : [Returned] extends [Observable<infer O>]
+      : [Returned] extends [ObservableLike<infer O>]
         ? AddObservableSpyMethods<O>
         : unknown
     : unknown);
@@ -119,7 +119,7 @@ export type JasmineWithArgsAnd<Method extends Func> =
   Method extends (...args: any[]) => infer Returned
     ? [Returned] extends [Promise<infer P>]
       ? AddPromiseSpyMethods<P>
-      : [Returned] extends [Observable<infer O>]
+      : [Returned] extends [ObservableLike<infer O>]
         ? AddObservableSpyMethods<O>
         : JasmineWithArgsSync<Method>
     : JasmineWithArgsSync<Method>;
@@ -166,7 +166,7 @@ export type JasmineSpy<T> = JasmineAccessorSpies<T> &
   SpyDisposable & {
     [K in keyof T]: T[K] extends Func
       ? JasmineMethodSpy<T[K]>
-      : T[K] extends Observable<infer O>
+      : T[K] extends ObservableLike<infer O>
         ? AddObservableSpyMethods<O> & T[K]
         : T[K];
   };

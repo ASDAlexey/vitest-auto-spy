@@ -37,7 +37,22 @@
     "allowUnreachableCode": false,
     "forceConsistentCasingInFileNames": true,
 
-    "types": ["vitest/globals", "node"]
+    "types": ["vitest/globals", "node"],
+
+    // `src/rxjs.ts` augments this package's *own* published module — that is how rxjs's `Subject`
+    // reaches `returnSubject()` without any other declaration naming rxjs. A module augmentation
+    // has to resolve the specifier it names, and inside this repository `vitest-auto-spy` is not
+    // installed, so it needs the mapping. Consumers resolve the same name through `exports`.
+    "paths": {
+      "vitest-auto-spy": ["./src/index.ts"]
+    }
   },
-  "include": ["src", "vitest.config.mts"]
+  "include": ["src", "vitest.config.mts"],
+
+  // `rxjs-seam.test-d.ts` asserts the shape of a program *without* `vitest-auto-spy/rxjs` in it,
+  // and this program has it — `src/rxjs.ts` is a source file, and a module augmentation is
+  // program-wide. Its gate is `npm run test:types`, whose `tsconfig.types.json` is the program it
+  // describes; compiling it here too would only ever report the opposite of what it asserts. Every
+  // other type test is checked by both.
+  "exclude": ["src/type-tests/rxjs-seam.test-d.ts"]
 }

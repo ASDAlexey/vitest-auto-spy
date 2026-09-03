@@ -7,7 +7,7 @@
  * method read against the signature nobody calls. The runtime assertions are incidental; they exist
  * so the file is a suite rather than a comment.
  */
-import { type Observable, of } from 'rxjs';
+import { type Observable, Subject, of } from 'rxjs';
 import { describe, expect, it } from 'vitest';
 
 import '../index';
@@ -58,6 +58,21 @@ interface AccountToken {
   profiles: { active: { id: string; name: string }; all: { id: string }[] };
   issuedAt: Date;
   refresh(): Promise<void>;
+}
+
+/**
+ * An `Observable`-shaped type that is *not* rxjs's `Observable` — a second copy of rxjs in the tree
+ * produces exactly this, and so does a hand-rolled stream.
+ */
+declare class DuplicateObservable<T> {
+  subscribe(observerOrNext?: Partial<{ next: (value: T) => void }> | ((value: T) => void)): { unsubscribe(): void };
+  forEach(next: (value: T) => void): Promise<void>;
+}
+
+class DuplicatedRxjs {
+  watch(): DuplicateObservable<number> {
+    throw new Error('never called — the spy replaces it');
+  }
 }
 
 describe('Spy<T> return-type helpers', () => {
@@ -164,5 +179,39 @@ describe('deep partial fixtures', () => {
     const wrong = createMock<MutationRecord>({ target: { nodeTypo: 1 } });
 
     expect(wrong).toBeDefined();
+  });
+});
+
+describe('the rxjs seam', () => {
+  // The other half of `type-tests/rxjs-seam.test-d.ts`. Nothing in the published declarations names
+  // an rxjs type any more — `dist/types-*.d.ts` opened with `import { Observable, Subject } from
+  // 'rxjs'` and pulled 189 rxjs `.d.ts` files into every consumer's program — so `returnSubject()`
+  // is typed `SubjectOf<T>`, which is structural until something augments `AutoSpyRxjsTypes`. The
+  // `import '../rxjs'` at the top of this file is that something, and this program is therefore the
+  // one an rxjs suite has. These assertions are compiled by `npm run typecheck`; the type tests run
+  // in a program without the import and assert the fallback instead.
+
+  it("hands back rxjs's own `Subject` once the observable layer is imported", () => {
+    const config = createSpyFromClass(ConfigService);
+
+    // The assignment is the assertion: `Subject` is nominal, so nothing structural satisfies it.
+    const subject: Subject<number> = config.watch.returnSubject();
+    const perCall: Subject<number>[] = config.watch.nextWithPerCall([{ value: 1 }]);
+
+    subject.next(2);
+
+    expect(subject).toBeInstanceOf(Subject);
+    expect(perCall).toHaveLength(1);
+  });
+
+  it('detects an observable structurally, so a second copy of rxjs no longer falls through', () => {
+    // `Observable` has no private members but `Subject` does, so a service typed against a
+    // *duplicated* rxjs used to miss the observable bundle with nothing to explain why. The check
+    // is now shape-based and this compiles without either side importing the other's rxjs.
+    const stream = createSpyFromClass(DuplicatedRxjs);
+
+    stream.watch.nextWith(1);
+
+    expect(stream.watch).toBeDefined();
   });
 });
