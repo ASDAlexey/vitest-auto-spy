@@ -122,3 +122,25 @@ describe('init', () => {
     expect(io.stdout.join('\n')).toContain(process.cwd());
   });
 });
+
+describe('perf', () => {
+  /** The rules and the rendering are pinned in `perf.spec.ts`; this is the dispatch and the flags. */
+  it('reads the report --json names and exits 0', () => {
+    const io = recorder();
+    const root = createTempRepo({
+      ...HEALTHY,
+      'perf.json': JSON.stringify({ version: 1, root: '/r', transform: 0, wall: 0, files: [{ file: '/r/a.spec.ts', tests: 1 }] }),
+    });
+
+    expect(runCli(['perf', '--cwd', root, '--json', `${root}/perf.json`], io)).toBe(0);
+    expect(io.stdout.join('\n')).toContain('vitest-auto-spy perf —');
+  });
+
+  it('exits 1 when there is no report to read', () => {
+    const io = recorder();
+    const root = createTempRepo(HEALTHY);
+
+    expect(runCli(['perf', '--cwd', root, '--json', `${root}/nowhere.json`], io)).toBe(1);
+    expect(io.stderr.join('\n')).toContain('Not a perf report');
+  });
+});

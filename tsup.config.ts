@@ -278,4 +278,16 @@ export default defineConfig([
       chmodSync('dist/cli.js', 0o755);
     },
   },
+  {
+    ...SHARED,
+    // The reporter `vitest-auto-spy perf` attaches to the consumer's own Vitest run. Its own pass
+    // because it must not carry the `#!` banner of the one above, and a file rather than an
+    // `exports` subpath because the CLI hands Vitest an absolute path — nobody imports it by name,
+    // so a subpath would be a public API with no reader.
+    entry: { 'perf-reporter': 'src/cli/perf-reporter.ts' },
+    format: ['esm'] as const,
+    splitting: false,
+    dts: false,
+    clean: false,
+  },
 ]);

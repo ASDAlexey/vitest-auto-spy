@@ -16,6 +16,13 @@ Commands
             the call signature Vitest takes, and rename the jest.* members that
             have a vi.* twin. Prints a diff and writes nothing unless --write.
 
+  perf      Say where the suite's time actually goes, and which files to act
+            on. Runs Vitest once with a reporter that records the per-file
+            phase timings, then reports each phase's share and names the spec
+            files a rule can act on: the ones that reach no DOM and could run
+            under the \`node\` environment, and the ones that import a barrel.
+            Every finding states the rule it used. Always exits 0.
+
   init      Write a pointer to node_modules/vitest-auto-spy/AGENTS.md into the
             instruction files the agents in this repository actually read, and
             specialise it for this repository's runner, framework and setup file.
@@ -33,8 +40,19 @@ Usage of codemod
   last one is why the rewrite is not a rename. Land the suite green on
   \`vitest-auto-spy/jasmine\` first, then run this and drop that import.
 
+Usage of perf
+  npx vitest-auto-spy perf [path…] [options]
+
+  With no path it measures the whole suite; a path is passed through to Vitest
+  as its file filter. The phase totals are CPU time summed over every worker,
+  which is why they add up to more than the wall clock.
+
 Options
   --cwd <dir>    Run against another directory instead of the current one.
+  --json <path>  perf only. Read a report a previous run wrote instead of
+                 running Vitest again.
+  --out <path>   perf only. Keep the JSON report at this path. Without it the
+                 report is written under node_modules/.cache and deleted.
   --check        init only. Write nothing; exit 1 if the block is out of date.
   --dry-run      init only. Print what would change and write nothing.
   --uninstall    init only. Remove the managed blocks and the files it created.

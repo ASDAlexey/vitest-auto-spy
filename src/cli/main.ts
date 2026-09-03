@@ -10,6 +10,8 @@ import { runDoctor } from './doctor';
 import { HELP } from './help';
 import { runInit } from './init';
 import type { InitAction, InitResult } from './init';
+import { renderPerf } from './perf';
+import { readPerfRun } from './perf-run';
 import { readProfile } from './profile';
 import { formatFindings, hasFailures, summarize } from './report';
 import { ownVersion } from './self';
@@ -38,6 +40,13 @@ function doctorCommand(cwd: string, io: CliIo): number {
   io.out(`\n${summarize(findings)}`);
 
   return hasFailures(findings) ? 1 : 0;
+}
+
+function perfCommand(cwd: string, argv: readonly string[], io: CliIo): number {
+  const args = parseArgs(argv);
+  const source = readPerfRun({ cwd, json: flagValue(args, 'json'), out: flagValue(args, 'out'), paths: args.positionals });
+
+  return renderPerf(source, cwd, io);
 }
 
 function formatAction(action: InitAction): string {
@@ -120,6 +129,10 @@ export function runCli(argv: readonly string[], io: CliIo): number {
 
   if (args.command === 'init') {
     return initCommand(cwd, argv, io);
+  }
+
+  if (args.command === 'perf') {
+    return perfCommand(cwd, argv, io);
   }
 
   if (args.command === 'codemod') {
