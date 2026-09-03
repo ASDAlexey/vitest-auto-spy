@@ -80,6 +80,17 @@ async function run() {
   );
   const childEnv = { ...env, BENCH_SCALE: String(scale) };
 
+  // Validate before measuring, not after: a stray argument used to be caught by the report, which
+  // runs last, so an eleven-minute `--precise` pass was thrown away over a pasted box-drawing
+  // character.
+  const known = new Set(['--fast', '--precise', '--repeat', '--lang']);
+  const stray = passthrough.find((arg, index) => arg.startsWith('-') ? !known.has(arg) : passthrough[index - 1] !== '--lang');
+
+  if (stray) {
+    stderr.write(`Unknown argument "${stray}". Known flags: --fast, --precise, --repeat <n>, --lang <code>.\n`);
+    exit(1);
+  }
+
   const outputs = [];
 
   for (let pass = 1; pass <= repeat; pass += 1) {
