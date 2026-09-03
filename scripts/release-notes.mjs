@@ -112,14 +112,39 @@ function parseCommit(subject) {
 function notesFromCommits(tag) {
   const previous = previousTag(tag);
   const range = previous ? `${previous}..${tag}` : tag;
-  const subjects = git('log', range, '--format=%s').split('\n').filter(Boolean);
+  const lines = git('log', range, '--format=%h %s').split('\n').filter(Boolean);
+  const commits = [];
 
-  const commits = subjects
-    .map(parseCommit)
-    .filter(Boolean)
+  for (const line of lines) {
+    const space = line.indexOf(' ');
+    const commit = parseCommit(line.slice(space + 1));
+
+    if (!commit) {
+      continue;
+    }
+
     // `chore` is the machinery of releasing (the version bump, the badge sync), and a note about
     // the changelog or the TODO list is not a change to the package.
-    .filter((commit) => commit.type !== 'chore' && !(commit.type === 'docs' && /^(changelog|todo)$/.test(commit.scope ?? '')));
+    if (commit.type === 'chore' || (commit.type === 'docs' && /^(changelog|todo)$/.test(commit.scope ?? ''))) {
+      continue;
+    }
+
+    // A follow-up commit that repeats the message is one line carrying both hashes, not two
+    // identical lines.
+    const earlier = commits.find(
+      (candidate) =>
+        candidate.breaking === commit.breaking &&
+        candidate.type === commit.type &&
+        candidate.scope === commit.scope &&
+        candidate.summary === commit.summary,
+    );
+
+    if (earlier) {
+      earlier.hashes.push(line.slice(0, space));
+    } else {
+      commits.push({ ...commit, hashes: [line.slice(0, space)] });
+    }
+  }
 
   const sections = [];
 
@@ -130,7 +155,11 @@ function notesFromCommits(tag) {
       continue;
     }
 
-    const items = group.map((commit) => `- ${commit.scope ? `**${commit.scope}:** ` : ''}${commit.summary}`);
+    const items = group.map((commit) => {
+      const hashes = commit.hashes.map((hash) => `[${hash}](${REPO}/commit/${hash})`).join(', ');
+
+      return `- ${commit.scope ? `**${commit.scope}:** ` : ''}${commit.summary} (${hashes})`;
+    });
     sections.push(`## ${heading}\n\n${items.join('\n')}`);
   }
 
