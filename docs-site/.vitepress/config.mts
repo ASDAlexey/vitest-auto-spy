@@ -161,7 +161,9 @@ export default defineConfig({
           'jasmine-auto-spies, jasmine to vitest, karma to vitest, migrate jasmine, jasmine.createSpyObj, ' +
           'jasmine spyOn call through, withContext vitest, DEFAULT_TIMEOUT_INTERVAL, ' +
           'webstorm eslint inspections, vs code extension, anti-patterns, spy typing, ' +
-          'llms.txt, AGENTS.md, ai agent, claude code skill, openai codex, glm z.ai, cursor, copilot, gemini cli' +
+          'llms.txt, AGENTS.md, ai agent, claude code skill, openai codex, glm z.ai, cursor, copilot, gemini cli, ' +
+          'setSpyEngine, getSpyEngine, spy engine, toHaveBeenCalledBefore not working, toHaveBeenCalledAfter wrong order, ' +
+          'invocationCallOrder, vi.fn is slow, faster than vi.fn, mock creation overhead, custom mock function vitest, ' +
           'spectator, ngneat spectator, spectator angular 22, spectator alternative, spectator replacement, ' +
           'spectator not maintained, spectator deprecated, spectator 404, ngneat github deleted, openng spectator, ' +
           'createSpyObject, mockProvider, SpectatorService, createServiceFactory, createComponentFactory, SpyObject, ' +

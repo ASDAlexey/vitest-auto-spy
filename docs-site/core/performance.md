@@ -118,6 +118,10 @@ import { setSpyEngine } from 'vitest-auto-spy/setup';
 setSpyEngine('runner'); // every double built afterwards is vi.fn() per method, as before 4.1
 ```
 
+`setSpyEngine` takes a `SpyEngine` — `'auto-spy'` (the default) or `'runner'` — and `getSpyEngine()`
+reports which one is armed, so a setup file that flips the engine behind a flag can assert what it
+got. Doubles already built keep the engine they were built with; the switch decides the next one.
+
 Vitest only. On Bun and `node:test` the runner's matchers recognise only the runner's own mocks, so
 those entries keep building spies from `mock()` and `t.mock.fn()`.
 
