@@ -4,6 +4,14 @@
   "private": true,
   "description": "Competitor packages for the head-to-head benchmarks. Installed separately so the root package.json carries nothing it does not ship or test with.",
   "type": "module",
+  "scripts": {
+    "bench": "npm run --prefix .. bench --",
+    "bench:vs": "npm run --prefix .. bench:vs --",
+    "bench:vs:fast": "npm run --prefix .. bench:vs:fast --",
+    "bench:vs:precise": "npm run --prefix .. bench:vs:precise --",
+    "bench:memory": "npm run --prefix .. bench:memory --",
+    "bench:suite": "npm run --prefix .. bench:suite --"
+  },
   "devDependencies": {
     "@bugsplat/vitest-auto-spies": "1.0.0",
     "@golevelup/ts-vitest": "4.0.0",

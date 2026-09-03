@@ -241,7 +241,7 @@
     "test:bun": "bun test ./src/bun-tests/core.bun.test.ts ./src/bun-tests/rxjs.bun.test.ts ./src/bun-tests/jasmine.bun.test.ts",
     "test:bun:angular": "bun test --preload ./src/bun-angular.ts ./src/bun-tests",
     "test:bun:isolate": "bun test --isolate --preload ./src/bun-angular.ts ./src/bun-tests",
-    "bench": "vitest bench --run --config vitest.bench.config.mts",
+    "bench": "node scripts/bench-self.mjs",
     "bench:vs": "node scripts/bench-run.mjs",
     "bench:vs:fast": "node scripts/bench-run.mjs --fast",
     "bench:vs:precise": "node scripts/bench-run.mjs --precise",

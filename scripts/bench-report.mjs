@@ -12,6 +12,8 @@ import { argv, env, exit, stdout, version } from 'node:process';
 import { cpus, release, totalmem, type as osType } from 'node:os';
 import { fileURLToPath } from 'node:url';
 
+import { paint, renderTable, styleFor } from './bench-table.mjs';
+
 const BASELINE_PREFIX = 'vitest-auto-spy';
 
 const STRINGS = {
@@ -275,7 +277,7 @@ function usage() {
       'Usage:',
       '  node scripts/bench-report.mjs <results.json> [--lang en|ru|fr|zh|es|pt]',
       '',
-      'Writes an aligned table to a terminal and markdown to a pipe, so CI gets:',
+      'Writes a boxed table to a terminal and markdown to a pipe (--markdown forces markdown), so CI gets:',
       '  node scripts/bench-report.mjs bench-results.json >> "$GITHUB_STEP_SUMMARY"',
       '',
       'Language follows the shell locale (`LANG` / `LC_ALL`); `--lang <code>` overrides it.',
@@ -310,51 +312,6 @@ function environment(t) {
     `- **${t.node}** ${version}, **${osType()}** ${release()}`,
     `- **${t.machine}** ${cpu}, ${cpus().length} ${t.cores}, ${Math.round(totalmem() / 1e9)} GB`,
     `- **${t.measured}** ${competitorVersions().join(', ')}`,
-  ];
-}
-
-// CJK ideographs and fullwidth forms occupy two terminal cells; counting code points would leave the
-// Chinese table ragged. Combining marks occupy none.
-function cellWidth(value) {
-  let width = 0;
-
-  for (const character of value) {
-    const code = character.codePointAt(0);
-
-    if (code >= 0x1100 && (code <= 0x115f || (code >= 0x2e80 && code <= 0xa4cf) || (code >= 0xac00 && code <= 0xd7a3) || (code >= 0xf900 && code <= 0xfaff) || (code >= 0xfe30 && code <= 0xfe6f) || (code >= 0xff00 && code <= 0xff60) || (code >= 0xffe0 && code <= 0xffe6))) {
-      width += 2;
-    } else if (!/\p{M}/u.test(character)) {
-      width += 1;
-    }
-  }
-
-  return width;
-}
-
-/** Markdown is for the pipe; a terminal gets padded columns, because raw pipes are unreadable there. */
-function renderTable(headers, rows, aligned) {
-  if (!aligned) {
-    return [
-      `| ${headers.join(' | ')} |`,
-      `| --- | ${headers.slice(1).map(() => '---:').join(' | ')} |`,
-      ...rows.map((cells) => `| ${cells.join(' | ')} |`),
-    ];
-  }
-
-  const all = [headers, ...rows];
-  const widths = headers.map((_, index) => Math.max(...all.map((cells) => cellWidth(cells[index] ?? ''))));
-  // Not `padStart`/`padEnd`: those count UTF-16 units, so a double-width ideograph would be padded
-  // as if it were one cell and the column would drift.
-  const pad = (value, index) => {
-    const fill = ' '.repeat(Math.max(0, widths[index] - cellWidth(value)));
-
-    return index === 0 ? value + fill : fill + value;
-  };
-
-  return [
-    `  ${headers.map(pad).join('  ')}`,
-    `  ${widths.map((width) => '─'.repeat(width)).join('  ')}`,
-    ...rows.map((cells) => `  ${cells.map(pad).join('  ')}`),
   ];
 }
 
@@ -420,13 +377,16 @@ function renderGroup(group, t, aligned, runs) {
 
   const winner = rows[values.indexOf(best)].name;
   const verdict = t.fastestHere.replace('{name}', winner).replace('{ratio}', (runnerUp / best).toFixed(2));
+  // Green when this package won the table, red when it did not — the one thing a reader scrolling a
+  // dozen tables wants to know before reading any of them. Ignored outside a terminal.
+  const color = baseline && values[rows.indexOf(baseline)] === best ? 'green' : 'red';
 
   return [
-    aligned ? `  ${title}` : `#### ${title}`,
+    aligned ? `  ${paint(title, color)}` : `#### ${title}`,
     '',
-    ...renderTable(headers, body, aligned),
+    ...renderTable(headers, body, { style: aligned ? 'box' : 'markdown', indent: aligned ? '  ' : '', color: aligned ? color : undefined }),
     '',
-    aligned ? `  ${verdict.replace(/\*\*/g, '')}` : verdict,
+    aligned ? `  ${paint(verdict.replace(/\*\*/g, ''), color)}` : verdict,
     '',
   ];
 }
@@ -485,7 +445,7 @@ function main() {
   }
 
   const t = STRINGS[lang];
-  const aligned = Boolean(stdout.isTTY);
+  const aligned = styleFor(stdout, args) === 'box';
   // A stray flag value arriving as a positional is the failure this catches: it used to be read as
   // a file name and reported as a missing file, which named the symptom and hid the cause.
   const stray = positionals.find((candidate) => !candidate.endsWith('.json'));

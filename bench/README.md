@@ -5,26 +5,60 @@ tables these commands generate are on the docs site under
 [Performance](https://asdalexey.github.io/vitest-auto-spy/core/performance) — this file is how you
 regenerate them yourself.
 
-## Run it
+## The commands, in the order you will want them
 
-From the **repository root**, not from this directory:
+Run every one of these from the **repository root**. They work from this directory too — the
+`package.json` here forwards each one up — so the run gutter next to the block in an IDE does the
+right thing. All of them print the same table — boxed in a terminal, markdown through a pipe, so
+`> table.md` gives a documentation page something it can take verbatim.
+
+```bash
+npm run bench:vs           # ← start here: this package against the whole field, ~1 min
+npm run bench              # this package against itself — lazy vs eager, dispatch. No install needed
+npm run bench:memory       # retained heap per double, the metric that decides a big suite
+npm run bench:suite        # whole synthetic suites, 1 000 / 3 000 / 10 000 tests. Tens of minutes
+```
+
+Two of them have variants worth knowing before you quote anything:
+
+```bash
+npm run bench:vs:precise   # seven runs at double the budgets — every published number comes from this
+npm run bench:vs:fast      # budgets divided by eight, for editing the benchmark. Stamps itself "not a result"
+npm run bench:suite -- --sizes 100 --repeats 1   # the smoke run, well under a minute
+```
+
+**Where the rest of this file is**, once the command has run:
+
+|                                                                                                                                                                                                                                                                                                                                                                                                                                                   |                           |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------- |
+| [What each command does](#what-each-command-does) · [Green and red](#green-and-red) · [Reading the output](#reading-the-output) · [What each column means](#what-each-column-means)                                                                                                                                                                                                                                                               | the table in front of you |
+| [Where the three sizes come from](#where-the-three-sizes-come-from) · [Three profiles](#three-profiles-and-which-one-to-use) · [What this stand can and cannot resolve](#what-this-stand-can-and-cannot-resolve) · [Why every arm runs the same number of iterations](#why-every-arm-runs-the-same-number-of-iterations) · [Why `p75`](#why-p75-and-not-hz-or-mean) · [Three things the numbers do not say](#three-things-the-numbers-do-not-say) | whether to believe it     |
+| [How the jest and jasmine libraries run here](#how-jest-auto-spies-and-jasmine-auto-spies-run-here) · [The one arm that no longer creates a `vi.fn()`](#the-one-arm-that-no-longer-creates-a-vifn-and-why-that-is-not-a-trick) · [Memory, the better metric](#memory-and-why-it-is-the-better-metric-here) · [What is deliberately not measured](#what-is-deliberately-not-measured-here)                                                         | the fairness rules        |
+| [Why a second `package.json`](#why-a-second-packagejson) · [`bench/.npmrc`](#benchnpmrc--do-not-delete-it) · [How these numbers stay current](#how-these-numbers-stay-current) · [Two rules the harness follows](#two-rules-the-harness-follows-learned-the-hard-way)                                                                                                                                                                             | housekeeping              |
+
+### First run, once
+
+`bench:vs`, `bench:memory` and `bench:suite` measure other people's libraries, and those are not
+dependencies of this package — see [Why a second package.json](#why-a-second-packagejson):
 
 ```bash
 npm ci
 npm ci --prefix bench
-npm run bench:vs
 ```
 
-That is the whole thing, and it is identical on Windows, macOS and Linux — every dependency here is
-pure JavaScript, nothing compiles. The package's declared floor is Node 18; the published numbers
-were measured on v24.19.0, which is also the version CI measures them on. Takes about a minute.
+`npm run bench` needs neither: it measures this package against itself and imports nothing from
+`bench/node_modules`. `bench:suite` installs its own pinned copies into a temporary directory it
+deletes on every exit path.
 
-Two installs, because the libraries this benchmark measures are not dependencies of the package —
-see [Why a second package.json](#why-a-second-packagejson) below.
+Identical on Windows, macOS and Linux — every dependency here is pure JavaScript, nothing compiles.
+The package's declared floor is Node 18; the published numbers were measured on v24.19.0, which is
+also the version CI measures them on.
 
-The report speaks six languages — English, Russian, French, Chinese, Spanish and Portuguese — and
-follows the shell locale, so `LANG=ru_RU.UTF-8` or `LANG=zh_CN.UTF-8` needs no switch at all. Pass
-`--lang` to override it, which is what keeps a CI log English on a machine set to something else:
+### Six languages
+
+The report follows the shell locale, so `LANG=ru_RU.UTF-8` or `LANG=zh_CN.UTF-8` needs no switch at
+all. Pass `--lang` to override it, which is what keeps a CI log English on a machine set to
+something else:
 
 ```bash
 npm run bench:vs -- --lang fr        # en | ru | fr | zh | es | pt
@@ -40,41 +74,77 @@ file on the first edit.
 
 | Command                    | What it measures                                                                                                                                                                  | Cost            |
 | -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------- |
-| `npm run bench`            | This package against itself — lazy against eager spies, `lazySpies: 'proxy'`, `calledWith` dispatch. Needs no install here.                                                       | ~1 min          |
-| `npm run bench:vs`         | This package against `jest-auto-spies`, `jasmine-auto-spies`, `@bugsplat/vitest-auto-spies`, `vitest-mock-extended`, `@golevelup/ts-vitest` and a hand-written `vi.fn()` control. | ~55 s           |
+| `npm run bench:vs`         | This package against `jest-auto-spies`, `jasmine-auto-spies`, `@bugsplat/vitest-auto-spies`, `vitest-mock-extended`, `@golevelup/ts-vitest` and a hand-written `vi.fn()` control. | ~1 min          |
+| `npm run bench:vs:precise` | Seven runs at double the budgets; every published number comes from this.                                                                                                         | ~13 min         |
 | `npm run bench:vs:fast`    | The same, budgets divided by eight — for editing the benchmark. Marks itself as not a result.                                                                                     | ~10 s           |
-| `npm run bench:vs:precise` | Seven runs at double the budgets; the published numbers come from this.                                                                                                           | ~13 min         |
+| `npm run bench`            | This package against itself — lazy against eager spies, `lazySpies: 'proxy'`, `calledWith` dispatch. Needs no install here. `--json <path>` keeps the raw results.                | ~1 min          |
 | `npm run bench:memory`     | Retained heap per double, across the same libraries, at two class widths and two touch levels.                                                                                    | ~40 s           |
 | `npm run bench:suite`      | Whole synthetic suites — 1 000 / 3 000 / 10 000 tests — measuring wall-clock and peak RSS per library.                                                                            | tens of minutes |
 
-`npm run bench:suite -- --help` documents its own options. Start with the smoke run, which finishes
-in well under a minute and proves the harness works before you commit to the long one:
+**Every one of them prints the same table.** A terminal gets a boxed one, a pipe gets markdown — so
+`npm run bench:memory > table.md` produces something a documentation page takes verbatim, which is
+how the tables on those pages are kept honest. `--markdown` forces the pipe form in an interactive
+run, for copying one out by hand:
 
 ```bash
-npm run bench:suite -- --sizes 100 --repeats 1
+npm run bench -- --markdown
+npm run bench:vs -- --markdown
 ```
 
-The suite harness installs its own pinned copies of the competitors into a temporary directory and
-deletes it on every exit path, so it needs no install here and leaves nothing behind.
+One renderer draws all of them (`scripts/bench-table.mjs`) for a reason that was not obvious until
+the fourth: the suite harness used to print tab-separated columns, which are unreadable the moment a
+ratio sits next to a megabyte count, and `npm run bench` used to hand the terminal Vitest's own
+ten-column reporter — nine of those columns being figures this project's methodology refuses to
+quote.
+
+### Green and red
+
+In a terminal the frame carries the verdict, so a dozen tables can be read by scrolling rather than
+by comparing numbers:
+
+- **green** — this package is the fastest arm in that table (or, in the memory harness, retains the
+  least in every column).
+- **red** — some other library beat it there. The type-mock memory table is normally red, and the
+  suite-scale table is red whenever hand-written `vi.fn()` doubles come out ahead at any size. Both
+  are real results and both stay published.
+
+The comparison is always against the **other libraries**, never against this package's own settings:
+`npm run bench` compares lazy against eager against `'proxy'`, where "faster" is a trade-off rather
+than a defeat, so it marks the winner with `✓` and paints nothing.
+
+Colour never reaches a pipe, so the markdown these commands write is clean. `NO_COLOR=1` turns it
+off in a terminal too, and `FORCE_COLOR=1` turns it on where the stream is not a TTY — a CI log, for
+instance.
+
+The same TTY test picks the boxed table over the markdown one, which is why an IDE run console shows
+raw pipe tables — it is not a terminal. In WebStorm, tick **Emulate terminal in output console** in
+the run configuration, or put `BENCH_TABLE_STYLE=box` and `FORCE_COLOR=1` in its environment.
+
+Two switches worth knowing:
+
+```bash
+BENCH_ARMS=self npm run bench:memory   # this package's own arms only — no bench/ install needed, ~10 s
+npm run bench:suite -- --help          # the suite harness documents its own options
+```
 
 ## Reading the output
 
 Vitest prints one block per case and one row per arm inside it. The block heading names the case:
 
 ```
-bench/vs-libraries.bench.ts > double from a class — 10 methods, 2 called   3091ms
+bench/vs-libraries.bench.ts > medium project — 14 methods, 2 called — double from a class   3091ms
 ```
 
-`double from a class` is the operation being measured, `10 methods` is how wide the subject class
-is, and `2 called` is how many of its methods the case actually calls afterwards — the ratio that
-decides whether building spies lazily pays off. One iteration is one test. In spec terms that case
-is this:
+`medium project` is which of the three size profiles the case belongs to, `double from a class` is
+the operation being measured, `14 methods` is how wide the subject class is, and `2 called` is how
+many of its methods the case actually calls afterwards — the ratio that decides whether building
+spies lazily pays off. One iteration is one test. In spec terms that case is this:
 
 ```ts
 class OrderService {
   validate() {}
   save() {}
-  // …eight more, ten in total
+  // …twelve more, fourteen in total
 }
 
 beforeEach(() => {
@@ -83,16 +153,35 @@ beforeEach(() => {
 
 it('saves a validated order', () => {
   checkout(orders);
-  expect(orders.validate).toHaveBeenCalled(); // method 1 of 10
-  expect(orders.save).toHaveBeenCalled(); // method 2 of 10
-}); // the other eight are never touched
+  expect(orders.validate).toHaveBeenCalled(); // method 1 of 14
+  expect(orders.save).toHaveBeenCalled(); // method 2 of 14
+}); // the other twelve are never touched
 ```
 
-Eight of the ten are never needed, so an eager library pays for them and a lazy one does not. The
-`all 10 called` row is the same class in a test that really does use every method — this package's
-worst case, where the laziness is paid for with nothing to show. Both are published; quoting only
-the first would be a lie by omission. The 40-method rows ask the same question of a class that is
-wide by construction — a generated API client, an ngrx facade, a `Store` double.
+Twelve of the fourteen are never needed, so an eager library pays for them and a lazy one does not.
+
+### Where the three sizes come from
+
+The widths and the call counts are measured, not picked. Across four private Angular suites —
+about 2 700 spec files and 2 742 doubles built from a class — the service a spec doubles has:
+
+|             | methods on the class | methods the spec touches |
+| ----------- | -------------------: | -----------------------: |
+| median      |                  5–8 |                        1 |
+| p75         |                12–16 |                        1 |
+| p90         |                32–44 |                        2 |
+| widest seen |                   79 |                       16 |
+
+So a spec touches **5–6 % of the methods it just built** at the median, and the three profiles are
+that survey's median (`small project` — 6 methods, 1 called), its p75 (`medium project` — 14 and 2)
+and its p90 (`large project` — 45 and 2). The dominant primitive in those suites is
+`provideAutoSpy`, at 3 376 call sites, and a spec file builds 1 double at the median, 4 at the p75
+and 8–10 at the p90 — so the per-test bill is doubles × width, and the width is mostly never used.
+
+The two `worst case` blocks are the same 14- and 45-method classes in a test that really does use
+every method: this package's worst shape, where the laziness is paid for and there is nothing left
+to skip. They are published next to the rest because quoting only the profiles that flatter a lazy
+library would be a lie by omission.
 
 The trailing `3091ms` is how long Vitest spent on
 that whole block, not a result.
@@ -177,20 +266,16 @@ block, so that is where the counts have to match.
 ### Who won which table
 
 Every table ends with a line naming its fastest arm, and that arm is marked `✓` in the table itself.
-The marker exists because **the winner is not the same from one table to the next**, and a reader who
-saw only one of them would carry away the wrong conclusion:
 
-```
-  vitest-auto-spy: createSpyFromClass ✓          4.83 µs   …   2.32× ahead of the runner-up
-  → 10 methods, 2 called
+The marker exists because **the winner has not always been the same from one table to the next**.
+Until 4.1 this package won the tables where a test touches a few methods of a class and lost the ones
+where it touches all of them — there is nothing left to skip in those — and lost the type-driven and
+deep-mock tables outright. It leads every published table now, and the `✓` is what keeps that
+checkable rather than asserted: a change that hands a table back says so at the bottom of that table,
+without anybody having to read the numbers.
 
-  hand-written vi.fn() per method ✓             12.58 µs   …   1.21× ahead of the runner-up
-  → 10 methods, all 10 called
-```
-
-Same class, same libraries, opposite verdict — because the first case touches two of the ten methods
-and the second touches all ten. Lazy spies win the first and have nothing left to skip in the second.
-That is the whole argument of this benchmark, and it is why both tables are published.
+That is also why the `worst case` blocks stay published. A benchmark that only shows the shapes a
+lazy library is built for is an advertisement.
 
 Direction is a property of the column, not of the table: `per operation ↓` and `uncertainty ↓` are
 always better lower, `operations/sec ↑` always better higher. What changes per table is _who_ comes
@@ -210,11 +295,11 @@ it is built from `hz`, so it swings with it. **Compute the ratio yourself from `
 ### Working out a ratio
 
 Take the `p75` of the arm you care about and divide by the `p75` of `vitest-auto-spy` in the same
-block. From the canonical run of `double from a class — 10 methods, 2 called`:
+block. From the canonical run of `medium project — 14 methods, 2 called — double from a class`:
 
 ```
-vitest-auto-spy   0.0048 ms  ->  4.8 µs
-jest-auto-spies   0.0128 ms  -> 12.8 µs      12.8 / 4.8 = 2.7x
+vitest-auto-spy   0.0027 ms  ->  2.7 µs
+jest-auto-spies   0.0192 ms  -> 19.2 µs      19.2 / 2.7 = 7.1x
 ```
 
 Compare only inside one block. Two blocks are two different operations — `double from a class` reads
@@ -228,8 +313,8 @@ process on one machine, which is what makes the ratio meaningful. The microsecon
 machine that produced them and nothing else.
 
 **A ratio here is not a suite-level claim.** Per-operation cost and end-to-end suite cost are
-different quantities and they disagree — this benchmark has the package roughly 4.7× faster than a
-hand-written double on a 40-method class, and across a real suite that advantage is gone, because
+different quantities and they disagree — this benchmark has the package roughly 9× faster than a
+hand-written double on a 45-method class, and across a real suite that advantage is gone, because
 building a double is on the order of one per cent of what a test costs. If you are quoting a number
 at anyone, quote the suite-scale one from `npm run bench:suite`.
 
@@ -244,11 +329,27 @@ is the object `@hirez_io/auto-spies-core` hangs its helpers on, which is why its
 reads `spy.method.and.calledWith(x).returnValue(y)` where the other two read
 `spy.method.calledWith(x).mockReturnValue(y)`.
 
-This is what makes the comparison mean anything rather than a compromise on it. Every arm then
-creates the same underlying mock, so the runner's per-mock cost is a constant shared by all of them
+This is what makes the comparison mean anything rather than a compromise on it. Every _other_ arm
+then creates the same underlying mock, so the runner's per-mock cost is a constant shared by them
 and what the numbers separate is each library's own work on top. Running `jest-auto-spies` on Jest
 and this package on Vitest would report the difference between two runners, which is not the
 question.
+
+### The one arm that no longer creates a `vi.fn()`, and why that is not a trick
+
+Since 4.1 this package builds its method spies itself instead of calling `vi.fn()` per method, so
+the constant above does **not** cancel for its arm: part of its lead is that it does not pay the
+runner's per-mock cost at all. Hiding that would be the dishonest move, so the table is built to
+show it — the `hand-written vi.fn() per method` arm is exactly "the runner's own mock, assembled by
+hand, with no library in the way", and the distance to it is the size of this difference and nothing
+else.
+
+It is a difference in the product, not in the measurement. The spy a consumer gets _is_ the one
+measured here, it answers `vi.isMockFunction`, every `expect` matcher and `vi.clearAllMocks()`, and
+the only thing it does not share with `vi.fn()` is the scale of `mock.invocationCallOrder` — which is
+documented, and which `setSpyEngine('runner')` opts out of, at which point this arm becomes a
+`vi.fn()` arm again and the constant cancels for everybody. Nothing stops the other libraries from
+doing the same; as of the date in the table's header, none of them does.
 
 What it does mean is that these numbers describe each library's own code, not what you would see in
 a Jest or Jasmine suite, where the runner's mock is a different implementation with its own cost.

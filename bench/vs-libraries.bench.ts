@@ -93,8 +93,19 @@ function makeWideClass(methodCount: number): ClassWithMethods {
   return WideClass as unknown as ClassWithMethods;
 }
 
-const WIDE = makeWideClass(10);
-const HUGE = makeWideClass(40);
+/**
+ * The three widths are measured, not chosen.
+ *
+ * Across four private Angular suites — ~2 700 spec files, 2 742 doubles built from a class — the
+ * service a spec doubles has **5–8** methods at the median, **12–16** at the p75 and **32–44** at
+ * the p90, the widest being 79. The spec then touches **1** of them at the median and **2** at the
+ * p90: 5–6 % of what it built. So `SMALL` is the median service, `MEDIUM` the p75 and `LARGE` the
+ * p90, and the call counts are that survey's median and p90 rather than a number that flatters
+ * anybody.
+ */
+const SMALL = makeWideClass(6);
+const MEDIUM = makeWideClass(14);
+const LARGE = makeWideClass(45);
 
 // `AnyMethods` is an index signature, and this repository compiles with `noUncheckedIndexedAccess`
 // and `noPropertyAccessFromIndexSignature`. Naming `m2` keeps optional chaining out of the timed
@@ -107,7 +118,7 @@ type CalledWithDouble = {
   m2: ((arg: number) => unknown) & { calledWith: (arg: number) => { mockReturnValue: (value: number) => void } };
 };
 
-const DISPATCH = WIDE as unknown as new () => DispatchTarget;
+const DISPATCH = MEDIUM as unknown as new () => DispatchTarget;
 
 /** The double a developer writes by hand when they skip the libraries entirely — the floor. */
 function handWritten(methodCount: number): AnyMethods {
@@ -194,10 +205,11 @@ interface ClassCase {
  * client, an ngrx facade, a `Store` double.
  */
 const CLASS_CASES: ClassCase[] = [
-  { label: '10 methods, 2 called', WideClass: WIDE, methodCount: 10, callCount: 2, iterations: 40_000 },
-  { label: '10 methods, all 10 called', WideClass: WIDE, methodCount: 10, callCount: 10, iterations: 21_000 },
-  { label: '40 methods, 3 called', WideClass: HUGE, methodCount: 40, callCount: 3, iterations: 20_000 },
-  { label: '40 methods, all 40 called', WideClass: HUGE, methodCount: 40, callCount: 40, iterations: 5_000 },
+  { label: 'small project — 6 methods, 1 called', WideClass: SMALL, methodCount: 6, callCount: 1, iterations: 45_000 },
+  { label: 'medium project — 14 methods, 2 called', WideClass: MEDIUM, methodCount: 14, callCount: 2, iterations: 35_000 },
+  { label: 'large project — 45 methods, 2 called', WideClass: LARGE, methodCount: 45, callCount: 2, iterations: 18_000 },
+  { label: 'worst case — 14 methods, all 14 called', WideClass: MEDIUM, methodCount: 14, callCount: 14, iterations: 15_000 },
+  { label: 'worst case — 45 methods, all 45 called', WideClass: LARGE, methodCount: 45, callCount: 45, iterations: 4_500 },
 ];
 
 // ---------------------------------------------------------------------------------------------
@@ -205,7 +217,7 @@ const CLASS_CASES: ClassCase[] = [
 // Only two libraries in the field read a class at all; the hand-written object is the control.
 // ---------------------------------------------------------------------------------------------
 CLASS_CASES.forEach(({ label, WideClass, methodCount, callCount, iterations }) => {
-  describe(`double from a class — ${label}`, () => {
+  describe(`${label} — double from a class`, () => {
     bench('vitest-auto-spy: createSpyFromClass', () => {
       callFirst(createSpyFromClass(WideClass) as unknown as AnyMethods, callCount);
       dropCreatedMocks();
@@ -239,10 +251,15 @@ interface TypeCase {
   iterations: number;
 }
 
+/**
+ * A type-driven double reads no prototype, so its cost scales with the members a test *touches* and
+ * not with the width of anything. The three counts bracket the same range the class widths do, and
+ * carry the same three labels, so a reader can hold one project size in mind across both families.
+ */
 const TYPE_CASES: TypeCase[] = [
-  { label: '2 members touched', callCount: 2, iterations: 295_000 },
-  { label: '10 members touched', callCount: 10, iterations: 30_000 },
-  { label: '40 members touched', callCount: 40, iterations: 8_000 },
+  { label: 'small project — 2 members touched', callCount: 2, iterations: 295_000 },
+  { label: 'medium project — 10 members touched', callCount: 10, iterations: 30_000 },
+  { label: 'large project — 40 members touched', callCount: 40, iterations: 8_000 },
 ];
 
 // ---------------------------------------------------------------------------------------------
@@ -250,7 +267,7 @@ const TYPE_CASES: TypeCase[] = [
 // and the comparison is apples to apples — this is the block where the deep-Proxy libraries live.
 // ---------------------------------------------------------------------------------------------
 TYPE_CASES.forEach(({ label, callCount, iterations }) => {
-  describe(`double from a type — ${label}`, () => {
+  describe(`${label} — double from a type`, () => {
     bench('vitest-auto-spy: createAutoMock<T>()', () => {
       callFirst(createAutoMock<AnyMethods>() as AnyMethods, callCount);
       dropCreatedMocks();
@@ -275,7 +292,7 @@ interface Nested {
 // ---------------------------------------------------------------------------------------------
 // Recursive doubles — three levels down and a call at the leaf.
 // ---------------------------------------------------------------------------------------------
-describe('deep double — 3 levels, leaf called', () => {
+describe('any size — deep double, 3 levels, leaf called', () => {
   bench('vitest-auto-spy: mockDeep<T>()', () => {
     mockDeep<Nested>().level1.level2.level3.leaf();
     dropCreatedMocks();
@@ -307,29 +324,29 @@ function configureAndCall(double: AnyMethods): void {
 // prototype before they can configure anything and the Proxy libraries do not, so one block holding
 // all four would report the difference between the two *operations* under the heading of a race.
 // ---------------------------------------------------------------------------------------------
-describe('configure a return + 3 calls — double from a class', () => {
+describe('any size — configure a return + 3 calls, double from a class', () => {
   bench('vitest-auto-spy: createSpyFromClass', () => {
-    configureAndCall(createSpyFromClass(WIDE) as unknown as AnyMethods);
+    configureAndCall(createSpyFromClass(MEDIUM) as unknown as AnyMethods);
     dropCreatedMocks();
   }, fixedIterations(51_000));
 
   bench('@bugsplat/vitest-auto-spies', () => {
-    configureAndCall(hirezCreateSpyFromClass(WIDE) as unknown as AnyMethods);
+    configureAndCall(hirezCreateSpyFromClass(MEDIUM) as unknown as AnyMethods);
     dropCreatedMocks();
   }, fixedIterations(51_000));
 
   bench('jest-auto-spies', () => {
-    configureAndCall(jestAutoSpies.createSpyFromClass(WIDE));
+    configureAndCall(jestAutoSpies.createSpyFromClass(MEDIUM));
     dropCreatedMocks();
   }, fixedIterations(51_000));
 
   bench('hand-written vi.fn() per method', () => {
-    configureAndCall(handWritten(10));
+    configureAndCall(handWritten(14));
     dropCreatedMocks();
   }, fixedIterations(51_000));
 });
 
-describe('configure a return + 3 calls — double from a type', () => {
+describe('any size — configure a return + 3 calls, double from a type', () => {
   bench('vitest-auto-spy: createAutoMock<T>()', () => {
     configureAndCall(createAutoMock<AnyMethods>() as AnyMethods);
     dropCreatedMocks();
@@ -351,7 +368,7 @@ describe('configure a return + 3 calls — double from a type', () => {
 // nothing here allocates a mock and there is nothing to prune — the number is pure dispatch.
 // Two configured argument sets and one miss, which is the shape a real spec produces.
 // ---------------------------------------------------------------------------------------------
-describe('calledWith dispatch — 2 configured, 1 miss', () => {
+describe('any size — calledWith dispatch, 2 configured, 1 miss', () => {
   const ours = createSpyFromClass(DISPATCH);
   ours.m2.calledWith(1).mockReturnValue(11);
   ours.m2.calledWith(2).mockReturnValue(22);

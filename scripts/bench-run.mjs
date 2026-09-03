@@ -8,57 +8,12 @@
 // keeps the stock reporter and buffers its output instead, surfacing it only when the run fails.
 
 import { spawn } from 'node:child_process';
-import { createRequire } from 'node:module';
-import { dirname, join } from 'node:path';
-import { argv, env, execPath, exit, stderr, stdout } from 'node:process';
+import { argv, env, execPath, exit, stderr } from 'node:process';
 import { fileURLToPath } from 'node:url';
 
+import { repoRoot, runBenchPass } from './bench-vitest.mjs';
+
 const RESULTS = 'bench-results.json';
-const TICK_MS = 5000;
-
-const root = fileURLToPath(new URL('..', import.meta.url));
-// `vitest/vitest.mjs` is not an export, so resolve the package and join the file. The `.bin` shim is
-// avoided on purpose — it is a `.cmd` on Windows and cannot be spawned as a Node script.
-const vitest = join(dirname(createRequire(import.meta.url).resolve('vitest/package.json')), 'vitest.mjs');
-
-/**
- * One measurement pass, in its own process.
- *
- * Separate processes matter: repeating inside one would inherit the previous pass's heap and JIT
- * state, which is exactly the variation the repeats exist to expose.
- */
-function measure(outputPath, label, childEnv) {
-  return new Promise((resolve) => {
-    const started = Date.now();
-    const buffered = [];
-
-    const child = spawn(
-      execPath,
-      [vitest, 'bench', '--run', '--config', 'vitest.bench.vs.config.mts', '--outputJson', outputPath],
-      { cwd: root, stdio: ['ignore', 'pipe', 'pipe'], env: childEnv },
-    );
-
-    child.stdout.on('data', (chunk) => buffered.push(chunk));
-    child.stderr.on('data', (chunk) => buffered.push(chunk));
-
-    const ticker = setInterval(() => {
-      stdout.write(`  ${label} ${Math.round((Date.now() - started) / 1000)}s\n`);
-    }, TICK_MS);
-
-    child.on('close', (code) => {
-      clearInterval(ticker);
-
-      if (code !== 0) {
-        stderr.write(Buffer.concat(buffered).toString());
-        stderr.write(`\nBenchmark run failed with exit code ${code}.\n`);
-        exit(code ?? 1);
-      }
-
-      stdout.write(`  ${label} done in ${Math.round((Date.now() - started) / 1000)}s\n`);
-      resolve();
-    });
-  });
-}
 
 async function run() {
   const args = argv.slice(2);
@@ -99,14 +54,19 @@ async function run() {
     // Sequentially, never concurrently: two passes at once would contend for the cores and report
     // the scheduler instead of the libraries.
     // eslint-disable-next-line no-await-in-loop
-    await measure(outputPath, repeat === 1 ? 'measuring…' : `pass ${pass}/${repeat}`, childEnv);
+    await runBenchPass({
+      config: 'vitest.bench.vs.config.mts',
+      outputPath,
+      label: repeat === 1 ? 'measuring…' : `pass ${pass}/${repeat}`,
+      env: childEnv,
+    });
     outputs.push(outputPath);
   }
 
-  stdout.write('\n');
+  stderr.write('\n');
 
   const report = spawn(execPath, [fileURLToPath(new URL('bench-report.mjs', import.meta.url)), ...outputs, ...passthrough], {
-    cwd: root,
+    cwd: repoRoot,
     stdio: 'inherit',
     env: childEnv,
   });

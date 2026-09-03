@@ -58,6 +58,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { paint, renderHeading, renderTable, styleFor } from './bench-table.mjs';
+
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(SCRIPT_DIR, '..');
 
@@ -213,7 +215,7 @@ function collectEnvironment() {
 }
 
 function printEnvironment(env) {
-  console.log('=== Environment ===');
+  console.log(renderHeading('Environment', styleFor(process.stdout, process.argv.slice(2)), 3).join('\n'));
   console.log(`Date:        ${env.date}`);
   console.log(`Node:        ${env.node}`);
   console.log(`Vitest:      ${env.vitest}`);
@@ -485,6 +487,18 @@ async function runVitestOnce(dir, { coverage }) {
 
 // --- Stats ----------------------------------------------------------------------------------
 
+/** The name a column carries — the flag value is what you type, not what a reader should have to decode. */
+function armLabel(arm) {
+  return (
+    {
+      ours: 'vitest-auto-spy',
+      'ours-proxy': "vitest-auto-spy, lazySpies: 'proxy'",
+      hirez: '@bugsplat/vitest-auto-spies',
+      manual: 'hand-written vi.fn()',
+    }[arm] ?? arm
+  );
+}
+
 function median(values) {
   const sorted = [...values].sort((a, b) => a - b);
   const mid = Math.floor(sorted.length / 2);
@@ -544,7 +558,13 @@ async function main() {
   try {
     for (const size of opts.sizes) {
       for (const coverage of opts.coverageModes) {
-        console.log(`=== size=${size} coverage=${coverage ? 'on' : 'off'} isolate=${opts.isolate} ours-source=${opts.oursSource} ===`);
+        console.log(
+      renderHeading(
+        `${size.toLocaleString('en-US')} tests · coverage ${coverage ? 'on' : 'off'} · isolate ${opts.isolate} · ours from ${opts.oursSource}`,
+        styleFor(process.stdout, process.argv.slice(2)),
+        3,
+      ).join('\n'),
+    );
 
         // Generate + install every arm's project before running anything, so timing rounds
         // below are pure round-robin — no arm pays a first-touch cost the others don't.
@@ -639,23 +659,98 @@ async function main() {
     if (!opts.keep) cleanup();
   }
 
-  if (roundRatios.length > 0) {
-    console.log('=== Ratio vs. ours, per round (interleaved — same round, back-to-back) ===');
-    console.log('size\tarm\tround\tratio');
-    for (const r of roundRatios) {
-      console.log(`${r.size}\t${r.arm}\t${r.round}\t${fmt(r.ratioVsOurs, 3)}`);
-    }
-    console.log('');
-  }
+  const style = styleFor(process.stdout, process.argv.slice(2));
+  const sizes = [...new Set(results.map((r) => r.size))];
+  const arms = [...new Set(results.map((r) => r.arm))];
+  const cellOf = (size, arm) => results.find((r) => r.size === size && r.arm === arm);
 
-  console.log('=== Results ===');
-  console.log('size\tcov\tarm\tmedian_s\tmin_s\tmax_s\trss_mb\tfailures');
-  for (const r of results) {
+  // Green only when this package is the fastest arm at every size measured, red the moment it is
+  // not: the suite-scale row this project loses is the one a reader most needs to notice, and the
+  // frame says so before the numbers are read.
+  const oursWinsEverywhere = sizes.every((size) => {
+    const times = arms.map((arm) => cellOf(size, arm)?.wallMedian).filter((value) => typeof value === 'number');
+    const ours = cellOf(size, 'ours')?.wallMedian;
+
+    return typeof ours === 'number' && times.length > 0 && ours === Math.min(...times);
+  });
+  const color = arms.includes('ours') ? (oursWinsEverywhere ? 'green' : 'red') : undefined;
+
+  // One cell per arm rather than one row: wall-clock and peak RSS are read together — an arm that
+  // wins the clock and loses the heap is the whole reason this harness measures both — and a
+  // long-format table made the reader assemble that pairing themselves.
+  console.log(paint(renderHeading('Results', style, 3).join('\n'), style === 'box' ? color : undefined));
+  console.log('');
+  console.log(
+    renderTable(
+      ['tests', ...arms.map(armLabel)],
+      sizes.map((size) => {
+        const ours = cellOf(size, 'ours');
+
+        return [
+          size.toLocaleString('en-US'),
+          ...arms.map((arm) => {
+            const cell = cellOf(size, arm);
+
+            if (!cell || cell.wallMedian === null) {
+              return 'FAIL';
+            }
+
+            const ratio = ours && ours.wallMedian && arm !== 'ours' ? ` (${fmt(cell.wallMedian / ours.wallMedian, 2)}×)` : '';
+            const rss = cell.rssMedian === null ? (cell.rssSampled ? '' : '') : ` · ${fmt(cell.rssMedian, 0)} MB`;
+
+            return `${fmt(cell.wallMedian)} s${ratio}${rss}`;
+          }),
+        ];
+      }),
+      { style, color: style === 'box' ? color : undefined },
+    ).join('\n'),
+  );
+  console.log('');
+
+  // The spread the medians above hide: same cell, same machine, minutes apart.
+  console.log(renderHeading('Wall-clock per round, and the ratio to ours', style, 3).join('\n'));
+  console.log('');
+  console.log(
+    renderTable(
+      ['tests', ...arms.map(armLabel)],
+      sizes.map((size) => [
+        size.toLocaleString('en-US'),
+        ...arms.map((arm) => {
+          const cell = cellOf(size, arm);
+
+          if (!cell) {
+            return '—';
+          }
+
+          const rounds = cell.runs
+            .filter((run) => !run.failed)
+            .map((run) => {
+              const ratio = roundRatios.find((r) => r.size === size && r.arm === arm && r.round === cell.runs.indexOf(run) + 1);
+
+              return arm === 'ours' ? `${fmt(run.wallSeconds)}s` : `${fmt(ratio?.ratioVsOurs ?? 0, 2)}×`;
+            });
+
+          return rounds.join('  ');
+        }),
+      ]),
+      { style },
+    ).join('\n'),
+  );
+  console.log('');
+
+  const failed = results.filter((r) => r.failures > 0);
+
+  if (failed.length > 0) {
+    console.log(renderHeading('Failed rounds', style, 3).join('\n'));
+    console.log('');
     console.log(
-      `${r.size}\t${r.coverage ? 'on' : 'off'}\t${r.arm}\t${r.wallMedian === null ? 'FAIL' : fmt(r.wallMedian)}\t` +
-        `${r.wallMin === null ? '-' : fmt(r.wallMin)}\t${r.wallMax === null ? '-' : fmt(r.wallMax)}\t` +
-        `${r.rssMedian === null ? (r.rssSampled ? '-' : 'n/a') : fmt(r.rssMedian, 0)}\t${r.failures}`,
+      renderTable(
+        ['tests', 'arm', 'failed rounds', 'of'],
+        failed.map((r) => [r.size.toLocaleString('en-US'), r.arm, String(r.failures), String(r.repeats)]),
+        { style, align: ['right', 'left', 'right', 'right'] },
+      ).join('\n'),
     );
+    console.log('');
   }
 
   if (opts.out) {

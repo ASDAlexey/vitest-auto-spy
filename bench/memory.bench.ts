@@ -44,9 +44,8 @@ import { createRequire } from 'node:module';
 
 import { describe, expect, it, vi } from 'vitest';
 
-import { createSpyFromClass as hirezCreateSpyFromClass } from '@bugsplat/vitest-auto-spies';
-import { createMock as golevelupCreateMock } from '@golevelup/ts-vitest';
-import { mock as vmxMock } from 'vitest-mock-extended';
+// The renderer every other benchmark command prints through, typed by `scripts/bench-table.d.mts`.
+import { renderTable as renderBenchTable, styleFor } from '../scripts/bench-table.mjs';
 
 import { installRunnerGlobals } from './runner-globals';
 
@@ -54,8 +53,6 @@ import { installRunnerGlobals } from './runner-globals';
 // effect, exactly as it does for a consumer.
 import { createAutoMock, createSpyFromClass } from '../src/index';
 import { captureMockRegistry, pruneMockRegistry } from '../src/setup';
-
-installRunnerGlobals();
 
 // `jest-auto-spies` and `jasmine-auto-spies` are CommonJS and their declarations reference ambient
 // `jest` / `jasmine` type packages this repository does not install. `createRequire` loads them for
@@ -66,10 +63,18 @@ type AnyMethods = Record<string, (...args: unknown[]) => unknown>;
 type ClassWithMethods = new () => AnyMethods;
 type ClassSpyFactory = (ObjectClass: ClassWithMethods) => AnyMethods;
 
-const jestAutoSpies = requireCjs('jest-auto-spies') as { createSpyFromClass: ClassSpyFactory };
-const jasmineAutoSpies = requireCjs('jasmine-auto-spies') as { createSpyFromClass: ClassSpyFactory };
-
 captureMockRegistry();
+
+/**
+ * Whether this run measures the field or only this package.
+ *
+ * `BENCH_ARMS=self` is what `npm run bench` sets: the same harness, the same parameters, the same
+ * report — minus the five competitor arms, whose packages live in `bench/node_modules` and would
+ * otherwise make the self-comparison require an install it has never needed. The competitors are
+ * loaded **inside** the test for exactly that reason; a static import would run before the switch
+ * could be read.
+ */
+const SELF_ONLY = process.env['BENCH_ARMS'] === 'self';
 
 // ---------------------------------------------------------------------------------------------
 // Harness parameters.
@@ -176,20 +181,49 @@ const CLASS_ARMS: readonly Arm<ClassSubject>[] = [
     label: 'vitest-auto-spy: lazySpies: false',
     create: ({ WideClass }) => createSpyFromClass(WideClass, { lazySpies: false }) as unknown as AnyMethods,
   },
-  { label: 'jest-auto-spies', create: ({ WideClass }) => jestAutoSpies.createSpyFromClass(WideClass) },
-  { label: 'jasmine-auto-spies', create: ({ WideClass }) => jasmineAutoSpies.createSpyFromClass(WideClass) },
-  {
-    label: '@bugsplat/vitest-auto-spies',
-    create: ({ WideClass }) => hirezCreateSpyFromClass(WideClass) as unknown as AnyMethods,
-  },
   { label: 'hand-written vi.fn() per method', create: ({ methodCount }) => handWritten(methodCount) },
 ];
 
 const TYPE_ARMS: readonly Arm<void>[] = [
   { label: 'vitest-auto-spy: createAutoMock<T>()', create: () => createAutoMock<AnyMethods>() as AnyMethods },
-  { label: 'vitest-mock-extended: mock<T>()', create: () => vmxMock<AnyMethods>() as unknown as AnyMethods },
-  { label: '@golevelup/ts-vitest: createMock<T>()', create: () => golevelupCreateMock<AnyMethods>() as unknown as AnyMethods },
 ];
+
+/**
+ * The other libraries, loaded on demand.
+ *
+ * Dynamic because of {@link SELF_ONLY}: these five packages are installed under `bench/`, and
+ * `npm run bench` — which measures this package against itself and has never needed that install —
+ * runs the same harness with them switched off. The jest and jasmine arms also need the runner
+ * globals, which is why installing those lives here rather than at module scope.
+ */
+async function loadCompetitorArms(): Promise<{ classArms: Arm<ClassSubject>[]; typeArms: Arm<void>[] }> {
+  installRunnerGlobals();
+
+  const [{ createSpyFromClass: hirezCreateSpyFromClass }, { createMock: golevelupCreateMock }, { mock: vmxMock }] =
+    await Promise.all([
+      import('@bugsplat/vitest-auto-spies'),
+      import('@golevelup/ts-vitest'),
+      import('vitest-mock-extended'),
+    ]);
+
+  const jestAutoSpies = requireCjs('jest-auto-spies') as { createSpyFromClass: ClassSpyFactory };
+  const jasmineAutoSpies = requireCjs('jasmine-auto-spies') as { createSpyFromClass: ClassSpyFactory };
+
+  return {
+    classArms: [
+      { label: 'jest-auto-spies', create: ({ WideClass }) => jestAutoSpies.createSpyFromClass(WideClass) },
+      { label: 'jasmine-auto-spies', create: ({ WideClass }) => jasmineAutoSpies.createSpyFromClass(WideClass) },
+      {
+        label: '@bugsplat/vitest-auto-spies',
+        create: ({ WideClass }) => hirezCreateSpyFromClass(WideClass) as unknown as AnyMethods,
+      },
+    ],
+    typeArms: [
+      { label: 'vitest-mock-extended: mock<T>()', create: () => vmxMock<AnyMethods>() as unknown as AnyMethods },
+      { label: '@golevelup/ts-vitest: createMock<T>()', create: () => golevelupCreateMock<AnyMethods>() as unknown as AnyMethods },
+    ],
+  };
+}
 
 const WIDTHS = [10, 100] as const;
 
@@ -302,17 +336,42 @@ function formatCell(cell: Cell, width: number): string {
   return `${perDouble} (${perMethod}) ±${cell.spreadPercent.toFixed(0)}%`;
 }
 
-function renderTable(headers: readonly string[], rows: readonly (readonly string[])[]): string {
-  const widths = headers.map((header, column) =>
-    Math.max(header.length, ...rows.map((row) => (row[column] ?? '').length)),
-  );
+/**
+ * One table, drawn by the same renderer every other benchmark command uses — a box in a terminal and
+ * markdown in a pipe, so a run whose output is redirected still pastes into a documentation page.
+ */
+function renderTable(headers: readonly string[], rows: readonly (readonly string[])[], color?: 'green' | 'red' | undefined): string {
+  const style = styleFor(process.stdout);
 
-  const line = (cells: readonly string[]): string =>
-    `| ${cells.map((cell, column) => cell.padEnd(widths[column] ?? cell.length)).join(' | ')} |`;
+  return renderBenchTable([...headers], rows.map((row) => [...row]), {
+    style,
+    align: headers.map((_, column) => (column === 0 ? 'left' : 'right')),
+    color: style === 'box' ? color : undefined,
+  }).join('\n');
+}
 
-  const divider = `| ${widths.map((width) => '-'.repeat(width)).join(' | ')} |`;
+/**
+ * Green when this package retains the least in **every** column, red when another library beats it
+ * anywhere, and no colour at all when there is nobody to compare against (`BENCH_ARMS=self`).
+ *
+ * The comparison is against the *other libraries*, never against this package's own settings: the
+ * `'proxy'` mode retaining less than the default is a documented trade-off, not a defeat. The type
+ * table is the one this normally paints red, and that is the point — an untouched `createAutoMock`
+ * is heavier than a bare `vitest-mock-extended` Proxy, and a reader should not have to find that out
+ * by comparing eight numbers.
+ */
+function verdictColor(measured: readonly { label: string; cells: readonly Cell[] }[]): 'green' | 'red' | undefined {
+  const ours = measured.filter((arm) => arm.label.startsWith('vitest-auto-spy'));
+  const others = measured.filter((arm) => !arm.label.startsWith('vitest-auto-spy'));
 
-  return [line(headers), divider, ...rows.map((row) => line(row))].join('\n');
+  if (ours.length === 0 || others.length === 0) {
+    return undefined;
+  }
+
+  const bestOf = (arms: readonly { cells: readonly Cell[] }[], column: number): number =>
+    Math.min(...arms.map((arm) => arm.cells[column]?.medianBytesPerDouble ?? Infinity));
+
+  return (ours[0]?.cells ?? []).every((_, column) => bestOf(ours, column) <= bestOf(others, column)) ? 'green' : 'red';
 }
 
 function columnHeaders(): string[] {
@@ -362,10 +421,17 @@ describe('retained heap per double', () => {
       'globalThis.gc is missing: this file must run under --expose-gc. Use `npm run bench:memory`, which supplies it through vitest.bench.memory.config.mts (test.execArgv, forks pool).',
     ).toBeTypeOf('function');
 
+    const competitors = SELF_ONLY ? { classArms: [], typeArms: [] } : await loadCompetitorArms();
+    // The hand-written control stays last on purpose: it is the floor every other row is read
+    // against, and a reader finds it where the widest arm used to be.
+    const classArms = [...CLASS_ARMS.slice(0, -1), ...competitors.classArms, ...CLASS_ARMS.slice(-1)];
+    const typeArms = [...TYPE_ARMS, ...competitors.typeArms];
+
     const allCells: Cell[] = [];
     const classRows: string[][] = [];
+    const classCells: { label: string; cells: Cell[] }[] = [];
 
-    for (const arm of CLASS_ARMS) {
+    for (const arm of classArms) {
       const { row, cells } = await measureArmRow(arm, (width) => {
         const subject = CLASS_SUBJECTS.get(width);
 
@@ -375,15 +441,18 @@ describe('retained heap per double', () => {
       });
 
       classRows.push(row);
+      classCells.push({ label: arm.label, cells });
       allCells.push(...cells);
     }
 
     const typeRows: string[][] = [];
+    const typeCells: { label: string; cells: Cell[] }[] = [];
 
-    for (const arm of TYPE_ARMS) {
+    for (const arm of typeArms) {
       const { row, cells } = await measureArmRow(arm, () => undefined);
 
       typeRows.push(row);
+      typeCells.push({ label: arm.label, cells });
       allCells.push(...cells);
     }
 
@@ -392,14 +461,14 @@ describe('retained heap per double', () => {
 
     const report = [
       '',
-      '## Retained heap per test double',
+      SELF_ONLY ? '## Retained heap per test double — this package only' : '## Retained heap per test double',
       '',
       `N = ${HOLD_COUNT.toLocaleString('en-US')} doubles held alive at once · ${REPEATS} repeats per cell (median reported) · ${GC_PASSES} GC passes per settle`,
       `node ${process.version} · cells read \`bytes per double (bytes per method) ±spread\``,
       '',
       '### Built from a class (reads a real prototype)',
       '',
-      renderTable(columnHeaders(), classRows),
+      renderTable(columnHeaders(), classRows, verdictColor(classCells)),
       '',
       '### Built from a type (Proxy, no class read)',
       '',
@@ -407,7 +476,7 @@ describe('retained heap per double', () => {
       'two `untouched` columns differ only by the noise floor, and `bytes per method` is against the',
       "type's nominal width.",
       '',
-      renderTable(columnHeaders(), typeRows),
+      renderTable(columnHeaders(), typeRows, verdictColor(typeCells)),
       '',
       '### Harness integrity',
       '',
