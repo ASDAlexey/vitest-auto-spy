@@ -11,7 +11,8 @@ skip the class entirely and mock straight from a **type or interface** with `cre
 recursive `mockDeep<T>()`. Runs on **Vitest**, **Bun** (`bun:test`) and **`node:test`** behind one
 identical API, with **RxJS** spies and **Angular / NestJS / React / Vue·Pinia / Svelte** recipes
 ([availability](#availability)). A drop-in replacement for
-[`jest-auto-spies`](https://www.npmjs.com/package/jest-auto-spies) — same API — and for
+[`jest-auto-spies`](https://www.npmjs.com/package/jest-auto-spies) — same API, and roughly 1.5x
+faster at suite scale ([benchmarks](#benchmarks)) — and for
 [`jasmine-auto-spies`](https://www.npmjs.com/package/jasmine-auto-spies) through
 [`vitest-auto-spy/jasmine`](#migrating-from-jasmine-auto-spies), which keeps `.and`, `.calls` and
 `.withArgs` working while you land the suite green.
@@ -138,6 +139,8 @@ includes — that one import is what keeps `returnSubject()` typed as rxjs's own
 - [Angular on Bun (`bun:test`)](#angular-on-bun-buntest)
 - [Comparison](#comparison)
   - [@testing-library/angular /vitest-utils](#testing-libraryangular-vitest-utils)
+- [Benchmarks](#benchmarks)
+  - [Reproducing the numbers](#reproducing-the-numbers)
 - [Migrating from jest-auto-spies](#migrating-from-jest-auto-spies)
 - [Migrating from jasmine-auto-spies](#migrating-from-jasmine-auto-spies)
 - [Migrating from @ngneat/spectator](https://asdalexey.github.io/vitest-auto-spy/migrating-spectator)
@@ -1128,6 +1131,90 @@ It is also the only library in this field with **zoneless support** — a `./zon
 since 19.2.0 (2026-03-17), present in the tarball's `exports` map. That is a real point in its
 favour. Full write-up, including ng-mocks and Spectator:
 [Comparison → Angular](https://asdalexey.github.io/vitest-auto-spy/comparison#angular).
+
+## Benchmarks
+
+Wall-clock at suite scale varies **15-20% between invocations** of the identical configuration —
+the same cell measured 1.56 s and 1.33 s at 1 000 tests, 10.94 s and 12.51 s at 10 000. Peak RSS, by
+contrast, reproduces tightly and separates arms by multiples. Treat the ratios below as the durable
+figure and any single wall-clock number as describing one machine, not a promise about yours.
+
+`jest-auto-spies@3.0.1`, `jasmine-auto-spies@8.0.1` and `@bugsplat/vitest-auto-spies@1.0.0` are all
+measured directly here — no more standing in for one another. All three depend on
+`@hirez_io/auto-spies-core@3.0.0` and differ only in the spy factory they hand it (`jest.fn()`,
+`jasmine.createSpy()`, `vi.fn()`), and on the micro-benchmark they land within a few per cent of each
+other on every case — e.g. 54.50, 54.87 and 52.83 µs on the 40-methods/3-called case. `jest-auto-spies`
+and `jasmine-auto-spies` run here under a minimal `jest` / `jasmine` global backed by `vi.fn()`, so
+every arm creates the same underlying mock and the runner's own per-mock cost is a shared constant —
+what these numbers describe is each library's own code, not what a real Jest or Jasmine suite would
+show.
+
+**Where this library wins:**
+
+| Comparison | Scale | Result |
+| --- | --- | --- |
+| vs `@bugsplat/vitest-auto-spies` — the jest-auto-spies-family core, all three within a few per cent of each other (above) | Suite, `isolate: true`, 1 000-10 000 tests, 20- and 100-method classes | roughly 1.5x faster, 7/7 rounds |
+| `calledWith` dispatch, 2 configured + 1 miss (micro) | — | 0.50 µs vs 1.00 µs (@bugsplat, 2.00x) and 0.58 µs (vitest-mock-extended, 1.17x) |
+
+**Where it loses — same weight, same table:**
+
+| Comparison | Scale | Result |
+| --- | --- | --- |
+| vs hand-written `vi.fn()` | Suite, `isolate: true` | hand-written about 10-15% cheaper across a suite, 7/7 rounds — e.g. 8.59 s vs 11.27 s at 10 000 tests |
+| vs `vitest-mock-extended`, type-only double (micro) | 2 to 40 members | vitest-mock-extended faster throughout — 2.54 µs vs 3.29 µs at 2 members, 51.79 µs vs 66.54 µs at 40 |
+| vs `vitest-mock-extended`, deep double, 3 levels (micro) | — | 4.79 µs vs 8.08 µs |
+
+Micro-benchmark multipliers do not transfer to suite scale: the micro-benchmark shows this library
+around 4.7x faster than hand-written on a 40-method class, and at suite scale that advantage is gone
+— parity at 1 000 tests, behind at 10 000. Double construction is on the order of 1% of a test's
+cost; nearly everything else in a suite run swamps it.
+
+**Memory, `isolate: false`, 100-method class, 10 000 tests, peak RSS:**
+
+| Arm | Peak RSS |
+| --- | ---: |
+| hand-written `vi.fn()` | 6733 MB |
+| vitest-auto-spy, default | 2475 MB |
+| vitest-auto-spy, `lazySpies: 'proxy'` | 2109 MB |
+
+Hand-written doubles use 2.7x the default's peak RSS here — the difference between finishing and an
+OOM'd worker on a large suite.
+
+**Guidance keyed to suite size:** `isolate: false` is worth about 3x on its own — more than any
+library choice measured here — and it makes memory, not wall-clock, the binding constraint. On a
+wide class under `isolate: false`, add `lazySpies: 'proxy'` for about 15% less peak RSS. Do not turn
+`'proxy'` on under normal isolation (`isolate: true`): there it measurably does nothing (5/7 rounds
+either side of parity).
+
+Full write-up, methodology and the complete suite-scale tables:
+[Performance](https://asdalexey.github.io/vitest-auto-spy/core/performance).
+
+### Reproducing the numbers
+
+Node **>=18** (the project floor); the numbers above were captured on Node v24.19.0. The steps are
+identical on Windows, macOS and Linux — same Node, same npm, same commands, nothing OS-specific to
+call out:
+
+```bash
+git clone https://github.com/ASDAlexey/vitest-auto-spy.git
+cd vitest-auto-spy
+npm ci
+npm ci --prefix bench
+npm run bench:vs
+```
+
+Two installs are intentional: the competitor packages live in `bench/package.json`, kept out of the
+root so it carries nothing it doesn't ship or test with, and `bench/.npmrc` pins
+`legacy-peer-deps=true` so npm doesn't install a second copy of `vitest` beside the root one — two
+copies would mean two mock registries and the run dies out of memory.
+
+`npm run bench:vs` is the micro-benchmark, about a minute. For the suite-scale tables, see
+`npm run bench:suite --help` — it takes **tens of minutes at 10 000 tests**, so budget for that
+before running it locally.
+
+The same benchmark also runs in CI — on a monthly schedule, on any pull request touching `bench/**`
+or `src/lib/**`, and on demand — so a run you didn't trigger yourself is checkable in
+[Actions → Benchmarks](https://github.com/ASDAlexey/vitest-auto-spy/actions/workflows/bench.yml).
 
 ## Migrating from jest-auto-spies
 

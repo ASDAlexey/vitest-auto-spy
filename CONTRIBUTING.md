@@ -21,6 +21,38 @@ npm ci
 | `npm run test:types` | Assert what callers **infer** — `expectTypeOf` cases under `src/type-tests` |
 | `npm run types:budget` | Count the type instantiations `Spy<T>` costs `tsc` on a generated fixture; fails past the budget in `scripts/check-type-budget.mjs` (`--measure` prints the numbers, `--print` the fixture) |
 | `npm run build` | Build the ESM + CJS bundles and type declarations |
+| `npm run bench` | Micro-benchmark this package only (`bench/auto-spy.bench.ts`) — runs in any checkout, no extra install |
+| `npm run bench:vs` | Head-to-head micro-benchmark against `@bugsplat/vitest-auto-spies`, `vitest-mock-extended`, `@golevelup/ts-vitest` and a hand-written `vi.fn()` control (`bench/vs-libraries.bench.ts`) — needs `npm ci --prefix bench` first |
+| `npm run bench:suite` | Suite-scale harness: generates synthetic suites (1 000 / 3 000 / 10 000 tests) and measures wall-clock and peak RSS per arm. `npm run bench:suite --help` prints every option; a full run at 10 000 tests takes tens of minutes, so start with `--sizes 100 --repeats 1` to smoke-test |
+
+### Benchmarking against other libraries
+
+The competitor packages live in `bench/package.json`, installed separately with
+`npm ci --prefix bench` so the root `package.json` carries nothing it does not ship or test with —
+the same pattern `docs-site/` already uses for its own dependencies.
+
+**`bench/.npmrc` sets `legacy-peer-deps=true` deliberately — do not remove it.** The competitors
+declare `vitest` as a peer. Without that setting, `npm ci --prefix bench` installs a second copy of
+`vitest`/`@vitest/spy` next to the root one, which means two mock registries; the bench's prune then
+reaches only one and the run dies out of memory. This has happened and cost a debugging cycle —
+peers must resolve upward to the root install.
+
+Two methodology rules behind every number in `bench/vs-libraries.bench.ts` and
+`scripts/bench-suite.mjs`, both learned the hard way and not up for re-litigation:
+
+- **Measure the built `dist/`, not `src/`.** `@vitest/coverage-v8` drops any `/node_modules/` URL
+  before user config is consulted, so importing this package from `src/` instruments our sources on
+  every run while a competitor's prebuilt package goes uninstrumented — plus a per-worker esbuild
+  transform we would pay and they would not. `scripts/bench-suite.mjs --ours-source` defaults to
+  `dist` for this reason; changing that default silently reintroduces the skew.
+- **Interleave arms round-robin, never run them in blocks.** All repeats of one arm followed by all
+  repeats of the next lets machine drift during the run land on whichever arm ran later and reads as
+  a library difference. Both benchmarks interleave.
+
+`.github/workflows/bench.yml` runs every arm in one job on one machine — splitting arms across
+matrix jobs would compare two runners and report it as a library difference. `.github/dependabot.yml`
+watches `bench/package.json`, so a competitor's release opens a PR that re-runs the head-to-head
+against the new version; keep the two files in step if either changes.
 
 ## Guidelines
 

@@ -183,4 +183,15 @@ _Last released: **v3.16.0** — the git tag and `package.json` agree._
   `core/performance.md` quoted different `renderShallow` numbers without acknowledging each other;
   both now carry the per-render range and the per-file figure, and explain why they differ.
 
+- **Internal — head-to-head and suite-scale benchmarking against the field**
+  (`npm run bench:vs`, `npm run bench:suite`). A micro-benchmark against `@bugsplat/vitest-auto-spies`
+  (the `jest-auto-spies` core on Vitest), `vitest-mock-extended` and `@golevelup/ts-vitest`, plus a
+  hand-written `vi.fn()` control; and a suite-scale harness that generates synthetic suites at
+  realistic sizes and measures wall-clock and peak RSS per library. The competitors are pinned in
+  `bench/package.json`, installed separately from the root (`npm ci --prefix bench`) so they add
+  nothing to what ships or to the root install; `.github/workflows/bench.yml` re-runs the comparison
+  monthly and on changes under `bench/**` or `src/lib/**`, and Dependabot watches the competitor
+  versions so a competitor's release re-triggers it. Tooling and CI only — no change to the published
+  package. The numbers this unlocked are on `core/performance.md`.
+
 <!-- Add user-facing items here as work lands, mirroring `## [Unreleased]` in the root CHANGELOG. -->

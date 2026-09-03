@@ -2072,6 +2072,14 @@ stubbed a since-renamed method was passing over nothing and will now fail. Full 
   `fesm2022/testing-library-angular-vitest-utils.mjs` lines 14 and 18 at 19.4.2. Re-`npm pack` and
   re-read before restating them against a new version; the "Where the numbers come from" box records
   each re-verification date rather than replacing the previous one.
+- **Head-to-head benchmark numbers are quoted from the measurement, not from memory.** `npm run
+  bench:vs` and `npm run bench:suite` (see `CONTRIBUTING.md` for setup) back the claims in
+  `core/performance.md`; point at that page rather than retyping a figure here, so it lives in one
+  place. Micro-benchmark ratios do not transfer to suite scale: double construction is on the order
+  of 1% of a test's cost, and an advantage that looks like several times faster per double can be
+  gone, or reversed, once a whole suite runs. Suite-scale wall-clock is noisy between invocations;
+  peak RSS reproduces far more tightly and is the safer claim. Never state a magnitude the source
+  marks as not established.
 
 `node:test` keeps every `mock.fn()` in one process-wide `MockTracker` for the life of the process.
 On a long suite that is real memory — 20 000 spies of a 10-method class retained 124.5 MB on

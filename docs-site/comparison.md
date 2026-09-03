@@ -178,7 +178,7 @@ for `vitest-mock-extended`, plus `lodash.isequal` for `jest-mock-extended`, four
 for `@suites/unit`, `tslib` for `@testing-library/angular`, `tslib` + `jquery` +
 `@testing-library/dom` for spectator, and four `@sinonjs/*` + `diff` packages for sinon.
 
-## Three things nothing else does
+## Four things nothing else does
 
 These are not "we also have it" items — as far as this survey found, no other library on the page has
 them at all.
@@ -250,6 +250,40 @@ the delta. It is a different fixture from the survey's (which was never committe
 against the sources rather than the published declarations, so the delta is not comparable to the
 2 656 above — only to itself across commits. `node scripts/check-type-budget.mjs --print` dumps the
 fixture, `--measure` prints the numbers without failing.
+
+### 4. Runtime cost
+
+The type-check bill above has a runtime sibling, and nobody publishes that one either: what the
+same class costs across a whole suite, not per mock.
+
+`jest-auto-spies@3.0.1`, `jasmine-auto-spies@8.0.1` and `@bugsplat/vitest-auto-spies@1.0.0` are all
+measured directly — not one standing in for another. All three depend on
+`@hirez_io/auto-spies-core@3.0.0` and differ only in the spy factory they hand it (`jest.fn()`,
+`jasmine.createSpy()`, `vi.fn()`), and they land within a few per cent of each other on every
+micro-benchmark case. `jest-auto-spies` and `jasmine-auto-spies` run here under a minimal `jest` /
+`jasmine` global backed by `vi.fn()`, so every arm creates the same underlying mock and the
+runner's own per-mock cost is a shared constant — the numbers describe each library's own code, not
+what a real Jest or Jasmine suite would show.
+
+Against that shared core, this package runs roughly one and a half times faster at suite scale —
+holds at 1 000, 3 000 and 10 000 tests, on both a 20- and a 100-method class, 7 rounds out of 7
+each time.
+
+Two counterweights, carried at the same weight as that win:
+
+- Hand-written `vi.fn()` doubles are **cheaper**, not more expensive, than this library across a
+  suite under the default `isolate: true` — roughly 10-15 %, 7/7 rounds.
+- In the micro-benchmark (single-double cost, not suite scale), `vitest-mock-extended` beats this
+  package on type-only mocks and on a 3-level deep mock.
+
+Where the library wins outright is memory, not wall-clock. On a 100-method class under
+`test.isolate: false`, hand-written doubles peak at 6733 MB against 2475 MB for the default lazy
+mode and 2109 MB with `lazySpies: 'proxy'` — the difference between a CI worker finishing and one
+getting OOM-killed.
+
+Measured 2026-09-03, Node v24.19.0, Vitest 4.1.9, Apple M4 Max. Full tables, the isolate-mode and
+interleaving methodology, and reproduction steps (`npm run bench:vs`, `npm run bench:suite`) are in
+[Performance](/core/performance).
 
 ## Angular
 

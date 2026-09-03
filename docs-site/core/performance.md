@@ -178,6 +178,209 @@ The only cut left is putting the accessors on a shared prototype, which would ma
 `Object.keys(spy)` and `{ ...spy }` stop listing methods nobody has touched yet — a change a
 spec can observe, so it is not made.
 
+## Against other libraries
+
+Everything above measures this package against itself. This section measures it against all three
+jest-auto-spies-family libraries — `jest-auto-spies@3.0.1`, `jasmine-auto-spies@8.0.1` and
+`@bugsplat/vitest-auto-spies@1.0.0`, each measured directly — plus `vitest-mock-extended` and
+`@golevelup/ts-vitest`, both per-call and across a whole suite — Node v24.19.0, Vitest 4.1.9,
+Apple M4 Max, macOS 26.6.2, measured 2026-09-03.
+
+Wall-clock at suite scale varies 15–20% **between invocations** of the identical configuration —
+the same cell measured 1.56 s and 1.33 s at 1 000 tests, 10.94 s and 12.51 s at 10 000. Within one
+invocation the spread is only about 2%, which badly understates the truth. Peak RSS, by contrast,
+reproduces tightly and separates arms by multiples. Read memory first and treat wall-clock as
+secondary — and never past one significant figure of precision in prose ("roughly 1.5×", not
+"1.53×").
+
+### The three jest-auto-spies-family libraries, all measured
+
+`jest-auto-spies@3.0.1`, `jasmine-auto-spies@8.0.1` and `@bugsplat/vitest-auto-spies@1.0.0` all
+depend on the same `@hirez_io/auto-spies-core@3.0.0` and differ only in the spy factory they hand
+it — `jest.fn()`, `jasmine.createSpy()` and `vi.fn()` respectively. All three are measured directly
+below; `@bugsplat` is no longer a stand-in for anything.
+
+`jest-auto-spies` and `jasmine-auto-spies` run here under a minimal `jest` / `jasmine` global backed
+by `vi.fn()` (`bench/runner-globals.ts`). That is what makes the comparison mean something rather
+than a compromise on it: every arm then creates the same underlying mock, so the runner's per-mock
+cost is a shared constant and the numbers separate each library's own work — measuring one library
+on Jest and another on Vitest would report the two runners instead of the libraries. State the
+limitation plainly, too: these numbers describe each library's own code, not what a real Jest or
+Jasmine suite would show, where the runner's mock is a different implementation with its own cost.
+
+The three land within a few per cent of each other on every case — 54.50 µs, 54.87 µs and 52.83 µs
+on the 40-method case below. The claim that they share one algorithm is now measured, not argued
+from reading their source.
+
+Two things about this benchmark were wrong on the first attempt, and are worth knowing before
+trusting the tables below:
+
+- The first run imported this library from `src/`, outside `node_modules`. `@vitest/coverage-v8`
+  drops any `/node_modules/` URL before user config is consulted, so this package's sources were
+  instrumented (and esbuild-transformed per worker) on every run while the competitors' prebuilt
+  `dist/` was not. Fixed by measuring the built `dist/` on every arm — this alone moved the
+  hand-written comparison from 0.71× to 1.00× at 1 000 tests.
+- Arms originally ran in blocks — all repeats of one arm, then the next — so machine drift during a
+  long run landed on whichever arm happened to run later. Fixed by interleaving arms round-robin.
+
+### Micro-benchmark
+
+`npm run bench:vs`, p75, canonical run 2026-09-03. Read p75, not hz: these cases allocate by the
+hundred thousand, so hz swings several-fold between runs as GC pauses land in different samples,
+while p75 reproduces. The `(×)` after each competing figure is that arm's time divided by ours —
+above 1× means slower than this library, below 1× means faster.
+
+**Double from a class** (this library, `@bugsplat`, `jest-auto-spies` and `jasmine-auto-spies` all
+read a class — `vi.fn()` here is the same class hand-assembled with plain mocks):
+
+| Case | vitest-auto-spy | @bugsplat | jest-auto-spies | jasmine-auto-spies | hand-written vi.fn() |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 10 methods, 2 called | 4.79 µs | 13.67 µs (2.85×) | 12.75 µs (2.66×) | 13.25 µs (2.77×) | 10.62 µs (2.22×) |
+| 10 methods, all 10 called | 17.37 µs | 14.00 µs (0.81×) | 13.87 µs (0.80×) | 14.38 µs (0.83×) | 11.58 µs (0.67×) |
+| 40 methods, 3 called | 9.08 µs | 54.50 µs (6.00×) | 54.87 µs (6.04×) | 52.83 µs (5.82×) | 42.92 µs (4.72×) |
+| 40 methods, all 40 called | 69.21 µs | 58.00 µs (0.84×) | 57.46 µs (0.83×) | 62.58 µs (0.90×) | 52.46 µs (0.76×) |
+| configure a return + 3 calls | 3.00 µs | 13.08 µs (4.36×) | 13.62 µs (4.54×) | not measured | 10.96 µs (3.65×) |
+
+`jasmine-auto-spies` is absent from the last row on purpose: its configuration API is
+`spy.method.and.calledWith(x).returnValue(y)`, a different shape from the `mockReturnValue`-style
+call the other libraries make there, so putting it in that row would compare two different
+operations.
+
+**Double from a type** (all three arms here are Proxy-based, doing equal work):
+
+| Members touched | vitest-auto-spy | vitest-mock-extended | @golevelup/ts-vitest |
+| --- | ---: | ---: | ---: |
+| 2 | 3.29 µs | 2.54 µs (0.77×) | 4.54 µs (1.38×) |
+| 10 | 16.83 µs | 12.50 µs (0.74×) | 23.58 µs (1.40×) |
+| 40 | 66.54 µs | 51.79 µs (0.78×) | 92.96 µs (1.40×) |
+| configure + 3 calls | 1.92 µs | 1.54 µs (0.80×) | 1.50 µs (0.78×) |
+
+**Deep double, 3 levels, leaf called:** vitest-auto-spy 8.08 µs · vitest-mock-extended 4.79 µs
+(0.59×) · @golevelup 5.33 µs (0.66×).
+
+**`calledWith` dispatch, 2 configured + 1 miss:** vitest-auto-spy 0.50 µs · @bugsplat 1.00 µs
+(2.00×) · vitest-mock-extended 0.58 µs (1.17×).
+
+`vitest-mock-extended` wins every type-based row above except the smallest, and both Proxy
+competitors win the deep-double row. This library's edge is in reading a **class** — the two rows
+where it loses to `vitest-mock-extended` are the two rows where there is nothing class-shaped to
+read.
+
+**These multipliers do not transfer to suite scale, and that is the most important thing on this
+page.** The 40-method row above shows this package roughly 4.7× faster than hand-written `vi.fn()`
+on one double. Measured across a real suite, below, that advantage is gone: parity at 1 000 tests,
+behind at 10 000. Double construction is on the order of 1% of a test's total cost, so a
+micro-benchmark multiplier is evidence about the double, not about the run — carrying it forward as
+a suite-level claim is the one thing this section is written to prevent.
+
+### Suite scale
+
+`npm run bench:suite`. All arms import prebuilt `dist/`, as a consumer does. Arms run interleaved
+round-robin, not in blocks (see above). Coverage on.
+
+**20-method class, `isolate: true`, 3 rounds, medians:**
+
+| Tests | vitest-auto-spy | @bugsplat | hand-written |
+| ---: | ---: | ---: | ---: |
+| 1 000 | 1.11 s · 1225 MB | 1.78 s (1.60×) · 1256 MB | 1.10 s (1.00×) · 1081 MB |
+| 3 000 | 3.07 s · 1227 MB | 4.65 s (1.52×) · 1380 MB | 2.66 s (0.87×) · 1192 MB |
+| 10 000 | 11.27 s · 1306 MB | 15.66 s (1.39×) · 1512 MB | 8.59 s (0.76×) · 1251 MB |
+
+**100-method class, `isolate: true`, 10 000 tests, 7 rounds:**
+
+| Arm | Median wall | Median peak RSS | Across 7 rounds |
+| --- | ---: | ---: | --- |
+| vitest-auto-spy (ours) | 10.70 s | 1335 MB | — |
+| ours, `lazySpies: 'proxy'` | 9.97 s | 1329 MB | 5/7 below 1.0× — not a result |
+| @bugsplat | 16.42 s | 1518 MB | median ratio 1.59, 7/7 above 1.0× |
+| hand-written `vi.fn()` | 9.08 s | 1234 MB | 7/7 below 1.0× |
+
+Established, holding across 1 000 / 3 000 / 10 000 tests and both 20- and 100-method classes, 7/7
+rounds where measured: this library is **roughly 1.5× faster than the jest-auto-spies-family core**,
+measured through `@bugsplat` — the family's suite-scale representative, which the micro-benchmark
+above now justifies directly (all three land within a few per cent of each other) rather than by an
+argument from shared source. Never quote that to two significant figures — the per-round ratios
+above range 1.27–1.78×.
+
+Also established, and the row that does not get to be a footnote: **hand-written `vi.fn()` doubles
+are cheaper than this library under `isolate: true`.** Direction is established 7/7 rounds; the
+magnitude is roughly 10–15%, observed 0.74–0.98× across runs. `lazySpies: 'proxy'` under
+`isolate: true` is **not** established as doing anything — 5 of 7 rounds landed below 1.0×, which is
+noise, not a result.
+
+### Memory under `isolate: false`
+
+This is the largest and cleanest effect measured on this page — bigger than any wall-clock number
+above, and it reproduces tightly where wall-clock does not.
+
+**100-method class, `isolate: false`, 10 000 tests, 7 rounds, peak RSS:**
+
+| Arm | Peak RSS median | Range | Wall |
+| --- | ---: | --- | ---: |
+| hand-written `vi.fn()` | 6733 MB | 6423–6918 | 3.86 s |
+| vitest-auto-spy default | 2475 MB | 2325–2603 | 3.55 s |
+| vitest-auto-spy, `lazySpies: 'proxy'` | 2109 MB | 2067–2223 | 3.32 s |
+
+Hand-written `vi.fn()` peaks at 2.7× this library's default and 3.2× `'proxy'` mode's. The
+proxy/default peak-RSS ratio is 0.803, 0.818, 0.854, 0.854, 0.864, 0.892, 0.910 — 7/7 rounds below
+1.0×. The wall-clock column has mixed signs across rounds and is **not** established as a
+difference; read only the RSS column here as a result.
+
+It only shows up here — under `isolate: true` this same 100-method comparison shows no memory
+story worth this much text — because of what isolation changes about what stays alive. Under
+`isolate: true` a double built for one test is reclaimed once that test's environment tears down,
+so there is nothing across the file to add up. Under `isolate: false` every double a file's tests
+ever built stays reachable for the life of the worker, so whatever one double costs gets multiplied
+by every double the file ever made and held at once — which is exactly the shape a per-double
+memory difference needs to become a multi-gigabyte gap, or the difference between a run that
+finishes and one that gets OOM-killed.
+
+The same `vitest-auto-spy` workload also runs about 3× faster at `isolate: false` (3.55 s) than at
+`isolate: true` (10.70 s, from the table above) — bigger than any library choice measured on this
+page.
+
+### Choosing a setting for your suite
+
+1. **`isolate: false` first.** It is worth about 3× on its own, more than swapping any library or
+   flag measured here. It also changes what limits you: memory becomes the binding constraint
+   instead of wall-clock, because everything a file allocates now stays alive until the run ends.
+2. **On a wide class under `isolate: false`, add `lazySpies: 'proxy'`** for roughly another 15% off
+   peak RSS on top of the default (established, 7/7 rounds). It is the second-largest lever
+   measured and it only costs a flag.
+3. **Do not turn `'proxy'` on under normal isolation** (`isolate: true`, the default). It measurably
+   does nothing there — 5/7 rounds below 1.0×, not distinguishable from noise.
+4. **Do not expect a suite-scale speed win over hand-written `vi.fn()`.** Under `isolate: true` this
+   library is roughly on par at 1 000 tests and behind by roughly 10–15% at 10 000. The case for
+   this library over hand assembly is everything else on this page — the lazy default, the
+   memoised prototype walk, `calledWith`, type-level and deep doubles — not suite wall-clock.
+5. **Against the jest-auto-spies family**, the win is real and holds everywhere tested: roughly
+   1.5× faster, 7/7 rounds, at 1 000/3 000/10 000 tests and at 20 and 100 methods — measured through
+   `@bugsplat`, the family's suite-scale representative (see the micro-benchmark above for why that
+   stand-in is now justified by measurement rather than by shared source).
+
+### What is not explained
+
+About 98% of `@bugsplat`'s suite-scale deficit is not accounted for by the micro-benchmark's
+per-double difference: at 10 000 tests its deficit against this library is on the order of 4.9 s of
+wall-clock, while the micro-benchmark's per-double gap (on the order of 10 µs) times 10 000 tests
+comes to on the order of 0.1 s — two orders of magnitude short. Its peak RSS is also higher at suite
+scale (1512 MB vs 1306 MB at 10 000 tests, 20-method class). Higher memory pressure is *consistent
+with* more GC work explaining the rest of the gap, but that causal chain was not measured and is not
+claimed here.
+
+### Reproducing this
+
+```bash
+npm ci
+npm ci --prefix bench
+npm run bench:vs                 # micro-benchmark, about one minute
+npm run bench:suite --help       # suite-scale harness documents itself; tens of minutes at 10 000 tests
+```
+
+`bench/.npmrc` sets `legacy-peer-deps=true` deliberately: the competitors declare `vitest` as a
+peer, and installing a second copy beside the root one gives two mock registries, so the bench's
+prune reaches only one and the run dies out of memory.
+
 ## Bundle size
 
 The badge says 6.2 kB min+gzip, and that is the whole core entry bundled together. What a consumer
