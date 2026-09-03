@@ -13,6 +13,8 @@
  * behaves identically across all three runtimes.
  */
 
+import { isFastSpy, isThenable } from './fast-spy';
+
 /** A single settled-result entry, mirroring Vitest's `MockSettledResult` shape. */
 interface SettledResultEntry {
   type: 'fulfilled' | 'incomplete' | 'rejected';
@@ -21,26 +23,23 @@ interface SettledResultEntry {
 
 /** Records each call's eventual promise outcome onto a host mock's `settledResults`. */
 export interface SettledResultsRecorder {
-  /** Record `returned` as a fresh settled-result entry, returning it unchanged. */
-  record(returned: unknown): unknown;
+  /** Record `returned` as a fresh settled-result entry, returning it unchanged. Absent when the host tracks its own. */
+  record?(returned: unknown): unknown;
   /** Drop every recorded entry (mirrors `mockClear`/`mockReset` on the native array). */
   clear(): void;
 }
 
-/** A no-op recorder — used when the runner already tracks `settledResults` natively (Vitest). */
+/**
+ * What a runtime that tracks `settledResults` itself needs: nothing recorded, nothing to clear.
+ *
+ * `record` is deliberately absent rather than an identity function. A spy's dispatch runs on every
+ * call, and calling through an identity function there is a real cost for a value that is already in
+ * hand — so the dispatch asks whether there is a recorder at all, and on Vitest and on this
+ * library's own spies there is not.
+ */
 const NATIVE_RECORDER: SettledResultsRecorder = {
-  record: (returned: unknown): unknown => returned,
   clear: (): void => undefined,
 };
-
-/** Whether `value` is thenable (a `Promise` or promise-like). */
-function isThenable(value: unknown): value is PromiseLike<unknown> {
-  if ((typeof value !== 'object' && typeof value !== 'function') || value === null) {
-    return false;
-  }
-
-  return typeof Reflect.get(value, 'then') === 'function';
-}
 
 /**
  * Install a `settledResults` array on `mockFn.mock` and return a recorder that
@@ -49,6 +48,12 @@ function isThenable(value: unknown): value is PromiseLike<unknown> {
  * never shadowed.
  */
 export function installSettledResultsPolyfill(mockFn: object): SettledResultsRecorder {
+  // A fast spy tracks settled results itself, and its `mock` state is built on first use — reading
+  // it here to find that out would allocate the very state the laziness exists to avoid.
+  if (isFastSpy(mockFn)) {
+    return NATIVE_RECORDER;
+  }
+
   const state = Reflect.get(mockFn, 'mock');
 
   if (typeof state !== 'object' || state === null || 'settledResults' in state) {

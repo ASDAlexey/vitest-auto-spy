@@ -402,7 +402,7 @@ export function createFunctionSpy<FunctionType extends Func>(
   // `const` assigned afterwards this is a temporal dead zone that only stays quiet while no
   // adapter calls the implementation at creation time — one that warms it would get a
   // `ReferenceError` out of the spy factory rather than an unrecorded call.
-  let settledResultsRecorder: SettledResultsRecorder | undefined = undefined;
+  let settledResultsRecorder: ((returned: unknown) => unknown) | undefined = undefined;
 
   // The library's dispatch: pick the configured value for the call, then record
   // its settled outcome. Kept in the internals so `resetAutoSpy` can re-install it,
@@ -410,7 +410,7 @@ export function createFunctionSpy<FunctionType extends Func>(
   const dispatch = (...actualArgs: unknown[]): unknown => {
     const returned = returnTheCorrectFakeValue(state, actualArgs, name, unstubbed);
 
-    return settledResultsRecorder ? settledResultsRecorder.record(returned) : returned;
+    return settledResultsRecorder ? settledResultsRecorder(returned) : returned;
   };
 
   const functionSpy = getMockAdapter().createMockFn(dispatch, name);
@@ -419,7 +419,7 @@ export function createFunctionSpy<FunctionType extends Func>(
   // `spy.method.mock.settledResults` surface works on every runtime (Vitest keeps
   // its native array — the recorder is then a no-op).
   const recorder = installSettledResultsPolyfill(functionSpy);
-  settledResultsRecorder = recorder;
+  settledResultsRecorder = recorder.record;
 
   const internals = new FunctionSpyInternals(state, valueContainer, functionSpy, dispatch, recorder);
   const spy = decorate(functionSpy, SPY_HELPERS);
