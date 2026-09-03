@@ -309,13 +309,13 @@ Beyond the runner swap, everything the old API did not have:
 [`renderShallow` and `createWithAutoSpies`](/adapters/angular),
 [observable assertions](/core/observable-assertions),
 [fake timers that settle](/utilities/fake-timers),
-[console spies](/utilities/console), [five ESLint rules](/utilities/eslint-plugin),
+[console spies](/utilities/console), [nineteen ESLint rules](/utilities/eslint-plugin),
 Bun and `node:test` support — and [Angular's `TestBed` under `bun test`](/runtimes/bun-angular).
 
 ## Did the migration lose a test?
 
 ```ts
-import { compareTestRuns, formatTestRunComparison } from 'vitest-auto-spy';
+import { compareTestRuns, formatTestRunComparison } from 'vitest-auto-spy/diagnostics';
 
 const diff = compareTestRuns(JSON.parse(before), JSON.parse(after), '/my-repo/');
 

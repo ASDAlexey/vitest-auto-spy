@@ -28,7 +28,10 @@ The **types are the authority** when any doc and the code disagree — check
    `node --test`. The import path depends on it — `vitest-auto-spy` / `…/bun` / `…/node` — and the
    wrong one leaves the wrong mock adapter registered.
 2. **Check the setup file** for `import 'vitest-auto-spy/rxjs'` and `setupAutoSpy()`. Observable
-   helpers (`nextWith`, `observablePropsToSpyOn`) throw without the rxjs import.
+   helpers (`nextWith`, `observablePropsToSpyOn`) throw without the rxjs import, and since 4.0.0
+   that file has to be inside the spec `tsconfig` too — `returnSubject()` is typed as rxjs's
+   `Subject<T>` only where the compiler sees the import, and as the structural `SubjectLike<T>`
+   otherwise (`Type 'SubjectLike<T>' is not assignable to type 'Subject<T>'`).
 3. **Follow the suite's existing conventions** — globals vs. explicit `import { describe } from
 'vitest'`, file layout, naming. Match the neighbouring spec.
 
@@ -310,7 +313,7 @@ npx vitest-auto-spy codemod --verify  # after a migration: anything the transfor
 Most of this library's guarantees are type-level, so a green run that does not type-check is not
 done. Report failures with their output rather than describing them as passing.
 
-**After any `eslint --fix` over specs, run `npx tsc --noEmit`.** The eighteen rules in
+**After any `eslint --fix` over specs, run `npx tsc --noEmit`.** The nineteen rules in
 `vitest-auto-spy/eslint-plugin` are lint, not typecheck: `no-mocked-for-spy` rewrites a declaration
 to `Spy<T>` and cannot see what the name is assigned two lines below, so a clean lint pass is not
 evidence that the types still hold. Where it cannot prove the rename it downgrades to a suggestion —

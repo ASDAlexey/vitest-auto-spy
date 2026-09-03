@@ -57,7 +57,8 @@ the published package roughly in half.
 ## Entry points
 
 The library ships a framework-agnostic core plus runtime and framework layers, so a plain
-Node / Bun / React / Vue project pulls **neither rxjs nor Angular into its runtime bundle**:
+Node / Bun / React / Vue project pulls **neither rxjs nor Angular into its runtime bundle** — and,
+since 4.0.0, into its TypeScript program either:
 
 | Import                           | Provides                                                                                                                                                                                                                                                                | Pulls in                    |
 | -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------- |
@@ -66,6 +67,8 @@ Node / Bun / React / Vue project pulls **neither rxjs nor Angular into its runti
 | `vitest-auto-spy/bun-angular`    | Angular's `TestBed` under `bun test` — DOM, JIT `templateUrl` resolution and a zoneless environment from one preload, plus the core and the Angular helpers                                                                                                             | `bun:test`, `@angular/core` |
 | `vitest-auto-spy/node`           | the same core, driven by `node:test`'s `mock.fn()`                                                                                                                                                                                                                      | `node:test`                 |
 | `vitest-auto-spy/rxjs`           | observable spies (`nextWith`, `nextWithValues`, `observablePropsToSpyOn`, …) and `createObservableWithValues`                                                                                                                                                           | `rxjs`                      |
+| `vitest-auto-spy/dom-stubs`      | the globals a component builds for itself — `stubIntersectionObserver`, `stubResizeObserver`, `stubMutationObserver`, `stubObserver`, `stubMediaElement`, `stubAbortController` and the entry builders. On the root entry until 4.0.0                                   | —                           |
+| `vitest-auto-spy/diagnostics`    | `compareTestRuns` / `summarizeTestRun` / `formatTestRunComparison` and `diffByField` — the two reports a counter cannot give. On the root entry until 4.0.0; pure functions, so this one can be imported from a plain Node script too                                   | —                           |
 | `vitest-auto-spy/angular`        | `provideAutoSpy`, `injectSpy`, `renderShallow`, `createWithAutoSpies`, `stable`/`flushEffects`, signal matchers, TestBed diagnostics, the `mock*Prop` helpers                                                                                                           | `@angular/core`             |
 | `vitest-auto-spy/nestjs`         | `provideAutoSpy`, `injectSpy` for `Test.createTestingModule`                                                                                                                                                                                                            | — (your `@nestjs/*`)        |
 | `vitest-auto-spy/react`          | the core, with a natural import for React Testing Library suites                                                                                                                                                                                                        | — (your `react`)            |
@@ -158,10 +161,16 @@ is the same either way.
 
 ## TypeScript
 
-The typed helpers need nothing beyond a normal setup, with one thing worth knowing: **the `Spy<T>`
-type surface references rxjs types even when you never import the rxjs layer.** Keep `rxjs`
-installed for type-checking — it is normally already a devDependency — and none of it reaches your
-runtime bundle.
+The typed helpers need nothing beyond a normal setup. Since **4.0.0** that includes rxjs: no
+declaration this package ships names an rxjs type, so a project without rxjs neither installs it nor
+loads it into the TypeScript program — 189 rxjs `.d.ts` files that used to arrive with every
+`import { createSpyFromClass }`. Before 4.0.0 `rxjs` had to be installed for type-checking even in a
+suite that never touched an observable.
+
+If you _do_ use the observable layer, `import 'vitest-auto-spy/rxjs'` has to sit in a file this
+`tsconfig` includes as well as in the runtime setup — that import is what makes `returnSubject()`
+rxjs's own `Subject<T>` rather than the structural `SubjectLike<T>`. See
+[Upgrading to 4.0](/upgrading-4).
 
 ```jsonc
 {

@@ -11,8 +11,9 @@
 //
 // Methodology mirrors what bundlephobia did: bundle the main entry, minify it,
 // gzip it, and exclude peer dependencies the consumer already has. The
-// published bundles stay unminified on purpose (see tsup.config.ts) — the
-// minification here happens in memory and never touches dist/.
+// published bundles stay unminified on purpose (see tsup.config.ts) — not even
+// whitespace, because that strips the /* @__PURE__ */ marks a consumer's bundler
+// needs. The minification here happens in memory and never touches dist/.
 //
 // Usage:
 //   node scripts/size-badge.mjs           # rewrite the README badge

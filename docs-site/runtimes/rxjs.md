@@ -1,6 +1,6 @@
 ---
 title: RxJS
-description: The opt-in observable layer — nextWith, nextWithValues, nextWithPerCall, returnSubject, and how delays behave.
+description: The opt-in observable layer — nextWith, nextWithValues, nextWithPerCall, returnSubject, how delays behave, and why no declaration names rxjs.
 ---
 
 # RxJS
@@ -33,8 +33,92 @@ const subject = myService.getProducts$.returnSubject();
 ```
 
 Using an observable spy without importing `vitest-auto-spy/rxjs` throws a clear hint telling you to
-add the import. The core's _type_ surface (`Spy<T>`) still references rxjs types, so keep `rxjs`
-available for type-checking; none of it reaches your runtime bundle.
+add the import. Since **4.0.0** the same is true of the _types_: nothing in the core declarations
+names an rxjs type either, so a project without rxjs never loads it — see
+[rxjs in the types](#rxjs-in-the-types) below.
+
+## rxjs in the types
+
+Until 4.0.0 the invariant on this page — "rxjs lives behind `/rxjs`" — held at runtime and was
+broken at the type level. `dist/types-*.d.ts` opened with `import { Observable, Subject } from
+'rxjs'`, which is not something `import type` fixes: TypeScript resolves a type-only import exactly
+as it resolves a value one. Measured on the shipped package, against a consumer whose only use of
+this library is `createSpyFromClass`:
+
+|                                                           |                     3.18 |     4.0 |
+| --------------------------------------------------------- | -----------------------: | ------: |
+| files in the consumer's TypeScript program                |                      303 | **114** |
+| of those, rxjs `.d.ts` files                              |                      189 |   **0** |
+| `TS2307` with `skipLibCheck: false` and no rxjs installed | yes, at `types-*.d.ts:1` |    none |
+
+Every React, Vue, Svelte and Node consumer paid the first column. `scripts/check-dist.mjs` now
+fails the build if any declaration but `dist/rxjs.d.ts` and `dist/observer-spy.d.ts` names rxjs
+again.
+
+### What replaced it
+
+**Detection is structural.** A method or property counts as observable when its type has both
+`subscribe` and a `forEach(next)` returning a promise — which rxjs's `Observable`, every `Subject`,
+and Angular's `EventEmitter` all do, and `Promise`, arrays, `Signal` and Angular's
+`OutputEmitterRef` all do not. `forEach` rather than `subscribe` carries the element type on
+purpose: TypeScript pairs the **trailing** signature of an overloaded method when it infers, and
+rxjs 7's last `subscribe` overload is the deprecated positional one, through which `T` infers as
+`unknown`.
+
+One thing now matches that did not before: an `Observable` from a **second copy of rxjs** in the
+tree. `Subject` is nominal (it has a private field), so a duplicated rxjs used to fall through to
+the plain-spy branch with nothing to explain why `nextWith` had disappeared.
+
+**`returnSubject()` follows your import.** It is typed `SubjectOf<T>`, which resolves to rxjs's own
+`Subject<T>` as soon as `vitest-auto-spy/rxjs` is in your TypeScript program, and to the structural
+`SubjectLike<T>` — everything the helper is used for — when it is not. All four types are exported
+from the core, so a spec can name any of them:
+
+```ts
+interface ObservableLike<T> {
+  subscribe(...args: never[]): { unsubscribe(): void };
+  forEach(next: (value: T) => void, ...rest: never[]): Promise<void>;
+}
+
+interface SubjectLike<T> extends ObservableLike<T> {
+  next(value: T): void;
+  error(err: unknown): void;
+  complete(): void;
+  unsubscribe(): void;
+  asObservable(): ObservableLike<T>;
+  readonly closed: boolean;
+}
+
+// the seam: empty here, filled in by `vitest-auto-spy/rxjs`
+interface AutoSpyRxjsTypes<T> {}
+
+type SubjectOf<T> = AutoSpyRxjsTypes<T> extends { subject: infer S } ? S : SubjectLike<T>;
+```
+
+`AutoSpyRxjsTypes<T>` is a normal augmentable interface, so a project with its own `Subject`
+implementation can point `SubjectOf` at that instead:
+
+````ts
+declare module 'vitest-auto-spy' {
+  interface AutoSpyRxjsTypes<T> {
+    subject: MyOwnSubject<T>;
+  }
+}
+``` The one import that makes the helpers *exist* is the one that makes them
+rxjs-typed, so the two cannot drift apart.
+
+```ts
+import 'vitest-auto-spy/rxjs';
+import type { Subject } from 'rxjs';
+
+const subject: Subject<Product[]> = myService.getProducts$.returnSubject(); // ✔ compiles
+````
+
+The catch worth knowing: the type follows the **import**, not the installed package. If your only
+`import 'vitest-auto-spy/rxjs'` sits in a setup file outside the `tsconfig` your specs are checked
+with, you get `SubjectLike<T>` back and an annotation like the one above stops compiling. Move the
+import somewhere the compiler sees it — the same place it has to be for the helpers to be
+registered at runtime.
 
 ## The backing subject, and how long it lives
 

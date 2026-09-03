@@ -8,9 +8,126 @@ The latest released version here must always match the one published on
 [npm](https://www.npmjs.com/package/vitest-auto-spy) and the latest `v*` git tag — see
 [CONTRIBUTING.md → Releasing](./CONTRIBUTING.md#releasing) for how that stays in sync.
 
-## [Unreleased]
+## [4.0.0] - 2026-09-03
+
+**Why upgrade.** Three things, and the first is the one a project feels without changing a line:
+
+- **rxjs leaves your TypeScript program.** The published declarations named `Observable` and
+  `Subject`, so every consumer loaded rxjs whether or not the project used it — **189 rxjs `.d.ts`
+  files, 303 files in the program against 114 after**. A React, Vue, Svelte or Node suite stops
+  paying for a peer it never asked for, and `skipLibCheck: false` stops erroring inside a shipped
+  `.d.ts`. Suites that *do* use rxjs keep the exact types they had.
+- **Every spec file gets 0.159 ms back.** The DOM stubs and the run-diagnostics helpers moved off
+  the core, so a spec that never touches a DOM global stops evaluating 27 kB to reach
+  `createSpyFromClass`. The root entry is 15.5 → 12.9 kB min+gzip.
+- **The lint rules stop deciding for you.** All nineteen are `error`; which findings block a merge
+  is one line of config, and the dial is documented per rule.
+
+**What it costs.** Two import specifiers and, if you annotate `returnSubject()`, one import — the
+full list, with the line that fixes each, is in
+[Upgrading to 4.0](https://asdalexey.github.io/vitest-auto-spy/upgrading-4). Nothing was removed or
+renamed, and no runtime behaviour changed.
+
+> This section also carries the entries written for 3.10 – 3.18, which shipped before the
+> changelog caught up with the tags. Everything under **BREAKING CHANGES** and the first three
+> **Changed** bullets is 4.0.0; the rest is the backlog those releases never got a heading for.
+
+### BREAKING CHANGES
+
+- **rxjs is gone from the published declarations, and that is the whole of the major.** No export was
+  removed or renamed, no runtime behaviour differs, no configuration key changed meaning. What
+  changed is that `dist/types-*.d.ts` no longer opens with `import { Observable, Subject } from
+  'rxjs'`. `import type` does not fix that and was measured rather than assumed — TypeScript resolves
+  a type-only import exactly as it resolves a value one, loads the same 191 files and raises the same
+  `TS2307` — so the reference had to go, and removing it is a breaking type change.
+
+  Measured on the shipped package against a consumer whose only use of the library is
+  `createSpyFromClass` on a promise-returning service: the TypeScript program goes from **303 files
+  to 114**, of which **189 → 0** are rxjs `.d.ts` files, and `TS2307` inside a shipped declaration
+  under `skipLibCheck: false` with no rxjs installed goes from reproducible to absent. Every React,
+  Vue, Svelte and Node consumer paid that; the invariant "rxjs lives behind `/rxjs`" held at runtime
+  and was broken at the type level since the subpath existed.
+
+  **What replaced it.** Detection is structural, through a new exported type `ObservableLike<T>`: a
+  member earns the observable bundle when its type has `subscribe` and a promise-returning
+  `forEach(next)` — rxjs's `Observable`, every `Subject`, Angular's `EventEmitter`. `forEach` rather than `subscribe` carries the element type because
+  TypeScript pairs the *trailing* signature of an overloaded method when inferring and rxjs 7's last
+  `subscribe` overload is the deprecated positional one, through which `T` infers as `unknown` — the
+  trap `expectEmission` already shipped once. `Promise`, arrays, `Signal` and Angular's
+  `OutputEmitterRef` do not have `forEach` and are unaffected. One case newly matches, in the useful
+  direction: an `Observable` from a **second copy of rxjs**, which used to fall through to the
+  plain-spy branch because `Subject` is nominal, with `nextWith is not a function` as the only clue.
+
+  `returnSubject()` and `nextWithPerCall()` return `SubjectOf<T>`, which is rxjs's own `Subject<T>`
+  wherever `import 'vitest-auto-spy/rxjs'` is in the TypeScript program — that entry augments the
+  new `AutoSpyRxjsTypes<T>` — and the structural `SubjectLike<T>` (`next` / `error` / `complete` /
+  `asObservable`) where it is not. So a suite that has rxjs keeps the exact type it had, and the one
+  import that makes the helpers *exist* is the one that makes them rxjs-typed.
+
+  **What to do if it breaks you.** `Type 'SubjectLike<T>' is not assignable to type 'Subject<T>'`
+  means the import is missing from the program your specs are checked in — typically a Vitest
+  `setupFiles` entry no `tsconfig` `include` covers. Add the file, or put the import spec-side. A
+  suite that never annotates the result (`const subject = spy.load.returnSubject()`) is unaffected
+  either way. Full note in `docs-site/upgrading-4.md`.
+
+  The cost, stated so nobody has to re-derive it: the seam adds four documented types, `+5 900 B` of
+  declarations (306 777 → 312 677 B) and `+40` type instantiations on the budget fixture
+  (9 126 → 9 166, budget 11 000). `scripts/check-dist.mjs` now fails the build if any declaration but
+  `dist/rxjs.d.ts` and `dist/observer-spy.d.ts` names rxjs again, because one `import type` written
+  back into `lib/types.ts` would undo all of it silently, in a file whose own compile stays green.
 
 ### Changed
+
+- **`vitest-auto-spy/dom-stubs` and `vitest-auto-spy/diagnostics` — thirteen helpers and their
+  thirteen types off every entry that re-exports the core.** `stubIntersectionObserver`,
+  `stubResizeObserver`, `stubMutationObserver`, `stubObserver`, `intersectionEntry`, `resizeEntry`,
+  `mutationRecord`, `stubMediaElement` and `stubAbortController` moved to `/dom-stubs`;
+  `compareTestRuns`, `summarizeTestRun`, `formatTestRunComparison` and `diffByField` moved to
+  `/diagnostics`. **Not only the root:** `vitest-auto-spy`, `/bun`, `/bun-angular`, `/node`,
+  `/react`, `/vue` and `/svelte` all re-export the core, so all seven lose them — 182 export
+  bindings in total, which is what `/release-audit` counts. Nothing about any of them changed — same functions, same
+  signatures, and the undo journal lives on `globalThis`, so `restoreMockedProps()` and
+  `setupAutoSpy()` from the root still put back everything the stubs patch. The compiler finds every
+  call site, and `npx vitest-auto-spy codemod` rewrites the specifiers off the installed package's
+  own `exports` map.
+
+  ESM re-export is eager and no runner tree-shakes a test file, so the only way to stop evaluating a
+  module is to stop exporting it: every spec in every project, Node services with no DOM included,
+  was evaluating 27 kB of observer, media-element and `AbortController` code to get
+  `createSpyFromClass`. Measured on the built package under Node's own loader, one process per
+  sample, `vitest` imported first so the number is this package's own top-level work, medians of 40
+  interleaved pairs: **−0.159 ms** on a spec file that does not import them, **+0.155 ms** on one
+  that imports `/dom-stubs`, **+0.069 ms** for `/diagnostics` (inside the noise), and `dist` down
+  **20 295 B of JS and 3 795 B of declarations**. The trade is per *file*, so a project is ahead
+  unless more than half its spec files reach for the DOM stubs.
+
+  Both entries are built **standalone** rather than chunked, and that is the whole of the second row:
+  chunked, `/dom-stubs` pulled four modules the standalone root had already inlined and the same
+  measurement read **+0.62 ms** — four times the win, in the wrong direction. This is the per-module
+  overhead the de-chunking pass measured, arriving from the other side; `TODO.md` had this item
+  filed as "the wrong lever" on the strength of the time alone, and it is taken now because the size
+  went the same way and the major was open anyway.
+
+- **Every ESLint rule in `configs.recommended` is an `error`.** It used to be a graded mix — ten
+  `error`, eight `warn`, one `off` — which decided on the consumer's behalf how much each finding
+  mattered. A `warn` is a finding a build does not stop for, so in a repository that does not read
+  lint output it is `off` with extra noise; which findings block a merge is a project's call, and it
+  is one line of config either way. So the default is the strict end and the docs carry the dial:
+  `docs-site/utilities/eslint-plugin.md` gains *Adding it to your project* and *Tuning it for your
+  project* — the `files` glob and how to tell an inert plugin from a clean suite, spreading
+  `configs.recommended.rules` (a bare `rules` key beside the spread config **replaces** the map
+  rather than merging, and nothing reports that), landing it on a large suite without a red CI, and
+  per-line disables.
+
+  Three rules can report on code that is correct, and each is listed there with the line that fixes
+  it rather than a lower severity. `jasmine-namespace-without-entry` decides on a layer installed in
+  a setup file no spec imports, and its `setupModules` option is what names that file.
+  `prefer-native-spy-api` reports working bridge code, so a suite still migrating off
+  `jasmine-auto-spies` sets it to `'off'` until the bridge is gone. `no-unregistered-inject-spy` has
+  no option and needs none: it stays silent unless the file calls `provideAutoSpy` and its whole
+  `providers` array is readable — a spread, an unknown provider factory, `createWithAutoSpies`,
+  `renderShallow` or `TestBed.overrideProvider` each silence it — so what is left is a scoped
+  `'off'` for the files where a helper does the registering.
 
 - **The control helpers are shared across spies, and the memory per spied method drops by a third
   under rxjs.** `calledWith`, `mustBeCalledWith`, `failWith`, `resolveWith`, `rejectWith`,
@@ -55,6 +172,20 @@ The latest released version here must always match the one published on
   landing page's accessor-spies card. `comparison.md` gained line numbers, the 2026-09-02
   re-verification note in the "Where the numbers come from" box, and the counterpart citation for
   this package's own guard (`walkOwnPrototypes`, `src/lib/create-spy-from-class.ts:81`).
+
+### Fixed
+
+- **`jasmine-namespace-without-entry` reported `spy.mock.calls[0]`, which is Vitest's own shape.**
+  Also `spy.mock.calls.length` and `spy.mock.calls[0]?.[0]` — how every suite that has never seen
+  jasmine reads its recorded arguments. All three conditions the rule had were met: the member is
+  named `calls`, the `[0]` makes it read *through*, and the chain walks down to one of this library's
+  factories. Bare `spy.mock.calls` passed while `spy.mock.calls[0]` was reported, a difference no
+  message could explain, and while the rule was a `warn` nobody chased it. It now refuses any
+  namespace hanging off `.mock`: jasmine's shape is `spy.calls.…`, and `.mock` is the runner's
+  bookkeeping. Found while checking the claim that the four jasmine rules are inert in a suite that
+  never used jasmine — they are now, and `docs-site/utilities/eslint-plugin.md` gains *Which of the
+  nineteen apply to you*, which says so per audience (never-jasmine, coming from Jest, coming from
+  jasmine) rather than leaving a reader to work it out from nineteen descriptions.
 
 ### Added
 

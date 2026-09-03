@@ -10,49 +10,19 @@ Seven findings from a measured pass (perf/memory, competitor sweep, Angular swee
 defect in shipped behaviour, not a missing feature, and each was reproduced rather than reasoned
 about. Ordered by how badly the failure lies about its own cause.
 
-**Status after the 2026-08-29 fix pass: six of seven closed, one disproven.** Two were closed by
-verification rather than by code (the `output()` subscription was already fixed in source; the
-accessor-cache docs line was simply wrong). Three findings turned out to be inaccurate where they
-were checked, and each correction is recorded inline rather than dropped: the `stable` deadlock does
-not reproduce under `provideHttpClientTesting`, an `httpResource` needs one settle step fewer than
-reported, and `import type` fixes neither half of the rxjs declaration problem. `npm run check`
-passes end to end, coverage back at 100%.
-
-- [ ] **The declaration output emits a _value_ import of rxjs.** `dist/types-*.d.ts:1` is
-      `import { Observable, Subject } from 'rxjs';`, emitted from `lib/types.ts`'s `import type`.
-      That file is what `index.d.ts` → `bun.d.ts` re-export, so a consumer without the optional rxjs
-      peer has an unresolvable import inside a shipped declaration file. It also pulls **189 rxjs
-      `.d.ts` files / 7 162 lines** into every consumer's TypeScript program — against this
-      package's own 1 494 lines, a 4.8× tax paid by every React / Vue / Svelte / Node consumer. The
-      invariant "rxjs stays behind `/rxjs`" holds at runtime and is violated at the type level.
-
-      **The proposed fix is disproven — measured 2026-08-29, do not implement it.** A fixture package
-      whose only `.d.ts` names `Observable`, compiled by the repo's own tsc against a consumer with
-      and without rxjs on disk:
-
-      | emitted form | TS2307 without rxjs (`skipLibCheck: false`) | rxjs files pulled into the program |
-      | --- | --- | ---: |
-      | `import { Observable } from 'rxjs';` | yes, at col 28 | 191 |
-      | `import type { Observable } from 'rxjs';` | **yes, at col 33** | **191** |
-      | no rxjs reference at all | no | 2 |
-
-      `import type` is byte-for-byte equivalent to TypeScript on both counts: it resolves the module
-      exactly the same way and loads the same 191 files. Neither half of the fix happens. (Under the
-      default `skipLibCheck: true` neither form errors, so the correctness half only ever showed up
-      in a strict consumer.) Measured in passing and worth recording: the bare `import 'rxjs';`
-      side-effect lines in `dist/index.d.ts` and friends are **inert** — TypeScript reports nothing
-      for an unresolvable side-effect import in a declaration file and pulls nothing in. They are
-      cosmetic, not the defect.
-
-      **Only removing the reference works**, which is the second option in the original finding and
-      is a **breaking type change**, not a drive-by: the two dispatch positions
-      (`[ReturnType] extends [Observable<infer O>]`, `T[K] extends Observable<infer O>`) and
-      `OnlyObservablePropsOf` can go structural at the price of widening what counts as an
-      observable — but `AddObservableSpyMethods` genuinely *returns* rxjs values
-      (`returnSubject(): Subject<T>`, `nextWithPerCall(): Subject<T>[]`), and no hand-written
-      `SubjectLike<T>` is assignable **to** rxjs's `Subject<T>`, so `const s: Subject<number> =
-      spy.m.returnSubject()` stops compiling for every consumer that has rxjs. Schedule it with a
-      major, or decide the tax is the price of a nominal type.
+**Status: seven of seven closed.** Two were closed by verification rather than by code (the
+`output()` subscription was already fixed in source; the accessor-cache docs line was simply wrong).
+Three findings turned out to be inaccurate where they were checked, and each correction is recorded
+inline rather than dropped: the `stable` deadlock does not reproduce under
+`provideHttpClientTesting`, an `httpResource` needs one settle step fewer than reported, and
+`import type` fixes neither half of the rxjs declaration problem. The last of the seven — rxjs in
+the published declarations — was the one that needed a breaking type change and shipped 2026-09-03
+as the whole of **4.0.0**; the measurement is in `CHANGELOG.md`, and each trap it left behind sits
+next to the thing it would break — why detection keys on `forEach` and not `subscribe`, and why the
+registry interface carries a phantom member, in `lib/types.ts`; why the augmentation needs `paths`
+and `src/index.ts` in the program, in the two `tsconfig`s; why `import type` is not the fix, in
+`scripts/check-dist.mjs`. `npm run check` passes end to end, coverage
+back at 100%.
 
 ## Field findings — consumer monorepo merge, 2026-08-29
 
@@ -365,10 +335,44 @@ import cost.
       +120 kB of `dist`**. So the first task is not a lever at all: put install weight and per-file
       import cost into comparable terms, because today one is counted in kB and the other in ms and
       nothing in this file converts between them — until it does, any cut risks silently paying back
-      the win just bought. The levers already measured, so the pass does not restart from zero.
-      `dist` is **569 680 B of deliberately unminified JS**, and `tsup.config.ts` refuses to minify
-      for supply-chain transparency, which makes minification a product decision rather than a build
-      flag. `README.md` + `AGENTS.md` are **187 847 B raw / 57 908 B gzip = 29.3% of every install**,
+      the win just bought.
+
+      **The rate exists now — measured 2026-09-03, and it is nothing like linear.** Same harness as
+      the subpath split (one process per sample, `vitest` imported first, medians of interleaved
+      pairs), three points on the curve:
+
+      | lever | `dist` JS | per spec file | kB per ms | verdict |
+      | --- | ---: | ---: | ---: | --- |
+      | de-chunking `index` + `angular` | **+120 kB** | −0.8…−1.0 ms | ~130 | shipped |
+      | `/dom-stubs` + `/diagnostics` split | −20.3 kB | −0.159 ms | ~128 | shipped in 4.0.0 |
+      | `minifyWhitespace` + `minifySyntax` | −162 kB | −0.059 ms | ~2 750 | **reverted, see below** |
+      | `minifyWhitespace` alone | −144 kB | −0.016 ms (27/50 pairs — **noise**) | — | reverted |
+
+      So **which** bytes go matters twenty times more than **how many**. Removing a module the entry
+      evaluates is worth ~130 kB/ms; squeezing the bytes of modules it still evaluates is worth
+      ~2 750 kB/ms, because V8 compiles function bodies lazily and the cost that is left is module
+      resolution and top-level execution, neither of which shrinks with formatting. Profiled on the
+      root entry at 67 kB: **0.87 ms compiling, 0.29 ms top-level execution, ~1.1 ms** in Node's own
+      resolver (`internalModuleStat`, `package_json_reader`, `resolvePackageTargetString`).
+
+      **Minification is not on the menu at all, and the reason is not the supply-chain posture.**
+      Built and measured 2026-09-03, then reverted the same day by `/release-audit`:
+      `minifyWhitespace` deletes every `/* @__PURE__ */` annotation — **259 of them across 18
+      files** — and those are written for the *consumer's* bundler. esbuild consumes them for its own
+      tree-shaking and then drops them as comments; downstream, a module-level `new WeakSet()` or
+      `Symbol.for(…)` stops being provably side-effect free and is retained. Cost: `dist` −144 kB on
+      disk, `/setup` min+gzip **10 585 → 11 816 B, +11.6 % in every consumer's bundle**.
+      `minifySyntax` on top is neutral (11 809 B), so the whitespace flag alone carries it. This is
+      the **second** time that same 1.2 kB has appeared on `/setup` — the first is recorded in the
+      control-helpers entry of `CHANGELOG.md`, where the marks were added to get it back. A size cut
+      is therefore not just an install-weight decision: the bytes that come off `dist` are also the
+      bytes that tell a bundler what it may remove. Re-propose only with a `/setup` min+gzip number.
+
+      And the speed side of this pass is close to exhausted: the modules still in the root entry are
+      `create-spy-from-class` (13%), `expect-emission` (10%), `function-spy` (9%) and `args-map`
+      (9%) — the API itself, not passengers. The levers already measured, so the pass does not restart from zero.
+      `dist` is **735 535 B of deliberately unminified JS**, and `tsup.config.ts` refuses to
+      minify — including whitespace, for the reason measured below. `README.md` + `AGENTS.md` are **187 847 B raw / 57 908 B gzip = 29.3% of every install**,
       of which `AGENTS.md` alone is **−12.6%** — measured, offered and declined below on "ship code
       with all surfaces" grounds; the number is real, the decision is not reopened by default. The
       four entries `rxjs`, `console`, `nestjs` and `setup` each gained **11–14 kB** from the pinned
@@ -407,11 +411,15 @@ import cost.
   overhead, so subpath splitting buys ~0.1 ms/file where de-chunking buys more. The move is to
   split **less**, not more. (The ~5.8 ms/file this once quoted for de-chunking is the figure the
   correction above retired; the conclusion does not depend on its size, only on its sign.)
-- [~] **Full de-chunking of all 14 entries.** 569 607 B of standalone ESM against the 140 970 B
+- [~] **Full de-chunking of all 14 entries** (20 since 4.0.0 added `/dom-stubs` and `/diagnostics`;
+  both are standalone already, so the count below is the only part that moved)**.** 569 607 B of standalone ESM against the 140 970 B
   shipped at the time (**+429 kB**), undoing the previous pass, and it breaks the single-registry
   invariant. Only `index` and `angular` are worth the trade — and they have since been taken, so
   the baseline this compares against has moved by +120 kB and the remaining gap is that much
-  smaller. Do not re-derive the delta from the two figures above without re-measuring both.
+  smaller. Do not re-derive the delta from the two figures above without re-measuring both: the
+  baseline moved twice again on 2026-09-03 (−20.3 kB from the subpath split, −162 kB from
+  `minifyWhitespace` + `minifySyntax`), so `dist` is **572 742 B** now and both figures below predate
+  all of it.
 - [~] **Optimising the `ArgsMap` exact map** — already optimal (flat 186–237 ns from 1 to 100
   configs; the `#arities` guard is the best thing in the file).
 

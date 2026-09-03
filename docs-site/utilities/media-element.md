@@ -5,8 +5,17 @@ description: stubMediaElement — a <video> / <audio> that plays, reports a dura
 
 # Media element stub
 
+::: tip Moved in 4.0.0
+These used to be exported from the root entry. ESM re-export is eager and no runner tree-shakes a
+test file, so every spec in every project — Node services included — was evaluating the DOM stubs to
+get `createSpyFromClass`. They now live behind `vitest-auto-spy/dom-stubs`: **−0.159 ms** on every
+spec file that does not import them, **+0.155 ms** on the ones that do, and 20.3 kB off `dist`.
+Same helpers, same signatures; `restoreMockedProps()` and `setupAutoSpy()` from the root still put
+back everything patched here.
+:::
+
 ```ts
-import { stubMediaElement } from 'vitest-auto-spy';
+import { stubMediaElement } from 'vitest-auto-spy/dom-stubs';
 
 const media = stubMediaElement({ duration: 120 });
 ```

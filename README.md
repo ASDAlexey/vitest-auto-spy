@@ -17,9 +17,11 @@ identical API, with **RxJS** spies and **Angular / NestJS / React / Vue·Pinia /
 `.withArgs` working while you land the suite green.
 
 [![npm version](https://img.shields.io/npm/v/vitest-auto-spy?color=brightgreen&logo=npm)](https://www.npmjs.com/package/vitest-auto-spy)
-[![npm downloads](https://img.shields.io/npm/dm/vitest-auto-spy?color=brightgreen&logo=npm)](https://www.npmjs.com/package/vitest-auto-spy)
+[![downloads per week](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fapi.npmjs.org%2Fdownloads%2Fpoint%2Flast-week%2Fvitest-auto-spy&query=%24.downloads&color=brightgreen&logo=npm&label=downloads%2Fweek)](https://www.npmjs.com/package/vitest-auto-spy)
+[![downloads per month](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fapi.npmjs.org%2Fdownloads%2Fpoint%2Flast-month%2Fvitest-auto-spy&query=%24.downloads&color=brightgreen&logo=npm&label=downloads%2Fmonth)](https://www.npmjs.com/package/vitest-auto-spy)
+[![downloads over 18 months](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fapi.npmjs.org%2Fdownloads%2Fpoint%2F2026-06-21%3A2030-01-01%2Fvitest-auto-spy&query=%24.downloads&color=brightgreen&logo=npm&label=downloads%2F18mo)](https://www.npmjs.com/package/vitest-auto-spy)
 [![CI](https://github.com/ASDAlexey/vitest-auto-spy/actions/workflows/ci.yml/badge.svg)](https://github.com/ASDAlexey/vitest-auto-spy/actions/workflows/ci.yml)
-[![minzipped size](https://img.shields.io/badge/minzip-15.5%20kB-brightgreen)](#install)
+[![minzipped size](https://img.shields.io/badge/minzip-12.9%20kB-brightgreen)](#install)
 [![types](https://img.shields.io/npm/types/vitest-auto-spy?logo=typescript&logoColor=white)](https://www.npmjs.com/package/vitest-auto-spy)
 [![coverage](https://img.shields.io/badge/coverage-100%25-brightgreen)](https://github.com/ASDAlexey/vitest-auto-spy/actions/workflows/ci.yml)
 [![license](https://img.shields.io/npm/l/vitest-auto-spy?color=blue)](./LICENSE)
@@ -70,7 +72,7 @@ identical API, with **RxJS** spies and **Angular / NestJS / React / Vue·Pinia /
 - 🌀 `fakeAsync` / `waitForAsync` on Vitest — one import of `vitest-auto-spy/zone`; zone.js stays out of every other entry
 - 🧩 Module mocks that prove they applied — `assertMocked`, `moduleNamespace`, for a `vi.mock()` a bundler quietly ignored
 - 🧾 Fixtures without casts — deep-partial `createMock`, `createFixture` / `createFixtureFactory`, `narrow()`, `withOverrides()`, `asInstances()`, `captureArg()`
-- 🚚 A migration you can verify — `compareTestRuns` on the two JSON reports, `diffByField` for the assertion the reporter collapses
+- 🚚 A migration you can verify — `vitest-auto-spy/diagnostics`: `compareTestRuns` on the two JSON reports, `summarizeTestRun` / `formatTestRunComparison` to read the answer, `diffByField` for the assertion the reporter collapses
 - 📏 Lint rules and one-line test-run hygiene — nineteen rules in `vitest-auto-spy/eslint-plugin` (three `--fix`, seven suggestions, four of them for a suite mid-migration off jasmine), `setupAutoSpy()`
 - 🩺 [Editor diagnostics](#editor-diagnostics--webstorm--vs-code) — the same anti-patterns underlined while you type: native ESLint inspections in **WebStorm** and the other JetBrains IDEs, the ESLint extension in **VS Code**, no extra plugin either way
 - 🔎 [`npx vitest-auto-spy doctor`](#the-cli--doctor-codemod-and-init) — suite-level defects **that never fail a run**: a `tsconfig` `include` matching no file, a production module importing a spec, a `@jest-environment` pragma the runner never reads, config left behind for a runner that is gone. Read-only, no config, exits 1 in CI
@@ -79,6 +81,23 @@ identical API, with **RxJS** spies and **Angular / NestJS / React / Vue·Pinia /
 - 🧭 [**Spec patterns**](https://asdalexey.github.io/vitest-auto-spy/recipes) — the shapes a ~370-file Angular suite converged on, and the traps that only surface at scale
 - 🤖 Built for AI agents too — one `npx vitest-auto-spy init` writes the pointer into the files your agents actually read and specialises it for this repository, backed by an offline [`AGENTS.md`](#using-this-library-with-an-ai-agent) inside the package, a [per-agent map](#which-file-your-agent-reads) for **Claude Code**, **OpenAI Codex**, **GLM/z.ai**, **Cursor**, **Copilot**, **Gemini CLI** and the rest, `llms.txt` on the docs site, a Claude Code skill, and errors that name their own fix
 - 🟢 100% test coverage, **zero runtime dependencies** (in-tree arg serializer, no `javascript-stringify`)
+
+## New in 4.0
+
+A major with **one job**: take out of your project the weight this library was making it carry.
+Nothing was removed or renamed and no runtime behaviour changed — the whole cost is two import
+specifiers, listed with their fix in
+[Upgrading to 4.0](https://asdalexey.github.io/vitest-auto-spy/upgrading-4).
+
+| What you get                                                                                                                                                                                                                                                        | Measured                                                                                                                                                        |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **rxjs is out of your TypeScript program.** The declarations named `Observable` and `Subject`, so every consumer loaded rxjs whether the project used it or not. `import type` does not fix that — TypeScript resolves it the same way — so the reference had to go | consumer program **303 → 114 files**, of which **189 → 0** are rxjs; `TS2307` inside a shipped `.d.ts` under `skipLibCheck: false` with no rxjs installed: gone |
+| **Every spec file gets time back.** The DOM stubs and the run diagnostics moved to `vitest-auto-spy/dom-stubs` and `…/diagnostics`, so a spec that never touches a DOM global stops evaluating 27 kB to reach `createSpyFromClass`                                  | **−0.159 ms per spec file** that does not import them, +0.155 ms in the files that do; root entry **15.5 → 12.9 kB** min+gzip                                   |
+| **A second copy of rxjs stops breaking detection.** Observable detection is structural now, so an `Observable` from a duplicated rxjs earns the observable helpers instead of failing with `nextWith is not a function`                                             | —                                                                                                                                                               |
+| **The lint rules stop deciding how much you care.** All nineteen ship as `error`; which findings block a merge is one line of config, documented per rule                                                                                                           | —                                                                                                                                                               |
+
+If you use the observable helpers, keep `import 'vitest-auto-spy/rxjs'` somewhere your `tsconfig`
+includes — that one import is what keeps `returnSubject()` typed as rxjs's own `Subject<T>`.
 
 ## Table of contents
 
@@ -213,11 +232,11 @@ the published package roughly in half.
 All peers are **provided by your project**; `rxjs` and `@angular/core` are **optional** — install
 them only for the matching entry point. The package itself has **zero runtime dependencies**.
 
-| Peer            | Needed for                                                                                                                  | Optional? |
-| --------------- | --------------------------------------------------------------------------------------------------------------------------- | --------- |
-| `vitest`        | the default runner                                                                                                          | no        |
-| `rxjs`          | `vitest-auto-spy/rxjs` observable spies (and `Spy<T>` type-checking) — `>=7`, **no upper bound** (the rxjs 8 line included) | yes       |
-| `@angular/core` | `vitest-auto-spy/angular` helpers                                                                                           | yes       |
+| Peer            | Needed for                                                                                                                                 | Optional? |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | --------- |
+| `vitest`        | the default runner                                                                                                                         | no        |
+| `rxjs`          | `vitest-auto-spy/rxjs` observable spies — `>=7`, **no upper bound** (the rxjs 8 line included); not needed to type-check a spy since 4.0.0 | yes       |
+| `@angular/core` | `vitest-auto-spy/angular` helpers                                                                                                          | yes       |
 
 ## The CLI — `doctor`, `codemod` and `init`
 
@@ -995,9 +1014,11 @@ Angular's `TestBed` runs on Bun too — see [Angular on Bun](#angular-on-bun-bun
 > Using an observable spy (`observablePropsToSpyOn`, `nextWith`, …) without importing
 > `vitest-auto-spy/rxjs` throws a clear hint telling you to add that import.
 >
-> The decoupling is at the **runtime** level. The core's _type_ surface (`Spy<T>`) still
-> references rxjs types, so keep `rxjs` available for type-checking (it's normally already a
-> devDependency); none of it reaches your runtime bundle.
+> Since **4.0.0** the decoupling is at the **type** level too: no declaration this package ships
+> names an rxjs type, so a project without rxjs never loads it — 189 rxjs `.d.ts` files left every
+> consumer's TypeScript program, 303 files down to 114 for the same fixture. `returnSubject()` is
+> still rxjs's own `Subject<T>` wherever `import 'vitest-auto-spy/rxjs'` is part of the program.
+> See [Upgrading to 4.0](https://asdalexey.github.io/vitest-auto-spy/upgrading-4).
 >
 > The same inversion-of-control applies to the **test runner**: the core no longer imports
 > `vitest` directly — `vi.fn()` / `vi.spyOn()` sit behind a `MockAdapter` that the
@@ -1206,7 +1227,8 @@ specs: observer-spy is synchronous inspection and passes on silence, those fail 
 
 Four ESLint rules cover the window between landing green and finishing —
 `jasmine-namespace-without-entry`, `no-jasmine-globals`, `no-save-arguments-by-value`, and
-`prefer-native-spy-api` (off by default; it is the last-mile one).
+`prefer-native-spy-api` (the last-mile one — set it to `'off'` while the suite still runs on the
+bridge it reports).
 
 The full mapping — the auto-spies API, jasmine's own globals, `withContext`, `DEFAULT_TIMEOUT_INTERVAL`,
 `done` callbacks, and what upstream cannot do — is on the docs site:
@@ -1495,6 +1517,14 @@ myService.getProducts$.nextWithPerCall([{ value: ['a'] }, { value: ['b'] }]);
 const subject = myService.getProducts$.returnSubject();
 subject.next([{ name: 'manual' }]);
 ```
+
+`returnSubject()` and `nextWithPerCall()` are typed `SubjectOf<T>`: rxjs's own `Subject<T>` wherever
+`import 'vitest-auto-spy/rxjs'` is in the TypeScript program, and the structural `SubjectLike<T>`
+(`next` / `error` / `complete` / `asObservable` / `closed`) where it is not. That is how the
+published declarations name no rxjs type while a suite that has rxjs keeps the exact type it had.
+The seam is one augmentable interface, `AutoSpyRxjsTypes<T>`, which the `/rxjs` entry fills in; what
+decides that a member _is_ an observable is the other new type, `ObservableLike<T>` — `subscribe`
+plus a promise-returning `forEach(next)`.
 
 `calledWith(...)` / `mustBeCalledWith(...)` also chain into the observable helpers:
 
@@ -2483,7 +2513,7 @@ naming the fix, rather than letting Vitest fail deeper in with "timers are not m
 ## Observer stubs
 
 ```ts
-import { intersectionEntry, stubIntersectionObserver } from 'vitest-auto-spy';
+import { intersectionEntry, stubIntersectionObserver } from 'vitest-auto-spy/dom-stubs';
 
 it('reveals the card once it scrolls into view', async () => {
   const observers = stubIntersectionObserver();
@@ -2542,6 +2572,26 @@ import autoSpy from 'vitest-auto-spy/eslint-plugin';
 export default [{ files: ['**/*.spec.ts'], ...autoSpy.configs.recommended }];
 ```
 
+**Every rule is an `error` since 4.0.0.** The config used to grade them `error` / `warn` / `off`,
+which chose for you how much each finding mattered; a `warn` in a repository that does not read lint
+output is `off` with extra noise, and which findings block a merge is one line of config either way.
+To turn one down, spread the rule map as well — a bare `rules` key beside the spread config replaces
+it rather than merging, silently:
+
+```js
+export default [
+  {
+    files: ['**/*.spec.ts'],
+    ...autoSpy.configs.recommended,
+    rules: { ...autoSpy.configs.recommended.rules, 'vitest-auto-spy/prefer-provide-auto-spy': 'warn' },
+  },
+];
+```
+
+The full dial — landing it on a large existing suite without a red CI, the three rules that can
+report on correct code, and `setupModules` — is on the docs site:
+[ESLint plugin → Tuning it for your project](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-plugin#tuning-it-for-your-project).
+
 Scope it to spec files yourself: every rule is about test code, and `Object.defineProperty` or an
 object of `vi.fn()`s is perfectly reasonable in application code. Flat config only — the legacy
 `.eslintrc` `plugins: ['…']` form resolves names to `eslint-plugin-*` packages, which a subpath
@@ -2549,25 +2599,25 @@ export can never be.
 
 | Rule                              | Recommended | Fix               | Flags                                                                                                                                      |
 | --------------------------------- | :---------: | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| `prefer-provide-auto-spy`         |   `warn`    | —                 | a hand-rolled `useValue` **or** `useFactory` → `provideAutoSpy(Class)` / `provideAutoSpyForToken(TOKEN)`                                   |
-| `prefer-create-spy-from-class`    |   `warn`    | —                 | an object literal of two or more `vi.fn()`s → `createSpyFromClass` / `createAutoMock`, unless it is a factory's own seed                   |
-| `prefer-inject-spy`               |   `warn`    | suggest           | `vi.spyOn(TestBed.inject(X), 'm')`, in one step or two → `injectSpy(X).m`                                                                  |
+| `prefer-provide-auto-spy`         |   `error`   | —                 | a hand-rolled `useValue` **or** `useFactory` → `provideAutoSpy(Class)` / `provideAutoSpyForToken(TOKEN)`                                   |
+| `prefer-create-spy-from-class`    |   `error`   | —                 | an object literal of two or more `vi.fn()`s → `createSpyFromClass` / `createAutoMock`, unless it is a factory's own seed                   |
+| `prefer-inject-spy`               |   `error`   | suggest           | `vi.spyOn(TestBed.inject(X), 'm')`, in one step or two → `injectSpy(X).m`                                                                  |
 | `no-object-define-property`       |   `error`   | suggest           | `Object.defineProperty` in a spec → `mockReadonlyProp` / `mockValueProp`                                                                   |
 | `no-expect-in-subscribe`          |   `error`   | suggest           | `expect()` inside a `subscribe()` callback → `expectEmission` / `firstValueFrom`                                                           |
 | `no-shared-module-level-mock`     |   `error`   | —                 | an **exported** value holding `vi.fn()`s → export a factory that returns it                                                                |
-| `no-mocked-for-spy`               |   `warn`    | `--fix` / suggest | `Mocked<T>` in any type position → `Spy<T>`, import and all — a suggestion where the value assigned is not one of this library's factories |
-| `prefer-as-spy`                   |   `warn`    | `--fix`           | `TestBed.inject(X) as Spy<X>` → `asSpy<X>(TestBed.inject(X))`, import and all                                                              |
+| `no-mocked-for-spy`               |   `error`   | `--fix` / suggest | `Mocked<T>` in any type position → `Spy<T>`, import and all — a suggestion where the value assigned is not one of this library's factories |
+| `prefer-as-spy`                   |   `error`   | `--fix`           | `TestBed.inject(X) as Spy<X>` → `asSpy<X>(TestBed.inject(X))`, import and all                                                              |
 | `no-done-callback`                |   `error`   | —                 | `it('x', (done) => …)` → `async` + an awaited assertion, and `done.fail(…)` at the call site                                               |
 | `no-floating-assertion`           |   `error`   | —                 | `expect()` in a `.then()` nobody awaits → `expect(await promise)`                                                                          |
 | `no-bare-called-with`             |   `error`   | —                 | `spy.m.calledWith(1);` as a statement of its own — a stub nobody continued, asserting nothing                                              |
 | `no-overridden-provider`          |   `error`   | suggest           | two providers for one token in one array → the earlier one never runs; the exact duplicate can be deleted                                  |
-| `no-inject-before-override`       |   `warn`    | —                 | `TestBed.inject()` in a hook, in a suite that still calls `override*`                                                                      |
+| `no-inject-before-override`       |   `error`   | —                 | `TestBed.inject()` in a hook, in a suite that still calls `override*`                                                                      |
 | `no-import-time-spread`           |   `error`   | suggest           | `export const x = [...Imported]` at module scope → a `TypeError` while the bundle loads                                                    |
-| `no-unregistered-inject-spy`      |   `warn`    | —                 | `injectSpy(X)` for a token this file never registered → the real instance, whose spy helpers exist only for the compiler                   |
-| `jasmine-namespace-without-entry` |   `warn`    | —                 | `.and` / `.calls` / `.withArgs` on a library spy in a file that installs the compatibility layer nowhere                                   |
+| `no-unregistered-inject-spy`      |   `error`   | —                 | `injectSpy(X)` for a token this file never registered → the real instance, whose spy helpers exist only for the compiler                   |
+| `jasmine-namespace-without-entry` |   `error`   | —                 | `.and` / `.calls` / `.withArgs` on a library spy in a file that installs the compatibility layer nowhere                                   |
 | `no-jasmine-globals`              |   `error`   | —                 | `jasmine.*`, `spyOn(` / `spyOnProperty(` / `spyOnAllFunctions(` / `fail(` / `pending(`, `.withContext(` — none of them exist under Vitest  |
 | `no-save-arguments-by-value`      |   `error`   | —                 | `spy.calls.saveArgumentsByValue()`, which is a no-op here → take the copy at call time                                                     |
-| `prefer-native-spy-api`           |    `off`    | `--fix` / suggest | `.and` / `.calls` where the spy's own API says the same thing — the last mile off the jasmine shim                                         |
+| `prefer-native-spy-api`           |   `error`   | `--fix` / suggest | `.and` / `.calls` where the spy's own API says the same thing — the last mile off the jasmine shim                                         |
 
 Every message ends with a link to the matching [recipe](#how-to-mock): a rule that only says
 "don't" moves the problem rather than solving it. Rules travel with the API they recommend, so they
@@ -2649,17 +2699,19 @@ a spread, an unknown provider factory, `createWithAutoSpies`, `renderShallow` or
 [`vitest-auto-spy/jasmine`](#migrating-from-jasmine-auto-spies), or one that thinks it is.
 `no-jasmine-globals` is the one that pays for itself on the first run: jasmine's `spyOn` **stubs**
 the method and `vi.spyOn` **calls through**, so the rename compiles, the spec passes, and the code
-under test starts really talking to its collaborator. `jasmine-namespace-without-entry` warns rather
-than errors because the fact that settles it — does this project install the compatibility layer? —
-is usually written in a setup file the linted spec never imports; `{ setupModules: ['./test-setup'] }`
-is how a project says where it comes from. `no-save-arguments-by-value` is the purest silent case in
+under test starts really talking to its collaborator. `jasmine-namespace-without-entry` is one of the
+two rules that can report on a correct project, because the fact that settles it — does this project
+install the compatibility layer? — is usually written in a setup file the linted spec never imports;
+`['error', { setupModules: ['./test-setup'] }]` is how a project says where it comes from, and that
+option is the fix rather than a lower severity. `no-save-arguments-by-value` is the purest silent case in
 the whole plugin: the call still runs, nothing fails, and the spec quietly stops asserting what it
 was written to assert.
 
-`prefer-native-spy-api` is **off** in the recommended config, and that is not timidity. It reports
-code that works: the compatibility layer is what a suite runs on _while_ it is being migrated, and a
-rule that flags every line of a bridge for as long as the bridge is needed is noise that gets the
-whole config disabled. Turn it on for the last mile — `eslint --fix` then does the renames whose
+`prefer-native-spy-api` is the one rule to switch **off** while a migration is in flight, and that
+is not timidity. It reports code that works: the compatibility layer is what a suite runs on _while_
+it is being migrated, so on day one it flags every line of the bridge. One line
+(`'vitest-auto-spy/prefer-native-spy-api': 'off'`) buys the whole migration; delete it for the last
+mile — `eslint --fix` then does the renames whose
 receiver it can trace to one of this library's factories (`.and.returnValue(x)` →
 `.mockReturnValue(x)`, `.and.nextWith(v)` → `.nextWith(v)`, `.withArgs(a).and.returnValue(v)` →
 `.calledWith(a).mockReturnValue(v)`, `.calls.count()` → `.mock.calls.length`), offers the same edit

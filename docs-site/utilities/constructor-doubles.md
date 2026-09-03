@@ -92,6 +92,10 @@ platform publishes as a class and production code constructs directly.
 | it is one of the three DOM observers | `stubIntersectionObserver()` and friends         |
 | it is `AbortController`              | `stubAbortController()`                          |
 
+The bottom two rows are imported from `vitest-auto-spy/dom-stubs` since 4.0.0, not from the root —
+see [Observer stubs](./observer-stubs). `mockConstructor`, `stubConstructor` and `createSpyClass`
+stayed on the root: they are about `new`, not about the DOM.
+
 ## `stubAbortController()`
 
 `element.addEventListener('pointerdown', handler, { signal })` is the recommended way to detach
@@ -108,7 +112,7 @@ receiver; jsdom brand-checks the receiver and refuses. jsdom raises it, Node cau
 triggered it, and the component under test is blamed.
 
 ```ts
-import { stubAbortController } from 'vitest-auto-spy';
+import { stubAbortController } from 'vitest-auto-spy/dom-stubs';
 
 beforeEach(() => {
   stubAbortController();

@@ -252,7 +252,7 @@ wrong twice: the stub is never taken off (and the next file inherits it under `i
 the instance is reached through a `static last` that outlives the spec just as badly.
 
 ```ts
-import { intersectionEntry, stubIntersectionObserver } from 'vitest-auto-spy';
+import { intersectionEntry, stubIntersectionObserver } from 'vitest-auto-spy/dom-stubs';
 
 const observers = stubIntersectionObserver();
 
@@ -374,7 +374,7 @@ and the assertion then runs against a spy that never intercepted the call.
 ## An array assertion that says nothing
 
 ```ts
-import { diffByField } from 'vitest-auto-spy';
+import { diffByField } from 'vitest-auto-spy/diagnostics';
 
 const sent = analytics.send.mock.calls.map(([event]) => event);
 
