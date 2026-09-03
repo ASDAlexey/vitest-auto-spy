@@ -55,6 +55,8 @@
  */
 import { afterAll, beforeAll, beforeEach, vi } from 'vitest';
 
+import { SWEEP_SENTINEL } from './constants';
+
 /** The registry, once captured. `undefined` until {@link captureMockRegistry} has run, and after a failed capture. */
 let registry: Set<unknown> | undefined;
 
@@ -106,6 +108,15 @@ let rememberedImplementations: RememberedImplementation[] = [];
 
 /** The mocks already considered, so re-marking the same one every file stays a `WeakSet` lookup. */
 let implementationsChecked = new WeakSet<object>();
+
+/**
+ * Whether this is the mock that carries the library's own sweep — the one entry pruning must leave
+ * alone, because dropping it turns `vi.clearAllMocks()` into a silent no-op for every spy this
+ * library built. See {@link SWEEP_SENTINEL}.
+ */
+function isSweepSentinel(mock: unknown): boolean {
+  return (typeof mock === 'function' || (typeof mock === 'object' && mock !== null)) && SWEEP_SENTINEL in mock;
+}
 
 /** Whether a value can be a `WeakSet` key, which every mock is (they are functions). */
 function isWeakKey(value: unknown): value is object {
@@ -267,6 +278,10 @@ export function pruneMockRegistry(): number {
   let pruned = 0;
 
   for (const mock of registry) {
+    if (isSweepSentinel(mock)) {
+      continue;
+    }
+
     if (!isWeakKey(mock) || !longLived.has(mock)) {
       registry.delete(mock);
       pruned += 1;

@@ -5,6 +5,7 @@
  */
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
+import { SWEEP_SENTINEL } from './constants';
 import {
   captureMockRegistry,
   getMockRegistrySize,
@@ -125,6 +126,21 @@ describe('keepMockRegistered', () => {
     // Out again: this is the real registry, and `vi.clearAllMocks()` calls `mockClear` on whatever
     // it finds there.
     registry?.delete(proxied);
+  });
+
+  it('never drops the sweep sentinel, whoever created it and whenever', () => {
+    const registry = captureMockRegistry();
+    // The mark, not the identity: the adapter's sentinel may come from a second copy of that module
+    // under `isolate: false`, and pruning it would turn `vi.clearAllMocks()` into a silent no-op for
+    // every spy this library built.
+    const sentinel = Object.defineProperty(vi.fn(), SWEEP_SENTINEL, { value: true, configurable: true });
+
+    registry?.add(sentinel);
+    pruneMockRegistry();
+
+    expect(registry?.has(sentinel)).toBe(true);
+
+    registry?.delete(sentinel);
   });
 });
 
