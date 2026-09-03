@@ -17,3 +17,4 @@ PRIORITIES.md
 
 # Written by `npm run bench:vs -- --outputJson`; the published table is regenerated, never committed raw.
 bench-results.json
+bench-results.*.json

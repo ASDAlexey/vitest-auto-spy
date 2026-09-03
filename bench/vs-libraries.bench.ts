@@ -127,87 +127,144 @@ function callFirst(double: AnyMethods, callCount: number): void {
   }
 }
 
+/**
+ * Every arm in a block runs the SAME number of iterations, not the same number of milliseconds.
+ *
+ * tinybench's default is a fixed time budget, which gives a faster arm more iterations — and these
+ * cases allocate, so garbage collection scales with the number of doubles created rather than with
+ * elapsed time. Equal time therefore means unequal GC exposure, and the faster arm pays for its own
+ * speed. Equal iterations puts every arm through the same amount of allocation. `time: 0` makes the
+ * iteration count exact rather than a floor.
+ *
+ * The per-block counts are sized from the measured margin of error, aiming at roughly ±14% on the
+ * worst arm in that block — not multiplied uniformly, which over-samples the cheap blocks and buys
+ * a precision nothing here needs. Re-derive them from a full run's `rme` if a case changes shape.
+ */
+
+/**
+ * `BENCH_SCALE` multiplies every budget — below 1 for a quick pass while editing this file, above 1
+ * for a slower one. It never affects fairness: it scales all arms in a block identically, so the
+ * counts stay equal, which is the property the comparison rests on.
+ */
+const SCALE = Math.max(0.05, Number(process.env['BENCH_SCALE'] ?? 1) || 1);
+
+function fixedIterations(iterations: number): { iterations: number; time: number } {
+  return { iterations: Math.max(200, Math.round(iterations * SCALE)), time: 0 };
+}
+
 interface ClassCase {
   label: string;
   WideClass: ClassWithMethods;
   methodCount: number;
   callCount: number;
+  iterations: number;
 }
 
-// A service is spied once per test and a test touches a handful of its methods. That ratio is the
-// whole argument, so it is what gets measured — and the last row of each width is the worst case for
-// this package, where every method is called and lazy has nothing left to skip.
+/**
+ * `methodCount` is how wide the class is; `callCount` is how many of its methods the test then
+ * touches. One iteration is one test — build the double, call that many methods, drop it.
+ *
+ * `10 methods, 2 called` is this spec:
+ *
+ * ```ts
+ * class OrderService {           // ten methods on the prototype
+ *   validate() {}
+ *   save() {}
+ *   // …eight more
+ * }
+ *
+ * beforeEach(() => {
+ *   orders = createSpyFromClass(OrderService);   // ← the double is built here
+ * });
+ *
+ * it('saves a validated order', () => {
+ *   checkout(orders);
+ *   expect(orders.validate).toHaveBeenCalled();  // ← method 1 of 10
+ *   expect(orders.save).toHaveBeenCalled();      // ← method 2 of 10
+ * });                                            //   the other eight are never touched
+ * ```
+ *
+ * That ratio is the entire argument for building spies lazily: eight of the ten are never needed, so
+ * an eager library pays for them and a lazy one does not. `all 10 called` is the same class in a test
+ * that really does use every method — the worst case for this package, where there is nothing left
+ * to skip and the laziness machinery is paid for with nothing to show. Both are measured, and both
+ * are published, because quoting only the first would be a lie by omission.
+ *
+ * The 40-method rows are the same question on a class that is wide by construction — a generated API
+ * client, an ngrx facade, a `Store` double.
+ */
 const CLASS_CASES: ClassCase[] = [
-  { label: '10 methods, 2 called', WideClass: WIDE, methodCount: 10, callCount: 2 },
-  { label: '10 methods, all 10 called', WideClass: WIDE, methodCount: 10, callCount: 10 },
-  { label: '40 methods, 3 called', WideClass: HUGE, methodCount: 40, callCount: 3 },
-  { label: '40 methods, all 40 called', WideClass: HUGE, methodCount: 40, callCount: 40 },
+  { label: '10 methods, 2 called', WideClass: WIDE, methodCount: 10, callCount: 2, iterations: 40_000 },
+  { label: '10 methods, all 10 called', WideClass: WIDE, methodCount: 10, callCount: 10, iterations: 21_000 },
+  { label: '40 methods, 3 called', WideClass: HUGE, methodCount: 40, callCount: 3, iterations: 20_000 },
+  { label: '40 methods, all 40 called', WideClass: HUGE, methodCount: 40, callCount: 40, iterations: 5_000 },
 ];
 
 // ---------------------------------------------------------------------------------------------
 // A double built from a real class — the `beforeEach` of every spec that has a service in it.
 // Only two libraries in the field read a class at all; the hand-written object is the control.
 // ---------------------------------------------------------------------------------------------
-CLASS_CASES.forEach(({ label, WideClass, methodCount, callCount }) => {
+CLASS_CASES.forEach(({ label, WideClass, methodCount, callCount, iterations }) => {
   describe(`double from a class — ${label}`, () => {
     bench('vitest-auto-spy: createSpyFromClass', () => {
       callFirst(createSpyFromClass(WideClass) as unknown as AnyMethods, callCount);
       dropCreatedMocks();
-    });
+    }, fixedIterations(iterations));
 
     bench('@bugsplat/vitest-auto-spies', () => {
       callFirst(hirezCreateSpyFromClass(WideClass) as unknown as AnyMethods, callCount);
       dropCreatedMocks();
-    });
+    }, fixedIterations(iterations));
 
     bench('jest-auto-spies', () => {
       callFirst(jestAutoSpies.createSpyFromClass(WideClass), callCount);
       dropCreatedMocks();
-    });
+    }, fixedIterations(iterations));
 
     bench('jasmine-auto-spies', () => {
       callFirst(jasmineAutoSpies.createSpyFromClass(WideClass), callCount);
       dropCreatedMocks();
-    });
+    }, fixedIterations(iterations));
 
     bench('hand-written vi.fn() per method', () => {
       callFirst(handWritten(methodCount), callCount);
       dropCreatedMocks();
-    });
+    }, fixedIterations(iterations));
   });
 });
 
 interface TypeCase {
   label: string;
   callCount: number;
+  iterations: number;
 }
 
 const TYPE_CASES: TypeCase[] = [
-  { label: '2 members touched', callCount: 2 },
-  { label: '10 members touched', callCount: 10 },
-  { label: '40 members touched', callCount: 40 },
+  { label: '2 members touched', callCount: 2, iterations: 295_000 },
+  { label: '10 members touched', callCount: 10, iterations: 30_000 },
+  { label: '40 members touched', callCount: 40, iterations: 8_000 },
 ];
 
 // ---------------------------------------------------------------------------------------------
 // A double built from a type. Nothing here reads a class, so all four do the same amount of work
 // and the comparison is apples to apples — this is the block where the deep-Proxy libraries live.
 // ---------------------------------------------------------------------------------------------
-TYPE_CASES.forEach(({ label, callCount }) => {
+TYPE_CASES.forEach(({ label, callCount, iterations }) => {
   describe(`double from a type — ${label}`, () => {
     bench('vitest-auto-spy: createAutoMock<T>()', () => {
       callFirst(createAutoMock<AnyMethods>() as AnyMethods, callCount);
       dropCreatedMocks();
-    });
+    }, fixedIterations(iterations));
 
     bench('vitest-mock-extended: mock<T>()', () => {
       callFirst(vmxMock<AnyMethods>() as unknown as AnyMethods, callCount);
       dropCreatedMocks();
-    });
+    }, fixedIterations(iterations));
 
     bench('@golevelup/ts-vitest: createMock<T>()', () => {
       callFirst(golevelupCreateMock<AnyMethods>() as unknown as AnyMethods, callCount);
       dropCreatedMocks();
-    });
+    }, fixedIterations(iterations));
   });
 });
 
@@ -222,17 +279,17 @@ describe('deep double — 3 levels, leaf called', () => {
   bench('vitest-auto-spy: mockDeep<T>()', () => {
     mockDeep<Nested>().level1.level2.level3.leaf();
     dropCreatedMocks();
-  });
+  }, fixedIterations(116_000));
 
   bench('vitest-mock-extended: mockDeep<T>()', () => {
     vmxMockDeep<Nested>().level1.level2.level3.leaf();
     dropCreatedMocks();
-  });
+  }, fixedIterations(116_000));
 
   bench('@golevelup/ts-vitest: createMock<T>() (deep by default)', () => {
     golevelupCreateMock<Nested>().level1.level2.level3.leaf();
     dropCreatedMocks();
-  });
+  }, fixedIterations(116_000));
 });
 
 /** Configure `m0` to return a value, then call it three times. */
@@ -254,39 +311,39 @@ describe('configure a return + 3 calls — double from a class', () => {
   bench('vitest-auto-spy: createSpyFromClass', () => {
     configureAndCall(createSpyFromClass(WIDE) as unknown as AnyMethods);
     dropCreatedMocks();
-  });
+  }, fixedIterations(51_000));
 
   bench('@bugsplat/vitest-auto-spies', () => {
     configureAndCall(hirezCreateSpyFromClass(WIDE) as unknown as AnyMethods);
     dropCreatedMocks();
-  });
+  }, fixedIterations(51_000));
 
   bench('jest-auto-spies', () => {
     configureAndCall(jestAutoSpies.createSpyFromClass(WIDE));
     dropCreatedMocks();
-  });
+  }, fixedIterations(51_000));
 
   bench('hand-written vi.fn() per method', () => {
     configureAndCall(handWritten(10));
     dropCreatedMocks();
-  });
+  }, fixedIterations(51_000));
 });
 
 describe('configure a return + 3 calls — double from a type', () => {
   bench('vitest-auto-spy: createAutoMock<T>()', () => {
     configureAndCall(createAutoMock<AnyMethods>() as AnyMethods);
     dropCreatedMocks();
-  });
+  }, fixedIterations(292_000));
 
   bench('vitest-mock-extended: mock<T>()', () => {
     configureAndCall(vmxMock<AnyMethods>() as unknown as AnyMethods);
     dropCreatedMocks();
-  });
+  }, fixedIterations(292_000));
 
   bench('@golevelup/ts-vitest: createMock<T>()', () => {
     configureAndCall(golevelupCreateMock<AnyMethods>() as unknown as AnyMethods);
     dropCreatedMocks();
-  });
+  }, fixedIterations(292_000));
 });
 
 // ---------------------------------------------------------------------------------------------
@@ -311,17 +368,17 @@ describe('calledWith dispatch — 2 configured, 1 miss', () => {
     ours.m2(1);
     ours.m2(2);
     ours.m2(3);
-  });
+  }, fixedIterations(1_152_000));
 
   bench('@bugsplat/vitest-auto-spies', () => {
     hirez.m2(1);
     hirez.m2(2);
     hirez.m2(3);
-  });
+  }, fixedIterations(1_152_000));
 
   bench('vitest-mock-extended', () => {
     vmx.m2(1);
     vmx.m2(2);
     vmx.m2(3);
-  });
+  }, fixedIterations(1_152_000));
 });
