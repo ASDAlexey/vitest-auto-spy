@@ -112,15 +112,13 @@ function environmentFindings(
       message: `Environment setup is ${formatShare(shareOf(phases, 'environment'))} of the measured CPU time, against ${formatShare(shareOf(phases, 'tests'))} in the test bodies. ${summary}`,
       fix: `Move what does not need a DOM to the \`node\` environment. Rule used — ${DOM_FREE_RULE}. Background: ${DOCS_SLOW}`,
     },
-    ...ranked.slice(0, LIST_LIMIT).map(
-      (entry): Finding => ({
-        check: 'perf-environment-node-candidate',
-        severity: 'info',
-        file: entry.spec,
-        message: `Mentions no DOM name and imports no package off the DOM-free list; ${formatMs(entry.ms)} of this run went on building an environment for it.`,
-        fix: 'Put `// @vitest-environment node` in a docblock at the top of the file, or group these specs into a project whose `environment` is `node`.',
-      }),
-    ),
+    ...ranked.slice(0, LIST_LIMIT).map((entry): Finding => ({
+      check: 'perf-environment-node-candidate',
+      severity: 'info',
+      file: entry.spec,
+      message: `Mentions no DOM name and imports no package off the DOM-free list; ${formatMs(entry.ms)} of this run went on building an environment for it.`,
+      fix: 'Put `// @vitest-environment node` in a docblock at the top of the file, or group these specs into a project whose `environment` is `node`.',
+    })),
   ];
 }
 
@@ -155,15 +153,13 @@ function importFindings(phases: readonly Phase[], graph: SourceGraph): Finding[]
       message: `Importing modules is ${formatShare(shareOf(phases, 'import'))} of the measured CPU time, and ${ranked.length} spec files reach their subject through a barrel.${remainder(ranked.length)}`,
       fix: `A barrel re-exports a whole directory, so a spec importing one loads all of it to use one export. Import the module itself. Background: ${DOCS_SLOW}`,
     },
-    ...ranked.slice(0, LIST_LIMIT).map(
-      (entry): Finding => ({
-        check: 'perf-import-barrel',
-        severity: 'info',
-        file: entry.spec,
-        message: `Imports the barrel ${entry.barrel}, which pulls ${entry.reach} repository modules into this spec's graph.`,
-        fix: 'Import the module directly instead of through the barrel.',
-      }),
-    ),
+    ...ranked.slice(0, LIST_LIMIT).map((entry): Finding => ({
+      check: 'perf-import-barrel',
+      severity: 'info',
+      file: entry.spec,
+      message: `Imports the barrel ${entry.barrel}, which pulls ${entry.reach} repository modules into this spec's graph.`,
+      fix: 'Import the module directly instead of through the barrel.',
+    })),
   ];
 }
 

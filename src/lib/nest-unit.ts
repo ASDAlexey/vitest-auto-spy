@@ -29,9 +29,7 @@ export type NestUnitClass<T = unknown> = new (...args: never[]) => T;
  * an `inject` list; `provideAutoSpy(X)` output is the `useValue` one.
  */
 export type NestUnitProvider =
-  | { provide: unknown; useClass: NestUnitClass }
-  | { provide: unknown; useFactory: () => unknown }
-  | { provide: unknown; useValue: unknown };
+  { provide: unknown; useClass: NestUnitClass } | { provide: unknown; useFactory: () => unknown } | { provide: unknown; useValue: unknown };
 
 /** Options for {@link createNestUnit}. */
 export interface CreateNestUnitOptions {

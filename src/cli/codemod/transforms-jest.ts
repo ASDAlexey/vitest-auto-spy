@@ -284,9 +284,11 @@ export const jestGlobalsImport: TransformSpec = {
 function globalsEdits(context: TransformContext, statement: ImportStatement): Edit[] {
   const specifierAt = context.source.indexOf(JEST_GLOBALS, statement.start);
   const [open, close] = statement.braces ?? [statement.start, statement.start];
-  const renames = scan(context.masked.slice(open, close), /\bjest\b/g).map(
-    (match): Edit => ({ start: open + match.index, end: open + match.index + 'jest'.length, text: 'vi' }),
-  );
+  const renames = scan(context.masked.slice(open, close), /\bjest\b/g).map((match): Edit => ({
+    start: open + match.index,
+    end: open + match.index + 'jest'.length,
+    text: 'vi',
+  }));
 
   return [...renames, { start: specifierAt, end: specifierAt + JEST_GLOBALS.length, text: VITEST }];
 }

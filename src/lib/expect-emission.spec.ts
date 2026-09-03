@@ -247,9 +247,7 @@ describe('the emitted type is inferred, not widened to `unknown`', () => {
     interface Rxjs8Observable<T> {
       subscribe(
         observerOrNext?:
-          | ((value: T) => void)
-          | Partial<{ complete: () => void; error: (error: unknown) => void; next: (value: T) => void }>
-          | null,
+          ((value: T) => void) | Partial<{ complete: () => void; error: (error: unknown) => void; next: (value: T) => void }> | null,
       ): { unsubscribe(): void };
     }
 

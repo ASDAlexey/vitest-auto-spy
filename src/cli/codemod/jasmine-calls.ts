@@ -45,9 +45,11 @@ export function replacement(start: number, end: number, text: string): Transform
 export function replacements(context: TransformContext, pattern: RegExp, text: (match: Match) => string): TransformOutput {
   return {
     ...EMPTY_OUTPUT,
-    edits: scan(context.masked, pattern).map(
-      (match): Edit => ({ start: match.index, end: match.index + match.whole.length, text: text(match) }),
-    ),
+    edits: scan(context.masked, pattern).map((match): Edit => ({
+      start: match.index,
+      end: match.index + match.whole.length,
+      text: text(match),
+    })),
   };
 }
 
