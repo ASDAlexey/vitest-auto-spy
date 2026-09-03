@@ -14,3 +14,6 @@ coverage/
 
 # Local working document — priority breakdown, not part of the published repo
 PRIORITIES.md
+
+# Written by `npm run bench:vs -- --outputJson`; the published table is regenerated, never committed raw.
+bench-results.json

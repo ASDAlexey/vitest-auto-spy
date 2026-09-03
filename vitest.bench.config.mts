@@ -7,7 +7,7 @@ export default defineConfig({
   test: {
     include: [],
     benchmark: {
-      include: ['bench/**/*.bench.ts'],
+      include: ['bench/auto-spy.bench.ts'],
     },
   },
 });

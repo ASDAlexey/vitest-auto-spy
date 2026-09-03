@@ -1,0 +1,14 @@
+{
+  "name": "vitest-auto-spy-bench",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Competitor packages for the head-to-head benchmarks. Installed separately so the root package.json carries nothing it does not ship or test with.",
+  "type": "module",
+  "devDependencies": {
+    "@bugsplat/vitest-auto-spies": "1.0.0",
+    "@golevelup/ts-vitest": "4.0.0",
+    "jasmine-auto-spies": "8.0.1",
+    "jest-auto-spies": "3.0.1",
+    "vitest-mock-extended": "5.1.1"
+  }
+}

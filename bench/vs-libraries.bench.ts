@@ -1,0 +1,327 @@
+/**
+ * Head-to-head micro-benchmarks against the other libraries. Run with `npm run bench:vs`.
+ *
+ * `auto-spy.bench.ts` measures this package against itself — lazy against eager, one option against
+ * another. This file measures it against the field, and it exists because a "we are faster" line in
+ * a README is worth nothing unless the other library's code actually ran.
+ *
+ * **Everything runs on one runner.** Every contender here creates its doubles out of Vitest's own
+ * `vi.fn()`, so the runner's per-mock cost is a constant shared by all of them and what the numbers
+ * separate is the library's own overhead on top. That is the only way a cross-library number means
+ * anything: run `jest-auto-spies` on Jest and this package on Vitest and the table reports the two
+ * runners, not the two libraries.
+ *
+ * **`jest-auto-spies` is measured through `@bugsplat/vitest-auto-spies`, and that is not a
+ * substitution.** Both depend on `@hirez_io/auto-spies-core@3.0.0` and both hand it the same three
+ * arguments; the two `dist/create-function-spy.js` files are line-for-line identical apart from
+ * `jest.fn()` against `vi.fn()`, and the two `dist/create-spy-from-class.js` files apart from
+ * `jest.spyOn` against `vi.spyOn`. The algorithm under test — `createAutoSpyFromClass`, which walks
+ * the prototype chain with `Object.getOwnPropertyDescriptors` on every call, memoises nothing, and
+ * builds a spy for every method it finds whether or not the test touches it — is the same object
+ * file in both packages. Verified against the published tarballs on 2026-09-03.
+ *
+ * **The class-reading rows and the type-reading rows are separate `describe`s on purpose.** Vitest
+ * prints an "N× faster" summary per describe, and putting `createSpyFromClass` (reads a real
+ * prototype) next to `mock<T>()` (a Proxy that reads nothing) in one block would announce a winner
+ * for a race in which the two ran different distances. Compare within a block; across blocks, read
+ * what the operation is.
+ *
+ * The two rules inherited from `auto-spy.bench.ts` apply here unchanged, and both are load-bearing:
+ *
+ * - **Read the `p75` column, not `hz`.** These cases allocate by the hundred thousand, so a GC pause
+ *   lands in some samples and not others; `hz` — and the "N× faster" summary built from it — swings
+ *   several-fold between runs, while `p75` reproduces to the fourth decimal.
+ * - **Every body ends with {@link dropCreatedMocks}.** `@vitest/spy` keeps every mock it ever made in
+ *   a module-level *strong* `Set`, so without the prune each case allocates into a monotonically
+ *   growing heap it inherited from the case before and `p75` reports whether a major GC happened to
+ *   land inside the sample. The prune is charged to the case that created the mocks, which is the
+ *   honest place for it — and it is charged identically to every contender, since they all register
+ *   in the same set.
+ */
+import { createRequire } from 'node:module';
+
+import { bench, describe, vi } from 'vitest';
+
+import { createSpyFromClass as hirezCreateSpyFromClass } from '@bugsplat/vitest-auto-spies';
+import { createMock as golevelupCreateMock } from '@golevelup/ts-vitest';
+import { mock as vmxMock, mockDeep as vmxMockDeep } from 'vitest-mock-extended';
+
+import { installRunnerGlobals } from './runner-globals';
+
+// The public entry, not `src/lib/*` — so the default Vitest mock adapter registers as a side
+// effect, exactly as it does for a consumer.
+import { createAutoMock, createSpyFromClass, mockDeep } from '../src/index';
+import { captureMockRegistry, pruneMockRegistry } from '../src/setup';
+
+// Captured once at module scope: the capture patches `Set.prototype.forEach` for the length of one
+// `vi.clearAllMocks()`, far too expensive to repeat per iteration.
+installRunnerGlobals();
+
+// `jest-auto-spies` and `jasmine-auto-spies` are CommonJS and their declarations reference ambient
+// `jest` / `jasmine` type packages this repository does not install. `createRequire` loads them for
+// what the bench needs — the factory — without pulling those globals into the type program.
+const requireCjs = createRequire(import.meta.url);
+
+type ClassSpyFactory = (ObjectClass: ClassWithMethods) => AnyMethods;
+
+const jestAutoSpies = requireCjs('jest-auto-spies') as { createSpyFromClass: ClassSpyFactory };
+const jasmineAutoSpies = requireCjs('jasmine-auto-spies') as { createSpyFromClass: ClassSpyFactory };
+
+captureMockRegistry();
+
+/** Release the mocks this iteration created, so the next one starts from the same heap. */
+function dropCreatedMocks(): void {
+  pruneMockRegistry();
+}
+
+type AnyMethods = Record<string, (...args: unknown[]) => unknown>;
+type ClassWithMethods = new () => AnyMethods;
+
+/** A class with `methodCount` prototype methods — the width is what a prototype walk pays for. */
+function makeWideClass(methodCount: number): ClassWithMethods {
+  const WideClass = class {};
+
+  for (let index = 0; index < methodCount; index += 1) {
+    Object.defineProperty(WideClass.prototype, `m${index}`, {
+      value: (): number => index,
+      configurable: true,
+      writable: true,
+      enumerable: false,
+    });
+  }
+
+  return WideClass as unknown as ClassWithMethods;
+}
+
+const WIDE = makeWideClass(10);
+const HUGE = makeWideClass(40);
+
+// `AnyMethods` is an index signature, and this repository compiles with `noUncheckedIndexedAccess`
+// and `noPropertyAccessFromIndexSignature`. Naming `m2` keeps optional chaining out of the timed
+// bodies, so the dispatch case measures the dispatch and not a null check.
+interface DispatchTarget {
+  m2: (arg: number) => number;
+}
+
+type CalledWithDouble = {
+  m2: ((arg: number) => unknown) & { calledWith: (arg: number) => { mockReturnValue: (value: number) => void } };
+};
+
+const DISPATCH = WIDE as unknown as new () => DispatchTarget;
+
+/** The double a developer writes by hand when they skip the libraries entirely — the floor. */
+function handWritten(methodCount: number): AnyMethods {
+  const double: AnyMethods = {};
+
+  for (let index = 0; index < methodCount; index += 1) {
+    double[`m${index}`] = vi.fn();
+  }
+
+  return double;
+}
+
+/** Call the first `callCount` methods of a double — the part a test actually uses. */
+function callFirst(double: AnyMethods, callCount: number): void {
+  for (let index = 0; index < callCount; index += 1) {
+    double[`m${index}`]?.();
+  }
+}
+
+interface ClassCase {
+  label: string;
+  WideClass: ClassWithMethods;
+  methodCount: number;
+  callCount: number;
+}
+
+// A service is spied once per test and a test touches a handful of its methods. That ratio is the
+// whole argument, so it is what gets measured — and the last row of each width is the worst case for
+// this package, where every method is called and lazy has nothing left to skip.
+const CLASS_CASES: ClassCase[] = [
+  { label: '10 methods, 2 called', WideClass: WIDE, methodCount: 10, callCount: 2 },
+  { label: '10 methods, all 10 called', WideClass: WIDE, methodCount: 10, callCount: 10 },
+  { label: '40 methods, 3 called', WideClass: HUGE, methodCount: 40, callCount: 3 },
+  { label: '40 methods, all 40 called', WideClass: HUGE, methodCount: 40, callCount: 40 },
+];
+
+// ---------------------------------------------------------------------------------------------
+// A double built from a real class — the `beforeEach` of every spec that has a service in it.
+// Only two libraries in the field read a class at all; the hand-written object is the control.
+// ---------------------------------------------------------------------------------------------
+CLASS_CASES.forEach(({ label, WideClass, methodCount, callCount }) => {
+  describe(`double from a class — ${label}`, () => {
+    bench('vitest-auto-spy: createSpyFromClass', () => {
+      callFirst(createSpyFromClass(WideClass) as unknown as AnyMethods, callCount);
+      dropCreatedMocks();
+    });
+
+    bench('@bugsplat/vitest-auto-spies', () => {
+      callFirst(hirezCreateSpyFromClass(WideClass) as unknown as AnyMethods, callCount);
+      dropCreatedMocks();
+    });
+
+    bench('jest-auto-spies', () => {
+      callFirst(jestAutoSpies.createSpyFromClass(WideClass), callCount);
+      dropCreatedMocks();
+    });
+
+    bench('jasmine-auto-spies', () => {
+      callFirst(jasmineAutoSpies.createSpyFromClass(WideClass), callCount);
+      dropCreatedMocks();
+    });
+
+    bench('hand-written vi.fn() per method', () => {
+      callFirst(handWritten(methodCount), callCount);
+      dropCreatedMocks();
+    });
+  });
+});
+
+interface TypeCase {
+  label: string;
+  callCount: number;
+}
+
+const TYPE_CASES: TypeCase[] = [
+  { label: '2 members touched', callCount: 2 },
+  { label: '10 members touched', callCount: 10 },
+  { label: '40 members touched', callCount: 40 },
+];
+
+// ---------------------------------------------------------------------------------------------
+// A double built from a type. Nothing here reads a class, so all four do the same amount of work
+// and the comparison is apples to apples — this is the block where the deep-Proxy libraries live.
+// ---------------------------------------------------------------------------------------------
+TYPE_CASES.forEach(({ label, callCount }) => {
+  describe(`double from a type — ${label}`, () => {
+    bench('vitest-auto-spy: createAutoMock<T>()', () => {
+      callFirst(createAutoMock<AnyMethods>() as AnyMethods, callCount);
+      dropCreatedMocks();
+    });
+
+    bench('vitest-mock-extended: mock<T>()', () => {
+      callFirst(vmxMock<AnyMethods>() as unknown as AnyMethods, callCount);
+      dropCreatedMocks();
+    });
+
+    bench('@golevelup/ts-vitest: createMock<T>()', () => {
+      callFirst(golevelupCreateMock<AnyMethods>() as unknown as AnyMethods, callCount);
+      dropCreatedMocks();
+    });
+  });
+});
+
+interface Nested {
+  level1: { level2: { level3: { leaf: () => number } } };
+}
+
+// ---------------------------------------------------------------------------------------------
+// Recursive doubles — three levels down and a call at the leaf.
+// ---------------------------------------------------------------------------------------------
+describe('deep double — 3 levels, leaf called', () => {
+  bench('vitest-auto-spy: mockDeep<T>()', () => {
+    mockDeep<Nested>().level1.level2.level3.leaf();
+    dropCreatedMocks();
+  });
+
+  bench('vitest-mock-extended: mockDeep<T>()', () => {
+    vmxMockDeep<Nested>().level1.level2.level3.leaf();
+    dropCreatedMocks();
+  });
+
+  bench('@golevelup/ts-vitest: createMock<T>() (deep by default)', () => {
+    golevelupCreateMock<Nested>().level1.level2.level3.leaf();
+    dropCreatedMocks();
+  });
+});
+
+/** Configure `m0` to return a value, then call it three times. */
+function configureAndCall(double: AnyMethods): void {
+  (double['m0'] as unknown as { mockReturnValue: (value: number) => void }).mockReturnValue(1);
+
+  double['m0']?.();
+  double['m0']?.();
+  double['m0']?.();
+}
+
+// ---------------------------------------------------------------------------------------------
+// Configure a return and call through it — the second half of every test. Split by what the double
+// was built from, for the reason given in the file header: the class-reading libraries walk a
+// prototype before they can configure anything and the Proxy libraries do not, so one block holding
+// all four would report the difference between the two *operations* under the heading of a race.
+// ---------------------------------------------------------------------------------------------
+describe('configure a return + 3 calls — double from a class', () => {
+  bench('vitest-auto-spy: createSpyFromClass', () => {
+    configureAndCall(createSpyFromClass(WIDE) as unknown as AnyMethods);
+    dropCreatedMocks();
+  });
+
+  bench('@bugsplat/vitest-auto-spies', () => {
+    configureAndCall(hirezCreateSpyFromClass(WIDE) as unknown as AnyMethods);
+    dropCreatedMocks();
+  });
+
+  bench('jest-auto-spies', () => {
+    configureAndCall(jestAutoSpies.createSpyFromClass(WIDE));
+    dropCreatedMocks();
+  });
+
+  bench('hand-written vi.fn() per method', () => {
+    configureAndCall(handWritten(10));
+    dropCreatedMocks();
+  });
+});
+
+describe('configure a return + 3 calls — double from a type', () => {
+  bench('vitest-auto-spy: createAutoMock<T>()', () => {
+    configureAndCall(createAutoMock<AnyMethods>() as AnyMethods);
+    dropCreatedMocks();
+  });
+
+  bench('vitest-mock-extended: mock<T>()', () => {
+    configureAndCall(vmxMock<AnyMethods>() as unknown as AnyMethods);
+    dropCreatedMocks();
+  });
+
+  bench('@golevelup/ts-vitest: createMock<T>()', () => {
+    configureAndCall(golevelupCreateMock<AnyMethods>() as unknown as AnyMethods);
+    dropCreatedMocks();
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// `calledWith` dispatch. The doubles are built at module scope and the bodies only call them, so
+// nothing here allocates a mock and there is nothing to prune — the number is pure dispatch.
+// Two configured argument sets and one miss, which is the shape a real spec produces.
+// ---------------------------------------------------------------------------------------------
+describe('calledWith dispatch — 2 configured, 1 miss', () => {
+  const ours = createSpyFromClass(DISPATCH);
+  ours.m2.calledWith(1).mockReturnValue(11);
+  ours.m2.calledWith(2).mockReturnValue(22);
+
+  const hirez = hirezCreateSpyFromClass(DISPATCH) as unknown as CalledWithDouble;
+  hirez.m2.calledWith(1).mockReturnValue(11);
+  hirez.m2.calledWith(2).mockReturnValue(22);
+
+  const vmx = vmxMock<DispatchTarget>() as unknown as CalledWithDouble;
+  vmx.m2.calledWith(1).mockReturnValue(11);
+  vmx.m2.calledWith(2).mockReturnValue(22);
+
+  bench('vitest-auto-spy', () => {
+    ours.m2(1);
+    ours.m2(2);
+    ours.m2(3);
+  });
+
+  bench('@bugsplat/vitest-auto-spies', () => {
+    hirez.m2(1);
+    hirez.m2(2);
+    hirez.m2(3);
+  });
+
+  bench('vitest-mock-extended', () => {
+    vmx.m2(1);
+    vmx.m2(2);
+    vmx.m2(3);
+  });
+});
