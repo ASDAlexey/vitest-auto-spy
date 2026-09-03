@@ -1,0 +1,14 @@
+{
+  // The benchmarks are not part of the published program, so `tsconfig.json` does not include them —
+  // but they are TypeScript, they drift, and an IDE type-checks them even when the gate does not.
+  // This config is what `npm run typecheck:bench` uses. It is deliberately NOT part of `npm run
+  // check`: `bench/vs-libraries.bench.ts` imports the competitor packages, which live in
+  // `bench/node_modules` and are installed separately, so the main gate must stay runnable in a
+  // checkout that never ran `npm ci --prefix bench`. CI runs it in the benchmark workflow, after
+  // that install.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true
+  },
+  "include": ["src", "bench/**/*.ts"]
+}

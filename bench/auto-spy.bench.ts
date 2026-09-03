@@ -76,13 +76,26 @@ function makeWideClass(methodCount: number): ClassWithMethods {
 
 type ClassWithMethods = new () => Record<string, () => number>;
 
+// `Record<string, …>` is an index signature, and this repository compiles with
+// `noUncheckedIndexedAccess` and `noPropertyAccessFromIndexSignature` — every lookup would be
+// `| undefined` and every dot access an error, which would put optional chaining inside the timed
+// bodies. These name the members the bodies actually touch, so the measurement stays the call.
+interface NamedMethods {
+  m0: () => unknown;
+  m1: () => unknown;
+  m2: () => unknown;
+  m3: () => unknown;
+}
+
+type ClearableCall = ((a: object, b: object) => unknown) & { mockClear: () => void };
+
 /** Spy `WideClass` and call the first `callCount` of its methods — the shape a real `beforeEach` + test produces. */
 function spyAndCall(WideClass: ClassWithMethods, lazySpies: boolean, callCount: number): void {
   // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- `Spy<T>` is a mapped type over runtime-discovered names; indexing it by a computed key needs the dynamic shape.
   const spy = createSpyFromClass(WideClass, { lazySpies }) as unknown as Record<string, () => unknown>;
 
   for (let index = 0; index < callCount; index += 1) {
-    spy[`m${index}`]();
+    spy[`m${index}`]?.();
   }
 
   dropCreatedMocks();
@@ -90,6 +103,9 @@ function spyAndCall(WideClass: ClassWithMethods, lazySpies: boolean, callCount: 
 
 const WIDE = makeWideClass(10);
 const HUGE = makeWideClass(40);
+
+/** `WIDE` seen as a class whose `m2` is declared and takes the argument the dispatch case configures. */
+const DISPATCH = WIDE as unknown as new () => { m2: (arg: number) => number };
 
 interface LazyCase {
   label: string;
@@ -133,7 +149,7 @@ LAZY_CASES.forEach(({ label, WideClass, callCount }) => {
 
 describe('createAutoMock (type-only, lazy Proxy)', () => {
   bench('create + access 4 methods', () => {
-    const mock = createAutoMock<Record<string, () => unknown>>();
+    const mock = createAutoMock<NamedMethods>();
 
     mock.m0();
     mock.m1();
@@ -154,25 +170,25 @@ describe('spy invocation', () => {
   // entries and the GC pauses that follow, not a call. It is the same trade `dropCreatedMocks()`
   // makes in the creation cases: the bookkeeping a real `beforeEach` does anyway, charged to the
   // case that caused it.
-  const spy = createSpyFromClass(WIDE) as unknown as Record<string, ((a: object, b: object) => unknown) & { mockClear: () => void }>;
+  const spy = createSpyFromClass(WIDE) as unknown as Record<'m0' | 'm1' | 'm2', ClearableCall>;
   const argA = { id: 1 };
   const argB = { id: 2 };
 
   bench('unconfigured call, two object arguments (x3)', () => {
-    spy['m0'](argA, argB);
-    spy['m1'](argA, argB);
-    spy['m2'](argA, argB);
+    spy.m0(argA, argB);
+    spy.m1(argA, argB);
+    spy.m2(argA, argB);
 
-    spy['m0'].mockClear();
-    spy['m1'].mockClear();
-    spy['m2'].mockClear();
+    spy.m0.mockClear();
+    spy.m1.mockClear();
+    spy.m2.mockClear();
   });
 });
 
 describe('calledWith dispatch', () => {
   // The one case whose spy outlives its iterations: it is created here, at module scope, and the
   // body only calls it. Nothing inside the body allocates a mock, so there is nothing to prune.
-  const spy = createSpyFromClass(WIDE);
+  const spy = createSpyFromClass(DISPATCH);
 
   spy.m2.calledWith(1).mockReturnValue(11);
   spy.m2.calledWith(2).mockReturnValue(22);

@@ -230,6 +230,7 @@
     "alias:sync:check": "node scripts/sync-alias.mjs --check",
     "release:notes": "node scripts/release-notes.mjs",
     "typecheck": "tsc --noEmit",
+    "typecheck:bench": "tsc --noEmit -p tsconfig.bench.json",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
