@@ -13,7 +13,7 @@
       "name": "vitest-auto-spy",
       "source": "./",
       "description": "Teaches an agent to write and fix tests that use vitest-auto-spy: typed spies from a class or a type on Vitest, bun:test and node:test, with Angular/NestJS/React/Vue/Svelte adapters, an ESLint plugin, and a codemod that migrates a suite off jest-auto-spies or jasmine-auto-spies.",
-      "version": "4.0.1",
+      "version": "4.1.0",
       "author": {
         "name": "Alexey Popov",
         "url": "https://github.com/ASDAlexey"
