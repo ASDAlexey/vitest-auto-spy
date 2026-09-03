@@ -106,6 +106,16 @@
       "import": "./dist/console.js",
       "default": "./dist/console.js"
     },
+    "./dom-stubs": {
+      "types": "./dist/dom-stubs.d.ts",
+      "import": "./dist/dom-stubs.js",
+      "default": "./dist/dom-stubs.js"
+    },
+    "./diagnostics": {
+      "types": "./dist/diagnostics.d.ts",
+      "import": "./dist/diagnostics.js",
+      "default": "./dist/diagnostics.js"
+    },
     "./jasmine": {
       "types": "./dist/jasmine.d.ts",
       "import": "./dist/jasmine.js",

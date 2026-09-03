@@ -119,7 +119,8 @@
  * Observable spies live behind `vitest-auto-spy/rxjs` and Angular TestBed
  * helpers behind `vitest-auto-spy/angular`, so a plain Node / Bun / React / Vue
  * project pulls neither rxjs nor Angular into its runtime bundle unless it opts
- * in (the core's type surface still references rxjs types):
+ * in — and, since 4.0.0, not into its TypeScript program either: no declaration
+ * this package ships names an rxjs type (see `ObservableLike` in `lib/types.ts`):
  *
  * ```ts
  * import 'vitest-auto-spy/rxjs'; // nextWith / nextWithValues / observablePropsToSpyOn / …
@@ -193,9 +194,6 @@ export { mockConstructor, stubConstructor, type ConstructorMock } from './lib/co
 // One real event-loop turn, even under fake timers — for module loading and native async
 export { flushEventLoop, flushEventLoopUntil, settleDynamicImport, type FlushUntilOptions } from './lib/event-loop';
 
-// "All nine elements differ the same way" — the diff the runner's own reporter collapses
-export { diffByField } from './lib/record-diff';
-
 // Module mocking: proving a `vi.mock` applied, and giving its factory a shape interop recognises
 export {
   assertMocked,
@@ -204,40 +202,6 @@ export {
   type ModuleNamespace,
   type ModuleNamespaceOptions,
 } from './lib/module-mocks';
-
-// "Did the migration lose a test?" — answered by the set of names, which counters cannot
-export {
-  compareTestRuns,
-  formatTestRunComparison,
-  summarizeTestRun,
-  type TestRunComparison,
-  type TestRunReport,
-  type TestRunSummary,
-} from './lib/compare-runs';
-
-// A `<video>` / `<audio>` that answers — jsdom implements neither beyond the element itself
-export { stubMediaElement, type MediaElementState, type MediaElementStub, type MediaElementStubOptions } from './lib/media-element-stub';
-
-// A realm-consistent AbortController, for `addEventListener(..., { signal })` under zone.js
-export { stubAbortController } from './lib/abort-controller-stub';
-
-// Observer globals a component constructs itself, replaced by ones a spec can drive
-export {
-  intersectionEntry,
-  mutationRecord,
-  resizeEntry,
-  stubIntersectionObserver,
-  stubMutationObserver,
-  stubObserver,
-  stubResizeObserver,
-  type IntersectionObserverStubOptions,
-  type MutationRecordInit,
-  type ObserverGlobal,
-  type ObserverInstance,
-  type ObserverStub,
-  type ObserverStubOptions,
-  type ResizeEntryRect,
-} from './lib/observer-stubs';
 
 // Duplicate-install detection (`setupAutoSpy()` turns this into a failed run)
 export { describeDuplicateCopies, getPackageCopies } from './lib/package-identity';

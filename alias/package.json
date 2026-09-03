@@ -69,6 +69,16 @@
       "import": "./console.js",
       "default": "./console.js"
     },
+    "./dom-stubs": {
+      "types": "./dom-stubs.d.ts",
+      "import": "./dom-stubs.js",
+      "default": "./dom-stubs.js"
+    },
+    "./diagnostics": {
+      "types": "./diagnostics.d.ts",
+      "import": "./diagnostics.js",
+      "default": "./diagnostics.js"
+    },
     "./jasmine": {
       "types": "./jasmine.d.ts",
       "import": "./jasmine.js",
@@ -176,6 +186,8 @@
     "./node.cjs",
     "./rxjs.js",
     "./console.js",
+    "./dom-stubs.js",
+    "./diagnostics.js",
     "./jasmine.js",
     "./jasmine-compat.js",
     "./observer-spy.js",

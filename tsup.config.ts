@@ -28,9 +28,23 @@ const EXTERNAL = [
   'vitest',
 ];
 
-// Ship no sourcemaps. Do NOT minify: supply-chain scanners (Socket, Snyk) flag minified published
-// code as unauditable, and this is a dev-only dependency where a few extra KB never reach a
-// production bundle.
+// Ship no sourcemaps, and do NOT minify — not even whitespace. Two separate reasons, and the second
+// one is the expensive one to rediscover:
+//
+//  1. Supply-chain scanners (Socket, Snyk) flag minified published code as unauditable, and this is
+//     a dev-only dependency where a few extra kB never reach a production bundle.
+//  2. **`minifyWhitespace` deletes every `/* @__PURE__ */` annotation** — 259 of them across 18
+//     files — and those exist for the *consumer's* bundler, not for ours. esbuild uses them for its
+//     own tree-shaking and then drops them as comments; downstream, without them, a module-level
+//     `new WeakSet()` or `Symbol.for(…)` can no longer be proven side-effect free and is retained.
+//     Measured 2026-09-03 with `minifyWhitespace: true`: `dist` on disk −144 kB, but `/setup`
+//     min+gzip **10 585 → 11 816 B, +11.6 %** in every consumer's bundle. `minifySyntax` on top
+//     changes nothing either way (11 809 B). `/setup` is where the audit could see it because it is
+//     the entry whose module-level state the marks were added for — see `TODO.md`; this is the
+//     second time that same 1.2 kB has appeared there.
+//
+// So install weight is not a free lever: the bytes that come off `dist` are also the bytes that
+// tell a bundler what it may remove. Do not re-propose this without measuring `/setup` min+gzip.
 const SHARED = {
   dts: true,
   sourcemap: false,
@@ -66,7 +80,7 @@ const CHUNKED_ENTRIES = [
 
 // The two entries built as one file each. Every consumer imports the root on every spec, and every
 // Angular consumer imports both.
-const SOLO_ENTRIES = ['src/index.ts', 'src/angular.ts'];
+const SOLO_ENTRIES = ['src/index.ts', 'src/angular.ts', 'src/dom-stubs.ts', 'src/diagnostics.ts'];
 
 // tsup runs the array below with `Promise.all`, so `clean: true` on any one pass is a race against
 // every other pass's output — and the passes here are no longer independent: three of them emit
