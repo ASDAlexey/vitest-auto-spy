@@ -400,6 +400,12 @@ a real `HttpClient` request nothing completed, a `PendingTasks` entry nothing re
 timeout naming neither the helper nor the fixture, which blames the file for the state of one
 component.
 
+One shape that was reported as a deadlock and is not: a pending `HttpClient` request under
+`provideHttpClientTesting`. Re-checked on Angular 21.2.17 — the testing backend answers without a
+real request, so `whenStable()` settles and `stable` returns. If a fixture of yours hangs there, the
+cause is elsewhere: a `PendingTasks` entry, a real timer, or a request the test never flushed
+against `HttpTestingController`.
+
 ```ts
 await stable(fixture, { timeout: 5000, label: 'the products fixture' });
 ```
