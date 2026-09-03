@@ -8,6 +8,90 @@ The latest released version here must always match the one published on
 [npm](https://www.npmjs.com/package/vitest-auto-spy) and the latest `v*` git tag — see
 [CONTRIBUTING.md → Releasing](./CONTRIBUTING.md#releasing) for how that stays in sync.
 
+## [4.1.0] - 2026-09-03
+
+**Why upgrade.** A method spy is no longer a `vi.fn()`, and that is the whole release. The library
+builds its own mock function — one shared prototype carrying the `Mock` surface, call state
+allocated on the first call rather than at creation, no entry in any global registry — and every
+table in the head-to-head benchmark changed hands.
+
+| Case (micro, median p75 of seven runs) | 4.0.1 | 4.1.0 | best other arm | lead |
+| --- | ---: | ---: | ---: | ---: |
+| small project — 6 methods, 1 called | — | **1.42 µs** | 6.83 µs hand-written | 4.82× |
+| medium project — 14 methods, 2 called | — | **2.67 µs** | 15.92 µs hand-written | 5.97× |
+| large project — 45 methods, 2 called | — | **5.79 µs** | 52.79 µs hand-written | 9.11× |
+| 10 methods, all 10 called → 14 methods, all 14 | 18.92 µs (0.66× — a loss) | **8.17 µs** | 17.92 µs hand-written | 2.19× |
+| 40 methods, all 40 called → 45 methods, all 45 | 75.33 µs (0.71× — a loss) | **26.12 µs** | 62.04 µs hand-written | 2.37× |
+| double from a type — 2 members | 3.58 µs (0.77× — a loss) | **1.00 µs** | 2.79 µs vitest-mock-extended | 2.79× |
+| double from a type — 40 members | 72.88 µs (0.80× — a loss) | **18.92 µs** | 56.79 µs vitest-mock-extended | 3.00× |
+| deep double, 3 levels, leaf called | 8.83 µs (0.61× — a loss) | **2.29 µs** | 5.46 µs vitest-mock-extended | 2.38× |
+| configure a return + 3 calls — from a type | 2.08 µs (0.76× — a loss) | **0.71 µs** | 1.58 µs @golevelup | 2.24× |
+| `calledWith` dispatch, 2 configured + 1 miss | 0.54 µs (parity) | **0.17 µs** | 0.54 µs vitest-mock-extended | 3.25× |
+
+Six of those rows were losses and one was parity; the narrowest margin now is 2.19×. The class cases
+changed shape in the same release (see below), so the two left-hand columns are the same operation
+on a slightly different class where the row says so. Everything is the median p75 of seven
+independent runs on one machine, `npm run bench:vs:precise`.
+
+At suite scale the same change is worth a few per cent, not a multiple, and that row is published
+too: `npm run bench:suite` on a 20-method class under `isolate: true` puts hand-written `vi.fn()`
+doubles about **5 % ahead** of this library at the median across 1 000 / 3 000 / 10 000 tests, where
+they were 10-15 % ahead before — two runs of three rounds, individual rounds 0.81-1.01×. Building a
+double is on the order of one per cent of what a test costs — a 10× win on the double cannot be worth
+more than that on the run, and anybody quoting the micro-benchmark as a suite-level claim is quoting
+it wrong. Against `@bugsplat/vitest-auto-spies` the same runs measure 1.63-1.72×.
+
+**What it costs.** One thing, and it is namable: `mock.invocationCallOrder` counts on this library's
+own scale, so `toHaveBeenCalledBefore` / `toHaveBeenCalledAfter` **between an auto-spy and a
+hand-written `vi.fn()`** compares two counters that never met. Everything else a spec can observe is
+identical, and the suite pins it by putting a spy and a `vi.fn()` through the same steps and
+comparing their recorded state: `vi.isMockFunction`, every matcher, the snapshot serialiser, the
+whole `mockReturnValue` / `mockResolvedValue` / `mockImplementation` family, `mock.calls` /
+`.results` / `.settledResults` / `.instances` / `.contexts` / `.lastCall`, `mockClear` / `mockReset`
+/ `mockRestore`, `using`, `vi.clearAllMocks()`, `vi.resetAllMocks()` and the `clearMocks` /
+`mockReset` config keys. Nothing was removed or renamed.
+
+### Added
+
+- **`setSpyEngine(engine)` / `getSpyEngine()`**, on `vitest-auto-spy/setup`. `'auto-spy'` is the
+  default; `'runner'` builds every method spy from `vi.fn()`, method for method, exactly as every
+  release before this one did. Doubles already built keep the engine they were built with. Vitest
+  only — on Bun and `node:test` the runner's own matchers recognise only the runner's own mocks, so
+  those entries keep using them.
+
+### Changed
+
+- **Method spies come from this library's own mock function on Vitest.** `vi.fn()` assigns some
+  twenty-five closures as own properties of every mock it creates, allocates six arrays of call
+  state up front, and registers the mock in a module-level strong `Set` — per method, on every
+  double a spec builds. The replacement is one function object and one small config record; the six
+  arrays appear on the first call, so a materialised method that is never called owns none of them.
+- **A run-wide `vi.clearAllMocks()` reaches those spies through one registered `vi.fn()` of the
+  library's own.** Vitest clears mocks by walking a `Set` inside `@vitest/spy` that only `vi.fn()`
+  and `vi.spyOn()` write to and that has no public API; the adapter registers a single mock whose
+  `mockClear` sweeps this library's spies instead. `clearMocks: true` and `mockReset: true` in a
+  config keep working untouched, because Vitest applies both through those same two functions.
+- **A sweep is now O(1) and holds nothing alive.** It bumps a counter; each spy compares its own
+  stamp against it before it records or reports anything, and empties itself if it is behind. A
+  state object a spec is holding answers with the emptied arrays too, which is what the runner's own
+  state does.
+- **`calledWith(x)` with a single primitive argument is looked up by value.** It was rendered into a
+  string key on **every call** of that spy — an array from `map`, a string per argument, a joined
+  string, then a hash — for a lookup a `Map` does on the value with no allocation at all. Shapes
+  where the two disagree (a symbol, which renders by description; `-0`, which renders apart from `0`
+  and is the same key under `SameValueZero`) stay on the string path and keep the answer they had.
+- **The benchmark's class cases are now measured project profiles rather than round numbers.**
+  Across four private Angular suites — ~2 700 spec files, 2 742 doubles built from a class — the
+  service a spec doubles has 5–8 methods at the median, 12–16 at the p75 and 32–44 at the p90, and
+  the spec touches 1 of them at the median and 2 at the p90: **5–6 % of what it built**. The cases
+  are that survey's median, p75 and p90, plus two `worst case` blocks where every method is called.
+
+### Fixed
+
+- **`pruneMockRegistry()` no longer drops the mock that carries the sweep.** It would have taken the
+  sentinel with everything else the file created, and `vi.clearAllMocks()` would then have gone
+  silently nowhere for the rest of the run — found under `isolate: false`, where it reproduced.
+
 ## [4.0.0] - 2026-09-03
 
 **Why upgrade.** Three things, and the first is the one a project feels without changing a line:

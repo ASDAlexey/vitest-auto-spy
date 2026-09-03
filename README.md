@@ -1185,6 +1185,46 @@ since 19.2.0 (2026-03-17), present in the tarball's `exports` map. That is a rea
 favour. Full write-up, including ng-mocks and Spectator:
 [Comparison → Angular](https://asdalexey.github.io/vitest-auto-spy/comparison#angular).
 
+## The spy engine
+
+A method spy is not a `vi.fn()`. It is this library's own mock function — one shared prototype
+carrying the whole `Mock` surface, call state allocated on the first call rather than at creation,
+and no entry in any global registry. `vi.fn()` assigns some twenty-five closures as own properties
+of every mock it creates and allocates six arrays up front, per method, on every double a spec
+builds; on a service whose methods a test mostly never calls, that is the bill.
+
+Everything a spec can observe is unchanged, and the suite pins it by putting a spy and a `vi.fn()`
+through the same steps and comparing their state:
+
+- `vi.isMockFunction`, every `expect` matcher (`toHaveBeenCalledWith`, `toHaveReturned`,
+  `toHaveResolved`, `toHaveBeenNthCalledWith`, …), and the failure messages that name the mock.
+- `spy.method.mock.calls` / `.results` / `.settledResults` / `.instances` / `.contexts` /
+  `.lastCall`, the whole `mockReturnValue` / `mockResolvedValue` / `mockImplementation` family,
+  `withImplementation`, `mockClear` / `mockReset` / `mockRestore`, `mockName`, `using`.
+- `vi.clearAllMocks()`, `vi.resetAllMocks()`, and the `clearMocks` / `mockReset` config keys, which
+  Vitest applies through those two.
+
+It is measured in bytes as well as microseconds. A materialised method went from **5 445 B to
+1 929 B** — the hand-written control, which is the runner's own mock with no library in the way,
+retains 5 169 B — and an eagerly built double that nothing calls went from 4 418 to **632 B per
+method**, because a spy that is never called now allocates none of the six arrays `vi.fn()`
+allocates up front. Full tables:
+[Performance → retained memory per double](https://asdalexey.github.io/vitest-auto-spy/core/performance#retained-memory-per-double).
+
+**The one difference.** `mock.invocationCallOrder` counts on this library's own scale, so
+`expect(a).toHaveBeenCalledBefore(b)` is exact between two auto-spies and meaningless between an
+auto-spy and a hand-written `vi.fn()`. If a suite needs that comparison, switch the run back:
+
+```ts
+// vitest.setup.ts
+import { setSpyEngine } from 'vitest-auto-spy/setup';
+
+setSpyEngine('runner'); // every double built afterwards uses vi.fn() per method
+```
+
+The switch is Vitest-only. On Bun and `node:test` the runner's own matchers recognise only the
+runner's own mocks, so those entries keep building spies from `mock()` and `t.mock.fn()`.
+
 ## Benchmarks
 
 Wall-clock at suite scale varies **15-20% between invocations** of the identical configuration —
@@ -1192,15 +1232,12 @@ the same cell measured 1.56 s and 1.33 s at 1 000 tests, 10.94 s and 12.51 s at 
 contrast, reproduces tightly and separates arms by multiples. Treat the ratios below as the durable
 figure and any single wall-clock number as describing one machine, not a promise about yours.
 
-**The micro-benchmark below has the same problem, measured directly.** Every micro figure is now
-the **median p75 of five independent runs**, each its own process, run with
-`npm run bench:vs -- --repeat 5` — not a single run. Repeating the run five times moved the
-published p75 a **median of 6.7%**, worst case **17.0%**, across 42 rows — machine state, not
-sampling: raising the iteration budgets fourfold lowered `rme` and left this spread untouched.
-**A difference under about 20% is not measurable on this stand, and is never claimed below.** The
-column that carries the trust is that run-to-run spread, not `rme` — `rme` bounds the mean, and the
-mean here is dominated by garbage-collection tails that say nothing about the `p75` actually
-published.
+**The micro-benchmark below has the same problem, measured directly.** Every micro figure is the
+**median p75 of seven independent runs**, each its own process, at doubled iteration budgets, run
+with `npm run bench:vs:precise` — not a single run. What each row's ± column reports is how far that
+published median can be off: across the 47 rows of the canonical run, a median of **±1.1%** and at
+worst **±3.8%**. The blunter rule still holds for reading a single local run — **a difference under
+about 20% is not worth quoting** — and the narrowest margin below is 2.19×.
 
 `jest-auto-spies@3.0.1`, `jasmine-auto-spies@8.0.1` and `@bugsplat/vitest-auto-spies@1.0.0` are all
 measured directly here — no more standing in for one another. All three depend on
@@ -1218,29 +1255,49 @@ time budget — these cases allocate doubles by the tens of thousands, and GC co
 created rather than elapsed time, so a fixed time budget would have handed a faster arm more
 allocations and made it pay for its own speed.
 
-**Where this library wins:**
+**Every micro-benchmark table is this library's**, and the margin is against the *best* other arm in
+that table. The three class sizes are measured project profiles, not round numbers — across four
+private Angular suites (~2 700 spec files, 2 742 doubles built from a class) the median service has
+5-8 methods and the spec touches 1 of them:
 
-| Comparison | Scale | Result |
-| --- | --- | --- |
-| vs `@bugsplat/vitest-auto-spies` — the jest-auto-spies-family core, all three within a few per cent of each other (above) | Suite, `isolate: true`, 1 000-10 000 tests, 20- and 100-method classes | roughly 1.5x faster, 7/7 rounds |
-| `calledWith` dispatch, 2 configured + 1 miss (micro, n = 1,152,000) | — | 0.54 µs vs 1.00 µs (@bugsplat, 1.85x — well above the resolution limit) |
+| Case (micro) | 4.0 | 4.1 | best other arm | lead |
+| --- | ---: | ---: | ---: | ---: |
+| small project — 6 methods, 1 called | — | **1.42 µs** | 6.83 µs hand-written | 4.82x |
+| medium project — 14 methods, 2 called | — | **2.67 µs** | 15.92 µs hand-written | 5.97x |
+| large project — 45 methods, 2 called | — | **5.79 µs** | 52.79 µs hand-written | 9.11x |
+| worst case — all 14 of 14 methods called | 18.92 µs (0.66x, a loss) | **8.17 µs** | 17.92 µs hand-written | 2.19x |
+| worst case — all 45 of 45 methods called | 75.33 µs (0.71x, a loss) | **26.12 µs** | 62.04 µs hand-written | 2.37x |
+| double from a type — 2 / 10 / 40 members | 3.58 / 18.17 / 72.88 µs (a loss) | **1.00 / 4.67 / 18.92 µs** | 2.79 / 13.83 / 56.79 µs vitest-mock-extended | 2.79-3.00x |
+| deep double, 3 levels, leaf called | 8.83 µs (0.61x, a loss) | **2.29 µs** | 5.46 µs vitest-mock-extended | 2.38x |
+| configure a return + 3 calls — class / type | 3.29 / 2.08 µs (type a loss) | **2.21 / 0.71 µs** | 16.38 µs hand-written / 1.58 µs @golevelup | 7.41x / 2.24x |
+| `calledWith` dispatch, 2 configured + 1 miss | 0.54 µs (parity) | **0.17 µs** | 0.54 µs vitest-mock-extended | 3.25x |
 
-**Where it loses — same weight, same table:**
+Six of those rows were losses and one was parity. What changed is that a method spy is no longer a
+`vi.fn()` — see [The spy engine](#the-spy-engine) — plus one thing that is not the engine: a
+`calledWith(x)` of a single primitive argument used to be rendered into a string key on *every call*
+of that spy, where a `Map` keyed by the value does the same lookup with no allocation.
 
-| Comparison | Scale | Result |
-| --- | --- | --- |
-| vs hand-written `vi.fn()` | Suite, `isolate: true` | hand-written about 10-15% cheaper across a suite, 7/7 rounds — e.g. 8.59 s vs 11.27 s at 10 000 tests |
-| vs `vitest-mock-extended`, type-only double (micro) | 2 to 40 members | vitest-mock-extended faster throughout — 2.75 µs vs 3.58 µs at 2 members, 58.25 µs vs 72.88 µs at 40 |
-| vs `vitest-mock-extended`, deep double, 3 levels (micro, n = 116,000) | — | 5.42 µs vs 8.83 µs |
+The three class sizes changed in the same release, from round numbers to measured profiles, so the
+first two columns are the same operation on a slightly different class where the row says so. Part
+of the lead is that this library no longer pays the runner's per-mock cost while every other arm
+still does — a difference in the product rather than in the measurement, and the `hand-written
+vi.fn() per method` arm is in the table precisely so its size stays visible.
 
-`calledWith` dispatch against `vitest-mock-extended` is 0.54 µs against 0.50 µs, a ratio of 0.92x —
-but that row carries a **16.8% run-to-run spread**, inside the ~20% resolution floor above. It is
-reported as **parity**, never a win for either side.
+**Where it still loses, same weight, same table** (`npm run bench:suite`, re-measured 2026-09-03 on
+the 4.1 build, 20-method class, `isolate: true`, coverage on, two runs of 3 rounds each, medians of
+all six):
 
-Micro-benchmark multipliers do not transfer to suite scale: the micro-benchmark shows this library
-roughly 5x faster than hand-written on a 40-method class, and at suite scale that advantage is gone —
-parity at 1 000 tests, behind at 10 000. Double construction is on the order of 1% of a test's
-cost; nearly everything else in a suite run swamps it.
+| Comparison | 1 000 tests | 3 000 tests | 10 000 tests |
+| --- | ---: | ---: | ---: |
+| vitest-auto-spy | 1.33 s | 3.19 s | 10.66 s |
+| hand-written `vi.fn()` | 1.33 s (0.99×) | 3.08 s (0.97×) | 10.07 s (0.94×) |
+| @bugsplat/vitest-auto-spies | 2.21 s (1.66×) | 5.50 s (1.72×) | 17.40 s (1.63×) |
+
+Hand-written doubles are still cheaper — **about 5% at the median**, down from 10-15% before 4.1,
+with the 18 per-round ratios spread 0.81-1.01 — and that row is the proof that micro-benchmark
+multipliers do not transfer to suite scale: building a double is on the order of 1% of a test's cost,
+so a 10× win on the double shows up as a few per cent on the run, and nearly everything else in a
+suite swamps it.
 
 **Memory, `isolate: false`, 100-method class, 10 000 tests, peak RSS:**
 
@@ -2379,6 +2436,7 @@ single-purpose utility you can pick up independently — they all ride on the sa
 | `restoreTimerGlobals()`                                                                  | `/setup`                      | Put back timer globals that uninstalling the fakes deleted rather than restored                                                                                                                       |
 | `trackMockRegistry()` / `keepMockRegistered(mock)` / `restoreLongLivedImplementations()` | `/setup`                      | Keep @vitest/spy's mock registry to the mocks that outlive a file; mark one the split would miss; put back an implementation a cross-file `vi.resetAllMocks()` dropped ([details](#test-run-hygiene)) |
 | `trackNodeMocks()` / `pruneNodeMocks()` / `countNodeMocks()`                             | `/node`                       | Give this library its own `node:test` `MockTracker` so a dropped spy is freed — 21× less retained heap; sweep by hand, and read the count back                                                        |
+| `setSpyEngine(engine)` / `getSpyEngine()`                                                | `/setup`                      | Build method spies from this library's own mock (`'auto-spy'`, the default) or from `vi.fn()` (`'runner'`) ([details](#the-spy-engine))                                                               |
 | `errorHandler`                                                                           | core                          | The `mustBeCalledWith` argument-mismatch reporter — swap it to customize failure output                                                                                                               |
 
 A taste of the DI pair — provide the spy, inject it back fully typed:

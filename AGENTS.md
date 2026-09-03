@@ -261,9 +261,10 @@ xhr.send.mockImplementation(() => respond(asInstance(xhr)));
 
 ### Cost, so it stops being a question
 
-Building a spy is not a thing to optimise. On a ten-method class: `provideAutoSpy` ~8 µs,
-`createSpyFromClass` ~29 µs, `createAutoMock` ~33 µs, a `calledWith` lookup ~0.7 µs — five providers
-across two thousand tests is under a tenth of a second. Call the factory in `beforeEach` and look at
+Building a spy is not a thing to optimise. On a ten-method class, Node 24, `npm run bench`:
+`createSpyFromClass` plus two methods called ~2.3 µs, plus all ten ~6 µs, `createAutoMock` plus four
+members ~1.7 µs, a `calledWith` lookup ~0.2 µs — five providers across two thousand tests is a
+hundredth of a second. Call the factory in `beforeEach` and look at
 `TestBed` instead. The only two settings that cost: `{ lazySpies: false }` gives up the laziness
 `provideAutoSpy` defaults to, and `autoSpyAccessors: true` walks the prototype chain uncached on
 every call — name the accessors instead.
@@ -1052,6 +1053,48 @@ is therefore remembered and put back, in `beforeEach`, but only when it has gone
 `trackMockRegistry()` installs the hooks on its own, `pruneMockRegistry()` is the one-shot sweep (it
 returns how many went), `restoreLongLivedImplementations()` is that repair (it returns how many it
 put back) and `getMockRegistrySize()` reports what is left.
+
+One entry is never pruned, and it is not one of yours: the Vitest adapter registers a single
+`vi.fn()` whose `mockClear` sweeps this library's own spies. Dropping it would turn
+`vi.clearAllMocks()` into a silent no-op for every double in the run, so it carries a mark the
+pruner skips. Why the library needs a mock of its own for that is the next section.
+
+### What a method spy is, and the one thing that differs from `vi.fn()`
+
+A method spy is **not** a `vi.fn()`. It is this library's own mock function: one shared prototype
+carrying the whole `Mock` surface, call state allocated on the first call rather than at creation,
+and no entry in any global registry. `vi.fn()` assigns some twenty-five closures as own properties
+of every mock it makes and allocates six arrays up front — per method, on every double a spec
+builds — and that cost is most of what a wide service used to pay for methods no test touches.
+
+Everything a spec can observe is the same, and the suite pins it by putting the two side by side:
+
+- `vi.isMockFunction(spy.load)`, `expect(spy.load).toHaveBeenCalledWith(…)`, `toHaveReturned`,
+  `toHaveResolved`, `toHaveBeenNthCalledWith` — every matcher reads `_isMockFunction`, `mock.*` and
+  `getMockName()`, all of which the spy implements with the runner's semantics.
+- `spy.load.mock.calls` / `.results` / `.settledResults` / `.instances` / `.contexts` /
+  `.invocationCallOrder` / `.lastCall`, `mockReturnValue`, `mockResolvedValue`,
+  `mockImplementation(Once)`, `withImplementation`, `mockClear` / `mockReset` / `mockRestore`,
+  `mockName`, `using`.
+- `vi.clearAllMocks()`, `vi.resetAllMocks()`, and the `clearMocks` / `mockReset` config keys, which
+  Vitest applies through those two functions.
+
+**The one difference.** `mock.invocationCallOrder` counts on this library's own scale, so
+`expect(a).toHaveBeenCalledBefore(b)` is exact between two auto-spies and meaningless between an
+auto-spy and a hand-written `vi.fn()` — the two counters never met. Nothing else in the library or in
+Vitest reads that field. If a suite needs the comparison, switch the whole run back to the runner's
+factory:
+
+```ts
+// vitest.setup.ts
+import { setSpyEngine } from 'vitest-auto-spy/setup';
+
+setSpyEngine('runner'); // every double built afterwards is `vi.fn()` per method, as before 4.1
+```
+
+`getSpyEngine()` reports the current one, `'auto-spy'` is the default, and doubles already built keep
+the engine they were built with. The switch is Vitest-only: on Bun and `node:test` the runner's own
+matchers recognise only the runner's own mocks, so those adapters keep using them.
 
 Two more switches, both about the environment rather than the spies:
 

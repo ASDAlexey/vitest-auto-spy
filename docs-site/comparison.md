@@ -265,25 +265,48 @@ micro-benchmark case. `jest-auto-spies` and `jasmine-auto-spies` run here under 
 runner's own per-mock cost is a shared constant — the numbers describe each library's own code, not
 what a real Jest or Jasmine suite would show.
 
-Against that shared core, this package runs roughly one and a half times faster at suite scale —
-holds at 1 000, 3 000 and 10 000 tests, on both a 20- and a 100-method class, 7 rounds out of 7
-each time.
+Against that shared core, this package runs roughly one and a half to one and three-quarters times
+faster at suite scale — holds at 1 000, 3 000 and 10 000 tests, on both a 20- and a 100-method class,
+every round measured. Re-measured on the 4.1 build 2026-09-03, medians of two runs: 1.66× at 1 000
+tests, 1.72× at 3 000, 1.63× at 10 000, with the 18 individual rounds spread 1.50–1.86×.
 
-The micro-benchmark figures behind the claims in this section are now the **median p75 of five
-independent runs**, not a single run — repeating the same run five times moved the published p75 a
-median of 6.7%, worst case 17.0%, across 42 rows. **A difference under about 20% is not measurable
-on this stand.** The 6× class-spy gap and the type/deep-mock losses below are far above that floor
-and stand at full weight; the one row that fell inside it — `calledWith` against
-`vitest-mock-extended` — is reported as parity below rather than as a win. Full methodology:
+The micro-benchmark figures behind the claims in this section are the **median p75 of seven
+independent runs** at doubled iteration budgets, not a single run, and each row's ± column reports
+how far that median can be off — a median of ±1.1% and at worst ±3.8% across the canonical run's 47
+rows. **A difference under about 20% is still not worth quoting off a single local run**; the
+narrowest margin in any table is 2.19×, which is an order of magnitude clear of both. Full
+methodology:
 [Performance → the measured resolution limit](/core/performance#the-measured-resolution-limit).
 
-Two counterweights, carried at the same weight as that win:
+The micro-benchmark tables all changed hands in 4.1, when method spies stopped being `vi.fn()`s —
+[the spy engine](/core/performance#the-spy-engine). Six rows were losses and one was parity before
+it; the narrowest margin now is 2.19×, on the row where a test calls every method of the class it
+doubled:
 
+| | 4.0 | 4.1 | best other arm |
+| --- | ---: | ---: | ---: |
+| all 14 of 14 methods called | 18.92 µs (a loss) | **8.17 µs** | 17.92 µs hand-written `vi.fn()` |
+| all 45 of 45 methods called | 75.33 µs (a loss) | **26.12 µs** | 62.04 µs hand-written `vi.fn()` |
+| `createAutoMock<T>()`, 40 members | 72.88 µs (a loss) | **18.92 µs** | 56.79 µs vitest-mock-extended |
+| `mockDeep<T>()`, 3 levels | 8.83 µs (a loss) | **2.29 µs** | 5.46 µs vitest-mock-extended |
+| `calledWith` dispatch | 0.54 µs (parity) | **0.17 µs** | 0.54 µs vitest-mock-extended |
+| retained heap, one materialised method | 5 445 B | **1 929 B** | 5 169 B hand-written `vi.fn()` |
+ This package now leads **every** published
+head-to-head table, including the two `worst case` blocks where a test calls every method of the
+class it doubled and there is nothing for a lazy library to skip. The counterweights that go with
+that:
+
+- Part of the lead is that this package no longer pays the runner's per-mock cost while every other
+  arm still does. That is a difference in the product, not in the measurement, and the table is
+  built to show it: the `hand-written vi.fn() per method` arm is the runner's own mock assembled by
+  hand with no library in the way, and the distance to that arm is the whole size of it.
+  `setSpyEngine('runner')` puts this package back on `vi.fn()` for anyone who wants the comparison
+  without it.
 - Hand-written `vi.fn()` doubles are **cheaper**, not more expensive, than this library across a
-  suite under the default `isolate: true` — roughly 10-15 %, 7/7 rounds.
-- In the micro-benchmark (single-double cost, not suite scale), `vitest-mock-extended` beats this
-  package on type-only mocks (0.77×-0.80×) and on a 3-level deep mock (0.61×) — both above the
-  resolution limit, so both stand.
+  suite under the default `isolate: true` — about **5 %** at the median on the 4.1 build, down from
+  10-15 % before it, with individual rounds between 0.81× and 1.01×. Micro-benchmark multipliers do not transfer to
+  suite scale: building a double is on the order of one per cent of what a test costs, which is why
+  a 10× win on the double is worth a few per cent on the run.
 
 Where the library wins outright is memory, not wall-clock. On a 100-method class under
 `test.isolate: false`, hand-written doubles peak at 6733 MB against 2475 MB for the default lazy

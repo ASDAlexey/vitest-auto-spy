@@ -194,6 +194,11 @@ it('loads', async () => {
   `onlyMethodsToSpyOn` is the exhaustive whitelist. Omitting both is usually right. For a callable
   that is an instance field (arrow property, `signal()`, ngrx `signalStore()`), use
   `instanceMethodsToSpyOn` — prototype discovery cannot see it.
+- **A method spy is this library's own mock, not a `vi.fn()`.** Every matcher, `vi.isMockFunction`,
+  the `mockReturnValue` family, `spy.method.mock.*` and `vi.clearAllMocks()` behave identically —
+  the one exception is `toHaveBeenCalledBefore` / `toHaveBeenCalledAfter` **between an auto-spy and a
+  hand-written `vi.fn()`**, which compares two unrelated counters. Compare two auto-spies, or put the
+  run on the runner's factory with `setSpyEngine('runner')` from `vitest-auto-spy/setup`.
 - **Never `Object.defineProperty` in a spec.** Use `mockReadonlyProp` / `mockValueProp` /
   `mockAccessorsProp`, which `restoreMockedProps()` can undo (`vi.restoreAllMocks()` cannot).
 - **Never `expect()` inside a `subscribe()` callback** — a silent stream makes it a green test that
