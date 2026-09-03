@@ -161,4 +161,26 @@ _Last released: **v3.16.0** — the git tag and `package.json` agree._
   arrives in `dist/*.d.ts`, and a page for what Angular's own `refactor-jasmine-vitest` schematic
   leaves behind.
 
+- **`trackNodeMocks()`** (`/node`) — `node:test` keeps every `mock.fn()` in one process-wide
+  `MockTracker` and offers no way to drop a single entry, so a long suite retains every spy it ever
+  made. The library now creates its spies on a tracker it owns and replaces it after each test:
+  **124.5 MB → 5.9 MB** retained on 20 000 spies of a 10-method class (Node v24.19.0, 5.4 MB
+  baseline), 21×. It never calls `mock.reset()`, so a `mock.fn()` the spec made by hand is
+  untouched. Opt-in, idempotent, reversible, and a silent no-op on any runtime that will not give up
+  the class. +327 B on `/node`. This supersedes the previously documented conclusion that no
+  library-side fix existed.
+
+- **Two migration pages, every claim checked against the published tarballs.** _Migrating from
+  `@ngneat/spectator`_ for the 739 852 downloads a month sitting on a package whose repository is a
+  404 and which does not resolve on a clean Angular 22 install — and which corrects three widely
+  repeated claims that do not hold, including that the `@openng/spectator` fork fixes Angular 22
+  (it does not; it carries the same undeclared import). _Migrating from `@suites/unit`_ for the
+  Nest audience the NestJS docs send there, now that `createNestUnit` answers its solitary and
+  sociable model directly.
+
+- **Corrections to claims this project was publishing.** The comparison table offered Jest an
+  adapter API that is not exported from any entry point; it now says so. The README and
+  `core/performance.md` quoted different `renderShallow` numbers without acknowledging each other;
+  both now carry the per-render range and the per-file figure, and explain why they differ.
+
 <!-- Add user-facing items here as work lands, mirroring `## [Unreleased]` in the root CHANGELOG. -->
