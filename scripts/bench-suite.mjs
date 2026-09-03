@@ -22,11 +22,13 @@
 //                        one. Installed into node_modules on demand, saved to nothing.
 //   --isolate <bool>     Vitest test.isolate for the generated project. Default: true
 //   --ours-source <mode> src | dist — what the `ours`/`ours-proxy` arms import. Default: dist.
-//                        'dist' is the fair comparison: a consumer loads prebuilt dist/, under
-//                        node_modules once installed, exactly like `hirez` does. 'src' imports
-//                        this repo's TypeScript directly and is measurably slower — it pays an
-//                        esbuild transform per worker AND, unlike node_modules code, is not
-//                        exempt from @vitest/coverage-v8's RPC-level coverage collection.
+//                        'dist' is the fair comparison: the package is packed and unpacked into
+//                        the cell's own node_modules, so Vitest externalises it exactly like
+//                        `hirez` — one native import per worker, which is what a consumer pays.
+//                        'src' imports this repo's TypeScript by relative path and is measurably
+//                        slower: outside node_modules it pays an esbuild transform per worker, is
+//                        re-evaluated once per spec file under `isolate: true`, and is not exempt
+//                        from @vitest/coverage-v8's RPC-level coverage collection.
 //   --out <file>         Write full JSON results to this path in addition to the table.
 //   --keep               Do not delete the generated temp directory (debugging only).
 //   -h, --help           Show this help and exit.
@@ -70,6 +72,7 @@ const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(SCRIPT_DIR, '..');
 
 const KNOWN_ARMS = ['ours', 'ours-proxy', 'hirez', 'manual'];
+const PACKAGE_NAME = 'vitest-auto-spy';
 const TESTS_PER_FILE = 10;
 const SAMPLE_INTERVAL_MS = 200;
 
@@ -92,7 +95,8 @@ Options:
                        Istanbul instruments at transform time, so it adds a bigger constant to
                        every arm and compresses the ratios. Installed on demand, unsaved.
   --isolate <bool>     Vitest test.isolate for the generated project. Default: true
-  --ours-source <mode> src | dist — what ours/ours-proxy import. Default: dist (see script header).
+  --ours-source <mode> src | dist — what ours/ours-proxy import. Default: dist, packed and
+                       unpacked into the cell's node_modules like hirez (see script header).
   --out <file>         Write full JSON results to this path in addition to the table.
   --keep               Do not delete the generated temp directory (debugging only).
   -h, --help           Show this help and exit.
@@ -255,14 +259,19 @@ function doubleFactorySource(arm, fixturesDir, oursSource) {
   const subjectImport = "import { Subject } from './subject';";
 
   if (arm === 'ours' || arm === 'ours-proxy') {
-    // 'src' goes through esbuild on every worker and is NOT under node_modules, so
-    // @vitest/coverage-v8 collects and RPC-transfers its coverage; 'dist' is prebuilt and,
-    // once installed as a real dependency, sits under node_modules like `hirez` does —
-    // that is what a consumer actually loads, so it is the default and the fair comparison.
-    const entry = path.join(REPO_ROOT, oursSource === 'src' ? 'src/index.ts' : 'dist/index.js');
-    let rel = path.relative(fixturesDir, entry).split(path.sep).join('/');
-    if (!rel.startsWith('.')) rel = `./${rel}`;
     const options = arm === 'ours-proxy' ? ", { lazySpies: 'proxy' }" : '';
+
+    // 'dist' is installed into the cell's own node_modules by installOurs, so Vitest externalises
+    // it exactly as it does `hirez` — one native import per worker. A relative path outside
+    // node_modules is inlined instead: Vite transforms it and `isolate: true` re-evaluates the
+    // whole bundle once per spec file, which cost this arm ~1.1 s per 10 000 tests that no
+    // consumer ever pays. 'src' keeps the relative path on purpose — it measures the sources.
+    if (oursSource !== 'src') {
+      return `import { createSpyFromClass } from '${PACKAGE_NAME}';\n${subjectImport}\n\nexport function createDouble() {\n  return createSpyFromClass(Subject${options});\n}\n`;
+    }
+
+    let rel = path.relative(fixturesDir, path.join(REPO_ROOT, 'src/index.ts')).split(path.sep).join('/');
+    if (!rel.startsWith('.')) rel = `./${rel}`;
     return `import { createSpyFromClass } from '${rel}';\n${subjectImport}\n\nexport function createDouble() {\n  return createSpyFromClass(Subject${options});\n}\n`;
   }
 
@@ -357,6 +366,30 @@ function installHirez(dir) {
     const detail = err.stderr ? err.stderr.toString() : err.message;
     throw new Error(`Could not install ${spec} (needed for the "hirez" arm) — no network, or npm failed:\n${detail}`);
   }
+}
+
+// `npm pack` and unpack, rather than `npm install <tarball>`: installing would make npm resolve
+// this package's peers (Angular, rxjs, Vitest) into the cell and drag the network into a run that
+// otherwise needs none. Unpacking the tarball puts the published tree — and only it — under
+// node_modules, which is all the arm needs and exactly what a consumer resolves.
+let oursTarball = null;
+
+function packOurs(runRoot) {
+  if (oursTarball) return oursTarball;
+
+  const out = execFileSync('npm', ['pack', '--ignore-scripts', '--silent', '--pack-destination', runRoot], {
+    cwd: REPO_ROOT,
+    encoding: 'utf8',
+  });
+  oursTarball = path.join(runRoot, out.trim().split('\n').pop().trim());
+
+  return oursTarball;
+}
+
+function installOurs(dir, runRoot) {
+  const target = path.join(dir, 'node_modules', PACKAGE_NAME);
+  mkdirSync(target, { recursive: true });
+  execFileSync('tar', ['-xzf', packOurs(runRoot), '-C', target, '--strip-components=1'], { stdio: ['ignore', 'ignore', 'pipe'] });
 }
 
 // Into the repository root, not the temp project like `hirez`: Vitest imports the coverage provider
@@ -628,6 +661,7 @@ async function main() {
             oursSource: opts.oursSource,
           });
           if (arm === 'hirez') installHirez(cellDir);
+          if ((arm === 'ours' || arm === 'ours-proxy') && opts.oursSource !== 'src') installOurs(cellDir, runRoot);
           cellDirs[arm] = cellDir;
         }
 
