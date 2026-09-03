@@ -243,6 +243,7 @@
     "test:bun:isolate": "bun test --isolate --preload ./src/bun-angular.ts ./src/bun-tests",
     "bench": "vitest bench --run --config vitest.bench.config.mts",
     "bench:vs": "vitest bench --run --config vitest.bench.vs.config.mts",
+    "bench:memory": "vitest run --config vitest.bench.memory.config.mts",
     "bench:suite": "node scripts/bench-suite.mjs",
     "lint": "eslint . --ext .ts",
     "lint:fix": "eslint . --ext .ts --fix",
