@@ -18,6 +18,7 @@
  * `mock.*` and `getMockName()`, all of which this implements with the same semantics.
  */
 import { DISPOSE } from './dispose-symbol';
+import { FAST_SPY_BRAND, isThenable } from './spy-probe';
 import type { Func } from './types';
 
 /**
@@ -26,15 +27,11 @@ import type { Func } from './types';
  * signature to accept it.
  */
 export type FastMockResult =
-  | { type: 'incomplete'; value: undefined }
-  | { type: 'return'; value: unknown }
-  | { type: 'throw'; value: unknown };
+  { type: 'incomplete'; value: undefined } | { type: 'return'; value: unknown } | { type: 'throw'; value: unknown };
 
 /** One entry of `mock.settledResults` — see {@link FastMockResult}. */
 export type FastMockSettledResult =
-  | { type: 'fulfilled'; value: unknown }
-  | { type: 'incomplete'; value: undefined }
-  | { type: 'rejected'; value: unknown };
+  { type: 'fulfilled'; value: unknown } | { type: 'incomplete'; value: undefined } | { type: 'rejected'; value: unknown };
 
 /**
  * What the spy actually pushes and then fills in.
@@ -288,15 +285,6 @@ function stateOf(spy: FastSpy): FastMockStateImpl {
   return created;
 }
 
-/** Whether a value is thenable, deciding whether a settled result is filled in now or later. */
-export function isThenable(value: unknown): value is PromiseLike<unknown> {
-  if ((typeof value !== 'object' && typeof value !== 'function') || value === null) {
-    return false;
-  }
-
-  return typeof Reflect.get(value, 'then') === 'function';
-}
-
 /** Vitest's error for the shorthand configurators when the mock is called with `new`. */
 function throwConstructorError(shorthand: string): never {
   throw new TypeError(
@@ -324,9 +312,6 @@ const FAST_SPY_PROTOTYPE: Record<PropertyKey, unknown> = Object.create(Function.
 function definePrototypeMember(key: PropertyKey, value: unknown): void {
   Object.defineProperty(FAST_SPY_PROTOTYPE, key, { value, writable: true, configurable: true, enumerable: false });
 }
-
-/** The brand {@link isFastSpy} reads. A symbol, so nothing a spec puts on a double can collide with it. */
-const FAST_SPY_BRAND = Symbol.for('vitest-auto-spy.fastSpy');
 
 definePrototypeMember(FAST_SPY_BRAND, true);
 definePrototypeMember('_isMockFunction', true);
@@ -360,34 +345,37 @@ definePrototypeMember('mockImplementationOnce', function mockImplementationOnce(
   return this;
 });
 
-definePrototypeMember('withImplementation', function withImplementation(this: unknown, implementation: Func, callback: () => unknown): unknown {
-  const spy = self(this);
-  const config = configOf(spy);
-  const previousImplementation = config.implementation;
-  const previousOnce = config.onceImplementations;
+definePrototypeMember(
+  'withImplementation',
+  function withImplementation(this: unknown, implementation: Func, callback: () => unknown): unknown {
+    const spy = self(this);
+    const config = configOf(spy);
+    const previousImplementation = config.implementation;
+    const previousOnce = config.onceImplementations;
 
-  const restore = (): void => {
-    config.implementation = previousImplementation;
-    config.onceImplementations = previousOnce;
-  };
+    const restore = (): void => {
+      config.implementation = previousImplementation;
+      config.onceImplementations = previousOnce;
+    };
 
-  config.implementation = implementation;
-  config.onceImplementations = [];
+    config.implementation = implementation;
+    config.onceImplementations = [];
 
-  const returned = callback();
+    const returned = callback();
 
-  if (isThenable(returned)) {
-    return returned.then(() => {
-      restore();
+    if (isThenable(returned)) {
+      return returned.then(() => {
+        restore();
 
-      return spy;
-    });
-  }
+        return spy;
+      });
+    }
 
-  restore();
+    restore();
 
-  return spy;
-});
+    return spy;
+  },
+);
 
 definePrototypeMember('mockReturnThis', function mockReturnThis(this: unknown): unknown {
   configOf(self(this)).implementation = function returnThis(this: unknown): unknown {
@@ -535,11 +523,6 @@ definePrototypeMember('getMockName', function getMockName(this: unknown): string
 definePrototypeMember(DISPOSE, function dispose(this: unknown): void {
   resetSpy(self(this));
 });
-
-/** Whether `value` is a spy this module created — one inherited property read, so it allocates nothing. */
-export function isFastSpy(value: unknown): value is FastSpy {
-  return typeof value === 'function' && FAST_SPY_BRAND in value;
-}
 
 /** Fill in a call's settled result — now for a plain value, on settlement for a thenable. */
 function settleInto(settled: RecordedResult, returned: unknown): void {

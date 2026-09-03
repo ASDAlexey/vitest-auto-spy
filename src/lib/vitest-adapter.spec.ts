@@ -5,7 +5,7 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 
-import { isFastSpy } from './fast-spy';
+import { isFastSpy } from './spy-probe';
 import { getSpyEngine, setSpyEngine, vitestMockAdapter } from './vitest-adapter';
 
 describe('vitestMockAdapter', () => {

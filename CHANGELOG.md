@@ -71,6 +71,13 @@ whole `mockReturnValue` / `mockResolvedValue` / `mockImplementation` family, `mo
   and `vi.spyOn()` write to and that has no public API; the adapter registers a single mock whose
   `mockClear` sweeps this library's spies instead. `clearMocks: true` and `mockReset: true` in a
   config keep working untouched, because Vitest applies both through those same two functions.
+- **What it weighs.** The engine adds **+1.4 kB min+gzip** to every entry that builds Vitest spies —
+  `.` 12.94 → 14.33 kB, `/angular` 16.84 → 18.23 kB, `/setup` 10.60 → 12.09 kB, `/nestjs` 9.54 →
+  10.95 kB — which is the mock function itself and buys the tables above. The entries that build no
+  Vitest spy are unchanged to the byte (`/rxjs`, `/angular-http`, `/diagnostics`, `/jasmine-compat`,
+  `/observer-spy`, `/zone`, `/eslint-plugin`), and `/node`, `/bun` and `/bun-angular` pay **+0.12 kB
+  or less**, not the full engine — the two predicates the settled-results polyfill needs moved out of
+  the engine module so the runtimes that never build a fast spy stop bundling one.
 - **A sweep is now O(1) and holds nothing alive.** It bumps a counter; each spy compares its own
   stamp against it before it records or reports anything, and empties itself if it is behind. A
   state object a spec is holding answers with the emptied arrays too, which is what the runner's own

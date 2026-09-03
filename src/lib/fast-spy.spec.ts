@@ -11,7 +11,8 @@
  */
 import { type MockInstance, describe, expect, it, vi } from 'vitest';
 
-import { type FastSpy, clearAllFastSpies, createFastSpy, isFastSpy, resetAllFastSpies } from './fast-spy';
+import { type FastSpy, clearAllFastSpies, createFastSpy, resetAllFastSpies } from './fast-spy';
+import { isFastSpy } from './spy-probe';
 
 /**
  * The one place the two types diverge: `toHaveBeenCalledBefore` takes the runner's `MockInstance` as
@@ -151,7 +152,11 @@ describe('createFastSpy', () => {
     expect(createFastSpy().getMockName()).toBe('vi.fn()');
     expect(createFastSpy().mockName('renamed').getMockName()).toBe('renamed');
     // A non-string is ignored, as the runner ignores it.
-    expect(createFastSpy(undefined, 'kept').mockName(1 as unknown as string).getMockName()).toBe('kept');
+    expect(
+      createFastSpy(undefined, 'kept')
+        .mockName(1 as unknown as string)
+        .getMockName(),
+    ).toBe('kept');
   });
 
   it('reports the implementation the next call will use', () => {
@@ -236,9 +241,12 @@ describe('the configured-value helpers', () => {
   it('swaps the implementation for the length of a callback, synchronous or not', async () => {
     const spy = createFastSpy(() => 'base');
 
-    spy.withImplementation(() => 'swapped', () => {
-      expect(spy()).toBe('swapped');
-    });
+    spy.withImplementation(
+      () => 'swapped',
+      () => {
+        expect(spy()).toBe('swapped');
+      },
+    );
 
     expect(spy()).toBe('base');
 

@@ -12,8 +12,7 @@
  * `spy.method.mock.settledResults` surface (from Vitest's `Mock` type) therefore
  * behaves identically across all three runtimes.
  */
-
-import { isFastSpy, isThenable } from './fast-spy';
+import { isFastSpy, isThenable } from './spy-probe';
 
 /** A single settled-result entry, mirroring Vitest's `MockSettledResult` shape. */
 interface SettledResultEntry {
