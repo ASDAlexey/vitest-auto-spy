@@ -834,3 +834,35 @@ population being handed the boilerplate `createSpyFromClass(Service)` deletes.
       support and its `/vitest-utils` overlap is now documented; a short "coming from
       `createMock` / `provideMock`" page would convert the traffic the comparison section attracts.
       No page exists yet, same gap as the `@suites/unit` page already on this list.
+
+## Funding — a way to support the project, and the two traps in it
+
+Nothing in the repository asks for support today: no `funding` field in `package.json`, no
+`.github/FUNDING.yml`, no section in the README or on the docs site. The mechanics are a couple of
+hours' work; the reason this is a TODO rather than a done thing is that two decisions have to be
+made first, and both are the maintainer's, not a coding task.
+
+- [ ] **Wire the standard funding surfaces, once payment links exist.** `funding` in `package.json`
+      so `npm fund` surfaces the project to everyone who installed it; `.github/FUNDING.yml` for the
+      Sponsor button; a short section in `README.md`, the docs site and the landing page; SVG QR
+      codes generated offline into `assets/` from the payment URLs. One sentence, stated once, and
+      linked from the other surfaces rather than repeated — the same rule the benchmark numbers
+      follow, and for the same reason.
+- [ ] **Choose the channels.** Recurring payments with a reader-chosen amount are supported
+      everywhere, so the choice is not about features. It is about who can actually pay: GitHub
+      Sponsors and Ko-fi reach an international audience and integrate with `npm fund`; Boosty and
+      CloudTips reach Russian cards. Two blocks may be needed, and that is fine — it is what the
+      audience split already looks like.
+
+Two traps, recorded because they are easy to get wrong and expensive to undo:
+
+- [~] **Never publish card numbers.** A PAN in a public repository is indexed and scraped within
+  hours, is usable for card-not-present payments, and cannot be revoked without reissuing the
+  card; GitHub's secret scanning flags it as well. Payment _links_ are revocable, replaceable and
+  measurable. This is settled — do not revisit it, and do not accept a "just for now" version.
+- [~] **The wording on the button does not decide the tax treatment.** Labelling support as a gift
+  changes nothing by itself: in most jurisdictions recurring payments received in connection with
+  one's own work are income whatever the button says, and regularity is precisely the signal that
+  gets looked at. What does matter — the recipient's status, the platform's role as payer,
+  residency — is a question for an accountant, to be settled _before_ a channel is switched on
+  rather than after. Not a coding decision and not to be designed around in the repository.

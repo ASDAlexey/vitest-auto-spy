@@ -269,21 +269,37 @@ Against that shared core, this package runs roughly one and a half times faster 
 holds at 1 000, 3 000 and 10 000 tests, on both a 20- and a 100-method class, 7 rounds out of 7
 each time.
 
+The micro-benchmark figures behind the claims in this section are now the **median p75 of five
+independent runs**, not a single run — repeating the same run five times moved the published p75 a
+median of 6.7%, worst case 17.0%, across 42 rows. **A difference under about 20% is not measurable
+on this stand.** The 6× class-spy gap and the type/deep-mock losses below are far above that floor
+and stand at full weight; the one row that fell inside it — `calledWith` against
+`vitest-mock-extended` — is reported as parity below rather than as a win. Full methodology:
+[Performance → the measured resolution limit](/core/performance#the-measured-resolution-limit).
+
 Two counterweights, carried at the same weight as that win:
 
 - Hand-written `vi.fn()` doubles are **cheaper**, not more expensive, than this library across a
   suite under the default `isolate: true` — roughly 10-15 %, 7/7 rounds.
 - In the micro-benchmark (single-double cost, not suite scale), `vitest-mock-extended` beats this
-  package on type-only mocks and on a 3-level deep mock.
+  package on type-only mocks (0.77×-0.80×) and on a 3-level deep mock (0.61×) — both above the
+  resolution limit, so both stand.
 
 Where the library wins outright is memory, not wall-clock. On a 100-method class under
 `test.isolate: false`, hand-written doubles peak at 6733 MB against 2475 MB for the default lazy
 mode and 2109 MB with `lazySpies: 'proxy'` — the difference between a CI worker finishing and one
 getting OOM-killed.
 
+A second, independent memory measurement — retained bytes per double, not peak RSS of a whole run —
+confirms the shape down at the level of a single mock, which is the figure that decides a large
+suite: untouched on a 100-method class, this package's default retains **256 B per method** against
+`jest-auto-spies`' **5 835 B**. Full tables, methodology and per-library figures are in
+[Performance → Retained memory per double](/core/performance#retained-memory-per-double).
+
 Measured 2026-09-03, Node v24.19.0, Vitest 4.1.9, Apple M4 Max. Full tables, the isolate-mode and
-interleaving methodology, and reproduction steps (`npm run bench:vs`, `npm run bench:suite`) are in
-[Performance](/core/performance).
+interleaving methodology, and reproduction steps (`npm run bench:vs -- --repeat 5` for the
+five-run median used above, about 4.5 minutes; plain `npm run bench:vs` is a single ~55-second run
+for local iteration; `npm run bench:suite`) are in [Performance](/core/performance).
 
 ## Angular
 

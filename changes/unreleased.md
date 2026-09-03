@@ -16,6 +16,15 @@ _Last released: **v3.16.0** — the git tag and `package.json` agree._
 
 ## Staged for the next release
 
+- **`npx vitest-auto-spy perf`** — where a suite's CPU time actually goes, and which spec files to
+  act on. Runs Vitest once with a reporter this package ships, reads the per-file phase timings
+  through `TestModule.diagnostic()` (Vitest's own public accessor — nothing parses terminal
+  output), and reports each phase's share of the total. When a phase dominates it names files: the
+  ones that reach no DOM and could run under the `node` environment (a rule that reports
+  **undecided** rather than guessing whenever it cannot resolve an import), and the ones that
+  import a barrel. Always exits 0 — a slow suite is not a failing one. `--json <path>` re-analyses
+  a report from an earlier `--out <path>` run instead of running Vitest again.
+
 - **`lazySpies: 'proxy'`** — the same laziness with one trap object instead of one
   `Object.defineProperty` placeholder per method. 101 584 B → 11 813 B retained on a 400-method class
   (253 B per method against 25 B), and 5.67× faster to build and touch there. Opt-in: a `Proxy`

@@ -76,7 +76,8 @@ faster at suite scale ([benchmarks](#benchmarks)) — and for
 - 🚚 A migration you can verify — `vitest-auto-spy/diagnostics`: `compareTestRuns` on the two JSON reports, `summarizeTestRun` / `formatTestRunComparison` to read the answer, `diffByField` for the assertion the reporter collapses
 - 📏 Lint rules and one-line test-run hygiene — nineteen rules in `vitest-auto-spy/eslint-plugin` (three `--fix`, seven suggestions, four of them for a suite mid-migration off jasmine), `setupAutoSpy()`
 - 🩺 [Editor diagnostics](#editor-diagnostics--webstorm--vs-code) — the same anti-patterns underlined while you type: native ESLint inspections in **WebStorm** and the other JetBrains IDEs, the ESLint extension in **VS Code**, no extra plugin either way
-- 🔎 [`npx vitest-auto-spy doctor`](#the-cli--doctor-codemod-and-init) — suite-level defects **that never fail a run**: a `tsconfig` `include` matching no file, a production module importing a spec, a `@jest-environment` pragma the runner never reads, config left behind for a runner that is gone. Read-only, no config, exits 1 in CI
+- 🔎 [`npx vitest-auto-spy doctor`](#the-cli--doctor-perf-codemod-and-init) — suite-level defects **that never fail a run**: a `tsconfig` `include` matching no file, a production module importing a spec, a `@jest-environment` pragma the runner never reads, config left behind for a runner that is gone. Read-only, no config, exits 1 in CI
+- ⏱️ [`npx vitest-auto-spy perf`](#perf--where-the-cpu-time-actually-goes) — where a suite's CPU time actually goes, phase by phase, and which spec files to act on: the ones that reach no DOM and could run under `node`, the ones that import a barrel. Runs Vitest once with a reporter this package ships, reads `TestModule.diagnostic()`, names files, states the rule behind each finding
 - 🚚 [`npx vitest-auto-spy codemod`](#codemod--migrating-a-suite-off-jest-auto-spies) — thirteen transforms that move a suite off `jest-auto-spies` and Jest, or off `jasmine-auto-spies` and jasmine (`--from jasmine`), dry-run by default, with a `--verify` pass that also checks a file somebody edited by hand
 - 🔇 Console spies — `import { consoleInfoSpy } from 'vitest-auto-spy/console'` silences `console` and asserts its calls
 - 🧭 [**Spec patterns**](https://asdalexey.github.io/vitest-auto-spy/recipes) — the shapes a ~370-file Angular suite converged on, and the traps that only surface at scale
@@ -105,8 +106,9 @@ includes — that one import is what keeps `returnSubject()` typed as rxjs's own
 - [Install](#install)
   - [Requirements](#requirements)
   - [Peer dependencies](#peer-dependencies)
-- [The CLI — `doctor`, `codemod` and `init`](#the-cli--doctor-codemod-and-init)
+- [The CLI — `doctor`, `perf`, `codemod` and `init`](#the-cli--doctor-perf-codemod-and-init)
   - [`doctor` — defects that never fail](#doctor--defects-that-never-fail)
+  - [`perf` — where the CPU time actually goes](#perf--where-the-cpu-time-actually-goes)
   - [`codemod` — migrating a suite off `jest-auto-spies`](#codemod--migrating-a-suite-off-jest-auto-spies)
   - [`init` — the pointer an agent reads](#init--the-pointer-an-agent-reads)
 - [Using this library with an AI agent](#using-this-library-with-an-ai-agent)
@@ -241,12 +243,13 @@ them only for the matching entry point. The package itself has **zero runtime de
 | `rxjs`          | `vitest-auto-spy/rxjs` observable spies — `>=7`, **no upper bound** (the rxjs 8 line included); not needed to type-check a spy since 4.0.0 | yes       |
 | `@angular/core` | `vitest-auto-spy/angular` helpers                                                                                                          | yes       |
 
-## The CLI — `doctor`, `codemod` and `init`
+## The CLI — `doctor`, `perf`, `codemod` and `init`
 
 The package ships one executable, with no dependencies and nothing to configure:
 
 ```bash
 npx vitest-auto-spy doctor   # read-only. Exits 1 when it finds something
+npx vitest-auto-spy perf     # where the suite's CPU time goes. Always exits 0
 npx vitest-auto-spy codemod  # prints the migration diff. Writes nothing without --write
 npx vitest-auto-spy init     # writes the agent instructions pointer
 ```
@@ -293,6 +296,56 @@ turning `src/**/*.spec.ts` into `src*.spec.ts` — a valid glob that matches not
 spec tsconfigs still covered their specs.
 
 `doctor` never writes. There is no `--fix`.
+
+### `perf` — where the CPU time actually goes
+
+Vitest prints one summary line per run with a phase breakdown; it is the only place those numbers
+surface, and it is for the whole suite, not a file. `perf` reads the same numbers per file — through
+`TestModule.diagnostic()`, Vitest's own public accessor, via a reporter this package ships — and
+turns whichever phase dominates into a list of files and the rule that put them there. Nothing here
+parses terminal output, and it always exits 0: a slow suite is not a failing one.
+
+```bash
+npx vitest-auto-spy perf              # run the whole suite once and report
+npx vitest-auto-spy perf src/cli      # path passed through to Vitest as a file filter
+npx vitest-auto-spy perf --json out/perf.json  # re-analyse a report instead of running Vitest
+```
+
+```
+$ npx vitest-auto-spy perf src/cli
+vitest-auto-spy perf — /path/to/repo
+16 test files, 860ms wall clock, 17.30s of CPU time summed over the workers
+
+  phase               time    share
+  prepare            6.34s    36.7%
+  environment        5.46s    31.6%
+  setup              3.01s    17.4%
+  transform          1.19s     6.9%
+  import             879ms     5.1%
+  tests              411ms     2.4%
+
+info   perf-environment
+       Environment setup is 31.6% of the measured CPU time, against 2.4% in the test bodies. No
+       spec file could be proved DOM-free, so this names none; 109 were left undecided.
+       → Move what does not need a DOM to the `node` environment. …
+
+0 errors, 0 warnings, 2 notes
+```
+
+That is this repository's own suite: `perf` names zero DOM-free candidates and leaves the rest
+undecided, because `src/test-setup.ts` builds an Angular `TestBed` before every spec. The rule is
+deliberately one-sided — a spec is a candidate only when it, the setup files, and every module they
+import were read, none mentions a DOM name, and every package they import is on a short
+DOM-free allowlist. Anything the rule cannot resolve is **undecided**, never assumed safe: a false
+positive is somebody's suite failing on `document is not defined`.
+
+**The phase totals are CPU time summed across workers**, which is why 860ms of wall clock reads as
+17.30s of CPU above — the six phases are `environment`, `prepare`, `import`, `setup`, `tests` (all
+per file) and `transform` (whole run). Where the isolation finding suggests `test.isolate: false`,
+it links to this package's own memory measurements rather than repeating the numbers here — that
+flag trades per-file cleanup for memory that grows with the suite.
+
+Full reference, phase by phase and finding by finding: **[The CLI](https://asdalexey.github.io/vitest-auto-spy/utilities/cli)**.
 
 ### `codemod` — migrating a suite off `jest-auto-spies`
 
@@ -1139,34 +1192,54 @@ the same cell measured 1.56 s and 1.33 s at 1 000 tests, 10.94 s and 12.51 s at 
 contrast, reproduces tightly and separates arms by multiples. Treat the ratios below as the durable
 figure and any single wall-clock number as describing one machine, not a promise about yours.
 
+**The micro-benchmark below has the same problem, measured directly.** Every micro figure is now
+the **median p75 of five independent runs**, each its own process, run with
+`npm run bench:vs -- --repeat 5` — not a single run. Repeating the run five times moved the
+published p75 a **median of 6.7%**, worst case **17.0%**, across 42 rows — machine state, not
+sampling: raising the iteration budgets fourfold lowered `rme` and left this spread untouched.
+**A difference under about 20% is not measurable on this stand, and is never claimed below.** The
+column that carries the trust is that run-to-run spread, not `rme` — `rme` bounds the mean, and the
+mean here is dominated by garbage-collection tails that say nothing about the `p75` actually
+published.
+
 `jest-auto-spies@3.0.1`, `jasmine-auto-spies@8.0.1` and `@bugsplat/vitest-auto-spies@1.0.0` are all
 measured directly here — no more standing in for one another. All three depend on
 `@hirez_io/auto-spies-core@3.0.0` and differ only in the spy factory they hand it (`jest.fn()`,
 `jasmine.createSpy()`, `vi.fn()`), and on the micro-benchmark they land within a few per cent of each
-other on every case — e.g. 54.50, 54.87 and 52.83 µs on the 40-methods/3-called case. `jest-auto-spies`
-and `jasmine-auto-spies` run here under a minimal `jest` / `jasmine` global backed by `vi.fn()`, so
-every arm creates the same underlying mock and the runner's own per-mock cost is a shared constant —
-what these numbers describe is each library's own code, not what a real Jest or Jasmine suite would
-show.
+other on every case — see the 40-methods/3-called row in
+[Performance](https://asdalexey.github.io/vitest-auto-spy/core/performance#micro-benchmark).
+`jest-auto-spies` and `jasmine-auto-spies` run here under a minimal `jest` / `jasmine` global backed
+by `vi.fn()`, so every arm creates the same underlying mock and the runner's own per-mock cost is a
+shared constant — what these numbers describe is each library's own code, not what a real Jest or
+Jasmine suite would show.
+
+The micro-benchmark runs every arm inside a block to the same iteration count (`n`), not the same
+time budget — these cases allocate doubles by the tens of thousands, and GC cost scales with objects
+created rather than elapsed time, so a fixed time budget would have handed a faster arm more
+allocations and made it pay for its own speed.
 
 **Where this library wins:**
 
 | Comparison | Scale | Result |
 | --- | --- | --- |
 | vs `@bugsplat/vitest-auto-spies` — the jest-auto-spies-family core, all three within a few per cent of each other (above) | Suite, `isolate: true`, 1 000-10 000 tests, 20- and 100-method classes | roughly 1.5x faster, 7/7 rounds |
-| `calledWith` dispatch, 2 configured + 1 miss (micro) | — | 0.50 µs vs 1.00 µs (@bugsplat, 2.00x) and 0.58 µs (vitest-mock-extended, 1.17x) |
+| `calledWith` dispatch, 2 configured + 1 miss (micro, n = 1,152,000) | — | 0.54 µs vs 1.00 µs (@bugsplat, 1.85x — well above the resolution limit) |
 
 **Where it loses — same weight, same table:**
 
 | Comparison | Scale | Result |
 | --- | --- | --- |
 | vs hand-written `vi.fn()` | Suite, `isolate: true` | hand-written about 10-15% cheaper across a suite, 7/7 rounds — e.g. 8.59 s vs 11.27 s at 10 000 tests |
-| vs `vitest-mock-extended`, type-only double (micro) | 2 to 40 members | vitest-mock-extended faster throughout — 2.54 µs vs 3.29 µs at 2 members, 51.79 µs vs 66.54 µs at 40 |
-| vs `vitest-mock-extended`, deep double, 3 levels (micro) | — | 4.79 µs vs 8.08 µs |
+| vs `vitest-mock-extended`, type-only double (micro) | 2 to 40 members | vitest-mock-extended faster throughout — 2.75 µs vs 3.58 µs at 2 members, 58.25 µs vs 72.88 µs at 40 |
+| vs `vitest-mock-extended`, deep double, 3 levels (micro, n = 116,000) | — | 5.42 µs vs 8.83 µs |
+
+`calledWith` dispatch against `vitest-mock-extended` is 0.54 µs against 0.50 µs, a ratio of 0.92x —
+but that row carries a **16.8% run-to-run spread**, inside the ~20% resolution floor above. It is
+reported as **parity**, never a win for either side.
 
 Micro-benchmark multipliers do not transfer to suite scale: the micro-benchmark shows this library
-around 4.7x faster than hand-written on a 40-method class, and at suite scale that advantage is gone
-— parity at 1 000 tests, behind at 10 000. Double construction is on the order of 1% of a test's
+roughly 5x faster than hand-written on a 40-method class, and at suite scale that advantage is gone —
+parity at 1 000 tests, behind at 10 000. Double construction is on the order of 1% of a test's
 cost; nearly everything else in a suite run swamps it.
 
 **Memory, `isolate: false`, 100-method class, 10 000 tests, peak RSS:**
@@ -1179,6 +1252,12 @@ cost; nearly everything else in a suite run swamps it.
 
 Hand-written doubles use 2.7x the default's peak RSS here — the difference between finishing and an
 OOM'd worker on a large suite.
+
+That gap traces down to a single double: on the same 100-method class, untouched, `lazySpies:
+'proxy'` retains **4 097 B** per double against a hand-written double's **414 462 B** — the
+per-double number that gets multiplied by every double a file holds alive, and the setting that
+decides whether a large suite survives `isolate: false`. Full retained-memory tables:
+[Performance](https://asdalexey.github.io/vitest-auto-spy/core/performance#retained-memory-per-double).
 
 **Guidance keyed to suite size:** `isolate: false` is worth about 3x on its own — more than any
 library choice measured here — and it makes memory, not wall-clock, the binding constraint. On a
@@ -1208,7 +1287,9 @@ root so it carries nothing it doesn't ship or test with, and `bench/.npmrc` pins
 `legacy-peer-deps=true` so npm doesn't install a second copy of `vitest` beside the root one — two
 copies would mean two mock registries and the run dies out of memory.
 
-`npm run bench:vs` is the micro-benchmark, about a minute. For the suite-scale tables, see
+`npm run bench:vs` is the micro-benchmark, a single run in about 55 seconds — the right form for
+local iteration. `npm run bench:vs -- --repeat 5` is what produced the median p75 figures published
+above, about 4.5 minutes for five independent runs in five processes. For the suite-scale tables, see
 `npm run bench:suite --help` — it takes **tens of minutes at 10 000 tests**, so budget for that
 before running it locally.
 
@@ -2958,7 +3039,7 @@ as `methodsToSpyOn`, named for callables that live on the instance — `signal()
 `gettersToSpyOn`, `settersToSpyOn`, `autoSpyAccessors` (discover every getter/setter),
 `fillMissing` (answer a name the prototype never carried with a spy — for a **partially** abstract
 class, where `abstract` members are erased and the empty-prototype fallback no longer fires),
-`lazySpies` (materialize method spies on first access — cheaper for wide classes; the `provideAutoSpy` default on Angular. `'proxy'` keeps the laziness and drops the per-method placeholder: 11.8 kB retained against 101.6 kB on a 400-method class, at +30 ns per read — opt-in, and worth it only above ~20 methods)
+`lazySpies` (materialize method spies on first access — cheaper for wide classes; the `provideAutoSpy` default on Angular. `'proxy'` keeps the laziness and drops the per-method placeholder — no memory crossover at any width measured, lighter than the default from 10 methods up (4 097 B vs the default's 25 601 B per double retained, untouched, on a 100-method class); it costs +30 ns per read once a method has materialised, which only pays back in **time** on classes above ~20 methods — see [Performance](https://asdalexey.github.io/vitest-auto-spy/core/performance#retained-memory-per-double))
 
 `ValueConfig` (for `nextWithValues`): `{ value, delay? }` | `{ errorValue, delay? }` | `{ complete?, delay? }`.
 

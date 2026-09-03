@@ -2529,6 +2529,35 @@ worth one run after any large edit to a test suite — especially after a codemo
 the eaten glob below came from. Full reference:
 <https://asdalexey.github.io/vitest-auto-spy/utilities/cli>.
 
+### If you were asked why a suite is slow
+
+```bash
+npx vitest-auto-spy perf              # runs the suite once and reports; always exits 0
+npx vitest-auto-spy perf src/some/dir # a path is passed through to Vitest as a file filter
+```
+
+It reads Vitest's own per-file phase timings through `TestModule.diagnostic()` — nothing here
+parses terminal output — and reports six phases: `environment`, `import`, `tests`, `setup`,
+`prepare` (all measured per file) and `transform` (measured once for the whole run). **The phase
+totals are CPU time summed across every worker, not wall clock** — a report showing `20.29s of CPU
+time` under `986ms wall clock` is not a bug, it is the work spread over workers.
+
+When `environment` dominates, the `perf-environment` finding names spec files that could run under
+the `node` environment instead — but only the ones it could *prove* reach no DOM: the spec, its
+configured setup files, and every repository module any of them imports were all read, none
+mentions a DOM name, and every package they import is on a short allowlist (`vitest`, `rxjs`,
+`date-fns`, `lodash`, `zod`, …). Anything it could not resolve is reported **undecided**, never
+assumed safe — do not treat an undecided file as a candidate, and do not add packages to that list
+yourself; a false positive breaks someone's suite on `document is not defined`. When `import`
+dominates, `perf-import` names specs that reach their subject through a barrel (`index`/`public-api`
+re-exporting a whole directory). When `environment` + `setup` + `prepare` together dominate,
+`perf-isolation` suggests `test.isolate: false` and links to this package's own memory measurements
+of that trade rather than restating them — read that page before recommending the flag, since it
+raises peak memory.
+
+`--json <path>` re-analyses a report an earlier `--out <path>` run wrote, instead of running Vitest
+again. Full reference: <https://asdalexey.github.io/vitest-auto-spy/utilities/cli>.
+
 ### Migrating a suite off `jest-auto-spies` — run the codemod, then verify it
 
 ```bash

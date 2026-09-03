@@ -5,19 +5,20 @@ description: npx vitest-auto-spy doctor finds suite-level defects that never fai
 
 # The CLI
 
-Three commands, no dependencies, nothing to configure:
+Four commands, no dependencies, nothing to configure:
 
 ```bash
 npx vitest-auto-spy doctor   # read-only. Exits 1 when it finds something
+npx vitest-auto-spy perf     # where the suite's CPU time goes. Always exits 0
 npx vitest-auto-spy init     # writes the agent instructions pointer
 npx vitest-auto-spy codemod  # dry run by default. Exits 1 when it left something alone
 ```
 
-They are one binary because they answer one question from three directions — _is anything in this
+They are one binary because they answer one question from four directions — _is anything in this
 test suite quietly not doing what it looks like it is doing?_ `doctor` asks it of the repository,
-`init` asks it of the agent about to write the next spec, and
-[`codemod`](/utilities/codemod) asks it of every span a migration off `jest-auto-spies` would
-otherwise rename into the reverse meaning. This page covers the first two; the codemod
+`perf` asks it of the suite's own clock, `init` asks it of the agent about to write the next spec,
+and [`codemod`](/utilities/codemod) asks it of every span a migration off `jest-auto-spies` would
+otherwise rename into the reverse meaning. This page covers the first three; the codemod
 [has its own](/utilities/codemod), because most of what it does is refuse.
 
 ## `doctor` — defects that never fail
@@ -67,6 +68,122 @@ Two shapes of pattern are deliberately exempt, because for them "matches nothing
 of anything: a declaration-only glob (`src/**/*.d.ts`, routinely a placeholder for ambient types
 that do not exist yet) and a pattern rooted in a directory the scan never enters (`dist`,
 `out-tsc`, `coverage`).
+
+## `perf` — where the CPU time actually goes
+
+Vitest prints one summary line per run — `Duration 8.91s (transform 26.20s, setup 14.70s, import
+55.27s, tests 27.24s, environment 155.65s)` — and that line is the only place the six numbers ever
+surface. It says environment setup is 56 % of the CPU time; it does not say which of a suite's 1 400
+spec files never needed a DOM. `perf` reads the same numbers per file, through `TestModule.diagnostic()`
+— Vitest's own public accessor, via a reporter this package ships — and turns the phase that
+dominates into a list of files and the rule that put them there. Nothing here parses terminal
+output.
+
+```bash
+npx vitest-auto-spy perf              # run the whole suite once and report
+npx vitest-auto-spy perf src/cli      # path passed through to Vitest as a file filter
+npx vitest-auto-spy perf --json out/perf.json   # re-analyse a report instead of running Vitest
+npx vitest-auto-spy perf --out out/perf.json    # keep the JSON this run writes
+```
+
+```
+$ npx vitest-auto-spy perf src/cli
+vitest-auto-spy perf — /Users/alexeypopov/Desktop/projects/vitest-auto-spy
+16 test files, 860ms wall clock, 17.30s of CPU time summed over the workers
+
+  phase               time    share
+  prepare            6.34s    36.7%
+  environment        5.46s    31.6%
+  setup              3.01s    17.4%
+  transform          1.19s     6.9%
+  import             879ms     5.1%
+  tests              411ms     2.4%
+
+info   perf-environment
+       Environment setup is 31.6% of the measured CPU time, against 2.4% in the test bodies. No
+       spec file could be proved DOM-free, so this names none; 109 were left undecided.
+       → Move what does not need a DOM to the `node` environment. Rule used — a spec is listed
+         only when it, the configured setup files and every repository module any of them imports
+         were read and none of them mentions a DOM name (document, window, HTML*, *Event, TestBed,
+         …), and every package they import is one of: vitest, rxjs, vitest-auto-spy,
+         vitest-auto-spies, date-fns, dayjs, luxon, lodash, lodash-es, ramda, immer, uuid, nanoid,
+         zod, decimal.js, big.js, reflect-metadata. Background:
+         https://asdalexey.github.io/vitest-auto-spy/core/performance#what-actually-makes-a-suite-slow
+
+info   perf-isolation
+       Per-file environment, setup and prepare together are 85.6% of the measured CPU time. Those
+       three are what `test.isolate: false` pays once per worker instead of once per file.
+       → It is a trade, not a win — without isolation every double a file created stays alive for
+         the whole worker, so peak memory grows with the suite. This package's own measurements of
+         that are at
+         https://asdalexey.github.io/vitest-auto-spy/core/performance#memory-under-isolate-false;
+         take yours before switching.
+
+0 errors, 0 warnings, 2 notes
+```
+
+That is this repository's own suite. It names zero DOM-free candidates and leaves 109 files
+undecided, because `src/test-setup.ts` builds an Angular `TestBed` before every spec — the rule
+below is why a real repository can get an honest "cannot tell" instead of a guess.
+
+**The phase totals are CPU time summed across workers**, not wall clock — the run above took 860ms
+on the clock and 17.30s of CPU because the work was spread across several workers. A phase total
+larger than the wall clock is not a bug.
+
+| Phase         | What Vitest measures (its own `ModuleDiagnostic` wording)                                     |
+| ------------- | ----------------------------------------------------------------------------------------------- |
+| `environment` | The time to import and initiate an environment (`jsdom`, `happy-dom`, `node`) for the file       |
+| `prepare`     | The time Vitest spends setting up the test harness — runner, mocks — for the file               |
+| `import`      | The time to import the test module: everything it imports, plus running its suite callbacks     |
+| `setup`       | The time to import the configured setup file(s) for the file                                    |
+| `tests`       | Accumulated duration of the test bodies and hooks themselves                                     |
+| `transform`   | Whole-run transform time (esbuild/Vite), not tracked per file so it has no per-file finding      |
+
+A phase only produces findings once it is worth a reader's afternoon: below 30 % of the total, or
+below 5 s of total CPU time across the whole run, `perf` says so and stops rather than naming files
+over noise.
+
+**`perf-environment`** fires when `environment` dominates. It ranks every spec file that is
+*DOM-free* — provably so, not probably — by the environment time it cost, and suggests
+`// @vitest-environment node` (or a `node`-environment project) for each. The rule is deliberately
+one-sided: a spec is a candidate only when it, the configured setup files, and every repository
+module any of them imports were read, none of them mentions a DOM name, and every package they
+import is on a short DOM-free allowlist (`vitest`, `rxjs`, `date-fns`, `lodash`, `zod`, …). Anything
+the rule cannot resolve — an import it cannot follow, a package off the allowlist — is reported as
+**undecided**, never assumed safe: a false positive is somebody's suite failing on `document is not
+defined`, and that costs more than a missed optimisation. On this repository the rule names nothing
+and calls 109 files undecided, for the reason above.
+
+**`perf-import`** fires when `import` dominates, and names every spec that reaches its subject
+through a barrel — an `index`/`public-api` module with no declaration of its own, only re-exports —
+because a spec importing one loads everything the barrel re-exports to use one export from it. It
+does not fire in the run above, because `import` is only 5.1 % of this repository's total.
+
+**`perf-isolation`** fires when `environment` + `setup` + `prepare` together dominate, and points at
+`test.isolate: false` — the setting that pays those three once per worker instead of once per file.
+It is framed as a trade, not a win, and links to this package's own memory measurements
+([`core/performance#memory-under-isolate-false`](/core/performance#memory-under-isolate-false))
+rather than repeating the numbers here: without isolation, every double a file created stays alive
+for the rest of the worker, so peak memory grows with the suite. `perf` does not suggest the flag
+when a `vite(st).config.*` already sets `isolate: false` — reporting a setting a reader already
+made is not a finding.
+
+**Exit code.** `perf` always exits `0` on a successful analysis — a slow suite is not a failing one,
+so it never fails a CI job on its own. It exits `1` only when it has nothing to read: no Vitest
+installed in `--cwd`, the package's own `dist/perf-reporter.js` missing, the Vitest run itself
+producing no report, or a `--json` file that does not parse as one. If the suite ran but failed,
+`perf` still reports the timings it measured, with a warning that the run itself did not pass.
+
+### Flags
+
+| Flag           | Effect                                                                                  |
+| -------------- | ---------------------------------------------------------------------------------------- |
+| `--cwd <dir>`  | Run against another directory instead of the current one (shared with the other commands) |
+| `--json <path>` | Read a report an earlier `--out` run wrote, instead of running Vitest again              |
+| `--out <path>`  | Keep the JSON report at this path. Without it, the report is written under `node_modules/.cache` and deleted once read |
+
+A positional path (`npx vitest-auto-spy perf src/cli`) is passed through to Vitest as its file
+filter; with none, `perf` measures the whole suite.
 
 ## `init` — the pointer an agent actually reads
 
@@ -129,15 +246,16 @@ when the file it appended to crosses that line.
 
 ### Flags
 
-| Flag              | Command   | Effect                                                                    |
-| ----------------- | --------- | ------------------------------------------------------------------------- |
-| `--cwd <dir>`     | all three | Run against another directory                                             |
-| `--check`         | `init`    | Write nothing; exit 1 if the block is missing or out of date. The CI form |
-| `--dry-run`       | `init`    | Print what would change and write nothing                                 |
-| `--uninstall`     | `init`    | Remove the managed blocks and delete the files `init` created             |
-| `-h`, `--help`    | all three | The usage screen                                                          |
-| `-v`, `--version` | all three | The installed version                                                     |
+| Flag              | Command  | Effect                                                                    |
+| ----------------- | -------- | ------------------------------------------------------------------------- |
+| `--cwd <dir>`     | all four | Run against another directory                                             |
+| `--check`         | `init`   | Write nothing; exit 1 if the block is missing or out of date. The CI form |
+| `--dry-run`       | `init`   | Print what would change and write nothing                                 |
+| `--uninstall`     | `init`   | Remove the managed blocks and delete the files `init` created             |
+| `-h`, `--help`    | all four | The usage screen                                                          |
+| `-v`, `--version` | all four | The installed version                                                     |
 
+`perf`'s own flags — `--json`, `--out` — are on [its section above](#perf-where-the-cpu-time-actually-goes).
 The codemod's own flags — `--write`, `--verify`, `--only`, `--skip`, `--list` — are on
 [its page](/utilities/codemod#flags).
 
@@ -151,8 +269,9 @@ changed the advice.
 - run: npx vitest-auto-spy doctor
 - run: npx vitest-auto-spy init --check
 - run: npx vitest-auto-spy codemod --verify # on a suite that has been migrated
+- run: npx vitest-auto-spy perf --out perf.json # always exits 0 — not a gate, an artifact to keep
 ```
 
-Neither needs a network, a config file, or a token. The CLI ships with the package, has no runtime
-dependencies of its own, and is the only part of it allowed to touch `node:fs` — an invariant this
-repository checks on every build.
+None of them need a network, a config file, or a token. The CLI ships with the package, has no
+runtime dependencies of its own, and is the only part of it allowed to touch `node:fs` — an
+invariant this repository checks on every build.
