@@ -174,6 +174,28 @@ brought the worst margin of error across the file down from ±36.6% to ±16%.
 The counts differ between blocks, and that is intended — a comparison only ever happens inside a
 block, so that is where the counts have to match.
 
+### Who won which table
+
+Every table ends with a line naming its fastest arm, and that arm is marked `✓` in the table itself.
+The marker exists because **the winner is not the same from one table to the next**, and a reader who
+saw only one of them would carry away the wrong conclusion:
+
+```
+  vitest-auto-spy: createSpyFromClass ✓          4.83 µs   …   2.32× ahead of the runner-up
+  → 10 methods, 2 called
+
+  hand-written vi.fn() per method ✓             12.58 µs   …   1.21× ahead of the runner-up
+  → 10 methods, all 10 called
+```
+
+Same class, same libraries, opposite verdict — because the first case touches two of the ten methods
+and the second touches all ten. Lazy spies win the first and have nothing left to skip in the second.
+That is the whole argument of this benchmark, and it is why both tables are published.
+
+Direction is a property of the column, not of the table: `per operation ↓` and `uncertainty ↓` are
+always better lower, `operations/sec ↑` always better higher. What changes per table is _who_ comes
+out on top.
+
 ### Why `p75` and not `hz` or `mean`
 
 These cases allocate spy objects by the hundred thousand, and `@vitest/spy` holds every mock it ever

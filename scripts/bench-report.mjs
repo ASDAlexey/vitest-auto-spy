@@ -25,8 +25,10 @@ const STRINGS = {
     measured: 'Measured',
     legendHeading: '### How to read these tables',
     notAResult: '> **Not a result.** Budgets were divided by {scale} (`--fast`). Re-run without it before quoting anything.',
+    win: 'win',
+    fastestHere: '**{name}** is fastest in this case, {ratio}× ahead of the runner-up.',
     legendShort: 'Column meanings and the fairness rules are in `bench/README.md`.',
-    directions: '↓ lower is better, ↑ higher is better. In vs this package, above 1.00× means that library is slower.',
+    directions: '↓ lower is better, ↑ higher is better. In vs this package, above 1.00× means that library is slower. `✓` marks the fastest arm in that table, and the winner is not the same table to table.',
     library: 'Library',
     perOp: 'per operation',
     perSec: 'operations/sec',
@@ -65,8 +67,10 @@ const STRINGS = {
     measured: 'Измерены',
     legendHeading: '### Как читать эти таблицы',
     notAResult: '> **Не результат.** Бюджеты уменьшены в {scale} раз (`--fast`). Прежде чем что-то цитировать, перезапусти без него.',
+    win: 'победа',
+    fastestHere: 'Быстрее всех здесь **{name}** — в {ratio}× быстрее следующего.',
     legendShort: 'Значения колонок и правила честности — в `bench/README.md`.',
-    directions: '↓ меньше — лучше, ↑ больше — лучше. В к этому пакету больше 1.00× значит, что та библиотека медленнее.',
+    directions: '↓ меньше — лучше, ↑ больше — лучше. В к этому пакету больше 1.00× значит, что та библиотека медленнее. `✓` отмечает самую быструю руку в таблице, и победитель в разных таблицах разный.',
     library: 'Библиотека',
     perOp: 'на операцию',
     perSec: 'операций/сек',
@@ -105,8 +109,10 @@ const STRINGS = {
     measured: 'Mesurées',
     legendHeading: '### Comment lire ces tableaux',
     notAResult: '> **Pas un résultat.** Budgets divisés par {scale} (`--fast`). Relancez sans avant de citer quoi que ce soit.',
+    win: 'gagne',
+    fastestHere: '**{name}** est la plus rapide dans ce cas, {ratio}× devant la suivante.',
     legendShort: 'Le sens des colonnes et les règles d\'équité sont dans `bench/README.md`.',
-    directions: '↓ plus bas vaut mieux, ↑ plus haut vaut mieux. Dans face à ce paquet, au-dessus de 1.00× cette bibliothèque est plus lente.',
+    directions: '↓ plus bas vaut mieux, ↑ plus haut vaut mieux. Dans face à ce paquet, au-dessus de 1.00× cette bibliothèque est plus lente. `✓` marque la plus rapide du tableau, et le gagnant change d\'un tableau à l\'autre.',
     library: 'Bibliothèque',
     perOp: 'par opération',
     perSec: 'opérations/s',
@@ -146,8 +152,10 @@ const STRINGS = {
     measured: '被测版本',
     legendHeading: '### 如何阅读这些表格',
     notAResult: '> **这不是结果。** 预算被缩小为原来的 1/{scale}（`--fast`）。引用任何数字前请去掉该参数重跑。',
+    win: '最快',
+    fastestHere: '本用例中 **{name}** 最快，比第二名快 {ratio}×。',
     legendShort: '各列含义与公平性规则见 `bench/README.md`。',
-    directions: '↓ 越小越好，↑ 越大越好。在 相对本包 一列中，大于 1.00× 表示该库更慢。',
+    directions: '↓ 越小越好，↑ 越大越好。在 相对本包 一列中，大于 1.00× 表示该库更慢。 `✓` 标记该表中最快的一项，不同表格的胜者并不相同。',
     library: '库',
     perOp: '每次操作',
     perSec: '操作/秒',
@@ -183,8 +191,10 @@ const STRINGS = {
     measured: 'Medidas',
     legendHeading: '### Cómo leer estas tablas',
     notAResult: '> **No es un resultado.** Presupuestos divididos por {scale} (`--fast`). Vuelva a ejecutar sin él antes de citar nada.',
+    win: 'gana',
+    fastestHere: '**{name}** es la más rápida en este caso, {ratio}× por delante de la siguiente.',
     legendShort: 'El significado de las columnas y las reglas de equidad están en `bench/README.md`.',
-    directions: '↓ menos es mejor, ↑ más es mejor. En frente a este paquete, por encima de 1.00× esa biblioteca es más lenta.',
+    directions: '↓ menos es mejor, ↑ más es mejor. En frente a este paquete, por encima de 1.00× esa biblioteca es más lenta. `✓` marca la más rápida de esa tabla, y el ganador cambia de una tabla a otra.',
     library: 'Biblioteca',
     perOp: 'por operación',
     perSec: 'operaciones/s',
@@ -224,8 +234,10 @@ const STRINGS = {
     measured: 'Medidas',
     legendHeading: '### Como ler estas tabelas',
     notAResult: '> **Não é um resultado.** Orçamentos divididos por {scale} (`--fast`). Execute de novo sem ele antes de citar qualquer número.',
+    win: 'vence',
+    fastestHere: '**{name}** é a mais rápida neste caso, {ratio}× à frente da seguinte.',
     legendShort: 'O significado das colunas e as regras de justiça estão em `bench/README.md`.',
-    directions: '↓ menos é melhor, ↑ mais é melhor. Em ante este pacote, acima de 1.00× aquela biblioteca é mais lenta.',
+    directions: '↓ menos é melhor, ↑ mais é melhor. Em ante este pacote, acima de 1.00× aquela biblioteca é mais lenta. `✓` marca a mais rápida daquela tabela, e o vencedor muda de tabela para tabela.',
     library: 'Biblioteca',
     perOp: 'por operação',
     perSec: 'operações/s',
@@ -377,9 +389,17 @@ function renderGroup(group, t, aligned, runs) {
   const title = group.fullName.replace(/^.*?>\s*/, '');
   const repeated = runs > 1;
 
-  const body = rows.map((row) => {
+  // The winner is not the same table to table — this package takes the cases where a test touches a
+   // few methods and loses the ones where it touches them all — so each table says who won it.
+  const values = rows.map((row) => (repeated ? median(row.p75Runs) : row.p75));
+  const best = Math.min(...values);
+  const runnerUp = Math.min(...values.filter((value) => value !== best));
+
+  const body = rows.map((row, index) => {
     const self = row === baseline;
-    const name = self && !aligned ? `**${row.name}**` : row.name;
+    const fastest = values[index] === best;
+    const marked = fastest ? `${row.name} ✓` : row.name;
+    const name = self && !aligned ? `**${marked}**` : marked;
     const value = repeated ? median(row.p75Runs) : row.p75;
     const base = repeated ? median(baseline.p75Runs) : baseline.p75;
     const spread = repeated ? (medianUncertainty(row.p75Runs) / value) * 100 : row.rme;
@@ -398,7 +418,17 @@ function renderGroup(group, t, aligned, runs) {
   // noise, and the direction belongs to the column, not to the case.
   const headers = [t.library, `${t.perOp} ↓`, `${t.perSec} ↑`, t.ratio, `${repeated ? t.spread : t.rme} ↓`, t.samples];
 
-  return [aligned ? `  ${title}` : `#### ${title}`, '', ...renderTable(headers, body, aligned), ''];
+  const winner = rows[values.indexOf(best)].name;
+  const verdict = t.fastestHere.replace('{name}', winner).replace('{ratio}', (runnerUp / best).toFixed(2));
+
+  return [
+    aligned ? `  ${title}` : `#### ${title}`,
+    '',
+    ...renderTable(headers, body, aligned),
+    '',
+    aligned ? `  ${verdict.replace(/\*\*/g, '')}` : verdict,
+    '',
+  ];
 }
 
 /** Fold repeated runs into one shape, keeping every run's p75 so the spread can be measured. */
