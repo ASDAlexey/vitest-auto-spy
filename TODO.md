@@ -4,26 +4,6 @@ Everything still open on `vitest-auto-spy`, ordered by value. Shipped work is no
 kept here — it lives in `CHANGELOG.md` and in git history. Status markers: `[ ]`
 backlog, `[~]` considered and intentionally not done, with the reason.
 
-## Live defects — measured 2026-08-29
-
-Seven findings from a measured pass (perf/memory, competitor sweep, Angular sweep). Every one is a
-defect in shipped behaviour, not a missing feature, and each was reproduced rather than reasoned
-about. Ordered by how badly the failure lies about its own cause.
-
-**Status: seven of seven closed.** Two were closed by verification rather than by code (the
-`output()` subscription was already fixed in source; the accessor-cache docs line was simply wrong).
-Three findings turned out to be inaccurate where they were checked, and each correction is recorded
-inline rather than dropped: the `stable` deadlock does not reproduce under
-`provideHttpClientTesting`, an `httpResource` needs one settle step fewer than reported, and
-`import type` fixes neither half of the rxjs declaration problem. The last of the seven — rxjs in
-the published declarations — was the one that needed a breaking type change and shipped 2026-09-03
-as the whole of **4.0.0**; the measurement is in `CHANGELOG.md`, and each trap it left behind sits
-next to the thing it would break — why detection keys on `forEach` and not `subscribe`, and why the
-registry interface carries a phantom member, in `lib/types.ts`; why the augmentation needs `paths`
-and `src/index.ts` in the program, in the two `tsconfig`s; why `import type` is not the fix, in
-`scripts/check-dist.mjs`. `npm run check` passes end to end, coverage
-back at 100%.
-
 ## Field findings — consumer monorepo merge, 2026-08-29
 
 Reported from a consumer, not from this repo: merging four months of `master` into an Angular
@@ -107,48 +87,6 @@ callable. Type 'TestContext' has no call signatures.` — text the rule's own de
   `provideAutoSpy` and `injectSpy` on the Angular entries, `calledWith`, `Mutable<T>`, and the
   `Spy<T>`-in-argument-position case `no-mocked-for-spy` exists to rescue. Worth adding one case
   per helper as each is touched, rather than in one sweep.
-
-- [x] **A spied method accepts arguments the real one would reject — closed 2026-08-30.** Found while writing the type
-      tests above, and it is the opposite of what `Spy<T>` is for. The declared signature survives —
-      the member's type reads `AddSpyMethodsByReturnTypes<(key: string) => string | null>` — but the
-      call is unchecked: with `read(key: string)` on the class, both of these compile on the double
-      under `strict`, and neither compiles on an instance.
-
-      ```ts
-      const spy = createSpyFromClass(Storage);
-
-      spy.read(1); // no error
-      spy.read('ok', 'extra'); // no error
-      ```
-
-      The mock surface presumably contributes a call signature wide enough to swallow anything, and
-      an intersection accepts a call that matches *either* member. Two consequences, both quiet: a
-      spec can call the double the way production code never could and stay green, and
-      `expectTypeOf(spy.method).parameters` resolves to `never`, so the obvious way to pin this in a
-      type test does not work either (the tests added in `src/type-tests/spy.test-d.ts` assert
-      through calls instead, and say why). Worth deciding deliberately: if the widening is the price
-      of the mock surface, `AGENTS.md` should say so next to `Spy<T>`; if it is not, the argument
-      tuple is the one thing a typed-double library should never lose.
-
-      **Fixed, and it was not the price of anything.** The widening came from one token:
-      `AddSpyMethodsByReturnTypes` intersected in `Mock`, which with no type argument is
-      `Mock<Procedure>` — `(...args: any[]) => any`. Swapping it for `MockInstance` keeps the whole
-      helper surface and drops only the call and construct signatures, so the single call signature
-      left is the method's own (`src/lib/types.ts:205`). Measured rather than reasoned: a probe file
-      where `read(1)`, `read('ok', 'extra')` and `read()` all compiled now reports `TS2345` and two
-      `TS2554`, and the repository's own suite produced exactly **one** new error —
-      `mock-deep.spec.ts:130` was calling `find()` on a `find(id: number)`, which is precisely the
-      class of mistake this was hiding. Configuring a double is unchanged: `MockInstance` also
-      defaults to `Procedure`, so `mockReturnValue` / `mockImplementation` stay as lenient as they
-      were. The second half of the finding resolved itself — with one call signature instead of two,
-      `expectTypeOf(spy.method).parameters` and `.returns` now resolve, and
-      `src/type-tests/spy.test-d.ts` asserts through them plus four `@ts-expect-error` cases (a
-      two-way assertion under `typecheck` mode: an unused directive is itself an error).
-
-      **What to weigh before releasing it.** This tightens type checking in every consumer: a spec
-      that passed the wrong arguments to a double used to compile and now does not. That is the
-      point, but it is a compile break for suites that have such calls, so it belongs in a minor at
-      least, with the line above quoted in the release note.
 
 ## Timeout budgets — closed 2026-08-30, and the one part that stays out of reach
 
@@ -455,11 +393,10 @@ repo at all.
 The field values, the failure codes and what the January 2027 deadline does (and does
 not) mean for this repository are written down for good in
 [CONTRIBUTING.md → How the two packages authenticate to npm](./CONTRIBUTING.md#how-the-two-packages-authenticate-to-npm).
-What is left here is the part that is still undone.
+The trusted publisher for `vitest-auto-spy` is registered (2026-08-30: `ASDAlexey/vitest-auto-spy`,
+`auto-release.yml`, environment empty, permissions `npm publish`; npm did not demand 2FA to save
+it). What is left here is the part that is still undone.
 
-- [x] **Trusted publisher for `vitest-auto-spy`** — registered 2026-08-30:
-      `ASDAlexey/vitest-auto-spy`, `auto-release.yml`, environment empty,
-      permissions `npm publish`. npm did not demand 2FA to save it.
 - [ ] **Publish `vitest-auto-spies` again, then register its publisher.** The
       package was unpublished in full on **2026-08-29T20:35:25Z**, and npm's policy
       is _"If you entirely unpublish all versions of a package, you may not publish
@@ -545,68 +482,7 @@ for one wait is a real cost: the reader has to decide between them.
   documentation already covers the second reason to call it (a barrel symbol reads as `undefined`
   until its chunk has been evaluated).
 
-## Angular — the resource era
-
-The one coherent hole in an otherwise broad Angular surface. `httpResource()` is Angular's flagship
-data primitive; it appears **zero times in `src/`** (three times in `lib/event-loop.ts`, all prose)
-and **zero times in `docs-site/`**. Neither does it appear in ng-mocks, spectator or
-`@testing-library/angular` — **no library in the Angular world has an answer**. Meanwhile two of
-this package's own headline helpers fail against it (see "Live defects").
-
-Measured against Angular 21.2.17, zoneless TestBed, Vitest 4.1.9. `runInInjectionContext(() =>
-httpResource(…))` issues **no request at all** until something ticks; after `TestBed.tick()` there
-is exactly one pending request; after `flush(payload)` the resource still reports `loading` with the
-default value, and needs **one microtask plus one tick** to reach `resolved`. A plain `resource()`
-with an async loader is different again: tick + microtask is not enough, `await
-ApplicationRef.whenStable()` is. Two waits for one concept — which is the argument for one name.
-
-- [x] **`provideHttpTesting()` + `expectRequest(url)` — shipped as `vitest-auto-spy/angular-http`.**
-      The measured six-step dance (tick → inject controller → `expectOne` → flush → microtask →
-      tick) is now `await expectRequest('/api/products').flush([product])`, with `flush` and `error`
-      returning promises so the caller cannot get the settle wrong; `products.value()` reads on the
-      next line, proved by a spec that renders a real component and asserts its text with no `tick`,
-      no `await Promise.resolve()` and no `detectChanges()`. `provideHttpTesting()` is
-      `provideHttpClient()` + `provideHttpClientTesting()` in one spread, with `verifyOnTeardown`
-      (default `true`) failing the test that ends holding an unanswered request;
-      `expectNoRequest()` and `verifyNoPendingRequests()` complete the surface.
-
-      **The peer was paid, and confined.** `@angular/common` is an **optional** peer and
-      `angular-http` is a subpath of its own, exactly as rxjs is: `grep -l "@angular/common"
-      dist/*.js` lists `dist/angular-http.js` and nothing else, so `vitest-auto-spy/angular` still
-      loads in a project that has `@angular/core` and not `@angular/common`. The entry is 2.2 kB
-      min+gzip; the core entry is byte-identical.
-
-      **What it deliberately does not do.** It does not re-export the core — the only subpath that
-      does not, because staying narrow is what confines the peer. It does not wrap interceptor
-      configuration: a suite whose interceptors are under test keeps
-      `provideHttpClient(withInterceptors([…]))` and adds `provideHttpClientTesting()` after it. It
-      does not replace `settleResource`, which is still the wait for a `resource()`, an `rxResource`,
-      a reload or anything not driven by HTTP. It does not change
-      `enableAngularDiagnostics({ pendingRequests })`, which still reads the controller token
-      structurally out of the caller's own config and still needs no peer — the two cooperate through
-      the one-shot `match(() => true)`, so an unanswered request is reported once, and the diagnostic
-      is simply redundant in a suite that uses `provideHttpTesting()` everywhere.
-
-      **One thing that could not be done as specified, and was not faked.** `verifyOnTeardown` is an
-      option of the provider factory, but the hook it arms is registered when the spec file imports
-      the entry, not by the factory call. Measured on Vitest 4.1: `afterEach()` called from inside a
-      running `beforeEach` — which is where `configureTestingModule` lives — is accepted and then
-      never runs, because the suite it would join has finished collecting; `onTestFinished()` is
-      legal there but runs after every `afterEach`, by which point Angular's teardown has destroyed
-      the injector and there is no controller left to ask. An import-time `afterEach` runs first
-      (reverse registration order) and sees a live controller, which is what makes the option real.
-
-Not this library's job, decided after reading the APIs in full: **`RouterTestingHarness`**
-(`create(url)` + `navigateByUrl(url, ComponentType)` is already two lines and returns the typed
-activated component), **`ActivatedRoute` doubles** (already the motivating example at
-`lib/create-mock.ts:5-30`), **`@angular/cdk/testing` harnesses** (a DOM-interaction API,
-structurally opposed to `renderShallow`, which blanks the template — adopting it would contradict
-"templates are never tested"), **reactive-forms doubles** (a real `FormGroup` is cheap and a fake is
-strictly worse), and **`DestroyRef` / `afterNextRender` / `afterRenderEffect` / `PendingTasks`** —
-measured: `afterNextRender` runs under `renderShallow` even with a blank template, and
-`DestroyRef.onDestroy` fires on `fixture.destroy()`. Nothing to await.
-
-### Angular performance — four candidate optimisations killed by measurement
+## Angular performance — four candidate optimisations killed by measurement
 
 Median of 60 reps, component holding a 100-row `@for` of a child component — the shape
 `docs-site/core/performance.md` already benchmarks.
@@ -652,22 +528,14 @@ children go 0 → 400) and already fixed by `renderShallow` (4.1× here, 16.2× 
   to patch, while this package would owe the code semver, docs and tests across Angular 21 and
   22 indefinitely. (4) Whether a workspace trades a 596 MB bundle graph for module mocking is
   the app team's call, not a test-double library's.
-- [x] **What to ship instead — three read-only pieces, no mutation.** (a), (b) and (c) **shipped**.
-      (a) The `doctor` check `angular-build-splitting-off`
-      (`src/cli/checks/angular-build.ts:65`): detect an installed `@angular/build` in
-      `[22.1.5, 22.1.7)` and report that the unit-test build has code splitting off, that
-      `--coverage` will grow ~400 MB per spec with no plateau, and name both exits. Exactly the
-      "a defect nothing consumes" niche the doctor exists for. (b) The
-      `docs-site/adapters/angular.md` page — "When the unit-test build has code splitting off",
-      carrying the patch script verbatim with its "delete this from 22.1.7" note, and stating the
-      trade correctly: **not** "memory against module mocking", since splitting off buys nothing for
-      `vi.mock`; what it buys is the live-binding / undefined-export class upstream turned it off
-      for, and what it costs is 791 chunks / 596 MB and an OOM-under-coverage that no warning
-      announces.
-- [x] **(c) A one-shot runtime notice from `setupAutoSpy` naming the builder's splitting mode** —
-      shipped as `angularBuildHint` (`src/lib/angular-build-notice.ts`): recognises the builder by
-      its own `vitest-mock-patch` marker on `globalThis`, reads one `package.json` through
-      `process.getBuiltinModule`, prints once per worker, off with `{ angularBuildHint: false }`.
+
+  **Shipped instead — three read-only pieces, no mutation.** The `doctor` check
+  `angular-build-splitting-off` (`src/cli/checks/angular-build.ts:65`); the
+  `docs-site/adapters/angular.md` section carrying the patch script verbatim with its
+  "delete this from 22.1.7" note; and `angularBuildHint`
+  (`src/lib/angular-build-notice.ts`), a one-shot runtime notice that recognises the builder by
+  its own `vitest-mock-patch` marker, prints once per worker and is off with
+  `{ angularBuildHint: false }`.
 
 ## `doctor` — a repository-level check for defects that never fail
 
@@ -700,25 +568,6 @@ and both are already partly built:
 - **Errors that name their own fix** — every throw ends with a `Docs:` link. An agent reads a stack
   trace far more often than a README, and this fires at the moment of the mistake in every tool.
   Already the best thing here.
-- [x] **TSDoc in `dist/*.d.ts`** — shipped. `@remarks` on `createSpyFromClass`, `methodsToSpyOn`,
-      `Spy<T>`, `nextWith`, `calledWith` and `injectSpy` — the last on **both** declarations, since
-      Angular's `injectSpy(token)` and NestJS's `injectSpy(moduleRef, token)` are different
-      signatures with different failures. Comment-only: the bundles are byte-identical and the
-      1.9 kB of prose lands in `dist/bun.d.ts`, the shared `dist/types-*.d.ts` chunk,
-      `dist/zoneless-*.d.ts` and `dist/nestjs.d.ts`. **Deliberately only these six.** Every symbol
-      that gets one dilutes the rest: an agent that finds `@remarks` on everything reads it as
-      boilerplate and skims, and the value here is that the tag marks the six places where the
-      obvious reading is wrong. A seventh goes in only when a support question repeats often enough
-      to earn it — and it earns it by being a _mistake_, not by being a feature worth explaining;
-      the ordinary summary and `@example` already cover that.
-
-**AGENTS.md won.** Codex, Cursor, Copilot, Cline, Windsurf/Cascade, Zed, OpenCode, Qwen, Junie, Roo
-and Aider all read it. The holdouts are **Claude Code** (reads `CLAUDE.md` — its docs say so
-verbatim) and **Gemini CLI** (opt-in via `context.fileName`). Minimum coverage is therefore three
-root files: `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`. `llms.txt` stays — it costs nothing — but it is
-a link people paste, not something coding agents fetch: one 90-day crawler sample put it at 0.1% of
-AI-bot requests, and Google stated in January 2026 that it does not use it.
-
 - [~] **A postinstall message.** Ineffective and risky, and the trend is one-way: npm hides
   lifecycle output by default since v7, pnpm 10 blocks dependency scripts, Yarn Berry defaults
   `enableScripts: false` for third-party packages, and npm v12 (targeted July 2026) flips
@@ -796,36 +645,6 @@ with no `--fix` at all**: trust before edit rights.
       so spy names are absent in `node:test` diagnostics (Vitest/Bun set them).
       Acceptable, but documenting the gap (or attaching a `displayName`) would
       make cross-runtime diagnostics uniform.
-- [x] **`node:test` retains every mock forever — SHIPPED 2026-09-02.** `trackNodeMocks()` /
-      `pruneNodeMocks()` / `countNodeMocks()` on `/node`, backed by `src/lib/node-mock-tracker.ts`.
-      The library creates its spies on a `MockTracker` reached through `mock.constructor` and
-      **replaces** that tracker per test rather than calling `reset()`, so `restoreAll()` never runs
-      and a spec's own `mockImplementation()` survives. Guarded end to end — an unusable
-      `constructor`, a throwing construction and a tracker that does not record all fall back to
-      `node:test`'s own `mock`, silently. Measured on Node v24.19.0 with `--expose-gc`, 20 000 spies
-      of a 10-method class across 20 tests: **124.5 MB → 5.9 MB** (5.4 MB baseline), 21×. `/node`
-      +327 B min+gzip. `docs-site/runtimes/node.md` rewritten in the same change; the
-      `mock.reset()`-in-`afterEach` advice is kept there as the fallback.
-
----
-
-# Competitor analysis
-
-The defensible niche: **the only auto-spy library that reads a real _class_ and
-returns a _fully-typed_ spy of every method with _return-type-aware_ control
-helpers (`resolveWith` / `nextWith` / `calledWith` / `mustBeCalledWith`),
-portable across every Vitest-compatible runtime (Vitest / Bun / `node:test`) and
-framework (Angular / NestJS / React / Vue / Svelte).**
-
-| Library                                    | Reads a class?          | Return-type-aware helpers? | Runtime     | Typed   | Where we win                                                                                                                                                   |
-| ------------------------------------------ | ----------------------- | -------------------------- | ----------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **jest-auto-spies** (`@hirez_io`)          | ✅                      | ✅ (rxjs/promise)          | Jest only   | ✅      | Same API on Vitest/Bun/`node:test`; the maintained successor — direct migration path.                                                                          |
-| **vitest-mock-extended**                   | ❌ (type Proxy)         | ❌                         | Vitest      | ✅      | We read a real class **and** add promise/observable ergonomics. Our `createAutoMock<T>()` matches its type-only mode while keeping the helpers. Complementary. |
-| **@golevelup/ts-vitest** (`createMock`)    | partial                 | ❌                         | Vitest/Nest | ✅      | Explicit class→spy, typed Promise/Observable helpers, `mustBeCalledWith`.                                                                                      |
-| **ts-auto-mock**                           | ❌ (compiler transform) | ❌                         | Jest/ts     | ✅      | No ttsc/transformer build step; runtime-only, zero toolchain coupling.                                                                                         |
-| **sinon**                                  | ❌ (manual stubs)       | ❌                         | Any         | ❌      | Auto-generated + fully typed vs. hand-written + loosely typed.                                                                                                 |
-| **testdouble.js**                          | partial (`td.object`)   | ❌                         | Any         | weak    | Stronger typing, return-type-aware helpers, framework recipes.                                                                                                 |
-| **vitest `vi.fn` / `vi.spyOn`** (built-in) | ❌                      | ❌                         | Vitest      | partial | Zero boilerplate: a whole class → spy in one call, no per-method wiring.                                                                                       |
 
 ## Reads of the field
 
@@ -964,17 +783,6 @@ descriptors)` behaves the same way. Forcing dictionary mode with a probe propert
       half-real `TestBed.inject(X)` — and spy it in place with the return-type helpers attached.
       `vi.mockObject` is Vitest-only and Bun and `node:test` have nothing, which puts a
       cross-runtime version in this library's niche rather than duplicating the runner.
-- [x] **`createNestUnit(Target, { expose, providers })` — shipped.** The answer to `@suites/unit`'s
-      solitary/sociable model on `/nestjs`: reads `design:paramtypes`, `SELF_DECLARED_DEPS_METADATA`
-      (`forwardRef` unwrapped), `OPTIONAL_DEPS_METADATA` and the two property-injection keys through
-      a structural `Reflect.getMetadata`; one instance per token; `expose` builds collaborators for
-      real, `providers` wins over both; `spies.get` keeps the Angular guard and refuses an exposed
-      class as real. Deliberately does not: resolve `forwardRef` cycles among real classes (throws
-      naming the path — expose one side less, or provide it); emit or polyfill metadata (tsc / SWC
-      emit it, esbuild does not — the error says so); answer a typo (every class token goes through
-      `createSpyFromClass`, not a Proxy); or reach `TestingModule` features — a class that needs
-      module-level providers stays on `Test.createTestingModule` + `provideAutoSpy`. Verified e2e
-      against the packed tarball with tsc-compiled, `@nestjs/common`-decorated services.
 - [ ] **`explainSpy(spy, method?)` — M. The S half of this shipped; what is left is the helper.**
       `mustBeCalledWith` now prints wanted next to actual (`lib/error-handler.ts:37-50`,
       `Wanted:` for one config, an indented `Wanted (N configured):` list for several), which is the
@@ -1002,18 +810,6 @@ Runners-up: an `ignoreExtraArgs` option on `calledWith`, since `ArgsMap#argsMatc
 arity while testdouble and substitute allow partial; and a documentation note that `bun:test`'s
 `mock.module` is **not hoisted**, which silently breaks migrated suites.
 
-- [x] **The sync throw helper — shipped as `failWith`, not `throwWith`.** Matching Vitest 4.1's
-      `mockThrow` / `mockThrowOnce` on the runtimes that lack them (confirmed absent on Bun 1.4.0 and
-      `node:test` under Node 24.19.0). The name is the part worth recording: `throwWith` is the
-      obvious choice and is **wrong**, because it is already the observable helper that errors the
-      stream. Every spy carries every bundle at runtime — only the return type in `Spy<T>` tells them
-      apart — and both are attached with `Object.assign`, so whichever comes last wins for every spy
-      in the run. Writing it as `throwWith` broke `getObs.throwWith(err)` immediately, which is the
-      cheap version of that lesson. The capability that justified shipping it at all is not the
-      spy-level throw (`mockImplementation` can do that everywhere) but
-      `calledWith(x).failWith(err)`: no runtime can make _one_ argument set throw while its siblings
-      answer normally.
-
 ### A distribution opening, not a feature gap
 
 Angular ships **no** spy helper — the complete `@angular/core/testing` public API at 22.1.4 contains
@@ -1026,21 +822,6 @@ resolve** for three cases — a single-argument `createSpyObj`, a method list he
 property map held in a variable. Against `jasmine-core`'s ~23.9M downloads/month, that is a very large
 population being handed the boilerplate `createSpyFromClass(Service)` deletes.
 
-- [x] **A `/migrating` page aimed at `refactor-jasmine-vitest` output.** Shipped as
-      `docs-site/migrating-angular-schematic.md`. It shows the real output of `@schematics/angular`
-      22.1.6 (run, not reasoned from source) — the `MockedObject<T>` literal, and the **three** TODO
-      categories, not two: `createSpyObj-single-argument`, `createSpyObj-dynamic-variable`, and
-      `createSpyObj-dynamic-property-map`, which the schematic rewrites anyway while dropping the
-      property map — each beside `createSpyFromClass(Service)`, with the prototype-vs-call-site
-      argument for why the dynamic cases cannot exist here, and the record corrected with versions
-      and sources. What it deliberately does **not** do: it is not a codemod for the schematic's
-      output — the literal-to-`createSpyFromClass` rewrite needs the class name the literal no longer
-      carries, so the page hands the reader one line per TODO rather than a transform; it does not
-      re-document the schematic's other rewrites (`fail()`, matchers, `done`), which
-      `migrating-jasmine.md` already covers under "If the suite is Angular's"; and it does not claim
-      the schematic's mocks are nameless — with a base name it emits `vi.fn().mockName('Api.get')`,
-      and the page says so.
-
 - [ ] **A `renderShallow` bench, so the per-render table is reproducible.** The 1.2× / 1.8× / 5.7× /
       16.2× table in `docs-site/core/performance.md` and the 1.933 ms → 1.074 ms `keepTemplate` rung
       are not produced by anything in the repo — `bench/` holds only `auto-spy.bench.ts` and
@@ -1049,11 +830,6 @@ population being handed the boilerplate `createSpyFromClass(Service)` deletes.
       reader or by CI, and were re-dated rather than re-measured on 2026-09-02. An Angular bench
       project (`bench-angular/`, its own config with the Angular plugin) would let `npm run bench`
       regenerate them and would catch a regression the type budget cannot see.
-- [ ] **Reconcile or retire the 4.1× figure in `PRIORITIES.md`.** It is listed there as
-      "4.1× on an ordinary form … shipped, sitting in `performance.md`", and it is in neither
-      `performance.md` nor anywhere else in the tree. Either produce the measurement (an "ordinary
-      form" is probably somewhere between the 10- and 100-child rows) or strike the line, because
-      it currently reads as a published number that a reader cannot find.
 - [ ] **A `@testing-library/angular` migration note.** It is the only competitor with zoneless
       support and its `/vitest-utils` overlap is now documented; a short "coming from
       `createMock` / `provideMock`" page would convert the traffic the comparison section attracts.
