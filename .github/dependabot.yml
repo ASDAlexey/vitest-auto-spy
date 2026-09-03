@@ -1,0 +1,13 @@
+version: 2
+
+updates:
+  # The competitors the published benchmark table measures. A bump here opens a PR, and the
+  # `pull_request` trigger in `bench.yml` re-runs the head-to-head against the new version — so a
+  # competitor's release cannot pass unnoticed and the table cannot quietly go stale. This is the
+  # whole anti-rot mechanism; keep the two files in step.
+  - package-ecosystem: npm
+    directory: /bench
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: chore

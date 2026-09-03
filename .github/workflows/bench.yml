@@ -1,0 +1,72 @@
+name: Benchmarks
+
+# The published head-to-head table has to be re-measurable by anyone, and it has to re-measure
+# itself — a benchmark nobody re-runs is a claim, not evidence. `workflow_dispatch` is for a
+# maintainer re-running it deliberately (the button needs write access, so a visitor forks first);
+# the monthly schedule is what keeps the published numbers from silently rotting; the
+# `pull_request` trigger is what makes a Dependabot bump of a competitor re-measure against the new
+# version, which is the only anti-rot mechanism that survives a single maintainer.
+on:
+  workflow_dispatch:
+  # Not on the hour: GitHub documents that scheduled runs are delayed under load at the top of
+  # every hour and that queued jobs may be dropped outright.
+  schedule:
+    - cron: '17 4 1 * *'
+  pull_request:
+    paths:
+      - 'bench/**'
+      - 'src/lib/**'
+      - 'scripts/bench-report.mjs'
+      - '.github/workflows/bench.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  head-to-head:
+    name: Head-to-head vs other libraries
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            bench/package-lock.json
+
+      # The lockfile is generated with npm 11; pin it so `npm ci` interprets the dependency tree
+      # the same way and stays in sync.
+      - name: Pin npm
+        run: npm i -g npm@11
+
+      - run: npm ci
+
+      # The competitors declare `vitest` as a peer, and `bench/.npmrc` is what stops npm installing a
+      # second copy of it beside the root one — two copies mean two mock registries, so the bench's
+      # prune reaches only one of them and the run dies on an out-of-memory heap.
+      - name: Install competitor packages
+        working-directory: bench
+        run: npm ci
+
+      # The benchmarks are TypeScript and they drift. `npm run check` cannot cover them, because
+      # they import the competitor packages installed in the step above, so this is the only place
+      # that type-checks them.
+      - name: Type-check the benchmarks
+        run: npm run typecheck:bench
+
+      # One job, one machine, every arm back-to-back. Splitting the arms across matrix jobs would
+      # compare two different runners and report the difference as a library difference.
+      - name: Run benchmarks
+        run: npm run bench:vs -- --outputJson bench-results.json
+
+      - name: Publish table to the job summary
+        run: node scripts/bench-report.mjs bench-results.json >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bench-results
+          path: bench-results.json
+          retention-days: 90
