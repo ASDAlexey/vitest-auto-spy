@@ -74,6 +74,15 @@ const SIDEBAR = [
       { text: 'Svelte', link: '/adapters/svelte' },
     ],
   },
+  {
+    text: 'Upgrading',
+    collapsed: false,
+    items: [
+      { text: 'To 4.0 — rxjs out of your program', link: '/upgrading-4' },
+      { text: 'To 3.0 — the vitest peer range', link: '/upgrading-3' },
+      { text: 'To 2.0 — additive methodsToSpyOn, lazy spies', link: '/upgrading-2' },
+    ],
+  },
   { text: 'Migrating from jest-auto-spies', link: '/migrating' },
   { text: 'Migrating from jasmine-auto-spies', link: '/migrating-jasmine' },
   { text: 'Migrating from @ngneat/spectator', link: '/migrating-spectator' },
@@ -131,6 +140,11 @@ export default defineConfig({
         name: 'keywords',
         content:
           'vitest, auto spy, auto-spies, vitest-auto-spy, jest-auto-spies, test spies, typed mocks, ' +
+          'rxjs types in d.ts, cannot find module rxjs types, TS2307 rxjs, import type does not tree shake, ' +
+          'Subject is not assignable, SubjectLike, ObservableLike, structural observable detection, ' +
+          'stub IntersectionObserver vitest, ResizeObserver is not defined jsdom, HTMLMediaElement.play not implemented, ' +
+          'did the migration lose a test, compare two test runs, jest vs vitest test names diff, ' +
+          'eslint plugin for vitest spies, done callback is deprecated use promise instead, ' +
           'createSpyFromClass, createAutoMock, mockDeep, deep mock, createFixture, createFixtureFactory, ' +
           'resolveWith, calledWith, mustBeCalledWith, failWith, mockThrow, throw for specific arguments, nextWithValues, assertMocked, ' +
           'extendWithAutoSpies, test.extend fixtures, TestBed fixtures, vitest 4.1, detect-async-leaks, stray timers, onStrayTimers, no-bare-called-with, ' +
