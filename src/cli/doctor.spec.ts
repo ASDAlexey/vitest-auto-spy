@@ -8,7 +8,14 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import { checkAgentInstructions } from './checks/agent-instructions';
 import { checkAngularBuild, compareVersions, isAffectedVersion, parseVersion } from './checks/angular-build';
-import { arrayPatterns, canMatchBundleChunk, checkCoverageConfig, coverageBlock, declaresKey, includePatterns } from './checks/coverage-config';
+import {
+  arrayPatterns,
+  canMatchBundleChunk,
+  checkCoverageConfig,
+  coverageBlock,
+  declaresKey,
+  includePatterns,
+} from './checks/coverage-config';
 import { checkForeignPragma, findPragmas } from './checks/foreign-pragma';
 import { buildGraph, extractSpecifiers, resolveRelative } from './checks/graph';
 import { checkJasmineEra } from './checks/jasmine-era';
