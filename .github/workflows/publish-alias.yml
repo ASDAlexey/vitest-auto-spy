@@ -9,8 +9,10 @@ name: Publish alias
 # hand is what let it sit at 1.9.3 for two majors, without `/bun-angular`, `/setup`, `/zone` or
 # `/eslint-plugin`.
 #
-# Called by `auto-release.yml` after the canonical package is on npm (`release.yml` no longer
-# publishes at all).
+# Called by `auto-release.yml` — but only on a manual `alias_ref` dispatch right now. The automatic
+# call after the canonical publish is switched off (2026-09-03): the npm name `vitest-auto-spies` is
+# still held by a tombstone, so no trusted publisher exists for it and every run ends in ENEEDAUTH.
+# See the note above the `publish-alias` job in auto-release.yml for how to turn it back on.
 #
 # It authenticates with npm Trusted Publishing (OIDC) — no `NPM_TOKEN`. The trusted publisher
 # registered on npmjs.com for `vitest-auto-spies` names **auto-release.yml**, not this file: npm

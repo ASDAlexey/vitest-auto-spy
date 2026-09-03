@@ -227,12 +227,19 @@ jobs:
   #
   # `always()` because the `release` job is deliberately skipped on the alias-only dispatch, and a
   # skipped dependency would otherwise skip this job with it.
+  #
+  # TEMPORARILY OFF on the automatic path (2026-09-03). The npm name `vitest-auto-spies` is held by
+  # a tombstone from the earlier unpublish, so no trusted publisher can be registered for it yet and
+  # every automatic attempt ends in ENEEDAUTH — turning a green release red for a package that
+  # cannot go out. Until npm Support frees the name, the alias only publishes when someone asks for
+  # it by hand (Actions -> Auto Release -> Run workflow with `alias_ref`), which is also how to test
+  # whether access is back. To restore the automatic publish, put the second clause back:
+  #     || (needs.release.result == 'success' && needs.release.outputs.bump != 'none')
   publish-alias:
     needs: release
     if: >-
       always()
-      && (inputs.alias_ref != ''
-          || (needs.release.result == 'success' && needs.release.outputs.bump != 'none'))
+      && inputs.alias_ref != ''
     uses: ./.github/workflows/publish-alias.yml
     with:
       ref: ${{ inputs.alias_ref || needs.release.outputs.version }}

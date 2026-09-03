@@ -205,11 +205,19 @@ The generator reads the canonical `exports` map, so a new subpath reaches the al
 with the same conditions (only `/node` and `/eslint-plugin` ship CJS) and the same peer ranges. The
 `version` lifecycle script runs it and stages `alias/`, so an auto-release carries the bump.
 
-**Publishing is automatic too.** `.github/workflows/publish-alias.yml` runs after the canonical
-package reaches npm, over the same Trusted Publishing (OIDC) handshake and with the same provenance,
-so there is nothing to do by hand. It re-checks `alias:sync:check`, skips a version that is already
-published, and refuses to publish before the canonical package is on npm (the alias depends on it by
-an exact caret range, so an alias published first would be uninstallable).
+**Publishing is automatic too** — `.github/workflows/publish-alias.yml` runs after the canonical
+package reaches npm, over the same Trusted Publishing (OIDC) handshake and with the same provenance.
+It re-checks `alias:sync:check`, skips a version that is already published, and refuses to publish
+before the canonical package is on npm (the alias depends on it by an exact caret range, so an alias
+published first would be uninstallable).
+
+> **Switched off since 2026-09-03.** The npm name `vitest-auto-spies` is still held by a tombstone
+> from the earlier unpublish, so no trusted publisher can be registered for it and every run ends in
+> `ENEEDAUTH` — a red job on an otherwise green release, for a package that cannot go out anyway.
+> The automatic call is disabled in `auto-release.yml`; the alias now publishes only on a manual
+> *Run workflow* with `alias_ref`, which is also how to check whether npm has freed the name. To
+> restore it, put the second clause of the `publish-alias` job's `if` back — the note above the job
+> spells it out.
 
 It is `workflow_call`-only on purpose. npm validates the workflow that **entered** the run, and for
 a reusable workflow that is the caller — so the trusted publisher registered on `vitest-auto-spies`
