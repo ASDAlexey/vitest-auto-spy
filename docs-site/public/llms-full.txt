@@ -12033,7 +12033,8 @@ a `NodeList` stays assignable to the mapping of itself.
 `extendWithAutoSpies`; `/angular-http` adds `RequestMatcher`, `RequestExpectation`, `ResponseBody`,
 `FlushOptions`, `RequestErrorOptions`, `ExpectRequestOptions` and `HttpTestingOptions` for
 `expectRequest` and `provideHttpTesting`; `/nestjs` adds `NestUnit<T>`, `NestUnitSpies`,
-`NestUnitClass<T>`, `NestUnitProvider` and `CreateNestUnitOptions` for `createNestUnit`.
+`NestUnitClass<T>`, `NestUnitProvider` and `CreateNestUnitOptions` for `createNestUnit`;
+`/node` adds `StopTrackingNodeMocks`, the disarm handle `trackNodeMocks()` hands back.
 
 ## Exports by subpath
 

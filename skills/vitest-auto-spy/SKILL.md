@@ -127,6 +127,7 @@ it('loads', async () => {
 | a `signal()` / `computed()` field on the class under test               | `mockSignalProp(obj, prop, initial)` — returns the writable                                          |
 | a resource field, when the HTTP round trip is not the point             | `mockResourceProp(obj, prop, initial)` — `set` / `fail` / `loading`                                  |
 | the HTTP round trip _is_ the point                                      | `expectRequest(url).flush(body)` — `/angular-http`, settling included                                |
+| a node:test suite whose heap grows all run                              | `trackNodeMocks()` — `/node`, a private MockTracker                                                  |
 | a Nest provider whose constructor keeps changing                        | `createNestUnit(Target, { expose })` — built from its DI metadata                                    |
 | asserting a resource's value _and_ status together                      | `registerResourceMatchers()` → `toHaveResourceValue` / `toBeLoading`                                 |
 | a callback or config object the code under test built                   | `captureArg<T>()` in the assertion, then read `.value`                                               |
