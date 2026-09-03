@@ -138,6 +138,20 @@ function readsThrough(node: EsNode): boolean {
 }
 
 /**
+ * Whether the namespace hangs off `.mock`, in which case it is the runner's and not jasmine's.
+ *
+ * `spy.mock.calls[0]` is how every Vitest suite that never heard of jasmine reads its arguments, and
+ * without this it matched: the name is `calls`, it is read through (the `[0]`), and the chain walks
+ * down to one of this library's factories, so all three conditions held. Bare `spy.mock.calls` was
+ * fine and `spy.mock.calls[0]` was an error — a difference no message could explain. jasmine's shape
+ * is `spy.calls.…` and `spy.method.calls.…`; `.mock` is Vitest's own bookkeeping and belongs to
+ * nobody here.
+ */
+function underRunnerMock(node: EsMemberExpression): boolean {
+  return isMemberExpression(node.object) && memberName(node.object) === 'mock';
+}
+
+/**
  * Whether the `.and` sits on a `withArgs(…)` call.
  *
  * `spy.withArgs(1).and.returnValue(2)` is one line with one repair, and both halves of it are
@@ -150,7 +164,13 @@ function onWithArgsCall(node: EsMemberExpression): boolean {
 
 /** Whether this is `<a spy of this library>.<name>.<something>`. */
 export function namespaceOnSpy(context: RuleContext, node: EsMemberExpression, name: string): boolean {
-  return memberName(node) === name && readsThrough(node) && !onWithArgsCall(node) && fromLibrarySpy(context, node.object);
+  return (
+    memberName(node) === name &&
+    readsThrough(node) &&
+    !onWithArgsCall(node) &&
+    !underRunnerMock(node) &&
+    fromLibrarySpy(context, node.object)
+  );
 }
 
 /** Whether this is `<a spy of this library>.withArgs(…)`. */

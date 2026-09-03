@@ -37,40 +37,55 @@ export interface AutoSpyEslintPlugin {
 const PLUGIN_NAME = 'vitest-auto-spy';
 
 /**
- * Everything on: the five "there is a helper for this" rules plus the guards.
+ * Every rule, every one of them an **error** (4.0.0). Before that the config was a graded mix of
+ * `error` / `warn` / `off`, which meant the plugin decided how much each project cared.
  *
- * Two of the jasmine rules are set differently from the rest, and both settings are the honest one:
+ * A `warn` is a finding a build does not stop for, so in a repository that does not read lint
+ * output it is the same as `off` with extra noise. Choosing that for someone else is the part that
+ * was wrong: which findings block a merge is a project's call, and it is one line of config either
+ * way. So the default is the strict end, and the docs carry the dial —
+ * `docs-site/utilities/eslint-plugin.md` → *Tuning it for your project*.
  *
- * - `jasmine-namespace-without-entry` warns rather than errors for the same reason
- *   `no-unregistered-inject-spy` does — the fact that settles it (does the project install the
- *   compatibility layer?) is usually written in a setup file the linted spec never imports, so the
- *   rule reads one file and can be wrong about the other. Its `setupModules` option is how a project
- *   tells it where the layer comes from.
- * - `prefer-native-spy-api` is **off**. It reports code that works: the compatibility layer is what
- *   a suite runs on while it is being migrated, and a rule that flags every line of a bridge for as
- *   long as the bridge is needed is noise. Turn it on when the suite is green and the migration is
- *   being finished — `eslint --fix` then does most of the rewrite, and the codemod does the rest.
+ * **Three of these can report on code that is correct, and each one is listed there with what to do
+ * about it.** They are not mistakes in the rules; they are the limit of what one file can know, and
+ * only one of the three has an option, which is worth knowing before reaching for a severity:
+ *
+ * - `jasmine-namespace-without-entry` decides on a fact usually written in a *setup* file the linted
+ *   spec never imports: does this project install the jasmine layer? `setupModules` is how a project
+ *   answers — `['error', { setupModules: ['./test-setup'] }]` — and it is the fix, not the severity.
+ * - `no-unregistered-inject-spy` has **no** option, and needs none in most projects: it silences
+ *   itself whenever it cannot read a file's registrations in full (no `provideAutoSpy` at all, a
+ *   spread or an unknown factory in `providers`, `createWithAutoSpies`, `renderShallow`,
+ *   `TestBed.overrideProvider`). What is left over is the narrow case it cannot model — a file that
+ *   registers some doubles in the readable shape and obtains another through a helper this scan does
+ *   not follow — and there the answer is a scoped `'off'` or a per-line disable.
+ * - `prefer-native-spy-api` reports code that *works*: the compatibility layer is what a suite runs
+ *   on while it is being migrated, so on day one of a migration it fires on every line of the
+ *   bridge. That is the correct time to switch it off for a while — the migration is finished when
+ *   it is silent, and `eslint --fix` plus the codemod do most of the rewrite.
  */
+// Spelled out rather than generated from `rules`, so that a rule added without a line here fails
+// the "ships every rule it recommends" test instead of being silently switched on.
 const recommendedRules: Record<string, RuleSeverity> = {
-  [`${PLUGIN_NAME}/prefer-provide-auto-spy`]: 'warn',
-  [`${PLUGIN_NAME}/prefer-create-spy-from-class`]: 'warn',
-  [`${PLUGIN_NAME}/prefer-inject-spy`]: 'warn',
-  [`${PLUGIN_NAME}/prefer-as-spy`]: 'warn',
+  [`${PLUGIN_NAME}/prefer-provide-auto-spy`]: 'error',
+  [`${PLUGIN_NAME}/prefer-create-spy-from-class`]: 'error',
+  [`${PLUGIN_NAME}/prefer-inject-spy`]: 'error',
+  [`${PLUGIN_NAME}/prefer-as-spy`]: 'error',
   [`${PLUGIN_NAME}/no-object-define-property`]: 'error',
   [`${PLUGIN_NAME}/no-expect-in-subscribe`]: 'error',
   [`${PLUGIN_NAME}/no-shared-module-level-mock`]: 'error',
-  [`${PLUGIN_NAME}/no-mocked-for-spy`]: 'warn',
+  [`${PLUGIN_NAME}/no-mocked-for-spy`]: 'error',
   [`${PLUGIN_NAME}/no-done-callback`]: 'error',
   [`${PLUGIN_NAME}/no-floating-assertion`]: 'error',
   [`${PLUGIN_NAME}/no-bare-called-with`]: 'error',
   [`${PLUGIN_NAME}/no-overridden-provider`]: 'error',
-  [`${PLUGIN_NAME}/no-inject-before-override`]: 'warn',
+  [`${PLUGIN_NAME}/no-inject-before-override`]: 'error',
   [`${PLUGIN_NAME}/no-import-time-spread`]: 'error',
-  [`${PLUGIN_NAME}/no-unregistered-inject-spy`]: 'warn',
-  [`${PLUGIN_NAME}/jasmine-namespace-without-entry`]: 'warn',
+  [`${PLUGIN_NAME}/no-unregistered-inject-spy`]: 'error',
+  [`${PLUGIN_NAME}/jasmine-namespace-without-entry`]: 'error',
   [`${PLUGIN_NAME}/no-jasmine-globals`]: 'error',
   [`${PLUGIN_NAME}/no-save-arguments-by-value`]: 'error',
-  [`${PLUGIN_NAME}/prefer-native-spy-api`]: 'off',
+  [`${PLUGIN_NAME}/prefer-native-spy-api`]: 'error',
 };
 
 const plugin: AutoSpyEslintPlugin = {

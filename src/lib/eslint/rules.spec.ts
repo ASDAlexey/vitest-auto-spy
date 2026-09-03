@@ -1367,15 +1367,19 @@ describe('the plugin', () => {
     ]);
   });
 
-  it('ships the migration rules at the level each one has earned', () => {
-    const level = (name: string): string | undefined => plugin.configs.recommended.rules[`vitest-auto-spy/${name}`];
+  it('ships every rule as an error, with no graded middle for the plugin to decide', () => {
+    const levels = Object.values(plugin.configs.recommended.rules);
 
-    // The layer is what a suite runs on while it is being migrated, so the rule that unwinds it is
-    // off until somebody turns it on; the one that cannot see a project-level setup file warns.
-    expect(level('prefer-native-spy-api')).toBe('off');
-    expect(level('jasmine-namespace-without-entry')).toBe('warn');
-    expect(level('no-jasmine-globals')).toBe('error');
-    expect(level('no-save-arguments-by-value')).toBe('error');
+    // Until 4.0.0 this config was a mix of `error` / `warn` / `off`, which chose for the consumer
+    // how much each finding mattered — and a `warn` in a repository that does not read lint output
+    // is `off` with noise. Which findings block a merge is one line of config in the consumer, so
+    // the default is the strict end and the docs carry the dial. Three rules can report on correct
+    // code: `jasmine-namespace-without-entry` decides on a setup file the spec never imports (its
+    // `setupModules` option is the fix), `no-unregistered-inject-spy` takes no option and silences
+    // itself wherever it cannot read a file's registrations in full, and `prefer-native-spy-api`
+    // flags a bridge that is still needed. Documented overrides, not severities.
+    expect(new Set(levels)).toEqual(new Set(['error']));
+    expect(levels).toHaveLength(Object.keys(rules).length);
   });
 
   it('documents every rule with a link to the recipe it recommends', () => {
@@ -1500,6 +1504,21 @@ describe('jasmine-namespace-without-entry', () => {
     expect(lint(uninstalled, RULE)).toEqual([`vitest-auto-spy/${RULE}`]);
     expect(firstMessage(uninstalled, RULE)).toContain('vitest-auto-spy/jasmine');
     expect(firstMessage(uninstalled, RULE)).toContain('`.and.returnValue(x)` is `.mockReturnValue(x)`');
+  });
+
+  it.each([
+    ['read as a whole', 'expect(api.load.mock.calls).toHaveLength(1);'],
+    ['indexed', 'expect(api.load.mock.calls[0]).toEqual([1]);'],
+    ['measured', 'expect(api.load.mock.calls.length).toBe(1);'],
+    ['indexed twice, optionally', 'expect(api.load.mock.calls[0]?.[0]).toBe(1);'],
+    ['on the spy rather than a method', 'expect(api.mock.calls[0]).toEqual([]);'],
+  ])('leaves the runner’s own `mock.calls` alone — %s', (_label, statement) => {
+    // The shape every Vitest suite that never heard of jasmine writes. It matched until 4.0.0: the
+    // member is named `calls`, the `[0]` makes it read *through*, and the chain walks down to one of
+    // this library's factories — all three conditions the rule had. Bare `mock.calls` passed and
+    // `mock.calls[0]` was reported, a difference no message could explain, and at `warn` nobody
+    // chased it. jasmine's shape is `spy.calls.…`; `.mock` is the runner's bookkeeping.
+    expect(lint(`const api = createSpyFromClass(Api);\n${statement}`, RULE)).toEqual([]);
   });
 
   it('names the direct equivalent of each namespace', () => {
