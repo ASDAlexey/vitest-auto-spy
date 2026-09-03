@@ -14,6 +14,12 @@
 //   --repeats <n>        Measured runs per cell, after one discarded warm-up. Default: 3
 //   --methods <n>        Prototype methods on the generated subject class. Default: 20
 //   --coverage <mode>    on | off | both. Default: on
+//   --coverage-provider <p>
+//                        v8 | istanbul. Default: v8 — what the published numbers use. Istanbul
+//                        inserts its counters at transform time instead of reading V8's, so it
+//                        adds a larger constant to every arm and compresses the ratios between
+//                        them; a suite whose CI runs istanbul should read that column, not this
+//                        one. Installed into node_modules on demand, saved to nothing.
 //   --isolate <bool>     Vitest test.isolate for the generated project. Default: true
 //   --ours-source <mode> src | dist — what the `ours`/`ours-proxy` arms import. Default: dist.
 //                        'dist' is the fair comparison: a consumer loads prebuilt dist/, under
@@ -82,6 +88,9 @@ Options:
   --repeats <n>        Measured runs per cell, after one discarded warm-up. Default: 3
   --methods <n>        Prototype methods on the generated subject class. Default: 20
   --coverage <mode>    on | off | both. Default: on
+  --coverage-provider <p>  v8 | istanbul. Default: v8 (what the published numbers use).
+                       Istanbul instruments at transform time, so it adds a bigger constant to
+                       every arm and compresses the ratios. Installed on demand, unsaved.
   --isolate <bool>     Vitest test.isolate for the generated project. Default: true
   --ours-source <mode> src | dist — what ours/ours-proxy import. Default: dist (see script header).
   --out <file>         Write full JSON results to this path in addition to the table.
@@ -111,6 +120,7 @@ function parseArgs(argv) {
     repeats: 3,
     methods: 20,
     coverage: 'on',
+    coverageProvider: 'v8',
     isolate: true,
     oursSource: 'dist',
     out: null,
@@ -146,6 +156,9 @@ function parseArgs(argv) {
       case '--coverage':
         opts.coverage = next();
         break;
+      case '--coverage-provider':
+        opts.coverageProvider = next();
+        break;
       case '--isolate':
         opts.isolate = next() !== 'false';
         break;
@@ -174,6 +187,9 @@ function parseArgs(argv) {
   }
   if (!['on', 'off', 'both'].includes(opts.coverage)) {
     throw new Error(`--coverage must be on, off or both\n\n${USAGE}`);
+  }
+  if (!['v8', 'istanbul'].includes(opts.coverageProvider)) {
+    throw new Error(`--coverage-provider must be v8 or istanbul\n\n${USAGE}`);
   }
   if (!['src', 'dist'].includes(opts.oursSource)) {
     throw new Error(`--ours-source must be src or dist\n\n${USAGE}`);
@@ -288,7 +304,7 @@ function specFileSource(index) {
   );
 }
 
-function generateProject(dir, { arm, totalTests, methodCount, coverage, isolate, oursSource }) {
+function generateProject(dir, { arm, totalTests, methodCount, coverage, coverageProvider, isolate, oursSource }) {
   const fixturesDir = path.join(dir, 'fixtures');
   const specsDir = path.join(dir, 'specs');
   mkdirSync(fixturesDir, { recursive: true });
@@ -318,7 +334,7 @@ export default defineConfig({
     globals: false,
     isolate: ${isolate},
     coverage: {
-      provider: 'v8',
+      provider: '${coverageProvider}',
       reporter: ['text-summary'],
       include: ['fixtures/**/*.ts'],
     },
@@ -340,6 +356,29 @@ function installHirez(dir) {
   } catch (err) {
     const detail = err.stderr ? err.stderr.toString() : err.message;
     throw new Error(`Could not install ${spec} (needed for the "hirez" arm) — no network, or npm failed:\n${detail}`);
+  }
+}
+
+// Into the repository root, not the temp project like `hirez`: Vitest imports the coverage provider
+// from its own file under `node_modules/vitest/`, so Node resolves it upward from there and never
+// sees a copy installed beside the generated config. `--no-save --no-package-lock` keeps the
+// manifest and the lockfile untouched — this repo's own gate runs `v8` and must not gain a
+// devDependency for an opt-in flag. Pinned to the installed Vitest: the coverage packages are
+// released in lockstep with it.
+function ensureCoverageIstanbul(vitestVersion) {
+  const installed = path.join(REPO_ROOT, 'node_modules/@vitest/coverage-istanbul/package.json');
+  if (existsSync(installed) && readJson(installed).version === vitestVersion) return;
+
+  const spec = `@vitest/coverage-istanbul@${vitestVersion}`;
+  console.log(`Installing ${spec} into node_modules (not saved to package.json) ...`);
+  try {
+    execFileSync('npm', ['install', '--no-save', '--no-package-lock', '--no-audit', '--no-fund', '--silent', spec], {
+      cwd: REPO_ROOT,
+      stdio: ['ignore', 'ignore', 'pipe'],
+    });
+  } catch (err) {
+    const detail = err.stderr ? err.stderr.toString() : err.message;
+    throw new Error(`Could not install ${spec} (needed for --coverage-provider istanbul) — no network, or npm failed:\n${detail}`);
   }
 }
 
@@ -389,7 +428,11 @@ function sampleProcessTablePosix() {
 function sampleProcessTableWindows() {
   const out = execFileSync(
     'powershell',
-    ['-NoProfile', '-Command', 'Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,WorkingSetSize | ConvertTo-Json -Compress'],
+    [
+      '-NoProfile',
+      '-Command',
+      'Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,WorkingSetSize | ConvertTo-Json -Compress',
+    ],
     { encoding: 'utf8' },
   );
   const parsed = JSON.parse(out);
@@ -523,8 +566,11 @@ async function main() {
   printEnvironment(env);
 
   if (opts.arms.includes('hirez')) {
-    console.log(`About to install (pinned, per project that needs it): @bugsplat/vitest-auto-spies@${PINNED_DEPS['@bugsplat/vitest-auto-spies']}`);
+    console.log(
+      `About to install (pinned, per project that needs it): @bugsplat/vitest-auto-spies@${PINNED_DEPS['@bugsplat/vitest-auto-spies']}`,
+    );
   }
+  if (opts.coverage !== 'off' && opts.coverageProvider === 'istanbul') ensureCoverageIstanbul(env.vitest);
   if (opts.oursSource === 'dist' && (opts.arms.includes('ours') || opts.arms.includes('ours-proxy'))) {
     ensureDistBuilt();
   }
@@ -559,12 +605,12 @@ async function main() {
     for (const size of opts.sizes) {
       for (const coverage of opts.coverageModes) {
         console.log(
-      renderHeading(
-        `${size.toLocaleString('en-US')} tests · coverage ${coverage ? 'on' : 'off'} · isolate ${opts.isolate} · ours from ${opts.oursSource}`,
-        styleFor(process.stdout, process.argv.slice(2)),
-        3,
-      ).join('\n'),
-    );
+          renderHeading(
+            `${size.toLocaleString('en-US')} tests · coverage ${coverage ? opts.coverageProvider : 'off'} · isolate ${opts.isolate} · ours from ${opts.oursSource}`,
+            styleFor(process.stdout, process.argv.slice(2)),
+            3,
+          ).join('\n'),
+        );
 
         // Generate + install every arm's project before running anything, so timing rounds
         // below are pure round-robin — no arm pays a first-touch cost the others don't.
@@ -577,6 +623,7 @@ async function main() {
             totalTests: size,
             methodCount: opts.methods,
             coverage,
+            coverageProvider: opts.coverageProvider,
             isolate: opts.isolate,
             oursSource: opts.oursSource,
           });
@@ -638,6 +685,7 @@ async function main() {
           results.push({
             size,
             coverage,
+            coverageProvider: coverage ? opts.coverageProvider : null,
             isolate: opts.isolate,
             methods: opts.methods,
             oursSource: opts.oursSource,

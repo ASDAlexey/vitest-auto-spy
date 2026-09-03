@@ -97,6 +97,31 @@ ratio sits next to a megabyte count, and `npm run bench` used to hand the termin
 ten-column reporter — nine of those columns being figures this project's methodology refuses to
 quote.
 
+### The suite runs under coverage, and which provider is a flag
+
+`bench:suite` runs with coverage **on** by default, because that is the shape a CI job actually has.
+The constant coverage adds lands on every arm equally, and what the table is for is the library's
+share of a run that pays it.
+
+Which provider adds that constant matters more than it looks. The published numbers use `v8`, which
+reads counters V8 already keeps and pays its bill at report time. `@vitest/coverage-istanbul` inserts
+counters into the source at transform time instead, so the constant is larger and every ratio in the
+table moves closer to 1. A suite whose CI runs istanbul should measure the same way:
+
+```bash
+npm run bench:suite -- --coverage-provider istanbul
+```
+
+It is not a devDependency here. Vitest resolves a coverage provider from its own directory, so a copy
+installed beside the generated project is never found; the script installs it into `node_modules` on
+demand and saves nothing to `package.json` or the lockfile.
+
+The micro-benchmarks (`bench`, `bench:vs`, `bench:memory`) run without coverage, and that is not an
+oversight. A consumer loads this package from `node_modules`, which both providers leave
+uninstrumented — v8 drops the URL before the report, istanbul never transforms it — so instrumenting
+the code under measurement would measure the provider rather than the library. The coverage bill is
+real, and showing it is the suite table's job.
+
 ### Green and red
 
 In a terminal the frame carries the verdict, so a dozen tables can be read by scrolling rather than
