@@ -52,6 +52,27 @@ interface MatcherConfig {
   value: unknown;
 }
 
+/**
+ * Whether these are the args of a call that {@link ArgsMap} can look up by value: exactly one
+ * argument, primitive, and rendered by the serializer the same way a `Map` keys it.
+ */
+function isSinglePrimitiveArgs(args: unknown[]): boolean {
+  if (args.length !== 1) {
+    return false;
+  }
+
+  const [argument] = args;
+  const kind = typeof argument;
+
+  if (kind === 'object' || kind === 'function' || kind === 'symbol') {
+    return argument === null;
+  }
+
+  // `-0` and `0` are one key under `SameValueZero` and two keys to the serializer, which keeps them
+  // apart on purpose.
+  return !Object.is(argument, -0);
+}
+
 /** Whether `value` is an asymmetric matcher (exposes an `asymmetricMatch` method). */
 function isAsymmetricMatcher(value: unknown): value is AsymmetricMatcher {
   return typeof value === 'object' && value !== null && 'asymmetricMatch' in value && typeof value.asymmetricMatch === 'function';
@@ -115,6 +136,21 @@ export class ArgsMap {
   // on a spy configured with `calledWith(1)` walks and stringifies the whole component graph to
   // build a key that provably cannot match, and throws it away one line later.
   readonly #arities = new Set<number>();
+  /**
+   * The configs of exactly one primitive argument, keyed by the argument itself.
+   *
+   * `calledWith(1)` / `calledWith('id')` is what nearly every spec writes, and it is looked up on
+   * **every call** of that spy. Through the string map that costs a rendered key per call — an array
+   * from `map`, a string per argument, a joined string, then a hash — for a lookup that a `Map` can
+   * do on the value with no allocation at all. The configs live in both maps: the string map still
+   * owns `configured()` and the arity set, so nothing about the failure messages or the miss check
+   * changes.
+   *
+   * Only shapes where the two agree go in here. A symbol renders by description, so two distinct
+   * symbols that share one are the same key in the string map and different keys in a `Map`; `-0`
+   * renders apart from `0` and is the same key under `SameValueZero`. Both stay on the string path.
+   */
+  readonly #exactSinglePrimitive = new Map<unknown, unknown>();
 
   set(key: unknown, value: unknown): void {
     if (Array.isArray(key) && hasAsymmetricMatcher(key)) {
@@ -125,6 +161,10 @@ export class ArgsMap {
 
     if (Array.isArray(key)) {
       this.#arities.add(key.length);
+
+      if (isSinglePrimitiveArgs(key)) {
+        this.#exactSinglePrimitive.set(key[0], value);
+      }
     }
 
     this.#map[this.#serialize(key)] = value;
@@ -133,6 +173,15 @@ export class ArgsMap {
   get(key: unknown): unknown {
     if (Array.isArray(key) && !this.#arities.has(key.length)) {
       return this.#findByMatcher(key);
+    }
+
+    // The common shape, and the only one that reaches a configured value without rendering a key:
+    // a call of one primitive argument can only match a config of one primitive argument, and every
+    // one of those is in this map.
+    if (Array.isArray(key) && isSinglePrimitiveArgs(key)) {
+      const hit = this.#exactSinglePrimitive.get(key[0]);
+
+      return hit === undefined ? this.#findByMatcher(key) : hit;
     }
 
     const serialized = this.#serialize(key);

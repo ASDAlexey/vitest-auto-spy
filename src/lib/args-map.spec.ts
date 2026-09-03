@@ -17,6 +17,40 @@ describe('ArgsMap', () => {
     expect(map.get([1, 'b'])).toBeUndefined();
   });
 
+  it('looks a single primitive argument up by value, keeping the shapes the serializer separates', () => {
+    const map = new ArgsMap();
+    const first = Symbol('id');
+    const second = Symbol('id');
+
+    map.set([null], 'null');
+    map.set([undefined], 'undefined');
+    map.set([0], 'zero');
+    map.set([-0], 'minus zero');
+    map.set([Number.NaN], 'nan');
+    map.set([first], 'symbol');
+
+    expect(map.get([null])).toBe('null');
+    expect(map.get([undefined])).toBe('undefined');
+    expect(map.get([Number.NaN])).toBe('nan');
+    // `-0` renders apart from `0` and is the same key under `SameValueZero`, so both stay on the
+    // string path and keep the serializer's answer.
+    expect(map.get([0])).toBe('zero');
+    expect(map.get([-0])).toBe('minus zero');
+    // A symbol renders by its description, so two distinct symbols that share one match each other
+    // here — the behaviour the string path has always had.
+    expect(map.get([first])).toBe('symbol');
+    expect(map.get([second])).toBe('symbol');
+  });
+
+  it('re-configuring the same single primitive replaces the value rather than shadowing it', () => {
+    const map = new ArgsMap();
+
+    map.set([1], 'first');
+    map.set([1], 'second');
+
+    expect(map.get([1])).toBe('second');
+  });
+
   it('matches deep object args via the circular-safe path', () => {
     const map = new ArgsMap();
     map.set([{ id: 1 }], 'obj');
