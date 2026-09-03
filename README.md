@@ -23,7 +23,7 @@ faster at suite scale ([benchmarks](#benchmarks)) — and for
 [![downloads per month](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fapi.npmjs.org%2Fdownloads%2Fpoint%2Flast-month%2Fvitest-auto-spy&query=%24.downloads&color=brightgreen&logo=npm&label=downloads%2Fmonth)](https://www.npmjs.com/package/vitest-auto-spy)
 [![downloads over 18 months](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fapi.npmjs.org%2Fdownloads%2Fpoint%2F2026-06-21%3A2030-01-01%2Fvitest-auto-spy&query=%24.downloads&color=brightgreen&logo=npm&label=downloads%2F18mo)](https://www.npmjs.com/package/vitest-auto-spy)
 [![CI](https://github.com/ASDAlexey/vitest-auto-spy/actions/workflows/ci.yml/badge.svg)](https://github.com/ASDAlexey/vitest-auto-spy/actions/workflows/ci.yml)
-[![minzipped size](https://img.shields.io/badge/minzip-12.9%20kB-brightgreen)](#install)
+[![minzipped size](https://img.shields.io/badge/minzip-14.3%20kB-brightgreen)](#install)
 [![types](https://img.shields.io/npm/types/vitest-auto-spy?logo=typescript&logoColor=white)](https://www.npmjs.com/package/vitest-auto-spy)
 [![coverage](https://img.shields.io/badge/coverage-100%25-brightgreen)](https://github.com/ASDAlexey/vitest-auto-spy/actions/workflows/ci.yml)
 [![license](https://img.shields.io/npm/l/vitest-auto-spy?color=blue)](./LICENSE)
