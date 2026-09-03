@@ -75,8 +75,14 @@ const CHUNKED_ENTRIES = [
   'src/svelte.ts',
   'src/setup.ts',
   'src/zone.ts',
-  'src/eslint-plugin.ts',
 ];
+
+// `src/eslint-plugin.ts` is built once, as CommonJS, and `dist/eslint-plugin.js` is a five-line ESM
+// re-export of it. The rules are ~80 kB of AST-walking that ESLint loads once per lint run and no
+// spec file ever imports, so building it twice was 80 695 B of `dist` — 11 % of the package — spent
+// on a byte-for-byte second copy. The plugin's only export is `default`, which is exactly what CJS
+// interop gives an ESM importer, so the wrapper is total.
+const WRAPPED_CJS_ENTRIES = ['src/eslint-plugin.ts'];
 
 // The two entries built as one file each. Every consumer imports the root on every spec, and every
 // Angular consumer imports both.
@@ -191,7 +197,7 @@ export default defineConfig([
     // build has no reason to follow the JavaScript split — one pass over every entry keeps the
     // shared `.d.ts` chunks shared, where letting the unsplit pass below emit its own gave
     // `index.d.ts` and `angular.d.ts` a private copy of the type graph and cost ~106 kB.
-    dts: { entry: [...CHUNKED_ENTRIES, ...SOLO_ENTRIES] },
+    dts: { entry: [...CHUNKED_ENTRIES, ...SOLO_ENTRIES, ...WRAPPED_CJS_ENTRIES] },
     esbuildPlugins: [useSharedState()],
   },
   {
@@ -240,9 +246,17 @@ export default defineConfig([
     // on its own) and `eslint-plugin` (loaded by a CommonJS `eslint.config.cjs`, no registry
     // involved). `bun` is dropped too — Bun runs ESM natively and `bun test` files are ESM. And for
     // the same reason these two must stay self-contained, `useSharedState()` is not applied here.
-    entry: ['src/node.ts', 'src/eslint-plugin.ts'],
+    entry: ['src/node.ts', ...WRAPPED_CJS_ENTRIES],
     format: ['cjs'] as const,
     clean: false,
+    // `dist/eslint-plugin.js`, the ESM half of the `exports` entry, written here rather than built:
+    // see `WRAPPED_CJS_ENTRIES`. Node loads a `.cjs` from an ESM graph and hands `module.exports`
+    // over as the default import, which is the plugin object itself.
+    onSuccess: async (): Promise<void> => {
+      const { writeFileSync } = await import('node:fs');
+
+      writeFileSync('dist/eslint-plugin.js', "import plugin from './eslint-plugin.cjs';\n\nexport { plugin as default };\n");
+    },
   },
   {
     ...SHARED,
