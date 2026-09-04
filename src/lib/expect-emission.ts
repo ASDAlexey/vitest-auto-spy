@@ -10,6 +10,7 @@
  * dependency and the helpers work with rxjs `Observable`s, Angular `toObservable()` results, signals
  * wrapped in `toObservable`, or a hand-rolled subscribable.
  */
+import { emissionTimeout } from './emission-timeout';
 import { serializeValue } from './serialize-args';
 
 /** Minimal observer accepted by {@link SubscribableLike}. */
@@ -144,35 +145,8 @@ export interface EmissionOptions<T = unknown> {
   advance?: () => void;
 }
 
-let defaultTimeoutMs = 1000;
-
-/**
- * Change the wait every emission helper uses when a call does not name one. Process-wide; belongs
- * in a setup file, next to `setupAutoSpy()`.
- *
- * It exists for one shape, and that shape is common enough to deserve a knob: a suite running under
- * **global fake timers**. The watchdog below deliberately runs on the real clock, so a *failing*
- * assertion in such a suite spends a real second before it reports — and the reflex that produces,
- * `{ timeout: 0 }` at every call site, is the worst of the options: it disables the watchdog, so
- * the next silent stream hangs until the runner's own timeout with no message worth reading. One
- * line here instead:
- *
- * ```ts
- * // vitest.setup.ts
- * setupAutoSpy({ globalFakeTimers: true });
- * setEmissionTimeout(100); // the clock is frozen; a real second buys nothing
- * ```
- *
- * 100 ms of *real* time is a large budget under fake timers, where the only real time that can pass
- * is the microtask/macrotask drain between `await`s — nothing that waits on the clock can advance
- * without the spec advancing it. Leave the default alone in a suite with real timers.
- *
- * `expectNoEmission` is unaffected: its wait is a quiet window, not a watchdog, and it defaults to
- * one macrotask.
- */
-export function setEmissionTimeout(milliseconds: number): void {
-  defaultTimeoutMs = milliseconds;
-}
+// Re-exported so the public surface of the emission helpers stays one import for consumers.
+export { setEmissionTimeout } from './emission-timeout';
 
 /**
  * The real timers, captured at import time — and it has to be import time, twice over.
@@ -301,7 +275,7 @@ function subscribeAndCollect<T>(
     subscription?.unsubscribe();
   };
 
-  const timeout = options?.timeout ?? defaultTimeoutMs;
+  const timeout = options?.timeout ?? emissionTimeout();
   const timer =
     timeout > 0
       ? setTimer(() => {

@@ -109,17 +109,24 @@ rmSync(OUT_DIR, { recursive: true, force: true });
  *                            factories every other entry uses. A second copy means a suite that
  *                            called `enableJasmineCompat()` still gets spies without `.and`.
  *   * `package-identity`   — the duplicate-copy report.
- *   * `expect-emission`    — `defaultTimeoutMs`, which `setEmissionTimeout()` documents as
+ *   * `emission-timeout`   — `defaultTimeoutMs`, which `setEmissionTimeout()` documents as
  *                            process-wide. The root entry and `/angular` both export the pair and
  *                            an Angular consumer imports both, so a second copy would make
  *                            `setEmissionTimeout()` from the root silently miss `expectEmission()`
  *                            from `/angular`.
  *
+ * Only the *state* goes in, never the code that reads it: `expect-emission.ts` used to be the member
+ * here, and it dragged its 10 kB of pure helper into every entry that imports this file — including
+ * `/rxjs`, `/console`, `/nestjs`, `/setup`, `/jasmine`, `/jasmine-compat` and `/dom-stubs`, none of
+ * which export an emission helper at all. Splitting the cell out (`emission-timeout.ts`) took
+ * −10.0 kB off each of those seven graphs and −2.5 kB off the eight that do use it, with the module
+ * count unchanged everywhere; measured 2026-09-04 with `scripts/cold-import.mjs`.
+ *
  * Pinning them to one fixed filename, rather than leaving them to esbuild's code splitting, is what
  * makes the single-registry invariant structural instead of emergent — and it is what lets the
  * unsplit pass below exist at all, since a parallel pass cannot read another pass's chunk names.
  */
-const SHARED_STATE_MODULES = ['expect-emission', 'jasmine-support', 'mock-adapter', 'observable-support', 'package-identity'] as const;
+const SHARED_STATE_MODULES = ['emission-timeout', 'jasmine-support', 'mock-adapter', 'observable-support', 'package-identity'] as const;
 
 const SHARED_STATE_FILE = 'shared-state';
 
@@ -130,8 +137,8 @@ const SHARED_STATE_RE = new RegExp(String.raw`(?:^|[\\/])(?:${SHARED_STATE_MODUL
 /**
  * Builds `dist/shared-state.js` out of a barrel that exists only in memory.
  *
- * tsup needs a real path for the entry (it globs them), so the pass names one of the four modules
- * and this plugin swaps that entry point for a generated re-export of all four. Everything the four
+ * tsup needs a real path for the entry (it globs them), so the pass names one of the five modules
+ * and this plugin swaps that entry point for a generated re-export of all five. Everything the five
  * pull in is inlined here; nothing is externalised, or the file would not be self-contained.
  */
 function bundleSharedState(): Plugin {
@@ -173,7 +180,7 @@ function useSharedState(): Plugin {
 export default defineConfig([
   {
     ...SHARED,
-    // The one file the four stateful modules live in. `dts` is off: nothing imports this path by
+    // The one file the five stateful modules live in. `dts` is off: nothing imports this path by
     // hand, and each entry's own `.d.ts` carries the types already.
     entry: { [SHARED_STATE_FILE]: 'src/lib/mock-adapter.ts' },
     format: ['esm'] as const,
@@ -207,7 +214,7 @@ export default defineConfig([
     // The cost of importing an entry is module count, not code volume: the same 58.8 kB bundled into
     // a single module costs 0.1 ms. The root reached the loader as 8 files and `angular` as 10, and
     // every Angular consumer pays for both on every spec. `splitting: false` collapses each entry to
-    // one file; `useSharedState()` keeps the four stateful modules outside it, so there is still
+    // one file; `useSharedState()` keeps the five stateful modules outside it, so there is still
     // exactly one registry.
     //
     // Measured under Node's native loader, before and after, on identical sources: the root entry
