@@ -15,7 +15,7 @@ consumer. Docs for the migration half of this list have landed in
 `docs-site/migrating.md` ("Reading a spy back out of the container", "The type names", and three
 new rows in the no-twin table).
 
-- [ ] **The `Cannot redefine property` guard covers this library's own seam only.**
+- [~] **The `Cannot redefine property` guard covers this library's own seam only.**
       `lib/mock-adapter.ts:107` catches the `TypeError` out of `spyOnGetter` / `spyOnSetter` and
       re-throws it naming the target, the reason the property is locked and `DOCS_LINKS.realSeam`,
       which is the whole of the fix that shipped. It sits on one path. A consumer's own
@@ -116,7 +116,7 @@ re-deriving:
 - A spec whose own `afterEach` calls `vi.useRealTimers()` defeats `frozenClockHint`: hooks run in
   reverse registration order, so the clock is real again by the time the hint reads it.
 
-- [ ] **One more Jest/Vitest budget difference, reporting-only and not acted on.**
+- [~] **One more Jest/Vitest budget difference, reporting-only and not acted on.**
       `slowTestThreshold` is `5` in Jest (**seconds**, `jest-config`) and `300` in Vitest
       (**milliseconds**), so a migrated suite starts marking most of its files slow. Nothing fails, so
       there is nothing to annotate; it is documented in `docs-site/migrating.md` and that is probably
@@ -268,12 +268,10 @@ factories together cost **13.8 ms of a 1.32 s run — 1.0% of wall clock, 0.07% 
 may be argued on suite wall time.** The arguments are memory, pathological input, and per-file
 import cost.
 
-- [ ] **A bundle-size reduction pass.** Asked for as the next piece of work, and it opens partly
-      against the de-chunking that just landed, which bought **−0.8 to −1.0 ms per spec file for
-      +120 kB of `dist`**. So the first task is not a lever at all: put install weight and per-file
-      import cost into comparable terms, because today one is counted in kB and the other in ms and
-      nothing in this file converts between them — until it does, any cut risks silently paying back
-      the win just bought.
+- [~] **A bundle-size reduction pass — the named lever was taken 2026-09-04; what is left is
+  recorded below so it is not re-proposed.** The pass opened against the de-chunking that had just
+  landed, which bought **−0.8 to −1.0 ms per spec file for +120 kB of `dist`**, so the first task
+  was not a lever at all: put install weight and per-file import cost into comparable terms.
 
       **The rate exists now — measured 2026-09-03, and it is nothing like linear.** Same harness as
       the subpath split (one process per sample, `vitest` imported first, medians of interleaved
@@ -317,6 +315,36 @@ import cost.
       shared chunk, which is the cheapest thing here to re-examine. And splitting the API into
       subpaths is already measured and **rejected**: ESM re-export is eager, so the only way to stop
       evaluating a module is to stop exporting it.
+
+      **What shipped: pin the state, not the code.** `expect-emission.ts` was never the stateful
+      module — one `let defaultTimeoutMs = 1000` inside it was, and pinning the file dragged 10 002 B
+      of pure helper into every entry that imports the shared chunk. Splitting the cell out
+      (`src/lib/emission-timeout.ts`, which is now the `SHARED_STATE_MODULES` member) took
+      `dist/shared-state.js` from **17 467 → 7 465 B** and **−10.0 kB off the module graph** of
+      `/rxjs` (−33.8 %), `/jasmine-compat` (−44.5 %), `/dom-stubs` (−24.3 %), `/console` (−16.9 %),
+      `/nestjs` (−11.3 %), `/jasmine` (−10.6 %) and `/setup` (−10.3 %) — none of which export an
+      emission helper at all — plus −2.5 kB off each of the eight entries that do, because inlined
+      into the entry it tree-shakes better than it did behind a barrel re-export. **No entry gains a
+      module.** `dist` on disk +12.6 kB (+1.2 %), a dev-only duplication that never reaches a
+      production bundle. `/setup` min+gzip moves 12 092 → 12 072 B — the number the minification
+      lesson demands before any byte is touched, and it moves the right way.
+
+      Two things measured and worth not re-deriving. **The ms side is at the harness's noise floor:**
+      predicted 0.077 ms from the 130 kB/ms rate, measured medians −0.04…−0.13 ms against an A/A
+      control that itself reaches ±0.156 ms. Quote the bytes, which are exact and deterministic; quote
+      the time as "≈0.08 ms, at the resolution limit". And **the obvious version of this lever is the
+      wrong one**: giving `expect-emission` its own pinned chunk buys the same 10 kB on the seven
+      leaf entries but adds **+1 module to the root and to `/angular`**, the two entries every spec
+      file loads — exactly the cost the de-chunking pass paid 120 kB to remove. Built, measured, and
+      rejected. `serialize-args` (7 104 B, stateless) is now free to code-split as well.
+
+- [~] **The rest of the pinned shared chunk stays as it is.** After the split
+  `dist/shared-state.js` is 7 465 B holding `mock-adapter`, `package-identity`, `redefine-failure`,
+  `observable-support`, `jasmine-support`, `docs-links` and the 0.3 kB timeout cell. The only
+  partly-dead member left is `jasmine-support` — ~1.5 kB emitted, dead for `/rxjs`, `/dom-stubs` and
+  `/angular-http`, reachable from every other entry. Pinning it separately would cost +1 module on
+  the twelve entries that need it, including the root and `/angular`, for ~1.5 kB off three leaves.
+  Re-open only with a lever that removes bytes **without** adding a module.
 
 - [~] **De-chunking `index` and `angular` — shipped in `tsup.config.ts`, and both of its numbers
   were wrong.** Recorded rather than dropped, because the estimate is what the bundle pass above
@@ -464,9 +492,10 @@ names the thing that actually prevents it — a version, an API, a check — rat
   own harness: `RuleTester` with a real `tsconfig` and files on disk, because the current tests
   lint strings through `Linter`, which has no program. Until then `asInstance` / `asInstances` is
   the answer to the cost of the repair, if not to finding it.
-- [ ] **A `toEqualRecords` matcher on top of `diffByField`.** Unchanged from the previous pass:
-      `diffByField` is a plain function because it is reached for _after_ a failure, and a matcher
-      would carry its own deep equality and compete with `toEqual` at every call site.
+- [~] **A `toEqualRecords` matcher on top of `diffByField`.** Decided rather than pending, on the
+  reason that stood here unchanged for two passes: `diffByField` is a plain function because it is
+  reached for _after_ a failure, and a matcher would carry its own deep equality and compete with
+  `toEqual` at every call site. Re-open only with a call site `toEqual` reads worse on.
 
 ### Two aliases that are deliberately absent
 
@@ -547,10 +576,23 @@ somebody's editor. Still open:
   zero-dependency; the consumer's own `typescript` via `createRequire` would be the authority on
   `extends` chains and on the extension set an `include` entry expands over. Two patterns are
   exempt today rather than resolved properly: a declaration-only glob and one rooted in a directory
-  the scan never enters.
-- `helper-from-wrong-entry` and `no-unawaited-helper` — the two named below, both of which need a
-  table generated from the installed version's own export map rather than a hand-written one.
+  the scan never enters. Looked at again 2026-09-04 and left alone deliberately: keeping per-pattern
+  attribution — the entire value of `tsconfig-glob-matches-nothing` — means invoking the consumer's
+  compiler once per `include` entry on repositories with 150+ spec tsconfigs, and both tiers would
+  have to be held at 100 % branch coverage with `typescript` unresolvable from a temp fixture. That
+  is a redesign of a shipped, gate-covered check, not an addition.
 - The other 43 checks of the sharpened catalogue.
+
+`helper-from-wrong-entry` and `no-unawaited-helper` **shipped 2026-09-04**, and the table they
+needed exists: `scripts/generate-export-map.mjs` compiles the barrels with the consumer's own
+`typescript` and reads `checker.getExportsOfModule`, which is the only way to see through the
+`export *` chains — 311 names over 20 entries, regenerated by `npm run export-map` and gated by
+`export-map:check`, the same shape as `llms:check`. `AWAITABLE_HELPERS` comes out of the same
+program: exports whose _every_ call signature returns a `Promise`. Version drift is handled at check
+time rather than generation time — both checks go quiet when the installed major differs from the
+table's, because a helper only moves between entries in a major. Over this repository's own 755
+source files the pair reports exactly four findings, all of them fixture strings inside their own
+spec. Neither has a fixer; `doctor` still never writes.
 
 ## Agent adoption — `init`, and what cannot work
 
@@ -640,11 +682,24 @@ with no `--fix` at all**: trust before edit rights.
 
 ## Backlog (not in this pass)
 
-- [ ] **`node:test` adapter ignores the `name` argument** of
-      `createMockFn(impl, name)` — `node:test`'s `mock.fn()` has no `mockName`,
-      so spy names are absent in `node:test` diagnostics (Vitest/Bun set them).
-      Acceptable, but documenting the gap (or attaching a `displayName`) would
-      make cross-runtime diagnostics uniform.
+- [~] **`node:test` adapter ignores the `name` argument** — closed 2026-09-04, and the shape of the
+  fix is worth keeping. `mock.fn()` takes no name argument at all (passing one throws
+  `ERR_INVALID_ARG_TYPE`) and has no `mockName`; the returned proxy inherits the _implementation's_
+  name, so every spy printed as `[Function: dispatch]`, this library's own dispatcher. The adapter
+  now defines the method name on the mock as both `name` and `displayName` — own, configurable,
+  non-enumerable properties, which survive `mock.reset()` / `restore()` / `resetCalls()` because all
+  three only swap the implementation. That is what `node:assert` diffs, `util.inspect()` and
+  `serialize-args` read. Still absent, and documented as such on the node runtime page:
+  `getMockName()` does not exist there (read `spy.method.name`), and `node:test`'s own reporter
+  never labels a mock.
+
+- [ ] **There is no `node:test` suite in the gate.** Found while closing the item above: `src/bun-tests/`
+      exists, nothing equivalent does for Node, and `package.json` has no `test:node`, so the
+      `node:test` adapter is only ever exercised _through Vitest_. The fix above was verified on the
+      real runtime with a throwaway esbuild bundle. A `src/node-tests/*.node.test.ts` plus a
+      `test:node` script would close it — note that `sideEffects: false` lets esbuild tree-shake
+      `src/node.ts`'s `registerMockAdapter(...)` call, so such a harness must use the built `dist`
+      or register the adapter explicitly.
 
 ## Reads of the field
 
@@ -766,35 +821,44 @@ descriptors)` behaves the same way. Forcing dictionary mode with a probe propert
 
 ### Worth stealing — ranked
 
-- [ ] **`vi.defineHelper` on the three `expectEmission` helpers — the part that did not work.** The
-      wrap shipped where it measurably helps (`error-handler`, `narrow`, `module-mocks`); wrapping
-      the emission helpers was tried and **reverted**, because it is a net regression there. Their
-      errors are constructed inside a subscribe or timer callback, so the `__VITEST_HELPER__` frame
-      is the _last_ frame in the stack rather than an early one — `slice(helperIndex + 1)` returns
-      nothing, and the reporter loses its code frame entirely. Worse than the `node_modules` frame it
-      was meant to replace. The real fix is to anchor the error to a stack captured at **helper
-      entry**, before the subscription is made, and to brand it so the rewrite only ever touches
-      errors this module created — `expectError` hands the user's own error straight back, and
-      rewriting that one would be a lie.
-- [ ] **`createSpyFromInstance(instance, config)` — M.** The one structural capability three live
-      competitors have and this package does not: `vi.mockObject(obj)`, `sinon.createStubInstance`,
-      `td.replace(obj, 'method')`. Every factory here _constructs_ the double; there is no way to
-      take an object the test already holds — a real service from a factory, a third-party client, a
-      half-real `TestBed.inject(X)` — and spy it in place with the return-type helpers attached.
-      `vi.mockObject` is Vitest-only and Bun and `node:test` have nothing, which puts a
-      cross-runtime version in this library's niche rather than duplicating the runner.
-- [ ] **`explainSpy(spy, method?)` — M. The S half of this shipped; what is left is the helper.**
-      `mustBeCalledWith` now prints wanted next to actual (`lib/error-handler.ts:37-50`,
-      `Wanted:` for one config, an indented `Wanted (N configured):` list for several), which is the
-      half that fires on a failure. The half still missing is a helper the reader can call **at
-      will**, before anything has failed: read the spy's `calledWith` configs, pair each against
-      `mock.calls`, and say which config each invocation did or did not hit, plus which default
-      fired instead. `ArgsMap.configured()` (`lib/args-map.ts:126`) is the renderer it needs and is
-      already public. Two things are missing. **Per-config identity** — `configured()` returns
-      strings, not handles, so there is no way to say "call 3 matched the second config" rather than
-      re-rendering the text and comparing it. And the **narrative for the empty cases**: "nothing
-      configured", and "N calls, none matched", which are the two states a reader most often arrives
-      in and which a bare list of configs answers badly.
+- [~] **Anchoring the emission helpers' failures — closed 2026-09-04, and the mechanism is the
+  record.** `vi.defineHelper` stays off these three: their errors are built inside a subscribe or
+  timer callback, so the `__VITEST_HELPER__` frame lands _last_, `slice(helperIndex + 1)` returns
+  nothing and the reporter loses its code frame entirely — worse than the `node_modules` frame it
+  replaces. Shipped instead: `lib/error-anchor.ts` captures the caller's stack at helper entry,
+  before anything subscribes, brands the errors this module builds, and re-anchors only those. A
+  failing `expectEmission` now opens the spec line that called it (`expect-emission.spec.ts:545:41`)
+  where it used to open `expect-emission.ts:349:10`. `expectError` hands back the caller's own error
+  with its own stack, untouched — rewriting that one would be a lie, and it is a test.
+
+- [~] **`createSpyFromInstance(instance, config)` — shipped 2026-09-04.** The structural gap against
+  `vi.mockObject` / `sinon.createStubInstance` / `td.replace` is closed: an object the test already
+  holds is patched in place, same identity, so whatever captured it first sees the doubles. Two
+  design decisions worth not re-deriving. Discovery is own function-valued fields **plus** the
+  prototype chain up to but not including `Object.prototype` — the first half is why an arrow
+  property needs no `instanceMethodsToSpyOn` here, the second is the guard `@testing-library/angular`
+  is missing (its recursion mocks `hasOwnProperty` and `toString`). And `lazySpies` / `fillMissing`
+  are deliberately ignored rather than honoured: the members already exist, and an instance is not
+  an erased `abstract` declaration. Restoration reuses the `mock*Prop` journal, so
+  `restoreSpiedInstance`, `restoreMockedProps()` and `using` all compose — and `using` **restores**
+  rather than resets, the only sense disposal can have for an object the consumer owns.
+
+- [~] **`explainSpy(spy, method?)` — shipped 2026-09-04.** Both gaps the entry named are closed.
+  Per-config identity is derived from position rather than stored: `ArgsMap.configuredEntries()`
+  reads `Object.keys(#map)` insertion order (every serialized key starts with `[`, so none is
+  integer-like and the order is stable) followed by `#matcherConfigs`, which is exactly the
+  precedence `get()` applies — so "the first entry whose `matches` holds" _is_ the config `get()`
+  would have answered from, at zero cost on the hot match path, which was the constraint. The two
+  empty narratives are printed outright: `nothing configured`, and `N calls, …, none matched`. The
+  return is a `string` on purpose — a diagnostic to print, not something to assert on — which also
+  keeps the type budget flat. **It ships from `/diagnostics`, not the root, and the number is the
+  reason:** measured 2026-09-04 by A/B builds of `dist/index.js`, `explainSpy` on the root costs
+  **1 226 B min+gzip** against a 14.3 kB entry, where `createSpyFromInstance` costs 322 B and the two
+  together 1 149 B — they share the member walk, so adding the second on top of the first is free.
+  That is the same argument `/diagnostics` was created for in 4.0.0, and a brand-new export is the
+  one moment moving it costs nothing. One structural seam left: `explain-spy.ts` reads the two chains off
+  `AUTO_SPY_MARK` duck-typed, guarded by `map instanceof ArgsMap`; a `readSpyChains(mock)` export
+  from `lib/function-spy.ts` would make it explicit.
 
 - [~] **`strict: true` / `onUnstubbedCall`.** Shipped, including the suite-wide form. Two decisions
   taken along the way, recorded so they are not re-litigated. (1) A `calledWith` chain configured
@@ -822,18 +886,61 @@ resolve** for three cases — a single-argument `createSpyObj`, a method list he
 property map held in a variable. Against `jasmine-core`'s ~23.9M downloads/month, that is a very large
 population being handed the boilerplate `createSpyFromClass(Service)` deletes.
 
-- [ ] **A `renderShallow` bench, so the per-render table is reproducible.** The 1.2× / 1.8× / 5.7× /
-      16.2× table in `docs-site/core/performance.md` and the 1.933 ms → 1.074 ms `keepTemplate` rung
-      are not produced by anything in the repo — `bench/` holds only `auto-spy.bench.ts` and
-      `vitest.bench.config.mts` scopes benchmarks to the plain core, deliberately, to keep the spy
-      numbers free of the Angular transform. The Angular figures are therefore unreproducible by a
-      reader or by CI, and were re-dated rather than re-measured on 2026-09-02. An Angular bench
-      project (`bench-angular/`, its own config with the Angular plugin) would let `npm run bench`
-      regenerate them and would catch a regression the type budget cannot see.
-- [ ] **A `@testing-library/angular` migration note.** It is the only competitor with zoneless
-      support and its `/vitest-utils` overlap is now documented; a short "coming from
-      `createMock` / `provideMock`" page would convert the traffic the comparison section attracts.
-      No page exists yet, same gap as the `@suites/unit` page already on this list.
+- [~] **A `renderShallow` bench — shipped 2026-09-04 as `bench-angular/`, and it retired four of
+  the numbers it was built to reproduce.** `npm run bench:angular -- --repeat 5`; its own config
+  carries the Angular plugin and stays out of `vitest.bench.config.mts`, so the core spy numbers
+  remain free of the Angular transform. Two runs of five passes each, median of 60 reps, Node
+  24.19.0, Angular 21. What it found:
+
+  | figure | published | measured | verdict |
+  | --- | ---: | ---: | --- |
+  | `renderShallow` at 0 children | 1.2× | **0.95×** | **sign is wrong** — it is _slower_ on a childless component (0.447 vs 0.471 ms), which is what the prose always said and the number contradicted |
+  | at 25 children | 1.8× | 1.73× | reproduces |
+  | at 100 children | 5.7× | 4.50× | same order, ~21 % low |
+  | at 400 children | 16.2× | **20.8×** | measures _higher_ |
+  | full per-test cycle | 1.933 ms | **1.215 ms** | ~30 % low |
+  | `createComponent` on an already-configured module | 1.987 ms | **1.049 ms** | absolutes do not reproduce; the _conclusion_ hardens — bed reuse buys ~14 %, not the 1.03× the published pair implied |
+  | `keepTemplate: true` | 1.074 ms | 0.862 ms | closest of the lot; as a ratio the rung is 1.41–1.60×, not 1.80× |
+  | `compileComponents()` on a standalone AOT bed | 0.137 ms | **0.005 ms** | 27× low — it is a no-op there; the conclusion is unaffected |
+
+  The absolutes almost certainly differ because the original used a heavier child than this bench's
+  one-element/one-binding one. Making the child heavier would move them toward the published
+  figures, which is exactly the wrong move; the child stayed minimal and is documented as such.
+
+- [ ] **Two traps the Angular bench cost a rebuild to find, still unfixed.** (1) The Angular plugin
+      does **not** process `input()` initializers in a `.bench.ts` file — `setInput` fails with
+      `NG0303`, and the first draft silently reported the JIT warm-up order as a per-size curve;
+      adding `include: ['**/bench-angular/**/*.bench.ts']` to the plugin options did not help, so the
+      bench uses four host classes with literal row counts. (2) `scripts/bench-check.mjs --update`
+      hard-codes the _self_-benchmark's command into `generated.command`, so
+      `bench-angular/baseline.json` needs that line corrected by hand after every regeneration. A
+      `--command <text>` flag, or deriving it from `--baseline`, removes the manual step.
+
+- [~] **A `@testing-library/angular` migration note — shipped 2026-09-04** as
+  `docs-site/migrating-testing-library-angular.md`, with every claim re-verified by running the
+  published module rather than restated. Both defects hold in 19.4.2 at the same two lines: a
+  3-method class yields **13 own keys**, `hasOwnProperty` and `toString` come back as spies,
+  `String(mock)` is `"undefined"`, and a getter reads `undefined`. Three things the survey did not
+  have: `@testing-library/angular/jest-utils` is the same file with `jest.fn()`, so the defects are
+  runner-independent; the `./zoneless` entry in 19.2.0 is confirmed by diffing the export maps of
+  19.1.1 and 19.2.0; and zoneless `render` is a **reduced** API — no `rerender`, `detectChanges`,
+  `navigate`, `autoDetectChanges`, `routes`, `componentProperties`, or the change-detecting
+  `fireEvent` wrapper.
+
+  **Correction to the entry above, which was wrong: `@suites/unit` was never "missing from
+  `comparison.md` entirely".** It is in the live-field table, in both feature-by-feature tables, has
+  its own `## NestJS` section and an entry in the "where another library is better" list; so do
+  ng-mocks and `@testing-library/angular`. Do not re-open on that premise. What the page really
+  needed, and got: links to the new page, a corrected `vitest-when` row (0.10.2, 2026-09-03,
+  repoints its `exports` map at the files it ships — the standing "pin 0.10.0" advice is now wrong;
+  take 0.10.2, skip 0.10.1), and a broken markdown table repaired. `format:check` covers only
+  `src/**/*.ts`, so a broken table in a docs page is caught by nothing in the gate.
+
+  The "five over a year, and a sixth's repository is gone" line re-verified against the registry on
+  2026-09-04 — ts-auto-mock 740 days, testdouble 896, moq.ts 1220, `@fluffy-spoon/substitute` 1945,
+  `@golevelup/nestjs-testing` 2486, plus `@ngneat/spectator` at 306 days with the 404 repo. Note for
+  the next pass: **`jest-auto-spies` is at 346 days and crosses the year mark in September 2026.**
+
 
 ## Funding — a way to support the project, and the two traps in it
 
@@ -841,6 +948,9 @@ Nothing in the repository asks for support today: no `funding` field in `package
 `.github/FUNDING.yml`, no section in the README or on the docs site. The mechanics are a couple of
 hours' work; the reason this is a TODO rather than a done thing is that two decisions have to be
 made first, and both are the maintainer's, not a coding task.
+
+**Both items below are the maintainer's to decide, not a coding task; asked and deferred
+2026-09-04.** Nothing is wired until the payment links exist.
 
 - [ ] **Wire the standard funding surfaces, once payment links exist.** `funding` in `package.json`
       so `npm fund` surfaces the project to everyone who installed it; `.github/FUNDING.yml` for the
