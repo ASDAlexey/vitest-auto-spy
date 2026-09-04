@@ -15,7 +15,7 @@ import { attachDispose } from './reset-auto-spy';
 import type { ClassSpyConfiguration, ClassType, Func, OnlyMethodKeysOf, Spy, SpyOptions, UnstubbedCallHandler } from './types';
 
 /** All names to spy on, flattened from either form of the config argument. */
-interface ResolvedSpyConfiguration {
+export interface ResolvedSpyConfiguration {
   methodsToSpyOn: string[];
   onlyMethodsToSpyOn: string[];
   instanceMethodsToSpyOn: string[];
@@ -90,6 +90,29 @@ function walkOwnPrototypes(prototype: object, visit: (obj: object) => void): voi
 
     current = parent;
   }
+}
+
+/**
+ * Callable members of a live object: its own function-valued fields plus every prototype method
+ * below `Object.prototype`.
+ *
+ * Asks about the value rather than the shape of the descriptor, which is what separates it from
+ * {@link extractMethodsFromObject}: on an instance the data properties are real values, so a plain
+ * field would otherwise be spied over as if it were a method, and an accessor drops out for free by
+ * having no `value` at all.
+ */
+export function getCallableMemberNames(target: object): string[] {
+  const names = new Set<string>();
+
+  walkOwnPrototypes(target, (obj) => {
+    for (const [name, descriptor] of Object.entries(Object.getOwnPropertyDescriptors(obj))) {
+      if (name !== 'constructor' && typeof descriptor.value === 'function') {
+        names.add(name);
+      }
+    }
+  });
+
+  return [...names];
 }
 
 // A class's method set is immutable for a run, but the same class is typically
@@ -170,7 +193,7 @@ function getAllAccessorNames(prototype: object): AccessorNames {
  * Mirroring is the whole of the fix, and it only ever adds what the class already has: a name is
  * promoted to the other list when the *prototype descriptor* carries that half, never on a guess.
  */
-function resolveAccessors(prototype: object, config: ResolvedSpyConfiguration): AccessorNames {
+export function resolveAccessors(prototype: object, config: ResolvedSpyConfiguration): AccessorNames {
   if (!config.autoSpyAccessors && config.gettersToSpyOn.length === 0 && config.settersToSpyOn.length === 0) {
     // The overwhelmingly common call names no accessors at all. Return before touching the
     // prototype chain, so `provideAutoSpy(Service)` stays as cheap as it was.
@@ -203,8 +226,14 @@ function resolveAccessors(prototype: object, config: ResolvedSpyConfiguration): 
  * their names tell a reader, so they are merged without ceremony.
  */
 function resolveMethodNames<T>(ObjectClass: ClassType<T>, config: ResolvedSpyConfiguration): string[] {
-  const base = config.onlyMethodsToSpyOn.length > 0 ? config.onlyMethodsToSpyOn : getAllMethodNames(ObjectClass.prototype);
+  return mergeMethodNames(
+    config.onlyMethodsToSpyOn.length > 0 ? config.onlyMethodsToSpyOn : getAllMethodNames(ObjectClass.prototype),
+    config,
+  );
+}
 
+/** Fold the two additive lists into whatever discovery produced. */
+export function mergeMethodNames(base: string[], config: ResolvedSpyConfiguration): string[] {
   // The overwhelmingly common call is `provideAutoSpy(Service)` with no lists at all, once per
   // `beforeEach`. Returning the cached array untouched keeps that path allocation-free — building a
   // `Set` to merge two empty arrays would undo the per-prototype cache it just read from.
@@ -293,7 +322,7 @@ function isCallable(value: unknown): value is Func {
  * not part of every runner's surface — `node:test`'s `mock.fn()` has no such thing — and the
  * adapter is the seam that already hides those differences from the core.
  */
-function applyReturns(autoSpy: object, ObjectClass: ClassType<unknown>, returns: Record<string, unknown>): void {
+export function applyReturns(autoSpy: object, factory: string, returns: Record<string, unknown>): void {
   const entries = Object.entries(returns);
 
   if (entries.length === 0) {
@@ -314,7 +343,7 @@ function applyReturns(autoSpy: object, ObjectClass: ClassType<unknown>, returns:
       // eslint-disable-next-line no-console -- intentional dev-time misconfiguration warning; console.warn is allowed per CLAUDE.md.
       console.warn(
         withDocs(
-          `[vitest-auto-spy] createSpyFromClass(${ObjectClass.name}): returns names '${name}', which is not a spied ` +
+          `[vitest-auto-spy] ${factory}: returns names '${name}', which is not a spied ` +
             `method of the spy. Check the spelling, and check that a restricting onlyMethodsToSpyOn list did not leave ` +
             `it out — a value configured for a method that is not there is silently never returned.`,
           DOCS_LINKS.createSpyFromClass,
@@ -359,7 +388,9 @@ function defineLazyMethodSpy(autoSpy: Record<string, unknown>, methodName: strin
 }
 
 /** Normalize the overloaded second argument into a single flat configuration. */
-function resolveConfiguration<T>(methodsToSpyOnOrConfig?: ClassSpyConfiguration<T> | OnlyMethodKeysOf<T>[]): ResolvedSpyConfiguration {
+export function resolveConfiguration<T>(
+  methodsToSpyOnOrConfig?: ClassSpyConfiguration<T> | OnlyMethodKeysOf<T>[],
+): ResolvedSpyConfiguration {
   if (!methodsToSpyOnOrConfig) {
     return { ...EMPTY_CONFIGURATION };
   }
@@ -415,7 +446,7 @@ export function createSpyFromClass<T, Options extends SpyOptions = SpyOptions>(
   const config = resolveConfiguration(methodsToSpyOnOrConfig);
   const autoSpy = assembleSpy<T, Options>(ObjectClass, config);
 
-  applyReturns(autoSpy, ObjectClass, config.returns);
+  applyReturns(autoSpy, `createSpyFromClass(${ObjectClass.name})`, config.returns);
   applyOverrides(autoSpy, config.overrides);
 
   return autoSpy;

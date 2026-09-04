@@ -137,6 +137,7 @@ export type * from './lib/types';
 
 // Core factories
 export { createSpyFromClass } from './lib/create-spy-from-class';
+export { createSpyFromInstance, restoreSpiedInstance } from './lib/create-spy-from-instance';
 export { autoMocked, createAutoMock, type AutoMockConfiguration } from './lib/auto-mock';
 export { createMock } from './lib/create-mock';
 export { createFixture, createFixtureFactory, type FixtureFactory } from './lib/fixture';
