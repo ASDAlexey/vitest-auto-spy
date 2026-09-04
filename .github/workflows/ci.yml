@@ -72,8 +72,21 @@ jobs:
       - name: Test (fakeAsync under zone.js)
         run: npm run test:zone
 
+      # Architecture invariants rather than behaviour: the heap has to reach a plateau across
+      # create/teardown cycles, and teardown has to stay linear. Both assert shape, not milliseconds.
+      - name: Test (engine invariants)
+        run: npm run test:invariants
+
       - name: Build
         run: npm run build
+
+      # Both read `dist/`, so they can only run after the build. Deterministic counts — bundled
+      # bytes and module-graph size — so a shared runner cannot make them flap.
+      - name: Per-entry size baseline
+        run: npm run size:entries:check
+
+      - name: Module-graph baseline
+        run: npm run cold-import:check
 
   # Bun is a second runtime, not a second lane of the same one: `bun:test` mocks behave differently
   # from Vitest's (no `mock.settledResults`, `mockReset` drops the implementation, `spyOn` refuses
