@@ -10,6 +10,9 @@ export default defineConfig({
     environment: 'jsdom',
     setupFiles: ['src/test-setup.ts'],
     include: ['src/**/*.spec.ts'],
+    // The invariant specs need `--expose-gc` and a process to themselves; they run under
+    // `vitest.invariants.config.mts` (`npm run test:invariants`), never in this suite.
+    exclude: ['**/node_modules/**', '**/dist/**', 'src/invariants/**'],
     // Per-file isolation is the default run, but nothing in the suite depends on it any more: the
     // two specs that exercise an empty registry (`core-standalone`, `mock-adapter`) now empty and
     // restore it themselves. `npm run test:shared-env` proves that by running everything with
