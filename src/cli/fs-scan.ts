@@ -188,7 +188,12 @@ function stripJsonComments(text: string): string {
   return result.replace(/,(\s*[\]}])/g, '$1');
 }
 
-function findStringEnd(text: string, start: number): number {
+/**
+ * The index just past the string literal opening at `start`, whose quote character is whatever sits
+ * there — `"` in JSON, any of the three in TypeScript. `text.length` when it is never closed.
+ */
+export function findStringEnd(text: string, start: number): number {
+  const quote = text[start];
   let index = start + 1;
 
   while (index < text.length) {
@@ -198,7 +203,7 @@ function findStringEnd(text: string, start: number): number {
       continue;
     }
 
-    if (text[index] === '"') {
+    if (text[index] === quote) {
       return index + 1;
     }
 

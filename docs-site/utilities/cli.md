@@ -1,6 +1,6 @@
 ---
 title: The CLI — doctor and init
-description: npx vitest-auto-spy doctor finds suite-level defects that never fail a run — a tsconfig include pattern matching no file, a spec another file imports, a foreign runner's pragma, config for a runner that is gone. npx vitest-auto-spy init writes the pointer every AI coding agent in the repository actually reads.
+description: npx vitest-auto-spy doctor finds suite-level defects that never fail a run — a tsconfig include pattern matching no file, a spec another file imports, a foreign runner's pragma, config for a runner that is gone, a helper imported from the wrong entry point, an expectEmission nobody awaited. npx vitest-auto-spy init writes the pointer every AI coding agent in the repository actually reads.
 ---
 
 # The CLI
@@ -55,6 +55,8 @@ error  tsconfig-glob-matches-nothing libs/users/tsconfig.spec.json
 | `coverage-include-misses-bundle` | A source-only `coverage.include` in the runner config of an `@angular/build:unit-test` target                                                                              | Coverage is matched twice — first against the executed bundle chunks, then against the remapped sources. A list of `.ts` globs loses every counter on the first pass, and the run stays green — see [coverage under the unit-test builder](/adapters/angular#coverage-under-the-unit-test-builder)                                                      |
 | `jasmine-era-project`            | `jasmine-core`, `@types/jasmine`, `jasmine-auto-spies`, `@hirez_io/observer-spy`, a `karma*` package or a `karma.conf.*` on disk — or `"types": ["jasmine"]` in a tsconfig | **Info**, never an error: a repository is free to still be a jasmine repository. The fix names the order that works — point the specs at [`vitest-auto-spy/jasmine`](/migrating-jasmine) and land the suite green, _then_ `codemod --from jasmine` and drop the import. Doing it the other way round means rewriting a suite that was never green       |
 | `no-agent-instructions`          | No `AGENTS.md` / `CLAUDE.md` / `GEMINI.md` names the package                                                                                                               | A note, not an error. It is the one moment where saying so costs nothing                                                                                                                                                                                                                                                                                |
+| `helper-from-wrong-entry`        | A helper imported from an entry that does not export it — `provideAutoSpy` from the root, `flushEventLoop` from `/angular`                                                  | Resolving a name to the entry that owns it needs a table generated from the installed version's own export map, which no per-file linter has. And the files it fires in are usually the ones no `tsc` program covers — the check above says which                                                                                                        |
+| `no-unawaited-helper`            | `expectEmission`, `expectError`, `stable`, `flushEventLoop` and their siblings called as a statement and dropped                                                            | The promise settles after the test has already ended, so the assertion inside it reports into a later test, or nowhere. The run stays green and the spec looks like it asserted something                                                                                                                                                               |
 
 The check that motivated the tool: a spec showing `Cannot find name 'vi'` in the editor while
 `tsc --noEmit` reported zero errors. A migration codemod editing `include` had eaten a `/**`,
@@ -68,6 +70,40 @@ Two shapes of pattern are deliberately exempt, because for them "matches nothing
 of anything: a declaration-only glob (`src/**/*.d.ts`, routinely a placeholder for ambient types
 that do not exist yet) and a pattern rooted in a directory the scan never enters (`dist`,
 `out-tsc`, `coverage`).
+
+### The two checks that resolve a name
+
+`helper-from-wrong-entry` and `no-unawaited-helper` both answer a question about a name, and
+neither guesses. The entry-point table they read is **generated from this package's own `exports`
+map** — the barrels are compiled, the exported symbols are taken from the compiler, and the
+promise-returning set is taken from the signatures rather than listed by hand. A hand-written copy
+would drift the first time a helper moved between entries, and it would drift silently.
+
+That is also why they are `doctor` checks and not lint rules: a per-file linter has no such table.
+
+Both are conservative on purpose.
+
+- The table describes one major version. `doctor` reads the version actually installed in the
+  repository and stays silent when the majors differ, because a helper moves between entries only
+  in a major.
+- `no-unawaited-helper` reports one shape and one only — a call that both begins a statement and
+  ends one. Anything the promise could still flow out of is left alone: `await`, `return`, an
+  assignment, an argument, a `.then`, a concise arrow body, an explicit `void`. So is a method of
+  the same name, and so is any call whose callee this file did not import from us. `expectEmission`
+  renamed with `as` is still resolved; somebody else's `stable` never is.
+- Neither reads text that is not code. Strings, template literals and comments are skipped before
+  anything is matched, so a codemod fixture, a docs generator, a quoted snippet in a `describe`
+  title or a commented-out line is never reported. Comments are skipped first, because an
+  apostrophe in prose would otherwise open a string. This is the case that decided the design: this
+  package's own specs quote import statements, and a check that reported them would be red on the
+  repository that ships it.
+
+Run against this repository's own 758 source files, the two of them report nothing at all.
+
+**Still read-only.** Both findings name a mechanical edit — change a specifier, add an `await` —
+and neither is applied. There is no `--fix` in `doctor` at all, and that is a decision rather than
+a gap: a tool that has just told you it found four things nothing else could see has not yet earned
+write access to the files it read.
 
 ## `perf` — where the CPU time actually goes
 

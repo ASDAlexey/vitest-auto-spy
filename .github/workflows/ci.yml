@@ -43,6 +43,11 @@ jobs:
       - name: Format
         run: npm run format:check
 
+      # The doctor's entry-point table is generated from this package's own `exports` map — a
+      # hand-edited or stale copy would make `helper-from-wrong-entry` report the previous release.
+      - name: Doctor export map is up to date
+        run: npm run export-map:check
+
       # `llms.txt` / `llms-full.txt` are generated from the docs sidebar and committed, so agents can
       # fetch them from the deployed site *and* from raw GitHub. A stale pair is invisible until an
       # agent reads the wrong thing — check it here rather than trusting the docs deploy to notice.

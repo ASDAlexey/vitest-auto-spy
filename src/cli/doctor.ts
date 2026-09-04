@@ -11,10 +11,12 @@ import { checkAngularBuild } from './checks/angular-build';
 import { checkCoverageConfig } from './checks/coverage-config';
 import { checkForeignPragma } from './checks/foreign-pragma';
 import { buildGraph } from './checks/graph';
+import { checkHelperEntry } from './checks/helper-entry';
 import { checkJasmineEra } from './checks/jasmine-era';
 import { checkOrphanRunnerConfig } from './checks/orphan-runner-config';
 import { checkSpecImports } from './checks/spec-imports';
 import { checkTsconfigGlobs } from './checks/tsconfig-globs';
+import { checkUnawaitedHelper } from './checks/unawaited-helper';
 import type { Profile } from './profile';
 import type { Finding } from './report';
 
@@ -30,5 +32,7 @@ export function runDoctor(profile: Profile): Finding[] {
     ...checkCoverageConfig(profile),
     ...checkAgentInstructions(profile),
     ...checkJasmineEra(profile),
+    ...checkHelperEntry(profile, graph),
+    ...checkUnawaitedHelper(profile, graph),
   ];
 }
