@@ -21,9 +21,9 @@ them reproduced. Treat all of it as a dated snapshot, not a live feed: re-check 
 
 Re-verified since: the two `@testing-library/angular` `createMock` defects quoted under
 [Angular](#angular) were re-read in the published 19.4.2 tarball on **2026-09-02** and both still
-hold, at the same two lines. The `renderShallow` ratios under
-[Beyond the class spy](#beyond-the-class-spy) are this package's own measurements and carry their
-own dates.
+hold, at the same two lines. Every performance figure on this page is this package's own
+measurement, re-run in full on **2026-09-04** — the tables it summarises are in
+[Performance](/core/performance).
 
 The one figure not re-measured against the competitors is the type-instantiation count in
 [Type-check cost](#_3-type-check-cost), which is carried from the 2026-08-29 survey. The package's
@@ -265,14 +265,15 @@ micro-benchmark case. `jest-auto-spies` and `jasmine-auto-spies` run here under 
 runner's own per-mock cost is a shared constant — the numbers describe each library's own code, not
 what a real Jest or Jasmine suite would show.
 
-Against that shared core, this package runs roughly one and a half to one and three-quarters times
-faster at suite scale — holds at 1 000, 3 000 and 10 000 tests, on both a 20- and a 100-method class,
-every round measured. Re-measured on the 4.1 build 2026-09-03, medians of two runs: 1.66× at 1 000
-tests, 1.72× at 3 000, 1.63× at 10 000, with the 18 individual rounds spread 1.50–1.86×.
+Against that shared core, this package runs roughly one and a half times faster at suite scale —
+holds at 1 000, 3 000 and 10 000 tests, on both a 20- and a 100-method class, every round measured.
+Re-measured on the 4.1 build 2026-09-04, medians of three rounds on a 20-method class: 1.50× at
+1 000 tests, 1.61× at 3 000, 1.54× at 10 000, the nine individual rounds spread 1.46–1.62×; and
+1.68× on a 100-method class at 10 000 tests, five rounds out of five above 1.0× (1.66–1.73×).
 
 The micro-benchmark figures behind the claims in this section are the **median p75 of seven
 independent runs** at doubled iteration budgets, not a single run, and each row's ± column reports
-how far that median can be off — a median of ±1.1% and at worst ±3.8% across the canonical run's 47
+how far that median can be off — a median of ±0.9% and at worst ±6.3% across the run's 47
 rows. **A difference under about 20% is still not worth quoting off a single local run**; the
 narrowest margin in any table is 2.19×, which is an order of magnitude clear of both. Full
 methodology:
@@ -303,14 +304,14 @@ that:
   `setSpyEngine('runner')` puts this package back on `vi.fn()` for anyone who wants the comparison
   without it.
 - Hand-written `vi.fn()` doubles are **cheaper**, not more expensive, than this library across a
-  suite under the default `isolate: true` — about **5 %** at the median on the 4.1 build, down from
-  10-15 % before it, with individual rounds between 0.81× and 1.01×. Micro-benchmark multipliers do not transfer to
+  suite under the default `isolate: true` — about **3 %** at the median on the 4.1 build, down from
+  10-15 % before it, with individual rounds between 0.84× and 1.00×. Micro-benchmark multipliers do not transfer to
   suite scale: building a double is on the order of one per cent of what a test costs, which is why
   a 10× win on the double is worth a few per cent on the run.
 
 Where the library wins outright is memory, not wall-clock. On a 100-method class under
-`test.isolate: false`, hand-written doubles peak at 6733 MB against 2475 MB for the default lazy
-mode and 2109 MB with `lazySpies: 'proxy'` — the difference between a CI worker finishing and one
+`test.isolate: false`, hand-written doubles peak at 6366 MB against 2103 MB for the default lazy
+mode and 1851 MB with `lazySpies: 'proxy'` — the difference between a CI worker finishing and one
 getting OOM-killed.
 
 A second, independent memory measurement — retained bytes per double, not peak RSS of a whole run —
@@ -319,10 +320,10 @@ suite: untouched on a 100-method class, this package's default retains **256 B p
 `jest-auto-spies`' **5 835 B**. Full tables, methodology and per-library figures are in
 [Performance → Retained memory per double](/core/performance#retained-memory-per-double).
 
-Measured 2026-09-03, Node v24.19.0, Vitest 4.1.9, Apple M4 Max. Full tables, the isolate-mode and
-interleaving methodology, and reproduction steps (`npm run bench:vs -- --repeat 5` for the
-five-run median used above, about 4.5 minutes; plain `npm run bench:vs` is a single ~55-second run
-for local iteration; `npm run bench:suite`) are in [Performance](/core/performance).
+Measured 2026-09-04, Node v24.19.0, Vitest 4.1.11, Apple M4 Max. Full tables, the isolate-mode and
+interleaving methodology, and reproduction steps (`npm run bench:vs:precise` for the seven-run
+median used above, about eleven minutes; plain `npm run bench:vs` is a single ~1-minute run for
+local iteration; `npm run bench:suite`) are in [Performance](/core/performance).
 
 ## Angular
 
@@ -360,7 +361,7 @@ specific ways:
   `walkOwnPrototypes` (`src/lib/create-spy-from-class.ts:81`) visits a prototype only when it still
   has a parent, so `Object.prototype`'s own members are never collected.
 - **Eager only.** Every method is built up front; [lazy spies](/core/performance) exist because that
-  costs 68.6 µs against 10.3 µs on a 40-method service.
+  costs 11.50 µs against 6.04 µs on a 40-method service.
 
 It is also the only third party on this page with **zoneless support** — a `./zoneless` entry point
 added in 19.2.0 on 2026-03-17 (verified in the tarball's `exports` map). That is a real point in its
@@ -426,13 +427,12 @@ alongside it:
 - [`renderShallow`](/adapters/angular#shallow-component-rendering) and
   [`createWithAutoSpies`](/adapters/angular#building-a-class-with-auto-spied-dependencies) — the
   shallow-`TestBed` copy-paste and DI-driven instantiation as one call each. What the first saves
-  is however much markup the component owns, so it is a range and not a headline number: per render
-  it is flat at ~0.5 ms while `TestBed.createComponent` scales with the subtree — **1.2×** with no
-  children, **5.7×** at 100 child instances, **16.2×** at 400, measured 2026-08-26. Per spec file,
-  where imports and the module are also on the clock, the same conversion on three specs of a
-  private Angular 22 suite came to **1.7×** together, with the leaf component among them a genuine
-  **0.8×** — slower, because it had no subtree to remove. Both tables, and the `keepTemplate: true`
-  middle rung, are in [Performance](/core/performance#_2-rendering-the-child-subtree).
+  is however much markup the component owns, so it is a shape and not a headline number:
+  `renderShallow` is flat in the number of children because it never builds the subtree, while
+  `TestBed.createComponent` scales linearly with it — which also means a leaf component with no
+  children has nothing to save, and the per-test `overrideComponent` can cost more than it saves
+  there. The mechanism, and the `keepTemplate: true` middle rung, are in
+  [Performance](/core/performance#_2-rendering-the-child-subtree).
 - [`stable` / `flushEffects`](/adapters/angular#zoneless-waiting) and `toHaveSignalValue` — zoneless
   waiting and a signal matcher, for a codebase where `detectChanges()` is no longer enough.
 - [Observable assertions](/core/observable-assertions) that fail when the stream stays silent,
@@ -456,7 +456,7 @@ alongside it:
   of, kept to the mocks that outlive a file. On `isolate: false` it is what makes `clearMocks` cost
   more with every test already run, and what keeps a whole run's recorded arguments — and the
   component trees behind them — alive in one worker.
-- [Eighteen ESLint rules](/utilities/eslint-plugin) versioned together with the API they recommend, and
+- [Nineteen ESLint rules](/utilities/eslint-plugin) versioned together with the API they recommend, and
   [`setupAutoSpy()`](/utilities/setup) for the test-run hygiene a shared environment needs.
 - [Per-file `TestBed` diagnostics](/adapters/angular#where-a-spec-spends-its-time) — which specs
   actually pay for `TestBed`, and by how much.

@@ -4,15 +4,7 @@
 > local staging mirror — GitHub Releases are auto-generated from Conventional Commits on push to
 > `master`, so nothing here is pasted anywhere. See `CONTRIBUTING.md` → "Releasing".
 
-_Last released: **v3.16.0** — the git tag and `package.json` agree._
-
-> ⚠️ **`CHANGELOG.md` is seven releases behind the tags.** Its newest released heading is
-> `## [3.9.0]`, while the latest tag and `package.json` are both `3.15.0` — so whatever shipped as
-> 3.10.0 through 3.15.0 is still sitting under `## [Unreleased]` there, mixed in with work that has not
-> shipped at all. This is the one manual step the automation does not do (`CONTRIBUTING.md` →
-> "Releasing", step 2): split that section into one heading per tag, `## [3.10.0]` … `## [3.16.0]`, by reading the
-> Conventional Commits between the tags, fix the compare links, and commit it as `docs(changelog):`
-> — a `docs` commit does not trigger a release.
+_Last released: **v4.1.0** — the git tag, `package.json` and `CHANGELOG.md` agree._
 
 ## Staged for the next release
 
@@ -26,11 +18,13 @@ _Last released: **v3.16.0** — the git tag and `package.json` agree._
   a report from an earlier `--out <path>` run instead of running Vitest again.
 
 - **`lazySpies: 'proxy'`** — the same laziness with one trap object instead of one
-  `Object.defineProperty` placeholder per method. 101 584 B → 11 813 B retained on a 400-method class
-  (253 B per method against 25 B), and 5.67× faster to build and touch there. Opt-in: a `Proxy`
-  cannot remove itself, so it costs +30 ns per read and +43 ns per call forever, and it loses below
-  ~20 methods. For generated API clients and ngrx facades under `isolate: false`. Costs +0.38–0.40 kB
-  min+gzip on every entry carrying the core; the default path is unchanged in time and in heap.
+  `Object.defineProperty` placeholder per method. 25 601 B → 4 097 B retained on an untouched
+  100-method double, 256 B per method against 41 B (`npm run bench:memory`). Opt-in: a `Proxy`
+  cannot remove itself, so it goes through a trap on every read and every call for the life of the
+  double where the default leaves a plain data property behind once a method materialises, and on a
+  narrow class it is slower to create. For generated API clients and ngrx facades under
+  `isolate: false`. Costs +0.38–0.40 kB min+gzip on every entry carrying the core; the default path
+  is unchanged in time and in heap.
 
 - **`doctor` check `coverage-include-recompiles-globs`** (`info`) — a coverage scope large enough
   that `picomatch` recompiling it per file costs more than collecting the coverage: 114.1 s of a
@@ -40,8 +34,8 @@ _Last released: **v3.16.0** — the git tag and `package.json` agree._
 
 - **Control helpers shared across spies** — one set of `this`-based functions for the run instead
   of eight to twenty closures per materialised method; reset and clear hooks moved onto the spy's
-  state under its mark. Heap per spied method −17 % on `node:test`, −33 % with rxjs, −39 % on Bun
-  with rxjs; first call −10 % to −28 % by runtime. A helper destructured off its spy now throws with
+  state under its mark. The benchmarks this repo commits all run under Vitest, so no `node:test` or
+  Bun figure is quoted for the saving. A helper destructured off its spy now throws with
   a named message instead of working by accident. Spy creation unchanged; the layouts that were
   tried and rejected are recorded in `core/performance.md`.
 
@@ -138,13 +132,13 @@ _Last released: **v3.16.0** — the git tag and `package.json` agree._
   of failing later as `document is not defined` — which named neither the helper nor the property.
 
 - **Docs — "Why this is not written in Rust"** (`core/performance.md`), because the question is a fair
-  one at ten or twenty thousand tests and deserved a measured answer rather than an opinion. A
-  minimal napi-rs addon doing a spy's exact job was benchmarked against the JavaScript it would
-  replace: crossing the boundary and doing nothing costs 9.0 ns against 3.7 ns, and retaining two
-  object arguments — the one thing a spy must do, and it must retain them by identity for
-  `toHaveBeenCalledWith` — costs 35.9 ns against 9.3 ns. Native is 2.4× and 3.8× slower at the work,
-  and the work is ~0.1 % of a CI job. A new bench case, **`spy invocation`**, backs the per-call
-  figure the section argues from (~117 ns, `mockClear` charged in).
+  one at ten or twenty thousand tests and deserved an argument from the measurements this repo
+  commits rather than an opinion. The one thing a spy must do on every call — retain its arguments
+  by identity, so `toHaveBeenCalledWith` can compare them — is exactly the part that resists a native
+  addon: it would cost an N-API reference per argument, and serializing them instead destroys the
+  identity every matcher depends on. The budget it would be competing for is ~0.1 % of a CI job. A
+  new bench case, **`spy invocation`**, backs the per-call figure the section argues from
+  (**0.25 µs for three calls**, about 83 ns each, `mockClear` charged in).
 
 - **`provideHttpTesting()` + `expectRequest(url)`** (`/angular-http`) — the six-step `httpResource()`
   dance (tick → inject controller → `expectOne` → flush → microtask → tick) as
@@ -190,7 +184,8 @@ _Last released: **v3.16.0** — the git tag and `package.json` agree._
 - **Corrections to claims this project was publishing.** The comparison table offered Jest an
   adapter API that is not exported from any entry point; it now says so. The README and
   `core/performance.md` quoted different `renderShallow` numbers without acknowledging each other;
-  both now carry the per-render range and the per-file figure, and explain why they differ.
+  neither quotes a ratio for the helper any more, because this repository commits no harness for it —
+  both describe the shape of the win instead.
 
 - **Internal — head-to-head and suite-scale benchmarking against the field**
   (`npm run bench:vs`, `npm run bench:suite`). A micro-benchmark against `@bugsplat/vitest-auto-spies`

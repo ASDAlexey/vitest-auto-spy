@@ -55,7 +55,7 @@ faster at suite scale ([benchmarks](#benchmarks)) — and for
 - 📡 First-class RxJS `Observable` spying (`nextWith`, `nextWithValues`, `throwWith`, …)
 - ⚙️ Getter / setter spies via `accessorSpies` — **including on Bun**, where `bun:test`'s own `spyOn(obj, 'prop', 'get')` throws _"does not support accessor properties yet"_ (verified on Bun 1.4.0); no library that generates a double from a class or a type has accessor spies on any runner
 - 🧰 DI & mocking utilities — `provideAutoSpy` / `injectSpy` (Angular, NestJS, Vue), `createFunctionSpy`, `mockReadonlyProp` for signals
-- ⚡ Angular speed & zoneless helpers — `renderShallow` (**1.7×** across three converted specs of a real suite; per render, **1.2×** on a childless leaf up to **16.2×** on a 400-child tree — [both measurements below](#shallow-component-rendering)), `createWithAutoSpies`, `stable` / `flushEffects`, `settleResource` for `httpResource()`, `toHaveSignalValue`, per-file `TestBed` timings
+- ⚡ Angular speed & zoneless helpers — [`renderShallow`](#shallow-component-rendering), which brings a component up through the real `TestBed` without its child subtree, `createWithAutoSpies`, `stable` / `flushEffects`, `settleResource` for `httpResource()`, `toHaveSignalValue`, per-file `TestBed` timings
 - **`node:test` stops retaining every spy.** Node's built-in runner keeps every `mock.fn()` in one
   process-wide `MockTracker` and has no way to drop a single entry, so a long suite accumulates every
   spy it ever made along with every argument they recorded. `trackNodeMocks()` gives this library a
@@ -223,7 +223,7 @@ all**, because Vite 7 calls `crypto.hash` (added in Node 20.12) and the run dies
 `TypeError: crypto.hash is not a function` before a spec loads. On Vitest ≤ 3 Node 18 is fine. Which
 version to actually run is measured in
 [Performance → Which Node version](https://vitest-auto-spy.dev/core/performance#which-node-version):
-the core is 9–15% faster from Node 24 on, and a cold import more than halves.
+the break is between 22 and 24, where a cold import more than halves.
 
 Ships **ESM with bundled `.d.ts` types**. Two subpaths additionally ship a CommonJS build —
 `vitest-auto-spy/node` (a `node --test` suite written in CJS) and `vitest-auto-spy/eslint-plugin`
@@ -1228,16 +1228,19 @@ runner's own mocks, so those entries keep building spies from `mock()` and `t.mo
 
 ## Benchmarks
 
-Wall-clock at suite scale varies **15-20% between invocations** of the identical configuration —
-the same cell measured 1.56 s and 1.33 s at 1 000 tests, 10.94 s and 12.51 s at 10 000. Peak RSS, by
-contrast, reproduces tightly and separates arms by multiples. Treat the ratios below as the durable
-figure and any single wall-clock number as describing one machine, not a promise about yours.
+Wall-clock at suite scale is the noisiest thing here, and the noise does not disappear inside a
+single invocation: the suite harness prints its own widest round-to-round spread, and in the run
+below that was **16%** of the cell's median — the three rounds of the 1 000-test cell came out at
+1.35 / 1.33 / 1.32 s and the 10 000-test cell at 10.02 / 10.65 / 9.72 s. Peak RSS, by contrast,
+reproduces tightly and separates arms by multiples. Treat the ratios below as the durable figure and
+any single wall-clock number as describing one machine, not a promise about yours.
 
 **The micro-benchmark below has the same problem, measured directly.** Every micro figure is the
 **median p75 of seven independent runs**, each its own process, at doubled iteration budgets, run
 with `npm run bench:vs:precise` — not a single run. What each row's ± column reports is how far that
-published median can be off: across the 47 rows of the canonical run, a median of **±1.1%** and at
-worst **±3.8%**. The blunter rule still holds for reading a single local run — **a difference under
+published median can be off: across the 47 rows of the 2026-09-04 run, a median of **±0.9%** and at
+worst **±6.3%** — on the `calledWith` dispatch row, the fastest and therefore the one closest to the
+stand's own floor. The blunter rule still holds for reading a single local run — **a difference under
 about 20% is not worth quoting** — and the narrowest margin below is 2.19×.
 
 `jest-auto-spies@3.0.1`, `jasmine-auto-spies@8.0.1` and `@bugsplat/vitest-auto-spies@1.0.0` are all
@@ -1284,18 +1287,18 @@ of the lead is that this library no longer pays the runner's per-mock cost while
 still does — a difference in the product rather than in the measurement, and the `hand-written
 vi.fn() per method` arm is in the table precisely so its size stays visible.
 
-**Where it still loses, same weight, same table** (`npm run bench:suite`, re-measured 2026-09-03 on
-the 4.1 build, 20-method class, `isolate: true`, coverage on, two runs of 3 rounds each, medians of
-all six):
+**Where it still loses, same weight, same table** (`npm run bench:suite`, re-measured 2026-09-04 on
+the 4.1 build, 20-method class, `isolate: true`, coverage on, 3 rounds per cell after a discarded
+warm-up, medians of the three):
 
 | Comparison | 1 000 tests | 3 000 tests | 10 000 tests |
 | --- | ---: | ---: | ---: |
-| vitest-auto-spy | 1.33 s | 3.19 s | 10.66 s |
-| hand-written `vi.fn()` | 1.33 s (0.99×) | 3.08 s (0.97×) | 10.07 s (0.94×) |
-| @bugsplat/vitest-auto-spies | 2.21 s (1.66×) | 5.50 s (1.72×) | 17.40 s (1.63×) |
+| vitest-auto-spy | 1.33 s | 2.86 s | 10.02 s |
+| hand-written `vi.fn()` | 1.31 s (0.99×) | 2.85 s (1.00×) | 9.25 s (0.92×) |
+| @bugsplat/vitest-auto-spies | 2.00 s (1.50×) | 4.61 s (1.61×) | 15.45 s (1.54×) |
 
-Hand-written doubles are still cheaper — **about 5% at the median**, down from 10-15% before 4.1,
-with the 18 per-round ratios spread 0.81-1.01 — and that row is the proof that micro-benchmark
+Hand-written doubles are still cheaper — **about 3% at the median**, down from 10-15% before 4.1,
+with the nine per-round ratios spread 0.84-1.00 — and that row is the proof that micro-benchmark
 multipliers do not transfer to suite scale: building a double is on the order of 1% of a test's cost,
 so a 10× win on the double shows up as a few per cent on the run, and nearly everything else in a
 suite swamps it.
@@ -1304,11 +1307,11 @@ suite swamps it.
 
 | Arm | Peak RSS |
 | --- | ---: |
-| hand-written `vi.fn()` | 6733 MB |
-| vitest-auto-spy, default | 2475 MB |
-| vitest-auto-spy, `lazySpies: 'proxy'` | 2109 MB |
+| hand-written `vi.fn()` | 6366 MB |
+| vitest-auto-spy, default | 2103 MB |
+| vitest-auto-spy, `lazySpies: 'proxy'` | 1851 MB |
 
-Hand-written doubles use 2.7x the default's peak RSS here — the difference between finishing and an
+Hand-written doubles use 3.0x the default's peak RSS here — the difference between finishing and an
 OOM'd worker on a large suite.
 
 That gap traces down to a single double: on the same 100-method class, untouched, `lazySpies:
@@ -1317,11 +1320,11 @@ per-double number that gets multiplied by every double a file holds alive, and t
 decides whether a large suite survives `isolate: false`. Full retained-memory tables:
 [Performance](https://asdalexey.github.io/vitest-auto-spy/core/performance#retained-memory-per-double).
 
-**Guidance keyed to suite size:** `isolate: false` is worth about 3x on its own — more than any
+**Guidance keyed to suite size:** `isolate: false` is worth about 4x on its own — more than any
 library choice measured here — and it makes memory, not wall-clock, the binding constraint. On a
-wide class under `isolate: false`, add `lazySpies: 'proxy'` for about 15% less peak RSS. Do not turn
-`'proxy'` on under normal isolation (`isolate: true`): there it measurably does nothing (5/7 rounds
-either side of parity).
+wide class under `isolate: false`, add `lazySpies: 'proxy'` for roughly another 12% off peak RSS. Do
+not turn `'proxy'` on under normal isolation (`isolate: true`): there it measurably does nothing — a
+median of exactly 1.00× across five rounds.
 
 Full write-up, methodology and the complete suite-scale tables:
 [Performance](https://asdalexey.github.io/vitest-auto-spy/core/performance).
@@ -1345,9 +1348,9 @@ root so it carries nothing it doesn't ship or test with, and `bench/.npmrc` pins
 `legacy-peer-deps=true` so npm doesn't install a second copy of `vitest` beside the root one — two
 copies would mean two mock registries and the run dies out of memory.
 
-`npm run bench:vs` is the micro-benchmark, a single run in about 55 seconds — the right form for
-local iteration. `npm run bench:vs -- --repeat 5` is what produced the median p75 figures published
-above, about 4.5 minutes for five independent runs in five processes. For the suite-scale tables, see
+`npm run bench:vs` is the micro-benchmark, a single run in about a minute — the right form for
+local iteration. `npm run bench:vs:precise` is what produced the median p75 figures published
+above, about eleven minutes for seven independent runs in seven processes. For the suite-scale tables, see
 `npm run bench:suite --help` — it takes **tens of minutes at 10 000 tests**, so budget for that
 before running it locally.
 
@@ -1874,9 +1877,9 @@ beforeEach(() => {
 
 > **Lazy by default, everywhere.** Every factory builds each method spy on first access
 > (`lazySpies: true`), since Angular tests typically spy a wide service but call
-> only a few of its methods — roughly **4× faster** spy assembly (≈8× on a
-> 20-method service). Behaviour is unchanged; pass `{ lazySpies: false }` to build
-> every spy eagerly.
+> only a few of its methods — and the margin widens as the class does: **1.4×** on a ten-method
+> class a test calls twice, **1.9×** on a forty-method one it calls three times. Behaviour is
+> unchanged; pass `{ lazySpies: false }` to build every spy eagerly.
 
 #### Signal / readonly property mocking (bonus)
 
@@ -1943,46 +1946,24 @@ const { fixture, component } = renderShallow(TaskListComponent, {
 
 `fixture` is a real `ComponentFixture`; nothing here replaces `@angular/core/testing`.
 
-**What it saves, measured.** On a private Angular 22 zoneless suite (784 specs, the AOT
-`@angular/build:unit-test` builder), three of its most expensive component specs were converted and
-the ten-file batch re-run three times — medians, same batch, same machine:
+**What it saves.** The shape is the point: `renderShallow` is flat in the number of children,
+because it never builds the subtree, while `TestBed.createComponent` scales linearly with it. So the
+win is not a fixed percentage and there is no single "renderShallow is N× faster" number — on a leaf
+component with no children there is nothing to remove, and the per-test `overrideComponent` can cost
+more than it saves; on a table or a dashboard the two curves are nowhere near each other. A
+per-render ratio is also the upper bound on what a whole spec file can gain rather than a prediction
+of it: a file's wall clock pays for imports, the `TestBed` module and the assertions too, none of
+which shallow rendering touches.
 
-| Spec (479 tests in the batch, all still green) | Before | After  | Change   |
-| ---------------------------------------------- | ------ | ------ | -------- |
-| a container with a deep child tree (34 tests)  | 129 ms | 61 ms  | **2.1×** |
-| a list rendering 58 fixtures                   | 133 ms | 75 ms  | **1.8×** |
-| a small leaf component (20 tests)              | 29 ms  | 38 ms  | **0.8×** |
-| the three together                             | 291 ms | 174 ms | **1.7×** |
-
-The third row is the honest half of the result: a leaf component has almost no subtree to remove, so
-the per-test `overrideComponent` costs more than it saves. **Shallow rendering
-pays where there is a real child tree to skip** — the seven untouched files in the same batch moved
-by ±10%, which is this suite's run-to-run noise, so the two wins are outside it and the one
-regression is only just outside.
-
-**Why 1.7× and not more.** That row is a whole spec file's wall clock — imports, the `TestBed`
-module, the assertions — of which rendering is only a part. Isolated to the render itself, the
-saving tracks the size of the subtree removed, measured on 2026-08-26 on a component holding two
-`@for` tables whose row count is varied:
-
-| Child instances | `TestBed.createComponent` | `renderShallow` | Ratio |
-| --------------: | ------------------------: | --------------: | ----: |
-|               0 |                   0.65 ms |         0.55 ms |  1.2× |
-|              10 |                   1.00 ms |         0.55 ms |  1.8× |
-|             100 |                   2.72 ms |         0.48 ms |  5.7× |
-|             400 |                   8.52 ms |         0.53 ms | 16.2× |
-
-`renderShallow` is flat at ~0.5 ms because it never builds the subtree; `createComponent` scales
-linearly with it. So there is no single "renderShallow is N× faster" number — a leaf component has
-nothing to save, and a table or a dashboard is an order of magnitude. Treat the ratios as the
-result, not the absolute times, and pick files to convert with the diagnostics below rather than by
-guessing. `keepTemplate: true` is the middle rung — the component's own template with an empty
-subtree, 1.933 ms → 1.074 ms (1.8×), measured 2026-08-30. Full write-up:
+`keepTemplate: true` is the middle rung — the component's own template with an empty subtree.
+`buildOverride` applies `imports: keepChildren ?? []` whether or not the template is kept, so with
+`keepTemplate: true` the template renders while every child in it resolves to nothing under
+`NO_ERRORS_SCHEMA`. Reach for it when the spec reads something the template creates, and keep
+`keepChildren` for the handful of children it genuinely needs resolvable. Full write-up:
 [Performance](https://asdalexey.github.io/vitest-auto-spy/core/performance#_2-rendering-the-child-subtree).
 
 Use [the diagnostics](#where-a-spec-spends-its-time) to find the files worth converting rather than
-guessing: across those ten files `TestBed` accounted for 820 ms of 3231 ms (25%), but per file the
-share ranged from 13% to 66%.
+guessing.
 
 #### Building a class with auto-spied dependencies
 
@@ -2366,11 +2347,12 @@ Reach for `provideAutoSpy` on Angular and `createSpyFromClass` everywhere else; 
 whose members live on the instance) and `createMock<T>(partial)` for a data shape the code only
 reads.
 
-None of it is worth optimising. On a ten-method class: `provideAutoSpy` ~8 µs per call,
-`createSpyFromClass` ~29 µs, `createAutoMock` ~33 µs, a `calledWith` lookup ~0.7 µs — five
-providers across two thousand tests come to under a tenth of a second for the whole suite.
-`provideAutoSpy` leads because it defaults to `lazySpies: true`, and prototype discovery is
-cached per class either way. Full numbers and the two settings that do cost something are in
+None of it is worth optimising. On a ten-method class a test calls two methods of:
+`createSpyFromClass` **2.25 µs** per call, `createAutoMock` plus four accesses **1.79 µs**, a
+`calledWith` dispatch of three configured calls **0.21 µs** — five providers across two thousand
+tests is ten thousand calls, about two hundredths of a second for the whole run. `provideAutoSpy`
+is the same factory with the same lazy default, and prototype discovery is cached per class either
+way. Full numbers and the two settings that do cost something are in
 [Performance](https://asdalexey.github.io/vitest-auto-spy/core/performance).
 
 ## Utilities

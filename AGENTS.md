@@ -261,20 +261,23 @@ xhr.send.mockImplementation(() => respond(asInstance(xhr)));
 
 ### Cost, so it stops being a question
 
-Building a spy is not a thing to optimise. On a ten-method class, Node 24, `npm run bench`:
-`createSpyFromClass` plus two methods called ~2.3 µs, plus all ten ~6 µs, `createAutoMock` plus four
-members ~1.7 µs, a `calledWith` lookup ~0.2 µs — five providers across two thousand tests is a
-hundredth of a second. Call the factory in `beforeEach` and look at
-`TestBed` instead. The only two settings that cost: `{ lazySpies: false }` gives up the laziness
-`provideAutoSpy` defaults to, and `autoSpyAccessors: true` walks the prototype chain uncached on
-every call — name the accessors instead.
+Building a spy is not a thing to optimise. On a ten-method class, `npm run bench` on Node v24.19.0
+and Vitest 4.1.11, measured 2026-09-04: `createSpyFromClass` plus two methods called **2.25 µs**,
+plus all ten 5.83 µs, `createAutoMock` plus four members 1.79 µs, a `calledWith` lookup 0.21 µs —
+five providers across two thousand tests is about two hundredths of a second. Call the factory in
+`beforeEach` and look at `TestBed` instead. The only two settings that cost:
+`{ lazySpies: false }` gives up the laziness `provideAutoSpy` defaults to, and
+`autoSpyAccessors: true` walks the prototype chain uncached on every call — name the accessors
+instead.
 
 Memory is the exception, and only on classes wide enough for it to matter. `lazySpies: true` still
 defines one accessor per method, and that placeholder is nearly all of what an untouched double
-retains: 101.6 kB on a 400-method class against 11.8 kB with `lazySpies: 'proxy'`, which answers
-every method from a single trap object instead (25 B per method against 253 B). It is opt-in because
-a `Proxy` cannot remove itself — +30 ns per read and +43 ns per call, forever — and it loses on a
-five-method service. Reach for it on generated API clients and ngrx facades under `isolate: false`,
+retains: an untouched 100-method double holds 25 601 B against 4 097 B with `lazySpies: 'proxy'`,
+which answers every method from a single trap object instead — 256 B per method against 41 B
+(`npm run bench:memory`, 2026-09-04). It is opt-in because a `Proxy` cannot remove itself: the
+default leaves a plain data property behind once a method materialises, while the proxy goes through
+a trap on every read and every call for the life of the double, and on a narrow class it is also
+slower to create. Reach for it on generated API clients and ngrx facades under `isolate: false`,
 where the doubles of a whole file are alive at once; leave the default everywhere else.
 
 ---
@@ -2101,22 +2104,24 @@ thing to check by hand after the swap: Suites' double answers every property nam
 stubbed a since-renamed method was passing over nothing and will now fail. Full mapping:
 <https://asdalexey.github.io/vitest-auto-spy/migrating-suites>.
 
-- **`renderShallow` has no single speed number, and quoting one is a bug.** Per render it ranges
-  from 1.2× (no children) to 16.2× (400 child instances) — `docs-site/core/performance.md`,
-  measured 2026-08-26. Per spec file, where imports and the `TestBed` module are also on the clock,
-  the published conversion is 1.7× over three specs with one of them a 0.8× regression. The two are
-  not interchangeable: the per-render ratio is the upper bound on what a file can gain. Any surface
-  that mentions the helper's speed quotes the range and links to
-  `/core/performance#_2-rendering-the-child-subtree`. A figure of **4.1×** appears in
-  `PRIORITIES.md` and is backed by nothing in this repository — do not publish it until someone
-  produces the measurement.
+- **`renderShallow` has no single speed number, and quoting one is a bug.** This repository commits
+  no harness for the helper, so no surface publishes a ratio for it and none may be invented.
+  Describe the shape instead: `renderShallow` is flat in the number of children because it never
+  builds the subtree, while `TestBed.createComponent` scales linearly with it — so the win is
+  however much markup the component under test happens to own, nothing on a leaf component and a
+  great deal on a table or a dashboard. A per-render ratio would in any case be the upper bound on
+  what a spec file can gain rather than a prediction of it, because a file also pays for imports,
+  the `TestBed` module and the assertions. Link to
+  `/core/performance#_2-rendering-the-child-subtree`. A speed figure for the helper also sits in
+  `PRIORITIES.md`, backed by nothing in this repository — do not publish it until someone produces
+  the measurement.
 - **Competitor defects are quoted from the published tarball, with a file, a line and a date.** The
   `@testing-library/angular` `createMock` claims in `docs-site/comparison.md` are pinned to
   `fesm2022/testing-library-angular-vitest-utils.mjs` lines 14 and 18 at 19.4.2. Re-`npm pack` and
   re-read before restating them against a new version; the "Where the numbers come from" box records
   each re-verification date rather than replacing the previous one.
 - **Head-to-head benchmark numbers are quoted from the measurement, not from memory.** `npm run
-  bench:vs` and `npm run bench:suite` (see `CONTRIBUTING.md` for setup) back the claims in
+bench:vs` and `npm run bench:suite` (see `CONTRIBUTING.md` for setup) back the claims in
   `core/performance.md`; point at that page rather than retyping a figure here, so it lives in one
   place. Micro-benchmark ratios do not transfer to suite scale: double construction is on the order
   of 1% of a test's cost, and an advantage that looks like several times faster per double can be
@@ -2586,7 +2591,7 @@ totals are CPU time summed across every worker, not wall clock** — a report sh
 time` under `986ms wall clock` is not a bug, it is the work spread over workers.
 
 When `environment` dominates, the `perf-environment` finding names spec files that could run under
-the `node` environment instead — but only the ones it could *prove* reach no DOM: the spec, its
+the `node` environment instead — but only the ones it could _prove_ reach no DOM: the spec, its
 configured setup files, and every repository module any of them imports were all read, none
 mentions a DOM name, and every package they import is on a short allowlist (`vitest`, `rxjs`,
 `date-fns`, `lodash`, `zod`, …). Anything it could not resolve is reported **undecided**, never
