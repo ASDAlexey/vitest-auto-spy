@@ -20,10 +20,12 @@ below were re-read from the npm registry and the published tarballs on **2026-08
 them reproduced. Treat all of it as a dated snapshot, not a live feed: re-check before quoting.
 
 Re-verified since: the two `@testing-library/angular` `createMock` defects quoted under
-[Angular](#angular) were re-read in the published 19.4.2 tarball on **2026-09-02** and both still
-hold, at the same two lines. Every performance figure on this page is this package's own
-measurement, re-run in full on **2026-09-04** — the tables it summarises are in
-[Performance](/core/performance).
+[Angular](#angular) were re-read in the published 19.4.2 tarball on **2026-09-04**, both still hold
+at the same two lines, and both were reproduced by running the published module — the output is on
+[Migrating from @testing-library/angular](/migrating-testing-library-angular). Every version and
+publish date in the two tables below was re-read from the registry on the same day and every one
+reproduced. Every performance figure on this page is this package's own measurement, re-run in full
+on **2026-09-04** — the tables it summarises are in [Performance](/core/performance).
 
 The one figure not re-measured against the competitors is the type-instantiation count in
 [Type-check cost](#_3-type-check-cost), which is carried from the 2026-08-29 survey. The package's
@@ -33,7 +35,7 @@ own cost has had a CI-measured number since 2026-09-02 — see the same section.
 ## Half the field has stopped shipping
 
 This is the first thing to know about the alternatives, and no comparison table anywhere makes it.
-Last release per package, read from the registry on 2026-08-30:
+Last release per package, read from the registry on 2026-08-30 and re-read unchanged on 2026-09-04:
 
 | Library                                                                                  | Latest  | Published      | Repo                                                                                                              | State                            |
 | ---------------------------------------------------------------------------------------- | ------- | -------------- | ----------------------------------------------------------------------------------------------------------------- | -------------------------------- |
@@ -46,8 +48,12 @@ Last release per package, read from the registry on 2026-08-30:
 | [jest-auto-spies](https://www.npmjs.com/package/jest-auto-spies)                         | 3.0.1   | 2025-09-22     | [hirezio/auto-spies](https://github.com/hirezio/auto-spies)                                                       | quiet; its core dep is from 2023 |
 | [@bugsplat/vitest-auto-spies](https://www.npmjs.com/package/@bugsplat/vitest-auto-spies) | 1.0.0   | 2026-02-04     | [BugSplat-Git/auto-spies](https://github.com/BugSplat-Git/auto-spies)                                             | 102 downloads in the window      |
 
-Five of them last published more than a year ago, and a sixth's repository no longer exists. Two
-corrections to claims this page used to make, and to claims still made elsewhere:
+Five of them last published more than a year ago, and a sixth's repository no longer exists. Counted
+against 2026-09-04, the five are 740, 896, 1 220, 1 945 and 2 486 days old; `jest-auto-spies` is the
+row that is _not_ in that group, at 346 days, and it crosses the line in September 2026 unless
+something ships.
+
+Two corrections to claims this page used to make, and to claims still made elsewhere:
 
 - **`ts-auto-mock` is not "one transformer away".** It is feature-frozen by its author and does not
   work with esbuild or swc — which is to say not with Vitest, not with Vite, not with Bun, and not
@@ -83,7 +89,7 @@ The competition that is actually shipping, with the same window's downloads:
 | [vitest-mock-extended](https://www.npmjs.com/package/vitest-mock-extended)         | 5.1.1, 2026-08-02   | 5 443 915    | [eratio08/vitest-mock-extended](https://github.com/eratio08/vitest-mock-extended)                     | the same, ported to Vitest                                                  |
 | [ng-mocks](https://www.npmjs.com/package/ng-mocks)                                 | 14.17.3, 2026-08-24 | 2 502 024    | [help-me-mom/ng-mocks](https://github.com/help-me-mom/ng-mocks)                                       | healthy; mocks an Angular **declaration graph**, not one class              |
 | [@testing-library/angular](https://www.npmjs.com/package/@testing-library/angular) | 19.4.2, 2026-08-07  | 1 020 821    | [testing-library/angular-testing-library](https://github.com/testing-library/angular-testing-library) | rendering-first, but `/vitest-utils` ships a `createMock` of its own        |
-| [vitest-when](https://www.npmjs.com/package/vitest-when)                           | 0.10.0, 2025-11-11  | 702 637      | [mcous/vitest-when](https://github.com/mcous/vitest-when)                                             | `when(mock).calledWith(…).thenReturn(…)` for mocks you already have         |
+| [vitest-when](https://www.npmjs.com/package/vitest-when)                           | 0.10.2, 2026-09-03  | 702 637      | [mcous/vitest-when](https://github.com/mcous/vitest-when)                                             | `when(mock).calledWith(…).thenReturn(…)` for mocks you already have         |
 | [@suites/unit](https://www.npmjs.com/package/@suites/unit)                         | 3.1.1, 2026-05-08   | 473 130      | [suites-dev/suites](https://github.com/suites-dev/suites)                                             | DI-driven unit builder, recommended by the NestJS docs                      |
 | [@golevelup/ts-vitest](https://www.npmjs.com/package/@golevelup/ts-vitest)         | 4.0.0, 2026-03-18   | 353 803      | [golevelup/nestjs](https://github.com/golevelup/nestjs)                                               | `createMock<T>()` deep Proxy, the Nest community default                    |
 | [Vitest's own `vi`](https://vitest.dev/api/vi)                                     | Vitest 4            | —            | [vitest-dev/vitest](https://github.com/vitest-dev/vitest)                                             | `vi.fn` / `vi.spyOn` / `vi.mockObject` — increasingly the default answer    |
@@ -135,11 +141,13 @@ It starts one step later. `when()` stubs a mock you already have; it never produ
 class reading, no type-only mocking, no getter spies, no return-type-aware promise or observable
 helpers, no Angular, Bun or `node:test` story, and no `mustBeCalledWith` — an unmatched call falls
 through to `undefined` rather than failing. The two compose cleanly, and if argument-matched stubbing
-on Vitest is genuinely all that is wanted, it is the smaller tool. Two packaging notes: **pin 0.10.0**
-— `0.10.1` (2026-09-01, currently `latest`) ships `dist/vitest-when.mjs` and `.d.mts` while its
-`exports` map still points at `dist/vitest-when.js` and `.d.ts`, so the published package cannot be
-imported at all — and install `@vitest/expect` explicitly under pnpm, since the bundle imports it
-unconditionally while `peerDependenciesMeta` marks it optional.
+on Vitest is genuinely all that is wanted, it is the smaller tool. Two packaging notes, the first of
+which **has now been fixed**: `0.10.1` (2026-09-01) shipped `dist/vitest-when.mjs` and `.d.mts` while
+its `exports` map still pointed at `dist/vitest-when.js` and `.d.ts`, so that one version could not be
+imported at all. `0.10.2` (2026-09-03) repoints the map at the files it ships — verified in the
+published tarball on 2026-09-04 — so **take 0.10.2 and skip 0.10.1**; the older advice here to pin
+0.10.0 no longer applies. The second note stands: install `@vitest/expect` explicitly under pnpm,
+since the bundle imports it unconditionally while `peerDependenciesMeta` marks it optional.
 
 ### Where it runs, and what it costs
 
@@ -284,15 +292,16 @@ The micro-benchmark tables all changed hands in 4.1, when method spies stopped b
 it; the narrowest margin now is 2.19×, on the row where a test calls every method of the class it
 doubled:
 
-| | 4.0 | 4.1 | best other arm |
-| --- | ---: | ---: | ---: |
-| all 14 of 14 methods called | 18.92 µs (a loss) | **8.17 µs** | 17.92 µs hand-written `vi.fn()` |
-| all 45 of 45 methods called | 75.33 µs (a loss) | **26.12 µs** | 62.04 µs hand-written `vi.fn()` |
-| `createAutoMock<T>()`, 40 members | 72.88 µs (a loss) | **18.92 µs** | 56.79 µs vitest-mock-extended |
-| `mockDeep<T>()`, 3 levels | 8.83 µs (a loss) | **2.29 µs** | 5.46 µs vitest-mock-extended |
-| `calledWith` dispatch | 0.54 µs (parity) | **0.17 µs** | 0.54 µs vitest-mock-extended |
-| retained heap, one materialised method | 5 445 B | **1 929 B** | 5 169 B hand-written `vi.fn()` |
- This package now leads **every** published
+|                                        |               4.0 |          4.1 |                  best other arm |
+| -------------------------------------- | ----------------: | -----------: | ------------------------------: |
+| all 14 of 14 methods called            | 18.92 µs (a loss) |  **8.17 µs** | 17.92 µs hand-written `vi.fn()` |
+| all 45 of 45 methods called            | 75.33 µs (a loss) | **26.12 µs** | 62.04 µs hand-written `vi.fn()` |
+| `createAutoMock<T>()`, 40 members      | 72.88 µs (a loss) | **18.92 µs** |   56.79 µs vitest-mock-extended |
+| `mockDeep<T>()`, 3 levels              |  8.83 µs (a loss) |  **2.29 µs** |    5.46 µs vitest-mock-extended |
+| `calledWith` dispatch                  |  0.54 µs (parity) |  **0.17 µs** |    0.54 µs vitest-mock-extended |
+| retained heap, one materialised method |           5 445 B |  **1 929 B** |  5 169 B hand-written `vi.fn()` |
+
+This package now leads **every** published
 head-to-head table, including the two `worst case` blocks where a test calls every method of the
 class it doubled and there is nothing for a lazy library to skip. The counterweights that go with
 that:
@@ -364,8 +373,15 @@ specific ways:
   costs 11.50 µs against 6.04 µs on a 40-method service.
 
 It is also the only third party on this page with **zoneless support** — a `./zoneless` entry point
-added in 19.2.0 on 2026-03-17 (verified in the tarball's `exports` map). That is a real point in its
-favour, and its rendering API remains a genuinely different tool from a spy factory.
+absent from 19.1.1's `exports` map and present in 19.2.0's, published 2026-03-17 (both maps read
+from the published tarballs). That is a real point in its favour, and its rendering API remains a
+genuinely different tool from a spy factory.
+
+Which is why this is the one competitor you are told to keep. The spec-by-spec translation of the
+`/vitest-utils` half — `createMock` to `createSpyFromClass`, `provideMock` to `provideAutoSpy`, the
+`values` / `returns` distinction, the two defects reproduced in a REPL rather than read off the
+source, and what the `./zoneless` `render` actually gives you — is
+[Migrating from @testing-library/angular](/migrating-testing-library-angular).
 
 **`httpResource()` is the one place where the whole field is empty.** It is Angular's flagship data
 primitive, and none of the three Angular libraries above ships anything for it — no helper, no
@@ -471,14 +487,15 @@ alongside it:
 
 - **You already have your mocks and only want argument-matched stubbing.**
   [`vitest-when`](https://github.com/mcous/vitest-when) is 700k downloads a month of exactly that and
-  nothing else. Pin 0.10.0 — see above.
+  nothing else. Take 0.10.2 and skip 0.10.1 — see above.
 - **You need to mock a whole Angular declaration graph.**
   [`ng-mocks`](https://github.com/help-me-mom/ng-mocks) is the tool: `MockBuilder`, `MockInstance`
   into a nested child's field initializer, `ngMocks.findInstance`. This package spies classes, not
   component trees, and the two compose.
 - **You render components and assert on what the user sees.**
   [`@testing-library/angular`](https://github.com/testing-library/angular-testing-library) is a
-  different discipline; only its `/vitest-utils` `createMock` overlaps.
+  different discipline; only its `/vitest-utils` `createMock` overlaps, and
+  [replacing just that half](/migrating-testing-library-angular) leaves `render` where it is.
 - **You only ever mock interfaces, never classes, and want nothing else.**
   [`vitest-mock-extended`](https://github.com/eratio08/vitest-mock-extended) is smaller and does
   exactly that. `createAutoMock` / [`mockDeep`](/core/auto-mock-by-type) cover the same ground here
