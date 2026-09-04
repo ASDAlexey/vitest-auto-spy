@@ -84,14 +84,14 @@ in what Vitest records fails this library's own tests rather than a consumer's.
 What it bought, on the two metrics this page keeps — every figure the median of seven runs
 (`bench:vs:precise`) or of the retained-heap harness (`bench:memory`), same machine, same day:
 
-| | 4.0 | 4.1 |
-| --- | ---: | ---: |
-| a double whose test calls all 14 of its 14 methods | 18.92 µs (a loss to hand-written `vi.fn()`) | **8.17 µs** (2.19× ahead of it) |
-| a double whose test calls all 45 of its 45 methods | 75.33 µs (a loss) | **26.12 µs** (2.37× ahead) |
-| `createAutoMock<T>()`, 40 members touched | 72.88 µs (a loss to `vitest-mock-extended`) | **18.92 µs** (3.00× ahead) |
-| `mockDeep<T>()`, 3 levels, leaf called | 8.83 µs (a loss) | **2.29 µs** (2.38× ahead) |
-| retained heap, one materialised method | 5 445 B | **1 929 B** |
-| retained heap per method, eager double, nothing called | 4 418 B | **632 B** |
+|                                                        |                                         4.0 |                             4.1 |
+| ------------------------------------------------------ | ------------------------------------------: | ------------------------------: |
+| a double whose test calls all 14 of its 14 methods     | 18.92 µs (a loss to hand-written `vi.fn()`) | **8.17 µs** (2.19× ahead of it) |
+| a double whose test calls all 45 of its 45 methods     |                           75.33 µs (a loss) |      **26.12 µs** (2.37× ahead) |
+| `createAutoMock<T>()`, 40 members touched              | 72.88 µs (a loss to `vitest-mock-extended`) |      **18.92 µs** (3.00× ahead) |
+| `mockDeep<T>()`, 3 levels, leaf called                 |                            8.83 µs (a loss) |       **2.29 µs** (2.38× ahead) |
+| retained heap, one materialised method                 |                                     5 445 B |                     **1 929 B** |
+| retained heap per method, eager double, nothing called |                                     4 418 B |                       **632 B** |
 
 The `calledWith` dispatch row moved too — 0.54 → 0.17 µs — but for a different reason, and it is
 [in the micro-benchmark section](#micro-benchmark) rather than here: that one was a string key being
@@ -136,7 +136,7 @@ those entries keep building spies from `mock()` and `t.mock.fn()`.
 ## Memory, not just time
 
 [Measured](#measured) times one double. What decides whether a large suite fits inside a container
-is what a double *holds*, and that is where laziness earns its default: on a 40-method class a spec that
+is what a double _holds_, and that is where laziness earns its default: on a 40-method class a spec that
 calls two methods never builds the other 38, and each one skipped is a function, its argument map,
 and the promise/observable helper bundles attached to it. The measured bytes are in
 [Retained memory per double](#retained-memory-per-double); what follows is the mechanism behind them.
@@ -208,7 +208,7 @@ used to work because it was a closure over that spy. It now throws at the call, 
 and the two shapes that work (`spy.load.resolveWith(v)`, or `bind` it first). The jasmine
 namespaces bind, so nothing changes there.
 
-**Creating** a *double* is still one `defineProperty` per lazy accessor, and that is now most of what
+**Creating** a _double_ is still one `defineProperty` per lazy accessor, and that is now most of what
 it costs. Materialising a **method** did move, and by a large multiple — see
 [the spy engine](#the-spy-engine). The rest of this note is about the accessors, which are the part
 that did not. Sharing the accessor descriptors across spies looked like the obvious cut and was
@@ -247,7 +247,7 @@ below; `@bugsplat` is no longer a stand-in for anything.
 
 `jest-auto-spies` and `jasmine-auto-spies` run here under a minimal `jest` / `jasmine` global backed
 by `vi.fn()` (`bench/runner-globals.ts`). That is what makes the comparison mean something rather
-than a compromise on it: every *other* arm then creates the same underlying mock, so the runner's
+than a compromise on it: every _other_ arm then creates the same underlying mock, so the runner's
 per-mock cost is a shared constant and the numbers separate each library's own work — measuring one
 library on Jest and another on Vitest would report the two runners instead of the libraries. State
 the limitation plainly, too: these numbers describe each library's own code, not what a real Jest or
@@ -292,8 +292,8 @@ below takes about eleven.
 This is the paragraph to read if nothing else on this page gets read. A single run of this stand
 moves several per cent between invocations of unchanged code — machine state, not sampling error:
 raising the iteration budgets fourfold lowers `rme` and leaves it untouched. What is published is
-therefore the **median of seven runs**, and what each row's ± column reports is how far *that
-median* can be off. Across the 47 rows of the 2026-09-04 run that figure is a **median of ±0.9%**,
+therefore the **median of seven runs**, and what each row's ± column reports is how far _that
+median_ can be off. Across the 47 rows of the 2026-09-04 run that figure is a **median of ±0.9%**,
 and at worst **±6.3%** — on the `calledWith` dispatch row, which is the fastest and therefore the
 one closest to the stand's own floor.
 
@@ -309,13 +309,13 @@ table this one replaced, where one row sat inside the stand's own spread and had
 parity.
 
 The column that carries the trust is that **uncertainty on the median**, not `rme`. `rme` bounds the
-*mean*; the mean here is dominated by garbage-collection tails that have nothing to do with the
+_mean_; the mean here is dominated by garbage-collection tails that have nothing to do with the
 `p75` actually published, so a large `rme` beside a stable `p75` says a noisy tail sits on that arm,
 not that the published number is unreliable. A single run has no second number to compare itself
 against — repeated whole runs are what make the uncertainty checkable at all.
 
 **Every arm inside one block runs the same number of iterations**, printed as `n` in the tables
-below, rather than the same time budget. tinybench defaults to a fixed *time* budget per arm, which
+below, rather than the same time budget. tinybench defaults to a fixed _time_ budget per arm, which
 hands a faster arm more iterations — and these cases allocate test doubles by the tens of thousands,
 so garbage collection scales with the number of objects created rather than with elapsed time. An
 equal time budget therefore gives the faster arm unequal, lighter GC exposure and makes it pay for
@@ -332,14 +332,14 @@ than this library, below 1× means faster.
 **Double from a class** (this library, `@bugsplat`, `jest-auto-spies` and `jasmine-auto-spies` all
 read a class — `vi.fn()` here is the same class hand-assembled with plain mocks):
 
-| Case | vitest-auto-spy | @bugsplat | jest-auto-spies | jasmine-auto-spies | hand-written vi.fn() | n |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| small project — 6 methods, 1 called | 1.42 µs | 8.33 µs (5.88×) | 8.38 µs (5.91×) | 8.50 µs (6.00×) | 6.83 µs (4.82×) | 90,000 |
-| medium project — 14 methods, 2 called | 2.67 µs | 19.37 µs (7.27×) | 19.17 µs (7.19×) | 19.71 µs (7.39×) | 15.92 µs (5.97×) | 70,000 |
-| large project — 45 methods, 2 called | 5.79 µs | 64.04 µs (11.06×) | 65.67 µs (11.34×) | 66.25 µs (11.44×) | 52.79 µs (9.11×) | 36,000 |
-| worst case — 14 methods, all 14 called | 8.17 µs | 21.87 µs (2.68×) | 21.79 µs (2.67×) | 22.25 µs (2.72×) | 17.92 µs (2.19×) | 30,000 |
-| worst case — 45 methods, all 45 called | 26.12 µs | 73.42 µs (2.81×) | 71.83 µs (2.75×) | 73.04 µs (2.80×) | 62.04 µs (2.37×) | 9,000 |
-| configure a return + 3 calls | 2.21 µs | 19.63 µs (8.88×) | 19.33 µs (8.75×) | not measured | 16.38 µs (7.41×) | 102,000 |
+| Case                                   | vitest-auto-spy |         @bugsplat |   jest-auto-spies | jasmine-auto-spies | hand-written vi.fn() |       n |
+| -------------------------------------- | --------------: | ----------------: | ----------------: | -----------------: | -------------------: | ------: |
+| small project — 6 methods, 1 called    |         1.42 µs |   8.33 µs (5.88×) |   8.38 µs (5.91×) |    8.50 µs (6.00×) |      6.83 µs (4.82×) |  90,000 |
+| medium project — 14 methods, 2 called  |         2.67 µs |  19.37 µs (7.27×) |  19.17 µs (7.19×) |   19.71 µs (7.39×) |     15.92 µs (5.97×) |  70,000 |
+| large project — 45 methods, 2 called   |         5.79 µs | 64.04 µs (11.06×) | 65.67 µs (11.34×) |  66.25 µs (11.44×) |     52.79 µs (9.11×) |  36,000 |
+| worst case — 14 methods, all 14 called |         8.17 µs |  21.87 µs (2.68×) |  21.79 µs (2.67×) |   22.25 µs (2.72×) |     17.92 µs (2.19×) |  30,000 |
+| worst case — 45 methods, all 45 called |        26.12 µs |  73.42 µs (2.81×) |  71.83 µs (2.75×) |   73.04 µs (2.80×) |     62.04 µs (2.37×) |   9,000 |
+| configure a return + 3 calls           |         2.21 µs |  19.63 µs (8.88×) |  19.33 µs (8.75×) |       not measured |     16.38 µs (7.41×) | 102,000 |
 
 The three widths and the two call counts are measured project profiles rather than round numbers —
 where they come from is in [`bench/README.md`](https://github.com/ASDAlexey/vitest-auto-spy/blob/master/bench/README.md#where-the-three-sizes-come-from):
@@ -354,12 +354,12 @@ operations.
 
 **Double from a type** (all three arms here are Proxy-based, doing equal work):
 
-| Members touched | vitest-auto-spy | vitest-mock-extended | @golevelup/ts-vitest | n |
-| --- | ---: | ---: | ---: | ---: |
-| 2 | 1.00 µs | 2.79 µs (2.79×) | 4.92 µs (4.92×) | 590,000 |
-| 10 | 4.67 µs | 13.83 µs (2.96×) | 24.92 µs (5.34×) | 60,000 |
-| 40 | 18.92 µs | 56.79 µs (3.00×) | 103.37 µs (5.46×) | 16,000 |
-| configure + 3 calls | 0.71 µs | 1.58 µs (2.24×) | 1.58 µs (2.24×) | 584,000 |
+| Members touched     | vitest-auto-spy | vitest-mock-extended | @golevelup/ts-vitest |       n |
+| ------------------- | --------------: | -------------------: | -------------------: | ------: |
+| 2                   |         1.00 µs |      2.79 µs (2.79×) |      4.92 µs (4.92×) | 590,000 |
+| 10                  |         4.67 µs |     13.83 µs (2.96×) |     24.92 µs (5.34×) |  60,000 |
+| 40                  |        18.92 µs |     56.79 µs (3.00×) |    103.37 µs (5.46×) |  16,000 |
+| configure + 3 calls |         0.71 µs |      1.58 µs (2.24×) |      1.58 µs (2.24×) | 584,000 |
 
 **Deep double, 3 levels, leaf called (n = 232,000):** vitest-auto-spy 2.29 µs ·
 vitest-mock-extended 5.46 µs (2.38×) · @golevelup 6.00 µs (2.62×).
@@ -368,8 +368,8 @@ vitest-mock-extended 5.46 µs (2.38×) · @golevelup 6.00 µs (2.62×).
 @bugsplat 0.96 µs (5.74×) · vitest-mock-extended 0.54 µs (3.25×).
 
 That last row moved in 4.1 for a reason worth naming, because it is not the spy engine: a
-`calledWith(x)` config of a single primitive argument used to be *rendered into a string key on
-every call* of that spy — an array from `map`, a string per argument, a joined string, then a hash —
+`calledWith(x)` config of a single primitive argument used to be _rendered into a string key on
+every call_ of that spy — an array from `map`, a string per argument, a joined string, then a hash —
 where a `Map` keyed by the value itself does the same lookup with no allocation at all. The shapes
 where the two disagree (a symbol, which renders by description; `-0`, which renders apart from `0`
 and is one key with it under `SameValueZero`) stay on the string path and keep the answer they had.
@@ -385,7 +385,7 @@ so the distance to it is exactly what not calling `vi.fn()` per method is worth.
 page.** The 45-method row above shows this package roughly 9× faster than hand-written `vi.fn()` on
 one double. Measured across a real suite, below, that advantage is gone: parity at 1 000 and 3 000
 tests, behind by roughly 8% at 10 000. The suite-scale section that follows has been re-run on the
-4.1 build, and that row still argues *against* this library. Double construction is on the order of
+4.1 build, and that row still argues _against_ this library. Double construction is on the order of
 1% of a test's total cost, so a micro-benchmark multiplier is evidence about the double, not about
 the run — carrying it forward as a suite-level claim is the one thing this section is written to
 prevent.
@@ -404,15 +404,15 @@ agreement was better than 0.01% except on the smallest cells, where the floor is
 
 **Built from a class:**
 
-| Arm | 10 methods, untouched | 10, all called | 100 methods, untouched | 100, all called |
-| --- | ---: | ---: | ---: | ---: |
-| vitest-auto-spy default lazy | 2 950 B (295 B/method) | 19 708 B (1 971 B/method) | 25 601 B (256 B/method) | 192 913 B (1 929 B/method) |
-| vitest-auto-spy `lazySpies: 'proxy'` | 1 857 B (186 B/method) | 20 677 B (2 068 B/method) | 4 097 B (41 B/method) | 191 443 B (1 914 B/method) |
-| vitest-auto-spy `lazySpies: false` | 6 034 B (603 B/method) | 19 021 B (1 902 B/method) | 63 239 B (632 B/method) | 192 888 B (1 929 B/method) |
-| jest-auto-spies | 58 116 B (5 812 B/method) | 68 356 B (6 836 B/method) | 583 477 B (5 835 B/method) | 685 887 B (6 859 B/method) |
-| jasmine-auto-spies | 60 621 B (6 062 B/method) | 70 874 B (7 087 B/method) | 608 290 B (6 083 B/method) | 710 720 B (7 107 B/method) |
-| @bugsplat/vitest-auto-spies | 58 123 B (5 812 B/method) | 68 381 B (6 838 B/method) | 583 480 B (5 835 B/method) | 685 906 B (6 859 B/method) |
-| hand-written `vi.fn()` | 41 018 B (4 102 B/method) | 51 258 B (5 126 B/method) | 414 461 B (4 145 B/method) | 516 886 B (5 169 B/method) |
+| Arm                                  |     10 methods, untouched |            10, all called |     100 methods, untouched |            100, all called |
+| ------------------------------------ | ------------------------: | ------------------------: | -------------------------: | -------------------------: |
+| vitest-auto-spy default lazy         |    2 950 B (295 B/method) | 19 708 B (1 971 B/method) |    25 601 B (256 B/method) | 192 913 B (1 929 B/method) |
+| vitest-auto-spy `lazySpies: 'proxy'` |    1 857 B (186 B/method) | 20 677 B (2 068 B/method) |      4 097 B (41 B/method) | 191 443 B (1 914 B/method) |
+| vitest-auto-spy `lazySpies: false`   |    6 034 B (603 B/method) | 19 021 B (1 902 B/method) |    63 239 B (632 B/method) | 192 888 B (1 929 B/method) |
+| jest-auto-spies                      | 58 116 B (5 812 B/method) | 68 356 B (6 836 B/method) | 583 477 B (5 835 B/method) | 685 887 B (6 859 B/method) |
+| jasmine-auto-spies                   | 60 621 B (6 062 B/method) | 70 874 B (7 087 B/method) | 608 290 B (6 083 B/method) | 710 720 B (7 107 B/method) |
+| @bugsplat/vitest-auto-spies          | 58 123 B (5 812 B/method) | 68 381 B (6 838 B/method) | 583 480 B (5 835 B/method) | 685 906 B (6 859 B/method) |
+| hand-written `vi.fn()`               | 41 018 B (4 102 B/method) | 51 258 B (5 126 B/method) | 414 461 B (4 145 B/method) | 516 886 B (5 169 B/method) |
 
 The four competitor rows are within 0.03% of the run this table replaces, which is what says the
 harness did not move. The three rows that did are this package's, and they moved for one reason:
@@ -422,11 +422,11 @@ is never called now allocates none of the six arrays `vi.fn()` allocates up fron
 
 **Built from a type.** Untouched is width-independent — it is the same Proxy object either way:
 
-| Arm | untouched | 10 members called | 100 members called |
-| --- | ---: | ---: | ---: |
-| vitest-auto-spy `createAutoMock` | 1 184 B | 20 250 B | 191 161 B |
-| vitest-mock-extended `mock` | 353 B | 53 578 B | 537 191 B |
-| @golevelup/ts-vitest `createMock` | 496 B | 103 654 B | 1 030 848 B |
+| Arm                               | untouched | 10 members called | 100 members called |
+| --------------------------------- | --------: | ----------------: | -----------------: |
+| vitest-auto-spy `createAutoMock`  |   1 184 B |          20 250 B |          191 161 B |
+| vitest-mock-extended `mock`       |     353 B |          53 578 B |          537 191 B |
+| @golevelup/ts-vitest `createMock` |     496 B |         103 654 B |        1 030 848 B |
 
 **What this establishes:**
 
@@ -470,10 +470,10 @@ round-robin, not in blocks (see above). Coverage on.
 **20-method class, `isolate: true`, 3 rounds per cell after a discarded warm-up, medians of the
 three. Measured 2026-09-04 on the 4.1 build, Node v24.19.0, Vitest 4.1.11, Apple M4 Max:**
 
-| Tests | vitest-auto-spy | @bugsplat | hand-written |
-| ---: | ---: | ---: | ---: |
-| 1 000 | 1.33 s · 1116 MB | 2.00 s (1.50×) · 1237 MB | 1.31 s (0.99×) · 1085 MB |
-| 3 000 | 2.86 s · 1167 MB | 4.61 s (1.61×) · 1349 MB | 2.85 s (1.00×) · 1136 MB |
+|  Tests |   vitest-auto-spy |                 @bugsplat |             hand-written |
+| -----: | ----------------: | ------------------------: | -----------------------: |
+|  1 000 |  1.33 s · 1116 MB |  2.00 s (1.50×) · 1237 MB | 1.31 s (0.99×) · 1085 MB |
+|  3 000 |  2.86 s · 1167 MB |  4.61 s (1.61×) · 1349 MB | 2.85 s (1.00×) · 1136 MB |
 | 10 000 | 10.02 s · 1295 MB | 15.45 s (1.54×) · 1509 MB | 9.25 s (0.92×) · 1283 MB |
 
 The harness prints its own widest round-to-round spread, and here it was **16%** of the cell's
@@ -489,12 +489,12 @@ unchanged, and it is still published as a loss.
 
 **100-method class, `isolate: true`, 10 000 tests, 5 rounds after a discarded warm-up:**
 
-| Arm | Median wall | Median peak RSS | Across 5 rounds |
-| --- | ---: | ---: | --- |
-| vitest-auto-spy (ours) | 9.42 s | 1294 MB | — |
-| ours, `lazySpies: 'proxy'` | 9.41 s | 1276 MB | median exactly 1.00× (1.00 / 0.98 / 1.00 / 1.02 / 0.98) — not a result |
-| @bugsplat | 15.85 s | 1518 MB | median ratio 1.68, 5/5 above 1.0× (1.66–1.73×) |
-| hand-written `vi.fn()` | 9.21 s | 1280 MB | median 0.98×, 5/5 below 1.0× (0.97–1.00×) |
+| Arm                        | Median wall | Median peak RSS | Across 5 rounds                                                        |
+| -------------------------- | ----------: | --------------: | ---------------------------------------------------------------------- |
+| vitest-auto-spy (ours)     |      9.42 s |         1294 MB | —                                                                      |
+| ours, `lazySpies: 'proxy'` |      9.41 s |         1276 MB | median exactly 1.00× (1.00 / 0.98 / 1.00 / 1.02 / 0.98) — not a result |
+| @bugsplat                  |     15.85 s |         1518 MB | median ratio 1.68, 5/5 above 1.0× (1.66–1.73×)                         |
+| hand-written `vi.fn()`     |      9.21 s |         1280 MB | median 0.98×, 5/5 below 1.0× (0.97–1.00×)                              |
 
 Established, holding across 1 000 / 3 000 / 10 000 tests and both 20- and 100-method classes, every
 round where it was measured: this library is **roughly 1.5–1.7× faster than the jest-auto-spies-family
@@ -512,7 +512,7 @@ parity, so the direction is no longer unanimous the way it was; the median is wh
 the tail (rounds at 0.84×) is why nothing narrower than "a few per cent" is. That is the whole shape
 of the suite-scale story: building a double is around one per cent of what a test costs, so a
 10× micro-benchmark win shows up as a few per cent here, and the remaining gap is what this library
-does *besides* building doubles. `lazySpies: 'proxy'` under `isolate: true` is **not** established as
+does _besides_ building doubles. `lazySpies: 'proxy'` under `isolate: true` is **not** established as
 doing anything — its median across five rounds is exactly 1.00×, which is as clean a null result as
 this stand produces.
 
@@ -523,11 +523,11 @@ above, and it reproduces tightly where wall-clock does not.
 
 **100-method class, `isolate: false`, 10 000 tests, 7 rounds, peak RSS:**
 
-| Arm | Peak RSS median | Range | Wall |
-| --- | ---: | --- | ---: |
-| hand-written `vi.fn()` | 6366 MB | 6249–6801 | 2.63 s |
-| vitest-auto-spy default | 2103 MB | 1995–2167 | 2.17 s |
-| vitest-auto-spy, `lazySpies: 'proxy'` | 1851 MB | 1835–1960 | 2.38 s |
+| Arm                                   | Peak RSS median | Range     |   Wall |
+| ------------------------------------- | --------------: | --------- | -----: |
+| hand-written `vi.fn()`                |         6366 MB | 6249–6801 | 2.63 s |
+| vitest-auto-spy default               |         2103 MB | 1995–2167 | 2.17 s |
+| vitest-auto-spy, `lazySpies: 'proxy'` |         1851 MB | 1835–1960 | 2.38 s |
 
 Hand-written `vi.fn()` peaks at 3.0× this library's default and 3.4× `'proxy'` mode's. The
 proxy/default peak-RSS ratio is 0.854, 0.879, 0.889, 0.893, 0.894, 0.922, 0.932 — 7/7 rounds below
@@ -572,8 +572,8 @@ About 98% of `@bugsplat`'s suite-scale deficit is not accounted for by the micro
 per-double difference: at 10 000 tests its deficit against this library is on the order of 5.4 s of
 wall-clock, while the micro-benchmark's per-double gap (on the order of 10 µs) times 10 000 tests
 comes to on the order of 0.1 s — two orders of magnitude short. Its peak RSS is also higher at suite
-scale (1509 MB vs 1295 MB at 10 000 tests, 20-method class). Higher memory pressure is *consistent
-with* more GC work explaining the rest of the gap, but that causal chain was not measured and is not
+scale (1509 MB vs 1295 MB at 10 000 tests, 20-method class). Higher memory pressure is _consistent
+with_ more GC work explaining the rest of the gap, but that causal chain was not measured and is not
 claimed here.
 
 ### Reproducing this
@@ -595,14 +595,14 @@ The badge says 14.3 kB min+gzip, and that is the whole core entry bundled togeth
 largest number a consumer can pay for the core, because entries are separate subpaths and a project
 only pays for the ones it imports:
 
-| Imported                                 |    min+gzip |
-| ---------------------------------------- | ----------: |
-| `.` — the core entry, what the badge measures |  **14.3 kB** |
-| `vitest-auto-spy/angular`                |     18.2 kB |
-| `vitest-auto-spy/node`                   |     13.7 kB |
-| `vitest-auto-spy/dom-stubs`              |      5.1 kB |
-| `vitest-auto-spy/rxjs`                   |      2.2 kB |
-| `vitest-auto-spy/zone`                   |      1.1 kB |
+| Imported                                      |    min+gzip |
+| --------------------------------------------- | ----------: |
+| `.` — the core entry, what the badge measures | **14.3 kB** |
+| `vitest-auto-spy/angular`                     |     18.2 kB |
+| `vitest-auto-spy/node`                        |     13.7 kB |
+| `vitest-auto-spy/dom-stubs`                   |      5.1 kB |
+| `vitest-auto-spy/rxjs`                        |      2.2 kB |
+| `vitest-auto-spy/zone`                        |      1.1 kB |
 
 `npm run size:entries` prints all twenty and compares them against a committed baseline, so an entry
 that quietly gains a second copy of the core fails a check instead of being noticed a release later.
@@ -651,13 +651,13 @@ release of each major: the repo's own suite — **107 files, 1 697 tests** — t
 cold `import('vitest-auto-spy/node')`, and the process start-up that both of those pay before either
 begins.
 
-|                                                   |          20 |      22 |      24 |         25 |         26 |
-| ------------------------------------------------- | ----------: | ------: | ------: | ---------: | ---------: |
-| the 107-file suite, `vitest run` (best of 3)      |      4.85 s |  4.63 s |  4.05 s |     3.91 s | **3.84 s** |
-| cold `import('vitest-auto-spy/node')` (best of 7) |     15.0 ms | 14.8 ms |  6.7 ms | **6.2 ms** |     6.3 ms |
+|                                                   |          20 |      22 |      24 |         25 |          26 |
+| ------------------------------------------------- | ----------: | ------: | ------: | ---------: | ----------: |
+| the 107-file suite, `vitest run` (best of 3)      |      4.85 s |  4.63 s |  4.05 s |     3.91 s |  **3.84 s** |
+| cold `import('vitest-auto-spy/node')` (best of 7) |     15.0 ms | 14.8 ms |  6.7 ms | **6.2 ms** |      6.3 ms |
 | process startup (best of 11)                      |     12.0 ms | 13.3 ms | 10.9 ms |    10.6 ms | **10.3 ms** |
-| peak RSS of the suite (median of 3)               | **3947 MB** | 4185 MB | 5467 MB |    5313 MB |    4645 MB |
-| RSS after the import (median of 7)                | **43.9 MB** | 51.5 MB | 52.1 MB |    55.1 MB |    58.3 MB |
+| peak RSS of the suite (median of 3)               | **3947 MB** | 4185 MB | 5467 MB |    5313 MB |     4645 MB |
+| RSS after the import (median of 7)                | **43.9 MB** | 51.5 MB | 52.1 MB |    55.1 MB |     58.3 MB |
 
 The break is between 22 and 24, and how large it is depends entirely on which of these you are
 paying: the cold import more than halves (2.2×), the suite's wall clock moves 1.14× and process
@@ -666,7 +666,7 @@ it is paid per worker rather than per run. 24, 25 and 26 are within a few per ce
 the three timing rows; on memory they are not, and 26 gives back about 15% of 24's peak RSS.
 
 Node 18 is missing from the table because `vitest run` exits immediately there — but it does import:
-9.4 ms cold, 45.7 MB of RSS afterwards, 13.7 ms to start. It is *faster* to import than either 20 or
+9.4 ms cold, 45.7 MB of RSS afterwards, 13.7 ms to start. It is _faster_ to import than either 20 or
 22, so the ranking is not monotonic in the version number.
 
 **What a spy costs does not change with the version.** Running `npm run bench:memory` under 20, 22,
@@ -738,9 +738,10 @@ configured shapes plus a miss.
 
 Spy construction is measured above and is not it. The three things that are — an environment per
 file, the child subtree of every component a spec renders, and worker count — are Angular-shaped,
-and `npm run bench` deliberately covers only the plain core. This repo has no committed harness for
-the comparisons any of them would need, so what follows is the mechanism and the config rather than
-a table of seconds.
+and `npm run bench` deliberately covers only the plain core, so that the spy numbers stay free of
+the Angular transform. The second of the three has a harness of its own — `npm run bench:angular`,
+whose figures are the tables below. The first and the third still have none, so what follows for
+them is the mechanism and the config rather than a table of seconds.
 
 ### 1. One environment instead of one per file
 
@@ -782,6 +783,48 @@ percentage — it is however much markup the component under test happens to own
 with no children there is nothing to save, and the per-test `overrideComponent` can cost more than
 it saves; on a table or a dashboard the two curves are nowhere near each other.
 
+Both halves of that are measurable, and `npm run bench:angular` measures them. A host component
+holding an `@for` of a minimal child, full per-test cycle each time — `resetTestingModule` +
+`configureTestingModule` + `createComponent` + first change detection:
+
+| Child instances | `TestBed.createComponent` | `renderShallow` | ratio |
+| --------------: | ------------------------: | --------------: | ----: |
+|               0 |                  0.447 ms |        0.471 ms | 0.95× |
+|              25 |                  0.585 ms |        0.338 ms | 1.73× |
+|             100 |                  1.373 ms |        0.306 ms | 4.50× |
+|             400 |                  5.658 ms |        0.272 ms | 20.8× |
+
+Read the first row before the last: at zero children `renderShallow` is **slower, not faster** —
+0.95× here, 0.87× on a second five-pass run — because there is no subtree to skip and the per-test
+`overrideComponent` is pure cost. That is the same sentence as the paragraph above it, with a number
+on it. The last row is the other end of the same curve, and neither is "the" figure — the ratio is
+whatever the component's own markup is worth.
+
+Median of 60 reps per arm, five passes merged by median, on Node v24.19.0 and Angular 21
+(2026-09-04). The three lower rows reproduced to within 1 % on a second independent five-pass run
+(1.73× / 4.49× / 20.7×); the childless row is the one that moves, because both of its arms are
+dominated by the fixed cost of the cycle. Reproduce with `npm run bench:angular -- --repeat 5`; the
+methodology, and the two ways this benchmark can silently measure nothing, are in
+`bench-angular/README.md`.
+
+Where that time is, on the 100-child shape, is the reason the list of things worth optimising here
+is short:
+
+| Rung of the cycle                                                       |   median |
+| ----------------------------------------------------------------------- | -------: |
+| Full per-test cycle: reset + configure + `createComponent` + CD         | 1.215 ms |
+| `resetTestingModule()` alone                                            | 0.002 ms |
+| `resetTestingModule()` + `configureTestingModule()`                     | 0.002 ms |
+| `createComponent` + CD on an **already-configured** module              | 1.049 ms |
+| `configureTestingModule` + `overrideComponent` + `createComponent` + CD | 0.384 ms |
+| `compileComponents()` on a standalone AOT bed                           | 0.005 ms |
+
+`configureTestingModule` compiles nothing — it records metadata and returns — so reset and configure
+together are **0.3 % of the cycle**, and reusing a configured bed across tests recovers 14 % of it.
+That last row is worth knowing before reaching for a library that sells bed reuse: on this shape the
+mechanism has almost nothing to win, because essentially all of the cycle is `createComponent` plus
+the first change detection building the child subtree — which is the part `renderShallow` removes.
+
 This is only worth taking because [templates are not what a spec asserts on](../recipes). A test that
 reads component state pays for the subtree and gets nothing back for it.
 
@@ -800,8 +843,21 @@ whether or not the template is kept, so with `keepTemplate: true` the template r
 child in it resolves to nothing under `NO_ERRORS_SCHEMA`.
 
 So there are three rungs, not two: the full cycle, the component's own template with an empty
-subtree, and no template at all. Reach for the middle one when the spec reads something the template
-creates, and keep `keepChildren` for the handful of children it genuinely needs resolvable.
+subtree, and no template at all. On the same 100-child shape as the table above:
+
+| Rung                                    |   median | vs full cycle |
+| --------------------------------------- | -------: | ------------: |
+| `TestBed.createComponent`, full cycle   | 1.374 ms |             — |
+| `renderShallow({ keepTemplate: true })` | 0.862 ms |         1.60× |
+| `renderShallow()`                       | 0.227 ms |         6.07× |
+
+The middle rung's saving is exactly the children's own cost, so it is the one figure here that
+depends most on what a child is: this benchmark's child owns a single element and a single binding,
+which makes 1.60× a floor rather than a typical case. It is also the noisiest row on this page — the
+two `renderShallow` rows reproduced to within 1 % on a second five-pass run, while the full cycle
+came back at 1.213 ms, putting the middle rung at 1.41× — so read it as **roughly 1.4–1.6× on a
+minimal child**, and more on a real one. Reach for the middle rung when the spec reads something the
+template creates, and keep `keepChildren` for the handful of children it genuinely needs resolvable.
 
 ### 3. Worker count
 

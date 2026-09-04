@@ -15,6 +15,8 @@ on:
   pull_request:
     paths:
       - 'bench/**'
+      - 'bench-angular/**'
+      - 'vitest.bench.angular.config.mts'
       - 'src/lib/**'
       - 'scripts/bench-report.mjs'
       - 'scripts/bench-check.mjs'
@@ -82,10 +84,22 @@ jobs:
       - name: Compare against the committed baseline
         run: npm run bench:check -- bench-results.self.json >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Type-check the Angular benchmark
+        run: npm run typecheck:bench-angular
+
+      # Five passes, not one: a single pass of this benchmark flaps by 20-30 % and produces false
+      # failures. Report-only, like the self-comparison gate above.
+      - name: Run the Angular render benchmark
+        run: npm run bench:angular -- --repeat 5 --json bench-results.angular.json
+
+      - name: Compare against the Angular baseline
+        run: npm run bench:check -- bench-results.angular.json --baseline bench-angular/baseline.json >> "$GITHUB_STEP_SUMMARY"
+
       - uses: actions/upload-artifact@v4
         with:
           name: bench-results
           path: |
             bench-results.json
             bench-results.self.json
+            bench-results.angular.json
           retention-days: 90

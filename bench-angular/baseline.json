@@ -1,0 +1,56 @@
+{
+  "cases": {
+    "per-render cycle — 0 children": {
+      "reference": "TestBed.createComponent, full cycle",
+      "ratios": {
+        "renderShallow, full cycle": 0.9557,
+        "TestBed.createComponent, full cycle": 1
+      }
+    },
+    "per-render cycle — 100 children": {
+      "reference": "TestBed.createComponent, full cycle",
+      "ratios": {
+        "renderShallow, full cycle": 0.2354,
+        "TestBed.createComponent, full cycle": 1
+      }
+    },
+    "per-render cycle — 25 children": {
+      "reference": "TestBed.createComponent, full cycle",
+      "ratios": {
+        "renderShallow, full cycle": 0.5676,
+        "TestBed.createComponent, full cycle": 1
+      }
+    },
+    "per-render cycle — 400 children": {
+      "reference": "TestBed.createComponent, full cycle",
+      "ratios": {
+        "renderShallow, full cycle": 0.0504,
+        "TestBed.createComponent, full cycle": 1
+      }
+    },
+    "the three rungs — 100 children": {
+      "reference": "TestBed.createComponent, full cycle",
+      "ratios": {
+        "renderShallow(), full cycle": 0.1737,
+        "renderShallow({ keepTemplate: true }), full cycle": 0.5908,
+        "TestBed.createComponent, full cycle": 1
+      }
+    },
+    "where the cycle spends its time — 100 children": {
+      "reference": "full per-test cycle (reset + configure + createComponent + CD)",
+      "ratios": {
+        "compileComponents() on a standalone AOT bed": 0.0046,
+        "configureTestingModule + overrideComponent + createComponent + CD": 0.3312,
+        "createComponent + CD on an already-configured module": 0.8412,
+        "full per-test cycle (reset + configure + createComponent + CD)": 1,
+        "resetTestingModule() + configureTestingModule()": 0.0019,
+        "resetTestingModule() alone": 0.0017
+      }
+    }
+  },
+  "generated": {
+    "date": "2026-09-04",
+    "node": "v24.19.0",
+    "command": "npm run bench:angular -- --repeat 5 --json bench-results.angular.json && npm run bench:check -- bench-results.angular.json --baseline bench-angular/baseline.json --update"
+  }
+}

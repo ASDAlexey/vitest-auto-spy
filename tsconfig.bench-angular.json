@@ -1,0 +1,12 @@
+{
+  "compilerOptions": {
+    "noEmit": true,
+    "types": ["vitest/globals", "node"]
+  },
+  // The Angular benchmark is a separate program from `tsconfig.bench.json`: that one covers
+  // `bench/**`, which must stay compilable without the Angular plugin, and this one needs the
+  // decorator/template compilation the plugin performs. Kept out of `npm run check` for the same
+  // reason `tsconfig.bench.json` is — nothing here ships.
+  "extends": "./tsconfig.json",
+  "include": ["src", "bench-angular/**/*.ts"]
+}
