@@ -8,6 +8,96 @@ The latest released version here must always match the one published on
 [npm](https://www.npmjs.com/package/vitest-auto-spy) and the latest `v*` git tag — see
 [CONTRIBUTING.md → Releasing](./CONTRIBUTING.md#releasing) for how that stays in sync.
 
+## [Unreleased]
+
+**Why upgrade.** Two new ways to read a double, and a class of failure that stops pointing at this
+library's own source.
+
+### Added
+
+- **`createSpyFromInstance(instance, config?)` / `restoreSpiedInstance(instance)`.** Every other
+  factory here _constructs_ a double; this one patches an object the test already holds — a service
+  a factory built, a third-party client, a half-real `TestBed.inject(X)` — in place, same identity,
+  so whatever captured it first sees the spies. `vi.mockObject` is Vitest-only,
+  `sinon.createStubInstance` builds a new object from a constructor rather than patching yours, and
+  `bun:test` and `node:test` have nothing; this runs on all three through the same `MockAdapter`
+  seam. Discovery is the object's own function-valued fields plus the prototype chain up to but not
+  including `Object.prototype`, so an arrow-function property needs no `instanceMethodsToSpyOn` and
+  `hasOwnProperty` is never replaced. Restoration reuses the `mock*Prop` journal, so
+  `restoreSpiedInstance`, `restoreMockedProps()` and `using` all compose — and `using` **restores**
+  rather than resets, the only sense disposal can have for an object the consumer owns. It costs
+  **+322 B min+gzip** on every entry that exports it, measured by building the root entry with and
+  without it.
+- **`explainSpy(spy, method?)`, on the `/diagnostics` entry.** `mustBeCalledWith` prints wanted next to actual, but only on the
+  call that breaks. `explainSpy` answers the same question on demand, while the test is red for some
+  other reason: every configured argument list next to every recorded call, each call attributed to
+  the config it hit or to the default it fell through to. `calledWith` and `mustBeCalledWith` share
+  one numbering. The two states a reader most often arrives in are said outright rather than left to
+  be inferred — `nothing configured`, and `N calls, none matched`. It never throws: a plain
+  `vi.fn()` is reported as one in the text. The return is a `string` to print, not an API to assert
+  on. It ships from `/diagnostics` rather than the root for the reason that entry exists: ESM
+  re-export is eager, a reader calls this at a breakpoint rather than from a spec, and on the root it
+  would have cost every consumer 1 226 B min+gzip — measured, and most of what the root entry would
+  otherwise have grown by. On `/diagnostics` it is +2.25 kB against an entry that was
+  1.59 kB, because there it pulls in the argument serializer and the spy marks on its own rather
+  than sharing them; that entry is imported by a reader debugging, not by every spec file, which is
+  the trade the entry exists to make.
+- **Two `doctor` checks that resolve a name, not a file.** `helper-from-wrong-entry` reports a
+  helper imported from an entry that does not export it — `provideAutoSpy` from the root instead of
+  `/angular` or `/nestjs`. `no-unawaited-helper` reports an `expectEmission` / `expectError` /
+  `stable` / `flushEventLoop` called as a bare statement and dropped, where the promise settles after
+  the test has ended and its assertion reports into a later test or nowhere. Both look a name up in a
+  table generated from this package's own `exports` map, which is why neither can be a lint rule, and
+  both go quiet when the installed major differs from the table's. Neither has a fixer; `doctor`
+  still never writes.
+- **An Angular render benchmark**, `npm run bench:angular`, so the `renderShallow` figures on the
+  performance page are reproducible by a reader and by CI rather than quoted.
+- **A `@testing-library/angular` migration page.** It is the only third party with zoneless support,
+  and its `/vitest-utils` `createMock` / `provideMock` overlap this library directly.
+
+### Size and memory
+
+Every entry that exports the new factory grows **+0.65 kB min+gzip** (`.`, `/react`, `/vue`,
+`/svelte`, +4.5 %), **+0.74 kB** on `/bun` (+5.7 %), **+0.73 kB** on `/node` (+5.3 %) and
+**+0.64 kB** on `/bun-angular` (+3.8 %). Of that, 322 B is `createSpyFromInstance` itself and the
+remaining ~353 B is the stack anchoring, the `node:test` naming and `ArgsMap.configuredEntries` —
+each measured by building the entry with and without it. `/diagnostics` is the one large relative
+move, +2.25 kB on a 1.59 kB entry, and it is `explainSpy` being deliberately kept off the root.
+Seven entries got *smaller* — `/rxjs`, `/dom-stubs`, `/jasmine-compat` and `/setup` among them —
+from the shared-chunk split described below.
+
+Heap per spied method is **+4.0 %** (2.78 kB → 2.89 kB) and creating a spy **+2.6 %**, measured over
+100 000 spied methods through the `/node` entry, median of seven runs. The first version of the
+`node:test` naming cost +13.0 % heap and +17.6 % create time, because redefining `name` on a
+function drops it out of V8's fast map; naming the implementation at creation instead brought it
+back. Heap after a lazy create is unchanged.
+
+### Changed
+
+- **An emission-helper failure now names the line in your spec that called it.** These assertions
+  build their error inside a `subscribe` or timer callback, so the frame the reporter showed was
+  `node_modules/vitest-auto-spy/…` — a location whose only effect is to send the reader, or an
+  agent, into a file they did not write. The stack is captured at helper entry and pinned onto the
+  failure. Only errors these helpers build are re-anchored: the one `expectError` resolves with
+  belongs to the code under test and keeps the stack it was created with.
+- **`node:test` spies carry their method name.** `mock.fn()` takes no name and has no `mockName()`,
+  so every spy used to print as `[Function: dispatch]` — this library's internal dispatcher. The
+  adapter now names the implementation at creation and lets `mock.fn()` carry that name onto the
+  mock, so it survives `mock.reset()` / `restore()` / `resetCalls()` and an implementation swap —
+  and it is what `node:assert` diffs, `util.inspect()` and this library's own messages read.
+  `getMockName()` still does not exist there; read `spy.method.name`. Naming at creation rather than
+  redefining `name` afterwards is what keeps this nearly free: redefining drops the function out of
+  V8's fast map and costs +206 B per mock, against +65 B for naming at creation — measured over
+  200 000 mocks on Node 24.19.0.
+- **`/rxjs`, `/console`, `/nestjs`, `/setup`, `/jasmine`, `/jasmine-compat` and `/dom-stubs` each
+  evaluate 10.0 kB less.** Only the process-wide `defaultTimeoutMs` cell behind
+  `setEmissionTimeout()` needs to be pinned into the shared chunk, not the 10 kB emission helper
+  around it; splitting the cell out (`emission-timeout.ts`) took `dist/shared-state.js` from
+  17 467 to 7 465 B. The eight entries that do use the helper lose 2.5 kB each, because inlined into
+  the entry it tree-shakes better than it did behind a barrel re-export, and **no entry gains a
+  module**. `/setup` min+gzip 12 092 → 12 072 B. The per-import time this buys is ≈0.08 ms, at the
+  resolution limit of the harness — the bytes are the claim, not the milliseconds.
+
 ## [4.1.0] - 2026-09-03
 
 **Why upgrade.** A method spy is no longer a `vi.fn()`, and that is the whole release. The library

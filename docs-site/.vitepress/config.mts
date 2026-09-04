@@ -43,6 +43,7 @@ const SIDEBAR = [
     text: 'Utilities',
     collapsed: false,
     items: [
+      { text: 'Explaining a double', link: '/utilities/explain-spy' },
       { text: 'Console spies', link: '/utilities/console' },
       { text: 'Test-run hygiene', link: '/utilities/setup' },
       { text: 'Fake timers', link: '/utilities/fake-timers' },
@@ -87,6 +88,10 @@ const SIDEBAR = [
   { text: 'Migrating from jasmine-auto-spies', link: '/migrating-jasmine' },
   { text: 'Migrating from @ngneat/spectator', link: '/migrating-spectator' },
   { text: 'Migrating from Suites', link: '/migrating-suites' },
+  {
+    text: 'Migrating from @testing-library/angular',
+    link: '/migrating-testing-library-angular',
+  },
   { text: 'After the refactor-jasmine-vitest schematic', link: '/migrating-angular-schematic' },
   { text: 'API reference', link: '/api' },
   { text: 'Comparison', link: '/comparison' },
@@ -140,6 +145,12 @@ export default defineConfig({
         name: 'keywords',
         content:
           'vitest, auto spy, auto-spies, vitest-auto-spy, jest-auto-spies, test spies, typed mocks, ' +
+          'why did my mock return undefined, calledWith not matching, which calledWith matched, ' +
+          'spy called with wrong arguments, mock called but returned default, explainSpy, ' +
+          'spy an existing object vitest, vi.mockObject alternative, sinon createStubInstance vitest, ' +
+          'mock a real service instance, td.replace equivalent, createSpyFromInstance, ' +
+          'expectEmission stack points at node_modules, test failure points at library not spec, ' +
+          'node:test mock has no name, [Function: dispatch] node test, ' +
           'rxjs types in d.ts, cannot find module rxjs types, TS2307 rxjs, import type does not tree shake, ' +
           'Subject is not assignable, SubjectLike, ObservableLike, structural observable detection, ' +
           'stub IntersectionObserver vitest, ResizeObserver is not defined jsdom, HTMLMediaElement.play not implemented, ' +
