@@ -11,6 +11,7 @@
  * wrapped in `toObservable`, or a hand-rolled subscribable.
  */
 import { emissionTimeout } from './emission-timeout';
+import { type StackAnchor, captureAnchor, ownFailure } from './error-anchor';
 import { serializeValue } from './serialize-args';
 
 /** Minimal observer accepted by {@link SubscribableLike}. */
@@ -319,8 +320,20 @@ function subscribeAndCollect<T>(
   return { values, stop };
 }
 
+/**
+ * Reject with a failure this module built, pinned to the stack taken at helper entry.
+ *
+ * Every failure here is constructed inside a subscribe or timer callback, where the caller's frame
+ * is long gone — so the rejection, not the construction, is where the anchor goes on. One shared
+ * factory rather than an arrow per helper, so the wrapping is impossible to forget at a new
+ * rejection site.
+ */
+function anchoredRejecter(reject: (error: Error) => void, anchor: StackAnchor): (error: Error) => void {
+  return (error) => reject(anchor(error));
+}
+
 function timeoutError(values: unknown[], options: AnyEmissionOptions | undefined, waited: number): Error {
-  return new Error(
+  return ownFailure(
     `${describeSource(options)} did not emit within ${waited} ms (${values.length} emission(s) received). ` +
       'Either the stream never fired — check the trigger and any provider spy feeding it — or it is slower than the ' +
       'timeout; raise it with `{ timeout: … }`. This wait is real time even under fake timers, on purpose: a virtual ' +
@@ -339,11 +352,11 @@ function timeoutError(values: unknown[], options: AnyEmissionOptions | undefined
  * {@link expectError}, which resolves *with* the error and needs no unwrapping at all.
  */
 function rejectAsSourceError(error: unknown, options: AnyEmissionOptions | undefined, settle: Rejecter): void {
-  settle.reject(new Error(`${describeSource(options)} errored instead of emitting: ${String(error)}`, { cause: error }));
+  settle.reject(ownFailure(`${describeSource(options)} errored instead of emitting: ${String(error)}`, { cause: error }));
 }
 
 function completedError(values: unknown[], expected: number, options: AnyEmissionOptions | undefined): Error {
-  return new Error(
+  return ownFailure(
     `${describeSource(options)} completed after ${values.length} emission(s), expected ${describeExpectation(expected, options)}. ` +
       'A completed-but-empty stream is the usual sign that the value was produced before the subscription.',
   );
@@ -382,7 +395,7 @@ function completedError(values: unknown[], expected: number, options: AnyEmissio
 export function expectEmission<T>(source$: CallbackSubscribable<T>, options?: EmissionOptions<T>): Promise<T>;
 export function expectEmission<T>(source$: SubscribableLike<T>, options?: EmissionOptions<T>): Promise<T>;
 export function expectEmission<T>(source$: EmissionSource<T>, options?: EmissionOptions<T>): Promise<T> {
-  return collectEmissions(source$, 1, options).then((values) => firstOf(values));
+  return collectEmissions(source$, 1, options, captureAnchor(expectEmission)).then((values) => firstOf(values));
 }
 
 /** `values[0]` for a list the collector guarantees is non-empty (`noUncheckedIndexedAccess` widens it to `T | undefined`). */
@@ -402,7 +415,7 @@ function firstOf<T>(values: T[]): T {
 export function expectEmissions<T>(source$: CallbackSubscribable<T>, count: number, options?: EmissionOptions<T>): Promise<T[]>;
 export function expectEmissions<T>(source$: SubscribableLike<T>, count: number, options?: EmissionOptions<T>): Promise<T[]>;
 export function expectEmissions<T>(source$: EmissionSource<T>, count: number, options?: EmissionOptions<T>): Promise<T[]> {
-  return collectEmissions(source$, count, options);
+  return collectEmissions(source$, count, options, captureAnchor(expectEmissions));
 }
 
 /**
@@ -412,17 +425,24 @@ export function expectEmissions<T>(source$: EmissionSource<T>, count: number, op
  * be called from its own implementation signature — the union it accepts there matches neither
  * overload.
  */
-function collectEmissions<T>(source$: EmissionSource<T>, count: number, options: EmissionOptions<T> | undefined): Promise<T[]> {
+function collectEmissions<T>(
+  source$: EmissionSource<T>,
+  count: number,
+  options: EmissionOptions<T> | undefined,
+  anchor: StackAnchor,
+): Promise<T[]> {
   return new Promise<T[]>((resolve, reject) => {
+    const fail = anchoredRejecter(reject, anchor);
+
     subscribeAndCollect(
       source$,
       options,
       // Resolved with everything that arrived, then narrowed to the accepted ones: the collector's
       // job is to record, and `skip` / `until` decide what the caller is handed.
-      { resolve: (values) => resolve(accepted(values, options).slice(0, count)), reject },
+      { resolve: (values) => resolve(accepted(values, options).slice(0, count)), reject: fail },
       {
         isDone: (values) => accepted(values, options).length >= count,
-        onComplete: (values) => reject(completedError(values, count, options)),
+        onComplete: (values) => fail(completedError(values, count, options)),
         onTimeout: timeoutError,
         onError: rejectAsSourceError,
       },
@@ -440,15 +460,17 @@ function collectEmissions<T>(source$: EmissionSource<T>, count: number, options:
  */
 export function expectNoEmission<T>(source$: EmissionSource<T>, options?: EmissionOptions<T>): Promise<void> {
   const quietFor = options?.timeout ?? 0;
+  const anchor = captureAnchor(expectNoEmission);
   let quietWindow: ReturnType<typeof setTimer> | undefined = undefined;
 
   return new Promise<void>((resolve, reject) => {
+    const fail = anchoredRejecter(reject, anchor);
     const collector = subscribeAndCollect<T>(
       source$,
       { ...options, timeout: 0 },
       {
-        resolve: (emitted) => reject(unexpectedEmissionError(accepted(emitted, options), options)),
-        reject,
+        resolve: (emitted) => fail(unexpectedEmissionError(accepted(emitted, options), options)),
+        reject: fail,
       },
       {
         isDone: (values) => accepted(values, options).length > 0,
@@ -495,6 +517,8 @@ export function expectNoEmission<T>(source$: EmissionSource<T>, options?: Emissi
  * when a value is.
  */
 export function expectCompletion(source$: EmissionSource<unknown>, options?: EmissionOptions): Promise<void> {
+  const anchor = captureAnchor(expectCompletion);
+
   // Resolved with the collected values and mapped to `void` afterwards, rather than declared
   // `Promise<void>` with a `() => resolve()` wrapper: `staysOpen` means the collector's success path
   // runs only from `onComplete`, so a separate `resolve` wrapper would be a function no test can
@@ -503,7 +527,7 @@ export function expectCompletion(source$: EmissionSource<unknown>, options?: Emi
     subscribeAndCollect<unknown>(
       source$,
       options,
-      { resolve, reject },
+      { resolve, reject: anchoredRejecter(reject, anchor) },
       {
         // Emissions are collected for the failure message, but only completion settles this.
         isDone: staysOpen,
@@ -521,7 +545,7 @@ function staysOpen(): boolean {
 }
 
 function notCompletedError(values: unknown[], options: AnyEmissionOptions | undefined, waited: number): Error {
-  return new Error(
+  return ownFailure(
     `${describeSource(options)} did not complete within ${waited} ms (${values.length} emission(s) received). ` +
       'A stream that keeps running usually means the completing operator never ran — check `take`, `first`, ' +
       '`takeUntil`, or a Subject nobody calls `complete()` on. The wait is real time even under fake timers; ' +
@@ -530,7 +554,7 @@ function notCompletedError(values: unknown[], options: AnyEmissionOptions | unde
 }
 
 function rejectAsNotCompleted(error: unknown, options: AnyEmissionOptions | undefined, settle: Rejecter): void {
-  settle.reject(new Error(`${describeSource(options)} errored instead of completing: ${String(error)}`, { cause: error }));
+  settle.reject(ownFailure(`${describeSource(options)} errored instead of completing: ${String(error)}`, { cause: error }));
 }
 
 /**
@@ -553,15 +577,21 @@ function rejectAsNotCompleted(error: unknown, options: AnyEmissionOptions | unde
  * quiet instead.
  */
 export function expectError(source$: EmissionSource<unknown>, options?: EmissionOptions): Promise<unknown> {
+  // The anchor covers this helper's own failures only. The error it resolves with is the caller's,
+  // and rewriting its stack would move the reader away from where that error was really made.
+  const anchor = captureAnchor(expectError);
+
   return new Promise<unknown[]>((resolve, reject) => {
+    const fail = anchoredRejecter(reject, anchor);
+
     subscribeAndCollect<unknown>(
       source$,
       options,
-      { resolve, reject },
+      { resolve, reject: fail },
       {
         // Only `error` settles this one: an emission is not the answer, and neither is completion.
         isDone: staysOpen,
-        onComplete: (values) => reject(completedWithoutErrorError(values, options)),
+        onComplete: (values) => fail(completedWithoutErrorError(values, options)),
         onTimeout: notErroredError,
         onError: resolveWithError,
       },
@@ -570,7 +600,7 @@ export function expectError(source$: EmissionSource<unknown>, options?: Emission
 }
 
 function completedWithoutErrorError(values: unknown[], options: AnyEmissionOptions | undefined): Error {
-  return new Error(
+  return ownFailure(
     `${describeSource(options)} completed after ${values.length} emission(s) without erroring, but an error was expected. ` +
       'Check that the failure path is the one the spec set up — a spy configured with `resolveWith`/`nextWith` rather ' +
       'than `rejectWith`/`throwWith` produces exactly this.',
@@ -578,7 +608,7 @@ function completedWithoutErrorError(values: unknown[], options: AnyEmissionOptio
 }
 
 function notErroredError(values: unknown[], options: AnyEmissionOptions | undefined, waited: number): Error {
-  return new Error(
+  return ownFailure(
     `${describeSource(options)} did not error within ${waited} ms (${values.length} emission(s) received). ` +
       'The stream is still running: nothing failed, and nothing completed either.',
   );
@@ -593,5 +623,5 @@ function unexpectedEmissionError(values: unknown[], options: AnyEmissionOptions 
   // `serializeValue`, not `JSON.stringify`: what a spec asserts stays silent is routinely a
   // component, a DOM node or a store slice with back-references, and stringifying one throws
   // `Converting circular structure to JSON` — losing the value the message exists to show.
-  return new Error(`${describeSource(options)} emitted ${serializeValue(values[0])} but was expected to stay silent.`);
+  return ownFailure(`${describeSource(options)} emitted ${serializeValue(values[0])} but was expected to stay silent.`);
 }

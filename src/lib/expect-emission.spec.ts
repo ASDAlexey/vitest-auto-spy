@@ -539,3 +539,79 @@ describe('advance', () => {
     expect(advanced).toBe(0);
   });
 });
+
+describe('the failure points at the caller, not at the callback that built it', () => {
+  /**
+   * The regression this is the canary for: every failure here is constructed inside a `subscribe`
+   * or timer callback, by which time the caller's frame is gone from the stack. Before the stack was
+   * captured at helper entry the reporter's code frame opened `expect-emission.ts` — a file in
+   * `node_modules` for everyone but this repo, and the first thing both a reader and an agent do
+   * with such a location is go and read the wrong file.
+   */
+  function firstFrame(error: unknown): string {
+    const stack = error instanceof Error ? (error.stack ?? '') : '';
+
+    return stack.split('\n').find((line) => line.trimStart().startsWith('at ')) ?? '';
+  }
+
+  function lineOf(frame: string): number {
+    return Number(/:(\d+):\d+\)?$/.exec(frame)?.[1]);
+  }
+
+  async function failureOf(pending: Promise<unknown>): Promise<Error> {
+    return pending.then(
+      () => new Error('the helper resolved, so there is no failure to inspect'),
+      (error: unknown) => (error instanceof Error ? error : new Error(String(error))),
+    );
+  }
+
+  it('names the spec file and the exact line the helper was called on', async () => {
+    const callSite = new Error();
+    const pending = expectEmission(new Subject<number>(), { timeout: 5 });
+
+    const failure = await failureOf(pending);
+
+    expect(firstFrame(failure)).toContain('expect-emission.spec.ts');
+    expect(lineOf(firstFrame(failure))).toBe(lineOf(firstFrame(callSite)) + 1);
+  });
+
+  it.each([
+    ['expectEmission, timing out', () => expectEmission(new Subject<number>(), { timeout: 5 })],
+    ['expectEmissions, cut short by completion', () => expectEmissions(of(1), 2, { timeout: 50 })],
+    ['expectCompletion, on a stream that keeps running', () => expectCompletion(new Subject<void>(), { timeout: 5 })],
+    ['expectNoEmission, on a stream that emits', () => expectNoEmission(of(1), { timeout: 5 })],
+    ['expectError, on a stream that completes instead', () => expectError(of(1), { timeout: 50 })],
+  ])('holds for %s', async (_case, start) => {
+    const failure = await failureOf(start());
+
+    expect(firstFrame(failure)).toContain('expect-emission.spec.ts');
+    expect(firstFrame(failure)).not.toContain('src/lib/expect-emission.ts');
+    expect(firstFrame(failure)).not.toContain('node_modules');
+  });
+
+  it('anchors the wrapper of a source error while leaving the original untouched', async () => {
+    const original = new Error('boom');
+    const stackBefore = original.stack;
+    const source$ = new Subject<number>();
+
+    setTimeout(() => source$.error(original), 1);
+
+    const failure = await failureOf(expectEmission(source$, { timeout: 50 }));
+
+    expect(failure.cause).toBe(original);
+    expect(firstFrame(failure)).toContain('expect-emission.spec.ts');
+    expect(original.stack).toBe(stackBefore);
+  });
+
+  it('hands `expectError` the error the stream threw with its own stack intact', async () => {
+    const original = new Error('websso fail');
+    const stackBefore = original.stack;
+    const source$ = new Subject<number>();
+
+    setTimeout(() => source$.error(original), 1);
+
+    // Rewriting this one would be a lie: it was created by the code under test, not by a helper.
+    await expect(expectError(source$, { timeout: 50 })).resolves.toBe(original);
+    expect(original.stack).toBe(stackBefore);
+  });
+});

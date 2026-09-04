@@ -171,6 +171,23 @@ saved$ completed after 0 emission(s), expected 1. A completed-but-empty stream i
 that the value was produced before the subscription.
 ```
 
+### The code frame opens your spec line
+
+These helpers build their failure inside a `subscribe` or timer callback, long after the call
+returned — so the stack the runner saw used to start in `node_modules/vitest-auto-spy/…` and carry
+no spec frame at all, and the code frame in the report pointed at this package. The stack is now
+captured at helper entry, before anything subscribes, and pinned onto the failure when it is finally
+built, so the frame the reporter opens is the `await expectEmission(…)` line in your spec.
+
+Only the errors these helpers make themselves are re-anchored. The error
+[`expectError`](#expecterror-when-the-failure-is-the-subject) resolves with belongs to the code under
+test and keeps the stack it was created with — rewriting that one would point the reader away from
+where the failure actually happened.
+
+`vi.defineHelper`, which covers a helper that throws while the caller's frame is still on the stack,
+cannot serve these: its `__VITEST_HELPER__` frame ends up **last**, and Vitest's parser then drops
+the whole stack, code frame included.
+
 ## Measured: four forms against four streams
 
 The claim above — that `expect()` inside `subscribe()` is the most common way to write a test that
