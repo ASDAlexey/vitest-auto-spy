@@ -9,17 +9,27 @@ import { describe, expect, it } from 'vitest';
 import { type NodeMock, type NodeTestApi, createNodeMockAdapter } from './node-adapter';
 import type { Func } from './types';
 
-/** Build a `node:test`-like `mock` whose `fn()` records `{ arguments }`-shaped calls. */
+/**
+ * Build a `node:test`-like `mock` whose `fn()` records `{ arguments }`-shaped calls.
+ *
+ * The mock inherits the *implementation's* `name`, which is what real `node:test` does and what the
+ * adapter relies on instead of redefining `name` on the mock — see `nameImplementation`.
+ */
 function makeNodeTestApi(): NodeTestApi {
   return {
     fn: (implementation?: Func): NodeMock => {
       const calls: { arguments: unknown[] }[] = [];
       let currentImplementation = implementation;
-      const fn = ((...args: unknown[]): unknown => {
+      // A `function`, not an arrow: real `node:test` hands back something constructable that
+      // forwards `this`, and both are contracts the adapter's named wrapper has to preserve.
+      const fn = function (this: unknown, ...args: unknown[]): unknown {
         calls.push({ arguments: args });
 
-        return currentImplementation?.(...args);
-      }) as NodeMock;
+        return currentImplementation?.apply(this, args);
+      } as NodeMock;
+
+      Object.defineProperty(fn, 'name', { value: implementation?.name ?? '', configurable: true });
+
       fn.mock = {
         calls,
         resetCalls: (): void => {
@@ -82,14 +92,62 @@ describe('createNodeMockAdapter', () => {
     expect(fn()).toBe('restored');
   });
 
-  it('names the mock via displayName for cross-runner diagnostics (and skips it when unnamed)', () => {
+  it('names the mock after the method, not after the library dispatch it wraps', () => {
     const adapter = createNodeMockAdapter(makeNodeTestApi());
 
-    const named = adapter.createMockFn(undefined, 'fetchUser');
+    const named = adapter.createMockFn(function dispatch(): void {}, 'fetchUser');
     const anonymous = adapter.createMockFn();
 
+    expect(named.name).toBe('fetchUser');
     expect(Object.getOwnPropertyDescriptor(named, 'displayName')?.value).toBe('fetchUser');
+    expect(anonymous.name).toBe('');
     expect(Object.getOwnPropertyDescriptor(anonymous, 'displayName')).toBeUndefined();
+  });
+
+  it('names the implementation rather than redefining name on the mock', () => {
+    // Redefining `name` on the mock drops it out of V8's fast map — +206 B per mock against +65 B
+    // for naming at creation, which is why the wrapper exists at all.
+    const adapter = createNodeMockAdapter(makeNodeTestApi());
+
+    const named = adapter.createMockFn(function dispatch(): void {}, 'fetchUser');
+
+    expect(Object.getOwnPropertyDescriptor(named, 'name')?.value).toBe('fetchUser');
+  });
+
+  it('keeps the named wrapper constructable, which mockConstructor needs', () => {
+    const adapter = createNodeMockAdapter(makeNodeTestApi());
+    const built = { built: true };
+
+    const Ctor = adapter.createMockFn(function (): object {
+      return built;
+    }, 'PaymentsClient');
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the adapter hands back a bare callable; `mockConstructor` narrows it to a constructor the same way.
+    expect(new (Ctor as any)()).toBe(built);
+    expect(Ctor.name).toBe('PaymentsClient');
+  });
+
+  it('keeps the name through reset, clear and restoreImplementation', () => {
+    const adapter = createNodeMockAdapter(makeNodeTestApi());
+    const named = adapter.createMockFn(undefined, 'fetchUser');
+
+    named();
+    adapter.reset(named);
+    adapter.clear(named);
+    adapter.restoreImplementation(named, (): void => undefined);
+
+    expect(named.name).toBe('fetchUser');
+  });
+
+  it('forwards this and every argument through the named wrapper', () => {
+    const adapter = createNodeMockAdapter(makeNodeTestApi());
+    const host = { tag: 'host' };
+
+    const spy = adapter.createMockFn(function (this: typeof host, ...args: unknown[]): unknown {
+      return [this.tag, ...args];
+    }, 'describeCall');
+
+    expect(spy.call(host, 1, 2)).toEqual(['host', 1, 2]);
   });
 
   it('spyOnGetter / spyOnSetter record accessor access', () => {

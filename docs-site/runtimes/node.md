@@ -66,8 +66,8 @@ auto-spy helpers hide it; reading the raw mock does not.
 | Recorded calls             | `spy.method.mock.calls[0]` → args   | `spy.method.mock.calls[0].arguments`         |
 | Replace the implementation | `spy.method.mockImplementation(fn)` | `spy.method.mock.mockImplementation(fn)`     |
 | Reset                      | `spy.method.mockReset()`            | `spy.method.mock.resetCalls()` / `restore()` |
+| Read the spy's name back   | `spy.method.getMockName()`          | **absent** — read `spy.method.name` instead  |
 | Return value               | `spy.method.mockReturnValue(v)`     | **absent** — see the note below              |
-| Spy name in diagnostics    | set for you                         | `mock.fn()` has no name — names are absent   |
 
 The last row is the one that bites: `spy.method.mockReturnValue('x')` is a **native** Vitest/Bun
 method, and `node:test` has none, so it is `undefined` here. The library's own
@@ -85,6 +85,41 @@ and the differences stop mattering: they read the same on all three runtimes.
 `mock.settledResults` — which `node:test` does not track natively — is provided by a built-in
 polyfill, so it reads identically to Vitest (`{ type: 'fulfilled' | 'incomplete' | 'rejected', value }`).
 See [Control helpers → Inspecting promise outcomes](/core/control-helpers#settled-results).
+
+## Spy names
+
+`node:test`'s `mock.fn()` takes no name and has no `mockName()`, and the proxy it returns keeps the
+name of whatever function was passed in — so before this was handled, every spy printed as
+`[Function: dispatch]`, the library's internal dispatcher, wherever a spy was rendered.
+
+The adapter now gives the method's name to the *implementation*, at the moment it is created, and
+`mock.fn()` carries it onto the mock — a `node:test` mock takes its `name` from the function it
+wraps. `displayName` is set on the mock as well, for inspectors that prefer that convention. The
+name survives `mock.reset()`, `mock.restore()`, `resetCalls()` and a `mockImplementation()` swap,
+because the mock captured it when it was built.
+
+Naming at creation rather than redefining `name` afterwards is a memory decision, not a style one.
+`Object.defineProperty(mock, 'name', …)` works, but it drops the function out of V8's fast map:
+measured over 200 000 mocks on Node 24.19.0, redefining costs **+206 B each** against **+65 B** for
+naming at creation. An anonymous function expression under a computed key is named by the language
+itself, and — unlike a concise method — stays constructable, which `mockConstructor` needs.
+
+That is what `node:assert` diffs, `util.inspect()` and this library's own messages read, so a spy
+identifies itself the same way it does on Vitest and Bun:
+
+```txt
+The function 'getName' was configured with 'mustBeCalledWith' and expects to be called with specific arguments.
+Wanted: getName(7)
+Actual: getName([Function: getName])
+```
+
+Two things it still does not buy you, and neither has a fix on this side:
+
+- **`getMockName()` does not exist on a `node:test` mock.** It is a Jest-family method Vitest and Bun
+  ship and `node:test` does not; read `spy.method.name` there instead.
+- **`node:test`'s own reporter never labels a mock.** Its output names the *test* that failed, not
+  the mock involved — the name shows up only where a spy is actually rendered as a value (an
+  assertion diff, `util.inspect`, a library message), never as a heading in the TAP or spec reporter.
 
 ## Every mock is retained until the tracker is dropped
 
