@@ -77,7 +77,8 @@ file on the first edit.
 | `npm run bench:vs`         | This package against `jest-auto-spies`, `jasmine-auto-spies`, `@bugsplat/vitest-auto-spies`, `vitest-mock-extended`, `@golevelup/ts-vitest` and a hand-written `vi.fn()` control. | ~1 min          |
 | `npm run bench:vs:precise` | Seven runs at double the budgets; every published number comes from this.                                                                                                         | ~13 min         |
 | `npm run bench:vs:fast`    | The same, budgets divided by eight — for editing the benchmark. Marks itself as not a result.                                                                                     | ~10 s           |
-| `npm run bench`            | This package against itself — lazy against eager spies, `lazySpies: 'proxy'`, `calledWith` dispatch. Needs no install here. `--json <path>` keeps the raw results.                | ~1 min          |
+| `npm run bench`            | This package against itself — lazy against eager spies, `calledWith` dispatch, and a spied call against a plain one. Needs no install here. `--json <path>` keeps the raw results.                | ~1 min          |
+| `npm run bench:check`      | Compares a `npm run bench` results file against `baseline.json` and reports what moved. Report-only unless `--strict`.                                                             | instant         |
 | `npm run bench:memory`     | Retained heap per double, across the same libraries, at two class widths and two touch levels.                                                                                    | ~40 s           |
 | `npm run bench:suite`      | Whole synthetic suites — 1 000 / 3 000 / 10 000 tests — measuring wall-clock and peak RSS per library.                                                                            | tens of minutes |
 
@@ -216,6 +217,10 @@ that whole block, not a result.
 Every column except `hz`, `rme` and `samples` is **milliseconds for one iteration of the case**, so
 `0.0048` means 4.8 microseconds.
 
+One case breaks the habit of reading an iteration as an operation, and says so in its own title: the
+batched floor case runs 10 000 operations per iteration on every arm, so its figures are per batch.
+Only the ratio between its arms means anything; the microseconds do not.
+
 Everything this project publishes is time per operation, never operations per second. Throughput
 reads well and is the wrong number: it is computed from the mean, so one garbage-collection pause
 among tens of thousands of samples moves it, and it answers a question — how many doubles can this
@@ -287,6 +292,15 @@ brought the worst margin of error across the file down from ±36.6% to ±16%.
 
 The counts differ between blocks, and that is intended — a comparison only ever happens inside a
 block, so that is where the counts have to match.
+
+Equal iteration counts are not sufficient on their own once an arm gets fast enough. A plain method
+call with no double costs a fraction of a nanosecond, and tinybench's per-iteration timing is
+quantized — around 42 ns on the machine these numbers were taken on — so an empty body, three calls
+and thirty calls all report the same figure, and any ratio taken against them is a measurement of the
+host's clock. The floor case therefore repeats its body 10 000 times per iteration, with the same
+factor on every arm, which puts the cheapest arm about 200 ticks above the quantum. A second trap
+sits directly underneath: with loop-invariant arguments V8 hoists the plain call out of the loop
+entirely and the arm measures an empty counter, so the loop mutates an argument on every repeat.
 
 ### Who won which table
 
@@ -448,6 +462,40 @@ until the run dies with `JavaScript heap out of memory`, roughly seven groups in
 
 With this file, peers resolve upward to the root install and there is one Vitest. Both `npm install`
 and `npm ci --prefix bench` honour it.
+
+## The one number that gates: `bench:check`
+
+A benchmark nobody re-runs is a claim; a benchmark that re-runs and cannot fail is a decoration. Every
+command above prints and exits zero whatever the numbers say, so `bench:check` is what turns one of
+them into a gate:
+
+```bash
+npm run bench -- --json bench-results.self.json --no-memory
+npm run bench:check -- bench-results.self.json            # report only, always exits 0
+npm run bench:check -- bench-results.self.json --strict   # exits 1 on a regression
+npm run bench:check -- bench-results.self.json --update   # rewrite bench/baseline.json
+```
+
+**`baseline.json` records ratios, never microseconds.** A shared CI runner's absolute figures swing
+by tens of percent between runs of identical code, so an absolute threshold both fires on noise and
+hides real regressions underneath it. A ratio against a reference arm measured in the same run
+cancels the machine out. The reference is the arm the baseline names, or the fastest arm when it
+names none; when the baseline names an arm the run did not measure, the case is marked `rebased` and
+judged as nothing, because ratios on two different bases are not comparable. An arm the baseline
+knows and the run no longer has is reported as missing and fails nothing — a rename is not a
+regression.
+
+The tolerance is `max(15%, 2 × rme)`, taking the margin of error the run itself reported, so an arm
+that is noisy on the day is judged more loosely rather than flagged for being noisy.
+
+Two things it does not yet do, and the reasons are worth keeping in view. **Single-arm cases cannot
+regress** — their ratio is 1.000 by construction, so `createSpyFromClass`, `createAutoMock` and
+`calledWith dispatch` sit in the baseline as placeholders, not gates; they become gates the day
+someone gives them a control arm, the way the floor case gave one to `spy invocation`. And **the
+floor case's ratio moves more than the tolerance allows**: the plain-call arm settles per process
+into one of two modes on the machine measured here, which alone swings the ratio between 118× and
+165× while the spy arm holds within ±2%. That is a host property, not sampling noise. Until it is
+recorded as a median of several runs, or given a tolerance of its own, that row stays report-only.
 
 ## How these numbers stay current
 
