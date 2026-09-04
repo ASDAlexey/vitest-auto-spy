@@ -89,6 +89,41 @@ interface NamedMethods {
 
 type ClearableCall = ((a: object, b: object) => unknown) & { mockClear: () => void };
 
+interface Ident {
+  id: number;
+}
+
+// The raw-call floor. A `vi.fn()` control is Vitest's number and moves when Vitest does; the bare
+// call does not, so ratios against it stay comparable across machines and releases. It is only ever
+// measured batched — see `BATCH` below.
+class PlainCallTarget {
+  m0(a: Ident, b: Ident): number {
+    return a.id + b.id;
+  }
+
+  m1(a: Ident, b: Ident): number {
+    return a.id - b.id;
+  }
+
+  m2(a: Ident, b: Ident): number {
+    return a.id * b.id;
+  }
+}
+
+// The floor accumulates into this exported binding: a store nothing can read is one V8 may drop, and
+// a floor optimised away would report a near-zero that poisons every ratio divided by it.
+export const benchSink = { total: 0 };
+
+// tinybench times a whole iteration, and this host quantises that at ~42 ns — 50× what three plain
+// calls cost, so an unbatched floor reports the clock. Every arm of the batched case repeats `BATCH`.
+const BATCH = 10_000;
+
+// Same iteration count for every arm of a per-call block: a time budget would hand the floor arm
+// orders of magnitude more samples than the arms it is the denominator for. `time: 0` makes it exact.
+function fixedIterations(iterations: number): { iterations: number; time: number } {
+  return { iterations, time: 0 };
+}
+
 /** Spy `WideClass` and call the first `callCount` of its methods — the shape a real `beforeEach` + test produces. */
 function spyAndCall(WideClass: ClassWithMethods, lazySpies: boolean, callCount: number): void {
   // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- `Spy<T>` is a mapped type over runtime-discovered names; indexing it by a computed key needs the dynamic shape.
@@ -182,7 +217,7 @@ describe('spy invocation', () => {
     spy.m0.mockClear();
     spy.m1.mockClear();
     spy.m2.mockClear();
-  });
+  }, fixedIterations(400_000));
 });
 
 describe('calledWith dispatch', () => {
@@ -197,5 +232,44 @@ describe('calledWith dispatch', () => {
     spy.m2(1);
     spy.m2(2);
     spy.m2(3);
-  });
+  }, fixedIterations(800_000));
+});
+
+// Both arms carry the identical `BATCH`, so the ratio between them is exact where the per-call cases
+// above cannot have one: a plain call is far under the clock's resolution and only a batch clears it.
+describe(`spy call against a plain call — batched, every figure is one batch of ${BATCH} (not one call)`, () => {
+  const spy = createSpyFromClass(WIDE) as unknown as Record<'m0' | 'm1' | 'm2', ClearableCall>;
+  const plain = new PlainCallTarget();
+  const argA = { id: 1 };
+  const argB = { id: 2 };
+
+  bench(`plain method call (no double), two object arguments (x3 per repeat, x${BATCH} per iteration)`, () => {
+    let total = 0;
+
+    for (let index = 0; index < BATCH; index += 1) {
+      // Varies the argument so V8 cannot hoist these calls out as loop-invariant and leave an empty
+      // loop behind; the spy arm repeats the store for nothing, so that both loops stay identical.
+      argA.id = index;
+
+      total += plain.m0(argA, argB) + plain.m1(argA, argB) + plain.m2(argA, argB);
+    }
+
+    benchSink.total += total;
+  }, fixedIterations(500));
+
+  bench(`spy call, two object arguments (x3 per repeat, x${BATCH} per iteration)`, () => {
+    for (let index = 0; index < BATCH; index += 1) {
+      argA.id = index;
+
+      spy.m0(argA, argB);
+      spy.m1(argA, argB);
+      spy.m2(argA, argB);
+    }
+
+    // Once per batch, not once per call: the recorded arguments have to be dropped or this grows
+    // without bound, and amortising the clear over `BATCH` keeps the arm a measurement of the call.
+    spy.m0.mockClear();
+    spy.m1.mockClear();
+    spy.m2.mockClear();
+  }, fixedIterations(500));
 });
