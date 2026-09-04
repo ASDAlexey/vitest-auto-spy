@@ -17,6 +17,7 @@ on:
       - 'bench/**'
       - 'src/lib/**'
       - 'scripts/bench-report.mjs'
+      - 'scripts/bench-check.mjs'
       - '.github/workflows/bench.yml'
 
 permissions:
@@ -67,8 +68,24 @@ jobs:
       - name: Publish table to the job summary
         run: node scripts/bench-report.mjs bench-results.json >> "$GITHUB_STEP_SUMMARY"
 
+      # The table above gates nothing, and an absolute threshold on a shared runner cannot gate it:
+      # p75 here swings tens of percent between runs of identical code. `bench:check` compares each
+      # arm against a reference arm measured in the same run, which cancels the machine out. The
+      # committed baseline covers the self-comparison cases, so this needs its own measurement pass —
+      # it is the cheap one, and it needs no competitor install.
+      - name: Run the self-comparison benchmark
+        run: npm run bench -- --json bench-results.self.json --no-memory
+
+      # Report-only on purpose: the first runs are calibrating the baseline rather than catching
+      # regressions, and this must not turn the workflow red until those ratios have settled. Add
+      # `--strict` once they have.
+      - name: Compare against the committed baseline
+        run: npm run bench:check -- bench-results.self.json >> "$GITHUB_STEP_SUMMARY"
+
       - uses: actions/upload-artifact@v4
         with:
           name: bench-results
-          path: bench-results.json
+          path: |
+            bench-results.json
+            bench-results.self.json
           retention-days: 90

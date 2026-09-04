@@ -1,0 +1,75 @@
+{
+  "generated": {
+    "date": "2026-09-03",
+    "node": "v24.19.0",
+    "command": "npm run bench -- --json bench-results.self.json --no-memory && npm run bench:check -- bench-results.self.json --update"
+  },
+  "cases": {
+    "calledWith dispatch": {
+      "reference": "configured calledWith lookup (serialized args)",
+      "ratios": {
+        "configured calledWith lookup (serialized args)": 1
+      }
+    },
+    "createAutoMock (type-only, lazy Proxy)": {
+      "reference": "create + access 4 methods",
+      "ratios": {
+        "create + access 4 methods": 1
+      }
+    },
+    "createSpyFromClass": {
+      "reference": "spy a wide class (repeated, same class)",
+      "ratios": {
+        "spy a wide class (repeated, same class)": 1
+      }
+    },
+    "lazy vs eager — 10 methods, 0 called": {
+      "reference": "lazy (lazySpies: true, the default)",
+      "ratios": {
+        "eager (lazySpies: false)": 2.322,
+        "lazy (lazySpies: true, the default)": 1
+      }
+    },
+    "lazy vs eager — 10 methods, 2 called": {
+      "reference": "lazy (lazySpies: true, the default)",
+      "ratios": {
+        "eager (lazySpies: false)": 1.3931,
+        "lazy (lazySpies: true, the default)": 1
+      }
+    },
+    "lazy vs eager — 10 methods, all 10 called": {
+      "reference": "eager (lazySpies: false)",
+      "ratios": {
+        "eager (lazySpies: false)": 1,
+        "lazy (lazySpies: true, the default)": 1.4099
+      }
+    },
+    "lazy vs eager — 40 methods, 3 called": {
+      "reference": "lazy (lazySpies: true, the default)",
+      "ratios": {
+        "eager (lazySpies: false)": 2.0506,
+        "lazy (lazySpies: true, the default)": 1
+      }
+    },
+    "lazy vs eager — 40 methods, all 40 called": {
+      "reference": "eager (lazySpies: false)",
+      "ratios": {
+        "eager (lazySpies: false)": 1,
+        "lazy (lazySpies: true, the default)": 1.4307
+      }
+    },
+    "spy call against a plain call — batched, every figure is one batch of 10000 (not one call)": {
+      "reference": "plain method call (no double), two object arguments (x3 per repeat, x10000 per iteration)",
+      "ratios": {
+        "plain method call (no double), two object arguments (x3 per repeat, x10000 per iteration)": 1,
+        "spy call, two object arguments (x3 per repeat, x10000 per iteration)": 138.2174
+      }
+    },
+    "spy invocation": {
+      "reference": "unconfigured call, two object arguments (x3)",
+      "ratios": {
+        "unconfigured call, two object arguments (x3)": 1
+      }
+    }
+  }
+}
