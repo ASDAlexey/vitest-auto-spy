@@ -124,6 +124,25 @@ function isBrandedMatcher(matcher: AsymmetricMatcher): boolean {
   return matcher.$$typeof === ASYMMETRIC_MATCHER_BRAND;
 }
 
+/**
+ * One registered config, addressable on its own.
+ *
+ * {@link ArgsMap.configured} renders every config as a string, which is all a failure message
+ * needs. Attributing an actual call to *which* config it hit needs a handle instead — re-rendering
+ * the text and comparing it is not one, because two chains can render the same list.
+ *
+ * Built on demand: nothing here is written by `set` or read by `get`, so the match path is
+ * untouched by the existence of this surface.
+ */
+export interface ConfiguredEntry {
+  /** 1-based position in {@link ArgsMap.configuredEntries}, in the order a lookup consults them. */
+  readonly index: number;
+  /** The config's argument list, rendered the way {@link ArgsMap.configured} renders it. */
+  readonly args: string;
+  /** Whether an actual call's arguments hit this config. */
+  matches(actualArgs: unknown[]): boolean;
+}
+
 export class ArgsMap {
   // Prototype-less so a `'__proto__'` (or `'constructor'`) serialized key is a
   // plain own property, never walking or polluting the object prototype chain.
@@ -205,6 +224,31 @@ export class ArgsMap {
     const asymmetric = this.#matcherConfigs.map((config) => `[${config.described.join(',')}]`);
 
     return [...Object.keys(this.#map), ...asymmetric];
+  }
+
+  /**
+   * Every configured argument list as a {@link ConfiguredEntry} — the same lists {@link configured}
+   * returns, each carrying its own position and its own predicate.
+   *
+   * The order is the order a lookup consults them (exact configs first, then the asymmetric ones in
+   * registration order), so the first entry whose `matches` holds is the config `get` would have
+   * answered from. That is what lets a reader be told "call 3 hit config 2" instead of a list of
+   * configs and a list of calls with nothing joining them.
+   */
+  configuredEntries(): ConfiguredEntry[] {
+    const exact: ConfiguredEntry[] = Object.keys(this.#map).map((key, position) => ({
+      index: position + 1,
+      args: key,
+      matches: (actualArgs: unknown[]): boolean => this.#serialize(actualArgs) === key,
+    }));
+
+    const asymmetric: ConfiguredEntry[] = this.#matcherConfigs.map((config, position) => ({
+      index: exact.length + position + 1,
+      args: `[${config.described.join(',')}]`,
+      matches: (actualArgs: unknown[]): boolean => this.#argsMatch(config, actualArgs),
+    }));
+
+    return [...exact, ...asymmetric];
   }
 
   /** Render one asymmetric config once, at registration time. See {@link MatcherConfig}. */

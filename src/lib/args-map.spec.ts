@@ -268,4 +268,35 @@ describe('ArgsMap', () => {
     // Still 1: three lookups, and the config side was never walked again.
     expect(configReads).toBe(1);
   });
+  it('hands out one addressable entry per config, exact configs before the asymmetric ones', () => {
+    const map = new ArgsMap();
+    map.set([1], 'one');
+    map.set([expect.any(String)], 'any string');
+    map.set([2, 'a'], 'pair');
+
+    const entries = map.configuredEntries();
+
+    expect(entries.map((entry) => entry.index)).toEqual([1, 2, 3]);
+    // The order a lookup consults them: the exact map first, then the matcher list.
+    expect(entries.map((entry) => entry.args)).toEqual(['[1]', "[2,'a']", '[Any<String>]']);
+    // Same rendering `configured()` produces, so a failure message and a report agree.
+    expect(entries.map((entry) => entry.args)).toEqual(map.configured());
+  });
+
+  it('answers, per entry, whether an actual call hit that config', () => {
+    const map = new ArgsMap();
+    map.set([1], 'one');
+    map.set([expect.any(String)], 'any string');
+
+    const entries = map.configuredEntries();
+
+    expect(entries.map((entry) => entry.matches([1]))).toEqual([true, false]);
+    expect(entries.map((entry) => entry.matches(['x']))).toEqual([false, true]);
+    expect(entries.map((entry) => entry.matches([2]))).toEqual([false, false]);
+    expect(entries.map((entry) => entry.matches([1, 'a']))).toEqual([false, false]);
+  });
+
+  it('has no entries before anything is configured', () => {
+    expect(new ArgsMap().configuredEntries()).toEqual([]);
+  });
 });
