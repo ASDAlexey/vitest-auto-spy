@@ -128,6 +128,35 @@ export default defineConfig({
   cleanUrls: true,
   lastUpdated: true,
 
+  // Only the landing is translated. Every other page stays English and the Russian nav links
+  // straight at it, so a reader who switches language keeps the whole documentation set.
+  locales: {
+    root: { label: 'English', lang: 'en-US' },
+    ru: {
+      label: 'Русский',
+      lang: 'ru-RU',
+      link: '/ru/',
+      description:
+        'Автоматические типизированные спаи из настоящего класса — одинаково на Vitest, Bun и node:test. Замена jest-auto-spies и jasmine-auto-spies с кодмодом, который дописывает переезд.',
+      themeConfig: {
+        nav: [
+          { text: 'Руководство', link: '/core/introduction' },
+          { text: 'Паттерны', link: '/recipes' },
+          { text: 'Среды запуска', link: '/runtimes/vitest' },
+          { text: 'Адаптеры', link: '/adapters/angular' },
+          { text: 'API', link: '/api' },
+          { text: 'Сравнение', link: '/comparison' },
+          { text: 'AI-агенты', link: '/agents' },
+        ],
+
+        footer: {
+          message: 'Опубликовано под лицензией MIT.',
+          copyright: 'Copyright © 2026 Alexey Popov',
+        },
+      },
+    },
+  },
+
   // README.md is the internal "how to run these docs" note, not a published page.
   srcExclude: ['README.md'],
 
@@ -196,7 +225,8 @@ export default defineConfig({
     ['meta', { name: 'robots', content: 'index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1' }],
     // og:type is set per page in transformPageData (website on the landing, article everywhere else);
     // a global one here would be a duplicate tag on every page.
-    ['meta', { property: 'og:locale', content: 'en_US' }],
+    // og:locale is set per page in transformPageData — the Russian landing needs ru_RU, and a
+    // second tag here would contradict it rather than replace it.
     ['meta', { property: 'og:site_name', content: 'vitest-auto-spy' }],
     ['meta', { property: 'og:image', content: OG_IMAGE }],
     ['meta', { property: 'og:image:width', content: '1200' }],
@@ -285,7 +315,8 @@ export default defineConfig({
   // Per-page canonical, OG/Twitter tags and the BreadcrumbList JSON-LD, for correct indexing of
   // every page rather than of the landing alone.
   transformPageData(pageData) {
-    const isHome = pageData.relativePath === 'index.md';
+    const isRussian = pageData.relativePath.startsWith('ru/');
+    const isHome = pageData.relativePath === 'index.md' || pageData.relativePath === 'ru/index.md';
     const path = pageData.relativePath.replace(/(index)?\.md$/, '');
     const canonical = `${HOSTNAME}${path}`;
     // The landing's own frontmatter title is the site name; suffixing it would double the name.
@@ -305,6 +336,16 @@ export default defineConfig({
     pageData.frontmatter['head'] ??= [];
     pageData.frontmatter['head'].push(
       ['link', { rel: 'canonical', href: canonical }],
+      // The landing is the only page that exists in two languages, so it is the only one that may
+      // claim an alternate; hreflang pointing at a page that does not exist is worse than none.
+      ...(isHome
+        ? [
+            ['link', { rel: 'alternate', hreflang: 'en', href: HOSTNAME }],
+            ['link', { rel: 'alternate', hreflang: 'ru', href: `${HOSTNAME}ru/` }],
+            ['link', { rel: 'alternate', hreflang: 'x-default', href: HOSTNAME }],
+          ]
+        : []),
+      ['meta', { property: 'og:locale', content: isRussian ? 'ru_RU' : 'en_US' }],
       ['meta', { property: 'og:type', content: isHome ? 'website' : 'article' }],
       ['meta', { property: 'og:title', content: title }],
       ['meta', { property: 'og:description', content: description }],
@@ -340,6 +381,10 @@ export default defineConfig({
   },
 
   themeConfig: {
+    // The language menu must not translate the current path: only `/` and `/ru/` exist in both
+    // languages, so the default per-page mapping would send every other page to a 404.
+    i18nRouting: false,
+
     // https://vitepress.dev/reference/default-theme-config
     nav: [
       { text: 'Guide', link: '/core/introduction' },

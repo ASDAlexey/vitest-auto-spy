@@ -31,6 +31,12 @@ const REPO = 'https://github.com/ASDAlexey/vitest-auto-spy';
 /** Files under `docs-site/` that are deliberately not published pages. */
 const NOT_A_PAGE = new Set(['README.md']);
 
+/**
+ * Locale directories. llms.txt is the English documentation index; a translated landing is the same
+ * page again, so listing it would hand an agent two entries for one document.
+ */
+const LOCALE_DIRS = new Set(['ru']);
+
 // ---------------------------------------------------------------------------
 // Sidebar
 // ---------------------------------------------------------------------------
@@ -159,7 +165,7 @@ function discoverPages() {
 
   const walk = (dir) => {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
-      if (entry.name.startsWith('.') || entry.name === 'node_modules' || entry.name === 'public') {
+      if (entry.name.startsWith('.') || entry.name === 'node_modules' || entry.name === 'public' || LOCALE_DIRS.has(entry.name)) {
         continue;
       }
 
