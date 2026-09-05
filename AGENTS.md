@@ -2328,6 +2328,7 @@ export default [
 | `no-inject-before-override`       | `error` | —                 | `TestBed.inject()` in a hook, in a suite that still calls `override*`                                                                     |
 | `no-import-time-spread`           | `error` | suggest           | `export const x = [...Imported]` at module scope → a `TypeError` while the bundle loads                                                   |
 | `no-unregistered-inject-spy`      | `error` | —                 | `injectSpy(X)` for a token this file never registered → the real instance, whose spy helpers exist only for the compiler                  |
+| `prefer-render-shallow`           | `error` | suggest           | `TestBed.createComponent` in a file that never reads the template → `renderShallow(X)`; 0.24× the per-test cycle at 100 children          |
 | `jasmine-namespace-without-entry` | `error` | —                 | `.and` / `.calls` / `.withArgs` on a library spy in a file that installs the compat layer nowhere — option: `{ setupModules: […] }`       |
 | `no-jasmine-globals`              | `error` | —                 | `jasmine.*`, bare `spyOn(` / `spyOnProperty(` / `spyOnAllFunctions(` / `fail(` / `pending(`, `.withContext(`                              |
 | `no-save-arguments-by-value`      | `error` | —                 | `spy.calls.saveArgumentsByValue()` — a no-op here, so the spec silently asserts on post-mutation state                                    |

@@ -21,8 +21,8 @@ which a subpath export of this package can never be.
 :::
 
 **How this page is laid out.** [Adding it](#adding-it-to-your-project) is the four things a first
-config needs. [Which apply to you](#which-of-the-nineteen-apply-to-you) answers the question a
-Vitest-only project asks — four of the nineteen are about a dialect you may not speak.
+config needs. [Which apply to you](#which-of-the-twenty-apply-to-you) answers the question a
+Vitest-only project asks — four of the twenty are about a dialect you may not speak.
 [Rules](#rules) is the reference table, in five groups. [Tuning](#tuning-it-for-your-project) is
 every dial, including the three rules that can report on correct code. Everything after that is
 _why_ — one section per rule, for when a report has arrived and you want to know what it saved you
@@ -96,7 +96,7 @@ npx eslint . --format stylish | tail -30   # the summary tells you which rule do
 Whatever is left is either a real finding or a rule you would rather not enforce yet. Both are
 answered below.
 
-## Which of the nineteen apply to you
+## Which of the twenty apply to you
 
 Reasonable question if you came straight to Vitest and have never written a line of Jasmine: **four
 of these rules are about a dialect you do not speak.** They are still on, and the reason is not
@@ -106,7 +106,7 @@ principle — it is that they cannot fire on your code.
 | ------------------------------------------ | ---------------------------------------------------------------------------------------------------- |
 | writing Vitest, never used Jasmine or Jest | the fifteen core rules work; **the four jasmine rules are inert** — leave them on and never see them |
 | migrating off `jest-auto-spies` / Jest     | the core rules do the work, `no-done-callback` and `prefer-as-spy` most of it                        |
-| migrating off `jasmine-auto-spies`         | all nineteen, with `prefer-native-spy-api` set to `'off'` until the bridge is gone                   |
+| migrating off `jasmine-auto-spies`         | all twenty, with `prefer-native-spy-api` set to `'off'` until the bridge is gone                   |
 
 ### If you never used Jasmine
 
@@ -176,7 +176,7 @@ that file needs). See [Migrating from jest-auto-spies](/migrating).
 
 ### If you are coming from Jasmine
 
-All nineteen apply, and the four in the last group are the ones written for you. Two are pure
+All twenty apply, and the four in the last group are the ones written for you. Two are pure
 diagnosis — `no-jasmine-globals` and `no-save-arguments-by-value` name silent behaviour changes that
 survive a rename — and `jasmine-namespace-without-entry` catches the spy built before the layer was
 installed. The fourth, `prefer-native-spy-api`, reports the bridge itself, so it is the one line of
@@ -234,6 +234,7 @@ Five ways a provider ends up not being the double the spec thinks it registered.
 | [`prefer-provide-auto-spy`](#two-things-these-rules-learned-the-hard-way)                          | a hand-rolled `useValue` **or** `useFactory` → `provideAutoSpy(Class)` / `provideAutoSpyForToken(TOKEN)`                 | —       |           red           |
 | [`prefer-inject-spy`](#the-three-prefer-rules-%E2%80%94-drift-and-one-line-that-undoes-a-provider) | `vi.spyOn(TestBed.inject(X), 'm')`, inline or via a `const` → `injectSpy(X).m`                                           | suggest |           red           |
 | [`no-unregistered-inject-spy`](#the-spy-that-only-the-compiler-can-see)                            | `injectSpy(X)` for a token this file never registered → the real instance, whose spy helpers exist only for the compiler | —       | red _(by construction)_ |
+| [`prefer-render-shallow`](#the-render-nobody-reads)                                                | `TestBed.createComponent` in a file that never reads the template → `renderShallow(X)`                                  | suggest |          green          |
 | [`no-overridden-provider`](#two-providers-one-token)                                               | two providers for one token in one array → the earlier one never runs; the exact duplicate can be deleted                | suggest |          green          |
 | [`no-inject-before-override`](#the-trap-this-plugin-s-own-advice-sets)                             | `TestBed.inject()` in a hook, in a suite that still calls `override*`                                                    | —       |           red           |
 
@@ -348,6 +349,17 @@ If that prints nothing, the `files` glob does not match — which is the same sy
 found no problems", and the reason to check it before concluding the suite is clean.
 
 ### Rule options
+
+`prefer-render-shallow` takes one, and it turns a cost finding into a policy:
+
+```js
+'vitest-auto-spy/prefer-render-shallow': ['error', { templates: 'never' }],
+```
+
+`'as-needed'` — the default — reports only a render whose template nothing reads. `'never'` reports
+every `TestBed.createComponent` and every `keepTemplate: true`, for a project that has decided markup
+belongs to e2e. It costs a 100 % coverage threshold on components; the measurement is in
+[the render nobody reads](#the-render-nobody-reads).
 
 `prefer-create-spy-from-class` takes one:
 
@@ -758,6 +770,86 @@ only teach people to disable both. A `useValue` that is a call to `createAutoMoc
 compares them, and there is no fix and no suggestion: the repair is either a provider this file does
 not have, or a `TestBed.inject(X)` that says the real implementation was the point.
 
+### The render nobody reads
+
+`prefer-render-shallow` reports a `TestBed.createComponent` in a file where nothing ever reads the
+rendered template — no `nativeElement`, no `debugElement`, no `By.css`, no `querySelector`. The code
+works; the run is green either way. What the rule is about is the bill.
+
+`TestBed.createComponent` compiles the component's template and instantiates the whole child
+subtree. A spec that only sets inputs and asserts on signals or plain state buys nothing with that
+subtree, and pays for it once per test. `renderShallow(X)` is the same `TestBed`, the same real
+`ComponentFixture`, with the children dropped and the template blank — inputs, signals, lifecycle
+hooks and DI all stay.
+
+How much that saves is not a matter of opinion; `bench-angular/` measures it, and the numbers are
+gated against a committed baseline. Per-test cycle, relative to `TestBed.createComponent`:
+
+| Children the component renders | `renderShallow()`  |
+| ------------------------------ | ------------------ |
+| 0                              | level — see below  |
+| 25                             | 0.57×              |
+| 100                            | 0.24×              |
+| 400                            | 0.05×              |
+
+**Read the first row before the last one.** At zero children there is nothing to save and the two
+measurements straddle 1.0 — that row is the noisiest in the benchmark (±16 % against ±3 % for the
+100-child one), and `overrideComponent` forces a JIT recompile that a leaf component was not paying
+for. The rule earns its place in a suite whose components render other components, and the deeper
+the tree the more it earns. Blanking the template alone — the step from
+`renderShallow({ keepTemplate: true })` to `renderShallow()` on the 100-child component — is worth
+about **3.8×** on its own.
+
+Two things the rule cannot see, both of which are the same fix:
+
+- A component that reads its own template through `viewChild`, `contentChild` or content
+  projection needs the template to exist. The rule reads the spec, not the component, so it will
+  report this one; `renderShallow(X, { keepTemplate: true })` keeps the template and still drops the
+  children.
+- A component whose behaviour is driven from its own template — an event bound in the markup, a
+  `@defer` block — is in the same position.
+
+The question the rule asks is deliberately about the **file**, not about one fixture: a component
+suite parks the fixture in a `let`, fills it in `beforeEach` and reads `debugElement` three helpers
+away. One template read anywhere silences the whole file, so the rule under-reports rather than
+guesses.
+
+#### The rewrite is offered, not applied
+
+The rule ships a **suggestion** — `TestBed.createComponent(X)` → `renderShallow(X).fixture`, with
+the import added when the name is free — and deliberately no `--fix`. `renderShallow` calls
+`configureTestingModule` itself, adds `NO_ERRORS_SCHEMA` and runs the first change detection: the
+right module for a spec that reads no markup, but not the module the file had. `--fix` runs
+unattended across a repository, and a spec that already instantiated the module — any
+`TestBed.inject` above this line — would start throwing *Cannot configure the test module when the
+test module has already been instantiated*. A suggestion is pressed one call at a time, with the
+diff in front of you.
+
+It is offered only for `TestBed.createComponent(X)` with the component alone. The two-argument form
+carries options `renderShallow` spells differently, and a rewrite that dropped them would be silent
+damage.
+
+#### `{ templates: 'never' }` — the policy switch
+
+The default is `'as-needed'`: report the render nobody reads. A project that has decided markup
+belongs to e2e can say so instead, and then no spec renders a real template at all:
+
+```js
+'vitest-auto-spy/prefer-render-shallow': ['error', { templates: 'never' }],
+```
+
+Under `'never'` every `TestBed.createComponent` is reported whether or not the file reads the DOM,
+and so is `keepTemplate: true`.
+
+**Know the bill before you turn it on.** Measured on one consumer suite: `'never'` took **18 of 40**
+tests in a component spec red and coverage from **100 % to 95.7 %**. Nothing was excluded from the
+report — with `templateUrl` the compiled template maps back to the `.html`, which a `*.ts` coverage
+glob never matched in the first place. What stopped executing was ordinary TypeScript: the body of a
+method whose entry condition is a `viewChild` the template supplies. That code does not disappear
+from the report when it stops running, and no coverage setting can hide it, because it is not
+template code — it is the component's own. A project taking this option gives up a 100 % line
+threshold on its components, and that is the trade, stated plainly.
+
 ### The two type rules
 
 `no-mocked-for-spy` reports the **declaration** form, not every use: `Mocked<T>` still has a place
@@ -872,7 +964,7 @@ this rule declines. See [Migrating from jasmine-auto-spies](/migrating-jasmine).
 
 ## Which rules fix, and why so few
 
-Three of the nineteen rewrite the source on their own, seven offer the rewrite as a suggestion, and
+Three of the twenty rewrite the source on their own, eight offer the rewrite as a suggestion, and
 the split is about what a wrong guess costs rather than about how hard the rewrite is.
 
 `no-mocked-for-spy` touches nothing but a **declaration**. Get it wrong and the file stops

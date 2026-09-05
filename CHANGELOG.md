@@ -15,6 +15,23 @@ library's own source.
 
 ### Added
 
+- **`prefer-render-shallow`, the twentieth lint rule.** Reports a `TestBed.createComponent` in a
+  spec file that never reads the rendered template — no `nativeElement`, no `debugElement`, no
+  `By.css`, no `querySelector` — and points at `renderShallow(X)`, which is the same `TestBed` with
+  the children dropped and the template blank. The code it reports works, so the run stays green;
+  what it is about is cost, and `bench-angular/` puts a number on it: **0.24×** the per-test cycle
+  at 100 children and **0.05×** at 400, while at zero children the two are level, so a leaf
+  component gains nothing and the report is worth ignoring there. The question is asked of the whole file rather than of one
+  fixture — a component suite parks the fixture in a `let` and reads `debugElement` three helpers
+  away — so one template read anywhere silences it and the rule under-reports rather than guesses.
+  It cannot see a component that reads its own template through `viewChild` or content projection;
+  that one keeps `{ keepTemplate: true }`. The rewrite ships as a **suggestion** rather than a
+  `--fix`: `renderShallow` configures the testing module itself, so an unattended repository-wide fix
+  would change what the module holds and would throw on any spec that had already instantiated it.
+  `{ templates: 'never' }` turns the same rule into the policy a project may prefer — no spec renders
+  a real template at all — and the option's own paragraph states what that costs: measured on one
+  consumer suite, 18 of 40 tests red and coverage from 100 % to 95.7 %.
+
 - **`createSpyFromInstance(instance, config?)` / `restoreSpiedInstance(instance)`.** Every other
   factory here _constructs_ a double; this one patches an object the test already holds — a service
   a factory built, a third-party client, a half-real `TestBed.inject(X)` — in place, same identity,

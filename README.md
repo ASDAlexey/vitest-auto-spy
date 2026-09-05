@@ -76,7 +76,7 @@ faster at suite scale ([benchmarks](#benchmarks)) — and for
 - 🧩 Module mocks that prove they applied — `assertMocked`, `moduleNamespace`, for a `vi.mock()` a bundler quietly ignored
 - 🧾 Fixtures without casts — deep-partial `createMock`, `createFixture` / `createFixtureFactory`, `narrow()`, `withOverrides()`, `asInstances()`, `captureArg()`
 - 🚚 A migration you can verify — `vitest-auto-spy/diagnostics`: `compareTestRuns` on the two JSON reports, `summarizeTestRun` / `formatTestRunComparison` to read the answer, `diffByField` for the assertion the reporter collapses, `explainSpy` for a double that answered something you did not configure
-- 📏 Lint rules and one-line test-run hygiene — nineteen rules in `vitest-auto-spy/eslint-plugin` (three `--fix`, seven suggestions, four of them for a suite mid-migration off jasmine), `setupAutoSpy()`
+- 📏 Lint rules and one-line test-run hygiene — twenty rules in `vitest-auto-spy/eslint-plugin` (three `--fix`, eight suggestions, four of them for a suite mid-migration off jasmine), `setupAutoSpy()`
 - 🩺 [Editor diagnostics](#editor-diagnostics--webstorm--vs-code) — the same anti-patterns underlined while you type: native ESLint inspections in **WebStorm** and the other JetBrains IDEs, the ESLint extension in **VS Code**, no extra plugin either way
 - 🔎 [`npx vitest-auto-spy doctor`](#the-cli--doctor-perf-codemod-and-init) — suite-level defects **that never fail a run**: a `tsconfig` `include` matching no file, a production module importing a spec, a `@jest-environment` pragma the runner never reads, config left behind for a runner that is gone. Read-only, no config, exits 1 in CI
 - ⏱️ [`npx vitest-auto-spy perf`](#perf--where-the-cpu-time-actually-goes) — where a suite's CPU time actually goes, phase by phase, and which spec files to act on: the ones that reach no DOM and could run under `node`, the ones that import a barrel. Runs Vitest once with a reporter this package ships, reads `TestModule.diagnostic()`, names files, states the rule behind each finding
@@ -2961,6 +2961,7 @@ export can never be.
 | `no-inject-before-override`       |   `error`   | —                 | `TestBed.inject()` in a hook, in a suite that still calls `override*`                                                                      |
 | `no-import-time-spread`           |   `error`   | suggest           | `export const x = [...Imported]` at module scope → a `TypeError` while the bundle loads                                                    |
 | `no-unregistered-inject-spy`      |   `error`   | —                 | `injectSpy(X)` for a token this file never registered → the real instance, whose spy helpers exist only for the compiler                   |
+| `prefer-render-shallow`           |   `error`   | suggest           | `TestBed.createComponent` in a file that never reads the template → `renderShallow(X)`; 0.24× the per-test cycle at 100 children           |
 | `jasmine-namespace-without-entry` |   `error`   | —                 | `.and` / `.calls` / `.withArgs` on a library spy in a file that installs the compatibility layer nowhere                                   |
 | `no-jasmine-globals`              |   `error`   | —                 | `jasmine.*`, `spyOn(` / `spyOnProperty(` / `spyOnAllFunctions(` / `fail(` / `pending(`, `.withContext(` — none of them exist under Vitest  |
 | `no-save-arguments-by-value`      |   `error`   | —                 | `spy.calls.saveArgumentsByValue()`, which is a no-op here → take the copy at call time                                                     |
@@ -2970,7 +2971,7 @@ Every message ends with a link to the matching [recipe](#how-to-mock): a rule th
 "don't" moves the problem rather than solving it. Rules travel with the API they recommend, so they
 are versioned together and stop being re-written in every project that installs the package.
 
-**Three of the nineteen fix on their own, seven offer suggestions**, and the split is not about how hard
+**Three of the twenty fix on their own, eight offer suggestions**, and the split is not about how hard
 the rewrite is. `no-mocked-for-spy` touches a _declaration_: get it wrong and the file stops
 compiling, which is the loudest, cheapest failure there is — so `--fix` rewrites the type, adds
 `import type { Spy } from 'vitest-auto-spy'` and drops the `Mocked` import once nothing else uses
@@ -3074,7 +3075,7 @@ package's own — it needs its ESLint integration switched on.
 ### WebStorm and the other JetBrains IDEs
 
 No plugin to install: WebStorm, IntelliJ IDEA Ultimate, PhpStorm, PyCharm Professional and RubyMine
-all run ESLint natively, so the nineteen rules appear inline, in the **Problems** tool window, and
+all run ESLint natively, so the twenty rules appear inline, in the **Problems** tool window, and
 under **Code → Inspect Code** for the whole project.
 
 ```js
@@ -3091,7 +3092,7 @@ has supported flat config since 2023.3); scope the block to spec files yourself;
 the fixes and suggestions live.
 
 A native JetBrains plugin is **not** planned — it would duplicate an integration the IDE already has
-and then keep a second copy of nineteen rules, in Kotlin, in step with the TypeScript ones.
+and then keep a second copy of twenty rules, in Kotlin, in step with the TypeScript ones.
 
 ### VS Code, Cursor, Windsurf, VSCodium
 

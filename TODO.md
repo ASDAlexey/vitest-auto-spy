@@ -224,6 +224,28 @@ by reading the installed sources, and is worth not re-deriving:
   users mostly do not run coverage over a bundle at all, and it would fail silently the day
   that method is renamed.
 
+## `prefer-render-shallow` — shipped (Unreleased)
+
+The twentieth lint rule: `TestBed.createComponent` in a file that never reads the template →
+`renderShallow(X)`. Numbers from `bench-angular/baseline.json`, not hand-run.
+
+What it deliberately does **not** do, so the next person does not re-derive it:
+
+- **A suggestion, never a `--fix`.** `renderShallow` calls `configureTestingModule` itself, adds
+  `NO_ERRORS_SCHEMA` and runs the first change detection. Applied unattended across a repository that
+  changes what the module holds, and throws outright on a spec that had already instantiated it.
+- **No second rule for the strict reading.** `no-template-rendering` was built and then folded into
+  `{ templates: 'never' }`: the plugin's contract is that every rule ships in `recommended` as
+  `error`, and a policy that turns a working component suite red cannot be one. As an option it is a
+  project's choice, which is what it always was.
+- **Nothing can hide the coverage it costs.** With `templateUrl` the compiled template already maps
+  back to the `.html` and never entered a `*.ts` coverage glob. What `'never'` stops executing is the
+  component's own TypeScript — a method whose entry condition is a `viewChild` the template supplies.
+  There is no coverage setting that excludes that, and the docs say so rather than implying a knob.
+- **It cannot see the component.** `viewChild`, `contentChild`, content projection and a `@defer`
+  block all need the template, and the rule reads the spec. The answer is `{ keepTemplate: true }`,
+  which still drops the children — 3.8× dearer than a blank template, but well under a full render.
+
 ## Considered & intentionally skipped
 
 - [~] **Merge the three `as any` mock casts** (`asVitestMock` / `asBunMock` /

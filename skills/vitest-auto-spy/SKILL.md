@@ -323,7 +323,7 @@ npx vitest-auto-spy codemod --verify  # after a migration: anything the transfor
 Most of this library's guarantees are type-level, so a green run that does not type-check is not
 done. Report failures with their output rather than describing them as passing.
 
-**After any `eslint --fix` over specs, run `npx tsc --noEmit`.** The nineteen rules in
+**After any `eslint --fix` over specs, run `npx tsc --noEmit`.** The twenty rules in
 `vitest-auto-spy/eslint-plugin` are lint, not typecheck: `no-mocked-for-spy` rewrites a declaration
 to `Spy<T>` and cannot see what the name is assigned two lines below, so a clean lint pass is not
 evidence that the types still hold. Where it cannot prove the rename it downgrades to a suggestion —

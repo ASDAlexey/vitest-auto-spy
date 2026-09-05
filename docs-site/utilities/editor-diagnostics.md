@@ -63,7 +63,7 @@ still hand-rolls its doubles" question actually needs.
 
 ::: tip A native JetBrains plugin is not planned
 A plugin in the JetBrains Marketplace would duplicate an integration the IDE already has, and would
-then have to keep a second copy of nineteen rules — in Kotlin — in step with the TypeScript ones.
+then have to keep a second copy of twenty rules — in Kotlin — in step with the TypeScript ones.
 Where the ESLint route genuinely cannot reach (a repository with no ESLint at all), the honest fix
 is four lines of `eslint.config.js`, not a second implementation.
 :::
@@ -71,7 +71,7 @@ is four lines of `eslint.config.js`, not a second implementation.
 ## VS Code, Cursor, Windsurf, VSCodium
 
 Install the [ESLint extension](https://marketplace.visualstudio.com/items?itemName=dbaeumer.vscode-eslint)
-and the flat config above is enough: the same nineteen rules, inline and in the Problems panel.
+and the flat config above is enough: the same twenty rules, inline and in the Problems panel.
 
 ```jsonc
 // .vscode/settings.json
