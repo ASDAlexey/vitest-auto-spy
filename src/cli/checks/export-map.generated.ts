@@ -8,7 +8,7 @@
  */
 
 /** The version this table describes. Compared against the consumer's installed one at check time. */
-export const EXPORT_MAP_VERSION = '4.3.0';
+export const EXPORT_MAP_VERSION = '4.4.0';
 
 /** Every published entry specifier, in `exports` order. `EXPORTED_BY` indexes into this list. */
 export const ENTRY_SPECIFIERS =
