@@ -203,6 +203,8 @@ export default defineConfig({
           'jest to vitest codemod, jest.Mock type arguments, migrate jest to vitest, ' +
           'jasmine-auto-spies, jasmine to vitest, karma to vitest, migrate jasmine, jasmine.createSpyObj, ' +
           'jasmine spyOn call through, withContext vitest, DEFAULT_TIMEOUT_INTERVAL, ' +
+          'prefer-render-shallow, TestBed.createComponent slow, angular component test slow, ' +
+          'shallow render angular test, renderShallow, NO_ERRORS_SCHEMA vitest, ' +
           'webstorm eslint inspections, vs code extension, anti-patterns, spy typing, ' +
           'llms.txt, AGENTS.md, ai agent, claude code skill, openai codex, glm z.ai, cursor, copilot, gemini cli, ' +
           'setSpyEngine, getSpyEngine, spy engine, toHaveBeenCalledBefore not working, toHaveBeenCalledAfter wrong order, ' +

@@ -10,8 +10,18 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
-**Why upgrade.** Two new ways to read a double, and a class of failure that stops pointing at this
-library's own source.
+**Why upgrade.** Two new ways to read a double, a class of failure that stops pointing at this
+library's own source, and two of this package's own features that no longer cancel each other out.
+
+### Fixed
+
+- **`renderShallow` no longer trips `enableAngularDiagnostics({ deadSchemas })`.** It configured the
+  testing module with `NO_ERRORS_SCHEMA` unconditionally, including for a standalone component,
+  where a module-level schema can never reach the template — which is precisely what `deadSchemas`
+  fails a test for. A suite that took both of this package's recommendations therefore could not use
+  `renderShallow` at all: every call threw *configureTestingModule was given 1 schema(s) that can
+  never apply*. The schema is now passed only where it can do something, which is the non-standalone
+  branch that puts the component in `declarations`.
 
 ### Added
 
@@ -29,8 +39,14 @@ library's own source.
   `--fix`: `renderShallow` configures the testing module itself, so an unattended repository-wide fix
   would change what the module holds and would throw on any spec that had already instantiated it.
   `{ templates: 'never' }` turns the same rule into the policy a project may prefer — no spec renders
-  a real template at all — and the option's own paragraph states what that costs: measured on one
-  consumer suite, 18 of 40 tests red and coverage from 100 % to 95.7 %.
+  a real template at all, bar a `createDirectiveHost` harness, which is the only way a directive can
+  be reached — and the option's own paragraph states what that costs: measured on one
+  consumer suite, 18 of 40 tests red and coverage from 100 % to 95.7 %. It costs **+925 B min+gzip
+  on `/eslint-plugin`** (16.66 kB → 17.58 kB, +5.6 %), and nearly all of that is the two report
+  messages, which are paragraphs rather than sentences because a lint message that only says
+  "prefer X" moves the problem. No other entry point moved a byte — the rule and its `dom-reads`
+  helper are reachable from `vitest-auto-spy/eslint-plugin` alone, and nothing under `src/lib/`
+  gained a runtime import.
 
 - **`createSpyFromInstance(instance, config?)` / `restoreSpiedInstance(instance)`.** Every other
   factory here _constructs_ a double; this one patches an object the test already holds — a service

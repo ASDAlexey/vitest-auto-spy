@@ -1003,5 +1003,5 @@ Two traps, recorded because they are easy to get wrong and expensive to undo:
   changes nothing by itself: in most jurisdictions recurring payments received in connection with
   one's own work are income whatever the button says, and regularity is precisely the signal that
   gets looked at. What does matter — the recipient's status, the platform's role as payer,
-  residency — is a question for an accountant, to be settled _before_ a channel is switched on
-  rather than after. Not a coding decision and not to be designed around in the repository.
+  residency — is a question for an accountant, to b~~e settled _before_ a channel is switched on
+  rather than after. Not a coding decision and not~~ to be designed around in the repository.

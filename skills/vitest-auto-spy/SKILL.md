@@ -78,7 +78,7 @@ describe('TaskService', () => {
 
 One `configureTestingModule` per `describe` — reconfiguring per `it()` recompiles the module every
 test. Use `mockReadonlyProp(component, 'selected', signal(true))` for the signals of the class under
-test, `await stable(fixture)` before asserting zoneless state, `renderShallow` for components. For an
+test, `await stable(fixture)` before asserting zoneless state, `renderShallow` for components — `prefer-render-shallow` reports the `TestBed.createComponent` in a file that reads no markup back, and the rewrite is a suggestion rather than a `--fix` because `renderShallow` configures the module itself. For an
 `httpResource()`, `await expectRequest(url).flush(body)` from `vitest-auto-spy/angular-http` is the
 whole dance — the request is issued by `flushEffects()`, not on creation, and the value is settled
 before the promise resolves; by hand it is six steps and asserting early reads the resource's
