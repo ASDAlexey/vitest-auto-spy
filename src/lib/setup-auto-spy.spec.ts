@@ -689,6 +689,36 @@ describe('setupAutoSpy({ angularBuildHint })', () => {
   });
 });
 
+describe('setupAutoSpy({ restoreWebStorage })', () => {
+  // Shaped like a storage and unable to keep anything, which is what Node 25 hands out.
+  const broken = { setItem: () => undefined, getItem: () => null, removeItem: () => undefined };
+
+  function withBrokenStorage(run: () => void): unknown {
+    const real = globalThis.localStorage;
+
+    Object.defineProperty(globalThis, 'localStorage', { value: broken, writable: true, configurable: true });
+
+    try {
+      run();
+
+      return globalThis.localStorage;
+    } finally {
+      Object.defineProperty(globalThis, 'localStorage', { value: real, writable: true, configurable: true });
+    }
+  }
+
+  const repaired = withBrokenStorage(() => setupAutoSpy({ duplicateCopies: 'off' }));
+  const leftAlone = withBrokenStorage(() => setupAutoSpy({ duplicateCopies: 'off', restoreWebStorage: false }));
+
+  it('replaces a storage that cannot keep a value', () => {
+    expect(repaired).not.toBe(broken);
+  });
+
+  it('leaves it alone when opted out', () => {
+    expect(leftAlone).toBe(broken);
+  });
+});
+
 describe('setupAutoSpy({ globalFakeTimers })', () => {
   setupAutoSpy({ duplicateCopies: 'off', globalFakeTimers: { toFake: ['Date'] } });
 

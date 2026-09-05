@@ -29,6 +29,7 @@ import { type StrayRejection, flushStrayRejections, trackStrayRejections } from 
 import { cancelStrayTimers, detectsAsyncLeaks, trackStrayTimers } from './stray-timers';
 import { restoreTimerGlobals } from './timer-globals';
 import type { UnstubbedCallHandler } from './types';
+import { restoreWebStorage } from './web-storage';
 import { writeWarning } from './write-warning';
 
 /** How `setupAutoSpy` should react to more than one install of the library. */
@@ -131,6 +132,18 @@ export interface SetupAutoSpyOptions {
    * installed on purpose. See {@link restoreTimerGlobals}.
    */
   restoreTimerGlobals?: boolean;
+  /**
+   * Give the run a `localStorage` and a `sessionStorage` that work. Default `true`, for the same
+   * reason as {@link restoreTimerGlobals}: a storage that survives a write and a read back is left
+   * untouched, and a `node` environment — which is supposed to have neither — gets nothing.
+   *
+   * Vitest's `populateGlobal` copies a DOM environment's globals behind `if (k in global) return
+   * KEYS.includes(k)`, and neither storage is in `KEYS`. Node's own Web Storage put the key on
+   * `globalThis`, so the filter now answers "no" and the environment's storage never arrives:
+   * `setItem is not a function` on Node 25, `localStorage` undefined on Node 26, under jsdom and
+   * happy-dom alike. See {@link restoreWebStorage}.
+   */
+  restoreWebStorage?: boolean;
   /**
    * Keep `@vitest/spy`'s registry of every mock ever created down to the mocks that outlive a file.
    * Default `false`, because it reaches into a set the runner does not expose.
@@ -582,12 +595,26 @@ function watchStrayRejections(enabled: boolean): TeardownStep[] {
  * setupAutoSpy();
  * ```
  */
-export function setupAutoSpy(options: SetupAutoSpyOptions = {}): void {
-  reportDuplicateCopies(options.duplicateCopies ?? 'throw');
-
+/**
+ * The steps that run before any hook is registered: what the run is told, and what it is handed.
+ *
+ * Both are one-shot rather than per test — nothing takes a repair off again — and both have to
+ * happen before a spec file's own `beforeEach`, which is where a missing storage first fails.
+ */
+function prepareEnvironment(options: SetupAutoSpyOptions): void {
   if (options.angularBuildHint ?? true) {
     noticeAngularBuildSplitting();
   }
+
+  if (options.restoreWebStorage ?? true) {
+    restoreWebStorage();
+  }
+}
+
+export function setupAutoSpy(options: SetupAutoSpyOptions = {}): void {
+  reportDuplicateCopies(options.duplicateCopies ?? 'throw');
+
+  prepareEnvironment(options);
 
   if (options.strayTimers ?? false) {
     // Wrapping happens now, once per worker; the sweep is per file, because "still wanted?" only

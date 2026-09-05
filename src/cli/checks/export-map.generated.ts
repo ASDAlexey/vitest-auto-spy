@@ -8,7 +8,7 @@
  */
 
 /** The version this table describes. Compared against the consumer's installed one at check time. */
-export const EXPORT_MAP_VERSION = '4.2.0';
+export const EXPORT_MAP_VERSION = '4.3.0';
 
 /** Every published entry specifier, in `exports` order. `EXPORTED_BY` indexes into this list. */
 export const ENTRY_SPECIFIERS =
@@ -261,6 +261,8 @@ export const EXPORTED_BY: Readonly<Record<string, string>> = {
   RestoreProp: '0 1 2 3 11 14 15 16',
   restoreSpiedInstance: '0 1 2 3 14 15 16',
   restoreTimerGlobals: '17',
+  restoreWebStorage: '17',
+  RestoreWebStorageOptions: '17',
   RuleSeverity: '19',
   runEffect: '2 11',
   SchedulerHost: '17',

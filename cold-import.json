@@ -1,5 +1,5 @@
 {
-  "measuredOn": "2026-09-04",
+  "measuredOn": "2026-09-05",
   "node": "v24.19.0",
   "tolerance": {
     "ratio": 0.02,
@@ -56,7 +56,7 @@
     },
     "./node": {
       "modules": 10,
-      "bytes": 97649
+      "bytes": 98015
     },
     "./observer-spy": {
       "modules": 2,
@@ -72,7 +72,7 @@
     },
     "./setup": {
       "modules": 10,
-      "bytes": 88355
+      "bytes": 90435
     },
     "./svelte": {
       "modules": 11,
