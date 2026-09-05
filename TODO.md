@@ -236,6 +236,13 @@ by reading the installed sources, and is worth not re-deriving:
   `types.ts` is this library's curated public type barrel and re-exported via
   `export type * from './lib/types'`. Fragmenting it would churn the public
   surface for no consumer benefit. Skipped deliberately.
+- [~] **What `restoreWebStorage()` deliberately leaves out.** No `StorageEvent`: the stand-in is a
+  `Map`, and firing events from it would be a behaviour the environment it stands in for does not
+  offer in the same way. No per-test reset — the repair runs once, so a broken runtime and a working
+  one leak between tests identically, which is the point; a suite that wants a clean storage per
+  test clears it in a hook of its own. No quota, no `key()` ordering guarantees beyond insertion
+  order. And no repair at all in a `node` environment: inventing a Web Storage there would hand the
+  code under test an API the real runtime lacks.
 
 ## Performance pass (Unreleased)
 

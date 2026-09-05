@@ -590,6 +590,49 @@ static `node:fs` import so the `/setup` entry still loads where there is no `pro
 but the line depends on what it finds. On a Node without `getBuiltinModule` (before 20.16 / 22.3)
 it stays silent rather than guessing.
 
+## 14. Web Storage the runner never handed over
+
+On by default, and — like the timer globals — it can only ever repair.
+
+Vitest copies a DOM environment's globals onto `globalThis` behind one filter:
+
+```js
+if (k in global) return KEYS.includes(k);
+```
+
+`Storage` is in that `KEYS` list. `localStorage` and `sessionStorage` are not. For as long as Node
+put neither on `globalThis`, the first half was false and both were copied over. Node's own Web
+Storage made the key exist, so the filter now asks `KEYS`, `KEYS` says no, and the environment's
+storage never arrives. The filter runs before any environment-specific code, so jsdom and happy-dom
+break identically:
+
+| Node   | `localStorage` under Vitest       |
+| ------ | --------------------------------- |
+| 24.19  | works                             |
+| 25.9   | `setItem is not a function`       |
+| 26.7   | `undefined`                       |
+
+A suite stays green with this broken, because only the specs that touch storage fail — which is why
+it usually arrives as "CI moved to a new Node and eleven unrelated specs died".
+
+The repair decides by using the storage, not by looking at it: it writes a namespaced key, reads it
+back and removes it again. Node 25 offers a `setItem` that throws, Node 26 offers nothing, and the
+next runtime is free to invent a third shape; a storage that survives a round trip works, whoever
+implemented it. One that does not is replaced — with the window's own storage where that is a
+separate object, and with a `Map`-backed stand-in otherwise.
+
+```ts
+import { restoreWebStorage } from 'vitest-auto-spy/setup';
+
+restoreWebStorage(); // safe at any point, and as often as you like
+restoreWebStorage({ view: null }); // "there is no window" — installs nothing
+```
+
+Two things it deliberately does not do. It installs nothing in a `node` environment, which is
+supposed to have no Web Storage at all: handing the code under test an API the real runtime lacks
+is a larger change than the one it was there to make. And it leaves a working storage exactly as it
+is, so a spec's own stub survives it.
+
 ## The two buffers teardown drains
 
 Two of the checks above keep what they find in a buffer until something takes it out, and both
@@ -650,6 +693,7 @@ each test: a stub installed for the previous test is exactly what must not still
 | `guardGlobals`        | `'off'`   | Report a test that redefines a global property as non-configurable              |
 | `globalFakeTimers`    | `false`   | Fake timers for every test **and between them** — see below                     |
 | `restoreTimerGlobals` | `true`    | Put back timer globals that uninstalling the fakes deleted                      |
+| `restoreWebStorage`   | `true`    | Give the run a `localStorage` / `sessionStorage` that work — see section 14     |
 | `pruneMockRegistry`   | `false`   | Keep @vitest/spy's ever-growing mock registry to the mocks that outlive a file  |
 | `hookTimeoutHint`     | `true`    | Explain a hook that ran out of `hookTimeout` while `testTimeout` is larger      |
 | `frozenClockHint`     | `true`    | Explain a timeout that happened because nothing advanced the fake clock         |

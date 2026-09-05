@@ -2492,6 +2492,7 @@ single-purpose utility you can pick up independently — they all ride on the sa
 | `installPerTest(install)`                                                                | `/setup`                      | Re-install a stub before every test of the block — a `describe`-level stub is restored away after the first                                                                                           |
 | `setupAngularTestEnv(opts)`                                                              | `/angular`                    | Zone and zoneless spec files in one worker, switching platforms per file                                                                                                                              |
 | `restoreTimerGlobals()`                                                                  | `/setup`                      | Put back timer globals that uninstalling the fakes deleted rather than restored                                                                                                                       |
+| `restoreWebStorage(options?)`                                                             | `/setup`                      | Give `globalThis` a `localStorage` / `sessionStorage` that work when the runner's copy never arrived ([details](#test-run-hygiene))                                                                    |
 | `trackMockRegistry()` / `keepMockRegistered(mock)` / `restoreLongLivedImplementations()` | `/setup`                      | Keep @vitest/spy's mock registry to the mocks that outlive a file; mark one the split would miss; put back an implementation a cross-file `vi.resetAllMocks()` dropped ([details](#test-run-hygiene)) |
 | `trackNodeMocks()` / `pruneNodeMocks()` / `countNodeMocks()`                             | `/node`                       | Give this library its own `node:test` `MockTracker` so a dropped spy is freed — 21× less retained heap; sweep by hand, and read the count back                                                        |
 | `setSpyEngine(engine)` / `getSpyEngine()`                                                | `/setup`                      | Build method spies from this library's own mock (`'auto-spy'`, the default) or from `vi.fn()` (`'runner'`) ([details](#the-spy-engine))                                                               |
@@ -2733,6 +2734,16 @@ expensive to diagnose when it is missing. The first three are on by default:
     which is a fact rather than a guess, and names the `setImmediate` case that reaches this with no
     timer in sight: a request matching no Express route is ended by `finalhandler` on `setImmediate`,
     so the 404 is never written and a routing mistake is reported as a slow test.
+11. **Web Storage the runner never handed over.** On by default, because it only ever repairs.
+    Vitest copies a DOM environment's globals onto `globalThis` behind `if (k in global) return
+    KEYS.includes(k)`, and neither `localStorage` nor `sessionStorage` is in `KEYS` — they used to
+    arrive only because Node put neither on `globalThis`, so the first half was false. Node's own
+    Web Storage made the key exist, and now the environment's storage never arrives: `setItem is
+    not a function` on Node 25, `undefined` on Node 26, under jsdom and happy-dom alike, since the
+    filter runs before either. A suite stays green with this broken — only the specs that touch
+    storage fail — so it arrives as "CI moved to a new Node and eleven unrelated specs died". The
+    repair decides by using the storage rather than looking at it, replaces only one that cannot
+    keep a value, and installs nothing at all in a `node` environment.
 
 | Option                | Default   | Notes                                                                                 |
 | --------------------- | --------- | ------------------------------------------------------------------------------------- |
@@ -2746,6 +2757,7 @@ expensive to diagnose when it is missing. The first three are on by default:
 | `guardGlobals`        | `'off'`   | Report a test that redefines a global property as non-configurable                    |
 | `globalFakeTimers`    | `false`   | Fake timers for every test **and between them** — Jest's `enableGlobally`             |
 | `restoreTimerGlobals` | `true`    | Put back timer globals that uninstalling the fakes deleted                            |
+| `restoreWebStorage`   | `true`    | Give the run a `localStorage` / `sessionStorage` that work                             |
 | `pruneMockRegistry`   | `false`   | Keep @vitest/spy's ever-growing mock registry to the mocks that outlive a file        |
 | `hookTimeoutHint`     | `true`    | Explain a hook that ran out of `hookTimeout` while `testTimeout` is larger            |
 | `frozenClockHint`     | `true`    | Explain a timeout that happened because nothing advanced the fake clock               |

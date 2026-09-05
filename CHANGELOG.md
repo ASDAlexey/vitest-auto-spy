@@ -54,6 +54,19 @@ library's own source.
   performance page are reproducible by a reader and by CI rather than quoted.
 - **A `@testing-library/angular` migration page.** It is the only third party with zoneless support,
   and its `/vitest-utils` `createMock` / `provideMock` overlap this library directly.
+- **`restoreWebStorage()`, and `setupAutoSpy({ restoreWebStorage })` — on by default.** Vitest copies
+  a DOM environment's globals onto `globalThis` behind `if (k in global) return KEYS.includes(k)`,
+  and neither `localStorage` nor `sessionStorage` is in `KEYS`; they arrived only because Node put
+  neither on `globalThis`. Node's own Web Storage made the key exist, so the environment's storage
+  stopped arriving: `setItem is not a function` on Node 25, `undefined` on Node 26, under jsdom and
+  happy-dom alike, since the filter runs before either. The suite stays green until a spec touches
+  storage, which is why this lands as "CI moved to a new Node and eleven unrelated specs died". The
+  repair decides by using the storage — a namespaced key written, read back and removed — rather
+  than by inspecting it, because Node 25 hands out a `setItem` that throws and the next runtime is
+  free to invent a third shape. A storage that survives that round trip is left exactly as it is, so
+  a spec's own stub is safe; one that does not is replaced with the window's own storage where that
+  is a separate object, and with a `Map`-backed stand-in otherwise. Nothing is installed in a `node`
+  environment, which is supposed to have no Web Storage at all.
 
 ### Size and memory
 
@@ -64,7 +77,8 @@ remaining ~353 B is the stack anchoring, the `node:test` naming and `ArgsMap.con
 each measured by building the entry with and without it. `/diagnostics` is the one large relative
 move, +2.25 kB on a 1.59 kB entry, and it is `explainSpy` being deliberately kept off the root.
 Seven entries got *smaller* — `/rxjs`, `/dom-stubs`, `/jasmine-compat` and `/setup` among them —
-from the shared-chunk split described below.
+from the shared-chunk split described below. `/setup` then gave 373 B of that back (+3.1 %) for the
+Web Storage repair, which is the entry that runs it and the only one that carries it.
 
 Heap per spied method is **+4.0 %** (2.78 kB → 2.89 kB) and creating a spy **+2.6 %**, measured over
 100 000 spied methods through the `/node` entry, median of seven runs. The first version of the

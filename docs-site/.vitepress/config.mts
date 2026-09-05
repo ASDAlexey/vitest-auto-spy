@@ -154,6 +154,9 @@ export default defineConfig({
           'rxjs types in d.ts, cannot find module rxjs types, TS2307 rxjs, import type does not tree shake, ' +
           'Subject is not assignable, SubjectLike, ObservableLike, structural observable detection, ' +
           'stub IntersectionObserver vitest, ResizeObserver is not defined jsdom, HTMLMediaElement.play not implemented, ' +
+          'localStorage is not defined vitest, localStorage.setItem is not a function, ' +
+          'jsdom localStorage undefined, happy-dom localStorage missing, sessionStorage undefined vitest, ' +
+          'node 25 localStorage vitest, node 26 web storage, restoreWebStorage, ' +
           'did the migration lose a test, compare two test runs, jest vs vitest test names diff, ' +
           'eslint plugin for vitest spies, done callback is deprecated use promise instead, ' +
           'createSpyFromClass, createAutoMock, mockDeep, deep mock, createFixture, createFixtureFactory, ' +

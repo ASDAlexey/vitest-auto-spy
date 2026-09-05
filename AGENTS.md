@@ -1183,6 +1183,17 @@ the realm, not owned by `globalThis`), and with `isolate: false` the next file d
 own `useFakeTimers` with `Cannot read properties of undefined (reading 'now')`. If you see that,
 the file in the stack is not the cause.
 
+`restoreWebStorage` is the other repair that is on by default. Vitest copies a DOM environment's
+globals onto `globalThis` behind `if (k in global) return KEYS.includes(k)`, and neither
+`localStorage` nor `sessionStorage` is in `KEYS` — both used to arrive only because Node put neither
+on `globalThis`, so the first half of that condition was false. Node's own Web Storage made the key
+exist, and the environment's storage stopped arriving: `setItem is not a function` on Node 25,
+`undefined` on Node 26, under jsdom and happy-dom alike, because the filter runs before either. The
+suite stays green until a spec touches storage, so this lands as "CI moved to a new Node and eleven
+unrelated specs died". The repair writes a key, reads it back and removes it — a storage that
+survives that is left alone, whoever implemented it — and it installs nothing in a `node`
+environment, which is supposed to have no Web Storage at all.
+
 `hookTimeoutHint` is on by default too, and it is the one that pays off on the day a suite lands in
 CI. Jest resolves **one** budget — `hook.timeout || getState().testTimeout` for a hook,
 `test.timeout || getState().testTimeout` for a body — while Vitest resolves `hookTimeout` on its
@@ -2484,6 +2495,7 @@ packages, which a subpath export can never be.
 | a spy is never called, no warning                                                                        | the method is an instance field, not on the prototype                                                                                                | `instanceMethodsToSpyOn`, or `createAutoMock<T>()`                                                                                      |
 | `Cannot access '__vi_import_N__' before initialization`                                                  | `vi.mock()` on `@angular/core` or a relative path                                                                                                    | you cannot mock it — the specs are bundled. Assert the result instead                                                                   |
 | `AggregateError at Object.dispatchError`, for a request nothing asserts on                               | jsdom really served an `XMLHttpRequest` — `blockNetwork` used to cover only `fetch`                                                                  | `setupAutoSpy({ blockNetwork: true })`, or `{ xhr: 'empty' }` for tracker pings (§10)                                                   |
+| `localStorage.setItem is not a function`, or `localStorage` undefined                                    | Node's own Web Storage made Vitest's global filter skip the environment's — Node 25 and up, jsdom and happy-dom alike                               | on by default in `setupAutoSpy()`; `restoreWebStorage()` on its own (§10)                                                               |
 | `Schedulers cannot synchronously execute watches while scheduling`                                       | a timer from a **previous** file, under `isolate: false`                                                                                             | track and cancel pending timers/frames in the setup file (§10)                                                                          |
 | `signal read during notification phase`                                                                  | same — a stray `requestAnimationFrame` callback                                                                                                      | same                                                                                                                                    |
 | an assertion error printed to stderr, every test green and the run exiting 0                             | zone.js swallowed a rejection nobody handled                                                                                                         | `setupAutoSpy({ strayRejections: true })` fails the test it surfaced in (§10)                                                           |
