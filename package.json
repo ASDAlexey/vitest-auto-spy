@@ -1,6 +1,6 @@
 {
   "name": "vitest-auto-spy",
-  "version": "4.5.0",
+  "version": "4.5.1",
   "description": "Auto-generate fully-typed test spies from a class — across Vitest, Bun and node:test, with Angular/NestJS/React/Vue/Svelte recipes. Drop-in replacement for jest-auto-spies and jasmine-auto-spies.",
   "keywords": [
     "auto-mock",
