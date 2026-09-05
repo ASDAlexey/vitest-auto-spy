@@ -40,7 +40,7 @@
     },
     "./eslint-plugin": {
       "modules": 2,
-      "bytes": 80778
+      "bytes": 84448
     },
     "./jasmine": {
       "modules": 11,

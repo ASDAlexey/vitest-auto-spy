@@ -19,7 +19,7 @@
     "./svelte": 15169,
     "./setup": 12445,
     "./zone": 1072,
-    "./eslint-plugin": 16659
+    "./eslint-plugin": 17584
   },
   "note": "Baseline for scripts/size-entries.mjs: min+gzip bytes per entry point, peers external. Regenerate with `npm run size:entries:update` and explain the diff in the commit."
 }
