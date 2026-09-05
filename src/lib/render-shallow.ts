@@ -118,7 +118,10 @@ export function renderShallow<T>(component: Type<T>, options: RenderShallowOptio
     imports: standalone ? [component, ...(options.imports ?? [])] : (options.imports ?? []),
     declarations: standalone ? [] : [component],
     providers: options.providers ?? [],
-    schemas: [NO_ERRORS_SCHEMA],
+    // Only where it can do something. A standalone component carries its own dependency scope, so a
+    // module-level schema never reaches its template — and `enableAngularDiagnostics({ deadSchemas })`
+    // is right to report one, which made these two features of the same package cancel each other out.
+    ...(standalone ? {} : { schemas: [NO_ERRORS_SCHEMA] }),
   });
 
   TestBed.overrideComponent(component, { set: buildOverride(component, options) });

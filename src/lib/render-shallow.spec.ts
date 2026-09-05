@@ -7,7 +7,7 @@
 import { Component, Injectable, OnInit, inject, input, makeEnvironmentProviders, signal } from '@angular/core';
 import { beforeEach, describe, expect, it } from 'vitest';
 
-import { injectSpy, provideAutoSpy } from '../angular';
+import { disableAngularDiagnostics, enableAngularDiagnostics, injectSpy, provideAutoSpy } from '../angular';
 import { renderShallow } from './render-shallow';
 
 @Injectable({ providedIn: 'root' })
@@ -146,5 +146,20 @@ describe('renderShallow', () => {
 
     expect(component.name).toBe('legacy');
     expect(childInstances).toBe(0);
+  });
+});
+
+describe('the schema it configures', () => {
+  it('does not trip deadSchemas on a standalone component', () => {
+    // The pair this guards: `enableAngularDiagnostics({ deadSchemas })` fails a module that carries a
+    // schema next to a standalone component, and it is right to — so a `NO_ERRORS_SCHEMA` added here
+    // unconditionally made two features of this package cancel each other out.
+    enableAngularDiagnostics({ ngModuleScopes: false, pendingRequests: false, unspiedProviders: false });
+
+    try {
+      expect(() => renderShallow(HostComponent)).not.toThrow();
+    } finally {
+      disableAngularDiagnostics();
+    }
   });
 });
