@@ -1,4 +1,31 @@
+import type { Plugin } from 'vite';
 import { defineConfig } from 'vitepress';
+
+// Only the landing is translated, so the `ru` local-search index holds a single home page whose
+// body is empty and every query on /ru/ comes back with nothing. Point that index at the English
+// one the Russian nav already links to. The virtual module is VitePress-internal, hence the throw.
+function russianSearchUsesEnglishIndex(): Plugin {
+  const SEARCH_INDEX_MODULE = '/@localSearchIndex';
+  const RU_IMPORT = /"ru":\s*\(\)\s*=>\s*import\('@localSearchIndexru'\)/;
+
+  return {
+    name: 'vitest-auto-spy:ru-search-uses-en-index',
+    enforce: 'post',
+
+    transform(code, id) {
+      if (id !== SEARCH_INDEX_MODULE) return null;
+
+      if (!RU_IMPORT.test(code)) {
+        throw new Error(
+          `${SEARCH_INDEX_MODULE} no longer exposes a "ru" entry in the shape this plugin rewrites. ` +
+            'Search on /ru/ would silently return nothing; re-check the VitePress local-search plugin.',
+        );
+      }
+
+      return code.replace(RU_IMPORT, `"ru": () => import('@localSearchIndexroot')`);
+    },
+  };
+}
 
 const HOSTNAME = 'https://asdalexey.github.io/vitest-auto-spy/';
 const OG_IMAGE = `${HOSTNAME}og-image.png`;
@@ -159,6 +186,10 @@ export default defineConfig({
 
   // README.md is the internal "how to run these docs" note, not a published page.
   srcExclude: ['README.md'],
+
+  vite: {
+    plugins: [russianSearchUsesEnglishIndex()],
+  },
 
   // Generates /sitemap.xml — submit it to Google Search Console so every page gets crawled.
   sitemap: {
@@ -411,6 +442,26 @@ export default defineConfig({
 
     search: {
       provider: 'local',
+      options: {
+        locales: {
+          ru: {
+            translations: {
+              button: { buttonText: 'Поиск', buttonAriaLabel: 'Поиск' },
+              modal: {
+                displayDetails: 'Показать подробности',
+                resetButtonTitle: 'Сбросить запрос',
+                backButtonTitle: 'Закрыть поиск',
+                noResultsText: 'Ничего не найдено (документация на английском)',
+                footer: {
+                  selectText: 'выбрать',
+                  navigateText: 'навигация',
+                  closeText: 'закрыть',
+                },
+              },
+            },
+          },
+        },
+      },
     },
 
     footer: {
