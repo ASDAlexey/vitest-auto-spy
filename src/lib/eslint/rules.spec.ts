@@ -1364,6 +1364,7 @@ describe('the plugin', () => {
       'no-overridden-provider',
       'prefer-inject-spy',
       'prefer-native-spy-api',
+      'prefer-render-shallow',
     ]);
   });
 
@@ -1769,5 +1770,124 @@ describe('no-done-callback — done.fail', () => {
     ['a `fail` that is passed rather than called', "it('emits', (done) => register(done.fail));"],
   ])('leaves %s alone', (_label, code) => {
     expect(lint(code, RULE).filter((id) => id === `vitest-auto-spy/${RULE}`)).toHaveLength(code.includes('(done)') ? 1 : 0);
+  });
+});
+
+describe('prefer-render-shallow', () => {
+  const RULE = 'prefer-render-shallow';
+
+  /** The shape the rule exists for: the full cycle paid for, only TypeScript state read back. */
+  const stateOnly = `
+    const fixture = TestBed.createComponent(CardComponent);
+
+    fixture.componentRef.setInput('total', 3);
+    await fixture.whenStable();
+
+    expect(fixture.componentInstance.label()).toBe('3 items');
+  `;
+
+  it('reports a createComponent in a file that never reads the template', () => {
+    expect(lint(stateOnly, RULE)).toEqual([`vitest-auto-spy/${RULE}`]);
+    expect(firstMessage(stateOnly, RULE)).toContain('renderShallow');
+  });
+
+  it.each([
+    ['nativeElement', 'const host = fixture.nativeElement;'],
+    ['debugElement', 'const row = fixture.debugElement;'],
+    ['By.css', 'const row = fixture.debugElement.query(By.css(".row"));'],
+    ['querySelector', 'const row = host.querySelector(".row");'],
+    ['textContent', "expect(host.textContent).toContain('3 items');"],
+    ['triggerEventHandler', "row.triggerEventHandler('click');"],
+  ])('stays silent when the file reads the template through %s', (_label, read) => {
+    expect(lint(`${stateOnly}\n${read}`, RULE)).toEqual([]);
+  });
+
+  it('reports every createComponent of a file that reads nothing', () => {
+    const twice = `
+      const first = TestBed.createComponent(CardComponent);
+      const second = TestBed.createComponent(OtherComponent);
+
+      expect(first.componentInstance.label()).toBe('a');
+      expect(second.componentInstance.label()).toBe('b');
+    `;
+
+    expect(lint(twice, RULE)).toEqual([`vitest-auto-spy/${RULE}`, `vitest-auto-spy/${RULE}`]);
+  });
+
+  it('suggests the renderShallow rewrite and adds the import', () => {
+    const [message] = verify(stateOnly, RULE);
+    const suggestion = message?.suggestions?.[0];
+
+    expect(suggestion?.desc).toContain('renderShallow(CardComponent).fixture');
+    expect(suggestion?.fix.text).toBeDefined();
+  });
+
+  it('adds no import when renderShallow is already imported', () => {
+    const imported = `
+      import { renderShallow } from 'vitest-auto-spy/angular';
+
+      const fixture = TestBed.createComponent(CardComponent);
+
+      expect(fixture.componentInstance.label()).toBe('a');
+    `;
+    const suggestion = verify(imported, RULE)[0]?.suggestions?.[0];
+
+    expect(suggestion?.fix.text).toBe('renderShallow(CardComponent).fixture');
+  });
+
+  it('offers no suggestion when createComponent carries a second argument', () => {
+    const withOptions =
+      "const fixture = TestBed.createComponent(CardComponent, { autoDetect: true });\nexpect(fixture.componentInstance.label()).toBe('a');";
+
+    expect(verify(withOptions, RULE)[0]?.suggestions ?? []).toHaveLength(0);
+  });
+
+  it('offers no suggestion when renderShallow already names something else', () => {
+    const shadowed = `
+      const renderShallow = 1;
+      const fixture = TestBed.createComponent(CardComponent);
+
+      expect(fixture.componentInstance.label()).toBe(renderShallow);
+    `;
+
+    expect(verify(shadowed, RULE)[0]?.suggestions ?? []).toHaveLength(0);
+  });
+
+  it('leaves a fixture obtained through renderShallow alone', () => {
+    const shallow = `
+      const { component } = renderShallow(CardComponent, { inputs: { total: 3 } });
+
+      expect(component.label()).toBe('3 items');
+    `;
+
+    expect(lint(shallow, RULE)).toEqual([]);
+  });
+});
+
+describe('prefer-render-shallow, { templates: "never" }', () => {
+  const RULE = 'prefer-render-shallow';
+  const NEVER = { templates: 'never' };
+
+  it('reports a createComponent even when the spec reads the template', () => {
+    const reads = `
+      const fixture = TestBed.createComponent(CardComponent);
+
+      expect(fixture.nativeElement.textContent).toContain('3 items');
+    `;
+
+    expect(lint(reads, RULE)).toEqual([]);
+    expect(lintWith(reads, RULE, NEVER)).toEqual([`vitest-auto-spy/${RULE}`]);
+  });
+
+  it('reports keepTemplate, which puts the template back', () => {
+    const kept = 'renderShallow(CardComponent, { keepTemplate: true });';
+
+    expect(lint(kept, RULE)).toEqual([]);
+    expect(lintWith(kept, RULE, NEVER)).toEqual([`vitest-auto-spy/${RULE}`]);
+  });
+
+  it('leaves keepTemplate: false and a plain renderShallow alone', () => {
+    expect(lintWith('renderShallow(CardComponent, { keepTemplate: false });', RULE, NEVER)).toEqual([]);
+    expect(lintWith('renderShallow(CardComponent, { inputs: { total: 3 } });', RULE, NEVER)).toEqual([]);
   });
 });

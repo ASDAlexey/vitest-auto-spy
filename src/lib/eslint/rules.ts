@@ -43,6 +43,7 @@
 import { type EsPromiseExecutor, type EsSubscribeCall, awaitedRewriteFor } from './await-emission';
 import { bindingState, findBinding } from './bindings';
 import { defineRule } from './define-rule';
+import { readsRenderedTemplate, renderShallowSuggestion, templatePolicy } from './dom-reads';
 import { isFloatingChain, isPromiseCallback } from './floating-assertion';
 import {
   countRunnerFns,
@@ -637,6 +638,40 @@ const noUnregisteredInjectSpy = defineRule({
   },
 });
 
+/** `TestBed.createComponent(X)` in a file that never reads the DOM → `renderShallow(X)`. */
+const preferRenderShallow = defineRule({
+  anchor: '-a-components-children',
+  description: 'Render through renderShallow() when the spec never reads the rendered template',
+  hasSuggestions: true,
+  schema: [{ type: 'object', properties: { templates: { enum: ['as-needed', 'never'] } }, additionalProperties: false }],
+  messages: {
+    keepTemplate:
+      '`keepTemplate: true` puts the real template back, and this project set `{ templates: "never" }`. Drop it — or, when the component genuinely reads its own template through `viewChild` or content projection, silence this line, because the alternative is a spec that cannot reach the component at all.',
+    preferRenderShallow:
+      '`TestBed.createComponent` pays for compiling the template and instantiating the whole child subtree, and nothing in this file reads either — no `nativeElement`, no `debugElement`, no `By.css`, no `querySelector`. `renderShallow(X)` brings the same component up through the same `TestBed` with the children dropped and the template blank, and leaves inputs, signals, lifecycle hooks and DI exactly where they were; `fixture` is still a real `ComponentFixture`. What it buys is measured in `bench-angular/`: **0.24×** the per-test cycle at 100 children and **0.05×** at 400 — but at **zero** children the two are level (measurements straddle 1.0, and it is the noisiest row in the benchmark), so a leaf component gains nothing and this report is worth ignoring there. Reach for `{ keepTemplate: true }` when the component reads its own template through `viewChild` or content projection, which this rule cannot see from the spec.',
+  },
+  create: (context) => ({
+    'CallExpression[callee.object.name="TestBed"][callee.property.name="createComponent"]': (node: EsCallExpression): void => {
+      // Asked of the whole file, not of this fixture: see `readsRenderedTemplate`. Under
+      // `{ templates: 'never' }` the question is not asked at all — no spec renders a template.
+      if (templatePolicy(context) === 'as-needed' && readsRenderedTemplate(context.sourceCode.getText())) {
+        return;
+      }
+
+      const suggestion = renderShallowSuggestion(context, node);
+
+      context.report(
+        suggestion ? { node, messageId: 'preferRenderShallow', suggest: [suggestion] } : { node, messageId: 'preferRenderShallow' },
+      );
+    },
+    'Property[key.name="keepTemplate"][value.value=true]': (node: EsNode): void => {
+      if (templatePolicy(context) === 'never') {
+        context.report({ node, messageId: 'keepTemplate' });
+      }
+    },
+  }),
+});
+
 /**
  * Every rule the plugin ships, keyed by the name used in an ESLint config.
  *
@@ -661,5 +696,6 @@ export const rules: Record<string, RuleModule> = {
   'no-inject-before-override': noInjectBeforeOverride,
   'no-import-time-spread': noImportTimeSpread,
   'no-unregistered-inject-spy': noUnregisteredInjectSpy,
+  'prefer-render-shallow': preferRenderShallow,
   ...jasmineRules,
 };
