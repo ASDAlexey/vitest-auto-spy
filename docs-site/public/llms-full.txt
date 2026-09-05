@@ -2700,18 +2700,22 @@ prune reaches only one and the run dies out of memory.
 
 ## Bundle size
 
-The badge says 14.3 kB min+gzip, and that is the whole core entry bundled together. It is also the
+The badge says 15.0 kB min+gzip, and that is the whole core entry bundled together. It is also the
 largest number a consumer can pay for the core, because entries are separate subpaths and a project
 only pays for the ones it imports:
 
 | Imported                                      |    min+gzip |
 | --------------------------------------------- | ----------: |
-| `.` — the core entry, what the badge measures | **14.3 kB** |
-| `vitest-auto-spy/angular`                     |     18.2 kB |
-| `vitest-auto-spy/node`                        |     13.7 kB |
-| `vitest-auto-spy/dom-stubs`                   |      5.1 kB |
+| `.` — the core entry, what the badge measures | **15.0 kB** |
+| `vitest-auto-spy/angular`                     |     18.5 kB |
+| `vitest-auto-spy/node`                        |     14.4 kB |
+| `vitest-auto-spy/dom-stubs`                   |      5.0 kB |
 | `vitest-auto-spy/rxjs`                        |      2.2 kB |
 | `vitest-auto-spy/zone`                        |      1.1 kB |
+
+Every figure here is the committed baseline in `size-entries.json` as of 2026-09-05, which is what
+`size:entries:check` and the badge both read; an earlier edition of this table quoted 14.3, 18.2 and
+13.7 kB for the first three rows, taken before the 4.3 additions.
 
 `npm run size:entries` prints all twenty and compares them against a committed baseline, so an entry
 that quietly gains a second copy of the core fails a check instead of being noticed a release later.
