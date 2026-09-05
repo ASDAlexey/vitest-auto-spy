@@ -235,6 +235,9 @@ export default defineConfig({
     ['meta', { name: 'twitter:card', content: 'summary_large_image' }],
     ['meta', { name: 'twitter:image', content: OG_IMAGE }],
     ['link', { rel: 'icon', href: '/vitest-auto-spy/favicon.svg', type: 'image/svg+xml' }],
+    // The default theme hides the language menu below 1280px, but the hamburger that also holds it
+    // only appears below 960px — so between the two there is no way to switch language at all.
+    ['style', {}, '@media (min-width: 960px) { .VPNavBarTranslations { display: flex !important; } }'],
     // The documentation as plain text, announced the way a feed is. An agent that honours the
     // convention takes one fetch instead of scraping the rendered HTML of thirty-six pages.
     ['link', { rel: 'alternate', type: 'text/plain', href: `${HOSTNAME}llms.txt`, title: 'llms.txt — documentation index for LLMs' }],
