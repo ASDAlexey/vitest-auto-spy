@@ -839,7 +839,10 @@ belongs to e2e can say so instead, and then no spec renders a real template at a
 ```
 
 Under `'never'` every `TestBed.createComponent` is reported whether or not the file reads the DOM,
-and so is `keepTemplate: true`.
+and so is `keepTemplate: true`. One render is exempt: a host built by
+[`createDirectiveHost`](/adapters/angular). A directive attaches to an element, so something has to
+render that element — the host's template is the harness, not the markup under test, and banning it
+would ban testing directives at all, including the way this package's own documentation recommends.
 
 **Know the bill before you turn it on.** Measured on one consumer suite: `'never'` took **18 of 40**
 tests in a component spec red and coverage from **100 % to 95.7 %**. Nothing was excluded from the

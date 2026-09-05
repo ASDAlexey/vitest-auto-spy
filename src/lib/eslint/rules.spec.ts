@@ -1886,6 +1886,22 @@ describe('prefer-render-shallow, { templates: "never" }', () => {
     expect(lintWith(kept, RULE, NEVER)).toEqual([`vitest-auto-spy/${RULE}`]);
   });
 
+  it.each([
+    ['inline', "TestBed.createComponent(createDirectiveHost({ template: '<div appX></div>' }));"],
+    [
+      'through a helper the host reaches as a parameter',
+      "const Host = createDirectiveHost({ template: '<div appX></div>' });\nconst hostOf = (c) => TestBed.createComponent(c);",
+    ],
+  ])('leaves a directive harness alone, built %s', (_label, code) => {
+    expect(lintWith(code, RULE, NEVER)).toEqual([]);
+  });
+
+  it('still reports a component spec that builds no harness', () => {
+    const parked = 'const Card = CardComponent;\nTestBed.createComponent(Card);';
+
+    expect(lintWith(parked, RULE, NEVER)).toEqual([`vitest-auto-spy/${RULE}`]);
+  });
+
   it('leaves keepTemplate: false and a plain renderShallow alone', () => {
     expect(lintWith('renderShallow(CardComponent, { keepTemplate: false });', RULE, NEVER)).toEqual([]);
     expect(lintWith('renderShallow(CardComponent, { inputs: { total: 3 } });', RULE, NEVER)).toEqual([]);

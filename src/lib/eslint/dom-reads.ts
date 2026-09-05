@@ -50,6 +50,31 @@ export function templatePolicy(context: RuleContext): 'as-needed' | 'never' {
   return Reflect.get(Object(context.options[0]), 'templates') === 'never' ? 'never' : 'as-needed';
 }
 
+/** What `prefer-render-shallow` reports, kept here so `rules.ts` stays inside its line budget. */
+export const RENDER_MESSAGES = {
+  keepTemplate:
+    '`keepTemplate: true` puts the real template back, and this project set `{ templates: "never" }`. Drop it — or, when the component genuinely reads its own template through `viewChild` or content projection, silence this line, because the alternative is a spec that cannot reach the component at all.',
+  preferRenderShallow:
+    '`TestBed.createComponent` pays for compiling the template and instantiating the whole child subtree, and nothing in this file reads either — no `nativeElement`, no `debugElement`, no `By.css`, no `querySelector`. `renderShallow(X)` brings the same component up through the same `TestBed` with the children dropped and the template blank, and leaves inputs, signals, lifecycle hooks and DI exactly where they were; `fixture` is still a real `ComponentFixture`. What it buys is measured in `bench-angular/`: **0.24×** the per-test cycle at 100 children and **0.05×** at 400 — but at **zero** children the two are level (measurements straddle 1.0, and it is the noisiest row in the benchmark), so a leaf component gains nothing and this report is worth ignoring there. Reach for `{ keepTemplate: true }` when the component reads its own template through `viewChild` or content projection, which this rule cannot see from the spec.',
+};
+
+/**
+ * Whether the file builds a directive harness, and is therefore exempt from `{ templates: 'never' }`.
+ *
+ * `createDirectiveHost({ template, scope })` exists because a directive has no other way to be
+ * reached: it attaches to an element, so something must render that element. That template is the
+ * harness, not the markup under test, and banning it would ban testing directives at all — including
+ * the way this package's own documentation recommends.
+ *
+ * Asked of the file for the same reason `readsRenderedTemplate` is: the host reaches
+ * `TestBed.createComponent` through a `hostOf(component)` helper as often as it arrives inline, and
+ * an exemption that only recognised the inline form would send every directive suite to a
+ * per-line disable.
+ */
+export function buildsDirectiveHarness(source: string): boolean {
+  return source.includes('createDirectiveHost');
+}
+
 /** Whether `source` reads the rendered template anywhere. */
 export function readsRenderedTemplate(source: string): boolean {
   return TEMPLATE_READS.some((member) => source.includes(member));
