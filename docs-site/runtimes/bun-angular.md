@@ -29,6 +29,17 @@ preload = ["vitest-auto-spy/bun-angular"]
 bun add -d @happy-dom/global-registrator   # or: bun add -d jsdom
 ```
 
+This entry wants **Angular 20 or newer**, and the reason is one line of its own source: it imports
+`provideZonelessChangeDetection` from `@angular/core` as a value. That name exists from Angular 20 —
+in 18 and 19 the same function was called `provideExperimentalZonelessChangeDetection`, and in 16
+and 17 there was nothing. A missing named export is a link error, so on an older Angular the preload
+throws while `bun test` is still loading it, before a single spec file is read. It also imports
+`platformBrowserTesting` and `BrowserTestingModule` from `@angular/platform-browser` — a declared
+optional peer since the same major, because pnpm's isolated layout never resolved it by accident the
+way npm's hoisting did. Those two, unlike the zoneless provider, have been there since Angular 16;
+what changed in 20 is only that `@angular/platform-browser-dynamic/testing` stopped being the
+recommended path.
+
 That is the whole configuration. On load the entry:
 
 1. installs a DOM — `@happy-dom/global-registrator` if present, otherwise `jsdom`, and nothing at all

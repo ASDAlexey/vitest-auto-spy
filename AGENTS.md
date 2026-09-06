@@ -66,6 +66,23 @@ Add-ons, orthogonal to the runner:
 `vitest-auto-spy/jasmine` is Vitest-only, because it registers the Vitest adapter. On `bun test` and
 `node --test` call `enableJasmineCompat()` from `vitest-auto-spy/jasmine-compat` instead.
 
+The rxjs peer is **>= 7.2**, not `>=7`. The observable layer used to pull `concatMap`, `delay`,
+`switchMap`, `take`, `takeUntil` and `takeWhile` from `rxjs/operators`; rxjs 8 removes that deep path,
+so the specifier moved to the root `rxjs` entry — which is where rxjs re-exported them in 7.2 — and
+the floor moved with it. Any Angular project already satisfies it: Angular 16 through 22 all peer on
+`^6.5.3 || ^7.4.0`.
+
+The Angular entries need **Angular >= 20** — `@angular/core`, `@angular/common` and
+`@angular/platform-browser`, all optional peers on the same range. Below 20 the failure is a link
+error, not a missing helper: `/angular` imports `ɵSIGNAL` (Angular 18+) as a value on the first line
+of its bundle, so on 16 and 17 the whole entry fails to load, and `/bun-angular` imports
+`provideZonelessChangeDetection` (Angular 20+; called `provideExperimentalZonelessChangeDetection`
+in 18 and 19), so on anything older the preload throws before the first spec. Angular 19 and
+everything under it is out of Angular's own support window as well, so the floor cuts nothing that
+still gets fixes. `@angular/platform-browser` is a declared peer since this major — `By` in the
+directive matchers and `platformBrowserTesting()` in the Bun preload are both value imports of it,
+and under pnpm's isolated layout it never resolved before.
+
 The package is **ESM**. Only `vitest-auto-spy/node` and `vitest-auto-spy/eslint-plugin` also ship a
 CommonJS build; every other subpath is ESM-only (a `require()` of a Vitest-backed entry always threw —
 Vitest refuses to be required).
@@ -1547,7 +1564,8 @@ const myService = injectSpy(MyService); // Spy<MyService>
 
 `provideAutoSpy` defaults to `lazySpies: true` (the plain `createSpyFromClass` does not). Pass
 `{ lazySpies: false }` to opt out. The spies never touch `NgZone`, so they work zoneless and with
-zone.js alike.
+zone.js alike. The entry needs **Angular >= 20** (§1); on 16 or 17 it does not link at all, because
+`ɵSIGNAL` is not there to import.
 
 ### The same thing as fixtures — `extendWithAutoSpies` (Vitest 4.1+)
 
@@ -2071,6 +2089,11 @@ if (process.env['SPEC_TIMING']) {
 [test]
 preload = ["vitest-auto-spy/bun-angular"]
 ```
+
+The preload imports `provideZonelessChangeDetection` and `platformBrowserTesting` as values, so it
+wants **Angular >= 20** and a declared `@angular/platform-browser`; on 18 or 19 it throws while
+loading, because the zoneless provider was still called
+`provideExperimentalZonelessChangeDetection` there.
 
 It re-exports everything in this section except `registerSignalMatchers`,
 `registerResourceMatchers`, `mockSignalProp` / `mockResourceProp` and the TestBed diagnostics — the

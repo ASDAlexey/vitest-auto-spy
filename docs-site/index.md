@@ -49,8 +49,9 @@ features:
 
 ## Sixty seconds to the first spy
 
-Zero runtime dependencies; `rxjs` and `@angular/core` are optional and only for the matching entry
-point.
+Zero runtime dependencies; `rxjs` and the `@angular/*` packages are optional and only for the
+matching entry point. The Angular entries want Angular 20 or newer — see
+[Installation](/core/installation).
 
 ```bash
 npm i -D vitest-auto-spy

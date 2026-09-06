@@ -55,6 +55,11 @@ hand.
 
 ## Skeleton — Angular
 
+The `/angular` and `/bun-angular` entries need **Angular >= 20** — `@angular/core`,
+`@angular/common` and `@angular/platform-browser` are optional peers on that one range. Below it the
+entry does not link (`ɵSIGNAL` is Angular 18+, `provideZonelessChangeDetection` Angular 20+), so the
+error arrives at import, not at a helper call.
+
 ```ts
 describe('TaskService', () => {
   let projects: Spy<ProjectStore>;
