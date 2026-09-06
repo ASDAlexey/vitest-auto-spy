@@ -1135,7 +1135,7 @@ setSpyEngine('runner'); // every double built afterwards is `vi.fn()` per method
 ```
 
 **On Vitest 5 the registry story changes, and this library follows it.** Vitest 5 keeps registered
-mocks behind `WeakRef`s and its `clearAllMocks()` visits only the ones *called* since the last
+mocks behind `WeakRef`s and its `clearAllMocks()` visits only the ones _called_ since the last
 sweep — so a spy that is not a `vi.fn()` has to make itself reachable to that sweep deliberately. It
 does, which is why `vi.clearAllMocks()`, `vi.resetAllMocks()` and the `clearMocks: true` default
 (new in Vitest 5) clear these doubles exactly as they clear the runner's own. Nothing in a spec
@@ -1144,6 +1144,12 @@ changes, and the peer range still starts at 2.1 — one install spans Vitest 2.1
 What Vitest 5 does break is the runner's own doing, not this library's: with `clearMocks` on by
 default, a test asserting on a call that an **earlier** test or a `beforeAll` recorded now reads
 zero. Count it in a plain variable rather than in the spy, or set `clearMocks: false`.
+
+**The one exception to "nothing in a spec changes".** `setupAutoSpy({ pruneMockRegistry: true })`
+discovers long-lived mocks by walking the runner's registry, which Vitest 5 no longer exposes — the
+automatic half is a no-op there. `keepMockRegistered(mock)` works on every version and is the fix;
+recommend it whenever a suite on Vitest 5 loses a shared mock's implementation to
+`vi.resetAllMocks()`.
 
 `getSpyEngine()` reports the current one, `'auto-spy'` is the default, and doubles already built keep
 the engine they were built with. The switch is Vitest-only: on Bun and `node:test` the runner's own
@@ -2222,7 +2228,7 @@ Spies created **before** the call stay there too. `mock.reset()` in `afterEach` 
 
 **A `node:test` spy now prints under its method name.** `mock.fn()` takes no name and has no
 `mockName()`, so a spy inherited the library's internal dispatcher and read back as
-`[Function: dispatch]` everywhere. The adapter names the *implementation* at creation and lets
+`[Function: dispatch]` everywhere. The adapter names the _implementation_ at creation and lets
 `mock.fn()` carry that name onto the mock, which is where a `node:test` mock takes its `name` from;
 `displayName` is set on the mock alongside it. The name survives `mock.reset()`, `mock.restore()`,
 `resetCalls()` and a `mockImplementation()` swap, and it is what `node:assert` diffs, what
@@ -2481,7 +2487,7 @@ packages, which a subpath export can never be.
 | `done.fail is not a function`                                                                            | Vitest passes a `TestContext`, not jasmine's `done`; the line usually sits in an `error` callback nobody awaits, so the run stays **green**          | assert on the failure — `await expect(firstValueFrom(src$)).rejects.toMatchObject({ … })`, or `expect.fail(message)`                    |
 | a `.withContext('…')` message that never appears in the failure output                                   | Vitest's chai layer has an `@internal` `withContext(flags)`; handed a string it walks the character indices, sets nonsense flags and returns `this`  | `expect(actual, 'message').toBe(expected)` — the second argument of `expect` is the label. Nothing throws, so nothing warns (§20)       |
 | `requested method(s) not found on the class prototype`                                                   | typo, or an instance-field callable                                                                                                                  | fix the name, or move it to `instanceMethodsToSpyOn`                                                                                    |
-| `All declarations of 'Matchers' must have identical type parameters`                                     | a custom matcher declares `interface Matchers<T = any>` (the Vitest 4 shape) while Vitest 5 declares `Matchers<R, T>`                                 | declare it on `Chai.Assertion` instead — that interface has no type parameters in either major, so one declaration merges on both (§10) |
+| `All declarations of 'Matchers' must have identical type parameters`                                     | a custom matcher declares `interface Matchers<T = any>` (the Vitest 4 shape) while Vitest 5 declares `Matchers<R, T>`                                | declare it on `Chai.Assertion` instead — that interface has no type parameters in either major, so one declaration merges on both (§10) |
 | `toHaveBeenCalledTimes` reads `0` for a call an earlier test made, after moving to Vitest 5              | `clearMocks` defaults to `true` on Vitest 5, so `vi.clearAllMocks()` runs before every test                                                          | count the calls in a plain variable instead of reading the spy, or set `clearMocks: false` (§10)                                        |
 | `was configured with 'mustBeCalledWith'`                                                                 | the code called the spy with other arguments                                                                                                         | that is the assertion firing — fix the code, or relax to `calledWith`                                                                   |
 | `extendWithAutoSpies needs Vitest 4.1 or newer`                                                          | the `test` handed in has only the object-form `extend` (Vitest ≤ 4.0); the builder form the helper is written against arrived in 4.1                 | upgrade Vitest, or keep `provideAutoSpy` + `injectSpy` in a `beforeEach` until then                                                     |
@@ -2509,7 +2515,7 @@ packages, which a subpath export can never be.
 | a spy is never called, no warning                                                                        | the method is an instance field, not on the prototype                                                                                                | `instanceMethodsToSpyOn`, or `createAutoMock<T>()`                                                                                      |
 | `Cannot access '__vi_import_N__' before initialization`                                                  | `vi.mock()` on `@angular/core` or a relative path                                                                                                    | you cannot mock it — the specs are bundled. Assert the result instead                                                                   |
 | `AggregateError at Object.dispatchError`, for a request nothing asserts on                               | jsdom really served an `XMLHttpRequest` — `blockNetwork` used to cover only `fetch`                                                                  | `setupAutoSpy({ blockNetwork: true })`, or `{ xhr: 'empty' }` for tracker pings (§10)                                                   |
-| `localStorage.setItem is not a function`, or `localStorage` undefined                                    | Node's own Web Storage made Vitest's global filter skip the environment's — Node 25 and up, jsdom and happy-dom alike                               | on by default in `setupAutoSpy()`; `restoreWebStorage()` on its own (§10)                                                               |
+| `localStorage.setItem is not a function`, or `localStorage` undefined                                    | Node's own Web Storage made Vitest's global filter skip the environment's — Node 25 and up, jsdom and happy-dom alike                                | on by default in `setupAutoSpy()`; `restoreWebStorage()` on its own (§10)                                                               |
 | `Schedulers cannot synchronously execute watches while scheduling`                                       | a timer from a **previous** file, under `isolate: false`                                                                                             | track and cancel pending timers/frames in the setup file (§10)                                                                          |
 | `signal read during notification phase`                                                                  | same — a stray `requestAnimationFrame` callback                                                                                                      | same                                                                                                                                    |
 | an assertion error printed to stderr, every test green and the run exiting 0                             | zone.js swallowed a rejection nobody handled                                                                                                         | `setupAutoSpy({ strayRejections: true })` fails the test it surfaced in (§10)                                                           |

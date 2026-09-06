@@ -3526,7 +3526,7 @@ spec file moves between them unchanged.
 Two changes in Vitest 5 reach a spy library rather than a spec, and both are absorbed here.
 
 `clearAllMocks()` no longer walks every mock ever created. Vitest 5 keeps registered mocks behind
-`WeakRef`s and clears only the ones that were *called* since the last sweep — a real improvement,
+`WeakRef`s and clears only the ones that were _called_ since the last sweep — a real improvement,
 and the reason a spy engine that is not `vi.fn()` has to announce itself to that sweep. This
 library's own engine (the default since 4.1) does, so `vi.clearAllMocks()` and the new
 `clearMocks: true` default clear these doubles exactly as they clear the runner's own.
@@ -3543,10 +3543,10 @@ keep typing on both without a second `.d.ts` for you to reference.
 40 spec files, 800 tests, 400 spied methods per file, v8 coverage on, Node v24.19.0, median of five
 runs, measured 2026-09-06 on identical library source:
 
-| suite | Vitest 4.1.11 | Vitest 5.0.0 |
-| --- | --- | --- |
-| this library's spy engine (default) | 1383 ms | **1276 ms** |
-| every method built with `vi.fn()` (`setSpyEngine('runner')`) | 1473 ms | 1390 ms |
+| suite                                                        | Vitest 4.1.11 | Vitest 5.0.0 |
+| ------------------------------------------------------------ | ------------- | ------------ |
+| this library's spy engine (default)                          | 1383 ms       | **1276 ms**  |
+| every method built with `vi.fn()` (`setSpyEngine('runner')`) | 1473 ms       | 1390 ms      |
 
 Changing nothing but the runner is **−7.7 %**. The engine is worth **−6.1 %** on Vitest 4 and
 **−8.1 %** on Vitest 5 over handing each method to `vi.fn()`. Slowest pairing to fastest — Vitest 4
@@ -3556,7 +3556,7 @@ with runner mocks, against Vitest 5 with the default engine — is 1473 ms → 1
 
 `clearMocks` defaults to `true` in Vitest 5, so `vi.clearAllMocks()` runs before every test. That is
 the runner's change, not this library's, and it breaks one pattern: a test asserting on a call that
-an *earlier* test — or a `beforeAll` — recorded now reads zero calls. Count it in a plain variable
+an _earlier_ test — or a `beforeAll` — recorded now reads zero calls. Count it in a plain variable
 instead of reading the spy's history:
 
 ```ts
@@ -3575,6 +3575,21 @@ it('asked once for the whole file', () => {
 ```
 
 Setting `clearMocks: false` restores the Vitest 4 behaviour if you would rather not touch the specs.
+
+### The one feature that needs a line changed
+
+`setupAutoSpy({ pruneMockRegistry: true })` remembers what a long-lived mock returned and hands the
+implementation back to whoever lost it to a stray `vi.resetAllMocks()`. It finds those mocks by
+walking `@vitest/spy`'s own registry, and Vitest 5 does not expose that registry any more — so on
+Vitest 5 the automatic discovery is a no-op. The explicit mark works on every version, and is the
+fix:
+
+```ts
+import { keepMockRegistered } from 'vitest-auto-spy/setup';
+
+// fixtures/logger.mock.ts — imported by many spec files
+export const logger = { channel: keepMockRegistered(vi.fn().mockReturnThis()), info: vi.fn() };
+```
 
 ## A spec, start to finish
 

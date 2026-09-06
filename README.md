@@ -228,7 +228,12 @@ mocks that were called, so a spy engine that is not `vi.fn()` had to make itself
 sweep; and the `Matchers` interface grew a second type parameter, so the bundled matchers declare
 themselves on Chai's `Assertion` instead and keep typing on 4 and 5 alike. The one thing Vitest 5
 can still break is its own doing: `clearMocks` is on by default there, so a spec asserting on a call
-recorded by an *earlier* test now reads zero. Record it in a counter, not in the spy.
+recorded by an _earlier_ test now reads zero. Record it in a counter, not in the spy.
+
+One feature of this package does need a line changed. `setupAutoSpy({ pruneMockRegistry: true })`
+finds long-lived mocks by walking the runner's own registry, and Vitest 5 no longer exposes it — so
+on Vitest 5 the automatic half does nothing and a mock that must survive `vi.resetAllMocks()` has to
+say so: `keepMockRegistered(vi.fn().mockReturnThis())`. Everything after that mark behaves as before.
 
 Measured 2026-09-06 on 40 spec files, 800 tests, 400 spied methods per file, v8 coverage on,
 Node v24.19.0, median of five runs: the same suite takes **1383 ms on Vitest 4.1.11 and 1276 ms on
@@ -1341,26 +1346,26 @@ time budget — these cases allocate doubles by the tens of thousands, and GC co
 created rather than elapsed time, so a fixed time budget would have handed a faster arm more
 allocations and made it pay for its own speed.
 
-**Every micro-benchmark table is this library's**, and the margin is against the *best* other arm in
+**Every micro-benchmark table is this library's**, and the margin is against the _best_ other arm in
 that table. The three class sizes are measured project profiles, not round numbers — across four
 private Angular suites (~2 700 spec files, 2 742 doubles built from a class) the median service has
 5-8 methods and the spec touches 1 of them:
 
-| Case (micro) | 4.0 | 4.1 | best other arm | lead |
-| --- | ---: | ---: | ---: | ---: |
-| small project — 6 methods, 1 called | — | **1.42 µs** | 6.83 µs hand-written | 4.82x |
-| medium project — 14 methods, 2 called | — | **2.67 µs** | 15.92 µs hand-written | 5.97x |
-| large project — 45 methods, 2 called | — | **5.79 µs** | 52.79 µs hand-written | 9.11x |
-| worst case — all 14 of 14 methods called | 18.92 µs (0.66x, a loss) | **8.17 µs** | 17.92 µs hand-written | 2.19x |
-| worst case — all 45 of 45 methods called | 75.33 µs (0.71x, a loss) | **26.12 µs** | 62.04 µs hand-written | 2.37x |
-| double from a type — 2 / 10 / 40 members | 3.58 / 18.17 / 72.88 µs (a loss) | **1.00 / 4.67 / 18.92 µs** | 2.79 / 13.83 / 56.79 µs vitest-mock-extended | 2.79-3.00x |
-| deep double, 3 levels, leaf called | 8.83 µs (0.61x, a loss) | **2.29 µs** | 5.46 µs vitest-mock-extended | 2.38x |
-| configure a return + 3 calls — class / type | 3.29 / 2.08 µs (type a loss) | **2.21 / 0.71 µs** | 16.38 µs hand-written / 1.58 µs @golevelup | 7.41x / 2.24x |
-| `calledWith` dispatch, 2 configured + 1 miss | 0.54 µs (parity) | **0.17 µs** | 0.54 µs vitest-mock-extended | 3.25x |
+| Case (micro)                                 |                              4.0 |                        4.1 |                               best other arm |          lead |
+| -------------------------------------------- | -------------------------------: | -------------------------: | -------------------------------------------: | ------------: |
+| small project — 6 methods, 1 called          |                                — |                **1.42 µs** |                         6.83 µs hand-written |         4.82x |
+| medium project — 14 methods, 2 called        |                                — |                **2.67 µs** |                        15.92 µs hand-written |         5.97x |
+| large project — 45 methods, 2 called         |                                — |                **5.79 µs** |                        52.79 µs hand-written |         9.11x |
+| worst case — all 14 of 14 methods called     |         18.92 µs (0.66x, a loss) |                **8.17 µs** |                        17.92 µs hand-written |         2.19x |
+| worst case — all 45 of 45 methods called     |         75.33 µs (0.71x, a loss) |               **26.12 µs** |                        62.04 µs hand-written |         2.37x |
+| double from a type — 2 / 10 / 40 members     | 3.58 / 18.17 / 72.88 µs (a loss) | **1.00 / 4.67 / 18.92 µs** | 2.79 / 13.83 / 56.79 µs vitest-mock-extended |    2.79-3.00x |
+| deep double, 3 levels, leaf called           |          8.83 µs (0.61x, a loss) |                **2.29 µs** |                 5.46 µs vitest-mock-extended |         2.38x |
+| configure a return + 3 calls — class / type  |     3.29 / 2.08 µs (type a loss) |         **2.21 / 0.71 µs** |   16.38 µs hand-written / 1.58 µs @golevelup | 7.41x / 2.24x |
+| `calledWith` dispatch, 2 configured + 1 miss |                 0.54 µs (parity) |                **0.17 µs** |                 0.54 µs vitest-mock-extended |         3.25x |
 
 Six of those rows were losses and one was parity. What changed is that a method spy is no longer a
 `vi.fn()` — see [The spy engine](#the-spy-engine) — plus one thing that is not the engine: a
-`calledWith(x)` of a single primitive argument used to be rendered into a string key on *every call*
+`calledWith(x)` of a single primitive argument used to be rendered into a string key on _every call_
 of that spy, where a `Map` keyed by the value does the same lookup with no allocation.
 
 The three class sizes changed in the same release, from round numbers to measured profiles, so the
@@ -1373,10 +1378,10 @@ vi.fn() per method` arm is in the table precisely so its size stays visible.
 the 4.1 build, 20-method class, `isolate: true`, coverage on, 3 rounds per cell after a discarded
 warm-up, medians of the three):
 
-| Comparison | 1 000 tests | 3 000 tests | 10 000 tests |
-| --- | ---: | ---: | ---: |
-| vitest-auto-spy | 1.33 s | 2.86 s | 10.02 s |
-| hand-written `vi.fn()` | 1.31 s (0.99×) | 2.85 s (1.00×) | 9.25 s (0.92×) |
+| Comparison                  |    1 000 tests |    3 000 tests |    10 000 tests |
+| --------------------------- | -------------: | -------------: | --------------: |
+| vitest-auto-spy             |         1.33 s |         2.86 s |         10.02 s |
+| hand-written `vi.fn()`      | 1.31 s (0.99×) | 2.85 s (1.00×) |  9.25 s (0.92×) |
 | @bugsplat/vitest-auto-spies | 2.00 s (1.50×) | 4.61 s (1.61×) | 15.45 s (1.54×) |
 
 Hand-written doubles are still cheaper — **about 3% at the median**, down from 10-15% before 4.1,
@@ -1387,11 +1392,11 @@ suite swamps it.
 
 **Memory, `isolate: false`, 100-method class, 10 000 tests, peak RSS:**
 
-| Arm | Peak RSS |
-| --- | ---: |
-| hand-written `vi.fn()` | 6366 MB |
-| vitest-auto-spy, default | 2103 MB |
-| vitest-auto-spy, `lazySpies: 'proxy'` | 1851 MB |
+| Arm                                   | Peak RSS |
+| ------------------------------------- | -------: |
+| hand-written `vi.fn()`                |  6366 MB |
+| vitest-auto-spy, default              |  2103 MB |
+| vitest-auto-spy, `lazySpies: 'proxy'` |  1851 MB |
 
 Hand-written doubles use 3.0x the default's peak RSS here — the difference between finishing and an
 OOM'd worker on a large suite.
@@ -2508,7 +2513,7 @@ single-purpose utility you can pick up independently — they all ride on the sa
 | `installPerTest(install)`                                                                | `/setup`                      | Re-install a stub before every test of the block — a `describe`-level stub is restored away after the first                                                                                           |
 | `setupAngularTestEnv(opts)`                                                              | `/angular`                    | Zone and zoneless spec files in one worker, switching platforms per file                                                                                                                              |
 | `restoreTimerGlobals()`                                                                  | `/setup`                      | Put back timer globals that uninstalling the fakes deleted rather than restored                                                                                                                       |
-| `restoreWebStorage(options?)`                                                             | `/setup`                      | Give `globalThis` a `localStorage` / `sessionStorage` that work when the runner's copy never arrived ([details](#test-run-hygiene))                                                                    |
+| `restoreWebStorage(options?)`                                                            | `/setup`                      | Give `globalThis` a `localStorage` / `sessionStorage` that work when the runner's copy never arrived ([details](#test-run-hygiene))                                                                   |
 | `trackMockRegistry()` / `keepMockRegistered(mock)` / `restoreLongLivedImplementations()` | `/setup`                      | Keep @vitest/spy's mock registry to the mocks that outlive a file; mark one the split would miss; put back an implementation a cross-file `vi.resetAllMocks()` dropped ([details](#test-run-hygiene)) |
 | `trackNodeMocks()` / `pruneNodeMocks()` / `countNodeMocks()`                             | `/node`                       | Give this library its own `node:test` `MockTracker` so a dropped spy is freed — 21× less retained heap; sweep by hand, and read the count back                                                        |
 | `setSpyEngine(engine)` / `getSpyEngine()`                                                | `/setup`                      | Build method spies from this library's own mock (`'auto-spy'`, the default) or from `vi.fn()` (`'runner'`) ([details](#the-spy-engine))                                                               |
@@ -2752,10 +2757,10 @@ expensive to diagnose when it is missing. The first three are on by default:
     so the 404 is never written and a routing mistake is reported as a slow test.
 11. **Web Storage the runner never handed over.** On by default, because it only ever repairs.
     Vitest copies a DOM environment's globals onto `globalThis` behind `if (k in global) return
-    KEYS.includes(k)`, and neither `localStorage` nor `sessionStorage` is in `KEYS` — they used to
+KEYS.includes(k)`, and neither `localStorage` nor `sessionStorage` is in `KEYS` — they used to
     arrive only because Node put neither on `globalThis`, so the first half was false. Node's own
     Web Storage made the key exist, and now the environment's storage never arrives: `setItem is
-    not a function` on Node 25, `undefined` on Node 26, under jsdom and happy-dom alike, since the
+not a function` on Node 25, `undefined` on Node 26, under jsdom and happy-dom alike, since the
     filter runs before either. A suite stays green with this broken — only the specs that touch
     storage fail — so it arrives as "CI moved to a new Node and eleven unrelated specs died". The
     repair decides by using the storage rather than looking at it, replaces only one that cannot
@@ -2773,7 +2778,7 @@ expensive to diagnose when it is missing. The first three are on by default:
 | `guardGlobals`        | `'off'`   | Report a test that redefines a global property as non-configurable                    |
 | `globalFakeTimers`    | `false`   | Fake timers for every test **and between them** — Jest's `enableGlobally`             |
 | `restoreTimerGlobals` | `true`    | Put back timer globals that uninstalling the fakes deleted                            |
-| `restoreWebStorage`   | `true`    | Give the run a `localStorage` / `sessionStorage` that work                             |
+| `restoreWebStorage`   | `true`    | Give the run a `localStorage` / `sessionStorage` that work                            |
 | `pruneMockRegistry`   | `false`   | Keep @vitest/spy's ever-growing mock registry to the mocks that outlive a file        |
 | `hookTimeoutHint`     | `true`    | Explain a hook that ran out of `hookTimeout` while `testTimeout` is larger            |
 | `frozenClockHint`     | `true`    | Explain a timeout that happened because nothing advanced the fake clock               |

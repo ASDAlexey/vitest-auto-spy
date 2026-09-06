@@ -58,7 +58,10 @@ library's own source, and two of this package's own features that no longer canc
   method with `vi.fn()` (`setSpyEngine('runner')`) — 1473 ms → 1276 ms end to end, **−13.4 %**. The
   one thing Vitest 5 can still break is its own default: with `clearMocks` on, a test asserting on a
   call an *earlier* test recorded reads zero. Count it in a plain variable, or set
-  `clearMocks: false`.
+  `clearMocks: false`. One feature is not carried over whole: `setupAutoSpy({ pruneMockRegistry: true })`
+  finds long-lived mocks by walking `@vitest/spy`'s registry, which Vitest 5 no longer exposes, so
+  its automatic half is a no-op there — mark the mock with `keepMockRegistered()`, which works on
+  every version.
 
 - **`prefer-render-shallow`, the twentieth lint rule.** Reports a `TestBed.createComponent` in a
   spec file that never reads the rendered template — no `nativeElement`, no `debugElement`, no
