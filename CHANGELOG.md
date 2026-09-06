@@ -15,6 +15,22 @@ library's own source, and two of this package's own features that no longer canc
 
 ### Fixed
 
+- **`prefer-render-shallow` no longer goes quiet on a spec that mocks `DOCUMENT`.** The rule asks
+  whether the file reads the rendered template, over the whole source text, and a `DOCUMENT`
+  stand-in that delegates to the real document —
+  `{ querySelector: document.querySelector.bind(document), … }` — answered yes on the strength of
+  its own keys. Found on a consumer suite where the single component spec that rendered a template
+  nobody reads was also the only one the rule never reported. Only the `name: document.name` shape
+  is subtracted, and only where the two names match: a bare `document.querySelector('.row')` still
+  counts, because a fixture attached to the document is read exactly that way.
+- **`{ templates: 'never' }` no longer reports a false claim about the file.** The policy setting
+  reused the `'as-needed'` wording — *"nothing in this file reads either — no `nativeElement`, no
+  `debugElement`, no `By.css`, no `querySelector`"* — on files chosen without asking that question,
+  so the component spec with thirty-five `querySelector` calls was told it had none. `'never'` now
+  states the policy, what `renderShallow` costs and buys, and the two prices it charges: a spec
+  asserting on markup goes red, and coverage falls by whatever only the template reached. The second
+  message costs `/eslint-plugin` +367 B min+gzip; see **Size and memory** below.
+
 - **`renderShallow` no longer trips `enableAngularDiagnostics({ deadSchemas })`.** It configured the
   testing module with `NO_ERRORS_SCHEMA` unconditionally, including for a standalone component,
   where a module-level schema can never reach the template — which is precisely what `deadSchemas`
@@ -112,6 +128,11 @@ move, +2.25 kB on a 1.59 kB entry, and it is `explainSpy` being deliberately kep
 Seven entries got *smaller* — `/rxjs`, `/dom-stubs`, `/jasmine-compat` and `/setup` among them —
 from the shared-chunk split described below. `/setup` then gave 373 B of that back (+3.1 %) for the
 Web Storage repair, which is the entry that runs it and the only one that carries it.
+
+`/eslint-plugin` is **+367 B** (17 584 → 17 951 B min+gzip, +2.1 %), all of it the second
+`prefer-render-shallow` message — 1045 bytes of prose that `{ templates: 'never' }` needed because
+the shared wording claimed something about the file the rule had not checked. It is a dev-only entry
+that no application bundle loads, and the rules are the only entry where a message *is* the feature.
 
 Heap per spied method is **+4.0 %** (2.78 kB → 2.89 kB) and creating a spy **+2.6 %**, measured over
 100 000 spied methods through the `/node` entry, median of seven runs. The first version of the

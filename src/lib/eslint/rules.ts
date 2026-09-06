@@ -651,16 +651,19 @@ const preferRenderShallow = defineRule({
       // `{ templates: 'never' }` the question is not asked at all — no spec renders a template,
       // except the harness a directive has no way to be reached without.
       const source = context.sourceCode.getText();
+      const policy = templatePolicy(context);
 
-      if (templatePolicy(context) === 'as-needed' ? readsRenderedTemplate(source) : buildsDirectiveHarness(source)) {
+      if (policy === 'as-needed' ? readsRenderedTemplate(source) : buildsDirectiveHarness(source)) {
         return;
       }
 
+      // Two findings, not one wording: `as-needed` reports a render nobody reads and may say so,
+      // while `never` reports the policy and knows nothing about the reads — under it the file that
+      // gets reported is usually the one that reads the template hardest.
+      const messageId = policy === 'never' ? 'templatesNever' : 'preferRenderShallow';
       const suggestion = renderShallowSuggestion(context, node);
 
-      context.report(
-        suggestion ? { node, messageId: 'preferRenderShallow', suggest: [suggestion] } : { node, messageId: 'preferRenderShallow' },
-      );
+      context.report(suggestion ? { node, messageId, suggest: [suggestion] } : { node, messageId });
     },
     'Property[key.name="keepTemplate"][value.value=true]': (node: EsNode): void => {
       if (templatePolicy(context) === 'never') {

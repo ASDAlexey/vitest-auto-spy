@@ -814,6 +814,14 @@ suite parks the fixture in a `let`, fills it in `beforeEach` and reads `debugEle
 away. One template read anywhere silences the whole file, so the rule under-reports rather than
 guesses.
 
+One shape is subtracted before that question is asked, because it silenced the rule on exactly the
+file it exists for. A spec that swaps `location` or `defaultView` provides a `DOCUMENT` stand-in
+delegating the rest to the real document — `querySelector: document.querySelector.bind(document)` —
+and every key it copies over is one of the words above. Only the `name: document.name` shape is
+dropped, and only where the two names match: that is a delegation and can be nothing else. A bare
+`document.querySelector('.row')` still counts, because a fixture attached to the document is read
+exactly that way.
+
 #### The rewrite is offered, not applied
 
 The rule ships a **suggestion** — `TestBed.createComponent(X)` → `renderShallow(X).fixture`, with
@@ -843,6 +851,11 @@ and so is `keepTemplate: true`. One render is exempt: a host built by
 [`createDirectiveHost`](/adapters/angular). A directive attaches to an element, so something has to
 render that element — the host's template is the harness, not the markup under test, and banning it
 would ban testing directives at all, including the way this package's own documentation recommends.
+
+The report reads differently under the two settings, and it has to. `'as-needed'` found no template
+read and may say so; `'never'` never asked, and under it the file reported loudest is usually the one
+that reads the template hardest. So the policy setting states the policy instead of claiming
+something about the file it did not check.
 
 **Know the bill before you turn it on.** Measured on one consumer suite: `'never'` took **18 of 40**
 tests in a component spec red and coverage from **100 % to 95.7 %**. Nothing was excluded from the

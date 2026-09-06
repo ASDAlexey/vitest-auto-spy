@@ -15,8 +15,8 @@ import { rules } from './rules';
 
 const linter = new Linter({ configType: 'flat' });
 
-/** Lint one snippet with a single rule of the plugin enabled. */
-function verify(code: string, ruleName: string): LintMessage[] {
+/** Lint one snippet with a single rule of the plugin enabled, configured when options are given. */
+function verifyWith(code: string, ruleName: string, options?: object): LintMessage[] {
   return linter.verify(
     code,
     [
@@ -24,29 +24,21 @@ function verify(code: string, ruleName: string): LintMessage[] {
         files: ['**/*.ts'],
         languageOptions: { parser: tsParser },
         plugins: { 'vitest-auto-spy': plugin },
-        rules: { [`vitest-auto-spy/${ruleName}`]: 'error' },
+        rules: { [`vitest-auto-spy/${ruleName}`]: options ? ['error', options] : 'error' },
       },
     ],
     'component.spec.ts',
   );
 }
 
+/** Lint one snippet with a single rule of the plugin enabled. */
+function verify(code: string, ruleName: string): LintMessage[] {
+  return verifyWith(code, ruleName);
+}
+
 /** Lint one snippet with a rule configured — the options every ESLint config passes after the severity. */
 function lintWith(code: string, ruleName: string, options: object): string[] {
-  return linter
-    .verify(
-      code,
-      [
-        {
-          files: ['**/*.ts'],
-          languageOptions: { parser: tsParser },
-          plugins: { 'vitest-auto-spy': plugin },
-          rules: { [`vitest-auto-spy/${ruleName}`]: ['error', options] },
-        },
-      ],
-      'component.spec.ts',
-    )
-    .map((message) => message.ruleId ?? 'parse-error');
+  return verifyWith(code, ruleName, options).map((message) => message.ruleId ?? 'parse-error');
 }
 
 /** The rule ids reported for a snippet. */
@@ -1862,6 +1854,33 @@ describe('prefer-render-shallow', () => {
 
     expect(lint(shallow, RULE)).toEqual([]);
   });
+
+  it('reports through a DOCUMENT stand-in that only delegates to the real document', () => {
+    const standIn = `
+      const mockDoc = {
+        querySelector: document.querySelector.bind(document),
+        querySelectorAll: document.querySelectorAll.bind(document),
+        documentElement: document.documentElement,
+        location: { href: '/' },
+      };
+      TestBed.configureTestingModule({ providers: [{ provide: DOCUMENT, useValue: mockDoc }] });
+      const fixture = TestBed.createComponent(ScreenComponent);
+
+      expect(fixture.componentInstance.envLine).toBe('X');
+    `;
+
+    expect(lint(standIn, RULE)).toEqual([`vitest-auto-spy/${RULE}`]);
+  });
+
+  it('still leaves a document read that is not a delegation alone', () => {
+    const live = `
+      const fixture = TestBed.createComponent(CardComponent);
+
+      expect(document.querySelector('.row')).not.toBeNull();
+    `;
+
+    expect(lint(live, RULE)).toEqual([]);
+  });
 });
 
 describe('prefer-render-shallow, { templates: "never" }', () => {
@@ -1877,6 +1896,19 @@ describe('prefer-render-shallow, { templates: "never" }', () => {
 
     expect(lint(reads, RULE)).toEqual([]);
     expect(lintWith(reads, RULE, NEVER)).toEqual([`vitest-auto-spy/${RULE}`]);
+  });
+
+  it('reports the policy, not a claim that the file reads nothing', () => {
+    const reads = `
+      const fixture = TestBed.createComponent(CardComponent);
+
+      expect(fixture.nativeElement.textContent).toContain('3 items');
+    `;
+
+    const policy = verifyWith(reads, RULE, NEVER)[0]?.message ?? '';
+
+    expect(policy).toContain('{ templates: "never" }');
+    expect(policy).not.toContain('nothing in this file reads either');
   });
 
   it('reports keepTemplate, which puts the template back', () => {

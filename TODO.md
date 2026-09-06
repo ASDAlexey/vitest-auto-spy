@@ -229,6 +229,20 @@ by reading the installed sources, and is worth not re-deriving:
 The twentieth lint rule: `TestBed.createComponent` in a file that never reads the template →
 `renderShallow(X)`. Numbers from `bench-angular/baseline.json`, not hand-run.
 
+Two defects the first consumer suite found, both fixed (Unreleased), both worth keeping in mind
+before the whole-file heuristic is widened again:
+
+- **A `DOCUMENT` stand-in read as a template read.** `{ querySelector: document.querySelector.bind(document), … }`
+  put four of the fourteen `TEMPLATE_READS` words into the source, and the one spec in that repo
+  rendering a template nobody reads was the one spec the rule never reported. Subtracted shape is
+  `name: document.name` with the two names matching — a delegation and nothing else. Deliberately
+  **not** an AST pass: property keys and `ObjectPattern` keys are the same node shape, so skipping
+  keys would drop `const { nativeElement } = fixture` and turn an under-reporting rule into a
+  wrong one.
+- **`'never'` reported the `'as-needed'` wording.** A policy that does not ask about reads printed
+  "nothing in this file reads either", on a spec with thirty-five `querySelector` calls. Third
+  message id, not a data placeholder in the first: the two findings share a rewrite, not a claim.
+
 What it deliberately does **not** do, so the next person does not re-derive it:
 
 - **A suggestion, never a `--fix`.** `renderShallow` calls `configureTestingModule` itself, adds

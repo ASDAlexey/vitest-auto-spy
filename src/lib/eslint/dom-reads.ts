@@ -54,6 +54,8 @@ export function templatePolicy(context: RuleContext): 'as-needed' | 'never' {
 export const RENDER_MESSAGES = {
   keepTemplate:
     '`keepTemplate: true` puts the real template back, and this project set `{ templates: "never" }`. Drop it — or, when the component genuinely reads its own template through `viewChild` or content projection, silence this line, because the alternative is a spec that cannot reach the component at all.',
+  templatesNever:
+    'This project set `{ templates: "never" }`, and this line renders a template — under that policy markup is e2e\'s business whether or not the spec reads it back, so the report says nothing about what this file does with it. `renderShallow(X)` brings the same component up through the same `TestBed` with the children dropped and the template blank, and leaves inputs, signals, lifecycle hooks and DI exactly where they were; `fixture` is still a real `ComponentFixture`. What it buys is measured in `bench-angular/`: **0.24×** the per-test cycle at 100 children and **0.05×** at 400, and nothing at zero. Two costs to decide rather than discover: a spec that asserts on markup goes red, which is the move to e2e the policy is asking for, and coverage falls by whatever only the template reached — a `computed` nothing else reads, a handler bound only in the markup. When the component reads its own template through `viewChild`, content projection or a `@defer` block, the answer is `{ keepTemplate: true }`, which still drops the children.',
   preferRenderShallow:
     '`TestBed.createComponent` pays for compiling the template and instantiating the whole child subtree, and nothing in this file reads either — no `nativeElement`, no `debugElement`, no `By.css`, no `querySelector`. `renderShallow(X)` brings the same component up through the same `TestBed` with the children dropped and the template blank, and leaves inputs, signals, lifecycle hooks and DI exactly where they were; `fixture` is still a real `ComponentFixture`. What it buys is measured in `bench-angular/`: **0.24×** the per-test cycle at 100 children and **0.05×** at 400 — but at **zero** children the two are level (measurements straddle 1.0, and it is the noisiest row in the benchmark), so a leaf component gains nothing and this report is worth ignoring there. Reach for `{ keepTemplate: true }` when the component reads its own template through `viewChild` or content projection, which this rule cannot see from the spec.',
 };
@@ -75,9 +77,25 @@ export function buildsDirectiveHarness(source: string): boolean {
   return source.includes('createDirectiveHost');
 }
 
+/**
+ * A `DOCUMENT` stand-in delegating to the real one, which is not a read of any rendered template.
+ *
+ * `{ provide: DOCUMENT, useValue: { querySelector: document.querySelector.bind(document), … } }` is
+ * how a spec swaps `location` or `defaultView` while leaving the rest of the document alone, and
+ * every key it copies over is a word from {@link TEMPLATE_READS}. Asked of the whole file, that mock
+ * answered "this file reads the template" and the rule went quiet on exactly the spec it exists for
+ * — measured on a consumer suite, where the only component spec rendering a template nobody reads
+ * was also the only one silenced.
+ *
+ * Just the `name: document.name` shape, and only where the two names match: that is a delegation and
+ * can be nothing else. A bare `document.querySelector('.row')` elsewhere is left counting, because a
+ * fixture attached to the document is read exactly that way.
+ */
+const DOCUMENT_DELEGATION = /\b(\w+)\s*:\s*document\s*\.\s*\1\b/g;
+
 /** Whether `source` reads the rendered template anywhere. */
 export function readsRenderedTemplate(source: string): boolean {
-  return TEMPLATE_READS.some((member) => source.includes(member));
+  return TEMPLATE_READS.some((member) => source.replace(DOCUMENT_DELEGATION, '').includes(member));
 }
 
 /**
