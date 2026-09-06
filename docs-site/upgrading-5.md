@@ -29,7 +29,7 @@ suite.
 
 |                                                                                                               | What to do                                                                             |
 | ------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| [1. Angular is `>=20`, and there are three packages](#_1-angular-is-20-and-there-are-now-three-angular-peers) | upgrade Angular if you are below 20; add `@angular/platform-browser` if pnpm complains |
+| [1. Angular is `>=20`, and there are now three Angular peers](#_1-angular-is-20-and-there-are-now-three-angular-peers) | upgrade Angular if you are below 20; add `@angular/platform-browser` if pnpm complains |
 | [2. rxjs is `>=7.2`](#_2-rxjs-is-7-2-because-the-deep-import-path-is-gone)                                    | nothing, unless you pin `rxjs@7.0` or `7.1` on purpose                                 |
 
 ## 1. Angular is `>=20`, and there are now three Angular peers
@@ -48,9 +48,10 @@ them, exactly as before.
 
 ### Why 20 and not something lower
 
-Two symbols the shipped code imports **as values** decide it, and a missing value import is a link
-error — so the failure below the floor is never one unavailable helper, it is an entry that does not
-load at all.
+Two symbols the shipped code imports **as values** decide it, and they do not decide the same thing:
+one rules out 16 and 17, the other rules out everything below 20. A missing value import is a link
+error, so the failure below either line is never one unavailable helper — it is an entry that does
+not load at all.
 
 - **`ɵSIGNAL` exists from Angular 18.** `runEffect()` reads it, and that import sits on the first
   line of the `/angular` bundle, evaluated eagerly. On Angular 16 or 17 the entry fails to link and
@@ -58,7 +59,8 @@ load at all.
 - **`provideZonelessChangeDetection` exists from Angular 20.** In 18 and 19 the same function was
   named `provideExperimentalZonelessChangeDetection`; in 16 and 17 there was nothing to name.
   `vitest-auto-spy/bun-angular` imports it by name, so below 20 `bun test` dies while loading the
-  preload, before any spec file is read.
+  preload, before any spec file is read. **This is the symbol that sets the floor at 20**: on 18 and
+  19 the `/angular` entry links perfectly well, and only `/bun-angular` does not.
 
 The matrix behind those two sentences was produced by downloading `@angular/core`, `@angular/common`
 and `@angular/platform-browser` at 16.2.12, 17.3.12, 18.2.14, 19.2.25, 20.3.30, 21.2.22 and 22.1.5
