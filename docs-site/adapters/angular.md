@@ -226,25 +226,37 @@ methods touched: [27 ms and 35 MB against 257 ms and 425 MB](../core/performance
 
 ### Is it fast enough to call in every `beforeEach`?
 
-Yes, and it is the fastest of the three ways to build a double. Measured on the repo's own
-benchmark (`npm run bench`, a ten-method class):
+Yes, and the choice between the three barely registers — all of them are a couple of microseconds.
+Measured on the same ten-method case the core benchmark uses (`bench/auto-spy.bench.ts`: a class
+with ten methods, two of them called):
 
-| Call                                          |     ops/sec | per call |
-| --------------------------------------------- | ----------: | -------: |
-| `provideAutoSpy(Service)` — lazy, the default | **118 900** |    ~8 µs |
-| `createSpyFromClass(Service)` — eager         |      34 600 |   ~29 µs |
-| `createAutoMock<Service>()` + 4 accesses      |      30 600 |   ~33 µs |
+| Call                                                        | per call (p75) |
+| ----------------------------------------------------------- | -------------: |
+| `provideAutoSpy(Service)` — lazy, the default               |     **2.1 µs** |
+| `createSpyFromClass(Service, { lazySpies: false })` — eager |         2.8 µs |
+| `createAutoMock<Service>()` + 4 accesses                    |         1.5 µs |
 
-The gap is `lazySpies`, which `provideAutoSpy` turns on and the plain factory does not: a wide
-service where a test touches two methods builds two spies instead of twenty. Prototype discovery is
+Measured 2026-09-06 on Node v24.19.0, Vitest 5.0.0, Angular 22.1.5, Apple M4 Max — the median `p75`
+of five runs, which disagreed by at most 0.1 µs. The published figure is `p75` and not ops/sec for
+the reason [Performance](../core/performance#measured) gives: these cases allocate by the hundred
+thousand, so a GC pause moves `hz` several-fold between runs while `p75` stays put.
+
+`createAutoMock` is the quickest of the three, and this page's own advice still does not point at
+it: it is a `Proxy` over a type with no class to read, so it skips the prototype walk the other two
+pay for — and gives up the thing that walk buys, a double that fails when the real class loses a
+method. The two rows built from a class are the ones worth choosing between.
+
+The gap is `lazySpies`: the first row runs at its default, the second has it switched off, and a wide
+service where a test touches two methods builds two spies instead of twenty. `provideAutoSpy` adds
+nothing here — it inherits the core default, which is lazy. Prototype discovery is
 cached per class, so calling it once per test does not re-walk the chain.
 
-At ~8 µs, five providers across two thousand tests come to under a tenth of a second for the whole
-suite. If a spec feels slow, the time is in `TestBed` — which is what
+At ~2 µs, five providers across two thousand tests come to about two hundredths of a second for the
+whole suite. If a spec feels slow, the time is in `TestBed` — which is what
 [`enableTestBedDiagnostics()`](#where-a-spec-spends-its-time) measures, and usually what
 [`renderShallow`](#shallow-component-rendering) fixes.
 
-Two things do cost more, and both are avoidable:
+Three things do cost more, and all three are avoidable:
 
 - **`{ lazySpies: 'proxy' }`** keeps the laziness and drops the per-method placeholder, which is
   nearly all of what an untouched wide double retains — 11.8 kB against 101.6 kB on a 400-method
