@@ -31,14 +31,11 @@ import {
   type ProxyPropStore,
   createProxyPropStore,
   describeStoredProp,
-  dropStoredProp,
   hasStoredProp,
   isDeletedProp,
   isProtocolKey,
   readStoredAccessor,
-  storeDefinedProp,
-  writeStoredAccessor,
-  writeStoredValue,
+  storeWriteTraps,
 } from './proxy-props';
 import { disposeAutoSpy } from './reset-auto-spy';
 import { AUTO_SPY_MARK } from './spy-mark';
@@ -200,17 +197,7 @@ function createAutoMockHandler(seed: object, unstubbed: UnstubbedGuard | undefin
   return {
     get: (_target, key, receiver): unknown => readKey(store, key, receiver, unstubbed),
 
-    set(_target, key, value, receiver): boolean {
-      if (!writeStoredAccessor(store, key, value, receiver)) {
-        writeStoredValue(store, key, value);
-      }
-
-      return true;
-    },
-
-    defineProperty: (_target, key, descriptor): boolean => storeDefinedProp(store, key, descriptor),
-
-    deleteProperty: (_target, key): boolean => dropStoredProp(store, key),
+    ...storeWriteTraps<Record<PropertyKey, unknown>>(store),
 
     has(_target, key): boolean {
       return key === AUTO_SPY_MARK || key === DISPOSE || hasStoredProp(store, key);

@@ -13,7 +13,7 @@
 import { findStringEnd } from '../fs-scan';
 import type { Profile } from '../profile';
 import type { Finding } from '../report';
-import { findEntryImports, isAwaitableHelper, tableApplies } from './entry-imports';
+import { findEntryImports, isAwaitableHelper, scanSources } from './entry-imports';
 import type { SourceGraph } from './graph';
 import { isInsideLiteral, literalSpans } from './literals';
 
@@ -103,15 +103,9 @@ export function findUnawaitedCalls(source: string, locals: readonly string[]): s
 }
 
 export function checkUnawaitedHelper(profile: Profile, graph: SourceGraph): Finding[] {
-  if (!tableApplies(profile.cwd)) {
-    return [];
-  }
-
-  const findings: Finding[] = [];
-
-  for (const [file, text] of graph.texts) {
+  return scanSources(profile, graph, (file, text, report) => {
     for (const local of new Set(findUnawaitedCalls(text, awaitableLocals(text)))) {
-      findings.push({
+      report({
         check: 'no-unawaited-helper',
         severity: 'error',
         file,
@@ -119,7 +113,5 @@ export function checkUnawaitedHelper(profile: Profile, graph: SourceGraph): Find
         fix: 'Await it. Unawaited, it settles after the test has already ended, so the assertion inside it can only report into a later test — or nowhere at all.',
       });
     }
-  }
-
-  return findings;
+  });
 }

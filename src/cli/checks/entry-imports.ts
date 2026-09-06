@@ -9,8 +9,10 @@
 import { dirname, join } from 'node:path';
 
 import { captures, parseJsonc, readTextFile } from '../fs-scan';
-import { isRecord } from '../profile';
+import { type Profile, isRecord } from '../profile';
+import type { Finding } from '../report';
 import { AWAITABLE_HELPERS, ENTRY_SPECIFIERS, EXPORTED_BY, EXPORT_MAP_VERSION } from './export-map.generated';
+import type { SourceGraph } from './graph';
 import { isInsideLiteral, literalSpans } from './literals';
 
 const ENTRIES = ENTRY_SPECIFIERS.split(' ');
@@ -144,4 +146,29 @@ export function tableApplies(cwd: string): boolean {
   const theirs = installed === undefined ? undefined : majorOf(installed);
 
   return theirs === undefined || theirs === majorOf(EXPORT_MAP_VERSION);
+}
+
+/**
+ * The shape every text-scanning check shares: say nothing where the table does not apply, then walk
+ * the graph once, collecting what `visit` reports.
+ */
+export function scanSources(
+  profile: Profile,
+  graph: SourceGraph,
+  visit: (file: string, text: string, report: (finding: Finding) => void) => void,
+): Finding[] {
+  if (!tableApplies(profile.cwd)) {
+    return [];
+  }
+
+  const findings: Finding[] = [];
+  const report = (finding: Finding): void => {
+    findings.push(finding);
+  };
+
+  for (const [file, text] of graph.texts) {
+    visit(file, text, report);
+  }
+
+  return findings;
 }

@@ -166,6 +166,30 @@ export function readStoredAccessor(store: ProxyPropStore, key: string | symbol, 
 }
 
 /** Returned by {@link readStoredAccessor} when the key has no patched accessor. */
+/**
+ * The three traps that route every write into `store`.
+ *
+ * Shared, because a node that answers reads from the store but writes past it is the silent half of
+ * the failure this module exists for — see the trap note in `mock-deep.ts`.
+ */
+export function storeWriteTraps<T extends object>(
+  store: ProxyPropStore,
+): Required<Pick<ProxyHandler<T>, 'defineProperty' | 'deleteProperty' | 'set'>> {
+  return {
+    set(_target, key, value, receiver): boolean {
+      if (!writeStoredAccessor(store, key, value, receiver)) {
+        writeStoredValue(store, key, value);
+      }
+
+      return true;
+    },
+
+    defineProperty: (_target, key, descriptor): boolean => storeDefinedProp(store, key, descriptor),
+
+    deleteProperty: (_target, key): boolean => dropStoredProp(store, key),
+  };
+}
+
 export const NOT_STORED = Symbol('vitest-auto-spy.notStored');
 
 /**

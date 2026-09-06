@@ -30,13 +30,10 @@ import {
   type ProxyPropStore,
   createProxyPropStore,
   describeStoredProp,
-  dropStoredProp,
   isDeletedProp,
   isProtocolKey,
   readStoredAccessor,
-  storeDefinedProp,
-  writeStoredAccessor,
-  writeStoredValue,
+  storeWriteTraps,
 } from './proxy-props';
 import { disposeAutoSpy } from './reset-auto-spy';
 import { DEEP_CHILDREN } from './spy-mark';
@@ -201,19 +198,9 @@ function createDeepNode(name: string, overrides: object, selfReturning: boolean)
   const handler: ProxyHandler<Func> = {
     get: (target, key, receiver): unknown => readNodeMember(state, target, key, receiver),
 
-    set(_target, key, value, receiver): boolean {
-      if (!writeStoredAccessor(store, key, value, receiver)) {
-        writeStoredValue(store, key, value);
-      }
-
-      return true;
-    },
-
-    // The three traps that make `mockValueProp` / `mockReadonlyProp` / `mockAccessorsProp` reach a
-    // node at all — see `proxy-props.ts` for why their absence was silent rather than loud.
-    defineProperty: (_target, key, descriptor): boolean => storeDefinedProp(store, key, descriptor),
-
-    deleteProperty: (_target, key): boolean => dropStoredProp(store, key),
+    // The traps that make `mockValueProp` / `mockReadonlyProp` / `mockAccessorsProp` reach a node at
+    // all — see `proxy-props.ts` for why their absence was silent rather than loud.
+    ...storeWriteTraps<Func>(store),
 
     getOwnPropertyDescriptor(target, key): PropertyDescriptor | undefined {
       // Falls through to the spy itself for everything the store does not answer, and that is not

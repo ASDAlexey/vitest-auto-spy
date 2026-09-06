@@ -134,11 +134,16 @@ export function canMatchBundleChunk(pattern: string): boolean {
   return extension === '*' || /^[cm]?js$/.test(extension) || /^{[^}]*\b[cm]?js\b[^}]*}$/.test(extension);
 }
 
-/** Pattern counts from an `@angular/build:unit-test` target's own coverage options. */
-function collectTargetScope(value: unknown, into: { patterns: number }): void {
+/**
+ * Every `@angular/build:unit-test` target in a workspace document, handed to `onOptions`.
+ *
+ * The walk is the same for every question asked of a workspace; only what is read off the matched
+ * target differs, so the recursion lives here once.
+ */
+function forEachUnitTestOptions(value: unknown, onOptions: (options: Record<string, unknown>) => void): void {
   if (Array.isArray(value)) {
     for (const item of value) {
-      collectTargetScope(item, into);
+      forEachUnitTestOptions(item, onOptions);
     }
 
     return;
@@ -151,66 +156,49 @@ function collectTargetScope(value: unknown, into: { patterns: number }): void {
   const options = value['options'];
 
   if ((value['builder'] === UNIT_TEST_BUILDER || value['executor'] === UNIT_TEST_BUILDER) && isRecord(options)) {
-    for (const key of ['coverageInclude', 'coverageExclude']) {
-      const list = options[key];
-
-      if (Array.isArray(list)) {
-        into.patterns += list.length;
-      }
-    }
+    onOptions(options);
   }
 
   for (const nested of Object.values(value)) {
-    collectTargetScope(nested, into);
+    forEachUnitTestOptions(nested, onOptions);
+  }
+}
+
+/** The same walk over every workspace file this profile carries. */
+function forEachWorkspaceUnitTest(profile: Profile, onOptions: (options: Record<string, unknown>) => void): void {
+  for (const file of profile.files.filter((candidate) => WORKSPACE_FILE.test(candidate))) {
+    forEachUnitTestOptions(parseJsonc(readTextFile(join(profile.cwd, file)) ?? ''), onOptions);
   }
 }
 
 /** How many coverage globs the workspace's unit-test targets declare between them. */
 export function targetScopeSize(profile: Profile): number {
-  const total = { patterns: 0 };
+  let patterns = 0;
 
-  for (const file of profile.files.filter((candidate) => WORKSPACE_FILE.test(candidate))) {
-    collectTargetScope(parseJsonc(readTextFile(join(profile.cwd, file)) ?? ''), total);
-  }
+  forEachWorkspaceUnitTest(profile, (options) => {
+    for (const key of ['coverageInclude', 'coverageExclude']) {
+      const list = options[key];
 
-  return total.patterns;
-}
-
-function collectRunnerConfigs(value: unknown, into: Set<string>): void {
-  if (Array.isArray(value)) {
-    for (const item of value) {
-      collectRunnerConfigs(item, into);
+      if (Array.isArray(list)) {
+        patterns += list.length;
+      }
     }
+  });
 
-    return;
-  }
-
-  if (!isRecord(value)) {
-    return;
-  }
-
-  const options = value['options'];
-
-  if ((value['builder'] === UNIT_TEST_BUILDER || value['executor'] === UNIT_TEST_BUILDER) && isRecord(options)) {
-    const runnerConfig = options['runnerConfig'];
-
-    if (typeof runnerConfig === 'string') {
-      into.add(runnerConfig.replace(/^\.\//, ''));
-    }
-  }
-
-  for (const nested of Object.values(value)) {
-    collectRunnerConfigs(nested, into);
-  }
+  return patterns;
 }
 
 /** Runner config files named by an `@angular/build:unit-test` target of this workspace. */
 export function unitTestRunnerConfigs(profile: Profile): string[] {
   const found = new Set<string>();
 
-  for (const file of profile.files.filter((candidate) => WORKSPACE_FILE.test(candidate))) {
-    collectRunnerConfigs(parseJsonc(readTextFile(join(profile.cwd, file)) ?? ''), found);
-  }
+  forEachWorkspaceUnitTest(profile, (options) => {
+    const runnerConfig = options['runnerConfig'];
+
+    if (typeof runnerConfig === 'string') {
+      found.add(runnerConfig.replace(/^\.\//, ''));
+    }
+  });
 
   return [...found];
 }

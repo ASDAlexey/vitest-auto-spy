@@ -14,7 +14,7 @@
  */
 import type { Profile } from '../profile';
 import type { Finding } from '../report';
-import { entryExports, findEntryImports, ownersOf, tableApplies } from './entry-imports';
+import { entryExports, findEntryImports, ownersOf, scanSources } from './entry-imports';
 import type { SourceGraph } from './graph';
 
 /**
@@ -38,22 +38,14 @@ function findingFor(file: string, entry: string, name: string, owners: readonly 
 }
 
 export function checkHelperEntry(profile: Profile, graph: SourceGraph): Finding[] {
-  if (!tableApplies(profile.cwd)) {
-    return [];
-  }
-
-  const findings: Finding[] = [];
-
-  for (const [file, text] of graph.texts) {
+  return scanSources(profile, graph, (file, text, report) => {
     for (const { entry, name } of findEntryImports(text)) {
       const exported = entryExports(entry);
       const owners = candidates(ownersOf(name), profile.entry);
 
       if (exported !== undefined && !exported.has(name) && owners.length > 0) {
-        findings.push(findingFor(file, entry, name, owners));
+        report(findingFor(file, entry, name, owners));
       }
     }
-  }
-
-  return findings;
+  });
 }
