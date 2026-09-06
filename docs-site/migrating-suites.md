@@ -259,8 +259,8 @@ spies.get(Api).getUserz.mockResolvedValue(user); // TypeError, at the line that 
 ```
 
 Ask for the method explicitly and the message names it instead:
-`createSpyFromClass(Api, { onlyMethodsToSpyOn: ['getUserz'] })` reports that `getUserz` was not
-found on the class prototype. Both are the same rule: the wrong stub should fail at the stub.
+`createSpyFromClass(Api, { onlyMethodsToSpyOn: ['getUserz'] })` reports that `getUserz` is not
+on the class prototype. Both are the same rule: the wrong stub should fail at the stub.
 
 This is worth a pass over the suite after the migration rather than a trust exercise. A spec that
 was quietly stubbing a renamed method will now fail, and that failure is the migration paying for
