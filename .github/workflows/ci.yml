@@ -35,6 +35,20 @@ jobs:
       - name: Type-check
         run: npm run typecheck
 
+      # The public type surface, and the cost of instantiating it. Both are in `npm run check` and
+      # neither was here, so a pull request could widen `Spy<T>` or blow the instantiation budget —
+      # the thing that decides how fast a consumer's template type-checking runs — with CI green.
+      - name: Public API type tests
+        run: npm run test:types
+
+      - name: Type-instantiation budget
+        run: npm run types:budget
+
+      # The lockfile and the installed tree disagreeing is invisible until a measurement is taken
+      # against the wrong versions.
+      - name: Dependency drift
+        run: npm run deps:check
+
       # Neither was enforced anywhere, which is how `src/lib/observable-spy.ts` sat unformatted in
       # the repository. `format:check` covers the scope the `format` script owns (`src/**/*.ts`).
       - name: Lint
@@ -42,6 +56,24 @@ jobs:
 
       - name: Format
         run: npm run format:check
+
+      - name: Copy-paste detector
+        run: npm run jscpd
+
+      # `docs.yml` deploys on a push to `master`, so without these two a broken page is caught after
+      # the merge, with the deploy already red. `docs:check` parses the frontmatter every landing
+      # card hides in; `ru:check` fails on a Russian page that is missing, half-done, or has drifted
+      # off the English heading anchors.
+      - name: Docs frontmatter
+        run: npm run docs:check
+
+      - name: Russian docs are complete
+        run: npm run ru:check
+
+      # The bundled Claude Code skill advertises this package's API to an agent; a stale one hands
+      # out advice for a release that no longer exists.
+      - name: Bundled skill is valid
+        run: npm run skill:check
 
       # The doctor's entry-point table is generated from this package's own `exports` map — a
       # hand-edited or stale copy would make `helper-from-wrong-entry` report the previous release.
