@@ -8,7 +8,6 @@
  * onto the target" step — keeping the assignment in one place instead of
  * duplicating it across the promise/observable factories.
  */
-
 /** A bundle of helper methods to attach. */
 import { DOCS_LINKS, withDocs } from './docs-links';
 

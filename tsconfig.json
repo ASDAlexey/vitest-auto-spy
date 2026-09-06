@@ -39,6 +39,10 @@
 
     "types": ["vitest/globals", "node"],
 
+    // Not ours to remove: tsup's dts build hard-codes `baseUrl: compilerOptions.baseUrl || "."`
+    // (tsup 8.5.1, the latest), and TypeScript 6 fails the build over it with TS5101.
+    "ignoreDeprecations": "6.0",
+
     // `src/rxjs.ts` augments this package's *own* published module — that is how rxjs's `Subject`
     // reaches `returnSubject()` without any other declaration naming rxjs. A module augmentation
     // has to resolve the specifier it names, and inside this repository `vitest-auto-spy` is not
