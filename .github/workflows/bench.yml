@@ -12,14 +12,20 @@ on:
   # every hour and that queued jobs may be dropped outright.
   schedule:
     - cron: '17 4 1 * *'
+  # The path list covers the harness and the manifests as well as the cases: the Vitest 5 upgrade
+  # that broke every `bench*` command touched only `package.json` and the lockfile, and this
+  # workflow did not fire. The cheap end-to-end guard that runs on *every* push lives in
+  # `bench-smoke.yml`; this one is the ten-minute measurement and keeps its narrow triggers.
   pull_request:
     paths:
       - 'bench/**'
       - 'bench-angular/**'
-      - 'vitest.bench.angular.config.mts'
+      - 'vitest.bench.*.mts'
       - 'src/lib/**'
-      - 'scripts/bench-report.mjs'
-      - 'scripts/bench-check.mjs'
+      - 'scripts/bench-*.mjs'
+      - 'tsconfig.bench*.json'
+      - 'package.json'
+      - 'package-lock.json'
       - '.github/workflows/bench.yml'
 
 permissions:
@@ -46,6 +52,11 @@ jobs:
         run: npm i -g npm@11
 
       - run: npm ci
+
+      # A minute here rather than ten below: if the harness itself is broken, every measurement step
+      # after this one is broken too, and this says so with a message about the harness.
+      - name: Smoke-test the benchmark harness
+        run: npm run bench:smoke
 
       # The competitors declare `vitest` as a peer, and `bench/.npmrc` is what stops npm installing a
       # second copy of it beside the root one — two copies mean two mock registries, so the bench's

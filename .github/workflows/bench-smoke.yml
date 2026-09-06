@@ -1,0 +1,46 @@
+name: Benchmark harness
+
+# The guard that would have caught the breakage this file was added for.
+#
+# Vitest 5 removed `--outputJson` and the `bench` export in one release; every `bench*` command died
+# and nothing went red. `bench*` is in no gate, and `bench.yml` only fires on paths under `bench/`,
+# `src/lib/**` and two scripts — none of which a runner upgrade touches. So the measurement workflow
+# stayed green by never running, and the harness rotted in a repository whose whole argument is
+# measured numbers.
+#
+# This lane is the cheap half of that workflow, split out precisely so it can carry the triggers the
+# expensive half must not: every push and every pull request, no path filter. It runs one throwaway
+# benchmark end to end — a real `vitest bench` pass, the real reporter, the results file parsed and
+# fed to `bench-check.mjs` — in about two seconds after the install. It measures nothing anybody
+# should quote; it only proves the pipeline still works. The ten-minute measurement stays in
+# `bench.yml`, on its schedule and its paths.
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: Benchmark harness smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      # The lockfile is generated with npm 11; pin it so `npm ci` interprets the dependency tree the
+      # same way and stays in sync.
+      - name: Pin npm
+        run: npm i -g npm@11
+
+      - run: npm ci
+
+      # No competitor install and no Angular: the smoke file imports this repository's own source
+      # only, so this lane needs nothing `npm ci` did not already provide.
+      - name: Run the benchmark harness end to end
+        run: npm run bench:smoke
