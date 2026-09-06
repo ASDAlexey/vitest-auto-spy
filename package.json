@@ -231,6 +231,8 @@
     "llms": "node scripts/generate-llms-txt.mjs",
     "llms:check": "node scripts/generate-llms-txt.mjs --check",
     "docs:check": "node scripts/check-docs-frontmatter.mjs",
+    "ru:sync": "node scripts/sync-ru-pages.mjs",
+    "ru:check": "node scripts/sync-ru-pages.mjs --check",
     "plugin:sync": "node scripts/sync-plugin-version.mjs",
     "plugin:sync:check": "node scripts/sync-plugin-version.mjs --check",
     "skill:check": "node scripts/check-skill.mjs",
@@ -260,20 +262,22 @@
     "bench:memory": "vitest run --config vitest.bench.memory.config.mts",
     "bench:suite": "node scripts/bench-suite.mjs",
     "bench:check": "node scripts/bench-check.mjs",
+    "bench:smoke": "node scripts/bench-smoke.mjs",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier -w \"src/**/*.ts\"",
     "format:check": "prettier -c \"src/**/*.ts\"",
     "deps:check": "node scripts/check-dep-drift.mjs",
     "jscpd": "jscpd",
-    "check": "npm run deps:check && npm run typecheck && npm run lint && npm run format:check && npm run jscpd && npm run export-map:check && npm run llms:check && npm run docs:check && npm run plugin:sync:check && npm run skill:check && npm run alias:sync:check && npm run test:coverage && npm run test:types && npm run types:budget && npm run test:shared-env && npm run test:zone && npm run test:happy-dom && npm run test:invariants && npm run test:bun && npm run test:bun:angular",
+    "check": "npm run deps:check && npm run typecheck && npm run lint && npm run format:check && npm run jscpd && npm run export-map:check && npm run llms:check && npm run docs:check && npm run ru:check && npm run plugin:sync:check && npm run skill:check && npm run alias:sync:check && npm run test:coverage && npm run test:types && npm run types:budget && npm run test:shared-env && npm run test:zone && npm run test:happy-dom && npm run test:invariants && npm run test:bun && npm run test:bun:angular",
     "prepublishOnly": "npm run build",
     "version": "node scripts/sync-plugin-version.mjs && node scripts/sync-alias.mjs && git add .claude-plugin alias"
   },
   "peerDependencies": {
-    "@angular/common": ">=16.0.0",
-    "@angular/core": ">=16.0.0",
-    "rxjs": ">=7.0.0",
+    "@angular/common": ">=20.0.0",
+    "@angular/core": ">=20.0.0",
+    "@angular/platform-browser": ">=20.0.0",
+    "rxjs": ">=7.2.0",
     "vitest": ">=2.1.0"
   },
   "peerDependenciesMeta": {
@@ -281,6 +285,9 @@
       "optional": true
     },
     "@angular/core": {
+      "optional": true
+    },
+    "@angular/platform-browser": {
       "optional": true
     },
     "rxjs": {

@@ -13,6 +13,54 @@ The latest released version here must always match the one published on
 **Why upgrade.** Two new ways to read a double, a class of failure that stops pointing at this
 library's own source, and two of this package's own features that no longer cancel each other out.
 
+### Changed — BREAKING
+
+- **The Angular peer range is now `>=20.0.0`, and `@angular/platform-browser` is declared.** The
+  old `>=16.0.0` was not a promise this package could keep, and the two ways it broke were both
+  link-time rather than graceful:
+  - `ɵSIGNAL` (`lib/run-effect.ts`) is a **value** import on the eager path of `dist/angular.js`,
+    and Angular did not export it before **18**. A missing named ESM export fails the *link*, so on
+    Angular 16 or 17 the symptom was not "`runEffect` is unavailable" — the whole `/angular` entry
+    was unavailable, `provideAutoSpy` included.
+  - `provideZonelessChangeDetection` (`src/bun-angular.ts`) arrived in **20**; in 18–19 the symbol
+    was `provideExperimentalZonelessChangeDetection`, and in 16–17 there was none.
+
+  Verified by downloading `@angular/core`, `@angular/common` and `@angular/platform-browser` 16
+  through 22 and parsing their real export lists, not by reading release notes. The same check
+  corrected a belief this repository held in the other direction: `platformBrowserTesting` and
+  `BrowserTestingModule` are exported identically from `@angular/platform-browser/testing` in
+  **every** major from 16 — what changed in 20 is that `platform-browser-dynamic` left the picture.
+
+  Nothing supported is dropped. On Angular's own policy — 6 months active plus 12 months LTS — 16,
+  17, 18 and 19 are all past end of life (19's LTS ended 2026-05-19); 20 is the oldest major still
+  receiving fixes, and it is exactly this package's technical floor.
+
+  `@angular/platform-browser` was never declared at all, although `lib/directive-matchers.ts`
+  imports `By` from it as a value and the `/angular` entry needs it at runtime. Under npm's hoisted
+  layout that worked by accident; under pnpm's isolated one it did not resolve. It is now an
+  optional peer with the same range.
+
+  There is deliberately **no upper bound**. A bounded range would force a release for every Angular
+  major and hand consumers `ERESOLVE` for upgrading first. The real fragility is `ɵSIGNAL`, a
+  private symbol, and a range cannot protect against it — reading it structurally can.
+
+- **The rxjs peer range is now `>=7.2.0`, and the operators come from the root entry.**
+  `lib/observable-spy.ts` imported six operators from `rxjs/operators`, the legacy deep path that
+  **rxjs 8 removes**; the open-ended `>=7.0.0` therefore promised a version it could not serve.
+  rxjs re-exported every one of them from `rxjs` itself in **7.2** (verified against 7.2.0, not
+  assumed), so the import moved and the floor moved with it. No Angular consumer pays anything:
+  Angular 16 through 22 all peer on `^6.5.3 || ^7.4.0`, so an Angular project already has more than
+  this asks.
+
+- **`flushEffects()` calls `TestBed.tick()` directly.** The `ApplicationRef.tick()` fallback existed
+  for Angular below 20 and is now unreachable, and with it goes the spec that deleted `TestBed.tick`
+  at runtime purely to drive that branch to full coverage.
+
+Unchanged, and worth saying because both were checked rather than assumed: `vitest` stays at
+`>=2.1.0` — every runner API this package uses unguarded exists in 2.1.0, and the one later
+addition, `vi.defineHelper` (4.1), is feature-probed. `zone.js` stays absent from the peer list —
+`/zone` reads `globalThis.Zone` and imports nothing from it.
+
 ### Fixed
 
 - **`prefer-render-shallow` no longer goes quiet on a spec that mocks `DOCUMENT`.** The rule asks

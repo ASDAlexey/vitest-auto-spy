@@ -8,7 +8,6 @@
  * {@link stable} does both, in the right order; {@link flushEffects} is the no-fixture half for
  * services, stores and `TestBed.runInInjectionContext` code.
  */
-import { ApplicationRef } from '@angular/core';
 import { type ComponentFixture, TestBed } from '@angular/core/testing';
 
 import { DOCS_LINKS, withDocs } from './docs-links';
@@ -25,8 +24,8 @@ const clearTimer: typeof clearTimeout = globalThis.clearTimeout.bind(globalThis)
 /**
  * Run every pending effect and change-detection pass synchronously.
  *
- * Prefers `TestBed.tick()` (Angular ≥ 20), which also refreshes fixture views that were never
- * attached to the `ApplicationRef`; older versions fall back to `ApplicationRef.tick()`.
+ * `TestBed.tick()` rather than `ApplicationRef.tick()`: it also refreshes fixture views that were
+ * never attached to the `ApplicationRef`. It arrived in Angular 20, which is this package's floor.
  *
  * @example
  * ```ts
@@ -35,15 +34,7 @@ const clearTimer: typeof clearTimeout = globalThis.clearTimeout.bind(globalThis)
  * ```
  */
 export function flushEffects(): void {
-  const testBed: { tick?: () => void } = TestBed;
-
-  if (typeof testBed.tick === 'function') {
-    testBed.tick();
-
-    return;
-  }
-
-  TestBed.inject(ApplicationRef).tick();
+  TestBed.tick();
 }
 
 /** Options for {@link stable}. */

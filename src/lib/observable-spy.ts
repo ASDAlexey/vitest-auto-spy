@@ -5,8 +5,25 @@
  * function spies, `calledWith` objects and observable properties, all backed by
  * a controllable `ReplaySubject`.
  */
-import { EMPTY, Observable, ReplaySubject, defer, from, merge, of, throwError, timer } from 'rxjs';
-import { concatMap, delay, switchMap, take, takeUntil, takeWhile } from 'rxjs/operators';
+// The operators come from the root entry, not `rxjs/operators`: rxjs 7.2 re-exported them there and
+// rxjs 8 drops the deep path entirely, so the legacy specifier would break a consumer on 8.
+import {
+  EMPTY,
+  Observable,
+  ReplaySubject,
+  concatMap,
+  defer,
+  delay,
+  from,
+  merge,
+  of,
+  switchMap,
+  take,
+  takeUntil,
+  takeWhile,
+  throwError,
+  timer,
+} from 'rxjs';
 
 import { REPLAY_BUFFER_SIZE } from './constants';
 import type { CalledWithObject, ReturnValueContainer } from './internal-types';

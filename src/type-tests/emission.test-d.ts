@@ -11,8 +11,7 @@
  *
  * The rule these follow: assert the type a *call site* sees, never the type of an internal symbol.
  */
-import { Subject, of, throwError, timer } from 'rxjs';
-import { map } from 'rxjs/operators';
+import { Subject, map, of, throwError, timer } from 'rxjs';
 import { describe, expectTypeOf, it } from 'vitest';
 
 import { expectCompletion, expectEmission, expectEmissions, expectError, expectNoEmission } from '../auto-spy';
