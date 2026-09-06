@@ -4,6 +4,3 @@ node_modules
 package-lock.json
 CHANGELOG.md
 
-# Generated mirrors of the English documentation (scripts/generate-ru-mirrors.mjs).
-docs-site/ru/*
-!docs-site/ru/index.md

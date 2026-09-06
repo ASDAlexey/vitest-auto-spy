@@ -5,10 +5,11 @@
   "description": "Documentation site for vitest-auto-spy (VitePress).",
   "type": "module",
   "scripts": {
-    "predev": "node ../scripts/generate-ru-mirrors.mjs",
+    "predev": "node ../scripts/sync-ru-pages.mjs",
     "dev": "vitepress dev",
-    "prebuild": "node ../scripts/generate-ru-mirrors.mjs && node ../scripts/generate-llms-txt.mjs",
+    "prebuild": "node ../scripts/sync-ru-pages.mjs && node ../scripts/generate-llms-txt.mjs",
     "build": "vitepress build",
+    "postbuild": "node ../scripts/check-docs-links.mjs",
     "preview": "vitepress preview"
   },
   "devDependencies": {
