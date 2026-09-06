@@ -1,9 +1,10 @@
 /**
- * The registry these specs prune is the real one — there is no second copy of `@vitest/spy` to
- * stage this against. That is safe here because this repo runs with `clearMocks` off: nothing in
- * the suite depends on a mock of an earlier file still being reachable from `vi.clearAllMocks()`.
+ * A successful capture is staged here rather than taken from the runner in use. Vitest 4 held every
+ * mock in one `Set` and `clearAllMocks()` walked it with `Set.prototype.forEach` — the seam
+ * `captureMockRegistry` reads. Vitest 5 walks a weak-ref registry with `for…of`, so there is nothing
+ * for the patch to see, and a stand-in runner is the only way to drive the success path on both.
  */
-import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { SWEEP_SENTINEL } from './constants';
 import {
@@ -17,19 +18,94 @@ import {
   trackMockRegistry,
 } from './mock-registry';
 
-describe('captureMockRegistry', () => {
-  afterEach(resetMockRegistryTracking);
+/** A Vitest-4-shaped runner standing in for the installed one, and the way back off it. */
+interface StagedRunner {
+  readonly registry: Set<unknown>;
+  readonly restore: () => void;
+}
 
-  it('finds the set @vitest/spy clears, and the probe leaves no trace in it', () => {
+let staged: StagedRunner | undefined;
+
+/**
+ * Route every `vi.fn()` into one `Set` and make `vi.clearAllMocks()` walk it with
+ * `Set.prototype.forEach` — a Vitest 4 runner as far as the capture can tell.
+ */
+function stageVitest4Registry(): Set<unknown> {
+  const registry = new Set<unknown>();
+  const realFn = vi.fn;
+  const realClearAllMocks = vi.clearAllMocks;
+
+  Reflect.set(vi, 'fn', (implementation: (...args: never[]) => unknown) => {
+    const mock = realFn(implementation);
+
+    registry.add(mock);
+
+    return mock;
+  });
+
+  Reflect.set(vi, 'clearAllMocks', () => {
+    registry.forEach((mock) => {
+      // A second `forEach` on the way out, the way a real `mockClear` reaches into the mock's own
+      // state: only the first set the patch is called on is the registry.
+      new Set([mock]).forEach(() => undefined);
+    });
+
+    return vi;
+  });
+
+  staged = {
+    registry,
+    restore: () => {
+      Reflect.set(vi, 'fn', realFn);
+      Reflect.set(vi, 'clearAllMocks', realClearAllMocks);
+    },
+  };
+
+  return registry;
+}
+
+/** Take the stand-in runner back off and forget the capture it drove. */
+function unstage(): void {
+  staged?.restore();
+  staged = undefined;
+  resetMockRegistryTracking();
+}
+
+describe('captureMockRegistry', () => {
+  afterEach(unstage);
+
+  it('finds the set the runner clears, and the probe leaves no trace in it', () => {
+    const registry = stageVitest4Registry();
     const captured = captureMockRegistry();
+
+    expect(captured).toBe(registry);
+    expect(captured?.size).toBe(0);
+
     const mock = vi.fn();
 
-    expect(captured).toBeInstanceOf(Set);
     expect(captured?.has(mock)).toBe(true);
   });
 
   it('captures once per worker and hands the same set back', () => {
+    stageVitest4Registry();
+
     expect(captureMockRegistry()).toBe(captureMockRegistry());
+  });
+
+  it('yields no capture from a runner whose clear does not iterate with Set.prototype.forEach', () => {
+    const clearAllMocks = vi.spyOn(vi, 'clearAllMocks').mockImplementation(() => {
+      // Vitest 5 clears with a `for…of` walk over its own registry, which never reaches
+      // `Set.prototype.forEach` — the one seam the capture reads.
+      for (const entry of new Set([vi.fn()])) {
+        expect(entry).toBeTypeOf('function');
+      }
+
+      return vi;
+    });
+
+    expect(captureMockRegistry()).toBeUndefined();
+
+    clearAllMocks.mockRestore();
   });
 
   it('gives up when the set it saw does not hold the probe, and does not retry', () => {
@@ -59,16 +135,22 @@ describe('captureMockRegistry', () => {
 
     clearAllMocks.mockRestore();
   });
+
+  it('reports a size on the installed runner exactly when it captured something', () => {
+    expect(getMockRegistrySize()).toBe(captureMockRegistry()?.size);
+  });
 });
 
 describe('pruneMockRegistry', () => {
-  afterEach(resetMockRegistryTracking);
+  afterEach(unstage);
 
   it('is a no-op without a capture', () => {
     expect(pruneMockRegistry()).toBe(0);
   });
 
   it('drops a mock the file created and keeps one marked long-lived', () => {
+    stageVitest4Registry();
+
     const registry = captureMockRegistry();
     const shared = keepMockRegistered(vi.fn());
     const local = vi.fn();
@@ -80,6 +162,8 @@ describe('pruneMockRegistry', () => {
   });
 
   it('drops an entry that cannot be marked at all', () => {
+    stageVitest4Registry();
+
     const registry = captureMockRegistry();
 
     registry?.add('not a mock');
@@ -90,6 +174,7 @@ describe('pruneMockRegistry', () => {
   });
 
   it('finds nothing left to do on a second call', () => {
+    stageVitest4Registry();
     captureMockRegistry();
     vi.fn();
     pruneMockRegistry();
@@ -99,7 +184,7 @@ describe('pruneMockRegistry', () => {
 });
 
 describe('keepMockRegistered', () => {
-  afterEach(resetMockRegistryTracking);
+  afterEach(unstage);
 
   it('hands the mock back so it can wrap a declaration', () => {
     const mock = vi.fn();
@@ -113,6 +198,8 @@ describe('keepMockRegistered', () => {
   });
 
   it('marks a mock that is an object rather than a function', () => {
+    stageVitest4Registry();
+
     const registry = captureMockRegistry();
     // A proxy-based double is an object; nothing about the mark assumes a callable.
     const proxied = {};
@@ -122,13 +209,11 @@ describe('keepMockRegistered', () => {
     pruneMockRegistry();
 
     expect(registry?.has(proxied)).toBe(true);
-
-    // Out again: this is the real registry, and `vi.clearAllMocks()` calls `mockClear` on whatever
-    // it finds there.
-    registry?.delete(proxied);
   });
 
   it('never drops the sweep sentinel, whoever created it and whenever', () => {
+    stageVitest4Registry();
+
     const registry = captureMockRegistry();
     // The mark, not the identity: the adapter's sentinel may come from a second copy of that module
     // under `isolate: false`, and pruning it would turn `vi.clearAllMocks()` into a silent no-op for
@@ -139,13 +224,11 @@ describe('keepMockRegistered', () => {
     pruneMockRegistry();
 
     expect(registry?.has(sentinel)).toBe(true);
-
-    registry?.delete(sentinel);
   });
 });
 
 describe('restoreLongLivedImplementations', () => {
-  afterEach(resetMockRegistryTracking);
+  afterEach(unstage);
 
   it('has nothing to do while no long-lived mock carries an implementation', () => {
     expect(restoreLongLivedImplementations()).toBe(0);
@@ -211,7 +294,7 @@ describe('restoreLongLivedImplementations', () => {
 });
 
 describe('keepRegisteredMocks', () => {
-  afterEach(resetMockRegistryTracking);
+  afterEach(unstage);
 
   it('is a no-op without a capture', () => {
     expect(() => keepRegisteredMocks()).not.toThrow();
@@ -219,6 +302,8 @@ describe('keepRegisteredMocks', () => {
   });
 
   it('marks everything the file inherited, so a prune leaves it alone', () => {
+    stageVitest4Registry();
+
     const inherited = vi.fn();
     const registry = captureMockRegistry();
 
@@ -246,6 +331,7 @@ describe('trackMockRegistry', () => {
   // Registered before the tracking hooks, so it runs first: this mock exists when the block starts,
   // which is what a `vi.fn()` created while the module graph was being evaluated looks like.
   beforeAll(() => {
+    stageVitest4Registry();
     markedBeforeTheBlock = vi.fn();
   });
 
@@ -270,3 +356,7 @@ describe('after a tracked block', () => {
     expect(getMockRegistrySize()).toBeGreaterThan(0);
   });
 });
+
+// The stand-in the tracked block installed outlives that block's own `afterAll` prune, so it comes
+// off at the end of the file instead.
+afterAll(unstage);

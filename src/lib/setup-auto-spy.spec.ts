@@ -8,7 +8,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest
 import '../index';
 import { resetAngularBuildNotice } from './angular-build-notice';
 import { createSpyFromClass } from './create-spy-from-class';
-import { getMockRegistrySize, resetMockRegistryTracking } from './mock-registry';
+import { captureMockRegistry, getMockRegistrySize, resetMockRegistryTracking } from './mock-registry';
 import { getPackageCopies, registerPackageCopy, resetPackageCopies } from './package-identity';
 import { countMockedProps, mockValueProp, restoreMockedProps } from './prop-mock';
 import {
@@ -393,14 +393,15 @@ describe('reporting what the stray-timer sweep cancelled', () => {
 });
 
 describe('mock-registry pruning (opted in)', () => {
-  // The capture happens in the `beforeAll` the option registers, so a size at all is the proof that
-  // it ran; the prune it pairs with runs after this block's last test.
+  // The capture happens in the `beforeAll` the option registers, and it is memoised — so the call
+  // below re-reads that attempt rather than making one; the prune it pairs with runs after this
+  // block's last test.
   setupAutoSpy({ duplicateCopies: 'off', restoreProps: false, pruneMockRegistry: true });
 
   afterAll(resetMockRegistryTracking);
 
-  it('captures the registry the runner does not expose', () => {
-    expect(getMockRegistrySize()).toBeGreaterThan(0);
+  it('leaves the tracking in step with what the runner exposes', () => {
+    expect(getMockRegistrySize()).toBe(captureMockRegistry()?.size);
   });
 });
 

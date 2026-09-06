@@ -17,6 +17,9 @@
  * briefly patched `Set.prototype.forEach` hands it over. The capture is verified against a probe
  * mock, and without a match nothing is pruned — a slower run beats a broken one.
  *
+ * Vitest 5 holds the registry as weak refs and clears only the mocks that recorded something, which
+ * fixes both problems upstream: there is no set to capture, and this module stands down.
+ *
  * **What must not be pruned, and the reason this module exists at all.** Dropping a mock from the
  * registry means `vi.clearAllMocks()` and `clearMocks: true` can no longer see it, so its calls
  * accumulate silently. That is harmless for a mock that dies with the file that made it, and a bug
