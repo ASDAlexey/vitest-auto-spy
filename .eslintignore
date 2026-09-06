@@ -1,8 +1,0 @@
-dist
-coverage
-node_modules
-alias
-bench
-*.cjs
-*.mts
-*.config.ts

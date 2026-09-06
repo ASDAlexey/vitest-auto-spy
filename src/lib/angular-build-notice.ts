@@ -19,7 +19,7 @@ import { DOCS_LINKS, withDocs } from './docs-links';
 import { writeWarning } from './write-warning';
 
 declare global {
-  // eslint-disable-next-line no-var -- a `globalThis` augmentation has to be declared with `var`.
+  // A `globalThis` augmentation has to be declared with `var`.
   var __vitestAutoSpyAngularBuildNoticed__: boolean | undefined;
 }
 

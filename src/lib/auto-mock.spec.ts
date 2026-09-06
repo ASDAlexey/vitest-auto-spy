@@ -177,7 +177,7 @@ describe('createAutoMock returns configuration', () => {
 
 describe('createAutoMock — Symbol.dispose', () => {
   it('resets the double at the end of a `using` block', () => {
-    let escaped: ReturnType<typeof createAutoMock<UserService>> | undefined = undefined;
+    let escaped: ReturnType<typeof createAutoMock<UserService>> | undefined;
 
     {
       using users = createAutoMock<UserService>();

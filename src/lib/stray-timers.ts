@@ -86,7 +86,7 @@ interface Tracking {
  * across re-instantiation, which is what makes {@link trackStrayTimers} genuinely idempotent.
  */
 declare global {
-  // eslint-disable-next-line no-var -- a `globalThis` augmentation has to be declared with `var`.
+  // A `globalThis` augmentation has to be declared with `var`.
   var __vitestAutoSpyTrackedSchedulers__: Map<SchedulerHost, Tracking> | undefined;
 }
 

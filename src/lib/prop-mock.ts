@@ -35,7 +35,7 @@ interface PatchedProp {
  * this module, and a module-scoped array would leave `restoreMockedProps()` restoring an empty one.
  */
 declare global {
-  // eslint-disable-next-line no-var -- a `globalThis` augmentation has to be declared with `var`.
+  // A `globalThis` augmentation has to be declared with `var`.
   var __vitestAutoSpyPatchedProps__: PatchedProp[] | undefined;
 }
 

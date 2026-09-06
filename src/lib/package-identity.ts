@@ -20,7 +20,7 @@ import { DOCS_LINKS } from './docs-links';
  * writes into the same map.
  */
 declare global {
-  // eslint-disable-next-line no-var -- a `globalThis` augmentation has to be declared with `var`.
+  // A `globalThis` augmentation has to be declared with `var`.
   var __vitestAutoSpyPackageCopies__: Map<string, string> | undefined;
 }
 

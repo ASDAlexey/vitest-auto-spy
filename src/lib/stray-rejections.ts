@@ -102,7 +102,7 @@ const MISSING_ZONE =
  * genuinely idempotent.
  */
 declare global {
-  // eslint-disable-next-line no-var -- a `globalThis` augmentation has to be declared with `var`.
+  // A `globalThis` augmentation has to be declared with `var`.
   var __vitestAutoSpyTrackedRejections__: Map<RejectionHost, Tracking> | undefined;
 }
 

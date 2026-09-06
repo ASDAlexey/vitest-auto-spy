@@ -51,7 +51,7 @@ type SpiedConsoleMethod = 'debug' | 'error' | 'info' | 'log' | 'time' | 'timeEnd
  * module whose `activeSpies` is empty while `console` still holds the spies from the old one.
  */
 declare global {
-  // eslint-disable-next-line no-var -- a `globalThis` augmentation has to be declared with `var`.
+  // A `globalThis` augmentation has to be declared with `var`.
   var __vitestAutoSpyResetConsoleSpies__: (() => void) | undefined;
 }
 

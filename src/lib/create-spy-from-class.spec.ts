@@ -43,7 +43,7 @@ abstract class Storage {
 
 describe('createSpyFromClass — Symbol.dispose', () => {
   it('resets the double at the end of a `using` block, calls and configuration both', () => {
-    let escaped: ReturnType<typeof createSpyFromClass<Cart>> | undefined = undefined;
+    let escaped: ReturnType<typeof createSpyFromClass<Cart>> | undefined;
 
     {
       using cart = createSpyFromClass(Cart);

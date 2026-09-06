@@ -218,7 +218,7 @@ describe('handing a deep mock to something that wants the real type', () => {
 
 describe('mockDeep — Symbol.dispose', () => {
   it('resets the whole tree at the end of a `using` block, children included', () => {
-    let escaped: DeepMockProxy<Root> | undefined = undefined;
+    let escaped: DeepMockProxy<Root> | undefined;
 
     {
       using api = mockDeep<Root>();
