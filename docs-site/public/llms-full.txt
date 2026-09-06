@@ -104,7 +104,7 @@ dependencies**.
 
 | Tool       | Minimum                                                            |
 | ---------- | ------------------------------------------------------------------ |
-| Node.js    | ≥ 18 for the library — in practice, whatever your runner needs     |
+| Node.js    | ≥ 22 — 18 and 20 are EOL; CI exercises 22, 24 and 26               |
 | Vitest     | ≥ 2.1                                                              |
 | Bun        | ≥ 1.4 for `vitest-auto-spy/bun-angular`; any recent Bun for `/bun` |
 | TypeScript | ≥ 4.7 for the typed helpers (plain JS works too, just untyped)     |
@@ -115,13 +115,13 @@ The runtime helpers themselves still run on older Vitest (the library polyfills 
 `bun:test` and `node:test` regardless), but the types no longer line up there, so the range stops
 claiming it.
 
-Node **≥ 18** is the library's own floor and it holds: the published output is ES2022 and every
-entry runs on 18. What moves the real minimum is the runner. **Vitest 4 cannot start on Node 18 at
-all** — it pulls Vite 7, which calls `crypto.hash` (added in Node 20.12), and the run dies with
-`TypeError: crypto.hash is not a function` before a single spec loads. Vitest 4 declares
-`^20.0.0 || ^22.0.0 || >=24.0.0`; Vite 7 is stricter at `^20.19.0 || >=22.12.0`. On an older Vitest
-(≤ 3, Vite 5/6) Node 18 is fine. Which version to actually run — and what it costs — is measured in
-[Performance → Which Node version](https://asdalexey.github.io/vitest-auto-spy/core/performance#which-node-version).
+Node **≥ 22** is the floor. Node 18 and 20 are both past end-of-life, and every runner in the
+supported range already needs more than either: Vitest 4 declares `^20.0.0 || ^22.0.0 || >=24.0.0`,
+and the Vite 7 it pulls is stricter still, at `^20.19.0 || >=22.12.0` — on Node 18 the run dies with
+`TypeError: crypto.hash is not a function` before a single spec loads. Vitest 5 tightens further, to
+`^22.12.0 || ^24.0.0 || >=26.0.0`. CI exercises Node 22, 24 and 26; the published output is still
+ES2022. Which of the three to actually run — and what it costs — is measured in [Performance → Which
+Node version](https://asdalexey.github.io/vitest-auto-spy/core/performance#which-node-version).
 
 Ships **ESM with bundled `.d.ts` types**. Two subpaths additionally ship a CommonJS build —
 `vitest-auto-spy/node` (a `node --test` suite written in CJS) and `vitest-auto-spy/eslint-plugin`
@@ -2739,10 +2739,12 @@ the package legible to a coding agent that has only the installed copy to read.
 ## Which Node version
 
 The library's own code runs unchanged from Node 18 up, so this is a question about the runtime
-underneath it, not about compatibility. Measured on one machine, 2026-09-04, on the newest installed
-release of each major: the repo's own suite — **107 files, 1 697 tests** — through `vitest run`, a
-cold `import('vitest-auto-spy/node')`, and the process start-up that both of those pay before either
-begins.
+underneath it, not about compatibility. The supported floor is now Node 22 — CI tests 22, 24 and 26
+— and the table below deliberately reaches past it: the 20 column and the Node 18 aside beneath it
+are kept because they document why the floor moved, not because either is still supported. Measured
+on one machine, 2026-09-04, on the newest installed release of each major: the repo's own suite —
+**107 files, 1 697 tests** — through `vitest run`, a cold `import('vitest-auto-spy/node')`, and the
+process start-up that both of those pay before either begins.
 
 |                                                   |          20 |      22 |      24 |         25 |          26 |
 | ------------------------------------------------- | ----------: | ------: | ------: | ---------: | ----------: |
@@ -2758,9 +2760,10 @@ start-up 1.22×. The import is the one that scales with how many files a suite s
 it is paid per worker rather than per run. 24, 25 and 26 are within a few per cent of each other on
 the three timing rows; on memory they are not, and 26 gives back about 15% of 24's peak RSS.
 
-Node 18 is missing from the table because `vitest run` exits immediately there — but it does import:
-9.4 ms cold, 45.7 MB of RSS afterwards, 13.7 ms to start. It is _faster_ to import than either 20 or
-22, so the ranking is not monotonic in the version number.
+Node 18 was the previous floor, and it is missing from the table above only because `vitest run`
+exits immediately there — but it does import: 9.4 ms cold, 45.7 MB of RSS afterwards, 13.7 ms to
+start. It is _faster_ to import than either 20 or 22, so the ranking is not monotonic in the version
+number; it stays here as the reason the floor moved off it, not as a supported target.
 
 **What a spy costs does not change with the version.** Running `npm run bench:memory` under 20, 22,
 24, 25 and 26 gives the same retained bytes per double in every cell to within 0.2%. The RSS rows
@@ -2769,8 +2772,9 @@ collecting, not because the library allocates differently.
 
 So: **run 24 (or 26)**. The only argument for staying on 22 is a memory-capped CI container — 1.3 GB
 of peak RSS separates 22 from 24 on this suite — and on 24 that is what `--max-old-space-size` is
-for, rather than a slower runtime. Node 18 and 20 are both past end-of-life, and Node 18
-additionally cannot run Vitest 4 at all (see [Installation](https://asdalexey.github.io/vitest-auto-spy/core/installation)).
+for, rather than a slower runtime. 22 is the floor (`engines.node: ">=22"`); Node 18 and 20 are both
+past end-of-life, and Node 18 additionally cannot run Vitest 4 at all (see
+[Installation](https://asdalexey.github.io/vitest-auto-spy/core/installation)).
 
 ::: details Why `npm run bench` is not the source for this table
 The cross-version numbers here come from a standalone harness, not from the repo's Vitest bench.

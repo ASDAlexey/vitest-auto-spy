@@ -210,7 +210,7 @@ npm i -D vitest-auto-spy
 
 | Tool       | Minimum                                                                           |
 | ---------- | --------------------------------------------------------------------------------- |
-| Node.js    | ≥ 18 for the library — in practice, whatever your runner needs                    |
+| Node.js    | ≥ 22 — 18 and 20 are EOL; CI exercises 22, 24 and 26                              |
 | Vitest     | ≥ 2.1 (required peer) — one install covers 2.1 through 5.x                        |
 | Bun        | ≥ 1.4 for `vitest-auto-spy/bun-angular`; any recent Bun for `vitest-auto-spy/bun` |
 | TypeScript | ≥ 4.7 for the typed helpers (plain JS works too, just untyped)                    |
@@ -242,11 +242,12 @@ shipped since 4.1 is worth another **−6.1 % on Vitest 4 and −8.1 % on Vitest
 every method with the runner's own `vi.fn()` (`setSpyEngine('runner')`). End to end, the slowest
 pairing to the fastest is 1473 ms → 1276 ms, **−13.4 %**.
 
-Node **≥ 18** is the library's own floor and it holds — the published output is ES2022 and every
-entry runs on 18. What moves the real minimum is the runner: **Vitest 4 cannot start on Node 18 at
-all**, because Vite 7 calls `crypto.hash` (added in Node 20.12) and the run dies with
-`TypeError: crypto.hash is not a function` before a spec loads. On Vitest ≤ 3 Node 18 is fine. Which
-version to actually run is measured in
+Node **≥ 22** is the library's own floor now — Node 18 and 20 are both past end of life, and every
+runner this library supports already needed more: Vitest 4 pulls in Vite 7 (`^20.19.0 ||
+>=22.12.0`) and calls `crypto.hash` (added in Node 20.12), so Node 18 died with `TypeError:
+crypto.hash is not a function` before a spec loads. Vitest 5 raises its own floor to `^22.12.0 ||
+^24.0.0 || >=26.0.0`, and `@angular/build` 22 needs `^22.22.3 || ^24.15.0 || >=26.0.0`. CI tests
+Node 22, 24 and 26, so 22 is what is actually exercised. Which version to run is measured in
 [Performance → Which Node version](https://vitest-auto-spy.dev/core/performance#which-node-version):
 the break is between 22 and 24, where a cold import more than halves.
 
@@ -1418,7 +1419,7 @@ Full write-up, methodology and the complete suite-scale tables:
 
 ### Reproducing the numbers
 
-Node **>=18** (the project floor); the numbers above were captured on Node v24.19.0. The steps are
+Node **>=22** (the project floor); the numbers above were captured on Node v24.19.0. The steps are
 identical on Windows, macOS and Linux — same Node, same npm, same commands, nothing OS-specific to
 call out:
 

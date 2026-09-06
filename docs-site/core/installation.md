@@ -27,7 +27,7 @@ dependencies**.
 
 | Tool       | Minimum                                                            |
 | ---------- | ------------------------------------------------------------------ |
-| Node.js    | ≥ 18 for the library — in practice, whatever your runner needs     |
+| Node.js    | ≥ 22 — 18 and 20 are EOL; CI exercises 22, 24 and 26               |
 | Vitest     | ≥ 2.1                                                              |
 | Bun        | ≥ 1.4 for `vitest-auto-spy/bun-angular`; any recent Bun for `/bun` |
 | TypeScript | ≥ 4.7 for the typed helpers (plain JS works too, just untyped)     |
@@ -38,13 +38,13 @@ The runtime helpers themselves still run on older Vitest (the library polyfills 
 `bun:test` and `node:test` regardless), but the types no longer line up there, so the range stops
 claiming it.
 
-Node **≥ 18** is the library's own floor and it holds: the published output is ES2022 and every
-entry runs on 18. What moves the real minimum is the runner. **Vitest 4 cannot start on Node 18 at
-all** — it pulls Vite 7, which calls `crypto.hash` (added in Node 20.12), and the run dies with
-`TypeError: crypto.hash is not a function` before a single spec loads. Vitest 4 declares
-`^20.0.0 || ^22.0.0 || >=24.0.0`; Vite 7 is stricter at `^20.19.0 || >=22.12.0`. On an older Vitest
-(≤ 3, Vite 5/6) Node 18 is fine. Which version to actually run — and what it costs — is measured in
-[Performance → Which Node version](./performance#which-node-version).
+Node **≥ 22** is the floor. Node 18 and 20 are both past end-of-life, and every runner in the
+supported range already needs more than either: Vitest 4 declares `^20.0.0 || ^22.0.0 || >=24.0.0`,
+and the Vite 7 it pulls is stricter still, at `^20.19.0 || >=22.12.0` — on Node 18 the run dies with
+`TypeError: crypto.hash is not a function` before a single spec loads. Vitest 5 tightens further, to
+`^22.12.0 || ^24.0.0 || >=26.0.0`. CI exercises Node 22, 24 and 26; the published output is still
+ES2022. Which of the three to actually run — and what it costs — is measured in [Performance → Which
+Node version](./performance#which-node-version).
 
 Ships **ESM with bundled `.d.ts` types**. Two subpaths additionally ship a CommonJS build —
 `vitest-auto-spy/node` (a `node --test` suite written in CJS) and `vitest-auto-spy/eslint-plugin`

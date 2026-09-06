@@ -1,9 +1,8 @@
 /**
  * A 40-line argument parser, because the alternative is a dependency.
  *
- * The CLI has two commands and a handful of flags; `node:util`'s `parseArgs` would do, but it is
- * only stable from Node 18.11 and this package supports `>=18`. The grammar accepted here is
- * `<command> [--flag] [--key value] [--key=value] [positional…]`.
+ * `node:util`'s `parseArgs` needs options declared up front; this `<command> [--flag] [--key value]
+ * [--key=value] [positional…]` grammar has none, so it stays dependency-free and fully covered.
  */
 
 export interface ParsedArgs {

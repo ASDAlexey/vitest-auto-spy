@@ -650,10 +650,12 @@ the package legible to a coding agent that has only the installed copy to read.
 ## Which Node version
 
 The library's own code runs unchanged from Node 18 up, so this is a question about the runtime
-underneath it, not about compatibility. Measured on one machine, 2026-09-04, on the newest installed
-release of each major: the repo's own suite — **107 files, 1 697 tests** — through `vitest run`, a
-cold `import('vitest-auto-spy/node')`, and the process start-up that both of those pay before either
-begins.
+underneath it, not about compatibility. The supported floor is now Node 22 — CI tests 22, 24 and 26
+— and the table below deliberately reaches past it: the 20 column and the Node 18 aside beneath it
+are kept because they document why the floor moved, not because either is still supported. Measured
+on one machine, 2026-09-04, on the newest installed release of each major: the repo's own suite —
+**107 files, 1 697 tests** — through `vitest run`, a cold `import('vitest-auto-spy/node')`, and the
+process start-up that both of those pay before either begins.
 
 |                                                   |          20 |      22 |      24 |         25 |          26 |
 | ------------------------------------------------- | ----------: | ------: | ------: | ---------: | ----------: |
@@ -669,9 +671,10 @@ start-up 1.22×. The import is the one that scales with how many files a suite s
 it is paid per worker rather than per run. 24, 25 and 26 are within a few per cent of each other on
 the three timing rows; on memory they are not, and 26 gives back about 15% of 24's peak RSS.
 
-Node 18 is missing from the table because `vitest run` exits immediately there — but it does import:
-9.4 ms cold, 45.7 MB of RSS afterwards, 13.7 ms to start. It is _faster_ to import than either 20 or
-22, so the ranking is not monotonic in the version number.
+Node 18 was the previous floor, and it is missing from the table above only because `vitest run`
+exits immediately there — but it does import: 9.4 ms cold, 45.7 MB of RSS afterwards, 13.7 ms to
+start. It is _faster_ to import than either 20 or 22, so the ranking is not monotonic in the version
+number; it stays here as the reason the floor moved off it, not as a supported target.
 
 **What a spy costs does not change with the version.** Running `npm run bench:memory` under 20, 22,
 24, 25 and 26 gives the same retained bytes per double in every cell to within 0.2%. The RSS rows
@@ -680,8 +683,9 @@ collecting, not because the library allocates differently.
 
 So: **run 24 (or 26)**. The only argument for staying on 22 is a memory-capped CI container — 1.3 GB
 of peak RSS separates 22 from 24 on this suite — and on 24 that is what `--max-old-space-size` is
-for, rather than a slower runtime. Node 18 and 20 are both past end-of-life, and Node 18
-additionally cannot run Vitest 4 at all (see [Installation](./installation)).
+for, rather than a slower runtime. 22 is the floor (`engines.node: ">=22"`); Node 18 and 20 are both
+past end-of-life, and Node 18 additionally cannot run Vitest 4 at all (see
+[Installation](./installation)).
 
 ::: details Why `npm run bench` is not the source for this table
 The cross-version numbers here come from a standalone harness, not from the repo's Vitest bench.

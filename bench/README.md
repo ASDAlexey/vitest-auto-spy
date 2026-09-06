@@ -51,7 +51,7 @@ npm ci --prefix bench
 deletes on every exit path.
 
 Identical on Windows, macOS and Linux — every dependency here is pure JavaScript, nothing compiles.
-The package's declared floor is Node 18; the published numbers were measured on v24.19.0, which is
+The package's declared floor is Node 22; the published numbers were measured on v24.19.0, which is
 also the version CI measures them on.
 
 ### Six languages
