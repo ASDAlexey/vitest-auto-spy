@@ -211,7 +211,7 @@ npm i -D vitest-auto-spy
 | Tool       | Minimum                                                                           |
 | ---------- | --------------------------------------------------------------------------------- |
 | Node.js    | ≥ 18 for the library — in practice, whatever your runner needs                    |
-| Vitest     | ≥ 2.1 (required peer)                                                             |
+| Vitest     | ≥ 2.1 (required peer) — one install covers 2.1 through 5.x                        |
 | Bun        | ≥ 1.4 for `vitest-auto-spy/bun-angular`; any recent Bun for `vitest-auto-spy/bun` |
 | TypeScript | ≥ 4.7 for the typed helpers (plain JS works too, just untyped)                    |
 
@@ -220,6 +220,22 @@ type, and `@vitest/spy` only grew `settledResults` in 2.0 — 2.1 is where the 2
 The runtime helpers themselves still run on older Vitest (the library polyfills `settledResults` for
 `bun:test` and `node:test` regardless), but the types no longer line up there, so the range stops
 claiming it.
+
+**Vitest 5 needs nothing from you.** The same install covers it — no second major of this package,
+no version-split types, no `@next` tag, no change to an import. Two changes in Vitest 5 would
+otherwise have broken quietly, and both are handled here: its `clearAllMocks()` now visits only the
+mocks that were called, so a spy engine that is not `vi.fn()` had to make itself reachable to the
+sweep; and the `Matchers` interface grew a second type parameter, so the bundled matchers declare
+themselves on Chai's `Assertion` instead and keep typing on 4 and 5 alike. The one thing Vitest 5
+can still break is its own doing: `clearMocks` is on by default there, so a spec asserting on a call
+recorded by an *earlier* test now reads zero. Record it in a counter, not in the spy.
+
+Measured 2026-09-06 on 40 spec files, 800 tests, 400 spied methods per file, v8 coverage on,
+Node v24.19.0, median of five runs: the same suite takes **1383 ms on Vitest 4.1.11 and 1276 ms on
+Vitest 5.0.0** — **−7.7 %** for changing nothing but the runner. The spy engine this library has
+shipped since 4.1 is worth another **−6.1 % on Vitest 4 and −8.1 % on Vitest 5** against building
+every method with the runner's own `vi.fn()` (`setSpyEngine('runner')`). End to end, the slowest
+pairing to the fastest is 1473 ms → 1276 ms, **−13.4 %**.
 
 Node **≥ 18** is the library's own floor and it holds — the published output is ES2022 and every
 entry runs on 18. What moves the real minimum is the runner: **Vitest 4 cannot start on Node 18 at

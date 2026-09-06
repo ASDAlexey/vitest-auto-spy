@@ -41,6 +41,25 @@ library's own source, and two of this package's own features that no longer canc
 
 ### Added
 
+- **Vitest 5 support, on the same install.** The peer range still starts at `>=2.1.0`, so one
+  version of this package spans Vitest 2.1 through 5.x — no second major, no version-split types, no
+  `@next` tag, and no edit to a spec. Two changes in Vitest 5 reach a spy library rather than a
+  spec, and both are absorbed here. Its `clearAllMocks()` now visits only the mocks *called* since
+  the last sweep, so the engine this package has shipped since 4.1 — which is deliberately not
+  `vi.fn()` — makes itself reachable to that sweep; without it `vi.clearAllMocks()` and the new
+  `clearMocks: true` default would have gone silently no-op on every double this library builds, and
+  call history would have leaked between tests. And `Matchers` gained a second type parameter
+  (`Matchers<T>` → `Matchers<R, T>`), which TypeScript refuses to merge across; the bundled matchers
+  now declare themselves on Chai's `Assertion`, which carries no type parameters in either major, so
+  they keep typing on 4 and 5 from one declaration. Measured 2026-09-06 on 40 spec files, 800 tests,
+  400 spied methods per file, v8 coverage on, Node v24.19.0, median of five runs: the same suite
+  takes **1383 ms on Vitest 4.1.11 and 1276 ms on Vitest 5.0.0** (−7.7 %), and this package's spy
+  engine is worth another **−6.1 %** on Vitest 4 and **−8.1 %** on Vitest 5 over building every
+  method with `vi.fn()` (`setSpyEngine('runner')`) — 1473 ms → 1276 ms end to end, **−13.4 %**. The
+  one thing Vitest 5 can still break is its own default: with `clearMocks` on, a test asserting on a
+  call an *earlier* test recorded reads zero. Count it in a plain variable, or set
+  `clearMocks: false`.
+
 - **`prefer-render-shallow`, the twentieth lint rule.** Reports a `TestBed.createComponent` in a
   spec file that never reads the rendered template — no `nativeElement`, no `debugElement`, no
   `By.css`, no `querySelector` — and points at `renderShallow(X)`, which is the same `TestBed` with

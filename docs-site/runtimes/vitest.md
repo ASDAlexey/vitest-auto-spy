@@ -1,6 +1,6 @@
 ---
 title: Vitest
-description: The default zero-config entry — setup-file wiring, the rxjs and Angular subpaths, and what shared-environment runs need.
+description: The default zero-config entry — Vitest 5 support, setup-file wiring, the rxjs and Angular subpaths, and what shared-environment runs need.
 ---
 
 # Vitest
@@ -17,6 +17,66 @@ import { createSpyFromClass } from 'vitest-auto-spy';
 The core is runner-agnostic behind a `MockAdapter`; the Vitest entry registers the default adapter
 on import, so existing usage stays unchanged. Native mock methods (e.g. `mockReturnValue`) remain
 Vitest's own — only the auto-spy helpers are normalised across runtimes.
+
+## Vitest 5
+
+**One install covers Vitest 2.1 through 5.x.** There is no second major of this package for the new
+runner, no version-split type entry, no `@next` tag: the peer range stays `>=2.1.0`, so a monorepo
+with one app on Vitest 4 and another on 5 depends on the same version of `vitest-auto-spy`, and a
+spec file moves between them unchanged.
+
+Two changes in Vitest 5 reach a spy library rather than a spec, and both are absorbed here.
+
+`clearAllMocks()` no longer walks every mock ever created. Vitest 5 keeps registered mocks behind
+`WeakRef`s and clears only the ones that were *called* since the last sweep — a real improvement,
+and the reason a spy engine that is not `vi.fn()` has to announce itself to that sweep. This
+library's own engine (the default since 4.1) does, so `vi.clearAllMocks()` and the new
+`clearMocks: true` default clear these doubles exactly as they clear the runner's own.
+
+The `Matchers` interface gained a second type parameter — `Matchers<T>` on Vitest 4,
+`Matchers<R, T>` on Vitest 5 — and TypeScript refuses to merge a declaration whose parameter list
+differs. The bundled matchers (`toHaveFocus`, `toHaveSignalValue`, `toBeLoading`,
+`toHaveResourceValue`, `toHaveResourceError`, `toHaveDirectiveApplied` and the jasmine set) declare
+themselves on Chai's `Assertion` instead, which carries no type parameters in either major, so they
+keep typing on both without a second `.d.ts` for you to reference.
+
+### What it costs, measured
+
+40 spec files, 800 tests, 400 spied methods per file, v8 coverage on, Node v24.19.0, median of five
+runs, measured 2026-09-06 on identical library source:
+
+| suite | Vitest 4.1.11 | Vitest 5.0.0 |
+| --- | --- | --- |
+| this library's spy engine (default) | 1383 ms | **1276 ms** |
+| every method built with `vi.fn()` (`setSpyEngine('runner')`) | 1473 ms | 1390 ms |
+
+Changing nothing but the runner is **−7.7 %**. The engine is worth **−6.1 %** on Vitest 4 and
+**−8.1 %** on Vitest 5 over handing each method to `vi.fn()`. Slowest pairing to fastest — Vitest 4
+with runner mocks, against Vitest 5 with the default engine — is 1473 ms → 1276 ms, **−13.4 %**.
+
+### The one thing that can still break your specs
+
+`clearMocks` defaults to `true` in Vitest 5, so `vi.clearAllMocks()` runs before every test. That is
+the runner's change, not this library's, and it breaks one pattern: a test asserting on a call that
+an *earlier* test — or a `beforeAll` — recorded now reads zero calls. Count it in a plain variable
+instead of reading the spy's history:
+
+```ts
+let initCalls = 0;
+const init = vi.fn(() => {
+  initCalls += 1;
+});
+
+beforeAll(() => {
+  install({ init });
+});
+
+it('asked once for the whole file', () => {
+  expect(initCalls).toBe(1); // not expect(init).toHaveBeenCalledTimes(1)
+});
+```
+
+Setting `clearMocks: false` restores the Vitest 4 behaviour if you would rather not touch the specs.
 
 ## A spec, start to finish
 

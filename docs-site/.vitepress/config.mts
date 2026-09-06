@@ -232,6 +232,10 @@ export default defineConfig({
           'createSpyFromClass, createAutoMock, mockDeep, deep mock, createFixture, createFixtureFactory, ' +
           'resolveWith, calledWith, mustBeCalledWith, failWith, mockThrow, throw for specific arguments, nextWithValues, assertMocked, ' +
           'extendWithAutoSpies, test.extend fixtures, TestBed fixtures, vitest 4.1, detect-async-leaks, stray timers, onStrayTimers, no-bare-called-with, ' +
+          'vitest 5, vitest 5 upgrade, does vitest-auto-spy work with vitest 5, auto spy vitest 5, ' +
+          'All declarations of Matchers must have identical type parameters, TS2428, custom matcher types broken vitest 5, ' +
+          'clearMocks true by default, clearAllMocks not clearing my spy, mock not cleared between tests vitest 5, ' +
+          'spy still has calls from the previous test, toHaveBeenCalledTimes 0 after upgrade, ' +
           'strict mode, onUnstubbedCall, unstubbed call, fallbackMockImplementation, Symbol.dispose, using declaration, ' +
           'lazySpies, JavaScript heap out of memory, vitest out of memory, jest worker ran out of memory, ' +
           'mock memory leak, wide generated client, orval, ng-openapi-gen, ' +
