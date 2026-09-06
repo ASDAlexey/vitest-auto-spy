@@ -1,6 +1,6 @@
 ---
 title: ESLint plugin
-description: Nineteen flat-config lint rules that steer a suite onto the auto-spy helpers, grouped by subject, every one an error by default, with the dial documented and the false-positive cases named.
+description: Twenty flat-config lint rules that steer a suite onto the auto-spy helpers, grouped by subject, every one an error by default, with the dial documented and the false-positive cases named.
 ---
 
 # ESLint plugin

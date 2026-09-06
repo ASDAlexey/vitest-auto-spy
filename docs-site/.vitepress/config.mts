@@ -6,13 +6,64 @@ const SITE_NAME = 'vitest-auto-spy';
 
 // The sidebar doubles as the source the per-page BreadcrumbList JSON-LD is built from (see
 // transformPageData), so it is hoisted here rather than living inside themeConfig.
-const RU_SECTION_LABEL: Record<string, string> = {
+//
+// Every label the Russian reader sees comes from here, keyed by the English one. A label with no
+// entry stays English on purpose — `Vitest`, `RxJS`, `createSpyFromClass` are names, not words.
+const RU_LABEL: Record<string, string> = {
   Core: 'Ядро',
   'Spec patterns': 'Паттерны спек',
   Runtimes: 'Среды запуска',
   Utilities: 'Утилиты',
   Adapters: 'Адаптеры',
   Upgrading: 'Обновление',
+
+  Introduction: 'Введение',
+  Installation: 'Установка',
+  'How it works': 'Как это устроено',
+  'Control helpers': 'Управляющие хелперы',
+  'Auto-mock by type': 'Автомок по типу',
+  'Strict mode': 'Строгий режим',
+  'Observable assertions': 'Проверки на Observable',
+  'Bridging Spy<T> and T': 'Мост между Spy<T> и T',
+  Performance: 'Производительность',
+
+  'Patterns that hold up': 'Паттерны, которые держатся',
+
+  'Angular on Bun': 'Angular на Bun',
+
+  'Explaining a double': 'Разбор дубля',
+  'Console spies': 'Спаи консоли',
+  'Test-run hygiene': 'Гигиена прогона',
+  'Fake timers': 'Фейковые таймеры',
+  'Observer stubs': 'Заглушки Observer',
+  'Constructor doubles': 'Дубли конструкторов',
+  'Media element stub': 'Заглушка media-элемента',
+  'Module mocks': 'Моки модулей',
+  'Tracking injections': 'Отслеживание инъекций',
+  'Fixtures without casts': 'Фикстуры без кастов',
+  'fakeAsync on Vitest': 'fakeAsync на Vitest',
+  'Waiting and the clock': 'Ожидание и часы',
+  'ESLint plugin': 'Плагин ESLint',
+  'CLI — doctor & init': 'CLI — doctor и init',
+  'CLI — the codemod': 'CLI — кодмод',
+  'Editor diagnostics': 'Диагностика в редакторе',
+
+  'Angular diagnostics': 'Диагностика Angular',
+  'Component provider overrides': 'Переопределение провайдеров компонента',
+
+  'To 4.0 — rxjs out of your program': 'На 4.0 — rxjs вне вашей программы',
+  'To 3.0 — the vitest peer range': 'На 3.0 — peer-диапазон vitest',
+  'To 2.0 — additive methodsToSpyOn, lazy spies': 'На 2.0 — дополняющий methodsToSpyOn, ленивые спаи',
+
+  'Migrating from jest-auto-spies': 'Переезд с jest-auto-spies',
+  'Migrating from jasmine-auto-spies': 'Переезд с jasmine-auto-spies',
+  'Migrating from @ngneat/spectator': 'Переезд с @ngneat/spectator',
+  'Migrating from Suites': 'Переезд с Suites',
+  'Migrating from @testing-library/angular': 'Переезд с @testing-library/angular',
+  'After the refactor-jasmine-vitest schematic': 'После схематика refactor-jasmine-vitest',
+  'API reference': 'Справочник API',
+  Comparison: 'Сравнение',
+  'For AI agents': 'Для ИИ-агентов',
 };
 
 const SIDEBAR = [
@@ -88,6 +139,7 @@ const SIDEBAR = [
     text: 'Upgrading',
     collapsed: false,
     items: [
+      { text: 'To 5.0 — the Angular and rxjs peer floors', link: '/upgrading-5' },
       { text: 'To 4.0 — rxjs out of your program', link: '/upgrading-4' },
       { text: 'To 3.0 — the vitest peer range', link: '/upgrading-3' },
       { text: 'To 2.0 — additive methodsToSpyOn, lazy spies', link: '/upgrading-2' },
@@ -115,20 +167,19 @@ function absolute(link: string): string {
 /** page link → the section it sits in (title + the group's first page), for the breadcrumb. */
 type NavLike = { text: string; link?: string; items?: NavLike[]; collapsed?: boolean };
 
-// The Russian locale serves a mirror of every page under `/ru/`, so its nav and sidebar are the
-// English ones with the prefix added — the labels are translated, the paths are not.
-function withLocalePrefix(items: NavLike[], prefix: string): NavLike[] {
+// The Russian sidebar is the English one with `/ru` in front of every path and every label looked
+// up in RU_LABEL — one tree, so a page added to the English sidebar cannot go missing from the
+// Russian one.
+function toRussian(items: NavLike[]): NavLike[] {
   return items.map((item) => ({
     ...item,
-    ...(item.link?.startsWith('/') ? { link: `${prefix}${item.link}` } : {}),
-    ...(item.items ? { items: withLocalePrefix(item.items, prefix) } : {}),
+    text: RU_LABEL[item.text] ?? item.text,
+    ...(item.link?.startsWith('/') ? { link: `/ru${item.link}` } : {}),
+    ...(item.items ? { items: toRussian(item.items) } : {}),
   }));
 }
 
-const RU_SIDEBAR = withLocalePrefix(SIDEBAR as NavLike[], '/ru').map((entry) => ({
-  ...entry,
-  text: RU_SECTION_LABEL[entry.text] ?? entry.text,
-}));
+const RU_SIDEBAR = toRussian(SIDEBAR as NavLike[]);
 
 const SECTION_OF_LINK = new Map<string, { text: string; first: string }>();
 
@@ -154,10 +205,9 @@ export default defineConfig({
   cleanUrls: true,
   lastUpdated: true,
 
-  // Only the landing is translated. Every other page is mirrored under `/ru/` with its English
-  // body (scripts/generate-ru-mirrors.mjs), so switching language keeps the reader on the page they
-  // were reading and gives the Russian locale a search index of its own. The mirrors carry a
-  // canonical link back to the English original and are kept out of the sitemap.
+  // Both locales are fully translated: `docs-site/ru/` holds a hand-written Russian page for every
+  // English one, kept in step by `npm run ru:check`. Each page is therefore indexable in its own
+  // right — self-canonical, in the sitemap, and paired with the other locale through hreflang.
   locales: {
     root: { label: 'English', lang: 'en-US' },
     ru: {
@@ -174,10 +224,40 @@ export default defineConfig({
           { text: 'Адаптеры', link: '/ru/adapters/angular' },
           { text: 'API', link: '/ru/api' },
           { text: 'Сравнение', link: '/ru/comparison' },
-          { text: 'AI-агенты', link: '/ru/agents' },
+          { text: 'ИИ-агенты', link: '/ru/agents' },
         ],
 
         sidebar: RU_SIDEBAR,
+
+        // The default theme ships English chrome and merges the locale over it, so anything not
+        // named here — «On this page», «Previous page», «Appearance» — stays English on a page that
+        // is otherwise fully translated.
+        outline: { label: 'Содержание страницы' },
+        docFooter: { prev: 'Предыдущая страница', next: 'Следующая страница' },
+        darkModeSwitchLabel: 'Оформление',
+        lightModeSwitchTitle: 'Переключить на светлую тему',
+        darkModeSwitchTitle: 'Переключить на тёмную тему',
+        sidebarMenuLabel: 'Меню',
+        returnToTopLabel: 'Наверх',
+        langMenuLabel: 'Сменить язык',
+        skipToContentLabel: 'Перейти к содержимому',
+
+        editLink: {
+          pattern: 'https://github.com/ASDAlexey/vitest-auto-spy/edit/master/docs-site/:path',
+          text: 'Предложить правку страницы',
+        },
+
+        lastUpdated: {
+          text: 'Обновлено',
+          formatOptions: { dateStyle: 'short', timeStyle: 'short' },
+        },
+
+        notFound: {
+          title: 'СТРАНИЦА НЕ НАЙДЕНА',
+          quote: 'Но если не сворачивать с пути, можно выйти куда-нибудь ещё.',
+          linkLabel: 'на главную',
+          linkText: 'Вернуться на главную',
+        },
 
         footer: {
           message: 'Опубликовано под лицензией MIT.',
@@ -193,8 +273,6 @@ export default defineConfig({
   // Generates /sitemap.xml — submit it to Google Search Console so every page gets crawled.
   sitemap: {
     hostname: HOSTNAME,
-    // The `/ru/` mirrors are the English pages again; only the translated landing belongs here.
-    transformItems: (items) => items.filter((item) => !item.url.startsWith('ru/') || item.url === 'ru/'),
   },
 
   // Site-wide SEO head tags (canonical + OG are added per-page in transformPageData below).
@@ -368,11 +446,11 @@ export default defineConfig({
     const isRussian = pageData.relativePath.startsWith('ru/');
     const isHome = pageData.relativePath === 'index.md' || pageData.relativePath === 'ru/index.md';
     const path = pageData.relativePath.replace(/(index)?\.md$/, '');
-    // A `/ru/` page other than the landing is the English page again, so it points its canonical at
-    // the original and stays out of the index; the landing is a real translation and keeps its own.
+    // Every page is a translation of its counterpart, so both are canonical for themselves and each
+    // points at the other. `englishPath` stays around because the sidebar — and so the breadcrumb
+    // section lookup — is keyed by the English link.
     const englishPath = isRussian ? path.replace(/^ru\//, '') : path;
-    const isMirror = isRussian && !isHome;
-    const canonical = `${HOSTNAME}${isMirror ? englishPath : path}`;
+    const canonical = `${HOSTNAME}${path}`;
     // The landing's own frontmatter title is the site name; suffixing it would double the name.
     const title = pageData.title && pageData.title !== SITE_NAME ? `${pageData.title} | ${SITE_NAME}` : SITE_NAME;
     const description = pageData.description || pageData.frontmatter['description'] || '';
@@ -382,26 +460,26 @@ export default defineConfig({
     const section = SECTION_OF_LINK.get(`/${englishPath}`);
 
     const crumbs: { name: string; item: string }[] = [
-      { name: 'Home', item: HOSTNAME },
-      ...(section ? [{ name: section.text, item: absolute(section.first) }] : []),
+      { name: isRussian ? 'Главная' : 'Home', item: isRussian ? `${HOSTNAME}ru/` : HOSTNAME },
+      ...(section
+        ? [
+            {
+              name: isRussian ? (RU_LABEL[section.text] ?? section.text) : section.text,
+              item: absolute(isRussian ? `/ru${section.first}` : section.first),
+            },
+          ]
+        : []),
       { name: pageData.title || SITE_NAME, item: canonical },
     ];
 
     pageData.frontmatter['head'] ??= [];
     pageData.frontmatter['head'].push(
       ['link', { rel: 'canonical', href: canonical }],
-      // The landing is the only page that exists in two languages, so it is the only one that may
-      // claim an alternate; hreflang between two copies of the same English text says nothing.
-      ...(isHome
-        ? [
-            ['link', { rel: 'alternate', hreflang: 'en', href: HOSTNAME }],
-            ['link', { rel: 'alternate', hreflang: 'ru', href: `${HOSTNAME}ru/` }],
-            ['link', { rel: 'alternate', hreflang: 'x-default', href: HOSTNAME }],
-          ]
-        : []),
-      // The mirror exists for a reader who switched language mid-page, not for a crawler: indexing
-      // it would put the same English text under two URLs. `follow` keeps its links crawlable.
-      ...(isMirror ? [['meta', { name: 'robots', content: 'noindex, follow' }]] : []),
+      // Reciprocal on both sides and on every page — an hreflang set a crawler cannot confirm from
+      // the other URL is one it drops, which is how a locale stops ranking in its own language.
+      ['link', { rel: 'alternate', hreflang: 'en', href: `${HOSTNAME}${englishPath}` }],
+      ['link', { rel: 'alternate', hreflang: 'ru', href: `${HOSTNAME}ru/${englishPath}` }],
+      ['link', { rel: 'alternate', hreflang: 'x-default', href: `${HOSTNAME}${englishPath}` }],
       ['meta', { property: 'og:locale', content: isRussian ? 'ru_RU' : 'en_US' }],
       ['meta', { property: 'og:type', content: isHome ? 'website' : 'article' }],
       ['meta', { property: 'og:title', content: title }],

@@ -180,7 +180,7 @@ captured at helper entry, before anything subscribes, and pinned onto the failur
 built, so the frame the reporter opens is the `await expectEmission(…)` line in your spec.
 
 Only the errors these helpers make themselves are re-anchored. The error
-[`expectError`](#expecterror-when-the-failure-is-the-subject) resolves with belongs to the code under
+[`expectError`](#expecterror-—-when-the-failure-is-the-subject) resolves with belongs to the code under
 test and keeps the stack it was created with — rewriting that one would point the reader away from
 where the failure actually happened.
 
@@ -222,21 +222,7 @@ for (const [name, make] of Object.entries(scenarios)) {
     }, 1200);
 
     it('4. await expectEmission', async () => {
-      expect(await expectEmission(make(), { label: 'source
-
-The source is duck-typed — anything with a `subscribe` method — so these live in the **core** entry
-and pull in no rxjs at runtime. They work with rxjs `Observable`s and `Subject`s, Angular
-`toObservable()` results, and hand-rolled subscribables alike.
-
-The watchdog uses the timer functions captured at import time, so `vi.useFakeTimers()` cannot
-silence it: the failure stays "the stream did not emit", not "the test timed out". A synchronous
-source (`of(…)`, a `BehaviorSubject`) settles and unsubscribes without ever arming the timer.
-
-::: tip Lint it
-The [`no-expect-in-subscribe`](../utilities/eslint-plugin) rule flags `expect()` inside a
-`subscribe()` callback and points here.
-:::
-, timeout: 300 })).toBe(999);
+      expect(await expectEmission(make(), { label: 'source$', timeout: 300 })).toBe(999);
     }, 1200);
   });
 }

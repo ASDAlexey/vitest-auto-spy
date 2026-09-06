@@ -1,6 +1,6 @@
 ---
 title: Editor diagnostics — WebStorm and VS Code
-description: Underline the vitest-auto-spy anti-patterns while the spec is being written — the eighteen shipped ESLint rules, shown natively by WebStorm and the other JetBrains IDEs, and by the ESLint extension in VS Code, Cursor and Windsurf.
+description: Underline the vitest-auto-spy anti-patterns while the spec is being written — the twenty shipped ESLint rules, shown natively by WebStorm and the other JetBrains IDEs, and by the ESLint extension in VS Code, Cursor and Windsurf.
 ---
 
 # Editor diagnostics
@@ -11,7 +11,7 @@ cheap to fix while the cursor is still on the line and expensive to find afterwa
 one of them **passes**.
 
 There is one channel, and it is already in the package:
-[`vitest-auto-spy/eslint-plugin`](/utilities/eslint-plugin). Nineteen rules over a real syntax tree,
+[`vitest-auto-spy/eslint-plugin`](/utilities/eslint-plugin). Twenty rules over a real syntax tree,
 with a fix or a suggestion where the rewrite is decidable — the same rules in the editor and in CI,
 so nothing passes locally and fails on the build. No editor needs a plugin of this package's own;
 it needs its ESLint integration switched on, which every IDE below has.
@@ -19,7 +19,7 @@ it needs its ESLint integration switched on, which every IDE below has.
 ## WebStorm and the other JetBrains IDEs
 
 WebStorm, IntelliJ IDEA Ultimate, PhpStorm, PyCharm Professional and RubyMine all run ESLint
-natively, so the rules light up **inline, with no plugin to install** — the same eighteen checks, in
+natively, so the rules light up **inline, with no plugin to install** — the same twenty checks, in
 the editor, in the Problems tool window, and under **Code → Inspect Code** for the whole project.
 
 Install and configure once:

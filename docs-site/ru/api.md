@@ -1,0 +1,261 @@
+---
+title: Справочник API
+description: Все экспорты vitest-auto-spy и его подпутей, набор хелперов по типу возврата и публичные типы.
+---
+
+# Справочник API
+
+Экспортируемая поверхность `vitest-auto-spy` и его подпутей.
+
+| Экспорт | Описание |
+| --- | --- |
+| `createSpyFromClass(Class, methodsOrConfig?)`                                                                | Собирает полностью типизированный `Spy<T>` из класса                                                                                                                |
+| `createSpyFromInstance(instance, methodsOrConfig?)`                                                          | Спаит объект, который тест уже держит в руках — патчится **на месте**, так что спаи видит всё, что успело его захватить                                              |
+| `restoreSpiedInstance(instance)`                                                                             | Откатывает патч одного экземпляра; `restoreMockedProps()` и `using` работают с тем же журналом                                                                       |
+| `createAutoMock<T>(overrides?)`                                                                              | Собирает `Spy<T>` из одного лишь **типа/интерфейса** (Proxy, без класса)                                                                                             |
+| `createMock<T>(partial?)`                                                                                    | Собирает обычный `T` без спаев из полей, которые задал тест — для форм данных, а не для коллабораторов                                                               |
+| `createFixture<T>(defaults, overrides?)`                                                                     | Один `T` из полного, полностью проверенного значения по умолчанию плюс поля, которые меняет этот тест — свежая копия на каждый вызов                                 |
+| `createFixtureFactory<T>(defaults)`                                                                          | Место, куда положить это значение по умолчанию: возвращает `(overrides?) => T`, дефолты зафиксированы на этапе сборки                                                |
+| `mockDeep<T>(overrides?, options?)`                                                                          | Рекурсивный `DeepMockProxy<T>` — **обращение** к вложенному полю само создаёт цепочечные спаи; `{ selfReturning: true }` продолжает цепочку и через **вызовы**        |
+| `clearAutoSpy(spy)` / `resetAutoSpy(spy)`                                                                    | Очистить вызовы (конфигурация остаётся) / полный сброс каждого спая внутри собранного спая                                                                           |
+| `provideAutoSpy(Class, methodsOrConfig?)`                                                                    | Сокращение для Angular `{ provide, useValue }` (`/angular`), включая абстрактные классы; варианты для NestJS / Vue — в их подпутях                                   |
+| `injectSpy(token)`                                                                                           | `TestBed.inject` с типом `Spy<T>` (`/angular`); вариант для NestJS принимает `(moduleRef, token)`                                                                    |
+| `createFunctionSpy(name)`                                                                                    | Отдельный спай для одной функции со всеми хелперами                                                                                                                 |
+| `createObservableWithValues(configs, opts?)`                                                                 | Собирает Observable из конфигураций значений (`/rxjs`)                                                                                                              |
+| `mockReadonlyProp` / `mockReadonlyPropGetter` / `mockValueProp` / `mockAccessorsProp`                        | Мокает readonly / изменяемые / аксессорные / сигнальные свойства (ядро, также реэкспортируется из `/angular`)                                                        |
+| `restoreMockedProps()` / `countMockedProps()`                                                                | Откатывает каждый патч `mock*Prop` / сколько их ещё применено                                                                                                       |
+| `expectEmission(source$, opts?)` / `expectEmissions(source$, n, opts?)` / `expectNoEmission(source$, opts?)` | Проверяет Observable без коллбэка в `subscribe`, который может никогда не выполниться; тип излучаемого значения выводится                                            |
+| `expectCompletion(source$, opts?)`                                                                           | Проверяет, что поток **завершился** — случай `Observable<void>`, на котором `firstValueFrom` падает с `EmptyError`                                                   |
+| `setEmissionTimeout(ms)`                                                                                     | Меняет общее для процесса время ожидания в хелперах эмиссии; для сюиты под глобальными фейковыми таймерами                                                           |
+| `asInstance(spy)` / `asSpy(instance)`                                                                        | Два именованных представления между `Spy<T>` и `T` вместо `as any`                                                                                                  |
+| `createSpyClass(Class, config?)`                                                                             | Спай, который можно вызвать через `new`; записывает `calls` и `instances`                                                                                            |
+| `setupAutoSpy(opts?)`                                                                                        | Восстановление свойств, обнаружение дублирующихся копий, зависшие таймеры и реджекты, гигиена реестра моков, общий для сюиты дефолт `strict` — одним вызовом (`/setup`) |
+| `setupFakeTimers(config?, opts?)` / `advanceTimers(ms?)`                                                     | Парная установка/восстановление фейковых таймеров и продвижение времени, которое дожидается очереди микрозадач (`/setup`)                                            |
+| `setSpyEngine(engine)` / `getSpyEngine()`                                                                    | Строить спаи методов на собственном моке библиотеки (`'auto-spy'`, по умолчанию) или на `vi.fn()` (`'runner'`); только Vitest (`/setup`)                             |
+| `stubIntersectionObserver()` / `stubResizeObserver()` / `stubMutationObserver()` / `stubObserver(name)`      | Заменяет глобальный observer на тот, которым управляет спека; восстанавливается через `restoreMockedProps()`                                                         |
+| `intersectionEntry(target, isIntersecting, overrides?)`                                                      | Собирает один `IntersectionObserverEntry` без полей, которые никто не читает                                                                                         |
+| `mockResourceProp(object, prop, initial)`                                                                    | Заменяет свойство-ресурс на дубль, которым управляет спека — `set` / `fail` / `loading` / спаенный `reload` (`/angular`)                                             |
+| `mockSignalProp(object, prop, initial)`                                                                      | Заменяет свойство-сигнал на настоящий writable-сигнал и возвращает ручку управления (`/angular`)                                                                     |
+| `blockNetwork(options?)`                                                                                     | Закрывает `fetch`, XHR и `sendBeacon`, называя, что именно запрашивали (`/setup`)                                                                                   |
+| `trackStrayRejections()` / `countStrayRejections()` / `flushStrayRejections()`                               | Вычитывает реджекты промисов, которые zone.js проглотил в `console.error` (`/setup`)                                                                                 |
+| `trackMockRegistry()` / `keepMockRegistered(mock)` / `pruneMockRegistry()`                                   | Держит вечно растущий реестр моков `@vitest/spy` в пределах тех, что переживают файл (`/setup`)                                                                      |
+| `trackNodeMocks()` / `pruneNodeMocks()` / `countNodeMocks()`                                                 | Даёт библиотеке собственный `MockTracker` из `node:test`, чтобы выброшенный спай действительно освобождался (`/node`)                                                |
+| `restoreLongLivedImplementations()`                                                                          | Возвращает реализацию, которую межфайловый `vi.resetAllMocks()` снял с общего дубля (`/setup`)                                                                       |
+| `guardGlobalPatches(reaction)`                                                                               | Называет тест, который переопределил глобальное свойство как non-configurable (`/setup`)                                                                            |
+| `restoreWebStorage(options?)`                                                                                | Выдаёт `globalThis` рабочие `localStorage` / `sessionStorage`, когда копия раннера так и не приехала; включено по умолчанию внутри `setupAutoSpy()` (`/setup`)       |
+| `installPerTest(install)`                                                                                    | Переустанавливает стаб перед каждым тестом блока и отдаёт текущую ручку (`/setup`)                                                                                  |
+| `stubMediaElement(opts?)`                                                                                    | `<video>` / `<audio>`, который играет, сообщает длительность и шлёт медиа-события                                                                                    |
+| `assertMocked(namespace, opts?)`                                                                             | Роняет тест, когда `vi.mock()`, на который рассчитывает спека, молча не применился                                                                                   |
+| `moduleNamespace(exports, opts?)`                                                                            | Результат фабрики `vi.mock`, который распознаёт interop-проба (`default` + `__esModule`)                                                                             |
+| `flushEventLoopUntil(isDone, opts?)`                                                                         | Настоящие обороты event loop до выполнения условия, с бюджетом вместо зависания                                                                                      |
+| `diffByField(actual, expected)`                                                                              | Какое поле массива записей изменилось и в скольких элементах — тот дифф, который схлопывает репортер                                                                 |
+| `setupAngularTestEnv(opts?)`                                                                                 | Зонные и зонлесс спек-файлы в одном воркере, с переключением платформы на каждый файл (`/angular`)                                                                   |
+| `provideAutoSpyForToken(token, overrides?)`                                                                  | `{ provide, useValue }` для `InjectionToken`, где спай собран по типу токена (`/angular`)                                                                            |
+| `createDirectiveHost(opts)`                                                                                  | Standalone-хост для тестируемой директивы, со скоупом там, где его читает компилятор (`/angular`)                                                                    |
+| `registerDirectiveMatchers()`                                                                                | Добавляет `expect(fixture).toHaveDirectiveApplied(Directive, selector?)` (`/angular`)                                                                               |
+| `asInstances(...spies)`                                                                                      | `asInstance` сразу для всего списка аргументов, одной правкой на одну ошибку компилятора                                                                             |
+| `captureArg<T>()`                                                                                            | Забирает аргумент, который построил тестируемый код, вместо того чтобы его описывать — для проверок, не для `calledWith`                                             |
+| `explainSpy(spy, method?)` (`/diagnostics`)                                                                  | Каждый настроенный список аргументов рядом с каждым записанным вызовом, с привязкой к сработавшей конфигурации — до того, как что-то упало                           |
+| `narrow(value, predicate)` / `narrow.byKey` / `narrow.observable`                                            | Ветка объединения, которую тест точно получил; при несовпадении падает с той формой, которая на самом деле пришла                                                    |
+| `withOverrides(model, overrides?)`                                                                           | Фикстура из экземпляра модели: её геттеры читаются один раз, как данные                                                                                              |
+| `compareTestRuns(a, b, root?)` / `formatTestRunComparison(diff)` / `summarizeTestRun(report, root?)`         | Потеряла ли миграция тест — множество имён, на что счётчики ответить не могут                                                                                        |
+| `installProxyZonePatch(opts?)`                                                                               | `fakeAsync` / `waitForAsync` на Vitest (`/zone`, который ставит патч при импорте)                                                                                    |
+| `restoreTimerGlobals()` / `getWatchedTimerGlobals()`                                                         | Возвращает глобальные таймеры, которые удалили фейки / имена, которые были захвачены (`/setup`)                                                                      |
+| `renderShallow(Component, opts?)`                                                                            | Компонент в `TestBed` без детей и (по умолчанию) без шаблона (`/angular`)                                                                                            |
+| `createWithAutoSpies(Class, opts?)`                                                                          | Собирает класс через Angular DI, автоматически спая каждый непредоставленный токен (`/angular`)                                                                      |
+| `createNestUnit(Class, opts?)`                                                                               | Собирает провайдер NestJS по его DI-метаданным, автоматически спая каждый непредоставленный токен; `expose` строит коллабораторов по-настоящему, `providers` перекрывает и то и другое (`/nestjs`) |
+| `extendWithAutoSpies(test, spec, opts?)`                                                                     | Карта зависимостей как типизированные фикстуры `TestBed`, в одном `configureTestingModule` — Vitest 4.1+, на более старом раннере бросает именованную ошибку (`/angular`) |
+| `stable(fixture, opts?)` / `flushEffects()`                                                                  | Зонлесс-ожидание: сбросить эффекты, затем дождаться фикстуры, с бюджетом в 2 с, который называет причину (`/angular`)                                                |
+| `settleResource(resource, opts?)`                                                                            | Тикает, пока `httpResource()` / `resource()` / `rxResource()` не выйдет из `loading` (`/angular`)                                                                    |
+| `provideHttpTesting(options?)`                                                                               | `provideHttpClient()` и `provideHttpClientTesting()` в одном спреде, плюс проверка на неотвеченные запросы при завершении (`/angular-http`)                          |
+| `expectRequest(matcher, opts?)`                                                                              | Тикает, находит единственный подходящий запрос, затем делает ему `flush` / `error` **вместе с дожиданием** — `httpResource()` и `HttpClient` (`/angular-http`)        |
+| `expectNoRequest(matcher?, opts?)` / `verifyNoPendingRequests()`                                             | Проверяет, что ничего не запрашивали / что ничего не осталось без ответа (`/angular-http`)                                                                           |
+| `registerResourceMatchers()`                                                                                 | Добавляет `toBeLoading` / `toHaveResourceValue` / `toHaveResourceError`; матчер значения роняет тест на неразрешённом ресурсе (`/angular`)                           |
+| `registerSignalMatchers()`                                                                                   | Добавляет `expect(sig).toHaveSignalValue(value)` (`/angular`)                                                                                                       |
+| `enableTestBedDiagnostics(opts?)`                                                                            | Отчёт по файлу о том, сколько времени спеки ушло в `TestBed` (`/angular`)                                                                                            |
+| `registerDomGlobals(opts?)`                                                                                  | Ставит DOM в рантайм, который его не поставляет; возвращает использованный регистратор (`/bun-angular`)                                                              |
+| `createJsdomRegistrar(opts)` / `createGlobalRegistratorRegistrar(opts)`                                      | Две DOM-стратегии, которые перебирает `registerDomGlobals`, для собственного preload (`/bun-angular`)                                                                |
+| `copyWindowGlobals(source, target)`                                                                          | Копирует свойства окна на global-подобную цель, не затирая встроенные объекты рантайма                                                                               |
+| `inlineAngularResources(source, path, opts?)`                                                                | Переписывает `templateUrl` / `styleUrl` / `styleUrls` в инлайновые `template` / `styles`                                                                             |
+| `consoleDebugSpy` … `consoleWarnSpy`                                                                         | Молчаливые типизированные спаи, заменяющие методы глобальной `console` при импорте (`/console`)                                                                      |
+| `installConsoleSpies()` / `resetConsoleSpies()` / `restoreConsole()`                                         | Поставить / очистить / откатить консольные спаи (`/console`)                                                                                                        |
+| `errorHandler`                                                                                               | Хелпер ошибки о несовпадении аргументов для `mustBeCalledWith`                                                                                                       |
+| `vitest-auto-spy/eslint-plugin`                                                                              | Двадцать правил линтера для flat-конфига, которые направляют сюиту на эти хелперы                                                                                |
+
+## Набор хелперов по типу возврата {#helper-surface-by-return-type}
+
+**Спаенный синхронный метод:** `mockReturnValue`, `calledWith(...)`, `mustBeCalledWith(...)` —
+`calledWith` / `mustBeCalledWith` принимают асимметричные матчеры (`expect.any`, `expect.objectContaining`, …)
+
+**Любой спаенный метод:** `failWith(error)` — бросать на каждом вызове или, в цепочке `calledWith` /
+`mustBeCalledWith`, только для этих аргументов. Назван `failWith`, а не `throwWith`, потому что это
+имя занято хелпером для Observable ниже.
+
+**Спаенный метод, возвращающий Promise:** `resolveWith`, `rejectWith`, `resolveWithPerCall`; исходы
+записываются в `mock.settledResults` (нативно на Vitest, полифилл на Bun / `node:test`)
+
+**Спаенный метод или свойство с Observable:** `nextWith`, `nextOneTimeWith`, `nextWithValues`,
+`nextWithPerCall`, `throwWith`, `complete`, `returnSubject`
+
+## Конфигурация {#configuration}
+
+**`ClassSpyConfiguration`:** `methodsToSpyOn` (добавляется к найденным методам),
+`onlyMethodsToSpyOn` (спаить только их — поиск методов пропускается), `instanceMethodsToSpyOn` (то же
+поведение, что у `methodsToSpyOn`, названо так ради вызываемых полей, которые живут на экземпляре, —
+поля `signal()`, стрелочные свойства, методы `signalStore()`), `observablePropsToSpyOn`,
+`gettersToSpyOn`, `settersToSpyOn` (любой строковый ключ — «является аксессором» это факт о
+дескрипторе, а не о типе значения, так что геттер, возвращающий сигнал, назвать можно), `returns`
+(возвращаемые значения, проставленные в момент сборки спая), `autoSpyAccessors` (автопоиск
+геттеров/сеттеров), `fillMissing` (отвечать спаем на имя, которого прототип никогда не нёс, — для
+**частично** абстрактного класса, где стёртые члены не дают сработать откату на пустой прототип),
+`lazySpies` (строить спай каждого метода при первом обращении — дефолт `provideAutoSpy` на Angular;
+`'proxy'` меняет плейсхолдер на метод на один объект-ловушку, и именно это не даёт дублю на 400
+методов удерживать 100 кБ), плюс два поля строгого режима ниже. `createSpyFromInstance` принимает ту
+же конфигурацию за вычетом `lazySpies` и `fillMissing` — двух полей, которые описывают строящийся
+дубль, а не патчащийся объект: члены уже существуют, а экземпляр — не стёртое `abstract`-объявление.
+
+**`AutoMockConfiguration`** (третий аргумент `createAutoMock` / `provideAutoSpyForToken`):
+`observablePropsToSpyOn` (тип не говорит, какие члены являются Observable, поэтому незаданный член
+иначе стал бы обычным спаем функции), `returns` (возвращаемые значения, проставленные в момент
+сборки дубля, — там, где заданный `override` подставил бы обычную функцию вместо спая), плюс те же
+два поля строгого режима.
+
+**`StrictSpyConfiguration`** — пара, которую принимает каждая фабрика, строящая дубль, и которую
+`setupAutoSpy(opts?)` берёт как дефолт на всю сюиту:
+
+| Поле | Тип | Эффект |
+| --- | --- | --- |
+| `strict?`          | `boolean`                                                                                | Бросать на вызов метода, который никто не настроил, называя класс, метод и аргументы. По умолчанию выключено |
+| `onUnstubbedCall?` | `(call: { className: string \| undefined; method: string; args: unknown[] }) => unknown` | Выполнить это вместо вызова и использовать возвращённое как результат. Общая форма `strict`                  |
+
+Собственная конфигурация дубля побеждает общую для сюиты — включая явный `strict: false`, и это
+единственный способ вывести один широкий коллаборатор из-под глобального дефолта; а `onUnstubbedCall`
+побеждает `strict`, когда заданы оба. `className` равен `undefined` для `createAutoMock`, собранного
+по типу: называть там нечего. `setupAutoSpy` включает дефолт, только если вызывающая сторона
+действительно передала одно из двух, и снимает его в `afterAll` — при `isolate: false` дефолт,
+включённый setup-файлом одного файла, иначе остался бы включённым и для файлов, которые на него не
+подписывались. [Строгий режим](/ru/core/strict-mode) объясняет, что считается настроенным.
+
+**`ValueConfig`** (для `nextWithValues`): `{ value, delay? }` | `{ errorValue, delay? }` |
+`{ complete?, delay? }`.
+
+## Публичные типы {#public-types}
+
+**`Spy<T>`** — собранный спай. **Отображённый тип** (mapped type) над `T`: каждый метод становится
+`AddSpyMethodsByReturnTypes<Method>` (мок плюс те хелперы, которые заслуживает его тип возврата),
+каждое свойство-`Observable` получает observable-хелперы, всё остальное сохраняет свой тип. Он также
+добавляет набор `accessorSpies`: `accessorSpies.getters[key]` / `accessorSpies.setters[key]`.
+
+Поскольку это отображённый тип, он **теряет члены `#private` и `private`**, так что `Spy<T>` не
+присваивается `T`. Объявляйте переменную как `Spy<T>` — `injectSpy(X)` уже его возвращает — или
+соединяйте одно с другим через [`asInstance` / `asSpy`](/ru/core/spy-typing).
+
+**`SpyDisposable`** — `{ [Symbol.dispose](): void }`. И `Spy<T>`, и `DeepMockProxy<T>` пересекаются с
+ним, поэтому любой дубль, который строит этот пакет, является disposable, и
+`using spy = createSpyFromClass(Service)` сбрасывает его в конце блока, отправляя на пенсию
+`afterEach`, существовавший только ради сброса одного спая. Метод вызывает `resetAutoSpy(this)`; в
+`mockDeep` каждый узел дерева отдаёт одну и ту же функцию, поэтому освобождение любого узла сбрасывает
+всё дерево. Единственное исключение — `createSpyFromInstance`, где dispose **восстанавливает** объект
+вместо сброса: это единственный смысл, который освобождение может иметь для объекта, принадлежащего
+потребителю. Тип объявлен структурно, а не через глобальный `Disposable`, который живёт в
+`lib.esnext.disposable`: потребитель, чей `lib` заканчивается на ES2022 и у которого нет
+`@types/node`, увидел бы, что опубликованный `.d.ts` падает на этом имени, — при этом `Spy<T>`
+остаётся присваиваемым `Disposable` везде, где тот существует. `[Symbol.asyncDispose]` сознательно
+нет: `resetAutoSpy` синхронный, а `await using` и так принимает синхронный disposable.
+
+**`ClassType<T>`** — конструктор `T`, тот самый токен, который принимают `createSpyFromClass` /
+`provideAutoSpy`. Сигнатура конструирования _абстрактная_, поэтому `abstract class` в роли
+DI-токена принимается; `new` на нём здесь никто и никогда не вызывает.
+
+**`DeepMockProxy<T>`** — то, что возвращает `mockDeep<T>()`: свойства-объекты становятся вложенными
+глубокими моками, поэтому `mock.a.b.c` цепляется без предварительной настройки. Глубина берётся из
+_обращения_ к свойству: цепочка, идущая через вызов (`a.b().c()`), требует `{ selfReturning: true }`.
+
+**`SubscribableLike<T>` / `CallbackSubscribable<T>` / `EmissionSource<T>`** — два контракта подписки,
+которые принимают хелперы эмиссии (объект-наблюдатель, как берёт rxjs; голый коллбэк `next`, как
+берёт `output()` в Angular), и их объединение.
+
+**`ObservableLike<T>` / `SubjectLike<T>` / `SubjectOf<T>` / `AutoSpyRxjsTypes<T>`** — шов с rxjs,
+появившийся в 4.0.0. Ни одно объявление, которое поставляет пакет, больше не называет тип из rxjs,
+поэтому потребитель без rxjs его никогда не загружает. `ObservableLike<T>` — это то, что решает,
+является ли член observable: `subscribe` плюс `forEach(next)`, возвращающий промис, чему удовлетворяют
+`Observable` из rxjs, любой `Subject` и `EventEmitter` из Angular и чему не удовлетворяют `Promise`,
+массивы, `Signal` и `OutputEmitterRef`. `returnSubject()` и `nextWithPerCall()` типизированы как
+`SubjectOf<T>`, который равен собственному `Subject<T>` из rxjs, когда `vitest-auto-spy/rxjs` есть в
+вашей TypeScript-программе (он расширяет `AutoSpyRxjsTypes`), и структурному `SubjectLike<T>`, когда
+его нет. См. [rxjs в типах](/ru/runtimes/rxjs#rxjs-in-the-types).
+
+**`AddSpyMethodsByReturnTypes<Method>`** — поверхность одного метода: сам мок, пересечённый с
+`calledWith` / `mustBeCalledWith`, плюс набор хелперов для `Promise` или `Observable`, когда тип
+возврата его заслуживает.
+
+**`Spy<T, Options>`** — второй параметр это `{ overload?: 'first' | 'last' }`. `Parameters` и
+`ReturnType` читают **последнюю** сигнатуру перегруженного метода, а в сгенерированном API-клиенте
+это `observe: 'events'` — та, которую никто не вызывает. `Overload<F, 0>` называет одну сигнатуру
+отдельно.
+
+**`DeepPartial<T>`** — то, что принимают `createMock` / `createAutoMock`: частичный на любой глубине,
+и ключ, которого у `T` нет, отвергается тоже на любой глубине. Встроенные типы (`Date`, `Map`,
+`Promise`, функции) проходят насквозь нетронутыми. Настоящее значение принимается везде, где
+принимается частичное, поэтому хостовый объект вроде `NodeList` остаётся присваиваемым отображению
+самого себя.
+
+**`ClassSpyConfiguration<T>`**, **`AutoMockConfiguration<T>`**, **`StrictSpyConfiguration`**,
+**`ValueConfig<T>`**, `UnstubbedCall`, `UnstubbedCallHandler`, `NextValueConfig`, `ErrorValueConfig`,
+`CompleteValueConfig`, `ValueConfigPerCall`, `OnlyMethodKeysOf<T>`, `OnlyObservablePropsOf<T>`,
+`AccessorKeysOf<T>`, `MethodReturns<T>`, `PropStubValue<V>`, `SpyOptions`, `Overloads<F>`,
+`AddThrowHelper` (тот самый `failWith`, который несёт каждый спай метода) экспортируются из ядра тоже;
+`/angular` добавляет `AutoSpyFixture`, `SpiedFixtures<Spec>` и `ExtendWithAutoSpiesOptions` для
+`extendWithAutoSpies`; `/angular-http` добавляет `RequestMatcher`, `RequestExpectation`, `ResponseBody`,
+`FlushOptions`, `RequestErrorOptions`, `ExpectRequestOptions` и `HttpTestingOptions` для
+`expectRequest` и `provideHttpTesting`; `/nestjs` добавляет `NestUnit<T>`, `NestUnitSpies`,
+`NestUnitClass<T>`, `NestUnitProvider` и `CreateNestUnitOptions` для `createNestUnit`;
+`/node` добавляет `StopTrackingNodeMocks` — ручку отключения, которую отдаёт `trackNodeMocks()`;
+`/setup` добавляет `RestoreWebStorageOptions`, чьё единственное поле `view` называет окно, из
+которого `restoreWebStorage()` берёт рабочее хранилище — `null` означает, что окна нет.
+
+## Экспорты по подпутям {#exports-by-subpath}
+
+Каждый рантайм-подпуть и каждый фреймворк-подпуть реэкспортирует **всё ядро** поверх того, что
+добавляет сам, так что спеке никогда не нужны два импорта из этого пакета. Три подпути намеренно
+сделаны узкими: `/angular-http` — это спутник `/angular`, а не замена ему, и именно узость держит
+`@angular/common` внутри тех сюит, которые его просят; `/dom-stubs` и `/diagnostics` содержат то, что
+**уехало** из ядра в 4.0.0, чтобы спека, которая не трогает ни глобалы DOM, ни отчёт о прогоне, их не
+вычисляла — см. [Переход на 4.0](/ru/upgrading-4#_2-dom-stubs-and-run-diagnostics-moved-to-their-own-subpaths).
+
+| Подпуть | Что добавляет поверх ядра |
+| --- | --- |
+| `vitest-auto-spy`   | — (это и есть ядро; регистрирует адаптер Vitest)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `/bun`              | — (регистрирует адаптер `bun:test`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `/node`             | `trackNodeMocks`, `pruneNodeMocks`, `countNodeMocks` — опциональный приватный `MockTracker`, который не даёт `node:test` удерживать каждый спай до конца жизни процесса; регистрирует адаптер `node:test`                                                                                                                                                                                                                                                                                                                                                                     |
+| `/bun-angular`      | `provideAutoSpy`, `injectSpy`, `renderShallow`, `createWithAutoSpies`, `stable`, `flushEffects`, `settleResource`, строительные блоки DOM/инлайнера; регистрирует адаптер Bun и поднимает зонлесс `TestBed`                                                                                                                                                                                                                                                                                                                                                                   |
+| `/rxjs`             | `createObservableWithValues` плюс типовая поверхность observable; регистрирует observable-слой и является единственным модулем, называющим тип из rxjs, — именно его расширение `AutoSpyRxjsTypes` делает `returnSubject()` настоящим `Subject<T>` из rxjs                                                                                                                                                                                                                                                                                                                     |
+| `/dom-stubs`        | `stubIntersectionObserver`, `stubResizeObserver`, `stubMutationObserver`, `stubObserver`, `stubMediaElement`, `stubAbortController`, `intersectionEntry`, `resizeEntry`, `mutationRecord` — **уехали с корневой точки входа в 4.0.0**, потому что реэкспорт в ESM жадный и каждая спека в каждом проекте их вычисляла. Регистрирует адаптер по умолчанию, только если ни один рантайм-вход этого не сделал, как и `/console`                                                                                                                                                     |
+| `/diagnostics`      | `compareTestRuns`, `summarizeTestRun`, `formatTestRunComparison`, `diffByField`, `explainSpy` — первые четыре **уехали с корневой точки входа в 4.0.0** по той же причине. Чистые функции, которые ничего не регистрируют, поэтому этот вход работает и из обычного Node-скрипта, читающего два JSON-отчёта                                                                                                                                                                                                                                                                     |
+| `/angular`          | `provideAutoSpy`, `provideAutoSpyForToken`, `injectSpy`, `extendWithAutoSpies`, `overrideAutoSpy`, `overrideComponentProvider`, `assertNgModuleScopes`, `assertComponentDefIntact`, `setupAngularTestEnv`, `createDirectiveHost`, `registerDirectiveMatchers`, `renderShallow`, `createWithAutoSpies`, `stable`, `flushEffects`, `settleResource`, `mockResourceProp`, `mockSignalProp`, `registerSignalMatchers`, `registerResourceMatchers`, `enableAngularDiagnostics`, `disableAngularDiagnostics`, `assertNoPendingRequests`, `trackInjections`, диагностика TestBed |
+| `/angular-http`     | `provideHttpTesting`, `expectRequest`, `expectNoRequest`, `verifyNoPendingRequests` — рецепт для `httpResource()` / `HttpClient` в две строки. **Единственный** вход, импортирующий `@angular/common`, который является опциональным peer-зависимостью; единственный подпуть, не реэкспортирующий ядро                                                                                                                                                                                                                                                                         |
+| `/nestjs`           | `provideAutoSpy`, `injectSpy(moduleRef, token)`, `createNestUnit`, `trackInjections`, `NestModuleRef`, `NestValueProvider`, `NestUnit`, `NestUnitSpies`, `CreateNestUnitOptions`, `NestUnitProvider`, `NestUnitClass`                                                                                                                                                                                                                                                                                                                                                         |
+| `/vue`              | `provideAutoSpy`, `VueInjectionToken`, `VueProvideSpy`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `/react`, `/svelte` | — (ядро под именем, которое хорошо читается в этих сюитах)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `/console`          | `consoleDebugSpy` … `consoleWarnSpy`, `installConsoleSpies`, `resetConsoleSpies`, `restoreConsole`                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `/zone`             | `installProxyZonePatch` — и ставит его при импорте. Единственный вход, трогающий зоны; zone.js является **devDependency этого пакета и ничем больше**, и никакой другой вход до этого модуля не добирается                                                                                                                                                                                                                                                                                                                                                                    |
+| `/setup`            | `setupAutoSpy`, `setupFakeTimers`, `advanceTimers`, `mockSystemTime`, `withSystemTime`, `mockNow`, `useCountingClock`, `registerFocusMatchers`, `blockNetwork`, `guardGlobalPatches`, `installPerTest`, `restoreTimerGlobals`, `restoreWebStorage`, `setSpyEngine` / `getSpyEngine` / `SpyEngine`, трекеры зависших таймеров и реджектов, трекеры реестра моков, `describeDuplicateCopies`, `getPackageCopies`                                                                                                                                                                  |
+| `/eslint-plugin`    | объект плагина для flat-конфига                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+
+Само ядро, помимо фабрик, несёт ещё: `captureArg`, `asInstances`, `narrow`, `withOverrides`,
+`createFixture`, `createFixtureFactory`,
+`compareTestRuns`, `mockConstructor`, `stubConstructor`,
+`stubAbortController`, `stubMediaElement`, `flushEventLoop`, `flushEventLoopUntil`,
+`settleDynamicImport`, `assertMocked`, `moduleNamespace`, `diffByField`, `autoMocked`, стабы
+observer'ов (`stubIntersectionObserver` / `stubResizeObserver` / `stubMutationObserver` /
+`stubObserver`) и построители их записей (`intersectionEntry`, `mutationRecord`, `resizeEntry`).
+
+::: warning Один адаптер на прогон
+Каждый вход регистрирует свой мок-адаптер **при импорте**. Импортируйте тот, который соответствует
+вашему раннеру: затянув `vitest-auto-spy` в прогон `bun test`, вы оставите установленным адаптер Vitest.
+:::
+
+Два хелпера доступны только на Vitest и намеренно отсутствуют в `/bun-angular`, потому что им нужны
+`expect.extend` раннера и хуки уровня сюиты: `registerSignalMatchers` / `registerResourceMatchers` и
+семейство диагностики TestBed. `mockResourceProp` доступен только на Vitest по другой причине — он
+живёт рядом с остальными хелперами `mock*Prop`, которые `/bun-angular` тоже не реэкспортирует.

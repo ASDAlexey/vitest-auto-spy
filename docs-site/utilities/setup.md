@@ -575,7 +575,7 @@ In that window the builder compiles the unit-test bundle with esbuild code split
 spec is a self-contained bundle and `--coverage` grows by hundreds of megabytes with no plateau —
 791 chunks / 596 MB on a 784-spec suite, until the OOM killer ends the run. The builder emits no
 warning, and the two places that already say so — the
-[`doctor` check](/utilities/cli#doctor-defects-that-never-fail) `angular-build-splitting-off` and the
+[`doctor` check](/utilities/cli#doctor-—-defects-that-never-fail) `angular-build-splitting-off` and the
 [Angular page](/adapters/angular#when-the-unit-test-build-has-code-splitting-off) — both have to
 be sought out. This one line is printed from inside the run where it hurts, to stderr, once per
 worker: the builder runs Vitest with `isolate: false` and evaluates the setup file once, and the

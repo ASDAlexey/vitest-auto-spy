@@ -36,7 +36,7 @@ It returns the `Spy<T>` directly, so there is nothing to unwrap.
 Do **not** reach for `TestBed.overrideComponent` for this. It forces a JIT recompilation, and under
 an AOT test bundle that recompilation resolves the component's directives and pipes from a runtime
 scope the bundler has stripped, leaving it with none of them — see
-[`assertNgModuleScopes`](#assertngmodulescopes) below.
+[`assertNgModuleScopes`](#assertngmodulescopes-modules) below.
 
 ## The verification
 

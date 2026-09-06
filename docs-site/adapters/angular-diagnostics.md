@@ -58,7 +58,7 @@ from a live injector. The right order is two lines and one less indirection in t
 
 ## `ngModuleScopes`
 
-Applies [`assertNgModuleScopes`](/adapters/angular-overrides#assertngmodulescopes) automatically to
+Applies [`assertNgModuleScopes`](/adapters/angular-overrides#assertngmodulescopes-modules) automatically to
 every `imports` entry of every testing module — but only to the entries that pass a much stricter
 filter first.
 

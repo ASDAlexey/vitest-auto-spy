@@ -291,7 +291,7 @@ when the file it appended to crosses that line.
 | `-h`, `--help`    | all four | The usage screen                                                          |
 | `-v`, `--version` | all four | The installed version                                                     |
 
-`perf`'s own flags — `--json`, `--out` — are on [its section above](#perf-where-the-cpu-time-actually-goes).
+`perf`'s own flags — `--json`, `--out` — are on [its section above](#perf-—-where-the-cpu-time-actually-goes).
 The codemod's own flags — `--write`, `--verify`, `--only`, `--skip`, `--list` — are on
 [its page](/utilities/codemod#flags).
 

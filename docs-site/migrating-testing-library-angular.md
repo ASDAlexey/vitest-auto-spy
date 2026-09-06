@@ -186,7 +186,7 @@ session.accessorSpies.getters.isLoggedIn.mockReturnValue(false);
 ```
 
 The property keeps reading and writing normally; `accessorSpies` is the separate bag the assertions
-live in. See [Accessor spies](/core/create-spy-from-class#accessor-spies--accessorspies).
+live in. See [Accessor spies](/core/create-spy-from-class#accessor-spies-—-accessorspies).
 
 **No `Object.prototype` guard.** `mockFunctions(Object.getPrototypeOf(proto))` (line 18) recurses
 until the prototype is `null`, and `Object.prototype` is the last stop before it — so
@@ -293,7 +293,7 @@ Nothing in this package's spy path touches `NgZone` either, so the two coexist w
   rather than typing the real service as a double.
 - **The same API off Angular** — [`bun:test`](/runtimes/bun), [`node:test`](/runtimes/node), NestJS,
   React, Vue, Svelte, and Angular's `TestBed` [under `bun test`](/runtimes/bun-angular).
-- **[Nineteen lint rules](/utilities/eslint-plugin)** versioned with the API they recommend.
+- **[Twenty lint rules](/utilities/eslint-plugin)** versioned with the API they recommend.
 
 ## Versions this was written against
 

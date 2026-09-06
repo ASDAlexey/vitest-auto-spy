@@ -3,6 +3,7 @@ import DefaultTheme from 'vitepress/theme';
 import { h } from 'vue';
 
 import './custom.css';
+import { applyLocalePreference } from './locale-preference';
 
 // The hero is otherwise a column of text against an empty half-page. This is what the library does,
 // in the four lines the tagline is describing — static markup, so it goes in through `innerHTML`
@@ -27,4 +28,7 @@ export default {
     h(DefaultTheme.Layout, null, {
       'home-hero-image': () => h('div', { class: 'vas-panel', innerHTML: HERO_PANEL }),
     }),
+  enhanceApp({ router }) {
+    applyLocalePreference(router);
+  },
 } satisfies Theme;

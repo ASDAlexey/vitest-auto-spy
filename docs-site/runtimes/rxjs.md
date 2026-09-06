@@ -98,21 +98,23 @@ type SubjectOf<T> = AutoSpyRxjsTypes<T> extends { subject: infer S } ? S : Subje
 `AutoSpyRxjsTypes<T>` is a normal augmentable interface, so a project with its own `Subject`
 implementation can point `SubjectOf` at that instead:
 
-````ts
+```ts
 declare module 'vitest-auto-spy' {
   interface AutoSpyRxjsTypes<T> {
     subject: MyOwnSubject<T>;
   }
 }
-``` The one import that makes the helpers *exist* is the one that makes them
-rxjs-typed, so the two cannot drift apart.
+```
+
+The one import that makes the helpers *exist* is the one that makes them rxjs-typed, so the two
+cannot drift apart.
 
 ```ts
 import 'vitest-auto-spy/rxjs';
 import type { Subject } from 'rxjs';
 
 const subject: Subject<Product[]> = myService.getProducts$.returnSubject(); // ✔ compiles
-````
+```
 
 The catch worth knowing: the type follows the **import**, not the installed package. If your only
 `import 'vitest-auto-spy/rxjs'` sits in a setup file outside the `tsconfig` your specs are checked

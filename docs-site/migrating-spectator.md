@@ -326,7 +326,7 @@ decorative, which is the next section.
 ### The same spec with no `let` and no `beforeEach`
 
 On Vitest 4.1,
-[`extendWithAutoSpies`](/adapters/angular#fixtures-instead-of-let--beforeeach--extendwithautospies)
+[`extendWithAutoSpies`](/adapters/angular#fixtures-instead-of-let-beforeeach-—-extendwithautospies)
 collapses the whole block — and a test that never names a dependency never builds it:
 
 ```ts
@@ -462,7 +462,7 @@ Short and factual.
   ways an AOT test bundle fails half an hour later in someone else's spec.
 - **Beyond Vitest**, the same API runs on `bun:test` and `node:test`, and Angular's `TestBed` runs
   [under `bun test`](/runtimes/bun-angular).
-- **[Nineteen lint rules](/utilities/eslint-plugin)** versioned with the API they recommend.
+- **[Twenty lint rules](/utilities/eslint-plugin)** versioned with the API they recommend.
 
 ## Did the migration lose a test?
 

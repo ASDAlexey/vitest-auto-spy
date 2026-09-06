@@ -436,7 +436,7 @@ file the runner happened to schedule second.
 One caveat worth knowing before you reach for it: the copy is deep through plain objects and arrays
 and stops there. A `Date`, a `Map` or a class instance travels by reference, because rebuilding one
 would strip its prototype. For defaults that _are_ a model instance with getters,
-[`withOverrides`](/utilities/fixtures#withoverrides-model-overrides-a-model-whose-getters-survive)
+[`withOverrides`](/utilities/fixtures#withoverrides-model-overrides-—-a-model-whose-getters-survive)
 snapshots them first.
 
 ## What not to do

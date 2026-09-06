@@ -149,28 +149,30 @@ surrounding machinery probes to decide _what kind of object this is_ — `then`,
 
 ## Lazy spies — `lazySpies`
 
-**What it is.** By default `createSpyFromClass` builds a spy for **every** method up front (eager).
-With `lazySpies: true`, each method spy is instead created on **first access** (`spy.method`) and
-then cached, so methods a test never touches never pay the spy-construction cost.
+**What it is.** A method's spy is built on **first access** (`spy.method`) and then cached, so
+methods a test never touches never pay the spy-construction cost. That is the default,
+`lazySpies: true`; `lazySpies: false` builds every spy up front instead, and `'proxy'` drops the
+per-method placeholder as well — see
+[Performance](/core/performance#where-the-remaining-memory-is-and-lazyspies-proxy).
 
 **Why it matters.** Building a spy is not free: each method gets a host-runner mock plus the
 `calledWith` / `resolveWith` / `nextWith` helper surface. On a wide service where a test calls only
 a couple of methods, eagerly building all of them is mostly wasted work.
 
 ```ts
-const spy = createSpyFromClass(WideService, { lazySpies: true });
+const spy = createSpyFromClass(WideService);
 spy.getName.mockReturnValue('Ada'); // getName is built here, on first access
 // the other 18 methods are never built — nothing to construct, nothing to reset
 ```
 
-**When to use it.** Reach for `lazySpies` when spying **wide services** (many methods) where each
-test exercises only a few — the typical unit-test shape. For small classes the difference is
-negligible, so the eager default is fine.
+**When to turn it off.** `lazySpies: false` is worth it only when a spec enumerates the spy object
+itself rather than calling methods on it, or when one test really does touch every method of a
+small class. [Performance](/core/performance) has the crossover measured.
 
-::: tip Angular defaults to this
-The `vitest-auto-spy/angular` `provideAutoSpy` helper already sets `lazySpies: true` by default —
-Angular tests overwhelmingly match this pattern. Pass `{ lazySpies: false }` there to opt back into
-eager spies. See [Adapters → Angular](/adapters/angular#lazy-spies-by-default).
+::: tip It has been the default since 2.0
+Until 2.0 only `provideAutoSpy` on the Angular entry turned it on, which made the Angular path
+quietly faster than the plain one for no reason a reader could see. See
+[Adapters → Angular](/adapters/angular#lazy-spies-by-default).
 :::
 
 **Behaviour is identical either way.** `Object.keys`, `vi.isMockFunction`, `calledWith`,
