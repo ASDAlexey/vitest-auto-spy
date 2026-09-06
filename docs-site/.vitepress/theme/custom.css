@@ -1,0 +1,509 @@
+/* ---------------------------------------------------------------------------
+   vitest-auto-spy — an instrument-readout skin over the VitePress default theme.
+   Near-black canvas, hairline rules, mono micro-labels, one teal signal accent.
+   --------------------------------------------------------------------------- */
+
+:root {
+  --vas-font-display: 'Archivo', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  --vas-font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace;
+
+  --vp-c-brand-1: #0f766e;
+  --vp-c-brand-2: #0d9488;
+  --vp-c-brand-3: #14b8a6;
+  --vp-c-brand-soft: rgba(20, 184, 166, 0.14);
+
+  --vp-button-brand-border: transparent;
+  --vp-button-brand-text: #ffffff;
+  --vp-button-brand-bg: #0f766e;
+  --vp-button-brand-hover-bg: #115e59;
+  --vp-button-brand-active-bg: #134e4a;
+
+  --vas-grid-line: rgba(15, 118, 110, 0.06);
+  --vas-glow: rgba(20, 184, 166, 0.12);
+  --vas-hairline: var(--vp-c-divider);
+  --vas-label: var(--vp-c-text-3);
+
+  --vp-home-hero-name-color: transparent;
+  --vp-home-hero-name-background: linear-gradient(104deg, #0f766e 8%, #0d9488 46%, #0891b2 100%);
+}
+
+.dark {
+  --vp-c-bg: #0d1012;
+  --vp-c-bg-alt: #090b0c;
+  --vp-c-bg-soft: #14181a;
+  --vp-c-bg-elv: #14181a;
+
+  --vp-c-divider: #232a2d;
+  --vp-c-gutter: #1b2124;
+
+  --vp-c-brand-1: #2dd4bf;
+  --vp-c-brand-2: #5eead4;
+  --vp-c-brand-3: #0f766e;
+  --vp-c-brand-soft: rgba(45, 212, 191, 0.16);
+
+  --vp-button-brand-text: #04211f;
+  --vp-button-brand-bg: #2dd4bf;
+  --vp-button-brand-hover-bg: #5eead4;
+  --vp-button-brand-active-bg: #14b8a6;
+
+  --vas-grid-line: rgba(94, 234, 212, 0.06);
+  --vas-glow: rgba(45, 212, 191, 0.13);
+
+  --vp-home-hero-name-background: linear-gradient(104deg, #5eead4 6%, #2dd4bf 44%, #38bdf8 100%);
+}
+
+/* --- Typography -------------------------------------------------------- */
+
+.VPNavBarTitle .title,
+.vp-doc h1,
+.vp-doc h2,
+.vp-doc h3,
+.VPHero .name,
+.VPHero .text,
+.VPFeature .title {
+  font-family: var(--vas-font-display);
+  letter-spacing: -0.022em;
+}
+
+.VPNavBarTitle .title {
+  font-weight: 600;
+  letter-spacing: -0.03em;
+}
+
+/* --- Home: canvas ------------------------------------------------------ */
+
+.VPHome {
+  position: relative;
+  isolation: isolate;
+}
+
+.VPHome::before {
+  content: '';
+  position: absolute;
+  inset: -64px 0 auto 0;
+  height: 860px;
+  z-index: -1;
+  pointer-events: none;
+  background-image:
+    radial-gradient(70% 46% at 50% 6%, var(--vas-glow) 0%, transparent 68%),
+    linear-gradient(to right, var(--vas-grid-line) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--vas-grid-line) 1px, transparent 1px);
+  background-size:
+    100% 100%,
+    76px 76px,
+    76px 76px;
+  -webkit-mask-image: radial-gradient(112% 62% at 50% 0%, #000 12%, transparent 74%);
+  mask-image: radial-gradient(112% 62% at 50% 0%, #000 12%, transparent 74%);
+}
+
+/* --- Home: hero -------------------------------------------------------- */
+
+.VPHero .name {
+  font-weight: 700;
+  font-size: clamp(2.1rem, 1.2rem + 2.8vw, 3.1rem);
+  line-height: 1.06;
+}
+
+.VPHero .text {
+  font-weight: 700;
+  line-height: 1.08;
+  letter-spacing: -0.03em;
+  max-width: 20ch;
+}
+
+.VPHero .tagline {
+  max-width: 46ch;
+  font-size: 1.05rem;
+  line-height: 1.62;
+  color: var(--vp-c-text-2);
+}
+
+.VPHero .actions {
+  gap: 10px;
+}
+
+.VPHero .VPButton {
+  border-radius: 8px;
+  font-weight: 550;
+  letter-spacing: -0.01em;
+  transition:
+    transform 0.16s ease,
+    background-color 0.16s ease,
+    border-color 0.16s ease;
+}
+
+.VPHero .VPButton:hover {
+  transform: translateY(-1px);
+}
+
+/* --- Home: feature cards ----------------------------------------------- */
+
+.VPHome .VPFeatures .items {
+  counter-reset: vas-feature;
+}
+
+.VPHome .VPFeature {
+  counter-increment: vas-feature;
+  position: relative;
+  overflow: hidden;
+  border-radius: 10px;
+  border-color: var(--vas-hairline);
+  background: var(--vp-c-bg-soft);
+  padding: 0;
+  transition:
+    border-color 0.18s ease,
+    transform 0.18s ease;
+}
+
+.VPHome .VPFeature .box {
+  padding: 44px 24px 26px;
+}
+
+.VPHome .VPFeature::before {
+  content: counter(vas-feature, decimal-leading-zero);
+  position: absolute;
+  top: 20px;
+  left: 24px;
+  font-family: var(--vas-font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.16em;
+  color: var(--vp-c-brand-1);
+}
+
+.VPHome .VPFeature::after {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 1px;
+  background: linear-gradient(to right, var(--vp-c-brand-1), transparent 72%);
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 0.28s ease;
+}
+
+.VPHome .VPFeature:hover {
+  border-color: var(--vp-c-brand-1);
+  transform: translateY(-2px);
+}
+
+.VPHome .VPFeature:hover::after {
+  transform: scaleX(1);
+}
+
+.VPHome .VPFeature .title {
+  font-size: 1.02rem;
+  font-weight: 650;
+  line-height: 1.3;
+}
+
+.VPHome .VPFeature .details {
+  margin-top: 8px;
+  font-size: 0.875rem;
+  line-height: 1.62;
+}
+
+/* --- Home: markdown body ------------------------------------------------ */
+
+.VPHome .vp-doc h2 {
+  margin: 72px 0 0;
+  padding-top: 26px;
+  border-top: 1px solid var(--vas-hairline);
+  font-size: 1.55rem;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+}
+
+.VPHome .vp-doc h2 + p {
+  margin-top: 10px;
+  max-width: 62ch;
+  color: var(--vp-c-text-2);
+}
+
+.VPHome .vp-doc h3 {
+  font-size: 1.05rem;
+  letter-spacing: -0.02em;
+}
+
+.vas-eyebrow {
+  margin: 0 0 4px;
+  font-family: var(--vas-font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--vas-label);
+}
+
+.VPHome .vp-doc .vas-eyebrow + h2 {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+
+.vas-section {
+  margin-top: 72px;
+  padding-top: 26px;
+  border-top: 1px solid var(--vas-hairline);
+}
+
+/* Two code panels side by side: the cast you write today, and the line that replaces it. */
+.vas-split {
+  display: grid;
+  gap: 18px;
+  margin-top: 22px;
+}
+
+@media (min-width: 860px) {
+  .vas-split {
+    grid-template-columns: 1fr 1fr;
+    align-items: start;
+  }
+}
+
+.vas-split > div > h3 {
+  margin: 0 0 10px;
+  font-family: var(--vas-font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--vas-label);
+  border: 0;
+  padding: 0;
+}
+
+.vas-split > div > h3 .vas-mark {
+  color: var(--vp-c-brand-1);
+}
+
+.vas-split div[class*='language-'] {
+  margin: 0;
+}
+
+/* The facts strip: five numbers that can be re-checked in the repo. */
+.vas-facts {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1px;
+  margin-top: 26px;
+  background: var(--vas-hairline);
+  border: 1px solid var(--vas-hairline);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+@media (min-width: 720px) {
+  .vas-facts {
+    grid-template-columns: repeat(5, 1fr);
+  }
+}
+
+.vas-fact {
+  background: var(--vp-c-bg-soft);
+  padding: 18px 16px;
+}
+
+.vas-fact b {
+  display: block;
+  font-family: var(--vas-font-display);
+  font-size: 1.6rem;
+  font-weight: 700;
+  letter-spacing: -0.04em;
+  color: var(--vp-c-brand-1);
+  line-height: 1.1;
+}
+
+.vas-fact span {
+  display: block;
+  margin-top: 4px;
+  font-size: 0.8rem;
+  line-height: 1.45;
+  color: var(--vp-c-text-2);
+}
+
+/* The sidebar, flattened onto the landing: where a first visit actually goes. */
+.vas-map {
+  display: grid;
+  gap: 20px;
+  margin-top: 24px;
+}
+
+@media (min-width: 720px) {
+  .vas-map {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (min-width: 1000px) {
+  .vas-map {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+.vas-map-group {
+  border: 1px solid var(--vas-hairline);
+  border-radius: 10px;
+  background: var(--vp-c-bg-soft);
+  padding: 18px 18px 20px;
+}
+
+.VPHome .vp-doc .vas-map-group h3 {
+  margin: 0 0 12px;
+  padding: 0;
+  border: 0;
+  font-family: var(--vas-font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--vas-label);
+}
+
+.VPHome .vp-doc .vas-map-group ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.VPHome .vp-doc .vas-map-group li {
+  margin: 0;
+  padding: 4px 0;
+}
+
+.VPHome .vp-doc .vas-map-group a {
+  font-size: 0.9rem;
+  font-weight: 450;
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+  transition: border-color 0.16s ease;
+}
+
+.VPHome .vp-doc .vas-map-group a:hover {
+  border-bottom-color: var(--vp-c-brand-1);
+}
+
+/* The closing line: one link, no card around it. */
+.vas-closer {
+  margin-top: 26px;
+  padding: 22px 24px;
+  border: 1px solid var(--vas-hairline);
+  border-left: 2px solid var(--vp-c-brand-1);
+  border-radius: 10px;
+  background: var(--vp-c-bg-soft);
+}
+
+.VPHome .vp-doc .vas-closer p {
+  margin: 0;
+  max-width: 68ch;
+}
+
+.VPHome .vp-doc .vas-closer p + p {
+  margin-top: 10px;
+}
+
+/* --- Home: the hero panel ---------------------------------------------- */
+
+.VPHero .image-bg {
+  display: none;
+}
+
+.VPHero .image {
+  margin: 0;
+}
+
+@media (max-width: 959px) {
+  .VPHero .image {
+    display: none;
+  }
+}
+
+@media (min-width: 960px) {
+  .VPHero.has-image .container {
+    align-items: center;
+  }
+
+  .VPHero .image-container {
+    display: block;
+    width: 100%;
+    height: auto;
+    transform: none;
+  }
+
+  .VPHero.has-image .text {
+    max-width: none;
+  }
+}
+
+.vas-panel {
+  border: 1px solid var(--vas-hairline);
+  border-radius: 12px;
+  background: var(--vp-c-bg-soft);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.02) inset,
+    0 24px 60px -28px rgba(13, 148, 136, 0.35);
+  overflow: hidden;
+}
+
+.vas-panel__bar {
+  display: flex;
+  align-items: center;
+  padding: 0 14px;
+  height: 38px;
+  border-bottom: 1px solid var(--vas-hairline);
+  background: var(--vp-c-bg-alt);
+}
+
+.vas-panel__tab {
+  font-family: var(--vas-font-mono);
+  font-size: 11.5px;
+  letter-spacing: 0.02em;
+  color: var(--vp-c-text-2);
+}
+
+.vas-panel__code {
+  margin: 0;
+  padding: 20px 20px 22px;
+  overflow-x: auto;
+  font-family: var(--vas-font-mono);
+  font-size: 13px;
+  line-height: 1.85;
+  color: var(--vp-c-text-1);
+}
+
+.vas-panel__code .k {
+  color: var(--vp-c-text-3);
+}
+
+.vas-panel__code .f {
+  color: var(--vp-c-brand-1);
+}
+
+.vas-panel__code .t {
+  color: #38bdf8;
+}
+
+.vas-panel__code .n {
+  color: #f59e0b;
+}
+
+.vas-panel__out {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  align-items: baseline;
+  padding: 12px 20px 14px;
+  border-top: 1px solid var(--vas-hairline);
+  background: var(--vp-c-bg-alt);
+  font-family: var(--vas-font-mono);
+  font-size: 11.5px;
+}
+
+.vas-panel__pass {
+  color: var(--vp-c-brand-1);
+  font-weight: 500;
+}
+
+.vas-panel__dim {
+  color: var(--vp-c-text-3);
+}

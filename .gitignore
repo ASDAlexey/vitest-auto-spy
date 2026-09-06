@@ -18,3 +18,9 @@ PRIORITIES.md
 # Written by `npm run bench:vs -- --outputJson`; the published table is regenerated, never committed raw.
 bench-results.json
 bench-results.*.json
+
+# `docs-site/ru/` mirrors every English page so the language switcher can stay on the current one.
+# Generated on predev/prebuild by scripts/generate-ru-mirrors.mjs; only the translated landing is
+# written by hand and committed.
+/docs-site/ru/*
+!/docs-site/ru/index.md

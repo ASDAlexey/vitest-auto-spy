@@ -1,31 +1,4 @@
-import type { Plugin } from 'vite';
 import { defineConfig } from 'vitepress';
-
-// Only the landing is translated, so the `ru` local-search index holds a single home page whose
-// body is empty and every query on /ru/ comes back with nothing. Point that index at the English
-// one the Russian nav already links to. The virtual module is VitePress-internal, hence the throw.
-function russianSearchUsesEnglishIndex(): Plugin {
-  const SEARCH_INDEX_MODULE = '/@localSearchIndex';
-  const RU_IMPORT = /"ru":\s*\(\)\s*=>\s*import\('@localSearchIndexru'\)/;
-
-  return {
-    name: 'vitest-auto-spy:ru-search-uses-en-index',
-    enforce: 'post',
-
-    transform(code, id) {
-      if (id !== SEARCH_INDEX_MODULE) return null;
-
-      if (!RU_IMPORT.test(code)) {
-        throw new Error(
-          `${SEARCH_INDEX_MODULE} no longer exposes a "ru" entry in the shape this plugin rewrites. ` +
-            'Search on /ru/ would silently return nothing; re-check the VitePress local-search plugin.',
-        );
-      }
-
-      return code.replace(RU_IMPORT, `"ru": () => import('@localSearchIndexroot')`);
-    },
-  };
-}
 
 const HOSTNAME = 'https://asdalexey.github.io/vitest-auto-spy/';
 const OG_IMAGE = `${HOSTNAME}og-image.png`;
@@ -33,6 +6,15 @@ const SITE_NAME = 'vitest-auto-spy';
 
 // The sidebar doubles as the source the per-page BreadcrumbList JSON-LD is built from (see
 // transformPageData), so it is hoisted here rather than living inside themeConfig.
+const RU_SECTION_LABEL: Record<string, string> = {
+  Core: 'Ядро',
+  'Spec patterns': 'Паттерны спек',
+  Runtimes: 'Среды запуска',
+  Utilities: 'Утилиты',
+  Adapters: 'Адаптеры',
+  Upgrading: 'Обновление',
+};
+
 const SIDEBAR = [
   {
     text: 'Core',
@@ -131,6 +113,23 @@ function absolute(link: string): string {
 }
 
 /** page link → the section it sits in (title + the group's first page), for the breadcrumb. */
+type NavLike = { text: string; link?: string; items?: NavLike[]; collapsed?: boolean };
+
+// The Russian locale serves a mirror of every page under `/ru/`, so its nav and sidebar are the
+// English ones with the prefix added — the labels are translated, the paths are not.
+function withLocalePrefix(items: NavLike[], prefix: string): NavLike[] {
+  return items.map((item) => ({
+    ...item,
+    ...(item.link?.startsWith('/') ? { link: `${prefix}${item.link}` } : {}),
+    ...(item.items ? { items: withLocalePrefix(item.items, prefix) } : {}),
+  }));
+}
+
+const RU_SIDEBAR = withLocalePrefix(SIDEBAR as NavLike[], '/ru').map((entry) => ({
+  ...entry,
+  text: RU_SECTION_LABEL[entry.text] ?? entry.text,
+}));
+
 const SECTION_OF_LINK = new Map<string, { text: string; first: string }>();
 
 for (const entry of SIDEBAR) {
@@ -155,8 +154,10 @@ export default defineConfig({
   cleanUrls: true,
   lastUpdated: true,
 
-  // Only the landing is translated. Every other page stays English and the Russian nav links
-  // straight at it, so a reader who switches language keeps the whole documentation set.
+  // Only the landing is translated. Every other page is mirrored under `/ru/` with its English
+  // body (scripts/generate-ru-mirrors.mjs), so switching language keeps the reader on the page they
+  // were reading and gives the Russian locale a search index of its own. The mirrors carry a
+  // canonical link back to the English original and are kept out of the sitemap.
   locales: {
     root: { label: 'English', lang: 'en-US' },
     ru: {
@@ -167,14 +168,16 @@ export default defineConfig({
         'Автоматические типизированные спаи из настоящего класса — одинаково на Vitest, Bun и node:test. Замена jest-auto-spies и jasmine-auto-spies с кодмодом, который дописывает переезд.',
       themeConfig: {
         nav: [
-          { text: 'Руководство', link: '/core/introduction' },
-          { text: 'Паттерны', link: '/recipes' },
-          { text: 'Среды запуска', link: '/runtimes/vitest' },
-          { text: 'Адаптеры', link: '/adapters/angular' },
-          { text: 'API', link: '/api' },
-          { text: 'Сравнение', link: '/comparison' },
-          { text: 'AI-агенты', link: '/agents' },
+          { text: 'Руководство', link: '/ru/core/introduction' },
+          { text: 'Паттерны', link: '/ru/recipes' },
+          { text: 'Среды запуска', link: '/ru/runtimes/vitest' },
+          { text: 'Адаптеры', link: '/ru/adapters/angular' },
+          { text: 'API', link: '/ru/api' },
+          { text: 'Сравнение', link: '/ru/comparison' },
+          { text: 'AI-агенты', link: '/ru/agents' },
         ],
+
+        sidebar: RU_SIDEBAR,
 
         footer: {
           message: 'Опубликовано под лицензией MIT.',
@@ -187,17 +190,24 @@ export default defineConfig({
   // README.md is the internal "how to run these docs" note, not a published page.
   srcExclude: ['README.md'],
 
-  vite: {
-    plugins: [russianSearchUsesEnglishIndex()],
-  },
-
   // Generates /sitemap.xml — submit it to Google Search Console so every page gets crawled.
   sitemap: {
     hostname: HOSTNAME,
+    // The `/ru/` mirrors are the English pages again; only the translated landing belongs here.
+    transformItems: (items) => items.filter((item) => !item.url.startsWith('ru/') || item.url === 'ru/'),
   },
 
   // Site-wide SEO head tags (canonical + OG are added per-page in transformPageData below).
   head: [
+    ['link', { rel: 'preconnect', href: 'https://fonts.googleapis.com' }],
+    ['link', { rel: 'preconnect', href: 'https://fonts.gstatic.com', crossorigin: '' }],
+    [
+      'link',
+      {
+        rel: 'stylesheet',
+        href: 'https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=JetBrains+Mono:wght@400;500&display=swap',
+      },
+    ],
     ['meta', { name: 'author', content: 'Alexey Popov' }],
     [
       'meta',
@@ -354,14 +364,18 @@ export default defineConfig({
     const isRussian = pageData.relativePath.startsWith('ru/');
     const isHome = pageData.relativePath === 'index.md' || pageData.relativePath === 'ru/index.md';
     const path = pageData.relativePath.replace(/(index)?\.md$/, '');
-    const canonical = `${HOSTNAME}${path}`;
+    // A `/ru/` page other than the landing is the English page again, so it points its canonical at
+    // the original and stays out of the index; the landing is a real translation and keeps its own.
+    const englishPath = isRussian ? path.replace(/^ru\//, '') : path;
+    const isMirror = isRussian && !isHome;
+    const canonical = `${HOSTNAME}${isMirror ? englishPath : path}`;
     // The landing's own frontmatter title is the site name; suffixing it would double the name.
     const title = pageData.title && pageData.title !== SITE_NAME ? `${pageData.title} | ${SITE_NAME}` : SITE_NAME;
     const description = pageData.description || pageData.frontmatter['description'] || '';
 
     // The section a page sits in, looked up in the sidebar map above. Top-level pages (api,
     // comparison, …) sit in no section and get a one-step breadcrumb.
-    const section = SECTION_OF_LINK.get(`/${path}`);
+    const section = SECTION_OF_LINK.get(`/${englishPath}`);
 
     const crumbs: { name: string; item: string }[] = [
       { name: 'Home', item: HOSTNAME },
@@ -373,7 +387,7 @@ export default defineConfig({
     pageData.frontmatter['head'].push(
       ['link', { rel: 'canonical', href: canonical }],
       // The landing is the only page that exists in two languages, so it is the only one that may
-      // claim an alternate; hreflang pointing at a page that does not exist is worse than none.
+      // claim an alternate; hreflang between two copies of the same English text says nothing.
       ...(isHome
         ? [
             ['link', { rel: 'alternate', hreflang: 'en', href: HOSTNAME }],
@@ -381,6 +395,9 @@ export default defineConfig({
             ['link', { rel: 'alternate', hreflang: 'x-default', href: HOSTNAME }],
           ]
         : []),
+      // The mirror exists for a reader who switched language mid-page, not for a crawler: indexing
+      // it would put the same English text under two URLs. `follow` keeps its links crawlable.
+      ...(isMirror ? [['meta', { name: 'robots', content: 'noindex, follow' }]] : []),
       ['meta', { property: 'og:locale', content: isRussian ? 'ru_RU' : 'en_US' }],
       ['meta', { property: 'og:type', content: isHome ? 'website' : 'article' }],
       ['meta', { property: 'og:title', content: title }],
@@ -417,10 +434,6 @@ export default defineConfig({
   },
 
   themeConfig: {
-    // The language menu must not translate the current path: only `/` and `/ru/` exist in both
-    // languages, so the default per-page mapping would send every other page to a 404.
-    i18nRouting: false,
-
     // https://vitepress.dev/reference/default-theme-config
     nav: [
       { text: 'Guide', link: '/core/introduction' },
@@ -451,7 +464,7 @@ export default defineConfig({
                 displayDetails: 'Показать подробности',
                 resetButtonTitle: 'Сбросить запрос',
                 backButtonTitle: 'Закрыть поиск',
-                noResultsText: 'Ничего не найдено (документация на английском)',
+                noResultsText: 'Ничего не найдено',
                 footer: {
                   selectText: 'выбрать',
                   navigateText: 'навигация',
