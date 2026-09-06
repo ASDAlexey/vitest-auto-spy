@@ -148,3 +148,103 @@ jobs:
       # preload, which is the one code path a source-only run never exercises.
       - name: Test (built bun-angular entry as preload)
         run: bun test --preload ./dist/bun-angular.js ./src/bun-tests
+
+  # The Angular peer range is a claim, and until this job existed nothing checked it: the matrixes
+  # above vary Node and Bun and install exactly one Angular. Both ways this package has broken a
+  # range in the past are cheap to catch — a value import of a symbol a major does not export fails
+  # at *link* time, and a type that moved fails at *check* time — so neither needs a test run.
+  #
+  # `ɵSIGNAL` (`lib/run-effect.ts`) is the reason the floor is not lower: it is a value import on the
+  # eager path of `dist/angular.js`, absent before Angular 18, and a missing named ESM export takes
+  # the whole entry down rather than the one helper. `provideZonelessChangeDetection`
+  # (`src/bun-angular.ts`) is why the floor is 20 and not 18.
+  angular-range:
+    name: Angular ${{ matrix.angular }} (link + types)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # the declared floor, and every major published since
+        angular: ['20', '21', '22']
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Pin npm
+        run: npm i -g npm@11
+
+      - run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      # A real install of the real tarball, not a path alias: resolution is half of what is being
+      # tested, and `@angular/platform-browser` is only reachable here because this package now
+      # declares it.
+      - name: Pack
+        run: npm pack --pack-destination "$RUNNER_TEMP"
+
+      - name: Install into a scratch consumer
+        working-directory: ${{ runner.temp }}
+        run: |
+          mkdir -p consumer && cd consumer
+          npm init -y >/dev/null
+          npm i --no-audit --no-fund \
+            "@angular/core@${{ matrix.angular }}" \
+            "@angular/common@${{ matrix.angular }}" \
+            "@angular/platform-browser@${{ matrix.angular }}" \
+            rxjs vitest typescript @types/node \
+            ../vitest-auto-spy-*.tgz
+
+      # The job that would have caught `ɵSIGNAL` on the day it was written.
+      - name: Link-check every Angular entry
+        working-directory: ${{ runner.temp }}/consumer
+        run: |
+          for entry in vitest-auto-spy vitest-auto-spy/angular vitest-auto-spy/angular-http; do
+            echo "importing $entry"
+            node --input-type=module -e "await import('$entry')"
+          done
+
+      # Types move between majors without any runtime symptom — `InputSignalWithTransform` and
+      # `ModelSignal` (`lib/render-shallow.ts`) are the ones this package already depends on.
+      # `skipLibCheck` stays off so the shipped declarations are checked too, and `@types/node` is
+      # installed because `SpyDisposable` keys off the ambient `Symbol.dispose` — a dependency this
+      # package does not declare, tracked separately. Without it the job would go red on that rather
+      # than on anything Angular, which is not what it is here to say.
+      - name: Type-check a consumer against the published declarations
+        working-directory: ${{ runner.temp }}/consumer
+        run: |
+          cat > probe.ts <<'TS'
+          import { createSpyFromClass, type Spy } from 'vitest-auto-spy';
+          import { provideAutoSpy, renderShallow } from 'vitest-auto-spy/angular';
+
+          class Service {
+            load(id: string): Promise<string> {
+              return Promise.resolve(id);
+            }
+          }
+
+          export const spy: Spy<Service> = createSpyFromClass(Service);
+          export const providers = [provideAutoSpy(Service)];
+          export const render = renderShallow;
+          TS
+          cat > tsconfig.json <<'JSON'
+          {
+            "compilerOptions": {
+              "module": "nodenext",
+              "moduleResolution": "nodenext",
+              "target": "es2022",
+              "strict": true,
+              "noEmit": true,
+              "skipLibCheck": false,
+              "types": ["node"],
+              "experimentalDecorators": true
+            },
+            "files": ["probe.ts"]
+          }
+          JSON
+          npx tsc -p tsconfig.json
