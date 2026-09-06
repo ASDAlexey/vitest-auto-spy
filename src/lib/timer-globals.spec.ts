@@ -21,10 +21,12 @@ const removeGlobal = (name: string): void => {
 describe('restoreTimerGlobals', () => {
   const realDate = readGlobal('Date');
   const realClearInterval = readGlobal('clearInterval');
+  const realPerformance = readGlobal('performance');
 
   afterEach(() => {
     writeGlobal('Date', realDate);
     writeGlobal('clearInterval', realClearInterval);
+    writeGlobal('performance', realPerformance);
   });
 
   it('puts back a global the uninstall deleted', () => {
@@ -37,12 +39,14 @@ describe('restoreTimerGlobals', () => {
 
   it('puts back several at once', () => {
     removeGlobal('Date');
-    removeGlobal('clearInterval');
+    // `performance` rather than a timer function: under happy-dom those are inherited from `Window`,
+    // so deleting one uncovers the prototype's copy instead of leaving the hole this stages.
+    removeGlobal('performance');
 
     restoreTimerGlobals();
 
     expect(readGlobal('Date')).toBe(realDate);
-    expect(readGlobal('clearInterval')).toBe(realClearInterval);
+    expect(readGlobal('performance')).toBe(realPerformance);
   });
 
   it('leaves a replacement a spec installed on purpose alone', () => {

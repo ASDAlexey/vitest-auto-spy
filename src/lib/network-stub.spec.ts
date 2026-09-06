@@ -127,7 +127,9 @@ describe('blockNetwork', () => {
     it('leaves a send() without an open() to raise the error that says so', () => {
       blockNetwork();
 
-      expect(() => new XMLHttpRequest().send()).toThrow(/state/i);
+      // jsdom raises an `InvalidStateError`, happy-dom "must be opened before send()" — what is
+      // asserted is that the environment's own complaint survives the install, not its wording.
+      expect(() => new XMLHttpRequest().send()).toThrow(/state|opened/i);
     });
 
     it('does not stack a second install on the first', async () => {
@@ -188,10 +190,13 @@ describe('blockNetwork', () => {
       expect(navigator.sendBeacon('https://tracker.example.test/beacon')).toBe(true);
     });
 
-    it('does not introduce one where the environment has none — jsdom is that environment', () => {
+    it('does not introduce one where the environment has none', () => {
+      // Staged rather than relied on: jsdom ships no `sendBeacon` and happy-dom does.
+      mockValueProp(globalThis.navigator, 'sendBeacon', undefined);
+
       blockNetwork();
 
-      expect('sendBeacon' in globalThis.navigator).toBe(false);
+      expect(globalThis.navigator.sendBeacon).toBeUndefined();
     });
 
     it('does nothing where there is no navigator at all', () => {

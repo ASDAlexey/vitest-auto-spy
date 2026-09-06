@@ -1,7 +1,28 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { MessageChannel as NodeMessageChannel } from 'node:worker_threads';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { flushEventLoop, flushEventLoopUntil, settleDynamicImport } from './event-loop';
 import { mockValueProp, restoreMockedProps } from './prop-mock';
+
+// happy-dom's realm ships no `MessageChannel` and jsdom's does; the helper below and the code under
+// test have to hand off through the same task source, so Node's own stands in where there is none.
+const hadMessageChannel = typeof MessageChannel === 'function';
+
+beforeAll(() => {
+  if (hadMessageChannel) {
+    return;
+  }
+
+  Reflect.set(globalThis, 'MessageChannel', NodeMessageChannel);
+});
+
+afterAll(() => {
+  if (hadMessageChannel) {
+    return;
+  }
+
+  Reflect.deleteProperty(globalThis, 'MessageChannel');
+});
 
 /** Continues on a real macrotask, which is what microtask draining cannot reach. */
 function resolvesOnARealTurn(): Promise<'done'> {

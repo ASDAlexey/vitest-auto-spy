@@ -51,9 +51,14 @@ class DomAbortController {
     this.signal.reason = reason ?? new Error('AbortError');
 
     const event = new Event('abort');
+    const handler = this.signal.onabort;
 
-    this.signal.onabort?.(event);
+    // `onabort` is parked for the dispatch because happy-dom's `EventTarget` invokes `on<type>`
+    // properties itself and jsdom's does not; run from a listener it fires once on either.
+    this.signal.onabort = null;
+    this.signal.addEventListener('abort', () => handler?.call(this.signal, event), { once: true });
     this.signal.dispatchEvent(event);
+    this.signal.onabort = handler;
   }
 }
 
