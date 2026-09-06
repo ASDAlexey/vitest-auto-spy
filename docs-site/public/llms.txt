@@ -34,7 +34,7 @@ spied method earns helpers from its return type — `calledWith`/`mustBeCalledWi
 
 ## Runtimes
 
-- [Vitest](https://asdalexey.github.io/vitest-auto-spy/runtimes/vitest): The default zero-config entry — setup-file wiring, the rxjs and Angular subpaths, and what shared-environment runs need.
+- [Vitest](https://asdalexey.github.io/vitest-auto-spy/runtimes/vitest): The default zero-config entry — Vitest 5 support, setup-file wiring, the rxjs and Angular subpaths, and what shared-environment runs need.
 - [Bun](https://asdalexey.github.io/vitest-auto-spy/runtimes/bun): Run vitest-auto-spy on Bun's bun:test, including Bun 1.4's --isolate, --parallel, --shard and --changed.
 - [Angular on Bun](https://asdalexey.github.io/vitest-auto-spy/runtimes/bun-angular): Run Angular's TestBed under bun test — DOM, JIT templates and zoneless change detection from one preload.
 - [node:test](https://asdalexey.github.io/vitest-auto-spy/runtimes/node): Run vitest-auto-spy on Node's built-in test runner — a runnable example and how node:test's native mock surface differs.
