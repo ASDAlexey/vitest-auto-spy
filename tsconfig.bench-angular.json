@@ -1,6 +1,11 @@
 {
   "compilerOptions": {
-    "noEmit": true,
+    // Two things here are load-bearing for `npm run bench:angular`, and both were found the hard way.
+    // No `noEmit`: `@analogjs/vite-plugin-angular` builds its TypeScript program from this file, and
+    // a program that emits nothing hands every file back untransformed — Vite then parses raw
+    // TypeScript as JavaScript and the run dies with `SyntaxError: Invalid or unexpected token`.
+    // `npm run typecheck:bench-angular` passes `--noEmit` on the command line, so nothing is emitted
+    // there either. The second is the `include` below.
     "types": ["vitest/globals", "node"]
   },
   // The Angular benchmark is a separate program from `tsconfig.bench.json`: that one covers
@@ -8,5 +13,8 @@
   // decorator/template compilation the plugin performs. Kept out of `npm run check` for the same
   // reason `tsconfig.bench.json` is — nothing here ships.
   "extends": "./tsconfig.json",
-  "include": ["src", "bench-angular/**/*.ts"]
+  // `"src"` as a bare directory entry, which is what stood here, is the other half: it stopped
+  // landing those files in the plugin's program when this repository moved to Angular 22 and
+  // TypeScript 6. Explicit globs cover the same files and do not.
+  "include": ["bench-angular/**/*.ts", "src/**/*.ts", "src/**/*.d.ts"]
 }

@@ -79,6 +79,7 @@ file on the first edit.
 | `npm run bench:vs:fast`    | The same, budgets divided by eight — for editing the benchmark. Marks itself as not a result.                                                                                     | ~10 s           |
 | `npm run bench`            | This package against itself — lazy against eager spies, `calledWith` dispatch, and a spied call against a plain one. Needs no install here. `--json <path>` keeps the raw results.                | ~1 min          |
 | `npm run bench:check`      | Compares a `npm run bench` results file against `baseline.json` and reports what moved. Report-only unless `--strict`.                                                             | instant         |
+| `npm run bench:smoke`      | Runs one throwaway case end to end and checks the results file the rest of the harness reads. Measures nothing quotable — it guards the harness itself.                            | ~2 s            |
 | `npm run bench:memory`     | Retained heap per double, across the same libraries, at two class widths and two touch levels.                                                                                    | ~40 s           |
 | `npm run bench:suite`      | Whole synthetic suites — 1 000 / 3 000 / 10 000 tests — measuring wall-clock and peak RSS per library.                                                                            | tens of minutes |
 
@@ -497,12 +498,69 @@ into one of two modes on the machine measured here, which alone swings the ratio
 165× while the spy arm holds within ±2%. That is a host property, not sampling noise. Until it is
 recorded as a median of several runs, or given a tolerance of its own, that row stays report-only.
 
+## The harness on Vitest 5
+
+Vitest 5 rewrote the benchmark API, and both halves of that rewrite land here.
+
+**A case is a `test()`, not a `describe()`.** `bench` is no longer a top-level export; it arrives as
+a fixture on the test context, and the arms of a case are registered inside the body and handed to
+`bench.compare()` (a single-arm case calls `.run()` on its registration). The **test's full name is
+the case title** — the string the tables print and `baseline.json` is keyed by — so renaming a
+`test()` here renames a baseline key.
+
+**`--outputJson` is gone.** Results leave the runner through a reporter, so
+[`scripts/bench-json-reporter.mjs`](../scripts/bench-json-reporter.mjs) writes the results file, told
+where by `BENCH_OUTPUT_JSON`. It keeps the field names the old flag produced — `p75`, `median`, `rme`,
+`sampleCount`, `hz` — and each row also carries the raw tinybench `latency` / `throughput` objects it
+derived them from. The published statistic is unchanged: `p75` is `latency.p75`, in milliseconds.
+
+**`suppressExportGetterWarnings: true` is load-bearing, and it is not about the warning.** To produce
+that warning Vitest 5 wraps every cross-module export in a counting getter — inside the timed body.
+On this repository the instrumentation alone inflated every arm that creates spies by 1.5-1.8×
+(`createAutoMock` + 4 accesses: 1.88 → 3.42 µs) while leaving the plain-call control untouched, which
+is what a per-mock overhead looks like and is not a change in this package. With the tracker off,
+Vitest 5.0.0 reproduces the Vitest 4.1.11 figures within 4 % on every case in `auto-spy.bench.ts`,
+measured back to back on one machine on 2026-09-06 — which is why **`baseline.json` was not
+re-measured for the port**. Set it back to `false` in `vitest.bench.config.mts` when the warning
+itself is what is wanted, and do not quote a number measured with it on.
+
+One consequence of the new API is cosmetic and worth knowing before diffing two tables: Vitest sorts
+the arms of a case by mean latency and ranks them, so rows now come out fastest-first rather than in
+registration order. Nothing downstream depends on the order — every consumer matches arms by name.
+
+### What did move: every arm built on the runner's own mock
+
+The self-benchmark held still across the upgrade because its doubles are built from this library's own
+spy. The head-to-head table did not, and the reason is measurable rather than mysterious: on Vitest 5
+a `vi.fn()` **retains about 4.8 kB until the event loop reaches a task boundary** — every mock is
+registered in a `FinalizationRegistry`, and V8 keeps a `WeakRef` target alive to the end of the
+current task, which a microtask `await` does not end. Two consequences, both handled here:
+
+- `vs-libraries.bench.ts` yields with `setImmediate` every 200 iterations, through tinybench's
+  per-iteration `afterEach` — untimed, so no measured nanosecond moves. Without it the full-budget run
+  dies at 8 GB inside the first block; the memory harness's own integrity check caught the same thing
+  and reported a 100 % residual rather than publishing a running total.
+- Every arm that builds its double out of `vi.fn()` — the four competitors and the hand-written
+  control — is **35-70 % slower than it was on Vitest 4**, measured back to back on one machine on
+  2026-09-06 (`@bugsplat` at 6 methods: 8.08 → 13.54 µs; hand-written: 6.67 → 9.33 µs), while this
+  package's own arms moved by less than the run's own margin (1.54 → 1.79 µs, 2.71 → 2.67 µs). The
+  ratios in the published head-to-head table therefore understate the current gap, and the absolute
+  microseconds on the Performance page predate the runner upgrade. Re-measure before quoting them.
+
+
 ## How these numbers stay current
 
 - [`.github/workflows/bench.yml`](../.github/workflows/bench.yml) runs `bench:vs` on a monthly
-  schedule, on demand, and on any pull request touching `bench/**` or `src/lib/**`. Every arm runs in
-  one job on one runner — splitting them across matrix jobs would compare two machines and report it
-  as a difference between libraries.
+  schedule, on demand, and on any pull request touching `bench/**`, `src/lib/**`, the harness scripts
+  and configs, or the manifests. The last two are there because the Vitest 5 upgrade that broke every
+  `bench*` command touched `package.json` and the lockfile and nothing else — so this workflow never
+  fired and the harness rotted green. Every arm runs in one job on one runner — splitting them across
+  matrix jobs would compare two machines and report it as a difference between libraries.
+- [`.github/workflows/bench-smoke.yml`](../.github/workflows/bench-smoke.yml) is the other half of
+  that lesson and runs on **every** push and pull request, with no path filter: `npm run bench:smoke`
+  measures one throwaway case end to end and checks that the results file the rest of the harness
+  reads came out parseable. It takes seconds, and it is the lane that fails when the runner changes
+  the benchmark API again.
 - [`.github/dependabot.yml`](../.github/dependabot.yml) watches this directory's `package.json`, so a
   competitor's release opens a pull request and that pull request re-measures the table against the
   new version. That is the whole anti-rot mechanism; if you change one of those two files, check the

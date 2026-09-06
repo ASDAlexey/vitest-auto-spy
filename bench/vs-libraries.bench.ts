@@ -31,16 +31,16 @@
  * - **Read the `p75` column, not `hz`.** These cases allocate by the hundred thousand, so a GC pause
  *   lands in some samples and not others; `hz` — and the "N× faster" summary built from it — swings
  *   several-fold between runs, while `p75` reproduces to the fourth decimal.
- * - **Every body ends with {@link dropCreatedMocks}.** `@vitest/spy` keeps every mock it ever made in
- *   a module-level *strong* `Set`, so without the prune each case allocates into a monotonically
- *   growing heap it inherited from the case before and `p75` reports whether a major GC happened to
- *   land inside the sample. The prune is charged to the case that created the mocks, which is the
- *   honest place for it — and it is charged identically to every contender, since they all register
- *   in the same set.
+ * - **Every body ends with {@link dropCreatedMocks}.** `@vitest/spy` retains what every mock it made
+ *   has recorded, so without the drop each case allocates into a monotonically growing heap it
+ *   inherited from the case before, `p75` reports whether a major GC happened to land inside the
+ *   sample, and at full budget the run dies out of memory. The drop is charged to the case that
+ *   created the mocks, which is the honest place for it — and it is charged identically to every
+ *   contender, since they all build their doubles out of the runner's mock.
  */
 import { createRequire } from 'node:module';
 
-import { bench, describe, vi } from 'vitest';
+import { test, vi } from 'vitest';
 
 import { createSpyFromClass as hirezCreateSpyFromClass } from '@bugsplat/vitest-auto-spies';
 import { createMock as golevelupCreateMock } from '@golevelup/ts-vitest';
@@ -69,10 +69,50 @@ const jasmineAutoSpies = requireCjs('jasmine-auto-spies') as { createSpyFromClas
 
 captureMockRegistry();
 
-/** Release the mocks this iteration created, so the next one starts from the same heap. */
+/**
+ * Release the mocks this iteration created, so the next one starts from the same heap.
+ *
+ * Two runners, two registries. Vitest 4 kept every mock it ever made in a module-level *strong*
+ * `Set`, which `pruneMockRegistry()` empties. Vitest 5 holds the mocks themselves weakly, but the
+ * state of every mock that has *recorded a call* stays in a strong set until something clears it —
+ * and every arm here calls its double. The prune reaches nothing there, so `vi.clearAllMocks()` is
+ * what bounds the heap: without it the full-budget run dies at 8 GB inside the first block.
+ *
+ * Both are charged to every arm identically, which is what keeps the comparison fair — the cost is
+ * the bookkeeping a real `beforeEach`/`clearMocks: true` does anyway.
+ */
 function dropCreatedMocks(): void {
   pruneMockRegistry();
+  vi.clearAllMocks();
 }
+
+/**
+ * Let the event loop turn every `every` iterations, because nothing else lets the runner's dead
+ * mocks go.
+ *
+ * Vitest 5 registers every mock it creates in a `FinalizationRegistry` — and V8 keeps a `WeakRef`
+ * target alive until the end of the current **task**. Awaiting a promise is not enough: tinybench
+ * drives its iterations with microtask awaits, so a case that builds millions of doubles never
+ * reaches a task boundary and every one of them stays live. Measured here, one `vi.fn()` holds
+ * ~4.8 kB until that boundary, all five arms of one class case hold about a gigabyte, and the
+ * full-budget run dies at 8 GB inside the first block. `setImmediate` is a real task, and the heap
+ * drops to nothing at each one.
+ *
+ * This is tinybench's per-iteration `afterEach`, which runs **outside** the timed window, so the
+ * yield costs wall-clock and not one measured nanosecond. Every arm carries the same hook.
+ */
+function yieldEvery(every: number): () => Promise<void> | undefined {
+  let seen = 0;
+
+  return () => {
+    seen += 1;
+
+    return seen % every === 0 ? new Promise<void>((resolve) => void setImmediate(resolve)) : undefined;
+  };
+}
+
+/** The hook every arm carries; shared, so the yields are spread evenly over the whole file. */
+const DRAIN = { afterEach: yieldEvery(200) };
 
 type AnyMethods = Record<string, (...args: unknown[]) => unknown>;
 type ClassWithMethods = new () => AnyMethods;
@@ -217,31 +257,30 @@ const CLASS_CASES: ClassCase[] = [
 // Only two libraries in the field read a class at all; the hand-written object is the control.
 // ---------------------------------------------------------------------------------------------
 CLASS_CASES.forEach(({ label, WideClass, methodCount, callCount, iterations }) => {
-  describe(`${label} — double from a class`, () => {
-    bench('vitest-auto-spy: createSpyFromClass', () => {
-      callFirst(createSpyFromClass(WideClass) as unknown as AnyMethods, callCount);
-      dropCreatedMocks();
-    }, fixedIterations(iterations));
-
-    bench('@bugsplat/vitest-auto-spies', () => {
-      callFirst(hirezCreateSpyFromClass(WideClass) as unknown as AnyMethods, callCount);
-      dropCreatedMocks();
-    }, fixedIterations(iterations));
-
-    bench('jest-auto-spies', () => {
-      callFirst(jestAutoSpies.createSpyFromClass(WideClass), callCount);
-      dropCreatedMocks();
-    }, fixedIterations(iterations));
-
-    bench('jasmine-auto-spies', () => {
-      callFirst(jasmineAutoSpies.createSpyFromClass(WideClass), callCount);
-      dropCreatedMocks();
-    }, fixedIterations(iterations));
-
-    bench('hand-written vi.fn() per method', () => {
-      callFirst(handWritten(methodCount), callCount);
-      dropCreatedMocks();
-    }, fixedIterations(iterations));
+  test(`${label} — double from a class`, async ({ bench }) => {
+    await bench.compare(
+      bench('vitest-auto-spy: createSpyFromClass', DRAIN, () => {
+        callFirst(createSpyFromClass(WideClass) as unknown as AnyMethods, callCount);
+        dropCreatedMocks();
+      }),
+      bench('@bugsplat/vitest-auto-spies', DRAIN, () => {
+        callFirst(hirezCreateSpyFromClass(WideClass) as unknown as AnyMethods, callCount);
+        dropCreatedMocks();
+      }),
+      bench('jest-auto-spies', DRAIN, () => {
+        callFirst(jestAutoSpies.createSpyFromClass(WideClass), callCount);
+        dropCreatedMocks();
+      }),
+      bench('jasmine-auto-spies', DRAIN, () => {
+        callFirst(jasmineAutoSpies.createSpyFromClass(WideClass), callCount);
+        dropCreatedMocks();
+      }),
+      bench('hand-written vi.fn() per method', DRAIN, () => {
+        callFirst(handWritten(methodCount), callCount);
+        dropCreatedMocks();
+      }),
+      fixedIterations(iterations),
+    );
   });
 });
 
@@ -267,21 +306,22 @@ const TYPE_CASES: TypeCase[] = [
 // and the comparison is apples to apples — this is the block where the deep-Proxy libraries live.
 // ---------------------------------------------------------------------------------------------
 TYPE_CASES.forEach(({ label, callCount, iterations }) => {
-  describe(`${label} — double from a type`, () => {
-    bench('vitest-auto-spy: createAutoMock<T>()', () => {
-      callFirst(createAutoMock<AnyMethods>() as AnyMethods, callCount);
-      dropCreatedMocks();
-    }, fixedIterations(iterations));
-
-    bench('vitest-mock-extended: mock<T>()', () => {
-      callFirst(vmxMock<AnyMethods>() as unknown as AnyMethods, callCount);
-      dropCreatedMocks();
-    }, fixedIterations(iterations));
-
-    bench('@golevelup/ts-vitest: createMock<T>()', () => {
-      callFirst(golevelupCreateMock<AnyMethods>() as unknown as AnyMethods, callCount);
-      dropCreatedMocks();
-    }, fixedIterations(iterations));
+  test(`${label} — double from a type`, async ({ bench }) => {
+    await bench.compare(
+      bench('vitest-auto-spy: createAutoMock<T>()', DRAIN, () => {
+        callFirst(createAutoMock<AnyMethods>() as AnyMethods, callCount);
+        dropCreatedMocks();
+      }),
+      bench('vitest-mock-extended: mock<T>()', DRAIN, () => {
+        callFirst(vmxMock<AnyMethods>() as unknown as AnyMethods, callCount);
+        dropCreatedMocks();
+      }),
+      bench('@golevelup/ts-vitest: createMock<T>()', DRAIN, () => {
+        callFirst(golevelupCreateMock<AnyMethods>() as unknown as AnyMethods, callCount);
+        dropCreatedMocks();
+      }),
+      fixedIterations(iterations),
+    );
   });
 });
 
@@ -292,21 +332,22 @@ interface Nested {
 // ---------------------------------------------------------------------------------------------
 // Recursive doubles — three levels down and a call at the leaf.
 // ---------------------------------------------------------------------------------------------
-describe('any size — deep double, 3 levels, leaf called', () => {
-  bench('vitest-auto-spy: mockDeep<T>()', () => {
-    mockDeep<Nested>().level1.level2.level3.leaf();
-    dropCreatedMocks();
-  }, fixedIterations(116_000));
-
-  bench('vitest-mock-extended: mockDeep<T>()', () => {
-    vmxMockDeep<Nested>().level1.level2.level3.leaf();
-    dropCreatedMocks();
-  }, fixedIterations(116_000));
-
-  bench('@golevelup/ts-vitest: createMock<T>() (deep by default)', () => {
-    golevelupCreateMock<Nested>().level1.level2.level3.leaf();
-    dropCreatedMocks();
-  }, fixedIterations(116_000));
+test('any size — deep double, 3 levels, leaf called', async ({ bench }) => {
+  await bench.compare(
+    bench('vitest-auto-spy: mockDeep<T>()', DRAIN, () => {
+      mockDeep<Nested>().level1.level2.level3.leaf();
+      dropCreatedMocks();
+    }),
+    bench('vitest-mock-extended: mockDeep<T>()', DRAIN, () => {
+      vmxMockDeep<Nested>().level1.level2.level3.leaf();
+      dropCreatedMocks();
+    }),
+    bench('@golevelup/ts-vitest: createMock<T>() (deep by default)', DRAIN, () => {
+      golevelupCreateMock<Nested>().level1.level2.level3.leaf();
+      dropCreatedMocks();
+    }),
+    fixedIterations(116_000),
+  );
 });
 
 /** Configure `m0` to return a value, then call it three times. */
@@ -324,43 +365,44 @@ function configureAndCall(double: AnyMethods): void {
 // prototype before they can configure anything and the Proxy libraries do not, so one block holding
 // all four would report the difference between the two *operations* under the heading of a race.
 // ---------------------------------------------------------------------------------------------
-describe('any size — configure a return + 3 calls, double from a class', () => {
-  bench('vitest-auto-spy: createSpyFromClass', () => {
-    configureAndCall(createSpyFromClass(MEDIUM) as unknown as AnyMethods);
-    dropCreatedMocks();
-  }, fixedIterations(51_000));
-
-  bench('@bugsplat/vitest-auto-spies', () => {
-    configureAndCall(hirezCreateSpyFromClass(MEDIUM) as unknown as AnyMethods);
-    dropCreatedMocks();
-  }, fixedIterations(51_000));
-
-  bench('jest-auto-spies', () => {
-    configureAndCall(jestAutoSpies.createSpyFromClass(MEDIUM));
-    dropCreatedMocks();
-  }, fixedIterations(51_000));
-
-  bench('hand-written vi.fn() per method', () => {
-    configureAndCall(handWritten(14));
-    dropCreatedMocks();
-  }, fixedIterations(51_000));
+test('any size — configure a return + 3 calls, double from a class', async ({ bench }) => {
+  await bench.compare(
+    bench('vitest-auto-spy: createSpyFromClass', DRAIN, () => {
+      configureAndCall(createSpyFromClass(MEDIUM) as unknown as AnyMethods);
+      dropCreatedMocks();
+    }),
+    bench('@bugsplat/vitest-auto-spies', DRAIN, () => {
+      configureAndCall(hirezCreateSpyFromClass(MEDIUM) as unknown as AnyMethods);
+      dropCreatedMocks();
+    }),
+    bench('jest-auto-spies', DRAIN, () => {
+      configureAndCall(jestAutoSpies.createSpyFromClass(MEDIUM));
+      dropCreatedMocks();
+    }),
+    bench('hand-written vi.fn() per method', DRAIN, () => {
+      configureAndCall(handWritten(14));
+      dropCreatedMocks();
+    }),
+    fixedIterations(51_000),
+  );
 });
 
-describe('any size — configure a return + 3 calls, double from a type', () => {
-  bench('vitest-auto-spy: createAutoMock<T>()', () => {
-    configureAndCall(createAutoMock<AnyMethods>() as AnyMethods);
-    dropCreatedMocks();
-  }, fixedIterations(292_000));
-
-  bench('vitest-mock-extended: mock<T>()', () => {
-    configureAndCall(vmxMock<AnyMethods>() as unknown as AnyMethods);
-    dropCreatedMocks();
-  }, fixedIterations(292_000));
-
-  bench('@golevelup/ts-vitest: createMock<T>()', () => {
-    configureAndCall(golevelupCreateMock<AnyMethods>() as unknown as AnyMethods);
-    dropCreatedMocks();
-  }, fixedIterations(292_000));
+test('any size — configure a return + 3 calls, double from a type', async ({ bench }) => {
+  await bench.compare(
+    bench('vitest-auto-spy: createAutoMock<T>()', DRAIN, () => {
+      configureAndCall(createAutoMock<AnyMethods>() as AnyMethods);
+      dropCreatedMocks();
+    }),
+    bench('vitest-mock-extended: mock<T>()', DRAIN, () => {
+      configureAndCall(vmxMock<AnyMethods>() as unknown as AnyMethods);
+      dropCreatedMocks();
+    }),
+    bench('@golevelup/ts-vitest: createMock<T>()', DRAIN, () => {
+      configureAndCall(golevelupCreateMock<AnyMethods>() as unknown as AnyMethods);
+      dropCreatedMocks();
+    }),
+    fixedIterations(292_000),
+  );
 });
 
 // ---------------------------------------------------------------------------------------------
@@ -368,34 +410,35 @@ describe('any size — configure a return + 3 calls, double from a type', () => 
 // nothing here allocates a mock and there is nothing to prune — the number is pure dispatch.
 // Two configured argument sets and one miss, which is the shape a real spec produces.
 // ---------------------------------------------------------------------------------------------
-describe('any size — calledWith dispatch, 2 configured, 1 miss', () => {
-  const ours = createSpyFromClass(DISPATCH);
-  ours.m2.calledWith(1).mockReturnValue(11);
-  ours.m2.calledWith(2).mockReturnValue(22);
+const ours = createSpyFromClass(DISPATCH);
+ours.m2.calledWith(1).mockReturnValue(11);
+ours.m2.calledWith(2).mockReturnValue(22);
 
-  const hirez = hirezCreateSpyFromClass(DISPATCH) as unknown as CalledWithDouble;
-  hirez.m2.calledWith(1).mockReturnValue(11);
-  hirez.m2.calledWith(2).mockReturnValue(22);
+const hirez = hirezCreateSpyFromClass(DISPATCH) as unknown as CalledWithDouble;
+hirez.m2.calledWith(1).mockReturnValue(11);
+hirez.m2.calledWith(2).mockReturnValue(22);
 
-  const vmx = vmxMock<DispatchTarget>() as unknown as CalledWithDouble;
-  vmx.m2.calledWith(1).mockReturnValue(11);
-  vmx.m2.calledWith(2).mockReturnValue(22);
+const vmx = vmxMock<DispatchTarget>() as unknown as CalledWithDouble;
+vmx.m2.calledWith(1).mockReturnValue(11);
+vmx.m2.calledWith(2).mockReturnValue(22);
 
-  bench('vitest-auto-spy', () => {
-    ours.m2(1);
-    ours.m2(2);
-    ours.m2(3);
-  }, fixedIterations(1_152_000));
-
-  bench('@bugsplat/vitest-auto-spies', () => {
-    hirez.m2(1);
-    hirez.m2(2);
-    hirez.m2(3);
-  }, fixedIterations(1_152_000));
-
-  bench('vitest-mock-extended', () => {
-    vmx.m2(1);
-    vmx.m2(2);
-    vmx.m2(3);
-  }, fixedIterations(1_152_000));
+test('any size — calledWith dispatch, 2 configured, 1 miss', async ({ bench }) => {
+  await bench.compare(
+    bench('vitest-auto-spy', DRAIN, () => {
+      ours.m2(1);
+      ours.m2(2);
+      ours.m2(3);
+    }),
+    bench('@bugsplat/vitest-auto-spies', DRAIN, () => {
+      hirez.m2(1);
+      hirez.m2(2);
+      hirez.m2(3);
+    }),
+    bench('vitest-mock-extended', DRAIN, () => {
+      vmx.m2(1);
+      vmx.m2(2);
+      vmx.m2(3);
+    }),
+    fixedIterations(1_152_000),
+  );
 });

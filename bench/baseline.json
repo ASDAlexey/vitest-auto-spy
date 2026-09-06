@@ -2,7 +2,8 @@
   "generated": {
     "date": "2026-09-03",
     "node": "v24.19.0",
-    "command": "npm run bench -- --json bench-results.self.json --no-memory && npm run bench:check -- bench-results.self.json --update"
+    "command": "npm run bench -- --json bench-results.self.json --no-memory && npm run bench:check -- bench-results.self.json --update",
+    "note": "Measured on Vitest 4. Deliberately not re-measured when the harness moved to the Vitest 5 benchmark API on 2026-09-06: the same cases run back to back on Vitest 4.1.11 and Vitest 5.0.0 on one machine agreed within 4 % on every arm, and every ratio here passes unchanged. That parity needs benchmark.suppressExportGetterWarnings - see bench/README.md."
   },
   "cases": {
     "calledWith dispatch": {

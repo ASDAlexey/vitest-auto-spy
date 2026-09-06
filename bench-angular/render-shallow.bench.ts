@@ -42,7 +42,7 @@
  */
 import { Component, Input } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { bench, describe } from 'vitest';
+import { test } from 'vitest';
 
 // The public entry, not `src/lib/render-shallow` — a consumer imports it from here, and the entry
 // is what registers the default mock adapter as a side effect.
@@ -152,22 +152,16 @@ function shallowCycle(host: Host, keepTemplate: boolean): void {
 }
 
 SIZES.forEach((size) => {
-  describe(`per-render cycle — ${size} children`, () => {
+  test(`per-render cycle — ${size} children`, async ({ bench }) => {
     const host = HOSTS[size];
 
-    bench(
-      'TestBed.createComponent, full cycle',
-      () => {
+    await bench.compare(
+      bench('TestBed.createComponent, full cycle', () => {
         testBedCycle(host);
-      },
-      SIXTY_REPS,
-    );
-
-    bench(
-      'renderShallow, full cycle',
-      () => {
+      }),
+      bench('renderShallow, full cycle', () => {
         shallowCycle(host, false);
-      },
+      }),
       SIXTY_REPS,
     );
   });
@@ -177,28 +171,17 @@ SIZES.forEach((size) => {
 // is kept, so `keepTemplate: true` renders the component's own template against an empty subtree
 // under `NO_ERRORS_SCHEMA` — the claim `docs-site/core/performance.md` makes, and this block is
 // what checks it.
-describe('the three rungs — 100 children', () => {
-  bench(
-    'TestBed.createComponent, full cycle',
-    () => {
+test('the three rungs — 100 children', async ({ bench }) => {
+  await bench.compare(
+    bench('TestBed.createComponent, full cycle', () => {
       testBedCycle(HOST_100);
-    },
-    SIXTY_REPS,
-  );
-
-  bench(
-    'renderShallow({ keepTemplate: true }), full cycle',
-    () => {
+    }),
+    bench('renderShallow({ keepTemplate: true }), full cycle', () => {
       shallowCycle(HOST_100, true);
-    },
-    SIXTY_REPS,
-  );
-
-  bench(
-    'renderShallow(), full cycle',
-    () => {
+    }),
+    bench('renderShallow(), full cycle', () => {
       shallowCycle(HOST_100, false);
-    },
+    }),
     SIXTY_REPS,
   );
 });
@@ -207,47 +190,31 @@ describe('the three rungs — 100 children', () => {
 // and all four die on these five rows: configuration is lazy, the reset is free, compiling is a
 // no-op on an AOT bed, and a bed reused across tests saves nothing — everything is in
 // `createComponent` plus the first change detection, which is the part `renderShallow` shrinks.
-describe('where the cycle spends its time — 100 children', () => {
+test('where the cycle spends its time — 100 children', async ({ bench }) => {
   // The reuse arm keeps its configuration across reps; every other arm resets the bed under it, so
   // it re-configures on its first rep after one of them. That is one rep out of sixty and cannot
   // reach the median.
   let configured = false;
 
-  // The same cycle the block above measures, repeated here so every rung is divided by a baseline
-  // taken in the same block. Arms measured minutes apart in one process are not comparable to the
-  // third decimal — this file's own numbers move 10-20 % between the first block and the last as
-  // V8 finishes warming up — and every claim in this block is a claim about a fraction of a cycle.
-  bench(
-    'full per-test cycle (reset + configure + createComponent + CD)',
-    () => {
+  await bench.compare(
+    // The same cycle the block above measures, repeated here so every rung is divided by a baseline
+    // taken in the same block. Arms measured minutes apart in one process are not comparable to the
+    // third decimal — this file's own numbers move 10-20 % between the first block and the last as
+    // V8 finishes warming up — and every claim in this block is a claim about a fraction of a cycle.
+    bench('full per-test cycle (reset + configure + createComponent + CD)', () => {
       testBedCycle(HOST_100);
       configured = false;
-    },
-    SIXTY_REPS,
-  );
-
-  bench(
-    'resetTestingModule() alone',
-    () => {
+    }),
+    bench('resetTestingModule() alone', () => {
       TestBed.resetTestingModule();
       configured = false;
-    },
-    SIXTY_REPS,
-  );
-
-  bench(
-    'resetTestingModule() + configureTestingModule()',
-    () => {
+    }),
+    bench('resetTestingModule() + configureTestingModule()', () => {
       TestBed.resetTestingModule();
       TestBed.configureTestingModule({ imports: [HOST_100] });
       configured = false;
-    },
-    SIXTY_REPS,
-  );
-
-  bench(
-    'createComponent + CD on an already-configured module',
-    () => {
+    }),
+    bench('createComponent + CD on an already-configured module', () => {
       if (!configured) {
         TestBed.resetTestingModule();
         TestBed.configureTestingModule({ imports: [HOST_100] });
@@ -259,13 +226,8 @@ describe('where the cycle spends its time — 100 children', () => {
       fixture.detectChanges();
       // Without this the module accumulates sixty live fixtures and the arm measures the heap.
       fixture.destroy();
-    },
-    SIXTY_REPS,
-  );
-
-  bench(
-    'configureTestingModule + overrideComponent + createComponent + CD',
-    () => {
+    }),
+    bench('configureTestingModule + overrideComponent + createComponent + CD', () => {
       TestBed.resetTestingModule();
       configured = false;
       TestBed.configureTestingModule({ imports: [HOST_100] });
@@ -274,19 +236,14 @@ describe('where the cycle spends its time — 100 children', () => {
       const fixture = TestBed.createComponent(HOST_100);
 
       fixture.detectChanges();
-    },
-    SIXTY_REPS,
-  );
-
-  bench(
-    'compileComponents() on a standalone AOT bed',
-    async () => {
+    }),
+    bench('compileComponents() on a standalone AOT bed', async () => {
       TestBed.resetTestingModule();
       configured = false;
       TestBed.configureTestingModule({ imports: [HOST_100] });
 
       await TestBed.compileComponents();
-    },
+    }),
     SIXTY_REPS,
   );
 });

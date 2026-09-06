@@ -7,8 +7,9 @@
 // ("is lazy still worth it at this width?") had to be done in the reader's head.
 //
 // This is the same wrapper `bench:vs` uses, pointed at the self-comparison config: buffer the stock
-// reporter, read `--outputJson`, and render p75 — the statistic a garbage-collection pause does not
-// move — as a table per case, with each arm's ratio against the fastest one in its own block.
+// reporter, read the results file `scripts/bench-json-reporter.mjs` wrote, and render p75 — the
+// statistic a garbage-collection pause does not move — as a table per case, with each arm's ratio
+// against the fastest one in its own block.
 //
 // It prints two things, because a double costs time *and* heap and this package's whole argument is
 // about the second one: the timing tables from `bench/auto-spy.bench.ts`, then the retained-heap
@@ -35,7 +36,7 @@ const DEFAULT_RESULTS = 'bench-results.self.json';
 
 function usage() {
   // The file's own header, so the help and the comment cannot drift apart.
-  stdout.write(readFileSync(new URL(import.meta.url), 'utf8').split('\n').slice(1, 18).join('\n').replace(/^\/\/ ?/gm, ''));
+  stdout.write(readFileSync(new URL(import.meta.url), 'utf8').split('\n').slice(1, 24).join('\n').replace(/^\/\/ ?/gm, ''));
   stdout.write('\n');
 }
 

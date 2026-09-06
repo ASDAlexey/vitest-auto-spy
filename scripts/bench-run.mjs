@@ -3,9 +3,10 @@
 //
 // Vitest's own benchmark reporter prints ten columns — `hz`, `min`, `max`, `mean` and four
 // percentiles — of which this project publishes exactly one; the rest invite a reader to quote a
-// figure the methodology rejects. Replacing the reporter to silence it is not an option: the same
-// class writes `--outputJson`, so a custom reporter silently produces no results file. This wrapper
-// keeps the stock reporter and buffers its output instead, surfacing it only when the run fails.
+// figure the methodology rejects. This wrapper keeps the stock reporter and buffers its output
+// instead, surfacing it only when the run fails. The results file it reads is written by
+// `scripts/bench-json-reporter.mjs`, which runs beside the stock reporter — Vitest 5 removed
+// `--outputJson` and a reporter is now the only way results leave the runner.
 
 import { spawn } from 'node:child_process';
 import { argv, env, execPath, exit, stderr } from 'node:process';

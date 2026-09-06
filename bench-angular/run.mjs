@@ -2,8 +2,9 @@
 // Run the Angular render benchmark and print the two columns it publishes.
 //
 // Same wrapper as `scripts/bench-self.mjs`, pointed at `vitest.bench.angular.config.mts`: buffer
-// Vitest's ten-column reporter, read `--outputJson`, and render a table per case with each arm's
-// ratio against the fastest arm in its own block.
+// Vitest's ten-column reporter, read the results file `scripts/bench-json-reporter.mjs` wrote (Vitest
+// 5 removed `--outputJson`), and render a table per case with each arm's ratio against the fastest
+// arm in its own block.
 //
 // Two figures per arm, not one. The rest of this repository publishes `p75`, because its cases
 // allocate spy objects by the hundred thousand and a GC pause lands in some samples and not others.
@@ -43,7 +44,7 @@ function usage() {
   stdout.write(
     readFileSync(new URL(import.meta.url), 'utf8')
       .split('\n')
-      .slice(1, 29)
+      .slice(1, 33)
       .join('\n')
       .replace(/^\/\/ ?/gm, ''),
   );

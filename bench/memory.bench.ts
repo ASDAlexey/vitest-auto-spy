@@ -15,12 +15,15 @@
  *
  * Four traps, all of which produce numbers that look plausible and are not:
  *
- * - **`@vitest/spy` keeps every mock it ever created in a module-level *strong* `Set`.** Nothing any
- *   arm allocates is collectable while that set holds it, so without intervention every arm's
- *   baseline silently includes every arm that ran before it and the column becomes a running total.
- *   {@link releaseCreatedMocks} is the fix, and {@link measureOnce} verifies it per cell rather than
- *   trusting it: a residual the release did not give back means the prune stopped working, and the
- *   whole table is void.
+ * - **The runner holds on to the mocks, and each runner holds on differently.** Vitest 4 kept every
+ *   mock it ever created in a module-level *strong* `Set`; Vitest 5 holds the mocks weakly but keeps
+ *   the recorded state of every mock that was *called* — which is every mock an arm here touches —
+ *   until something clears it. Either way nothing an arm allocates is collectable, every arm's
+ *   baseline silently includes every arm before it, and the column becomes a running total.
+ *   {@link releaseCreatedMocks} does both, and {@link measureOnce} verifies it per cell rather than
+ *   trusting it: a residual the release did not give back means it stopped working, and the whole
+ *   table is void. That check is what caught the Vitest 5 change — it reported a 100 % residual
+ *   rather than publishing the sum of every arm before it.
  * - **One `gc()` call is not a settled heap.** V8 reclaims across passes — a young-generation
  *   survivor promoted by the first pass is only collected by a later one — so
  *   {@link settleHeap} calls it repeatedly with a macrotask turn between calls, which is also what
@@ -107,6 +110,9 @@ const gcHandle = (globalThis as { gc?: () => void }).gc;
  */
 function releaseCreatedMocks(): void {
   pruneMockRegistry();
+  // Vitest 5's registry is weak, so the prune finds nothing there — but a mock that recorded a call
+  // is kept by its state until it is cleared, and every arm here calls its double. See the header.
+  vi.clearAllMocks();
 }
 
 /** Run the collector to a fixed point. One call is not enough; see the file header. */

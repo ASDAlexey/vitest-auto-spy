@@ -2,18 +2,24 @@
 // Running one `vitest bench` pass and keeping its output out of the way.
 //
 // Vitest's benchmark reporter prints ten columns, of which this project publishes exactly one; the
-// rest invite a reader to quote a figure the methodology rejects. Replacing the reporter is not an
-// option — the same class writes `--outputJson`, so a custom reporter silently produces no results
-// file — so every command here buffers the stock reporter instead and renders its own table from
-// the JSON. The buffer is surfaced only when the run fails, where it is the only diagnosis there is.
+// rest invite a reader to quote a figure the methodology rejects. So every command here buffers the
+// stock reporter and renders its own table from the JSON. The buffer is surfaced only when the run
+// fails, where it is the only diagnosis there is.
+//
+// Vitest 5 removed `--outputJson`; results reach the outside world through a reporter instead, so
+// the results file is written by `bench-json-reporter.mjs`, added *beside* the stock one rather than
+// replacing it — the stock reporter's output is the diagnosis when a run fails.
 
 import { spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
-import { execPath, exit, stderr } from 'node:process';
+import { env as processEnv, execPath, exit, stderr } from 'node:process';
 import { fileURLToPath } from 'node:url';
 
 const TICK_MS = 5000;
+
+// Relative to the repository root, which is every bench config's Vite root and this child's cwd.
+const REPORTER = './scripts/bench-json-reporter.mjs';
 
 export const repoRoot = fileURLToPath(new URL('..', import.meta.url));
 
@@ -44,11 +50,17 @@ export function runBenchPass({ config, outputPath, label, env }) {
     const started = Date.now();
     const buffered = [];
 
-    const child = spawn(execPath, [vitest, 'bench', '--run', '--config', config, '--outputJson', outputPath], {
-      cwd: repoRoot,
-      stdio: ['ignore', 'pipe', 'pipe'],
-      env,
-    });
+    const child = spawn(
+      execPath,
+      [vitest, 'bench', '--run', '--config', config, '--reporter', 'default', '--reporter', REPORTER],
+      {
+        cwd: repoRoot,
+        stdio: ['ignore', 'pipe', 'pipe'],
+        // The reporter takes no command-line arguments of its own, so the destination travels by
+        // environment. Relative paths land in `repoRoot`, which is the child's cwd.
+        env: { ...(env ?? processEnv), BENCH_OUTPUT_JSON: outputPath },
+      },
+    );
 
     child.stdout.on('data', (chunk) => buffered.push(chunk));
     child.stderr.on('data', (chunk) => buffered.push(chunk));

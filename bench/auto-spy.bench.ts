@@ -19,8 +19,8 @@
  * decimal. The numbers published in `docs-site/core/performance.md` are `p75`.
  *
  * **Every case ends with {@link dropCreatedMocks}, and without it these numbers measured the
- * garbage collector.** `@vitest/spy` keeps every mock it ever created in a module-level *strong*
- * `Set` — that set is what `vi.clearAllMocks()` walks — so nothing a bench case allocates is ever
+ * garbage collector.** Vitest 4 kept every mock it ever created in a module-level *strong* `Set` —
+ * that set is what `vi.clearAllMocks()` walked — so nothing a bench case allocated was ever
  * collectable: 20 000 eager 10-method spies retained 972 MB, and forcing a GC after dropping every
  * reference released **0.0%** of it. Each case therefore allocated into a monotonically growing
  * heap it inherited from the case before, and `p75` reported whether a major GC happened to land
@@ -28,14 +28,26 @@
  * (5.0680 ms → 0.0089 ms), and one of them announced "eager 272.67× faster than lazy" for the case
  * the docs publish as a 7× *lazy* win.
  *
- * Vitest calls no hooks in benchmark mode — `beforeAll`, `beforeEach` and `afterAll` inside a
- * `describe` are all silently skipped, and `bench()`'s options are tinybench's `Options`, not its
- * per-task `FnOptions` — so the prune has to happen inside the timed body. It is charged to the
- * case that created the mocks, which is the honest place for it: the registry never holds more than
- * one iteration's worth, so the cost is a `Set.delete` per mock created (~50 ns) against the ~1.9 µs
+ * On Vitest 5 that set is gone and `pruneMockRegistry()` stands down — and it has nothing to prune
+ * here in any case, since the doubles in this file are built from this library's own spy, which
+ * lives in no registry at all. The call stays because the file must keep working on both runners
+ * and because the arms are measured against the Vitest 4 figures; it costs nothing when there is
+ * nothing to prune. The runner's own mock is not that cheap to release — see
+ * `vs-libraries.bench.ts`, where every arm builds one and the file has to let the event loop turn.
+ *
+ * The prune happens inside the timed body rather than in a hook. It is charged to the case that
+ * created the mocks, which is the honest place for it: the registry never holds more than one
+ * iteration's worth, so the cost is a `Set.delete` per mock created (~50 ns) against the ~1.9 µs
  * this library spends creating each one, and it is the same fraction whatever the case allocates.
+ *
+ * **Shape of a case, since Vitest 5.** `bench()` is no longer a top-level export: a case is a
+ * `test()` whose body registers its arms through the `bench` fixture and hands them to
+ * `bench.compare()` (or calls `.run()` on the single arm). The test's full name is the case title
+ * the tables and `bench/baseline.json` are keyed by, so these names are not free to change. tinybench's
+ * run options — the `iterations`/`time` pairs below — now belong to the group rather than to one arm,
+ * which is what this file always wanted: every arm of a case runs the same number of iterations.
  */
-import { bench, describe } from 'vitest';
+import { test } from 'vitest';
 
 // Import the public entry (not `src/lib/*` directly) so the default Vitest mock
 // adapter registers as a side effect — the same wiring real consumers get.
@@ -159,31 +171,32 @@ const LAZY_CASES: LazyCase[] = [
   { label: '40 methods, all 40 called', WideClass: HUGE, callCount: 40 },
 ];
 
-describe('createSpyFromClass', () => {
+test('createSpyFromClass', async ({ bench }) => {
   // Repeated spying of the SAME class is the realistic `beforeEach` pattern —
   // exercises the per-prototype method-name cache.
-  bench('spy a wide class (repeated, same class)', () => {
+  await bench('spy a wide class (repeated, same class)', () => {
     createSpyFromClass(WIDE);
     dropCreatedMocks();
-  });
+  }).run();
 });
 
 // `lazySpies` defaults to `true` and `provideAutoSpy` inherits that default; these rows are what
 // justifies it. Both options are passed explicitly — see the file header for why that matters.
 LAZY_CASES.forEach(({ label, WideClass, callCount }) => {
-  describe(`lazy vs eager — ${label}`, () => {
-    bench('eager (lazySpies: false)', () => {
-      spyAndCall(WideClass, false, callCount);
-    });
-
-    bench('lazy (lazySpies: true, the default)', () => {
-      spyAndCall(WideClass, true, callCount);
-    });
+  test(`lazy vs eager — ${label}`, async ({ bench }) => {
+    await bench.compare(
+      bench('eager (lazySpies: false)', () => {
+        spyAndCall(WideClass, false, callCount);
+      }),
+      bench('lazy (lazySpies: true, the default)', () => {
+        spyAndCall(WideClass, true, callCount);
+      }),
+    );
   });
 });
 
-describe('createAutoMock (type-only, lazy Proxy)', () => {
-  bench('create + access 4 methods', () => {
+test('createAutoMock (type-only, lazy Proxy)', async ({ bench }) => {
+  await bench('create + access 4 methods', () => {
     const mock = createAutoMock<NamedMethods>();
 
     mock.m0();
@@ -192,84 +205,86 @@ describe('createAutoMock (type-only, lazy Proxy)', () => {
     mock.m3();
 
     dropCreatedMocks();
-  });
+  }).run();
 });
 
-describe('spy invocation', () => {
-  // What a spy costs *per call*, as opposed to per creation — the number to hold against the cost
-  // of the same bookkeeping done anywhere other than in JS. The spy is created at module scope and
-  // the body only calls it, like the `calledWith` case below.
-  //
-  // `mockClear()` is charged into the body on purpose. `@vitest/spy` retains every call it ever
-  // records, so without it this case would measure an argument array growing past a hundred million
-  // entries and the GC pauses that follow, not a call. It is the same trade `dropCreatedMocks()`
-  // makes in the creation cases: the bookkeeping a real `beforeEach` does anyway, charged to the
-  // case that caused it.
-  const spy = createSpyFromClass(WIDE) as unknown as Record<'m0' | 'm1' | 'm2', ClearableCall>;
-  const argA = { id: 1 };
-  const argB = { id: 2 };
+// What a spy costs *per call*, as opposed to per creation — the number to hold against the cost of
+// the same bookkeeping done anywhere other than in JS. The spy is created at module scope and the
+// body only calls it, like the `calledWith` case below.
+//
+// `mockClear()` is charged into the body on purpose. `@vitest/spy` retains every call it ever
+// records, so without it this case would measure an argument array growing past a hundred million
+// entries and the GC pauses that follow, not a call. It is the same trade `dropCreatedMocks()` makes
+// in the creation cases: the bookkeeping a real `beforeEach` does anyway, charged to the case that
+// caused it.
+const invocationSpy = createSpyFromClass(WIDE) as unknown as Record<'m0' | 'm1' | 'm2', ClearableCall>;
+const invocationArgA = { id: 1 };
+const invocationArgB = { id: 2 };
 
-  bench('unconfigured call, two object arguments (x3)', () => {
-    spy.m0(argA, argB);
-    spy.m1(argA, argB);
-    spy.m2(argA, argB);
+test('spy invocation', async ({ bench }) => {
+  await bench('unconfigured call, two object arguments (x3)', () => {
+    invocationSpy.m0(invocationArgA, invocationArgB);
+    invocationSpy.m1(invocationArgA, invocationArgB);
+    invocationSpy.m2(invocationArgA, invocationArgB);
 
-    spy.m0.mockClear();
-    spy.m1.mockClear();
-    spy.m2.mockClear();
-  }, fixedIterations(400_000));
+    invocationSpy.m0.mockClear();
+    invocationSpy.m1.mockClear();
+    invocationSpy.m2.mockClear();
+  }).run(fixedIterations(400_000));
 });
 
-describe('calledWith dispatch', () => {
-  // The one case whose spy outlives its iterations: it is created here, at module scope, and the
-  // body only calls it. Nothing inside the body allocates a mock, so there is nothing to prune.
-  const spy = createSpyFromClass(DISPATCH);
+// The one case whose spy outlives its iterations: it is created at module scope and the body only
+// calls it. Nothing inside the body allocates a mock, so there is nothing to prune.
+const dispatchSpy = createSpyFromClass(DISPATCH);
 
-  spy.m2.calledWith(1).mockReturnValue(11);
-  spy.m2.calledWith(2).mockReturnValue(22);
+dispatchSpy.m2.calledWith(1).mockReturnValue(11);
+dispatchSpy.m2.calledWith(2).mockReturnValue(22);
 
-  bench('configured calledWith lookup (serialized args)', () => {
-    spy.m2(1);
-    spy.m2(2);
-    spy.m2(3);
-  }, fixedIterations(800_000));
+test('calledWith dispatch', async ({ bench }) => {
+  await bench('configured calledWith lookup (serialized args)', () => {
+    dispatchSpy.m2(1);
+    dispatchSpy.m2(2);
+    dispatchSpy.m2(3);
+  }).run(fixedIterations(800_000));
 });
 
 // Both arms carry the identical `BATCH`, so the ratio between them is exact where the per-call cases
 // above cannot have one: a plain call is far under the clock's resolution and only a batch clears it.
-describe(`spy call against a plain call — batched, every figure is one batch of ${BATCH} (not one call)`, () => {
-  const spy = createSpyFromClass(WIDE) as unknown as Record<'m0' | 'm1' | 'm2', ClearableCall>;
-  const plain = new PlainCallTarget();
-  const argA = { id: 1 };
-  const argB = { id: 2 };
+const batchedSpy = createSpyFromClass(WIDE) as unknown as Record<'m0' | 'm1' | 'm2', ClearableCall>;
+const plain = new PlainCallTarget();
+const batchedArgA = { id: 1 };
+const batchedArgB = { id: 2 };
 
-  bench(`plain method call (no double), two object arguments (x3 per repeat, x${BATCH} per iteration)`, () => {
-    let total = 0;
+test(`spy call against a plain call — batched, every figure is one batch of ${BATCH} (not one call)`, async ({ bench }) => {
+  await bench.compare(
+    bench(`plain method call (no double), two object arguments (x3 per repeat, x${BATCH} per iteration)`, () => {
+      let total = 0;
 
-    for (let index = 0; index < BATCH; index += 1) {
-      // Varies the argument so V8 cannot hoist these calls out as loop-invariant and leave an empty
-      // loop behind; the spy arm repeats the store for nothing, so that both loops stay identical.
-      argA.id = index;
+      for (let index = 0; index < BATCH; index += 1) {
+        // Varies the argument so V8 cannot hoist these calls out as loop-invariant and leave an empty
+        // loop behind; the spy arm repeats the store for nothing, so that both loops stay identical.
+        batchedArgA.id = index;
 
-      total += plain.m0(argA, argB) + plain.m1(argA, argB) + plain.m2(argA, argB);
-    }
+        total += plain.m0(batchedArgA, batchedArgB) + plain.m1(batchedArgA, batchedArgB) + plain.m2(batchedArgA, batchedArgB);
+      }
 
-    benchSink.total += total;
-  }, fixedIterations(500));
+      benchSink.total += total;
+    }),
+    bench(`spy call, two object arguments (x3 per repeat, x${BATCH} per iteration)`, () => {
+      for (let index = 0; index < BATCH; index += 1) {
+        batchedArgA.id = index;
 
-  bench(`spy call, two object arguments (x3 per repeat, x${BATCH} per iteration)`, () => {
-    for (let index = 0; index < BATCH; index += 1) {
-      argA.id = index;
+        batchedSpy.m0(batchedArgA, batchedArgB);
+        batchedSpy.m1(batchedArgA, batchedArgB);
+        batchedSpy.m2(batchedArgA, batchedArgB);
+      }
 
-      spy.m0(argA, argB);
-      spy.m1(argA, argB);
-      spy.m2(argA, argB);
-    }
-
-    // Once per batch, not once per call: the recorded arguments have to be dropped or this grows
-    // without bound, and amortising the clear over `BATCH` keeps the arm a measurement of the call.
-    spy.m0.mockClear();
-    spy.m1.mockClear();
-    spy.m2.mockClear();
-  }, fixedIterations(500));
+      // Once per batch, not once per call: the recorded arguments have to be dropped or this grows
+      // without bound, and amortising the clear over `BATCH` keeps the arm a measurement of the call.
+      batchedSpy.m0.mockClear();
+      batchedSpy.m1.mockClear();
+      batchedSpy.m2.mockClear();
+    }),
+    fixedIterations(500),
+  );
 });

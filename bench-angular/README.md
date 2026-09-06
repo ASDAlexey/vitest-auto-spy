@@ -23,6 +23,40 @@ Like every other command in this repository, it prints a boxed table to a termin
 through a pipe, so `npm run bench:angular -- --repeat 5 > table.md` gives a documentation page
 something it can take verbatim.
 
+## The harness on Vitest 5
+
+Vitest 5 rewrote the benchmark API, and this file moved with it: a case is now a `test()` whose body
+registers its arms through the `bench` fixture and hands them to `bench.compare()`, and the **test's
+full name is the case title** `baseline.json` is keyed by. `--outputJson` is gone — the results file
+is written by [`scripts/bench-json-reporter.mjs`](../scripts/bench-json-reporter.mjs), which keeps the
+field names the flag produced (`median`, `p75`, `rme`, `sampleCount`), so nothing downstream changed.
+The per-arm `SIXTY_REPS` budget is now the group's, which is what this file always wanted: every arm
+of a case runs the same 60 reps after the same 30 warm-up reps.
+
+`vitest.bench.angular.config.mts` sets `suppressExportGetterWarnings: true`, and that is not about
+the warning — see [`bench/README.md`](../bench/README.md#the-harness-on-vitest-5). The tracker Vitest
+installs to produce it wraps every cross-module export in a counting getter *inside the timed body*.
+
+**This benchmark was broken before the port, and by something else.** Since the move to Angular 22
+and TypeScript 6 it died on `SyntaxError: Invalid or unexpected token` — with `"src"` as a bare
+directory entry in `tsconfig.bench-angular.json`'s `include`, and with `noEmit` set there, the Angular
+plugin's TypeScript program no longer contained these files, so it handed them back untransformed and
+Vite parsed raw TypeScript as JavaScript. Both are fixed in that file, with the reasons beside them.
+It failed identically on Vitest 4, so it was not the runner upgrade.
+
+`baseline.json` was **not** re-measured for the port, and it records ratios rather than milliseconds.
+The same benchmark was run back to back on 2026-09-06 on one machine in three configurations — Angular
+21 + Vitest 4, Angular 22 + Vitest 4, and Angular 22 + Vitest 5 with this harness — and the Vitest 4
+and Vitest 5 ratios agree inside the (large) spread this benchmark already has. Two arms sit over
+their baseline limit in **both** Vitest 4 and Vitest 5 on Angular 22 — `per-render cycle — 0 children`
+and `renderShallow({ keepTemplate: true })` — so that move belongs to the Angular upgrade, not to the
+harness, and re-measuring it is a deliberate act for whoever owns those published numbers.
+
+One more thing that follows from the spread: a single pass of this file is not evidence. Two
+consecutive five-pass runs of the same tree put `renderShallow` at 100 children at `0.352×` and
+`0.243×` of a plain cycle. Read a repeated run, and read it twice before calling anything a
+regression.
+
 ## The gate
 
 `scripts/bench-check.mjs` is generic — it takes any results file and any baseline — so this project

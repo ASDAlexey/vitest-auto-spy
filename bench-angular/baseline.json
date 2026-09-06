@@ -51,6 +51,7 @@
   "generated": {
     "date": "2026-09-04",
     "node": "v24.19.0",
-    "command": "npm run bench:angular -- --repeat 5 --json bench-results.angular.json && npm run bench:check -- bench-results.angular.json --baseline bench-angular/baseline.json --update"
+    "command": "npm run bench:angular -- --repeat 5 --json bench-results.angular.json && npm run bench:check -- bench-results.angular.json --baseline bench-angular/baseline.json --update",
+    "note": "Measured on Angular 21 and Vitest 4, before the Angular 22 / TypeScript 6 upgrade and before the harness was ported to the Vitest 5 benchmark API. Deliberately not re-measured for the port: the same benchmark run back to back on Vitest 4.1.11 and Vitest 5.0.0 on 2026-09-06 agreed within this benchmark's own run-to-run spread. Two arms do sit over their limit on BOTH runners — 'per-render cycle - 0 children' and 'the three rungs - renderShallow({ keepTemplate: true })' — which is the Angular 22 upgrade, not the port, and is what a deliberate re-measurement should settle. See bench-angular/README.md."
   }
 }
