@@ -19,11 +19,15 @@
  */
 import { expect } from 'vitest';
 
-declare module 'vitest' {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- declaration merging requires the type parameter list (defaults included) to match Vitest's own `interface Matchers<T = any>` exactly.
-  interface Matchers<T = any> {
-    /** Assert that this element is `document.activeElement`. */
-    toHaveFocus(): T;
+// Chai's `Assertion`, not Vitest's `Matchers`: `Matchers` is `<T>` on Vitest 4 and `<R, T>` on
+// Vitest 5, and declaration merging demands an exact type-parameter match — this one merges on both.
+declare global {
+  // eslint-disable-next-line @typescript-eslint/no-namespace -- Chai publishes `Assertion` inside a namespace; merging into it is the only way in.
+  namespace Chai {
+    interface Assertion {
+      /** Assert that this element is `document.activeElement`. */
+      toHaveFocus(): void;
+    }
   }
 }
 

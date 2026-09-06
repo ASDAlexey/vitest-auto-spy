@@ -13,9 +13,18 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import { type AngularTestEnvOptions, installAngularTestEnv, setupAngularTestEnv } from './angular-test-env';
 import { mockValueProp, restoreMockedProps } from './prop-mock';
 
-const initZone = vi.fn();
+// Plain counters next to the spies: the two assertions about the file-wide `beforeAll` read state
+// from an earlier test, which a run with `clearMocks` — Vitest 5's default — wipes from the spies.
+let initZoneCalls = 0;
+let resetCalls = 0;
+
+const initZone = vi.fn(() => {
+  initZoneCalls += 1;
+});
 const initZoneless = vi.fn();
-const reset = vi.fn();
+const reset = vi.fn(() => {
+  resetCalls += 1;
+});
 
 /** Stub the teardown, so the platform this suite runs on survives the call. */
 function stubResetTestEnvironment(): void {
@@ -95,6 +104,8 @@ describe('setupAngularTestEnv, installed for this file', () => {
     stubResetTestEnvironment();
     initZone.mockClear();
     reset.mockClear();
+    initZoneCalls = 0;
+    resetCalls = 0;
   });
 
   setupAngularTestEnv(options(false, seenPaths));
@@ -103,13 +114,13 @@ describe('setupAngularTestEnv, installed for this file', () => {
 
   it('decides from the path of the file about to run', () => {
     expect(seenPaths).toEqual([expect.getState().testPath]);
-    expect(initZone).toHaveBeenCalledTimes(1);
-    expect(reset).toHaveBeenCalledTimes(1);
+    expect(initZoneCalls).toBe(1);
+    expect(resetCalls).toBe(1);
   });
 
   it('does not ask again for the next test of the same file', () => {
     // The whole of the change: `testPath` is the file, so a second test of it has nothing to decide.
     expect(seenPaths).toHaveLength(1);
-    expect(initZone).toHaveBeenCalledTimes(1);
+    expect(initZoneCalls).toBe(1);
   });
 });

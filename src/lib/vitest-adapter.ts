@@ -22,7 +22,7 @@ function asVitestMock(mock: MockFn): Mock {
 /**
  * How a run-wide `vi.clearAllMocks()` reaches spies that are not the runner's.
  *
- * Vitest clears every mock by walking one module-level `Set` inside `@vitest/spy` that only
+ * Vitest clears every mock by walking a module-level registry inside `@vitest/spy` that only
  * `vi.fn()` and `vi.spyOn()` write to, and there is no API to add to it. What there is, is one
  * `vi.fn()` of our own: the sweep calls `mockClear()` on everything in that set, so a mock whose
  * `mockClear` bumps this library's own sweep counter turns a walk of the runner's registry into a
@@ -50,6 +50,11 @@ sweepSentinel.mockReset = function resetAllMocksSweep(): typeof sweepSentinel {
 
   return sweepSentinel;
 };
+
+// Invoked once, on purpose: Vitest 5's `clearAllMocks()` walks only the mocks called since the last
+// clear, so a sentinel that is never called is never swept — and the override above never un-dirties
+// it, so this one call keeps it reachable for the worker's life. Vitest 4 reaches it either way.
+sweepSentinel();
 
 /**
  * Which factory a double's method spies come out of.

@@ -22,15 +22,19 @@ export interface ResourceLike<TValue = unknown> {
   error?(): Error | undefined;
 }
 
-declare module 'vitest' {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- declaration merging requires the type parameter list (defaults included) to match Vitest's own `interface Matchers<T = any>` exactly.
-  interface Matchers<T = any> {
-    /** The resource is still in flight — `status()` is `'loading'` or `'reloading'`. */
-    toBeLoading(): T;
-    /** The resource has resolved *and* its value deep-equals the expected one. */
-    toHaveResourceValue(expected: unknown): T;
-    /** The resource has failed; with an argument, its error message matches too. */
-    toHaveResourceError(expected?: RegExp | string): T;
+// Chai's `Assertion`, not Vitest's `Matchers`: `Matchers` is `<T>` on Vitest 4 and `<R, T>` on
+// Vitest 5, and declaration merging demands an exact type-parameter match — this one merges on both.
+declare global {
+  // eslint-disable-next-line @typescript-eslint/no-namespace -- Chai publishes `Assertion` inside a namespace; merging into it is the only way in.
+  namespace Chai {
+    interface Assertion {
+      /** The resource is still in flight — `status()` is `'loading'` or `'reloading'`. */
+      toBeLoading(): void;
+      /** The resource has resolved *and* its value deep-equals the expected one. */
+      toHaveResourceValue(expected: unknown): void;
+      /** The resource has failed; with an argument, its error message matches too. */
+      toHaveResourceError(expected?: RegExp | string): void;
+    }
   }
 }
 

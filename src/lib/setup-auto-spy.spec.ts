@@ -602,7 +602,12 @@ describe('global-patch guard (opted in)', () => {
 });
 
 describe('console-spy clearing (on by default)', () => {
-  const reset = vi.fn();
+  // A plain counter, not the spy's own history: the second test asserts what the first test's
+  // teardown did, and a run with `clearMocks` — Vitest 5's default — clears history in between.
+  let resetCalls = 0;
+  const reset = vi.fn(() => {
+    resetCalls += 1;
+  });
 
   setupAutoSpy({ duplicateCopies: 'off', restoreProps: false });
 
@@ -617,11 +622,11 @@ describe('console-spy clearing (on by default)', () => {
   });
 
   it('leaves the recorded calls alone while a test is running', () => {
-    expect(reset).not.toHaveBeenCalled();
+    expect(resetCalls).toBe(0);
   });
 
   it('cleared them once the test was over', () => {
-    expect(reset).toHaveBeenCalledTimes(1);
+    expect(resetCalls).toBe(1);
   });
 });
 

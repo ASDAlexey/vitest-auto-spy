@@ -16,27 +16,33 @@
  */
 import { expect } from 'vitest';
 
-declare module 'vitest' {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- declaration merging requires the type parameter list (defaults included) to match Vitest's own `interface Matchers<T = any>` exactly.
-  interface Matchers<T = any> {
-    /** See {@link AsymmetricMatchersContaining.jasmineTruthy}. */
-    jasmineTruthy(): T;
-    /** See {@link AsymmetricMatchersContaining.jasmineFalsy}. */
-    jasmineFalsy(): T;
-    /** See {@link AsymmetricMatchersContaining.jasmineEmpty}. */
-    jasmineEmpty(): T;
-    /** See {@link AsymmetricMatchersContaining.jasmineNotEmpty}. */
-    jasmineNotEmpty(): T;
-    /** See {@link AsymmetricMatchersContaining.jasmineIs}. */
-    jasmineIs(sample: unknown): T;
-    /** See {@link AsymmetricMatchersContaining.jasmineMapContaining}. */
-    jasmineMapContaining(sample: Map<unknown, unknown>): T;
-    /** See {@link AsymmetricMatchersContaining.jasmineSetContaining}. */
-    jasmineSetContaining(sample: Set<unknown>): T;
-    /** See {@link AsymmetricMatchersContaining.jasmineArrayWithExactContents}. */
-    jasmineArrayWithExactContents(sample: unknown[]): T;
+// Chai's `Assertion`, not Vitest's `Matchers`: `Matchers` is `<T>` on Vitest 4 and `<R, T>` on
+// Vitest 5, and declaration merging demands an exact type-parameter match — this one merges on both.
+declare global {
+  // eslint-disable-next-line @typescript-eslint/no-namespace -- Chai publishes `Assertion` inside a namespace; merging into it is the only way in.
+  namespace Chai {
+    interface Assertion {
+      /** See {@link AsymmetricMatchersContaining.jasmineTruthy}. */
+      jasmineTruthy(): void;
+      /** See {@link AsymmetricMatchersContaining.jasmineFalsy}. */
+      jasmineFalsy(): void;
+      /** See {@link AsymmetricMatchersContaining.jasmineEmpty}. */
+      jasmineEmpty(): void;
+      /** See {@link AsymmetricMatchersContaining.jasmineNotEmpty}. */
+      jasmineNotEmpty(): void;
+      /** See {@link AsymmetricMatchersContaining.jasmineIs}. */
+      jasmineIs(sample: unknown): void;
+      /** See {@link AsymmetricMatchersContaining.jasmineMapContaining}. */
+      jasmineMapContaining(sample: Map<unknown, unknown>): void;
+      /** See {@link AsymmetricMatchersContaining.jasmineSetContaining}. */
+      jasmineSetContaining(sample: Set<unknown>): void;
+      /** See {@link AsymmetricMatchersContaining.jasmineArrayWithExactContents}. */
+      jasmineArrayWithExactContents(sample: unknown[]): void;
+    }
   }
+}
 
+declare module 'vitest' {
   interface AsymmetricMatchersContaining {
     /** jasmine's `jasmine.truthy()` — any value that is loosely true. */
     jasmineTruthy(): unknown;
