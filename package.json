@@ -223,6 +223,7 @@
     "size:entries": "node scripts/size-entries.mjs",
     "size:entries:check": "node scripts/size-entries.mjs --check",
     "size:entries:update": "node scripts/size-entries.mjs --update",
+    "smoke:dist": "node scripts/smoke-dist.mjs",
     "cold-import": "node scripts/cold-import.mjs",
     "cold-import:check": "node scripts/cold-import.mjs --check",
     "cold-import:update": "node scripts/cold-import.mjs --update",
