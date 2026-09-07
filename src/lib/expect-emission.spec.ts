@@ -454,6 +454,22 @@ describe('choosing which emission counts', () => {
     await expect(expectEmission(source$, { until: (params) => params.channelId === 7, timeout: 50 })).resolves.toEqual({ channelId: 7 });
   });
 
+  it('rejects at once when the until predicate throws, naming the predicate and the cause', async () => {
+    const source$ = new Subject<number>();
+    const pending = expectEmission(source$, {
+      timeout: 5_000,
+      until: (): boolean => {
+        throw new Error('boom');
+      },
+    });
+
+    source$.next(1);
+
+    // Left to escape through rxjs, the throw became an unhandled error while the watchdog ran out
+    // and blamed the silence — "did not emit within 5000 ms (1 emission(s) received)".
+    await expect(pending).rejects.toThrow(/until.*predicate threw on emission 1[\s\S]*boom/);
+  });
+
   it('counts every emission in the failure, not only the matching ones', async () => {
     const source$ = new Subject<number>();
 

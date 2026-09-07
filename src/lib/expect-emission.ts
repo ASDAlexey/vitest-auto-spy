@@ -258,6 +258,56 @@ interface CollectorHandlers<T> {
   onError: (error: unknown, options: AnyEmissionOptions | undefined, settle: Settle<T>) => void;
 }
 
+/**
+ * The observer half of {@link subscribeAndCollect}.
+ *
+ * `next` is the one place caller-supplied code runs: the `until` predicate, reached through both
+ * `isDone` and the resolve path — hence the message `fail` writes. Left to escape, rxjs routes the
+ * throw to `reportUnhandledError` on a fresh macrotask: the run gets an unhandled error, the
+ * subscription and the watchdog stay alive until the timeout, and the eventual message blames the
+ * silence instead of the predicate. `complete` needs no such guard — every `onComplete` settles the
+ * promise with a message it builds itself.
+ */
+function collectingObserver<T>(
+  values: T[],
+  stop: () => void,
+  settle: Settle<T>,
+  handlers: CollectorHandlers<T>,
+  options: AnyEmissionOptions | undefined,
+): EmissionObserver<T> {
+  const fail = (error: unknown): void => {
+    stop();
+    settle.reject(
+      ownFailure(`${describeSource(options)}: the \`until\` predicate threw on emission ${values.length}: ${String(error)}`, {
+        cause: error,
+      }),
+    );
+  };
+
+  return {
+    next: (value): void => {
+      values.push(value);
+
+      try {
+        if (handlers.isDone(values)) {
+          stop();
+          settle.resolve(values);
+        }
+      } catch (error) {
+        fail(error);
+      }
+    },
+    error: (error): void => {
+      stop();
+      handlers.onError(error, options, settle);
+    },
+    complete: (): void => {
+      stop();
+      handlers.onComplete(values);
+    },
+  };
+}
+
 function subscribeAndCollect<T>(
   source$: EmissionSource<T>,
   options: AnyEmissionOptions | undefined,
@@ -285,24 +335,7 @@ function subscribeAndCollect<T>(
         }, timeout)
       : undefined;
 
-  subscription = subscribeToSource(source$, {
-    next: (value) => {
-      values.push(value);
-
-      if (handlers.isDone(values)) {
-        stop();
-        settle.resolve(values);
-      }
-    },
-    error: (error) => {
-      stop();
-      handlers.onError(error, options, settle);
-    },
-    complete: () => {
-      stop();
-      handlers.onComplete(values);
-    },
-  });
+  subscription = subscribeToSource(source$, collectingObserver(values, stop, settle, handlers, options));
 
   // A synchronous source (`of(…)`, a `BehaviorSubject`) settled while `subscription` was still
   // unassigned, so the `stop()` above could not unsubscribe. Do it now.
