@@ -120,6 +120,67 @@ interface PendingVerification {
 
 const pendingVerifications: PendingVerification[] = [];
 let createComponentWrapper: LooseTestBedMethod | undefined;
+let createComponentOriginal: LooseTestBedMethod | undefined;
+let resetWrapperInstalled = false;
+
+/**
+ * Drop everything a previous test queued and never consumed, and take the wrapper back off.
+ *
+ * A test that calls {@link overrideComponentProvider} but never renders (an `@if` branch not taken,
+ * a spec that only asserts on a service) used to leave its entry and the wrapper installed through
+ * `resetTestingModule`; the next test that *did* render then verified the stale entry against its
+ * own fixture — resolving the token to this test's spy, comparing it with the previous test's, and
+ * failing with a false "the override did not apply".
+ */
+function dropStaleQueueState(): void {
+  pendingVerifications.length = 0;
+
+  if (createComponentWrapper && createComponentOriginal) {
+    Reflect.set(TestBed, 'createComponent', createComponentOriginal);
+  }
+
+  createComponentWrapper = undefined;
+  createComponentOriginal = undefined;
+}
+
+/**
+ * Clear the queue when the framework resets the module — the one moment between tests we can see.
+ *
+ * Wrapped on the `TestBed` *instance*, not the exported static: the framework's cleanup hook calls
+ * `TestBedImpl.INSTANCE.resetTestingModule()` directly, so a static wrapper never sees it (the
+ * `createComponent` wrapper above is a static precisely because *specs* call that one through the
+ * exported class).
+ */
+function wrapResetTestingModule(): void {
+  if (resetWrapperInstalled) {
+    return;
+  }
+
+  resetWrapperInstalled = installResetWrapper(readProperty(TestBed, 'INSTANCE'));
+}
+
+/**
+ * The host-agnostic half of {@link wrapResetTestingModule}, exported so a spec can hand it a host
+ * that has no `resetTestingModule` — the shape a future Angular could hand production. Returns
+ * whether the wrapper went on; a host without the method is left exactly as it was.
+ */
+export function installResetWrapper(instance: unknown): boolean {
+  const original = readProperty(instance, 'resetTestingModule');
+
+  if (typeof original !== 'function') {
+    return false;
+  }
+
+  const wrapper = function flushing(this: unknown, ...args: unknown[]): unknown {
+    dropStaleQueueState();
+
+    return original.apply(this, args);
+  };
+
+  Reflect.set(Object(instance), 'resetTestingModule', wrapper);
+
+  return true;
+}
 
 /** The injector the component itself resolves through: the fixture's own, or the one of the element hosting it. */
 function injectorOf(fixture: FixtureLike, component: Type<unknown>): DebugElementLike['injector'] | undefined {
@@ -188,11 +249,13 @@ function verifyOnNextCreate(entry: PendingVerification): void {
   }
 
   pendingVerifications.push(entry);
+  wrapResetTestingModule();
 
   if (!original) {
     return;
   }
 
+  createComponentOriginal = original;
   createComponentWrapper = function verifying(this: unknown, ...args: unknown[]): unknown {
     const fixture = original.apply(this, args);
     const queued = [...pendingVerifications];
@@ -201,6 +264,7 @@ function verifyOnNextCreate(entry: PendingVerification): void {
     // wrapper left installed would run against a later spec's unrelated component.
     Reflect.set(TestBed, 'createComponent', original);
     createComponentWrapper = undefined;
+    createComponentOriginal = undefined;
     pendingVerifications.length = 0;
 
     // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- `createComponent` returns a `ComponentFixture`; only the two members `FixtureLike` names are ever read.

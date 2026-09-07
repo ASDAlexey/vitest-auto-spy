@@ -5,10 +5,16 @@
  */
 import { Component, Injectable, NgModule, inject } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import '../angular';
-import { assertComponentDefIntact, assertNgModuleScopes, overrideAutoSpy, overrideComponentProvider } from './angular-overrides';
+import {
+  assertComponentDefIntact,
+  assertNgModuleScopes,
+  installResetWrapper,
+  overrideAutoSpy,
+  overrideComponentProvider,
+} from './angular-overrides';
 import { mockValueProp } from './prop-mock';
 
 @Injectable()
@@ -130,6 +136,26 @@ describe('overrideComponentProvider', () => {
     expect(() => TestBed.createComponent(DeclaredHostComponent)).toThrow(/resolved .* to not-a-service/);
   });
 
+  it('leaves nothing queued for the next test that renders', () => {
+    // The original report's shape: a beforeEach applies the override for every test, and the first
+    // test asserts on the spy alone — no fixture, so nothing consumes the entry or unwraps
+    // `createComponent`. The reset between tests now drops both; the next test used to verify the
+    // stale entry against its own fixture and fail with a false "the override did not apply".
+    const menu = overrideComponentProvider(MenuHostComponent, NavigationBuilderService);
+
+    menu.build.mockReturnValue([]);
+
+    expect(menu.build).toBeDefined();
+  });
+
+  it('renders a component no override was queued for, with the platform provider back', () => {
+    const fixture = TestBed.createComponent(MenuHostComponent);
+
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.textContent).toBe('real');
+  });
+
   it('stays silent when the fixture does not contain the component at all', () => {
     const menu = overrideComponentProvider(MenuHostComponent, NavigationBuilderService);
     const unrelated = overrideComponentProvider(MenuHostComponent, UnrelatedService);
@@ -220,5 +246,26 @@ describe('assertComponentDefIntact', () => {
 
   it('reports the class reference that itself never arrived', () => {
     expect(() => assertComponentDefIntact(MenuHostComponent, undefined)).toThrow(/argument 1 is undefined, which carries no ɵcmp or ɵdir/);
+  });
+});
+
+describe('installResetWrapper', () => {
+  it('wraps the host it is given and still calls through to its own reset', () => {
+    const original = vi.fn();
+    const host = { resetTestingModule: original };
+
+    expect(installResetWrapper(host)).toBe(true);
+    expect(host.resetTestingModule).not.toBe(original);
+
+    host.resetTestingModule();
+
+    expect(original).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves a host without the method untouched rather than throwing', () => {
+    const host = {};
+
+    expect(installResetWrapper(host)).toBe(false);
+    expect(host).toEqual({});
   });
 });
