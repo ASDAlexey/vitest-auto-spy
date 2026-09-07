@@ -8,6 +8,13 @@ on:
 permissions:
   contents: read
 
+# Three pushes in a row queue three full matrices, and only the last of them can still be true.
+# `master` is the exception: every commit there is what a release gets cut from, so it keeps its own
+# verdict — grouping those runs by sha is what stops them from queueing behind each other instead.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref == 'refs/heads/master' && github.sha || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     name: Test (Node ${{ matrix.node }})
@@ -23,6 +30,63 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
+          cache: npm
+
+      # The lockfile is generated with npm 11; pin it so `npm ci` interprets
+      # the dependency tree the same way and stays in sync.
+      - name: Pin npm
+        run: npm i -g npm@11
+
+      - run: npm ci
+
+      - name: Test + coverage
+        run: npm run test:coverage
+
+      # One shared environment, one worker — the mode `setupAutoSpy()` exists for. A property patch
+      # or a registry left behind by one file surfaces here and nowhere else.
+      - name: Test (shared environment, isolate false)
+        run: npm run test:shared-env
+
+      # `vitest-auto-spy/zone` is the only entry that touches zone.js, and the runs above deliberately
+      # load none of it — so `fakeAsync` / `waitForAsync` are covered here or nowhere.
+      - name: Test (fakeAsync under zone.js)
+        run: npm run test:zone
+
+      # The DOM stubs are written against jsdom's gaps, and the repairs in `timer-globals.ts`,
+      # `clock.ts` and `abort-controller-stub.ts` are written against happy-dom's differences — which
+      # were simulated by hand until this project ran the suite on the real thing.
+      - name: Test (happy-dom)
+        run: npm run test:happy-dom
+
+      # Architecture invariants rather than behaviour: the heap has to reach a plateau across
+      # create/teardown cycles, and teardown has to stay linear. Both assert shape, not milliseconds.
+      - name: Test (engine invariants)
+        run: npm run test:invariants
+
+      - name: Build
+        run: npm run build
+
+      # Both read `dist/`, so they can only run after the build. Deterministic counts — bundled
+      # bytes and module-graph size — so a shared runner cannot make them flap.
+      - name: Per-entry size baseline
+        run: npm run size:entries:check
+
+      - name: Module-graph baseline
+        run: npm run cold-import:check
+
+  # Nothing below depends on which Node runs it — the same lint, the same formatter, the same
+  # generated files, checked against the same lockfile. Running them once per Node major produced
+  # three copies of one answer and put ~40 s on the critical path of every matrix job, so they live
+  # here instead and finish while the suites are still starting.
+  static:
+    name: Static checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
           cache: npm
 
       # The lockfile is generated with npm 11; pin it so `npm ci` interprets
@@ -95,41 +159,6 @@ jobs:
       # packages that disagree about what they export.
       - name: Alias package matches package.json
         run: npm run alias:sync:check
-
-      - name: Test + coverage
-        run: npm run test:coverage
-
-      # One shared environment, one worker — the mode `setupAutoSpy()` exists for. A property patch
-      # or a registry left behind by one file surfaces here and nowhere else.
-      - name: Test (shared environment, isolate false)
-        run: npm run test:shared-env
-
-      # `vitest-auto-spy/zone` is the only entry that touches zone.js, and the runs above deliberately
-      # load none of it — so `fakeAsync` / `waitForAsync` are covered here or nowhere.
-      - name: Test (fakeAsync under zone.js)
-        run: npm run test:zone
-
-      # The DOM stubs are written against jsdom's gaps, and the repairs in `timer-globals.ts`,
-      # `clock.ts` and `abort-controller-stub.ts` are written against happy-dom's differences — which
-      # were simulated by hand until this project ran the suite on the real thing.
-      - name: Test (happy-dom)
-        run: npm run test:happy-dom
-
-      # Architecture invariants rather than behaviour: the heap has to reach a plateau across
-      # create/teardown cycles, and teardown has to stay linear. Both assert shape, not milliseconds.
-      - name: Test (engine invariants)
-        run: npm run test:invariants
-
-      - name: Build
-        run: npm run build
-
-      # Both read `dist/`, so they can only run after the build. Deterministic counts — bundled
-      # bytes and module-graph size — so a shared runner cannot make them flap.
-      - name: Per-entry size baseline
-        run: npm run size:entries:check
-
-      - name: Module-graph baseline
-        run: npm run cold-import:check
 
   # Bun is a second runtime, not a second lane of the same one: `bun:test` mocks behave differently
   # from Vitest's (no `mock.settledResults`, `mockReset` drops the implementation, `spyOn` refuses
