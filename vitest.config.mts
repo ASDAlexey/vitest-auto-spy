@@ -19,11 +19,12 @@ export default defineConfig({
     // `isolate: false` in a single worker — the mode `setupAutoSpy()` exists for.
     isolate: true,
     coverage: {
-      // The stock v8 provider, merging the workers' raw script coverages in one call instead of
-      // folding them pairwise — the fold drops covered blocks and fails the 100 % threshold with
-      // every spec green. Why, and the measurements, are in the file itself.
-      provider: 'custom' as const,
-      customProviderModule: './scripts/coverage-v8-merge.mjs',
+      // Istanbul, not v8: the v8 provider merges the workers' raw script coverages, and the more
+      // payloads it merges the more covered blocks it drops — 18 branches at 113 spec files, with
+      // every spec green and a different set of lines blamed on every run. Istanbul instruments the
+      // source and sums counters, so the same suite reports 100 % in every mode, run after run.
+      // Measured both ways in tasks/2026-09-06-session/coverage-flake.md; it costs ~0.5 s a run.
+      provider: 'istanbul' as const,
       reportsDirectory: 'coverage',
       reporter: ['text', 'html', 'lcov'],
       // Measure the real implementation under src/lib/** plus the public entry
