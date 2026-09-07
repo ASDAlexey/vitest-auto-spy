@@ -86,7 +86,7 @@ faster at suite scale ([benchmarks](#benchmarks)) — and for
 - 🤖 Built for AI agents too — one `npx vitest-auto-spy init` writes the pointer into the files your agents actually read and specialises it for this repository, backed by an offline [`AGENTS.md`](#using-this-library-with-an-ai-agent) inside the package, a [per-agent map](#which-file-your-agent-reads) for **Claude Code**, **OpenAI Codex**, **GLM/z.ai**, **Cursor**, **Copilot**, **Gemini CLI** and the rest, `llms.txt` on the docs site, a Claude Code skill, and errors that name their own fix
 - 🟢 100% test coverage, **zero runtime dependencies** (in-tree arg serializer, no `javascript-stringify`)
 
-## New in 5.0
+## New in 5
 
 A major that changes **no helper, no option and no runtime behaviour**. What it changes is what the
 package claims to run on, because both old peer ranges were claims the code could not keep — the
@@ -103,7 +103,7 @@ full list, with what to do about each, is in
 For almost everyone the whole upgrade is a version number: every Angular still supported by Angular
 satisfies the new floor, and only a project pinning `rxjs@7.0` or `7.1` on purpose has to move.
 
-## New in 4.0
+## New in 4
 
 A major with **one job**: take out of your project the weight this library was making it carry.
 Nothing was removed or renamed and no runtime behaviour changed — the whole cost is two import
