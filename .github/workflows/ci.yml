@@ -66,6 +66,15 @@ jobs:
       - name: Build
         run: npm run build
 
+      # The suites above import `src/`; people import `dist/`, cut by tsup into a bundle per entry
+      # point, and a bundler decision is invisible to every source-level spec. `explainSpy` shipped
+      # dead in 5.0.0 for exactly that reason — `ArgsMap` inlined into three entries at once, so the
+      # `instanceof` the report is built on was false across the boundary, with the suite green and
+      # coverage at 100 %. This loads each built entry in its own process and runs the cross-entry
+      # checks that can see it.
+      - name: Smoke the built package
+        run: npm run smoke:dist
+
       # Both read `dist/`, so they can only run after the build. Deterministic counts — bundled
       # bytes and module-graph size — so a shared runner cannot make them flap.
       - name: Per-entry size baseline
