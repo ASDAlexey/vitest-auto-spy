@@ -271,7 +271,7 @@
     "jscpd": "jscpd",
     "check": "npm run deps:check && npm run typecheck && npm run lint && npm run format:check && npm run jscpd && npm run export-map:check && npm run llms:check && npm run docs:check && npm run ru:check && npm run plugin:sync:check && npm run skill:check && npm run alias:sync:check && npm run test:coverage && npm run test:types && npm run types:budget && npm run test:shared-env && npm run test:zone && npm run test:happy-dom && npm run test:invariants && npm run test:bun && npm run test:bun:angular",
     "prepublishOnly": "npm run build",
-    "version": "node scripts/sync-plugin-version.mjs && node scripts/sync-alias.mjs && git add .claude-plugin alias"
+    "version": "node scripts/sync-plugin-version.mjs && node scripts/sync-alias.mjs && node scripts/generate-export-map.mjs && git add .claude-plugin alias src/cli/checks/export-map.generated.ts"
   },
   "peerDependencies": {
     "@angular/common": ">=20.0.0",
