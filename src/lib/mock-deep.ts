@@ -92,13 +92,18 @@ function getSpySurfaceKeys(): Set<PropertyKey> {
  * Read one member of the underlying spy (`calledWith`, `mock`, `mockReturnValue`, …), bound and
  * cached.
  *
+ * Read with the spy as the receiver, never the node: the fast engine's `mock` is a getter that
+ * lazily writes its call state onto `this`, and a write through the Proxy lands in the node's
+ * property store — state the raw spy's own calls never reach, so a `.mock` read before the first
+ * call detached the calls from every later assertion.
+ *
  * A method is bound to the spy itself rather than handed back with `this` pointing at the Proxy:
  * Bun's `mock()` asserts `this instanceof Mock` inside `mockReturnValue` and friends, so an unbound
  * read would make every deep node unusable on `bun:test`. Cached, because binding per read
  * allocates a function per property access — and made `api.log.info !== api.log.info`.
  */
-function readSpyMember(target: Func, key: PropertyKey, receiver: unknown, boundSpyMethods: Map<PropertyKey, Func>): unknown {
-  const value: unknown = Reflect.get(target, key, receiver);
+function readSpyMember(target: Func, key: PropertyKey, boundSpyMethods: Map<PropertyKey, Func>): unknown {
+  const value: unknown = Reflect.get(target, key, target);
 
   if (typeof value !== 'function') {
     return value;
@@ -167,7 +172,7 @@ function readNodeMember(state: DeepNodeState, target: Func, key: string | symbol
   // carries anyway, so a mocked member named `name`, `length`, `call`, `bind`, `apply`,
   // `constructor` or `toString` never materialised at all.
   if (getSpySurfaceKeys().has(key)) {
-    return readSpyMember(target, key, receiver, state.boundSpyMethods);
+    return readSpyMember(target, key, state.boundSpyMethods);
   }
 
   // Never spawn children for JS-internal symbol protocols, nor for a key a spec deleted —

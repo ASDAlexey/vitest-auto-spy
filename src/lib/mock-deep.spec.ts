@@ -26,7 +26,7 @@ interface Db {
 
 interface Root {
   db: Db;
-  getName(): string;
+  getName(id?: number): string;
   apiUrl: string;
 }
 
@@ -128,6 +128,38 @@ describe('mockDeep', () => {
     mockReturnValue('bound');
 
     expect(mock.db.repo.user.find(1)).toBe('bound');
+  });
+});
+
+describe('mockDeep — reading `.mock` before the first call', () => {
+  it('keeps the call state attached: assert not-called, call, assert called-with', () => {
+    const api = mockDeep<Root>();
+
+    expect(api.getName).not.toHaveBeenCalled();
+
+    api.getName(1);
+
+    expect(api.getName).toHaveBeenCalledWith(1);
+  });
+
+  it('answers a `.mock` reference taken before the call with the calls made after it', () => {
+    const api = mockDeep<Root>();
+    const state = api.getName.mock;
+
+    api.getName(7);
+
+    expect(state.calls).toEqual([[7]]);
+    expect(api.getName.mock).toBe(state);
+  });
+
+  it('records into the same state when the first call is read before the first `mockClear`', () => {
+    const api = mockDeep<Root>();
+
+    expect(api.getName.mock.calls).toHaveLength(0);
+
+    api.getName(1);
+
+    expect(api.getName).toHaveBeenCalledTimes(1);
   });
 });
 
