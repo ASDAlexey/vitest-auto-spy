@@ -8,10 +8,11 @@ The latest released version here must always match the one published on
 [npm](https://www.npmjs.com/package/vitest-auto-spy) and the latest `v*` git tag — see
 [CONTRIBUTING.md → Releasing](./CONTRIBUTING.md#releasing) for how that stays in sync.
 
-## [Unreleased]
+## [5.0.0] - 2026-09-07
 
-**Why upgrade.** Two new ways to read a double, a class of failure that stops pointing at this
-library's own source, and two of this package's own features that no longer cancel each other out.
+**Why upgrade.** Three peer and engine floors that this package can actually keep, and fifteen fixes
+— most of them cases where a helper reported the wrong test, left the next one dirty, or edited the
+wrong span of a file.
 
 ### Changed — BREAKING
 
@@ -43,7 +44,6 @@ library's own source, and two of this package's own features that no longer canc
   There is deliberately **no upper bound**. A bounded range would force a release for every Angular
   major and hand consumers `ERESOLVE` for upgrading first. The real fragility is `ɵSIGNAL`, a
   private symbol, and a range cannot protect against it — reading it structurally can.
-
 - **The rxjs peer range is now `>=7.2.0`, and the operators come from the root entry.**
   `lib/observable-spy.ts` imported six operators from `rxjs/operators`, the legacy deep path that
   **rxjs 8 removes**; the open-ended `>=7.0.0` therefore promised a version it could not serve.
@@ -51,7 +51,12 @@ library's own source, and two of this package's own features that no longer canc
   assumed), so the import moved and the floor moved with it. No Angular consumer pays anything:
   Angular 16 through 22 all peer on `^6.5.3 || ^7.4.0`, so an Angular project already has more than
   this asks.
-
+- **`engines.node` is now `>=22`.** The old `>=18` outlived both versions it named: Node 18 went
+  end of life 2025-04-30 and Node 20 followed on 2026-04-30, so the floor promised maintenance
+  nobody was giving. Node 22 is the oldest release still in Active LTS, and it is what every number
+  on the performance page is measured on. `engines` is advisory in npm's default configuration — an
+  install on an older runtime warns rather than fails — but a consumer running `--engine-strict`,
+  and every CI image pinned by this field, will see it.
 - **`flushEffects()` calls `TestBed.tick()` directly.** The `ApplicationRef.tick()` fallback existed
   for Angular below 20 and is now unreachable, and with it goes the spec that deleted `TestBed.tick`
   at runtime purely to drive that branch to full coverage.
@@ -62,30 +67,6 @@ addition, `vi.defineHelper` (4.1), is feature-probed. `zone.js` stays absent fro
 `/zone` reads `globalThis.Zone` and imports nothing from it.
 
 ### Fixed
-
-- **`prefer-render-shallow` no longer goes quiet on a spec that mocks `DOCUMENT`.** The rule asks
-  whether the file reads the rendered template, over the whole source text, and a `DOCUMENT`
-  stand-in that delegates to the real document —
-  `{ querySelector: document.querySelector.bind(document), … }` — answered yes on the strength of
-  its own keys. Found on a consumer suite where the single component spec that rendered a template
-  nobody reads was also the only one the rule never reported. Only the `name: document.name` shape
-  is subtracted, and only where the two names match: a bare `document.querySelector('.row')` still
-  counts, because a fixture attached to the document is read exactly that way.
-- **`{ templates: 'never' }` no longer reports a false claim about the file.** The policy setting
-  reused the `'as-needed'` wording — *"nothing in this file reads either — no `nativeElement`, no
-  `debugElement`, no `By.css`, no `querySelector`"* — on files chosen without asking that question,
-  so the component spec with thirty-five `querySelector` calls was told it had none. `'never'` now
-  states the policy, what `renderShallow` costs and buys, and the two prices it charges: a spec
-  asserting on markup goes red, and coverage falls by whatever only the template reached. The second
-  message costs `/eslint-plugin` +367 B min+gzip; see **Size and memory** below.
-
-- **`renderShallow` no longer trips `enableAngularDiagnostics({ deadSchemas })`.** It configured the
-  testing module with `NO_ERRORS_SCHEMA` unconditionally, including for a standalone component,
-  where a module-level schema can never reach the template — which is precisely what `deadSchemas`
-  fails a test for. A suite that took both of this package's recommendations therefore could not use
-  `renderShallow` at all: every call threw *configureTestingModule was given 1 schema(s) that can
-  never apply*. The schema is now passed only where it can do something, which is the non-standalone
-  branch that puts the component in `declarations`.
 
 - **`stubAbortController()` fires `onabort` exactly once under happy-dom as well as jsdom.**
   happy-dom's `EventTarget` invokes `on<type>` properties itself and jsdom's does not, so the stub's
@@ -163,6 +144,44 @@ addition, `vi.defineHelper` (4.1), is feature-probed. `zone.js` stays absent fro
 
 ### Added
 
+- **`AbortSignal.abort()`, `AbortSignal.timeout()` and `AbortSignal.any()` on the stub.** The three
+  statics are how modern code makes a signal without a controller — `fetch(url, { signal:
+  AbortSignal.timeout(5_000) })` most of all — and the stub had none of them, so a spec that called
+  `stubAbortController()` to fix the jsdom brand-check broke the code it was trying to test.
+  `timeout()` aborts through `setTimeout`, so `vi.useFakeTimers()` drives it exactly as it drives the
+  platform's, and with a `TimeoutError` rather than an `AbortError` because that is the distinction
+  the platform draws.
+- **`video.currentTime = 0` reaches the record and fires `timeupdate`.** `media.set()` was the only
+  way in, and a player restarting itself assigns the field directly — the component's own
+  `timeupdate` handler stayed unrun while the assertion read the new value, which looks like a bug in
+  the component. The stub's `currentTime` is now a get/set pair, and `media.set()` is unchanged.
+- **`VITEST_AUTO_SPY_SCAN_CAP` raises the CLI's 50 000-file scan cap.** The truncation warning above
+  tells the reader to raise the cap; this is the cap.
+
+### Size and memory
+
+`/dom-stubs` is **+219 B** (5 030 → 5 249 B min+gzip, +4.4 %), the one entry past the 200 B
+allowance, and it is all stub surface rather than machinery: 42 B for the happy-dom `onabort`
+repair, and 177 B for the three `AbortSignal` statics, the `DOMException` reasons and the
+`currentTime` setter — measured by building the entry with those two files at their previous
+revision. The module graph is unchanged at 2 modules, so nothing new is pulled in; the bytes are
+code this entry already had to have to stand in for the platform it stands in for. Every other entry
+moved under 1 %: `/angular` +192 B (+1.0 %) for the override queue and the HTTP verification policy,
+`.` / `/react` / `/vue` / `/svelte` +76 B (+0.5 %), `/bun` +69 B, `/node` +67 B, `/bun-angular`
++46 B, `/setup` +4 B, `/eslint-plugin` and `/diagnostics` unchanged, `/rxjs` −12 B.
+
+## [4.6.1] - 2026-09-06
+
+**Why upgrade.** No user-facing changes — a README correction only. The package, its exports and its
+behaviour are identical to 4.6.0.
+
+## [4.6.0] - 2026-09-06
+
+**Why upgrade.** One install now spans Vitest 2.1 through 5.x, and the newest lint rule stops both
+lying about the file it reports and going quiet on the file it should.
+
+### Added
+
 - **Vitest 5 support, on the same install.** The peer range still starts at `>=2.1.0`, so one
   version of this package spans Vitest 2.1 through 5.x — no second major, no version-split types, no
   `@next` tag, and no edit to a spec. Two changes in Vitest 5 reach a spy library rather than a
@@ -184,6 +203,53 @@ addition, `vi.defineHelper` (4.1), is feature-probed. `zone.js` stays absent fro
   finds long-lived mocks by walking `@vitest/spy`'s registry, which Vitest 5 no longer exposes, so
   its automatic half is a no-op there — mark the mock with `keepMockRegistered()`, which works on
   every version.
+
+### Fixed
+
+- **`prefer-render-shallow` no longer goes quiet on a spec that mocks `DOCUMENT`.** The rule asks
+  whether the file reads the rendered template, over the whole source text, and a `DOCUMENT`
+  stand-in that delegates to the real document —
+  `{ querySelector: document.querySelector.bind(document), … }` — answered yes on the strength of
+  its own keys. Found on a consumer suite where the single component spec that rendered a template
+  nobody reads was also the only one the rule never reported. Only the `name: document.name` shape
+  is subtracted, and only where the two names match: a bare `document.querySelector('.row')` still
+  counts, because a fixture attached to the document is read exactly that way.
+- **`{ templates: 'never' }` no longer reports a false claim about the file.** The policy setting
+  reused the `'as-needed'` wording — *"nothing in this file reads either — no `nativeElement`, no
+  `debugElement`, no `By.css`, no `querySelector`"* — on files chosen without asking that question,
+  so the component spec with thirty-five `querySelector` calls was told it had none. `'never'` now
+  states the policy, what `renderShallow` costs and buys, and the two prices it charges: a spec
+  asserting on markup goes red, and coverage falls by whatever only the template reached. The second
+  message costs `/eslint-plugin` +367 B min+gzip; see **Size and memory** below.
+
+### Size and memory
+
+`/eslint-plugin` is **+367 B** (17 584 → 17 951 B min+gzip, +2.1 %), all of it the second
+`prefer-render-shallow` message — 1045 bytes of prose that `{ templates: 'never' }` needed because
+the shared wording claimed something about the file the rule had not checked. It is a dev-only entry
+that no application bundle loads, and the rules are the only entry where a message *is* the feature.
+
+## [4.5.1] - 2026-09-05
+
+**Why upgrade.** `renderShallow` and `enableAngularDiagnostics` stop cancelling each other out, so a
+suite can take both of this package's recommendations at once.
+
+### Fixed
+
+- **`renderShallow` no longer trips `enableAngularDiagnostics({ deadSchemas })`.** It configured the
+  testing module with `NO_ERRORS_SCHEMA` unconditionally, including for a standalone component,
+  where a module-level schema can never reach the template — which is precisely what `deadSchemas`
+  fails a test for. A suite that took both of this package's recommendations therefore could not use
+  `renderShallow` at all: every call threw *configureTestingModule was given 1 schema(s) that can
+  never apply*. The schema is now passed only where it can do something, which is the non-standalone
+  branch that puts the component in `declarations`.
+
+## [4.5.0] - 2026-09-05
+
+**Why upgrade.** A twentieth lint rule that turns a measured cost — up to 20× the per-test cycle —
+into something the editor points at.
+
+### Added
 
 - **`prefer-render-shallow`, the twentieth lint rule.** Reports a `TestBed.createComponent` in a
   spec file that never reads the rendered template — no `nativeElement`, no `debugElement`, no
@@ -207,6 +273,39 @@ addition, `vi.defineHelper` (4.1), is feature-probed. `zone.js` stays absent fro
   "prefer X" moves the problem. No other entry point moved a byte — the rule and its `dom-reads`
   helper are reachable from `vitest-auto-spy/eslint-plugin` alone, and nothing under `src/lib/`
   gained a runtime import.
+
+## [4.4.0] - 2026-09-05
+
+**Why upgrade.** `localStorage` keeps working when CI moves to a newer Node, instead of taking
+eleven unrelated specs down with it.
+
+### Added
+
+- **`restoreWebStorage()`, and `setupAutoSpy({ restoreWebStorage })` — on by default.** Vitest copies
+  a DOM environment's globals onto `globalThis` behind `if (k in global) return KEYS.includes(k)`,
+  and neither `localStorage` nor `sessionStorage` is in `KEYS`; they arrived only because Node put
+  neither on `globalThis`. Node's own Web Storage made the key exist, so the environment's storage
+  stopped arriving: `setItem is not a function` on Node 25, `undefined` on Node 26, under jsdom and
+  happy-dom alike, since the filter runs before either. The suite stays green until a spec touches
+  storage, which is why this lands as "CI moved to a new Node and eleven unrelated specs died". The
+  repair decides by using the storage — a namespaced key written, read back and removed — rather
+  than by inspecting it, because Node 25 hands out a `setItem` that throws and the next runtime is
+  free to invent a third shape. A storage that survives that round trip is left exactly as it is, so
+  a spec's own stub is safe; one that does not is replaced with the window's own storage where that
+  is a separate object, and with a `Map`-backed stand-in otherwise. Nothing is installed in a `node`
+  environment, which is supposed to have no Web Storage at all.
+
+### Size and memory
+
+`/setup` gave 373 B back (+3.1 %) for the Web Storage repair, which is the entry that runs it
+and the only one that carries it.
+
+## [4.3.0] - 2026-09-04
+
+**Why upgrade.** Two new ways to read a double, and a class of failure that stops pointing at this
+library's own source.
+
+### Added
 
 - **`createSpyFromInstance(instance, config?)` / `restoreSpiedInstance(instance)`.** Every other
   factory here _constructs_ a double; this one patches an object the test already holds — a service
@@ -247,65 +346,6 @@ addition, `vi.defineHelper` (4.1), is feature-probed. `zone.js` stays absent fro
   performance page are reproducible by a reader and by CI rather than quoted.
 - **A `@testing-library/angular` migration page.** It is the only third party with zoneless support,
   and its `/vitest-utils` `createMock` / `provideMock` overlap this library directly.
-- **`restoreWebStorage()`, and `setupAutoSpy({ restoreWebStorage })` — on by default.** Vitest copies
-  a DOM environment's globals onto `globalThis` behind `if (k in global) return KEYS.includes(k)`,
-  and neither `localStorage` nor `sessionStorage` is in `KEYS`; they arrived only because Node put
-  neither on `globalThis`. Node's own Web Storage made the key exist, so the environment's storage
-  stopped arriving: `setItem is not a function` on Node 25, `undefined` on Node 26, under jsdom and
-  happy-dom alike, since the filter runs before either. The suite stays green until a spec touches
-  storage, which is why this lands as "CI moved to a new Node and eleven unrelated specs died". The
-  repair decides by using the storage — a namespaced key written, read back and removed — rather
-  than by inspecting it, because Node 25 hands out a `setItem` that throws and the next runtime is
-  free to invent a third shape. A storage that survives that round trip is left exactly as it is, so
-  a spec's own stub is safe; one that does not is replaced with the window's own storage where that
-  is a separate object, and with a `Map`-backed stand-in otherwise. Nothing is installed in a `node`
-  environment, which is supposed to have no Web Storage at all.
-- **`AbortSignal.abort()`, `AbortSignal.timeout()` and `AbortSignal.any()` on the stub.** The three
-  statics are how modern code makes a signal without a controller — `fetch(url, { signal:
-  AbortSignal.timeout(5_000) })` most of all — and the stub had none of them, so a spec that called
-  `stubAbortController()` to fix the jsdom brand-check broke the code it was trying to test.
-  `timeout()` aborts through `setTimeout`, so `vi.useFakeTimers()` drives it exactly as it drives the
-  platform's, and with a `TimeoutError` rather than an `AbortError` because that is the distinction
-  the platform draws.
-- **`video.currentTime = 0` reaches the record and fires `timeupdate`.** `media.set()` was the only
-  way in, and a player restarting itself assigns the field directly — the component's own
-  `timeupdate` handler stayed unrun while the assertion read the new value, which looks like a bug in
-  the component. The stub's `currentTime` is now a get/set pair, and `media.set()` is unchanged.
-- **`VITEST_AUTO_SPY_SCAN_CAP` raises the CLI's 50 000-file scan cap.** The truncation warning above
-  tells the reader to raise the cap; this is the cap.
-
-### Size and memory
-
-Every entry that exports the new factory grows **+0.65 kB min+gzip** (`.`, `/react`, `/vue`,
-`/svelte`, +4.5 %), **+0.74 kB** on `/bun` (+5.7 %), **+0.73 kB** on `/node` (+5.3 %) and
-**+0.64 kB** on `/bun-angular` (+3.8 %). Of that, 322 B is `createSpyFromInstance` itself and the
-remaining ~353 B is the stack anchoring, the `node:test` naming and `ArgsMap.configuredEntries` —
-each measured by building the entry with and without it. `/diagnostics` is the one large relative
-move, +2.25 kB on a 1.59 kB entry, and it is `explainSpy` being deliberately kept off the root.
-Seven entries got *smaller* — `/rxjs`, `/dom-stubs`, `/jasmine-compat` and `/setup` among them —
-from the shared-chunk split described below. `/setup` then gave 373 B of that back (+3.1 %) for the
-Web Storage repair, which is the entry that runs it and the only one that carries it.
-
-`/eslint-plugin` is **+367 B** (17 584 → 17 951 B min+gzip, +2.1 %), all of it the second
-`prefer-render-shallow` message — 1045 bytes of prose that `{ templates: 'never' }` needed because
-the shared wording claimed something about the file the rule had not checked. It is a dev-only entry
-that no application bundle loads, and the rules are the only entry where a message *is* the feature.
-
-`/dom-stubs` is **+219 B** (5 030 → 5 249 B min+gzip, +4.4 %), the one entry past the 200 B
-allowance, and it is all stub surface rather than machinery: 42 B for the happy-dom `onabort`
-repair, and 177 B for the three `AbortSignal` statics, the `DOMException` reasons and the
-`currentTime` setter — measured by building the entry with those two files at their previous
-revision. The module graph is unchanged at 2 modules, so nothing new is pulled in; the bytes are
-code this entry already had to have to stand in for the platform it stands in for. Every other entry
-moved under 1 %: `/angular` +192 B (+1.0 %) for the override queue and the HTTP verification policy,
-`.` / `/react` / `/vue` / `/svelte` +76 B (+0.5 %), `/bun` +69 B, `/node` +67 B, `/bun-angular`
-+46 B, `/setup` +4 B, `/eslint-plugin` and `/diagnostics` unchanged, `/rxjs` −12 B.
-
-Heap per spied method is **+4.0 %** (2.78 kB → 2.89 kB) and creating a spy **+2.6 %**, measured over
-100 000 spied methods through the `/node` entry, median of seven runs. The first version of the
-`node:test` naming cost +13.0 % heap and +17.6 % create time, because redefining `name` on a
-function drops it out of V8's fast map; naming the implementation at creation instead brought it
-back. Heap after a lazy create is unchanged.
 
 ### Changed
 
@@ -332,6 +372,41 @@ back. Heap after a lazy create is unchanged.
   the entry it tree-shakes better than it did behind a barrel re-export, and **no entry gains a
   module**. `/setup` min+gzip 12 092 → 12 072 B. The per-import time this buys is ≈0.08 ms, at the
   resolution limit of the harness — the bytes are the claim, not the milliseconds.
+
+### Size and memory
+
+Every entry that exports the new factory grows **+0.65 kB min+gzip** (`.`, `/react`, `/vue`,
+`/svelte`, +4.5 %), **+0.74 kB** on `/bun` (+5.7 %), **+0.73 kB** on `/node` (+5.3 %) and
+**+0.64 kB** on `/bun-angular` (+3.8 %). Of that, 322 B is `createSpyFromInstance` itself and the
+remaining ~353 B is the stack anchoring, the `node:test` naming and `ArgsMap.configuredEntries` —
+each measured by building the entry with and without it. `/diagnostics` is the one large relative
+move, +2.25 kB on a 1.59 kB entry, and it is `explainSpy` being deliberately kept off the root.
+Seven entries got *smaller* — `/rxjs`, `/dom-stubs`, `/jasmine-compat` and `/setup` among them —
+from the shared-chunk split described below.
+
+Heap per spied method is **+4.0 %** (2.78 kB → 2.89 kB) and creating a spy **+2.6 %**, measured over
+100 000 spied methods through the `/node` entry, median of seven runs. The first version of the
+`node:test` naming cost +13.0 % heap and +17.6 % create time, because redefining `name` on a
+function drops it out of V8's fast map; naming the implementation at creation instead brought it
+back. Heap after a lazy create is unchanged.
+
+## [4.2.0] - 2026-09-04
+
+**Why upgrade.** No user-facing changes. Everything here is a gate: the numbers this project argues
+from are now measured by CI rather than quoted from a README.
+
+### Added
+
+- **Four measurement gates, all of them in `npm run check` and in CI.** `bench:check` holds every
+  benchmark ratio against a committed baseline; `cold-import` gates the module-graph size of every
+  entry point; `size:entries` gates the min+gzip weight of each one; and a pair of invariant specs
+  assert that the heap reaches a plateau across create/teardown cycles and that teardown stays
+  linear. `deps:check` fails on a lockfile that has drifted from the installed tree, and
+  `format:check` covers the scope the `format` script owns — the gap that let a source file sit
+  unformatted in the repository.
+- **Every performance number republished from a fresh measurement.** The previous figures predated
+  the spy engine introduced in 4.1 and were quoted rather than reproducible; each one is now
+  produced by a script in `bench/` that a reader can run.
 
 ## [4.1.0] - 2026-09-03
 
@@ -3332,7 +3407,17 @@ by hand there, in more than one place, by more than one person.
   `mockAccessorsProp`.
 - Dual ESM + CJS build with type declarations; 100% test coverage.
 
-[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v3.9.0...HEAD
+[5.0.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v4.6.1...v5.0.0
+[4.6.1]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v4.6.0...v4.6.1
+[4.6.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v4.5.1...v4.6.0
+[4.5.1]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v4.5.0...v4.5.1
+[4.5.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v4.4.0...v4.5.0
+[4.4.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v4.3.0...v4.4.0
+[4.3.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v4.2.0...v4.3.0
+[4.2.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v4.1.0...v4.2.0
+[4.1.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v4.0.1...v4.1.0
+[4.0.1]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v4.0.0...v4.0.1
+[4.0.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v3.9.0...v4.0.0
 [3.9.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v3.8.1...v3.9.0
 [3.8.1]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v3.8.0...v3.8.1
 [3.8.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v3.7.0...v3.8.0
