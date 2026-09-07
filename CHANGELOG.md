@@ -8,6 +8,22 @@ The latest released version here must always match the one published on
 [npm](https://www.npmjs.com/package/vitest-auto-spy) and the latest `v*` git tag — see
 [CONTRIBUTING.md → Releasing](./CONTRIBUTING.md#releasing) for how that stays in sync.
 
+## [Unreleased]
+
+### Fixed
+
+- **`explainSpy` reads a double built by another entry point again.** From the published package it
+  answered `nothing configured` for every configured double, whatever `calledWith` had been set on
+  it. The report finds the argument map behind a spy with `map instanceof ArgsMap`, and tsup inlines
+  a copy of that class into every entry point that reaches it — `dist/index.js`, `dist/angular.js`
+  and `dist/diagnostics.js` each carry their own — so the map a double was built with was never an
+  instance of the class the diagnostic held. `ArgsMap` now carries a
+  `Symbol.for('vitest-auto-spy.args-map')` brand and the check is that brand, which every copy
+  resolves to the same value. Nothing in the source suite could see this: a spec imports one copy,
+  so all four metrics stayed at 100 % while the feature was dead in the package. `npm run
+  smoke:dist` loads each built entry point in its own process and runs the cross-entry checks that
+  do see it.
+
 ## [5.0.0] - 2026-09-07
 
 **Why upgrade.** Three peer and engine floors that this package can actually keep, and fifteen fixes

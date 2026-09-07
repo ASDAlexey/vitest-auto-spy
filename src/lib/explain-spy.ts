@@ -12,7 +12,7 @@
  * diagnostic that fails is worse than no diagnostic: it is reached from a spec that is already
  * failing for another reason.
  */
-import { ArgsMap } from './args-map';
+import { type ArgsMap, isArgsMap } from './args-map';
 import { type MockFn, getMockAdapter } from './mock-adapter';
 import { serializeValue } from './serialize-args';
 import { AUTO_SPY_MARK, isMarkedMock } from './spy-mark';
@@ -98,7 +98,7 @@ function chainsOf(mock: MockFn): { name: string; map: ArgsMap }[] {
     const chain: unknown = Reflect.get(state, name);
     const map: unknown = isObject(chain) ? Reflect.get(chain, 'argsToValuesMap') : undefined;
 
-    if (map instanceof ArgsMap) {
+    if (isArgsMap(map)) {
       chains.push({ name, map });
     }
   }

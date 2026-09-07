@@ -6,7 +6,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { ArgsMap } from './args-map';
+import { ARGS_MAP_BRAND, ArgsMap, isArgsMap } from './args-map';
 
 describe('ArgsMap', () => {
   it('stores and retrieves by exact primitive args (fast path)', () => {
@@ -298,5 +298,30 @@ describe('ArgsMap', () => {
 
   it('has no entries before anything is configured', () => {
     expect(new ArgsMap().configuredEntries()).toEqual([]);
+  });
+
+  describe('isArgsMap', () => {
+    it('recognises a map built by a second copy of this class', () => {
+      // What the bundler produces: every entry point that reaches this file gets its own copy of
+      // the class, so a map built by `vitest-auto-spy` fails `instanceof` against the copy inside
+      // `vitest-auto-spy/diagnostics`. `explainSpy` answered `nothing configured` for every
+      // configured double in the published package because of it. The brand is a registry symbol,
+      // which both copies resolve to the same value.
+      class BundledTwice {
+        readonly [ARGS_MAP_BRAND] = true;
+      }
+
+      expect(new BundledTwice() instanceof ArgsMap).toBe(false);
+      expect(isArgsMap(new BundledTwice())).toBe(true);
+    });
+
+    it('recognises its own instances and nothing else', () => {
+      expect(isArgsMap(new ArgsMap())).toBe(true);
+      expect(isArgsMap({ [ARGS_MAP_BRAND]: 'yes' })).toBe(false);
+      expect(isArgsMap(new Map())).toBe(false);
+      expect(isArgsMap({})).toBe(false);
+      expect(isArgsMap(null)).toBe(false);
+      expect(isArgsMap(undefined)).toBe(false);
+    });
   });
 });

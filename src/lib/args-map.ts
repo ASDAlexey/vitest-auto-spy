@@ -143,7 +143,25 @@ export interface ConfiguredEntry {
   matches(actualArgs: unknown[]): boolean;
 }
 
+/**
+ * Identity that survives being bundled twice.
+ *
+ * tsup inlines a copy of this class into every entry point that reaches it, so a double built by
+ * `vitest-auto-spy` and read by `vitest-auto-spy/diagnostics` carries two different `ArgsMap`
+ * constructors and `instanceof` answers false. That is how `explainSpy` reported `nothing
+ * configured` for every configured double in the published package while every source-level spec
+ * passed: the specs import one copy. A registry symbol is the same value in both.
+ */
+export const ARGS_MAP_BRAND = Symbol.for('vitest-auto-spy.args-map');
+
+/** Whether a value is an {@link ArgsMap}, including one from another bundled copy of this class. */
+export function isArgsMap(value: unknown): value is ArgsMap {
+  return typeof value === 'object' && value !== null && Reflect.get(value, ARGS_MAP_BRAND) === true;
+}
+
 export class ArgsMap {
+  readonly [ARGS_MAP_BRAND] = true;
+
   // Prototype-less so a `'__proto__'` (or `'constructor'`) serialized key is a
   // plain own property, never walking or polluting the object prototype chain.
   readonly #map: Record<SerializedArgs, unknown> = Object.create(null);
