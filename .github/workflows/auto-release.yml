@@ -142,8 +142,8 @@ jobs:
       - name: Sync the minzip badge with the fresh build
         if: steps.bump.outputs.bump != 'none'
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config user.name "Alexey Popov"
+          git config user.email "asdalexey@yandex.ru"
           npm run size:badge
           if git diff --quiet -- README.md; then
             echo "Badge already matches the built bundle — nothing to commit."
@@ -155,8 +155,8 @@ jobs:
         if: steps.bump.outputs.bump != 'none'
         id: version
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config user.name "Alexey Popov"
+          git config user.email "asdalexey@yandex.ru"
           # `npm version` updates package.json, creates a commit and a v* tag.
           # [skip ci] is belt-and-suspenders; GITHUB_TOKEN pushes don't trigger
           # workflows anyway.
