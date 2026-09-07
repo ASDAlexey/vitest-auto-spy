@@ -31,7 +31,17 @@ const SKIPPED_DIRECTORIES = new Set([
 ]);
 
 /** A guard against a pathological tree: a doctor run must stay a few seconds, not a few minutes. */
-const MAX_FILES = 50_000;
+export const SCAN_CAP = 50_000;
+
+/** Raises {@link SCAN_CAP} for a repository that really is bigger — the codemod's warning says so. */
+export const SCAN_CAP_ENV = 'VITEST_AUTO_SPY_SCAN_CAP';
+
+/** The cap in force for this process. Anything but a positive integer is ignored, not reported. */
+export function scanCap(): number {
+  const raw = Number(process.env[SCAN_CAP_ENV]);
+
+  return Number.isInteger(raw) && raw > 0 ? raw : SCAN_CAP;
+}
 
 /**
  * Every first capture group of a global pattern. Written with `replace` rather than `matchAll`
@@ -102,17 +112,24 @@ export function removeFile(path: string): void {
  * Every file under `root`, as repository-relative POSIX paths, with build output and dependency
  * directories skipped. Sorted, so a report is stable across platforms.
  */
-export function listRepositoryFiles(root: string, limit: number = MAX_FILES): string[] {
-  const found: string[] = [];
-
-  walk(root, root, found, limit);
-
-  return found.sort();
+export function listRepositoryFiles(root: string, limit: number = scanCap()): string[] {
+  return scanRepository(root, limit).files;
 }
 
-function walk(root: string, directory: string, found: string[], limit: number): void {
+/**
+ * The scan plus whether it stopped at {@link SCAN_CAP} — a caller that reports a *clean* result off
+ * a truncated list would be lying about the part of the tree it never saw.
+ */
+export function scanRepository(root: string, limit: number = scanCap()): { files: string[]; truncated: boolean } {
+  const found: string[] = [];
+  const truncated = walk(root, root, found, limit);
+
+  return { files: found.sort(), truncated };
+}
+
+function walk(root: string, directory: string, found: string[], limit: number): boolean {
   if (found.length >= limit) {
-    return;
+    return true;
   }
 
   let entries;
@@ -120,15 +137,19 @@ function walk(root: string, directory: string, found: string[], limit: number): 
   try {
     entries = readdirSync(directory, { withFileTypes: true });
   } catch {
-    return;
+    return false;
   }
 
   for (const entry of entries) {
+    if (found.length >= limit) {
+      return true;
+    }
+
     const full = join(directory, entry.name);
 
     if (entry.isDirectory()) {
-      if (!SKIPPED_DIRECTORIES.has(entry.name)) {
-        walk(root, full, found, limit);
+      if (!SKIPPED_DIRECTORIES.has(entry.name) && walk(root, full, found, limit)) {
+        return true;
       }
 
       continue;
@@ -138,6 +159,8 @@ function walk(root: string, directory: string, found: string[], limit: number): 
       found.push(toPosix(relative(root, full)));
     }
   }
+
+  return false;
 }
 
 /**

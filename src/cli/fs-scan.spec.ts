@@ -12,6 +12,7 @@ import {
   pathExists,
   readTextFile,
   removeFile,
+  scanRepository,
   toPosix,
   writeTextFile,
 } from './fs-scan';
@@ -50,6 +51,30 @@ describe('listRepositoryFiles', () => {
 
   it('returns nothing for a directory it cannot read', () => {
     expect(listRepositoryFiles(join('/', 'no-such-root-1a2b3c'))).toEqual([]);
+  });
+});
+
+describe('scanRepository', () => {
+  it('says the list is complete when the whole tree fits', () => {
+    const root = createTempRepo({ 'src/a.ts': '', 'src/b.ts': '' });
+
+    expect(scanRepository(root)).toEqual({ files: ['src/a.ts', 'src/b.ts'], truncated: false });
+  });
+
+  it('reports truncation when the cap is reached inside a subdirectory', () => {
+    const root = createTempRepo({ 'src/a.ts': '', 'src/b.ts': '' });
+    const scan = scanRepository(root, 1);
+
+    // Whichever of the two the platform's `readdir` hands back first: the point is that the cap was
+    // hit *inside* `src/`, which is the return path the sibling-level check above never reaches.
+    expect(scan.files).toHaveLength(1);
+    expect(scan.truncated).toBe(true);
+  });
+
+  it('scans nothing and says so for a cap of zero', () => {
+    const root = createTempRepo({ 'src/a.ts': '' });
+
+    expect(scanRepository(root, 0)).toEqual({ files: [], truncated: true });
   });
 });
 

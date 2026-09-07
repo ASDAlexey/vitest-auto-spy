@@ -19,6 +19,7 @@ const profileWith = (over: Partial<Profile>): Profile => ({
   dependencies: {},
   scripts: {},
   files: [],
+  filesTruncated: false,
   ...over,
 });
 

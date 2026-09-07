@@ -369,6 +369,20 @@ going to check by hand anyway.
 An id neither `--only` nor `--skip` recognises exits **2** naming the known ids, rather than quietly
 running everything.
 
+### When the scan hits its cap
+
+The file scan stops at 50 000 files, and past that the codemod says so on stderr rather than
+reporting a clean repository off a list it never finished:
+
+```
+The repository scan stopped at its safety cap of 50000 files — part of the tree was never looked at,
+so a clean result here is not a migrated repository. Raise the cap with VITEST_AUTO_SPY_SCAN_CAP or
+narrow --paths.
+```
+
+`VITEST_AUTO_SPY_SCAN_CAP=200000 npx vitest-auto-spy codemod --verify` raises it. Narrowing with
+`--paths` is usually the better answer: the scan is not the slow part, the transforms are.
+
 ## In CI
 
 ```yaml

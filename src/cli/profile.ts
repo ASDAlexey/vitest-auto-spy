@@ -5,7 +5,7 @@
  */
 import { join } from 'node:path';
 
-import { captures, listRepositoryFiles, parseJsonc, pathExists, readTextFile } from './fs-scan';
+import { captures, parseJsonc, pathExists, readTextFile, scanRepository } from './fs-scan';
 
 export type Framework = 'angular' | 'nestjs' | 'none' | 'react' | 'svelte' | 'vue';
 export type Runner = 'bun' | 'node' | 'vitest';
@@ -24,6 +24,8 @@ export interface Profile {
   readonly scripts: Readonly<Record<string, string>>;
   /** Every file in the repository, POSIX-relative — scanned once and shared by every check. */
   readonly files: readonly string[];
+  /** The scan stopped at its safety cap — results built off `files` did not see the whole tree. */
+  readonly filesTruncated: boolean;
 }
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
@@ -200,6 +202,7 @@ export function readProfile(cwd: string): Profile {
   const scripts = stringMap(packageJson['scripts']);
   const runner = detectRunner(dependencies, scripts);
   const framework = detectFramework(dependencies);
+  const scan = scanRepository(cwd);
 
   return {
     cwd,
@@ -211,6 +214,7 @@ export function readProfile(cwd: string): Profile {
     setupFiles: detectSetupFiles(cwd),
     dependencies,
     scripts,
-    files: listRepositoryFiles(cwd),
+    files: scan.files,
+    filesTruncated: scan.truncated,
   };
 }

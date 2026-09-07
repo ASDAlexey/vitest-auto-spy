@@ -9,7 +9,7 @@
  */
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { readTextFile } from '../fs-scan';
+import { SCAN_CAP_ENV, readTextFile } from '../fs-scan';
 import { runCli } from '../main';
 import type { CliIo } from '../main';
 import { createTempRepo, removeTempRepos } from '../temp-repo';
@@ -152,6 +152,22 @@ describe('codemod', () => {
     expect(output).toContain('.mockImplementation(() => undefined)');
     expect(output).toContain('jest-namespace            2 edits');
     expect(readTextFile(`${root}/src/app/service.spec.ts`)).toBe(LEGACY);
+  });
+
+  it('says so when the scan stopped at its cap, rather than reporting a clean repository', () => {
+    const root = createTempRepo(REPO);
+    const io = recorder();
+
+    process.env[SCAN_CAP_ENV] = '1';
+
+    try {
+      runCli(['codemod', '--cwd', root, '--verify'], io);
+    } finally {
+      delete process.env[SCAN_CAP_ENV];
+    }
+
+    expect(io.stderr.join('\n')).toContain('stopped at its safety cap of 1 files');
+    expect(io.stderr.join('\n')).toContain(SCAN_CAP_ENV);
   });
 
   it('applies the edits under --write, and then has nothing left to verify', () => {

@@ -9,7 +9,7 @@
  */
 import { join } from 'node:path';
 
-import { readTextFile, writeTextFile } from '../fs-scan';
+import { SCAN_CAP_ENV, readTextFile, scanCap, writeTextFile } from '../fs-scan';
 import type { CliIo } from '../main';
 import { readProfile } from '../profile';
 import type { Finding } from '../report';
@@ -185,6 +185,13 @@ export function runCodemod(cwd: string, options: CodemodOptions, io: CliIo): num
   }
 
   const profile = readProfile(cwd);
+
+  if (profile.filesTruncated) {
+    io.err(
+      `The repository scan stopped at its safety cap of ${scanCap()} files — part of the tree was never looked at, so a clean result here is not a migrated repository. Raise the cap with ${SCAN_CAP_ENV} or narrow --paths.\n`,
+    );
+  }
+
   const files = selectFiles(profile.files, options.paths);
 
   io.out(`vitest-auto-spy codemod — ${cwd}`);
