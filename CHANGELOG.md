@@ -87,6 +87,80 @@ addition, `vi.defineHelper` (4.1), is feature-probed. `zone.js` stays absent fro
   never apply*. The schema is now passed only where it can do something, which is the non-standalone
   branch that puts the component in `declarations`.
 
+- **`stubAbortController()` fires `onabort` exactly once under happy-dom as well as jsdom.**
+  happy-dom's `EventTarget` invokes `on<type>` properties itself and jsdom's does not, so the stub's
+  own `this.signal.onabort?.(event)` was a second call on one runtime and the only call on the other.
+  The property is parked for the dispatch and run from a `{ once: true }` listener instead, which is
+  one call on both. The DOM stubs now have a suite of their own under real happy-dom
+  (`npm run test:happy-dom`, in the gate and in CI) — until this release every one of them was
+  verified against jsdom alone and a `environment: 'happy-dom'` project was taking them on trust.
+- **A signal's `reason` is the `DOMException` the platform produces, not `new Error('AbortError')`.**
+  Code under test that branches on `signal.reason.name === 'AbortError'` — the shape the platform
+  documents, and what an `AbortError`-vs-`TimeoutError` distinction is written against — took the
+  `else` against the stub while passing in the browser.
+- **`mockReadonlyProp` / `mockReadonlyPropGetter` no longer leave the real setter live.**
+  `Object.defineProperty` over an *existing* accessor pair keeps whatever the new descriptor does not
+  name, so defining `get` alone left the object's own `set` in place: a write the code under test
+  made went into the real setter, silently, and the getter kept answering with the stub value. The
+  descriptor now names `set: undefined`, which is what "readonly" was supposed to mean.
+- **`mockDeep` keeps the call state attached when `.mock` is read before the first call.** The spy
+  surface was read with the Proxy as the receiver, so the fast engine's lazy `mock` getter wrote its
+  state onto the *node* while the raw spy recorded calls into its own — and
+  `const state = api.getName.mock` taken at the top of a test stayed empty however often the method
+  ran. Members are now read with the spy as the receiver.
+- **A `delay` on `resolveWith` counts from the call, not from the line that configured it.** The
+  delayed promise was built at configuration time, so `vi.advanceTimersByTime()` in the test body
+  raced a timer that had already been running since `beforeEach`; a per-call entry now builds its
+  promise when the call happens.
+- **A spy's recorded result no longer settles on any thenable.** `settleInto` treated anything with
+  a `.then` as a promise to await, and a lazy query builder's `.then` *is* the query — so reading the
+  result of one call executed it, and `then` being a member another spy owned recorded a call nobody
+  made. Only a real `Promise` is settled, which is the test Vitest's own runner applies.
+- **A failing Angular teardown check leaves the next test a clean `TestBed`.** A throwing `afterEach`
+  makes Vitest skip that test's remaining `afterEach` hooks — the framework's own module teardown
+  among them — so the report named the *next* spec, dying on a stale module, instead of the one that
+  leaked. Both `provideHttpTesting()`'s verification and
+  `enableAngularDiagnostics({ pendingRequests })` now reset before rethrowing.
+- **`provideHttpTesting()` keeps verifying after the first test of a file.** The teardown check was
+  armed one shot per call, so hoisting the providers to a module constant — the ordinary
+  optimisation once a suite uses the helper in a dozen places — verified test one and let every later
+  test leak in silence. The setting is now the suite's policy, and each test's `afterEach` decides
+  from whether that test's `TestBed` has an `HttpTestingController` at all.
+- **`overrideComponentProvider` no longer fails the next test with a stale queue.** A test that
+  queued an override and never rendered — an `@if` branch not taken, a spec asserting only on the
+  service — left its entry and the `createComponent` wrapper installed across `resetTestingModule`;
+  the next test that *did* render verified the previous test's entry against its own fixture and
+  failed with a false *the override did not apply*. The queue and the wrapper are now dropped when
+  the framework resets the module.
+- **`extendWithAutoSpies({ providers })` wins over the generated spy, as its own documentation
+  said.** The listed providers went in *before* the generated ones and Angular resolves duplicates
+  last-one-wins, so naming a token to override it had exactly no effect.
+- **An `until` predicate that throws fails the assertion instead of the timeout.** rxjs routes a
+  throw from a subscriber callback to `reportUnhandledError` on a fresh macrotask: the run collected
+  an unhandled error, the subscription and the watchdog stayed alive, and the eventual message
+  blamed the silence — *did not emit within 5000 ms* — rather than the predicate. The throw is now
+  caught where it happens and rejects with the predicate, the emission index and the cause.
+- **The codemod stops rewriting prose inside comments and strings.** Its mask scanned with one
+  `String.replace`, and the regex-literal alternative could swallow a span that began at a
+  *division* — running to the next `/`, taking an unseen comment or quote with it. The span was
+  handed back "unchanged" but consumed, so its contents stayed in the code mask and the transforms
+  edited the sentence inside. The scan now backs up to the slash and resumes one character later, and
+  a `/` is read as opening a regular expression only after a keyword or an operator.
+- **The codemod keeps a comment inside an import clause attached to its specifier.** The clause was
+  split on raw commas, so a comment containing one produced a specifier nobody exported; and the
+  rewritten statement joined every name onto one line, which put the closing `}` and the whole
+  `from '…'` *inside* a line comment — emitting a statement that no longer parses while the residue
+  check, now also commented out, reported the file as fully migrated. Comments ride their specifier,
+  and a clause carrying one is emitted one name per line.
+- **`init` never overwrites a file it did not write.** `.cursor/rules/vitest-auto-spy.mdc` and
+  `.claude/skills/vitest-auto-spy/SKILL.md` are exactly the paths a team plausibly authored before
+  discovering this CLI; the owned-file plan rewrote them regardless, and `--uninstall` then deleted
+  the replacement. A file present without the managed markers is now left byte for byte, and named
+  in the warnings.
+- **`codemod` says so when the repository scan stopped at its safety cap.** Past 50 000 files the
+  scan truncates, and *Nothing left to migrate* off a truncated list is a claim about a tree the
+  tool never looked at.
+
 ### Added
 
 - **Vitest 5 support, on the same install.** The peer range still starts at `>=2.1.0`, so one
@@ -186,6 +260,19 @@ addition, `vi.defineHelper` (4.1), is feature-probed. `zone.js` stays absent fro
   a spec's own stub is safe; one that does not is replaced with the window's own storage where that
   is a separate object, and with a `Map`-backed stand-in otherwise. Nothing is installed in a `node`
   environment, which is supposed to have no Web Storage at all.
+- **`AbortSignal.abort()`, `AbortSignal.timeout()` and `AbortSignal.any()` on the stub.** The three
+  statics are how modern code makes a signal without a controller — `fetch(url, { signal:
+  AbortSignal.timeout(5_000) })` most of all — and the stub had none of them, so a spec that called
+  `stubAbortController()` to fix the jsdom brand-check broke the code it was trying to test.
+  `timeout()` aborts through `setTimeout`, so `vi.useFakeTimers()` drives it exactly as it drives the
+  platform's, and with a `TimeoutError` rather than an `AbortError` because that is the distinction
+  the platform draws.
+- **`video.currentTime = 0` reaches the record and fires `timeupdate`.** `media.set()` was the only
+  way in, and a player restarting itself assigns the field directly — the component's own
+  `timeupdate` handler stayed unrun while the assertion read the new value, which looks like a bug in
+  the component. The stub's `currentTime` is now a get/set pair, and `media.set()` is unchanged.
+- **`VITEST_AUTO_SPY_SCAN_CAP` raises the CLI's 50 000-file scan cap.** The truncation warning above
+  tells the reader to raise the cap; this is the cap.
 
 ### Size and memory
 
@@ -203,6 +290,16 @@ Web Storage repair, which is the entry that runs it and the only one that carrie
 `prefer-render-shallow` message — 1045 bytes of prose that `{ templates: 'never' }` needed because
 the shared wording claimed something about the file the rule had not checked. It is a dev-only entry
 that no application bundle loads, and the rules are the only entry where a message *is* the feature.
+
+`/dom-stubs` is **+219 B** (5 030 → 5 249 B min+gzip, +4.4 %), the one entry past the 200 B
+allowance, and it is all stub surface rather than machinery: 42 B for the happy-dom `onabort`
+repair, and 177 B for the three `AbortSignal` statics, the `DOMException` reasons and the
+`currentTime` setter — measured by building the entry with those two files at their previous
+revision. The module graph is unchanged at 2 modules, so nothing new is pulled in; the bytes are
+code this entry already had to have to stand in for the platform it stands in for. Every other entry
+moved under 1 %: `/angular` +192 B (+1.0 %) for the override queue and the HTTP verification policy,
+`.` / `/react` / `/vue` / `/svelte` +76 B (+0.5 %), `/bun` +69 B, `/node` +67 B, `/bun-angular`
++46 B, `/setup` +4 B, `/eslint-plugin` and `/diagnostics` unchanged, `/rxjs` −12 B.
 
 Heap per spied method is **+4.0 %** (2.78 kB → 2.89 kB) and creating a spy **+2.6 %**, measured over
 100 000 spied methods through the `/node` entry, median of seven runs. The first version of the
