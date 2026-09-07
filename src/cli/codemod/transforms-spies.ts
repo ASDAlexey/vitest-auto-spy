@@ -18,7 +18,7 @@ import type { ImportStatement } from './imports';
 import { listImports } from './imports';
 import { LEGACY_PACKAGES } from './jest-api';
 import type { Range } from './mask';
-import { lineOf, matchBracket } from './mask';
+import { lineOf, maskCode, matchBracket } from './mask';
 import type { TransformContext, TransformSpec } from './transform-context';
 import { group, scan } from './transform-context';
 
@@ -34,12 +34,46 @@ interface Specifier {
 export function parseSpecifiers(source: string, braces: Range): Specifier[] {
   const [open, close] = braces;
 
-  return source
-    .slice(open + 1, close - 1)
-    .split(',')
-    .map((part) => part.trim())
-    .filter((part) => part.length > 0)
-    .map((raw) => ({ raw, imported: group(raw.replace(/^type\s+/, '').split(/\s+as\s+/), 0).trim() }));
+  // Split on the *masked* text's commas: a comment after a specifier may contain one, and a raw
+  // split would cut inside it, turning the comment's tail into a specifier nobody imported.
+  const masked = maskCode(source);
+  const ranges: Range[] = [];
+  let from = open + 1;
+
+  for (let index = open + 1; index < close - 1; index += 1) {
+    if (masked.charAt(index) === ',') {
+      ranges.push([from, index]);
+      from = index + 1;
+    }
+  }
+
+  ranges.push([from, close - 1]);
+
+  const parts: { raw: string; code: string }[] = [];
+
+  for (const [start, end] of ranges) {
+    const text = source.slice(start, end).trim();
+
+    if (text.length === 0) {
+      continue;
+    }
+
+    // A part that is blank in the mask is a comment that split off the specifier above it; parsing
+    // its words as imports invented names nobody exported. It rides the previous specifier — the
+    // separator comma itself is re-added by `statementFor`, which gives the pair its own line.
+    const rides = masked.slice(start, end).trim().length === 0 ? parts.at(-1) : undefined;
+
+    if (rides) {
+      rides.raw += ` ${text}`;
+      continue;
+    }
+
+    // The exported name is read off the mask, where a riding comment is already blank: the entry
+    // table is keyed by the identifier, not by the sentence after it.
+    parts.push({ raw: text, code: masked.slice(start, end).trim() });
+  }
+
+  return parts.map(({ raw, code }) => ({ raw, imported: group(code.replace(/^type\s+/, '').split(/\s+as\s+/), 0).trim() }));
 }
 
 /**
@@ -57,7 +91,24 @@ function ordered(groups: ReadonlyMap<string, Specifier[]>): [string, Specifier[]
 }
 
 function statementFor(entry: string, typeOnly: boolean, specifiers: readonly Specifier[]): string {
-  return `import ${typeOnly ? 'type ' : ''}{ ${specifiers.map((one) => one.raw).join(', ')} } from '${entry}';`;
+  const prefix = `import ${typeOnly ? 'type ' : ''}{`;
+
+  // A specifier carrying a line comment cannot share a line with the join: the comma and the
+  // closing brace would end up *inside* the comment, and the emitted statement stops parsing while
+  // the residue check sees nothing wrong. One specifier per line keeps every comma in code.
+  if (!specifiers.some((one) => one.raw.includes('//'))) {
+    return `${prefix} ${specifiers.map((one) => one.raw).join(', ')} } from '${entry}';`;
+  }
+
+  const body = specifiers
+    .map((one) => {
+      const comment = one.raw.indexOf('//');
+
+      return comment === -1 ? `  ${one.raw},` : `  ${one.raw.slice(0, comment).trimEnd()}, ${one.raw.slice(comment)}`;
+    })
+    .join('\n');
+
+  return `${prefix}\n${body}\n} from '${entry}';`;
 }
 
 /**

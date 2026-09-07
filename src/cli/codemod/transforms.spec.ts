@@ -197,6 +197,51 @@ describe('auto-spies-import — the split', () => {
     );
   });
 
+  it('keeps a line comment on its specifier without commenting out the clause', () => {
+    // The one-line rejoin used to put the closing `}` and the whole `from '…'` inside the comment,
+    // emitting a statement that no longer parses while the residue check — which now also lives in
+    // the comment — reported the file as fully migrated.
+    const source = [
+      'import {',
+      '  createSpyFromClass,',
+      '  provideAutoSpy, // eslint-disable-line no-restricted-imports',
+      "} from 'jest-auto-spies';",
+    ].join('\n');
+
+    const result = apply(source, autoSpiesImport);
+
+    expect(result).toBe(
+      [
+        "import { createSpyFromClass } from 'vitest-auto-spy';",
+        'import {',
+        '  provideAutoSpy, // eslint-disable-line no-restricted-imports',
+        "} from 'vitest-auto-spy/angular';",
+      ].join('\n'),
+    );
+  });
+
+  it('puts one specifier per line once any of them carries a comment, commented or not', () => {
+    const source = ['import {', '  createSpyFromClass,', '  Spy, // the type, not the factory', "} from 'jest-auto-spies';"].join('\n');
+
+    expect(apply(source, autoSpiesImport)).toBe(
+      ['import {', '  createSpyFromClass,', '  Spy, // the type, not the factory', "} from 'vitest-auto-spy';"].join('\n'),
+    );
+  });
+
+  it('ignores the empty range a trailing comma leaves behind', () => {
+    const source = "import { createSpyFromClass, Spy, } from 'jest-auto-spies';";
+
+    expect(apply(source, autoSpiesImport)).toBe("import { createSpyFromClass, Spy } from 'vitest-auto-spy';");
+  });
+
+  it('does not split a specifier list on a comma inside a comment', () => {
+    const source = "import { createSpyFromClass, Spy } from 'jest-auto-spies'; // keep both, always";
+
+    const result = apply(source, autoSpiesImport);
+
+    expect(result).toBe("import { createSpyFromClass, Spy } from 'vitest-auto-spy'; // keep both, always");
+  });
+
   it('puts the root entry first however the clause ordered the names, then the subpaths in order', () => {
     expect(apply("import { provideAutoSpy, Spy } from 'jest-auto-spies';", autoSpiesImport)).toBe(
       "import { Spy } from 'vitest-auto-spy';\nimport { provideAutoSpy } from 'vitest-auto-spy/angular';",

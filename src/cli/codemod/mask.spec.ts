@@ -45,6 +45,26 @@ describe('maskCode', () => {
 
     expect(maskCode(source)).toBe('        \nconst a = 1;');
   });
+
+  it('does not un-mask the rest of a line after an odd number of divisions', () => {
+    // The pseudo-regex below starts at the division and runs to the next `/` — the one in the
+    // comment. Consuming that span left the comment in the code mask, so transforms rewrote the
+    // sentence inside it. The scan must back up to the division and rescan from after it.
+    const line = 'const half = width / 2; // spyOn(x) is jest.fn() here';
+
+    expect(maskCode(line)).toBe('const half = width / 2; ' + ' '.repeat(line.length - 'const half = width / 2; '.length));
+
+    const stringCase = "const ratio = a / b, label = 'we replaced jest.fn() / spyOn(o) here';";
+
+    expect(maskCode(stringCase)).not.toContain('jest.');
+    expect(maskCode(stringCase).length).toBe(stringCase.length);
+  });
+
+  it('knows the keywords after which a slash opens a regular expression', () => {
+    expect(maskCode('return /jest/.test(x);')).toBe('return       .test(x);');
+    expect(maskCode('typeof /a/;')).toBe('typeof    ;');
+    expect(maskCode('const a = b\n  ? /x/\n  : /y/;')).not.toContain('/x/');
+  });
 });
 
 describe('matchBracket', () => {

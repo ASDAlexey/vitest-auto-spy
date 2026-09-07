@@ -21,14 +21,24 @@
 const TOKENS =
   /\/\/[^\n]*|\/\*[\S\s]*?\*\/|'(?:\\.|[^\n'\\])*'|"(?:\\.|[^\n"\\])*"|`(?:\\.|[^\\`])*`|\/(?![*/])(?:\\.|\[(?:\\.|[^\\\]])*]|[^\n/[\\])+\/[a-z]*/g;
 
-/** A `/` after a value is division, after anything else it opens a regular expression. */
+/** A `/` after a value is division; after a keyword or an operator it opens a regular expression. */
+const REGEX_KEYWORDS = /(?:await|case|delete|do|else|in|instanceof|new|of|return|throw|typeof|void|yield)$/;
+
 function isRegexPosition(source: string, offset: number): boolean {
   for (let index = offset - 1; index >= 0; index -= 1) {
     const char = source.charAt(index);
 
-    if (!/\s/.test(char)) {
-      return !/[\w$)\]]/.test(char);
+    if (/\s/.test(char)) {
+      continue;
     }
+
+    if (/[\w$]/.test(char)) {
+      const word = /[\w$]+$/.exec(source.slice(0, index + 1));
+
+      return word !== null && REGEX_KEYWORDS.test(word[0]);
+    }
+
+    return char !== ')' && char !== ']';
   }
 
   return true;
@@ -71,19 +81,40 @@ function isModuleSpecifier(source: string, offset: number): boolean {
 }
 
 export function buildMask(source: string, options: MaskOptions): string {
-  return source.replace(TOKENS, (token: string, offset: number): string => {
+  // A cursor loop, not one `String.replace`: the regex-literal alternative can swallow a span that
+  // turns out to start at a *division* — up to the next `/`, taking an unseen comment or quote with
+  // it. Handing such a span back "unchanged" still consumed it, so everything inside stayed in the
+  // code mask and transforms rewrote prose in comments and text in literals. On a division the scan
+  // backs up to the slash itself and resumes one character later, so nothing is consumed before it
+  // is classified.
+  const tokens = new RegExp(TOKENS.source, 'g');
+  let masked = '';
+  let cursor = 0;
+
+  for (let match = tokens.exec(source); match !== null; match = tokens.exec(source)) {
+    const token = match[0];
+    const offset = match.index;
     const comment = token.startsWith('//') || token.startsWith('/*');
 
     if (!comment && token.startsWith('/') && !isRegexPosition(source, offset)) {
-      return token;
+      masked += source.slice(cursor, offset + 1);
+      cursor = offset + 1;
+      tokens.lastIndex = offset + 1;
+      continue;
     }
+
+    masked += source.slice(cursor, offset);
 
     if (comment || options.view === 'code') {
-      return comment ? blank(token) : maskLiteral(token);
+      masked += comment ? blank(token) : maskLiteral(token);
+    } else {
+      masked += token.startsWith('`') || isModuleSpecifier(source, offset) ? token : maskLiteral(token);
     }
 
-    return token.startsWith('`') || isModuleSpecifier(source, offset) ? token : maskLiteral(token);
-  });
+    cursor = offset + token.length;
+  }
+
+  return masked + source.slice(cursor);
 }
 
 function maskLiteral(token: string): string {
