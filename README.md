@@ -476,7 +476,9 @@ enough for `--from auto` to classify a file, for exactly the same reason — tha
 
 **Dry-run by default**, so the first thing a repository sees is a diff it can reject. `--write`
 applies it, `--only` / `--skip` select transforms by id, `--list` prints them together with the
-generated entry-point table.
+generated entry-point table. Past 50 000 files the scan truncates and says so, because *Nothing left
+to migrate* off a truncated list is a claim about a tree it never looked at;
+`VITEST_AUTO_SPY_SCAN_CAP` raises the cap.
 
 What it deliberately does not do is guess. A `jest.*` member with no `vi` twin — `requireMock`,
 `replaceProperty`, `createMockFromModule`, `jest.setTimeout`, `requireActual` — is **left exactly as

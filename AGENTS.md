@@ -1502,6 +1502,14 @@ For the three observers, prefer the purpose-built stubs (§13). For `AbortContro
 in a jsdom run for a reason involving none of the three parties in the stack trace — use
 `stubAbortController()`.
 
+The stub carries `AbortSignal.abort()`, `AbortSignal.timeout()` and `AbortSignal.any()` as well —
+the three statics are how modern code makes a signal without a controller, `fetch(url, { signal:
+AbortSignal.timeout(5_000) })` most of all. `timeout()` aborts through `setTimeout`, so
+`vi.useFakeTimers()` drives it exactly as it drives the platform's, and it aborts with a
+`TimeoutError` rather than an `AbortError` because that is the distinction the platform draws. A
+signal's `reason` is the platform's `DOMException`, so code branching on
+`signal.reason.name === 'AbortError'` takes the same branch it takes in a browser.
+
 ### `<video>` and `<audio>`
 
 jsdom implements them as a shell: `play()` throws, `duration` is `NaN` and is an accessor with no
@@ -1521,6 +1529,10 @@ expect(media.play).toHaveBeenCalledTimes(1);
 ```
 
 State is per element, so an ad and the content report different durations.
+
+`currentTime` is a get/set pair, so a player restarting itself with `video.currentTime = 0` reaches
+the record and fires `timeupdate` too — `media.set()` is not the only way in, and the component's own
+handler runs where it used to stay unrun while the assertion read the new value.
 
 ### A module mock that did nothing
 
@@ -2768,6 +2780,10 @@ the transforms declined to enter (a template literal, an unbalanced bracket) and
 migrated by hand. Run it after `--write`, and again after any manual clean-up. `--only` / `--skip`
 select transforms by id, `--list` prints them. Full reference:
 <https://asdalexey.github.io/vitest-auto-spy/utilities/codemod>.
+
+Past 50 000 files the repository scan truncates and the run says so — *Nothing left to migrate* off a
+truncated list is a claim about a tree the tool never looked at. `VITEST_AUTO_SPY_SCAN_CAP` raises
+the cap.
 
 ### If you are writing a codemod over specs
 

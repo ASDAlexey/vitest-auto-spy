@@ -159,6 +159,7 @@ it('loads', async () => {
 | `X is not a constructor`, with a stack in production code                        | same — a `vi.fn(() => …)` cannot serve `new`                                                         |
 | waiting for a dynamic `import()` under fake timers                               | `settleDynamicImport(() => import('…'))` / `flushEventLoop()`                                        |
 | `addEventListener(…, { signal })` throwing about `EventTarget`                   | `stubAbortController()`                                                                              |
+| `codemod` reporting a truncated repository scan                                  | `VITEST_AUTO_SPY_SCAN_CAP=<n>` — raises the 50 000-file cap                                          |
 | a suite ported from Jest's `fakeTimers.enableGlobally`                           | `setupAutoSpy({ globalFakeTimers: true })`                                                           |
 | `toHaveBeenCalledBefore` across an auto-spy and a hand-written `vi.fn()`         | `setSpyEngine('runner')` / `getSpyEngine()` — `/setup`, Vitest only                                  |
 | a nested `describe`'s `beforeAll` landing on real timers                         | `setupFakeTimers(cfg, { betweenTests: true })`                                                       |
