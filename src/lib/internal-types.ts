@@ -10,7 +10,10 @@ import type { ObservableLike } from './types';
 /** A single pre-wrapped value used by the `*PerCall` helpers, consumed one per call. */
 export interface PerCallValue {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- a per-call value is an opaque Promise/Observable of arbitrary element type produced by the spy decorators; the element type is not known here.
-  wrappedValue: ObservableLike<any> | Promise<any>;
+  wrappedValue?: ObservableLike<any> | Promise<any>;
+  /** Builds the value at call time — a `delay` counts from the call, not the configure line. */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- same opaque element type as `wrappedValue`, which this builds lazily.
+  factory?: () => ObservableLike<any> | Promise<any>;
 }
 
 /** What a spy returns when invoked (unless overridden by a `calledWith` match). */

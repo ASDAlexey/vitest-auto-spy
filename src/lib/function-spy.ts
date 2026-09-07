@@ -25,9 +25,8 @@ function isReturnValueContainer(value: unknown): value is ReturnValueContainer {
 
 /**
  * Resolve a container into the actual value a spy should return. `*PerCall`
- * configs are consumed one entry per call; any delay is already baked into the
- * wrapped Promise/Observable at configuration time, so nothing extra is applied
- * here.
+ * configs are consumed one entry per call; an entry carrying a `factory` builds
+ * its value now, so a delay counts from this call rather than the configure line.
  */
 function unwrapContainer(container: ReturnValueContainer): unknown {
   // First, because throwing is the one outcome that is not a value: a container carrying both a
@@ -43,7 +42,7 @@ function unwrapContainer(container: ReturnValueContainer): unknown {
   const wrapped = container.valuesPerCalls?.shift();
 
   if (wrapped) {
-    return wrapped.wrappedValue;
+    return wrapped.factory ? wrapped.factory() : wrapped.wrappedValue;
   }
 
   return container.value;

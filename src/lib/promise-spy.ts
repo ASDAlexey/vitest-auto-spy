@@ -8,14 +8,15 @@ import type { CalledWithObject, PerCallValue, ReturnValueContainer } from './int
 import { decorate } from './spy-decoration';
 import type { ValueConfigPerCall } from './types';
 
-/** Map per-call configs to resolved-promise containers, baking each delay into the promise. */
+/** Map per-call configs to containers; a delay is deferred to the call, where it starts counting. */
 function toResolvedPerCallValues<T>(valueConfigsPerCall: ValueConfigPerCall<T>[]): PerCallValue[] {
-  return valueConfigsPerCall.map((config) => ({
-    wrappedValue:
-      config.delay === undefined
-        ? Promise.resolve(config.value)
-        : new Promise<T>((resolve) => setTimeout(() => resolve(config.value), config.delay)),
-  }));
+  return valueConfigsPerCall.map((config) =>
+    config.delay === undefined
+      ? { wrappedValue: Promise.resolve(config.value) }
+      : {
+          factory: () => new Promise<T>((resolve) => setTimeout(() => resolve(config.value), config.delay)),
+        },
+  );
 }
 
 /** Where a promise helper writes its container: the spy's own, or one argument list of a `calledWith` chain. */
