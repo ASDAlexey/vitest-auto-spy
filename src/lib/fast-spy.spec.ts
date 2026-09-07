@@ -103,6 +103,32 @@ describe('createFastSpy', () => {
     expect(rejecting.mock.settledResults[0]?.type).toBe('rejected');
   });
 
+  it('leaves a thenable that is not a Promise alone, as the runner does', () => {
+    // A lazy query builder's `.then` *is* the query, and the runner only settles real Promises —
+    // settling any thenable executed the query from inside the spy's own call.
+    const then = vi.fn();
+    const thenable = { then };
+    const ours = createFastSpy(() => thenable);
+    const theirs = vi.fn(() => thenable);
+
+    expect(ours()).toBe(thenable);
+    expect(theirs()).toBe(thenable);
+
+    expect(then).not.toHaveBeenCalled();
+    expect(ours.mock.settledResults).toEqual(theirs.mock.settledResults);
+    expect(ours.mock.settledResults[0]).toEqual({ type: 'fulfilled', value: thenable });
+  });
+
+  it('records no phantom call on another spy a configured return makes thenable', () => {
+    const inner = createFastSpy(undefined, 'Query.then');
+    const outer = createFastSpy(undefined, 'outer');
+
+    outer.mockReturnValue({ then: inner });
+    outer();
+
+    expect(inner).not.toHaveBeenCalled();
+  });
+
   it('prints in a snapshot exactly as the runner s mock does', () => {
     const ours = createFastSpy(undefined, 'load');
     const theirs = vi.fn();

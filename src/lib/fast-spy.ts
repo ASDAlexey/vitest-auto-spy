@@ -524,9 +524,15 @@ definePrototypeMember(DISPOSE, function dispose(this: unknown): void {
   resetSpy(self(this));
 });
 
-/** Fill in a call's settled result — now for a plain value, on settlement for a thenable. */
+/**
+ * Fill in a call's settled result — now for a plain value, on settlement for a real Promise.
+ *
+ * A thenable is deliberately not enough, and the runner agrees (`returnValue instanceof Promise`):
+ * a lazy query builder's `.then` *is* the query, and `then` can be a member another spy owns, so
+ * settling it recorded a call nobody made.
+ */
 function settleInto(settled: RecordedResult, returned: unknown): void {
-  if (isThenable(returned)) {
+  if (returned instanceof Promise) {
     returned.then(
       (value: unknown): void => {
         settled.type = 'fulfilled';
