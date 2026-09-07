@@ -244,7 +244,7 @@
     "typecheck:bench-angular": "tsc --noEmit -p tsconfig.bench-angular.json",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage",
+    "test:coverage": "node scripts/run-coverage.mjs run --coverage",
     "test:shared-env": "vitest run --config vitest.shared-env.config.mts",
     "test:zone": "vitest run --config vitest.zone.config.mts",
     "test:happy-dom": "vitest run --config vitest.happy-dom.config.mts",
