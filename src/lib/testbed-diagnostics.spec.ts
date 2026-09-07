@@ -18,6 +18,7 @@ import {
   getTestBedTiming,
   instrumentTestBed,
   reportSpecTiming,
+  verifyOnTeardown,
 } from './testbed-diagnostics';
 
 @Component({ selector: 'app-measured', template: '<b>hi</b>' })
@@ -123,5 +124,30 @@ describe('formatSpecTiming', () => {
     const line = formatSpecTiming({ file: 'b.spec.ts', testBedMs: 0, totalMs: 0, otherMs: 0, components: 0, configurations: 0 });
 
     expect(line).toContain('(0%)');
+  });
+});
+
+describe('verifyOnTeardown', () => {
+  it('leaves the module alone when the check is satisfied', () => {
+    const reset = vi.spyOn(TestBed, 'resetTestingModule');
+
+    verifyOnTeardown(() => undefined);
+
+    expect(reset).not.toHaveBeenCalled();
+
+    reset.mockRestore();
+  });
+
+  it('resets the module before letting the failure out, so the next test configures a clean one', () => {
+    const reset = vi.spyOn(TestBed, 'resetTestingModule');
+
+    expect(() => {
+      verifyOnTeardown(() => {
+        throw new Error('one request is still pending');
+      });
+    }).toThrow('one request is still pending');
+    expect(reset).toHaveBeenCalled();
+
+    reset.mockRestore();
   });
 });

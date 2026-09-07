@@ -48,6 +48,23 @@ const INSTRUMENTED: { method: string; counter: 'components' | 'configurations' |
 export type LooseTestBedMethod = (...args: unknown[]) => unknown;
 
 /**
+ * Run a teardown check so that a failing one still leaves the next test a clean module.
+ *
+ * A throwing `afterEach` makes Vitest skip the remaining `afterEach` hooks of that test — the
+ * framework's own `TestBed` teardown among them — so the *next* test dies on a stale module instead
+ * of on this failure, and the report names the wrong spec.
+ */
+export function verifyOnTeardown(check: () => void): void {
+  try {
+    check();
+  } catch (error) {
+    TestBed.resetTestingModule();
+
+    throw error;
+  }
+}
+
+/**
  * Read a `TestBed` method structurally, so a version that does not have it is a `undefined` rather
  * than a `TypeError`. Shared with `angular-overrides`, which wraps `createComponent` for a check of
  * its own.

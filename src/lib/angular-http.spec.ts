@@ -179,3 +179,26 @@ describe('a TestBed without provideHttpTesting', () => {
     expect(verifyNoPendingRequests).not.toThrow();
   });
 });
+
+describe('a suite that hoists the providers to a constant', () => {
+  // Called once at collection time — the ordinary optimisation once a file uses the helper in a
+  // dozen places. The teardown check used to be a one-shot arm flag: it verified the first test of
+  // the file and let every later one leak silently, so the policy is pinned here from a call no
+  // test of its own made.
+  const httpTesting = provideHttpTesting();
+
+  it('still verifies a test that never called provideHttpTesting itself', () => {
+    TestBed.configureTestingModule({ providers: [...httpTesting] });
+    TestBed.inject(HttpClient).get('/api/leaked').subscribe();
+
+    expect(verifyNoPendingRequests).toThrow(/GET \/api\/leaked/);
+  });
+
+  it('configures a clean module after a test whose teardown check failed', () => {
+    // The throwing hook resets TestBed before rethrowing; without that reset, Vitest skips the
+    // framework teardown too and a later configure dies on the previous test's live module.
+    TestBed.configureTestingModule({ providers: [...httpTesting] });
+
+    expect(TestBed.inject(HttpClient)).toBeDefined();
+  });
+});

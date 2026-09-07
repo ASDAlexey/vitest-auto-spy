@@ -31,7 +31,13 @@ import { afterEach, beforeEach } from 'vitest';
 import { failOnUnspiedProvider } from './angular';
 import { assertNgModuleScopes, isDeadNgModuleImport, readProperty } from './angular-overrides';
 import { DOCS_LINKS, withDocs } from './docs-links';
-import { type LooseTestBedMethod, instrumentTestBed, onTestingModuleConfigured, readTestBedMethod } from './testbed-diagnostics';
+import {
+  type LooseTestBedMethod,
+  instrumentTestBed,
+  onTestingModuleConfigured,
+  readTestBedMethod,
+  verifyOnTeardown,
+} from './testbed-diagnostics';
 
 /** Which checks {@link enableAngularDiagnostics} installs. Every member defaults to `true`. */
 export interface AngularDiagnosticsOptions {
@@ -343,9 +349,11 @@ export function enableAngularDiagnostics(options: AngularDiagnosticsOptions = {}
   });
 
   afterEach(() => {
-    if (active?.pendingRequests) {
-      assertNoPendingRequests();
+    if (!active?.pendingRequests) {
+      return;
     }
+
+    verifyOnTeardown(assertNoPendingRequests);
   });
 }
 

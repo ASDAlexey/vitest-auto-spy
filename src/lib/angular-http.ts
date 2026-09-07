@@ -36,6 +36,7 @@ import { TestBed } from '@angular/core/testing';
 import { afterEach } from 'vitest';
 
 import { DOCS_LINKS, withDocs } from './docs-links';
+import { verifyOnTeardown } from './testbed-diagnostics';
 import { flushEffects } from './zoneless';
 
 /** How a request is named: a URL, a pattern, or a question asked of the request itself. */
@@ -91,8 +92,15 @@ export interface RequestExpectation {
  */
 const SETTLE_ROUNDS = 2;
 
-/** `true` while a test that called {@link provideHttpTesting} has not been checked yet. */
-let verifyArmed = false;
+/**
+ * The suite's verification policy, set once per `provideHttpTesting()` call and never cleared.
+ *
+ * Deliberately not a one-shot arm flag: hoisting the providers to a module constant — the ordinary
+ * optimisation once a suite uses the helper in a dozen files — left the one-shot armed for the
+ * first test of the file only. The `afterEach` decides per test from whether that test's TestBed
+ * has an `HttpTestingController` at all, which `verifyNoPendingRequests()` already no-ops on.
+ */
+let verifyPolicy = false;
 
 /**
  * Everything `TestBed.configureTestingModule` needs for HTTP testing, in one spread.
@@ -106,7 +114,7 @@ let verifyArmed = false;
  * and adds `provideHttpClientTesting()` after it.
  */
 export function provideHttpTesting(options: HttpTestingOptions = {}): (EnvironmentProviders | Provider)[] {
-  verifyArmed = options.verifyOnTeardown ?? true;
+  verifyPolicy = options.verifyOnTeardown ?? true;
 
   return [provideHttpClient(), provideHttpClientTesting()];
 }
@@ -362,11 +370,9 @@ export function verifyNoPendingRequests(): void {
 // `afterEach` hooks run in reverse registration order, so this one goes before the framework
 // teardown registered by the setup file.
 afterEach(() => {
-  if (!verifyArmed) {
+  if (!verifyPolicy) {
     return;
   }
 
-  verifyArmed = false;
-
-  verifyNoPendingRequests();
+  verifyOnTeardown(verifyNoPendingRequests);
 });
