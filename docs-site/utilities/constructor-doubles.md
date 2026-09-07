@@ -122,3 +122,24 @@ beforeEach(() => {
 The replacement extends whichever `EventTarget` belongs to the current realm, which is the one thing
 all three parties agree on. It is registered as a property patch, so it comes off with everything
 else.
+
+### The statics, too
+
+`AbortSignal.abort()`, `AbortSignal.timeout()` and `AbortSignal.any()` are how modern code makes a
+signal without holding a controller, and the stub answers all three:
+
+```ts
+vi.useFakeTimers();
+stubAbortController();
+
+const request = client.load(); // fetch(url, { signal: AbortSignal.timeout(5_000) })
+
+vi.advanceTimersByTime(5_000);
+
+await expect(request).rejects.toMatchObject({ name: 'TimeoutError' });
+```
+
+`timeout()` aborts through `setTimeout`, so fake timers drive it exactly as they drive the
+platform's. The reason it aborts with is a `DOMException` named `TimeoutError`, and every other abort
+carries one named `AbortError` — the distinction the platform draws, and the one production code
+branches on.

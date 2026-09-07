@@ -61,7 +61,53 @@ describe('stubAbortController', () => {
 
     controller.abort();
 
-    expect(() => controller.signal.throwIfAborted()).toThrow('AbortError');
+    // The idiom the stub exists to keep working: `catch (e) { if (e.name === 'AbortError') … }` and
+    // `e instanceof DOMException` — both failed against the old plain `Error('AbortError')`.
+    expect(controller.signal.reason).toBeInstanceOf(DOMException);
+    expect(controller.signal.reason).toHaveProperty('name', 'AbortError');
+    expect(controller.signal.reason).toHaveProperty('message', 'This operation was aborted');
+    expect(() => controller.signal.throwIfAborted()).toThrow(DOMException);
+  });
+
+  it('gives AbortSignal the static factories real code calls', () => {
+    stubAbortController();
+
+    const aborted = AbortSignal.abort('nope');
+
+    expect(aborted.aborted).toBe(true);
+    expect(aborted.reason).toBe('nope');
+
+    const fresh = new AbortController().signal;
+    const any = AbortSignal.any([fresh, AbortSignal.abort('first')]);
+
+    expect(any.aborted).toBe(true);
+    expect(any.reason).toBe('first');
+
+    const controller = new AbortController();
+    const later = AbortSignal.any([controller.signal]);
+
+    expect(later.aborted).toBe(false);
+
+    controller.abort('from source');
+
+    expect(later.aborted).toBe(true);
+    expect(later.reason).toBe('from source');
+  });
+
+  it('drives AbortSignal.timeout from the clock', () => {
+    vi.useFakeTimers();
+    stubAbortController();
+
+    const timed = AbortSignal.timeout(1_000);
+
+    expect(timed.aborted).toBe(false);
+
+    vi.advanceTimersByTime(1_000);
+
+    expect(timed.aborted).toBe(true);
+    expect(timed.reason).toHaveProperty('name', 'TimeoutError');
+
+    vi.useRealTimers();
   });
 
   it('puts the platform implementation back through restoreMockedProps', () => {

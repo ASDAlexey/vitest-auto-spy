@@ -217,6 +217,17 @@ function installStateAccessors(prototype: HTMLMediaElement, read: (element: HTML
       return read(this)[field];
     });
   });
+
+  // The platform's `currentTime` is get,set, and a seek (`video.currentTime = 0` to restart) has to
+  // reach the record and fire `timeupdate`. Adding `set` over the getter above is enough: a
+  // partial descriptor inherits the missing half, and the restore journal puts the platform's own
+  // pair back untouched.
+  Object.defineProperty(prototype, 'currentTime', {
+    set(this: HTMLMediaElement, next: number): void {
+      applyState(read(this), this, { currentTime: next });
+    },
+    configurable: true,
+  });
 }
 
 function applyState(state: MediaElementState, element: HTMLMediaElement, next: Partial<MediaElementState>): void {

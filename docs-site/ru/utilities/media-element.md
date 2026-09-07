@@ -67,6 +67,22 @@ expect(component.finished()).toBe(true);
 `ended: false` и `error: null` не объявляют ничего: они сбрасывают состояние, а события для этого у
 платформы нет.
 
+## Перемотка так, как её делает компонент {#seeking-the-way-the-component-does}
+
+Плеер, перезапускающий сам себя, не зовёт хелпер — он присваивает поле:
+
+```ts
+component.restart(); // video.currentTime = 0
+
+expect(media.state(video).currentTime).toBe(0);
+expect(component.progress()).toBe(0); // его собственный обработчик `timeupdate` отработал
+```
+
+`currentTime` у заглушки — пара get/set, поэтому прямое присваивание доходит до записи конкретного
+элемента и рассылает `timeupdate` ровно так же, как `media.set(video, { currentTime: 0 })`. Без
+этого обработчик не запускается, а проверка читает уже новое значение — расхождение, которое
+выглядит как баг в компоненте.
+
 ## Состояние — на каждый элемент своё {#state-is-per-element}
 
 ```ts

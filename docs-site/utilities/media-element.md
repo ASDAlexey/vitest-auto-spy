@@ -67,6 +67,22 @@ value — a disagreement that looks like a bug in the component.
 `ended: false` and `error: null` announce nothing: those clear a state, and the platform has no
 event for that.
 
+## Seeking the way the component does
+
+A player restarting itself does not call a helper — it assigns the field:
+
+```ts
+component.restart(); // video.currentTime = 0
+
+expect(media.state(video).currentTime).toBe(0);
+expect(component.progress()).toBe(0); // its own `timeupdate` handler ran
+```
+
+`currentTime` is a get/set pair on the stub, so a direct assignment reaches the per-element record
+and dispatches `timeupdate` exactly as `media.set(video, { currentTime: 0 })` does. Without that the
+handler stays unrun while the assertion reads the new value — a disagreement that reads as a bug in
+the component.
+
 ## State is per element
 
 ```ts

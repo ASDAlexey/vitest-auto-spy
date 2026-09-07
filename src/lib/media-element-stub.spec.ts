@@ -134,6 +134,20 @@ describe('stubMediaElement', () => {
     expect(element.error).toBe(error);
   });
 
+  it('routes a seek through the record and announces it, as the platform does', () => {
+    const media = stubMediaElement();
+    const element = document.createElement('video');
+    const heard: string[] = [];
+
+    element.addEventListener('timeupdate', () => heard.push('timeupdate'));
+
+    element.currentTime = 5;
+
+    expect(element.currentTime).toBe(5);
+    expect(media.state(element).currentTime).toBe(5);
+    expect(heard).toEqual(['timeupdate']);
+  });
+
   it('puts the real prototype back, so the next file gets jsdom as it was', () => {
     const patched = stubMediaElement();
 

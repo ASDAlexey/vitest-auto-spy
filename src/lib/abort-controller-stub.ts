@@ -36,6 +36,66 @@ class DomAbortSignal extends EventTarget {
       throw this.reason;
     }
   }
+
+  static abort(reason?: unknown): DomAbortSignal {
+    const signal = new DomAbortSignal();
+    controllerFor(signal).abort(reason);
+    return signal;
+  }
+
+  static timeout(ms: number): DomAbortSignal {
+    const signal = new DomAbortSignal();
+    // `setTimeout`, not a microtask, so `vi.useFakeTimers()` drives the timeout like the platform's.
+    setTimeout(() => controllerFor(signal).abort(timeoutReason()), ms);
+    return signal;
+  }
+
+  static any(signals: Iterable<DomAbortSignal>): DomAbortSignal {
+    const combined = new DomAbortSignal();
+
+    for (const signal of signals) {
+      if (signal.aborted) {
+        controllerFor(combined).abort(signal.reason);
+        return combined;
+      }
+
+      signal.addEventListener('abort', () => controllerFor(combined).abort(signal.reason), { once: true });
+    }
+
+    return combined;
+  }
+}
+
+/** The platform's default reason: a `DOMException` named `AbortError`. */
+function abortReason(reason: unknown): unknown {
+  return reason !== undefined ? reason : new DOMException('This operation was aborted', 'AbortError');
+}
+
+/** `AbortSignal.timeout` aborts with a `TimeoutError`, not an `AbortError` — the platform says so. */
+function timeoutReason(): unknown {
+  return new DOMException('The operation was aborted due to timeout', 'TimeoutError');
+}
+
+/** Abort a bare signal the way a controller does, without shipping the controller itself. */
+function controllerFor(signal: DomAbortSignal): { abort(reason?: unknown): void } {
+  return {
+    abort(reason?: unknown): void {
+      if (signal.aborted) {
+        return;
+      }
+
+      signal.aborted = true;
+      signal.reason = abortReason(reason);
+
+      const event = new Event('abort');
+      const handler = signal.onabort;
+
+      signal.onabort = null;
+      signal.addEventListener('abort', () => handler?.call(signal, event), { once: true });
+      signal.dispatchEvent(event);
+      signal.onabort = handler;
+    },
+  };
 }
 
 /** The controller half — `abort()` flips the signal and fires `'abort'` exactly once. */
@@ -43,22 +103,7 @@ class DomAbortController {
   readonly signal = new DomAbortSignal();
 
   abort(reason?: unknown): void {
-    if (this.signal.aborted) {
-      return;
-    }
-
-    this.signal.aborted = true;
-    this.signal.reason = reason ?? new Error('AbortError');
-
-    const event = new Event('abort');
-    const handler = this.signal.onabort;
-
-    // `onabort` is parked for the dispatch because happy-dom's `EventTarget` invokes `on<type>`
-    // properties itself and jsdom's does not; run from a listener it fires once on either.
-    this.signal.onabort = null;
-    this.signal.addEventListener('abort', () => handler?.call(this.signal, event), { once: true });
-    this.signal.dispatchEvent(event);
-    this.signal.onabort = handler;
+    controllerFor(this.signal).abort(reason);
   }
 }
 

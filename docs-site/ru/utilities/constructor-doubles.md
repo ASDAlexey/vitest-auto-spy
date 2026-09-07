@@ -120,3 +120,23 @@ beforeEach(() => {
 Замена наследуется от того `EventTarget`, который принадлежит текущему realm, — единственного, о чём
 все три стороны договорились. Ставится она как патч свойства, поэтому снимается вместе со всем
 остальным.
+
+### И статические методы {#the-statics-too}
+
+`AbortSignal.abort()`, `AbortSignal.timeout()` и `AbortSignal.any()` — то, чем современный код
+делает сигнал, не держа контроллера, и заглушка отвечает на все три:
+
+```ts
+vi.useFakeTimers();
+stubAbortController();
+
+const request = client.load(); // fetch(url, { signal: AbortSignal.timeout(5_000) })
+
+vi.advanceTimersByTime(5_000);
+
+await expect(request).rejects.toMatchObject({ name: 'TimeoutError' });
+```
+
+`timeout()` прерывает через `setTimeout`, поэтому фейковые таймеры двигают его ровно так же, как
+двигают платформенный. Причина прерывания — `DOMException` с именем `TimeoutError`, у любого другого
+прерывания — `AbortError`: это различие проводит сама платформа, и по нему ветвится продакшен-код.
