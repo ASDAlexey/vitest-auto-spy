@@ -4,8 +4,12 @@
 // runs on this repo, and seen twice in a row in one CI job. The failure is pure data
 // loss, never a real hole: a line is either covered by a spec that always runs, or it
 // is not, so a retry cannot turn a genuine regression green. Evidence and measurement:
-// tasks/2026-09-06-session/coverage-flake.md. Drop this wrapper when vitest fixes the
-// merge upstream.
+// tasks/2026-09-06-session/coverage-flake.md.
+//
+// The merge itself is now fixed in `scripts/coverage-v8-merge.mjs`, which merges each script's
+// payloads in one call instead of folding them a pair at a time, so the retry below is a backstop:
+// if it ever fires again the cause is something the fold did not explain. Drop both when vitest
+// merges the payloads in one call upstream.
 //
 // The other half of this file is about reading the failure. A failing coverage run ends
 // with a 180-row table, so the log's last line is `Process completed with exit code 1`

@@ -19,7 +19,11 @@ export default defineConfig({
     // `isolate: false` in a single worker — the mode `setupAutoSpy()` exists for.
     isolate: true,
     coverage: {
-      provider: 'v8' as const,
+      // The stock v8 provider, merging the workers' raw script coverages in one call instead of
+      // folding them pairwise — the fold drops covered blocks and fails the 100 % threshold with
+      // every spec green. Why, and the measurements, are in the file itself.
+      provider: 'custom' as const,
+      customProviderModule: './scripts/coverage-v8-merge.mjs',
       reportsDirectory: 'coverage',
       reporter: ['text', 'html', 'lcov'],
       // Measure the real implementation under src/lib/** plus the public entry

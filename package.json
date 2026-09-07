@@ -312,6 +312,7 @@
     "@angular/compiler-cli": "^22.1.5",
     "@angular/core": "^22.1.5",
     "@angular/platform-browser": "^22.1.5",
+    "@bcoe/v8-coverage": "^1.0.2",
     "@eslint-community/eslint-plugin-eslint-comments": "^4.7.2",
     "@eslint/js": "^10.0.1",
     "@happy-dom/global-registrator": "^20.14.0",
