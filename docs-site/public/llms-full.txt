@@ -2706,22 +2706,23 @@ prune reaches only one and the run dies out of memory.
 
 ## Bundle size
 
-The badge says 15.0 kB min+gzip, and that is the whole core entry bundled together. It is also the
+The badge says 15.1 kB min+gzip, and that is the whole core entry bundled together. It is also the
 largest number a consumer can pay for the core, because entries are separate subpaths and a project
 only pays for the ones it imports:
 
 | Imported                                      |    min+gzip |
 | --------------------------------------------- | ----------: |
-| `.` — the core entry, what the badge measures | **15.0 kB** |
-| `vitest-auto-spy/angular`                     |     18.5 kB |
-| `vitest-auto-spy/node`                        |     14.4 kB |
-| `vitest-auto-spy/dom-stubs`                   |      5.0 kB |
+| `.` — the core entry, what the badge measures | **15.1 kB** |
+| `vitest-auto-spy/angular`                     |     18.7 kB |
+| `vitest-auto-spy/node`                        |     14.5 kB |
+| `vitest-auto-spy/dom-stubs`                   |      5.2 kB |
 | `vitest-auto-spy/rxjs`                        |      2.2 kB |
 | `vitest-auto-spy/zone`                        |      1.1 kB |
 
-Every figure here is the committed baseline in `size-entries.json` as of 2026-09-05, which is what
+Every figure here is the committed baseline in `size-entries.json` as of 2026-09-07, which is what
 `size:entries:check` and the badge both read; an earlier edition of this table quoted 14.3, 18.2 and
-13.7 kB for the first three rows, taken before the 4.3 additions.
+13.7 kB for the first three rows, taken before the 4.3 additions. `/dom-stubs` last moved for the
+`AbortSignal` statics and the `currentTime` setter, +219 B.
 
 `npm run size:entries` prints all twenty and compares them against a committed baseline, so an entry
 that quietly gains a second copy of the core fails a check instead of being noticed a release later.
@@ -5891,6 +5892,27 @@ The replacement extends whichever `EventTarget` belongs to the current realm, wh
 all three parties agree on. It is registered as a property patch, so it comes off with everything
 else.
 
+### The statics, too
+
+`AbortSignal.abort()`, `AbortSignal.timeout()` and `AbortSignal.any()` are how modern code makes a
+signal without holding a controller, and the stub answers all three:
+
+```ts
+vi.useFakeTimers();
+stubAbortController();
+
+const request = client.load(); // fetch(url, { signal: AbortSignal.timeout(5_000) })
+
+vi.advanceTimersByTime(5_000);
+
+await expect(request).rejects.toMatchObject({ name: 'TimeoutError' });
+```
+
+`timeout()` aborts through `setTimeout`, so fake timers drive it exactly as they drive the
+platform's. The reason it aborts with is a `DOMException` named `TimeoutError`, and every other abort
+carries one named `AbortError` — the distinction the platform draws, and the one production code
+branches on.
+
 ---
 
 Source: https://asdalexey.github.io/vitest-auto-spy/utilities/media-element
@@ -5957,6 +5979,22 @@ value — a disagreement that looks like a bug in the component.
 
 `ended: false` and `error: null` announce nothing: those clear a state, and the platform has no
 event for that.
+
+## Seeking the way the component does
+
+A player restarting itself does not call a helper — it assigns the field:
+
+```ts
+component.restart(); // video.currentTime = 0
+
+expect(media.state(video).currentTime).toBe(0);
+expect(component.progress()).toBe(0); // its own `timeupdate` handler ran
+```
+
+`currentTime` is a get/set pair on the stub, so a direct assignment reaches the per-element record
+and dispatches `timeupdate` exactly as `media.set(video, { currentTime: 0 })` does. Without that the
+handler stays unrun while the assertion reads the new value — a disagreement that reads as a bug in
+the component.
 
 ## State is per element
 
@@ -8685,6 +8723,20 @@ going to check by hand anyway.
 
 An id neither `--only` nor `--skip` recognises exits **2** naming the known ids, rather than quietly
 running everything.
+
+### When the scan hits its cap
+
+The file scan stops at 50 000 files, and past that the codemod says so on stderr rather than
+reporting a clean repository off a list it never finished:
+
+```
+The repository scan stopped at its safety cap of 50000 files — part of the tree was never looked at,
+so a clean result here is not a migrated repository. Raise the cap with VITEST_AUTO_SPY_SCAN_CAP or
+narrow --paths.
+```
+
+`VITEST_AUTO_SPY_SCAN_CAP=200000 npx vitest-auto-spy codemod --verify` raises it. Narrowing with
+`--paths` is usually the better answer: the scan is not the slow part, the transforms are.
 
 ## In CI
 
