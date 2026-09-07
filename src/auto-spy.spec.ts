@@ -579,6 +579,40 @@ describe('promise methods', () => {
     expect(await spy.getPromise()).toBe('b');
   });
 
+  it('resolveWithPerCall starts each delay at the call, not at the configure line', async () => {
+    vi.useFakeTimers();
+
+    try {
+      spy.getPromise.resolveWithPerCall([{ value: 'a', delay: 100 }, { value: 'b' }]);
+
+      // Configuring the stub must not schedule anything — a delay configured and never called is
+      // exactly the stray timer this library's own guards report.
+      expect(vi.getTimerCount()).toBe(0);
+
+      const first = spy.getPromise();
+
+      expect(vi.getTimerCount()).toBe(1);
+
+      // The delay has not elapsed at the moment of the call.
+      vi.advanceTimersByTime(99);
+      let settled = false;
+
+      void first.then(() => {
+        settled = true;
+      });
+      await Promise.resolve();
+
+      expect(settled).toBe(false);
+
+      vi.advanceTimersByTime(1);
+
+      await expect(first).resolves.toBe('a');
+      expect(await spy.getPromise()).toBe('b');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('calledWith().resolveWith / rejectWith / resolveWithPerCall', async () => {
     spy.getPromise.calledWith(1).resolveWith('one');
     spy.getPromise.calledWith(2).rejectWith('err');
@@ -1129,6 +1163,36 @@ describe('property mocking helpers', () => {
     const obj = {} as { isReady: boolean };
     mockReadonlyProp(obj, 'isReady', true);
     expect(obj.isReady).toBe(true);
+  });
+
+  it('mockReadonlyProp kills the original setter of a get/set pair', () => {
+    // `defineProperty` over an existing accessor inherits the attributes the descriptor omits, so a
+    // `{ get }` alone leaves the real `set` live: reads from the stub, writes into the real thing.
+    const writes: string[] = [];
+    const obj = {
+      get theme(): string {
+        return 'light';
+      },
+      set theme(next: string) {
+        writes.push(next);
+      },
+    };
+
+    const restore = mockReadonlyProp(obj, 'theme', 'dark');
+
+    expect(obj.theme).toBe('dark');
+    expect(() => {
+      obj.theme = 'midnight';
+    }).toThrow(TypeError);
+    expect(writes).toEqual([]);
+
+    restore();
+
+    expect(obj.theme).toBe('light');
+
+    obj.theme = 'real';
+
+    expect(writes).toEqual(['real']);
   });
 
   it('mockReadonlyPropGetter uses a dynamic getter', () => {

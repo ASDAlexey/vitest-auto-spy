@@ -74,6 +74,12 @@ function rememberProp<T>(object: T, property: PropertyKey, descriptor: PropertyD
 }
 
 /**
+ * A descriptor that may name `set: undefined` explicitly — `exactOptionalPropertyTypes` rejects that
+ * on the lib type, and leaving `set` out is what the readonly helpers must not do.
+ */
+type PatchDescriptor = Omit<PropertyDescriptor, 'set'> & { set?: ((value: never) => void) | undefined };
+
+/**
  * Overwrite one property, record the undo, and say something useful when the property refuses.
  *
  * A bare `TypeError: Cannot redefine property: injectDomainMetrics` names neither the object, nor
@@ -88,11 +94,12 @@ function rememberProp<T>(object: T, property: PropertyKey, descriptor: PropertyD
  * happened would otherwise sit in the journal until the next `restoreMockedProps()` reported a
  * teardown failure for it, turning one confusing message into two.
  */
-function applyPatch<T>(object: T, property: PropertyKey, descriptor: PropertyDescriptor): RestoreProp {
+function applyPatch<T>(object: T, property: PropertyKey, descriptor: PatchDescriptor): RestoreProp {
   const previous = Object.getOwnPropertyDescriptor(object, property);
 
   try {
-    Object.defineProperty(object, property, descriptor);
+    // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- `PatchDescriptor` names `set: undefined`, which `exactOptionalPropertyTypes` forbids on the lib type; the runtime shape is what `defineProperty` wants.
+    Object.defineProperty(object, property, descriptor as PropertyDescriptor);
   } catch (error) {
     if (isCannotRedefine(error)) {
       throw redefineFailure(
@@ -221,7 +228,9 @@ export function mockReadonlyProp<T, K extends keyof T>(object: T, property: K, v
 /** Escape hatch for members the public type does not describe — `#private` fields, ad-hoc keys. */
 export function mockReadonlyProp<T>(object: T, property: PropertyKey, value: unknown): RestoreProp;
 export function mockReadonlyProp<T>(object: T, property: PropertyKey, value: unknown): RestoreProp {
-  return applyPatch(object, property, { get: () => value, configurable: true });
+  // `set: undefined` is load-bearing: defineProperty over an existing get/set pair inherits the
+  // missing attributes, so without it the real setter stays live and writes vanish into it silently.
+  return applyPatch(object, property, { get: () => value, set: undefined, configurable: true });
 }
 
 /**
@@ -239,7 +248,8 @@ export function mockReadonlyPropGetter<T, K extends keyof T>(object: T, property
 /** Escape hatch for members the public type does not describe — `#private` fields, ad-hoc keys. */
 export function mockReadonlyPropGetter<T>(object: T, property: PropertyKey, getter: () => unknown): RestoreProp;
 export function mockReadonlyPropGetter<T>(object: T, property: PropertyKey, getter: () => unknown): RestoreProp {
-  return applyPatch(object, property, { get: getter, configurable: true });
+  // See mockReadonlyProp for why `set` must be named explicitly.
+  return applyPatch(object, property, { get: getter, set: undefined, configurable: true });
 }
 
 /**
