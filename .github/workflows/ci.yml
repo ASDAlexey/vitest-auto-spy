@@ -228,18 +228,29 @@ jobs:
           npm i --no-audit --no-fund \
             "@angular/core@${{ matrix.angular }}" \
             "@angular/common@${{ matrix.angular }}" \
+            "@angular/compiler@${{ matrix.angular }}" \
             "@angular/platform-browser@${{ matrix.angular }}" \
             rxjs vitest typescript @types/node \
             ../vitest-auto-spy-*.tgz
 
       # The job that would have caught `ɵSIGNAL` on the day it was written.
+      #
+      # The imports run inside a Vitest test rather than under a bare `node -e`: `angular-http`
+      # registers an `afterEach` at module scope, and Vitest throws on a hook declared with no suite
+      # in progress — so a plain import fails on an entry that is perfectly linkable.
       - name: Link-check every Angular entry
         working-directory: ${{ runner.temp }}/consumer
         run: |
-          for entry in vitest-auto-spy vitest-auto-spy/angular vitest-auto-spy/angular-http; do
-            echo "importing $entry"
-            node --input-type=module -e "await import('$entry')"
-          done
+          cat > link.test.ts <<'TS'
+          import { test } from 'vitest';
+
+          test('every Angular entry links', async () => {
+            await import('vitest-auto-spy');
+            await import('vitest-auto-spy/angular');
+            await import('vitest-auto-spy/angular-http');
+          });
+          TS
+          npx vitest run link.test.ts
 
       # Types move between majors without any runtime symptom — `InputSignalWithTransform` and
       # `ModelSignal` (`lib/render-shallow.ts`) are the ones this package already depends on.
