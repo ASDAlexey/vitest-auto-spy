@@ -52,6 +52,14 @@ function planFor(target: Target, content: string | undefined, profile: Profile, 
   const note = target.note;
 
   if (target.kind === 'owned') {
+    // A file that exists without the managed markers was written by hand, not by init — these
+    // paths (`.cursor/rules/…`, `.claude/skills/…`) are exactly the ones a team plausibly authored
+    // before discovering the CLI. Rewriting it destroyed the content and `--uninstall` then
+    // deleted the replacement.
+    if (existing !== undefined && !hasManaged(existing)) {
+      return { target, existing, desired: undefined, note: 'exists and was not written by init — left alone' };
+    }
+
     return { target, existing, desired: ownedContent(target, profile, version), note };
   }
 
@@ -96,6 +104,12 @@ function readTarget(cwd: string, target: Target): string | undefined {
  * skipped rather than invented.
  */
 export function skillPlan(plan: Plan, version: string, frontmatter: string | undefined): Plan {
+  // A file that exists without the markers was hand-authored; `planFor` left it alone, and the
+  // stub must not undo that by writing over it.
+  if (plan.desired === undefined && plan.existing !== undefined) {
+    return plan;
+  }
+
   if (frontmatter === undefined) {
     return { ...plan, desired: undefined, note: 'the shipped skill could not be read — skipped' };
   }
@@ -175,10 +189,24 @@ function budgetWarnings(plans: readonly Plan[]): string[] {
   });
 }
 
+/** An owned target that exists without the markers was hand-written; say so rather than "skipped". */
+function untouchedWarnings(plans: readonly Plan[]): string[] {
+  return plans
+    .filter((plan) => plan.desired === undefined && plan.existing !== undefined && plan.target.kind === 'owned')
+    .map(
+      (plan) =>
+        `${plan.target.path} exists and was not written by init — left untouched; fold it into the managed block by hand if you want init to own it.`,
+    );
+}
+
 export function runInit(profile: Profile, version: string, options: InitOptions): InitResult {
   const plans = buildPlans(profile, version).map((plan) => (options.uninstall ? uninstallPlan(plan) : plan));
   const actions = plans.map((plan) => applyPlan(profile.cwd, plan, options));
   const pending = actions.some((action) => action.status === 'created' || action.status === 'updated');
 
-  return { actions, warnings: options.uninstall ? [] : budgetWarnings(plans), ok: !options.check || !pending };
+  return {
+    actions,
+    warnings: options.uninstall ? [] : [...untouchedWarnings(plans), ...budgetWarnings(plans)],
+    ok: !options.check || !pending,
+  };
 }

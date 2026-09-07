@@ -74,6 +74,44 @@ describe('runInit', () => {
     expect(readTextFile(join(legacy, '.cursorrules'))).toContain('my rules');
   });
 
+  it('leaves a hand-written owned file alone, with a warning instead of an overwrite', () => {
+    const handWritten = '---\ndescription: MY OWN CURSOR RULE\n---\n\nNever use any.\nMy team notes here.\n';
+    const root = createTempRepo({
+      'package.json': MANIFEST,
+      '.cursor/': '',
+      '.cursor/rules/': '',
+      '.cursor/rules/vitest-auto-spy.mdc': handWritten,
+    });
+    const result = install(root);
+
+    expect(statusOf(result, '.cursor/rules/vitest-auto-spy.mdc')).toBe('skipped');
+    expect(readTextFile(join(root, '.cursor/rules/vitest-auto-spy.mdc'))).toBe(handWritten);
+    expect(
+      result.warnings.some((warning) => warning.includes('.cursor/rules/vitest-auto-spy.mdc') && warning.includes('left untouched')),
+    ).toBe(true);
+
+    // And the uninstall half: a file init never owned must not be deleted by it either.
+    const removed = install(root, { uninstall: true });
+
+    expect(statusOf(removed, '.cursor/rules/vitest-auto-spy.mdc')).toBe('skipped');
+    expect(readTextFile(join(root, '.cursor/rules/vitest-auto-spy.mdc'))).toBe(handWritten);
+  });
+
+  it('leaves a hand-written skill stub alone too, where the frontmatter would otherwise be copied in', () => {
+    const handWritten = '---\nname: our-own-spy-skill\n---\n\nHow this team writes specs.\n';
+    const root = createTempRepo({
+      'package.json': MANIFEST,
+      '.claude/': '',
+      '.claude/skills/': '',
+      '.claude/skills/vitest-auto-spy/': '',
+      '.claude/skills/vitest-auto-spy/SKILL.md': handWritten,
+    });
+    const result = install(root);
+
+    expect(statusOf(result, '.claude/skills/vitest-auto-spy/SKILL.md')).toBe('skipped');
+    expect(readTextFile(join(root, '.claude/skills/vitest-auto-spy/SKILL.md'))).toBe(handWritten);
+  });
+
   it('leaves a CLAUDE.md that already imports AGENTS.md alone', () => {
     const root = createTempRepo({ 'package.json': MANIFEST, 'CLAUDE.md': '@AGENTS.md\n' });
     const result = install(root);
