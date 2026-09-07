@@ -69,8 +69,8 @@ export interface ExtendWithAutoSpiesOptions {
    * Providers registered alongside the spies, in the same `configureTestingModule` call — the
    * component under test, a real service the spec deliberately keeps, `provideHttpClient()`.
    *
-   * They go in *before* the generated ones, so a provider named here wins over the auto-spy that
-   * would otherwise be made for the same token.
+   * They go in *after* the generated ones, so a provider named here wins over the auto-spy that
+   * would otherwise be made for the same token — Angular resolves duplicate providers last-one-wins.
    */
   providers?: Provider[];
 }
@@ -210,7 +210,7 @@ export function extendWithAutoSpies<Context, const Spec extends Record<string, A
       configured = false;
     });
 
-    TestBed.configureTestingModule({ providers: [...providers, ...entries.map(([, fixture]) => providerFor(fixture))] });
+    TestBed.configureTestingModule({ providers: [...entries.map(([, fixture]) => providerFor(fixture)), ...providers] });
   };
 
   // The loop is written against `Builder` rather than `TestAPI` on purpose. `TestAPI#extend` is ten

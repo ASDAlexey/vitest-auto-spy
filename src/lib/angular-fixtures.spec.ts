@@ -85,6 +85,16 @@ describe('extendWithAutoSpies — composition', () => {
     expect(TestBed.inject(ApiService).get('/x')).toBe('explicit');
   });
 
+  // Same token on both sides: the docs promise the explicit provider wins, and Angular resolves
+  // duplicates last-one-wins — before the fix the generated spy came last and shadowed it.
+  const real = new CartService();
+  const withOverride = extendWithAutoSpies(base, { cart: CartService }, { providers: [{ provide: CartService, useValue: real }] });
+
+  withOverride('an explicit provider beats the auto-spy for the same token', ({ cart }) => {
+    expect(cart).toBe(real);
+    expect(TestBed.inject(CartService)).toBe(real);
+  });
+
   // A `beforeEach` may keep configuring the module: it runs before any fixture resolves, and
   // `configureTestingModule` accepts repeated calls right up until the first injection.
   describe('alongside a beforeEach that configures further', () => {
