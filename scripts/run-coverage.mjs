@@ -22,6 +22,10 @@ function runVitest(args) {
   return result;
 }
 
+// A runner colours this output and a local pipe does not, so the summary below arrives as
+// `ESC[32m113 passed` in CI — where the guard silently never matched and the retry never ran.
+const ANSI = /\u001B\[[0-9;]*m/g;
+
 const args = process.argv.slice(2);
 const first = runVitest(args);
 
@@ -29,7 +33,7 @@ if (first.status === 0) {
   process.exit(0);
 }
 
-const output = `${first.stdout ?? ''}\n${first.stderr ?? ''}`;
+const output = `${first.stdout ?? ''}\n${first.stderr ?? ''}`.replace(ANSI, '');
 const lostCoverage =
   output.includes('does not meet global threshold') &&
   /Test Files\s+\d+ passed \(\d+\)/.test(output) &&
