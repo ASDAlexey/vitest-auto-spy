@@ -1391,6 +1391,25 @@ describe('the plugin', () => {
     expect(levels).toHaveLength(Object.keys(rules).length);
   });
 
+  it('ships the compile-error subset as a second config, so a downgrade recipe is a spread', () => {
+    const { recommended, typeErrors } = plugin.configs;
+
+    // The set is exactly the rules whose findings do not type-check — `prefer-as-spy` is `TS2352`
+    // and `no-mocked-for-spy` is `TS2322`, by construction rather than by luck — so a suite taking
+    // the rest as warnings while it fixes them in batches has no batch to plan for these: the build
+    // is already red. Spelled out rather than derived from a `meta` flag, so a new rule has to be
+    // considered here instead of joining the set by matching a predicate.
+    expect(Object.keys(typeErrors.rules).sort()).toEqual(['vitest-auto-spy/no-mocked-for-spy', 'vitest-auto-spy/prefer-as-spy']);
+    expect(new Set(Object.values(typeErrors.rules))).toEqual(new Set(['error']));
+
+    // A strict subset of `recommended`: the config is spread over it, never instead of it, so a
+    // name that is not in `recommended` would silently switch on a rule nothing else recommends.
+    Object.keys(typeErrors.rules).forEach((id) => expect(recommended.rules[id]).toBe('error'));
+    expect(Object.keys(typeErrors.rules).length).toBeLessThan(Object.keys(recommended.rules).length);
+
+    expect(typeErrors.plugins['vitest-auto-spy']).toBe(plugin);
+  });
+
   it('documents every rule with a link to the recipe it recommends', () => {
     Object.values(rules).forEach((rule) => {
       expect(rule.meta.docs.url).toContain('#how-to-mock');

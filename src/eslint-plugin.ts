@@ -13,6 +13,9 @@
  * Scope the config to spec files yourself: every rule here is about test code, and `Object.
  * defineProperty` or an object of `vi.fn()`s is perfectly reasonable in application code.
  *
+ * `configs.typeErrors` is the second config: the subset whose findings are compile errors, to spread
+ * back over a blanket downgrade while a large suite is being adopted.
+ *
  * Flat config only. The legacy `.eslintrc` `plugins: ['…']` form resolves plugin names to
  * `eslint-plugin-*` packages, which a subpath export of this package can never be.
  */
@@ -31,7 +34,7 @@ export interface FlatConfig {
 /** The plugin object, as ESLint consumes it. */
 export interface AutoSpyEslintPlugin {
   rules: Record<string, RuleModule>;
-  configs: { recommended: FlatConfig };
+  configs: { recommended: FlatConfig; typeErrors: FlatConfig };
 }
 
 const PLUGIN_NAME = 'vitest-auto-spy';
@@ -89,13 +92,37 @@ const recommendedRules: Record<string, RuleSeverity> = {
   [`${PLUGIN_NAME}/prefer-native-spy-api`]: 'error',
 };
 
+/**
+ * The subset whose findings are **compile errors**, for a suite adopting the plugin gradually.
+ *
+ * Not "the important ones" — a severity dial the plugin has no business turning. These two are the
+ * ones a blanket downgrade must not reach, because what they report does not type-check:
+ * `TestBed.inject(X) as Spy<X>` is `TS2352` and `let s: Mocked<T>` is `TS2322`, by construction
+ * rather than by luck. Every other rule reports code that compiles and runs, so "warn now, fix in
+ * batches" is a real plan for it; for these two the batch is the build, already red.
+ *
+ * Spread it **after** the downgrade — `docs-site/utilities/eslint-plugin.md` → *Land it on a large
+ * existing suite without a red CI*. It exists so that recipe is a spread rather than two rule names
+ * copied into a consumer's config, where they would go stale the moment this list changes.
+ */
+// Spelled out for the same reason `recommendedRules` is: a new rule has to be considered here rather
+// than land in this set by matching a predicate.
+const typeErrorRules: Record<string, RuleSeverity> = {
+  [`${PLUGIN_NAME}/prefer-as-spy`]: 'error',
+  [`${PLUGIN_NAME}/no-mocked-for-spy`]: 'error',
+};
+
 const plugin: AutoSpyEslintPlugin = {
   rules,
-  configs: { recommended: { plugins: {}, rules: recommendedRules } },
+  configs: {
+    recommended: { plugins: {}, rules: recommendedRules },
+    typeErrors: { plugins: {}, rules: typeErrorRules },
+  },
 };
 
 // Flat config names the plugin object itself, so the config can only be completed once the plugin
 // exists — hence the assignment rather than a literal.
 plugin.configs.recommended.plugins[PLUGIN_NAME] = plugin;
+plugin.configs.typeErrors.plugins[PLUGIN_NAME] = plugin;
 
 export default plugin;
