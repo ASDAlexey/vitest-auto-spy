@@ -119,18 +119,74 @@ is also `Overload<Client['get'], 0>`, which is what to put in a `MockInstance<�
 
 ## The only call signature is the method's own
 
-The mock surface on each spied method is `MockInstance` — the same helpers (`mockReturnValue`,
-`mockImplementation`, `calls`, …) **without** a call signature of its own. Up to 3.12.1 it was
-`Mock`, which with no type argument is `Mock<Procedure>` — `(...args: any[]) => any` — and an
-intersection accepts a call matching _either_ member: on a double of `read(key: string)` all of
-`read(1)`, `read('ok', 'extra')` and `read()` compiled, while none of them compiles on the real
+The mock surface on each spied method is `MockInstance<Method>` — the same helpers
+(`mockReturnValue`, `mockImplementation`, `calls`, …) **without** a call signature of its own. Up to
+3.12.1 it was `Mock`, which with no type argument is `Mock<Procedure>` — `(...args: any[]) => any` —
+and an intersection accepts a call matching _either_ member: on a double of `read(key: string)` all
+of `read(1)`, `read('ok', 'extra')` and `read()` compiled, while none of them compiles on the real
 instance, so a spec could call the double a way production code never could and stay green.
 
 Now the only call signature left is the method's own, and a call the real method rejects fails to
-compile on the double too. Configuring one is unchanged — `MockInstance` defaults to `Procedure` as
-well, so `mockReturnValue` / `mockImplementation` stay as lenient as they were — and a side effect
-worth having: `expectTypeOf(spy.method).parameters` and `.returns` resolve, instead of collapsing to
-`never` against two competing call signatures.
+compile on the double too. A side effect worth having: `expectTypeOf(spy.method).parameters` and
+`.returns` resolve, instead of collapsing to `never` against two competing call signatures.
+
+## The stub is checked too, not only the call
+
+That type argument on `MockInstance<Method>` is the second half, and for a while it was missing:
+left bare, the parameter defaults to `Procedure` again and every helper that _configures_ a double
+took `any`.
+
+```ts
+const posters = createSpyFromClass(PosterService); // getPosters(shelfId: string): Poster[][]
+
+posters.getPosters.mockReturnValue(42); // ❌ TS2345 — used to compile
+posters.getPosters.mockReturnValue(undefined); // ❌ TS2345 — used to compile
+posters.getPosters.mockImplementation(() => of(null)); // ❌ TS2345 — used to compile
+posters.getPosters.mockReturnValue([[poster]]); // ✅
+```
+
+Stubbing a return value is the most common thing anyone does with a spy, so a spy that could not
+check it was not doing the job it exists for — and the asymmetry was visible one line away, because
+the `calledWith(…)` continuation has always been typed:
+
+```ts
+posters.getPosters.calledWith('shelf-1').mockReturnValue(42); // ❌ — this one always failed
+```
+
+What is checked now: `mockReturnValue` / `mockReturnValueOnce` against `ReturnType<Method>`,
+`mockImplementation` / `mockImplementationOnce` / `withImplementation` against
+`(...args: Parameters<Method>) => ReturnType<Method>`, `mockResolvedValue` /
+`mockResolvedValueOnce` against the awaited return. `mock.calls`, `mock.lastCall` and
+`getMockImplementation()` come back typed rather than as `any[]`. On an overloaded method it is the
+signature `{ overload: … }` selected, so the two options agree.
+
+Two things deliberately did **not** change. `mockReturnValue()` with no argument at all still
+compiles on a `void` method — that overload is this package's own, added because the runner's
+demands an argument on a method whose point is that it returns nothing. And `mockRejectedValue`
+still takes `unknown`, because a rejection is not the method's return type.
+
+## `readonly` on the source type does not reach the double
+
+`Spy<T>` and `DeepMockProxy<T>` map with `-readonly`. The modifier is a statement about the
+production object, and the runtime never applied it to a stand-in — `overrides` seeds with
+`Reflect.set`, and a `createAutoMock` proxy has a write trap — so a spec can say what it means:
+
+```ts
+interface Session {
+  readonly accessToken: string;
+}
+
+const session = createAutoMock<Session>({ accessToken: 'first' });
+
+session.accessToken = 'second'; // ✅ the retry has to read the value the refresh step replaced
+```
+
+A seed cannot express that, because a seed is read once, at construction. `Mutable<Spy<T>>` used to
+be the answer and is no longer needed; `Mutable<T>` is still exported for everything else.
+
+One case the assignment does not cover: a member replaced by a **spied accessor**
+(`gettersToSpyOn: ['size']`) routes the write to the setter spy, and the getter spy keeps answering
+`undefined`. Use [`mockValueProp` / `mockReadonlyProp`](/utilities/setup) there, as before.
 
 ## `Spy<T>`, not `Mocked<T>`
 

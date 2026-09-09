@@ -93,6 +93,17 @@ describe('createSpyFromClass', () => {
     expect(spy.syncMethod()).toBeUndefined();
   });
 
+  // `Spy<T>` used to inherit the `readonly` of the class it describes, and the runtime never had
+  // that restriction. The type half is in `src/type-tests/spy.test-d.ts`.
+  it('lets a readonly member of the class be reassigned on the double', () => {
+    const spy = createSpyFromClass(MyService);
+    const replacement = (): number => 7;
+
+    spy.counter = replacement as typeof spy.counter;
+
+    expect(spy.counter()).toBe(7);
+  });
+
   it('accepts an array of method names', () => {
     const spy = createSpyFromClass(MyService, ['syncMethod']);
     expect(vi.isMockFunction(spy.syncMethod)).toBe(true);

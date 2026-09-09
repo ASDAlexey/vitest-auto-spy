@@ -320,15 +320,30 @@ export interface AddVoidReturnHelpers {
  *    `read(key: string)` all three of `read(1)`, `read('ok', 'extra')` and `read()` compiled, none
  *    of them compiles on the real instance, and the spec stayed green while calling the double the
  *    way production code never could. `MockInstance` is the same surface *without* the call and
- *    construct signatures, so the only call signature left is `Method`'s own. Nothing about
- *    configuring the double changed: `MockInstance` defaults to `Procedure` too, so
- *    `mockReturnValue` / `mockImplementation` stay as lenient as they were. Side effect worth
+ *    construct signatures, so the only call signature left is `Method`'s own. Side effect worth
  *    knowing: with one call signature instead of two, `expectTypeOf(spy.method).parameters` and
  *    `.returns` resolve instead of collapsing to `never`.
+ * 4. **It is `MockInstance<Method>`, and the type argument is the whole point.** Left bare it
+ *    defaults to `Procedure` again, and every *configuration* helper on the surface then took
+ *    `any`: `spy.getPosters.mockReturnValue(42)` compiled on a method returning `Poster[][]`, so
+ *    did `mockReturnValue(undefined)`, and so did `mockImplementation(() => of(null))` on one
+ *    returning `Observable<Token>`. That is the half of the promise a typed spy exists for — the
+ *    *arguments* had been checked since the `Mock` → `MockInstance` change above, the *stub* had
+ *    not — and the asymmetry was visible inside this very file: the `calledWith(…)` continuation
+ *    ({@link WithMockReturnValue}) has always typed `mockReturnValue` against `ReturnType<Method>`,
+ *    while the bare call next to it accepted anything. With the argument in place the runner types
+ *    `mockReturnValue` / `mockReturnValueOnce` as `MockReturnType<Method>`, `mockImplementation` /
+ *    `mockImplementationOnce` / `withImplementation` as `(...args: Parameters<Method>) =>
+ *    ReturnType<Method>`, `mockResolvedValue` as the awaited return, and `mock.calls` /
+ *    `mock.lastCall` / `getMockImplementation()` follow. Reported from a migration off
+ *    `jest-auto-spies` by two people who had each written a standalone `tsc --strict` probe,
+ *    because a spy that does not reject a wrong stub reads as a spy that is not typed at all.
+ *    Cost: 274 type instantiations on the `types:budget` fixture, 9044 → 9318 of a budget of
+ *    11 000.
  */
 export type AddSpyMethodsByReturnTypes<Method extends Func> = AddThrowHelper &
   Method &
-  MockInstance &
+  MockInstance<Method> &
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the `(...args: any[]) => infer ReturnType` conditional only extracts the return type; the parameter shape is irrelevant here and a narrower signature would fail to match arbitrary methods.
   (Method extends (...args: any[]) => infer ReturnType
     ? [ReturnType] extends [Promise<infer P>]
@@ -433,7 +448,9 @@ export type AddAccessorsSpies<T> = {
  * primitive properties keep their type (seed them via `overrides`/assignment).
  */
 export type DeepMockProxy<T> = SpyDisposable & {
-  [K in keyof T]: T[K] extends Func ? AddSpyMethodsByReturnTypes<T[K]> : T[K] extends object ? DeepMockProxy<T[K]> : T[K];
+  // `-readonly` for the same reason {@link Spy} strips it — a double is written to, and the runtime
+  // has always allowed it.
+  -readonly [K in keyof T]: T[K] extends Func ? AddSpyMethodsByReturnTypes<T[K]> : T[K] extends object ? DeepMockProxy<T[K]> : T[K];
 };
 
 /**
@@ -455,10 +472,22 @@ export type DeepMockProxy<T> = SpyDisposable & {
  * `calledWith`, `resolveWith` or `accessorSpies` — so the assignment it was reached for still fails
  * and the helpers stop compiling. `asInstance` and `asSpy` are typed identity functions; nothing
  * about them changes at runtime.
+ *
+ * The mapping is `-readonly`, so a member the source type declares `readonly` can be reassigned on
+ * the double. A homomorphic mapped type keeps the modifier by default, and that copied a statement
+ * about the **production** object onto a stand-in for it: the runtime has always let the write
+ * through — `applyOverrides` seeds with `Reflect.set`, and a `createAutoMock` proxy has a write
+ * trap — so the only thing `readonly` did here was force a spec to restate the service type as
+ * `Mutable<Spy<T>>` to say what its double already was. The case it kept costing is an interceptor
+ * whose retry must read a token the refresh step replaced: a seed is read once, at construction, so
+ * the second value can only be an assignment. Dropping a modifier widens the type, so no call site
+ * that compiled before stops compiling. One thing it does not buy back: on a member replaced by a
+ * spied accessor (`gettersToSpyOn`) the write reaches the setter spy and the getter still answers
+ * `undefined` — `mockValueProp` / `mockReadonlyProp` are the helpers there, as before.
  */
 export type Spy<T, Options extends SpyOptions = SpyOptions> = AddAccessorsSpies<T> &
   SpyDisposable & {
-    [K in keyof T]: T[K] extends Func
+    -readonly [K in keyof T]: T[K] extends Func
       ? AddSpyMethodsByReturnTypes<SelectOverload<T[K], Options>>
       : T[K] extends ObservableLike<infer O>
         ? AddObservableSpyMethods<O> & T[K]
@@ -496,21 +525,22 @@ export type PropStubValue<V> = (V extends (...args: infer Args) => infer Return 
 /**
  * `T` with every `readonly` modifier removed.
  *
- * `Spy<T>` is a homomorphic mapped type, so it *preserves* `readonly` — and an abstract class whose
- * useful members are getters (`abstract get pathname(): string`, the shape `createAutoMock` exists
- * for) therefore produces a double the spec cannot assign to: `TS2540: Cannot assign to 'pathname'
- * because it is a read-only property`, even though the Proxy's `set` trap handles the write
- * perfectly well at runtime.
- *
  * ```ts
- * const location: Mutable<Spy<PlatformLocation>> = createAutoMock<PlatformLocation>();
+ * const options: Mutable<ReadonlyOptions> = { ...defaults };
  *
- * location.pathname = '/movies';
+ * options.retries = 0;
  * ```
  *
- * `mockValueProp(location, 'pathname', '/movies')` is the alternative and needs no type at all —
- * prefer it when the patch should be undone by `restoreMockedProps()`. Reach for this when the spec
- * assigns directly, repeatedly, and does not want the bookkeeping.
+ * **No longer needed for `Spy<T>`, which is what it was introduced for.** That mapping strips
+ * `readonly` itself now, so `Mutable<Spy<PlatformLocation>>` and `Spy<PlatformLocation>` are the
+ * same type and the shorter one is the one to write. It stays exported — it is a general-purpose
+ * mapped type, a spec that reached for it is not wrong, and removing a published name to save four
+ * lines is not a trade worth making — but a **new** spec wanting it around a `Spy<T>` is reading
+ * advice that has expired.
+ *
+ * `mockValueProp(obj, 'pathname', '/movies')` is the neighbouring tool and answers a different
+ * question: it patches a member and `restoreMockedProps()` undoes it. Reach for that when the patch
+ * has to be undone, and for a plain assignment when it does not.
  */
 export type Mutable<T> = { -readonly [K in keyof T]: T[K] };
 

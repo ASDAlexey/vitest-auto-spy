@@ -16,7 +16,7 @@
 import { describe, expectTypeOf, it } from 'vitest';
 
 import { asInstance, createAutoMock, createSpyFromClass } from '../auto-spy';
-import type { Spy, SpyDisposable } from '../auto-spy';
+import type { Mutable, Spy, SpyDisposable } from '../auto-spy';
 
 class Storage {
   readonly name: string = 'storage';
@@ -28,6 +28,10 @@ class Storage {
   write(key: string, value: string): void {
     void key;
     void value;
+  }
+
+  load(): Promise<number> {
+    return Promise.resolve(0);
   }
 
   get size(): number {
@@ -84,6 +88,77 @@ describe('createSpyFromClass', () => {
   });
 });
 
+describe('a spy checks the stub, not only the call', () => {
+  it('types what a method is stubbed with, not only what it is called with', () => {
+    const spy = createSpyFromClass(Storage);
+
+    spy.read.mockReturnValue('cached');
+    spy.read.mockReturnValueOnce(null);
+    spy.read.mockImplementation((key: string) => key);
+    spy.load.mockResolvedValue(1);
+
+    // The mock surface used to be `MockInstance` with no type argument, which defaults to
+    // `Procedure` — `(...args: any[]) => any`. Every configuration helper on it then took `any`, so
+    // a double could be told to answer with something its method can never return and the spec
+    // stayed green until production code read the value. The call *arguments* were already checked;
+    // the stub was not, which is the half a typed spy exists for.
+    // @ts-expect-error -- `read` returns `string | null`, never a number
+    spy.read.mockReturnValue(42);
+    // @ts-expect-error -- and never `undefined` either
+    spy.read.mockReturnValue(undefined);
+    // @ts-expect-error -- same check on the `Once` variant
+    spy.read.mockReturnValueOnce(42);
+    // @ts-expect-error -- the implementation's return type is checked too
+    spy.read.mockImplementation(() => 42);
+    // @ts-expect-error -- and its parameters
+    spy.read.mockImplementation((key: number) => String(key));
+    // @ts-expect-error -- `load` resolves to a number
+    spy.load.mockResolvedValue('one');
+  });
+
+  it('still lets a void method be stubbed with no argument at all', () => {
+    const spy = createSpyFromClass(Storage);
+
+    // `AddVoidReturnHelpers` exists because the runner's own `mockReturnValue` takes one argument
+    // even on a method that returns nothing. Typing the mock surface against the method must not
+    // take that overload away again.
+    spy.write.mockReturnValue();
+    spy.write.returnValue();
+    spy.write.mockReturnValue(undefined);
+  });
+
+  it('types the recorded calls, which the untyped mock surface reported as any[]', () => {
+    const spy = createSpyFromClass(Storage);
+
+    expectTypeOf(spy.read.mock.calls).toEqualTypeOf<[key: string][]>();
+    expectTypeOf(spy.read.mock.lastCall).toEqualTypeOf<[key: string] | undefined>();
+    expectTypeOf(spy.read.getMockImplementation()).toEqualTypeOf<((key: string) => string | null) | undefined>();
+  });
+});
+
+describe('readonly does not reach the double', () => {
+  it('lets a readonly member of the source type be reassigned on the double', () => {
+    const spy = createSpyFromClass(Storage);
+
+    // `Spy<T>` is homomorphic, so it used to inherit `readonly` from the class it describes — and a
+    // spec whose whole point is that a value changes between two calls then could not say so
+    // without restating the service type as `Mutable<Spy<T>>`. The modifier describes the
+    // production object; the runtime has always let a double be written to.
+    spy.name = 'other';
+    expectTypeOf(spy.name).toEqualTypeOf<string>();
+  });
+});
+
+describe('Mutable<Spy<T>>', () => {
+  it('adds nothing to Spy<T> any more, because Spy<T> already strips readonly', () => {
+    // Mutually assignable rather than `toEqualTypeOf`: `Mutable<T>` maps over `keyof T`, which
+    // flattens `Spy<T>`'s intersection into one object type. The difference is that flattening, not
+    // a modifier — which is the claim.
+    expectTypeOf<Mutable<Spy<Storage>>>().toExtend<Spy<Storage>>();
+    expectTypeOf<Spy<Storage>>().toExtend<Mutable<Spy<Storage>>>();
+  });
+});
+
 describe('asInstance', () => {
   it('hands back the plain type, so a Spy<T> can be passed where T is expected', () => {
     const spy: Spy<Storage> = createSpyFromClass(Storage);
@@ -112,6 +187,22 @@ describe('createAutoMock', () => {
     expectTypeOf(mock.load).toBeCallableWith(1);
     expectTypeOf(mock.load(1)).toEqualTypeOf<Promise<string>>();
     expectTypeOf(mock.ready).toEqualTypeOf<boolean>();
+  });
+
+  it('lets a readonly member be reassigned, seeded or not', () => {
+    type Session = {
+      readonly accessToken: string;
+      readonly expiresAt: number;
+      refresh(): void;
+    };
+
+    const seeded = createAutoMock<Session>({ accessToken: 'first' });
+
+    // The case this comes from is an HTTP interceptor: the retry has to read a token the refresh
+    // step replaced, so the second value is the assertion. Seeding cannot express it — a seed is
+    // read once, at construction — and the type has to allow the write.
+    seeded.accessToken = 'second';
+    seeded.expiresAt = 1;
   });
 });
 

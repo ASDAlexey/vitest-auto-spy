@@ -122,19 +122,78 @@ const client = createSpyFromClass<VenuesService, { overload: 'first' }>(VenuesSe
 
 ## Единственная сигнатура вызова — собственная сигнатура метода {#the-only-call-signature-is-the-method-s-own}
 
-Поверхность мока на каждом подменённом методе — это `MockInstance`: те же хелперы (`mockReturnValue`,
-`mockImplementation`, `calls`, …) **без** собственной сигнатуры вызова. До 3.12.1 там был `Mock`,
-который без аргумента типа означает `Mock<Procedure>` — `(...args: any[]) => any`, — а пересечение
-принимает вызов, подходящий _любому_ из членов: на дубле `read(key: string)` компилировались и
-`read(1)`, и `read('ok', 'extra')`, и `read()`, тогда как на настоящем экземпляре не компилируется ни
-один из них, — так что спека могла звать дубль способом, который продакшен-коду недоступен, и
-оставаться зелёной.
+Поверхность мока на каждом подменённом методе — это `MockInstance<Method>`: те же хелперы
+(`mockReturnValue`, `mockImplementation`, `calls`, …) **без** собственной сигнатуры вызова. До 3.12.1
+там был `Mock`, который без аргумента типа означает `Mock<Procedure>` — `(...args: any[]) => any`, —
+а пересечение принимает вызов, подходящий _любому_ из членов: на дубле `read(key: string)`
+компилировались и `read(1)`, и `read('ok', 'extra')`, и `read()`, тогда как на настоящем экземпляре
+не компилируется ни один из них, — так что спека могла звать дубль способом, который продакшен-коду
+недоступен, и оставаться зелёной.
 
 Теперь единственная оставшаяся сигнатура вызова — собственная сигнатура метода, и вызов, который
-настоящий метод отвергает, на дубле тоже не компилируется. Настройка не изменилась — `MockInstance`
-тоже по умолчанию берёт `Procedure`, поэтому `mockReturnValue` / `mockImplementation` остались такими
-же нестрогими, — а побочный эффект оказался полезным: `expectTypeOf(spy.method).parameters` и
-`.returns` теперь разрешаются, а не схлопываются в `never` между двумя конкурирующими сигнатурами.
+настоящий метод отвергает, на дубле тоже не компилируется. Побочный эффект оказался полезным:
+`expectTypeOf(spy.method).parameters` и `.returns` теперь разрешаются, а не схлопываются в `never`
+между двумя конкурирующими сигнатурами.
+
+## Заглушка тоже проверяется, а не только вызов {#the-stub-is-checked-too-not-only-the-call}
+
+Тот самый аргумент типа в `MockInstance<Method>` — это вторая половина, и какое-то время её не было:
+без аргумента параметр снова берёт по умолчанию `Procedure`, и каждый хелпер, который _настраивает_
+дубль, принимал `any`.
+
+```ts
+const posters = createSpyFromClass(PosterService); // getPosters(shelfId: string): Poster[][]
+
+posters.getPosters.mockReturnValue(42); // ❌ TS2345 — раньше компилировалось
+posters.getPosters.mockReturnValue(undefined); // ❌ TS2345 — раньше компилировалось
+posters.getPosters.mockImplementation(() => of(null)); // ❌ TS2345 — раньше компилировалось
+posters.getPosters.mockReturnValue([[poster]]); // ✅
+```
+
+Задать возвращаемое значение — самое частое, что вообще делают со шпионом, так что шпион, который не
+мог это проверить, не делал работы, ради которой существует. И асимметрия была видна строкой рядом:
+продолжение `calledWith(…)` типизировано всегда:
+
+```ts
+posters.getPosters.calledWith('shelf-1').mockReturnValue(42); // ❌ — это падало всегда
+```
+
+Что проверяется теперь: `mockReturnValue` / `mockReturnValueOnce` — против `ReturnType<Method>`,
+`mockImplementation` / `mockImplementationOnce` / `withImplementation` — против
+`(...args: Parameters<Method>) => ReturnType<Method>`, `mockResolvedValue` / `mockResolvedValueOnce`
+— против развёрнутого возвращаемого типа. `mock.calls`, `mock.lastCall` и `getMockImplementation()`
+возвращаются типизированными, а не как `any[]`. У перегруженного метода это та сигнатура, которую
+выбрал `{ overload: … }`, — обе настройки согласованы.
+
+Две вещи сознательно **не** изменились. `mockReturnValue()` вообще без аргумента по-прежнему
+компилируется у `void`-метода: эта перегрузка — собственная у пакета, она появилась потому, что
+раннер требует аргумент у метода, весь смысл которого в том, что он ничего не возвращает. И
+`mockRejectedValue` по-прежнему принимает `unknown`, потому что отказ — это не возвращаемый тип
+метода.
+
+## `readonly` из исходного типа до дубля не доходит {#readonly-on-the-source-type-does-not-reach-the-double}
+
+`Spy<T>` и `DeepMockProxy<T>` отображаются с `-readonly`. Модификатор — это утверждение о
+продакшен-объекте, и рантайм никогда не применял его к заместителю: `overrides` засевает через
+`Reflect.set`, а у прокси `createAutoMock` есть ловушка записи. Так что спека может сказать то, что
+имеет в виду:
+
+```ts
+interface Session {
+  readonly accessToken: string;
+}
+
+const session = createAutoMock<Session>({ accessToken: 'first' });
+
+session.accessToken = 'second'; // ✅ ретрай обязан прочитать значение, которое подменил refresh
+```
+
+Засев этого выразить не может — засев читается один раз, при создании. Раньше ответом было
+`Mutable<Spy<T>>`, теперь он не нужен; `Mutable<T>` остаётся экспортируемым для всего остального.
+
+Один случай присваивание не покрывает: у члена, заменённого **заспаенным аксессором**
+(`gettersToSpyOn: ['size']`), запись уходит в шпиона-сеттер, а шпион-геттер продолжает отвечать
+`undefined`. Там, как и раньше, [`mockValueProp` / `mockReadonlyProp`](/ru/utilities/setup).
 
 ## `Spy`, а не `Mocked` {#spy-not-mocked}
 

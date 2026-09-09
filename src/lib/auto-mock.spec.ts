@@ -23,6 +23,10 @@ interface UserService {
   apiUrl: string;
 }
 
+interface Session {
+  readonly accessToken: string;
+}
+
 describe('createAutoMock', () => {
   it('lazily materializes a decorated function spy per accessed method', () => {
     const mock = createAutoMock<UserService>();
@@ -77,6 +81,20 @@ describe('createAutoMock', () => {
     mock.apiUrl = 'https://assigned.test';
 
     expect(mock.apiUrl).toBe('https://assigned.test');
+  });
+
+  it('allows reassigning a readonly member of the source type, seeded or not', () => {
+    // The write has always worked; `Spy<T>` used to forbid it at the type level because a
+    // homomorphic mapped type keeps `readonly`. This pins the runtime half of that pair — see the
+    // `createAutoMock` cases in `src/type-tests/spy.test-d.ts` for the type half.
+    const seeded = createAutoMock<Session>({ accessToken: 'first' });
+    const bare = createAutoMock<Session>();
+
+    seeded.accessToken = 'second';
+    bare.accessToken = 'only';
+
+    expect(seeded.accessToken).toBe('second');
+    expect(bare.accessToken).toBe('only');
   });
 
   it('does not look like a thenable (then resolves to undefined)', () => {
