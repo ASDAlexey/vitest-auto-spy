@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import { captures, parseJsonc, pathExists, readTextFile, scanRepository } from './fs-scan';
 
 export type Framework = 'angular' | 'nestjs' | 'none' | 'react' | 'svelte' | 'vue';
-export type Runner = 'bun' | 'node' | 'vitest';
+export type Runner = 'bun' | 'node' | 'rstest' | 'vitest';
 
 export interface Profile {
   readonly cwd: string;
@@ -62,6 +62,7 @@ function readPackageJson(cwd: string): Record<string, unknown> {
 
 const BUN_TEST = /\bbun\s+test\b/;
 const NODE_TEST = /\bnode\s+(?:--test|--experimental-test-runner)\b/;
+const RSTEST = /\brstest\b/;
 const VITEST = /\bvitest\b/;
 
 function runnerFromScript(script: string): Runner | undefined {
@@ -71,6 +72,10 @@ function runnerFromScript(script: string): Runner | undefined {
 
   if (NODE_TEST.test(script)) {
     return 'node';
+  }
+
+  if (RSTEST.test(script)) {
+    return 'rstest';
   }
 
   return VITEST.test(script) ? 'vitest' : undefined;
@@ -96,6 +101,10 @@ function detectRunner(dependencies: Record<string, string>, scripts: Record<stri
 
   if (dependencies['vitest'] !== undefined) {
     return 'vitest';
+  }
+
+  if (dependencies['@rstest/core'] !== undefined) {
+    return 'rstest';
   }
 
   return dependencies['@types/bun'] === undefined && dependencies['bun-types'] === undefined ? 'vitest' : 'bun';
@@ -139,6 +148,10 @@ export function resolveEntry(runner: Runner, framework: Framework): string {
 
   if (runner === 'node') {
     return 'vitest-auto-spy/node';
+  }
+
+  if (runner === 'rstest') {
+    return 'vitest-auto-spy/rstest';
   }
 
   return ENTRY_BY_FRAMEWORK[framework];

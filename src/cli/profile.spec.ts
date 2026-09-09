@@ -39,13 +39,17 @@ describe('readProfile', () => {
   it('falls back to another script, then to the dependencies', () => {
     const bun = createTempRepo({ 'package.json': manifest({ scripts: { ci: 'bun test' } }) });
     const node = createTempRepo({ 'package.json': manifest({ scripts: { ci: 'node --test' } }) });
+    const rstest = createTempRepo({ 'package.json': manifest({ scripts: { ci: 'rstest run' } }) });
     const byDependency = createTempRepo({ 'package.json': manifest({ devDependencies: { vitest: '^4' } }) });
     const byTypes = createTempRepo({ 'package.json': manifest({ devDependencies: { '@types/bun': '^1' } }) });
+    const byRstest = createTempRepo({ 'package.json': manifest({ devDependencies: { '@rstest/core': '^0.11' } }) });
 
     expect(readProfile(bun).runner).toBe('bun');
     expect(readProfile(node).runner).toBe('node');
+    expect(readProfile(rstest).runner).toBe('rstest');
     expect(readProfile(byDependency).runner).toBe('vitest');
     expect(readProfile(byTypes).runner).toBe('bun');
+    expect(readProfile(byRstest).runner).toBe('rstest');
   });
 
   it('names the framework from the dependency that proves it', () => {
@@ -105,6 +109,7 @@ describe('resolveEntry', () => {
     expect(resolveEntry('bun', 'angular')).toBe('vitest-auto-spy/bun-angular');
     expect(resolveEntry('bun', 'react')).toBe('vitest-auto-spy/bun');
     expect(resolveEntry('node', 'angular')).toBe('vitest-auto-spy/node');
+    expect(resolveEntry('rstest', 'angular')).toBe('vitest-auto-spy/rstest');
     expect(resolveEntry('vitest', 'nestjs')).toBe('vitest-auto-spy/nestjs');
     expect(resolveEntry('vitest', 'vue')).toBe('vitest-auto-spy/vue');
     expect(resolveEntry('vitest', 'svelte')).toBe('vitest-auto-spy/svelte');
