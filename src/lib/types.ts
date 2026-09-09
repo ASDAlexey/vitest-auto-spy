@@ -445,12 +445,13 @@ export type AddAccessorsSpies<T> = {
 /**
  * A recursively-mocked `T`: object properties become nested deep mocks (so
  * `mock.repo.user.find()` works without seeding), methods become spies, and
- * primitive properties keep their type (seed them via `overrides`/assignment).
+ * primitive properties keep their type (seed them via `overrides` or `mockValueProp`).
+ *
+ * The mapping keeps `readonly`, for the reason spelled out on {@link Spy}: a plain assignment is
+ * silently inert on a member replaced by a spied accessor, and `mockValueProp` is not.
  */
 export type DeepMockProxy<T> = SpyDisposable & {
-  // `-readonly` for the same reason {@link Spy} strips it — a double is written to, and the runtime
-  // has always allowed it.
-  -readonly [K in keyof T]: T[K] extends Func ? AddSpyMethodsByReturnTypes<T[K]> : T[K] extends object ? DeepMockProxy<T[K]> : T[K];
+  [K in keyof T]: T[K] extends Func ? AddSpyMethodsByReturnTypes<T[K]> : T[K] extends object ? DeepMockProxy<T[K]> : T[K];
 };
 
 /**
@@ -473,21 +474,28 @@ export type DeepMockProxy<T> = SpyDisposable & {
  * and the helpers stop compiling. `asInstance` and `asSpy` are typed identity functions; nothing
  * about them changes at runtime.
  *
- * The mapping is `-readonly`, so a member the source type declares `readonly` can be reassigned on
- * the double. A homomorphic mapped type keeps the modifier by default, and that copied a statement
- * about the **production** object onto a stand-in for it: the runtime has always let the write
- * through — `applyOverrides` seeds with `Reflect.set`, and a `createAutoMock` proxy has a write
- * trap — so the only thing `readonly` did here was force a spec to restate the service type as
- * `Mutable<Spy<T>>` to say what its double already was. The case it kept costing is an interceptor
- * whose retry must read a token the refresh step replaced: a seed is read once, at construction, so
- * the second value can only be an assignment. Dropping a modifier widens the type, so no call site
- * that compiled before stops compiling. One thing it does not buy back: on a member replaced by a
- * spied accessor (`gettersToSpyOn`) the write reaches the setter spy and the getter still answers
- * `undefined` — `mockValueProp` / `mockReadonlyProp` are the helpers there, as before.
+ * The mapping is homomorphic, so it **keeps** `readonly`, and that is deliberate rather than
+ * incidental. Stripping the modifier was tried and reverted: it made a plain assignment compile
+ * everywhere, including on a member replaced by a spied accessor (`gettersToSpyOn`), where the write
+ * reaches the setter spy and the getter goes on answering `undefined`. That trades a loud `TS2540`
+ * fixable in one line for a silent runtime no-op, which is the defect class this file's other types
+ * exist to remove. Keeping it pushes the spec to `mockValueProp(spy, 'token', value)` — the answer
+ * in both cases, and one that needs no type at all, because `readonly` does not take a key out of
+ * `keyof T`.
+ *
+ * `Reflect.set(spy, 'token', value)` is **not** the escape hatch it looks like: it invokes the same
+ * `[[Set]]`, so it is equally inert on a spied accessor, and it additionally returns `true` — which
+ * misleads a caller that checks the result. Probed on node, against a spied accessor whose getter
+ * answers `undefined`: plain assignment and `Reflect.set` both leave the getter at `undefined` and
+ * both record on the setter spy; only `Object.defineProperty` — what `mockValueProp` does — makes
+ * the value readable.
+ *
+ * {@link Mutable} stays the secondary answer for a spec that would rather write plain assignments to
+ * plain data members. It does not help on a spied accessor either.
  */
 export type Spy<T, Options extends SpyOptions = SpyOptions> = AddAccessorsSpies<T> &
   SpyDisposable & {
-    -readonly [K in keyof T]: T[K] extends Func
+    [K in keyof T]: T[K] extends Func
       ? AddSpyMethodsByReturnTypes<SelectOverload<T[K], Options>>
       : T[K] extends ObservableLike<infer O>
         ? AddObservableSpyMethods<O> & T[K]
@@ -531,16 +539,25 @@ export type PropStubValue<V> = (V extends (...args: infer Args) => infer Return 
  * options.retries = 0;
  * ```
  *
- * **No longer needed for `Spy<T>`, which is what it was introduced for.** That mapping strips
- * `readonly` itself now, so `Mutable<Spy<PlatformLocation>>` and `Spy<PlatformLocation>` are the
- * same type and the shorter one is the one to write. It stays exported — it is a general-purpose
- * mapped type, a spec that reached for it is not wrong, and removing a published name to save four
- * lines is not a trade worth making — but a **new** spec wanting it around a `Spy<T>` is reading
- * advice that has expired.
+ * {@link Spy} is a homomorphic mapped type, so it *preserves* `readonly` — and an abstract class
+ * whose useful members are getters (`abstract get pathname(): string`, the shape `createAutoMock`
+ * exists for) therefore produces a double the spec cannot assign to: `TS2540: Cannot assign to
+ * 'pathname' because it is a read-only property`, even though the Proxy's `set` trap handles the
+ * write perfectly well at runtime.
  *
- * `mockValueProp(obj, 'pathname', '/movies')` is the neighbouring tool and answers a different
- * question: it patches a member and `restoreMockedProps()` undoes it. Reach for that when the patch
- * has to be undone, and for a plain assignment when it does not.
+ * ```ts
+ * const location: Mutable<Spy<PlatformLocation>> = createAutoMock<PlatformLocation>();
+ *
+ * location.pathname = '/movies';
+ * ```
+ *
+ * **`mockValueProp(location, 'pathname', '/movies')` is the primary answer, and this is the
+ * secondary one.** `mockValueProp` needs no type at all — `readonly` does not take a key out of
+ * `keyof T`, so its checked overload accepts the member as it stands — it defines the value rather
+ * than assigning it, so it also works on a member replaced by a spied accessor, and
+ * `restoreMockedProps()` undoes it. Reach for `Mutable` when the spec assigns directly, repeatedly,
+ * to plain data members and does not want the bookkeeping; it is the same `[[Set]]` a bare
+ * assignment is, so it is just as inert on a spied accessor.
  */
 export type Mutable<T> = { -readonly [K in keyof T]: T[K] };
 

@@ -15,8 +15,8 @@
  */
 import { describe, expectTypeOf, it } from 'vitest';
 
-import { asInstance, createAutoMock, createSpyFromClass } from '../auto-spy';
-import type { Mutable, Spy, SpyDisposable } from '../auto-spy';
+import { asInstance, createAutoMock, createSpyFromClass, mockValueProp } from '../auto-spy';
+import type { Mutable, RestoreProp, Spy, SpyDisposable } from '../auto-spy';
 
 class Storage {
   readonly name: string = 'storage';
@@ -136,26 +136,42 @@ describe('a spy checks the stub, not only the call', () => {
   });
 });
 
-describe('readonly does not reach the double', () => {
-  it('lets a readonly member of the source type be reassigned on the double', () => {
+describe('readonly reaches the double', () => {
+  it('rejects a plain assignment to a readonly member, so the spec reaches for mockValueProp', () => {
     const spy = createSpyFromClass(Storage);
 
-    // `Spy<T>` is homomorphic, so it used to inherit `readonly` from the class it describes — and a
-    // spec whose whole point is that a value changes between two calls then could not say so
-    // without restating the service type as `Mutable<Spy<T>>`. The modifier describes the
-    // production object; the runtime has always let a double be written to.
+    // Stripping the modifier was tried and reverted. It made this line compile everywhere, and on a
+    // member replaced by a spied accessor (`gettersToSpyOn`) the write reaches the setter spy while
+    // the getter goes on answering `undefined` — a loud TS2540 traded for a silent runtime no-op.
+    // @ts-expect-error -- TS2540: `name` is readonly on the class and stays readonly on the double
     spy.name = 'other';
     expectTypeOf(spy.name).toEqualTypeOf<string>();
+  });
+
+  it('accepts that same member on the checked mockValueProp overload', () => {
+    const spy = createSpyFromClass(Storage);
+
+    // `readonly` does not take a key out of `keyof T`, so `K extends keyof T` still matches and the
+    // checked overload answers — no `Mutable`, no cast. (No negative case beside it: every
+    // `mock*Prop` helper carries an untyped escape-hatch overload, so nothing it is handed is ever
+    // rejected — see `PropStubValue`.) `Reflect.set` is not the alternative it looks like either:
+    // it is the same `[[Set]]`, so it is equally inert on a spied accessor, and it answers `true`
+    // while doing nothing.
+    expectTypeOf(mockValueProp).toBeCallableWith(spy, 'name', 'other');
+    expectTypeOf(mockValueProp(spy, 'name', 'other')).toEqualTypeOf<RestoreProp>();
   });
 });
 
 describe('Mutable<Spy<T>>', () => {
-  it('adds nothing to Spy<T> any more, because Spy<T> already strips readonly', () => {
-    // Mutually assignable rather than `toEqualTypeOf`: `Mutable<T>` maps over `keyof T`, which
-    // flattens `Spy<T>`'s intersection into one object type. The difference is that flattening, not
-    // a modifier — which is the claim.
-    expectTypeOf<Mutable<Spy<Storage>>>().toExtend<Spy<Storage>>();
-    expectTypeOf<Spy<Storage>>().toExtend<Mutable<Spy<Storage>>>();
+  it('is the opt-in way back to a plain assignment on a data member', () => {
+    const spy: Mutable<Spy<Storage>> = createSpyFromClass(Storage);
+
+    spy.name = 'other';
+    expectTypeOf(spy.name).toEqualTypeOf<string>();
+  });
+
+  it('still differs from Spy<T>, which is why a spec reaches for it', () => {
+    expectTypeOf<Mutable<Spy<Storage>>>().not.toEqualTypeOf<Spy<Storage>>();
   });
 });
 
@@ -189,7 +205,7 @@ describe('createAutoMock', () => {
     expectTypeOf(mock.ready).toEqualTypeOf<boolean>();
   });
 
-  it('lets a readonly member be reassigned, seeded or not', () => {
+  it('keeps a readonly member readonly, and answers with mockValueProp', () => {
     type Session = {
       readonly accessToken: string;
       readonly expiresAt: number;
@@ -199,10 +215,12 @@ describe('createAutoMock', () => {
     const seeded = createAutoMock<Session>({ accessToken: 'first' });
 
     // The case this comes from is an HTTP interceptor: the retry has to read a token the refresh
-    // step replaced, so the second value is the assertion. Seeding cannot express it — a seed is
-    // read once, at construction — and the type has to allow the write.
+    // step replaced, so the second value cannot come from the seed, which is read once at
+    // construction. `mockValueProp` supplies it and works on a spied accessor too.
+    // @ts-expect-error -- TS2540: the seed does not make the member writable
     seeded.accessToken = 'second';
-    seeded.expiresAt = 1;
+    expectTypeOf(mockValueProp).toBeCallableWith(seeded, 'accessToken', 'second');
+    expectTypeOf(mockValueProp).toBeCallableWith(seeded, 'expiresAt', 1);
   });
 });
 

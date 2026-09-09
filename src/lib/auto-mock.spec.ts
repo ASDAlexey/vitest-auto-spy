@@ -9,6 +9,7 @@ import { beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { autoMocked, createAutoMock } from './auto-mock';
 import { registerMockAdapter } from './mock-adapter';
+import { mockValueProp, restoreMockedProps } from './prop-mock';
 import { vitestMockAdapter } from './vitest-adapter';
 
 // Self-contained: register the default Vitest adapter so the runtime-agnostic
@@ -83,18 +84,26 @@ describe('createAutoMock', () => {
     expect(mock.apiUrl).toBe('https://assigned.test');
   });
 
-  it('allows reassigning a readonly member of the source type, seeded or not', () => {
-    // The write has always worked; `Spy<T>` used to forbid it at the type level because a
-    // homomorphic mapped type keeps `readonly`. This pins the runtime half of that pair — see the
-    // `createAutoMock` cases in `src/type-tests/spy.test-d.ts` for the type half.
+  it('restubs a readonly member of the source type through mockValueProp, seeded or not', () => {
+    // `Spy<T>` keeps the `readonly` a homomorphic mapped type inherits, so a plain assignment is
+    // rejected — the `@ts-expect-error` lines are the assertion, checked by `npm run typecheck`.
+    // `mockValueProp` type-checks against the same member (`readonly` does not take a key out of
+    // `keyof T`) and defines the value rather than setting it, which is what also makes it work on
+    // a spied accessor. See `src/type-tests/spy.test-d.ts` for the type half.
     const seeded = createAutoMock<Session>({ accessToken: 'first' });
     const bare = createAutoMock<Session>();
 
-    seeded.accessToken = 'second';
-    bare.accessToken = 'only';
+    // @ts-expect-error -- TS2540: the seed does not make the member writable
+    seeded.accessToken = 'ignored';
+    // @ts-expect-error -- TS2540: nor does leaving it unseeded
+    bare.accessToken = 'ignored';
+
+    mockValueProp(seeded, 'accessToken', 'second');
+    mockValueProp(bare, 'accessToken', 'only');
 
     expect(seeded.accessToken).toBe('second');
     expect(bare.accessToken).toBe('only');
+    restoreMockedProps();
   });
 
   it('does not look like a thenable (then resolves to undefined)', () => {

@@ -93,15 +93,40 @@ describe('createSpyFromClass', () => {
     expect(spy.syncMethod()).toBeUndefined();
   });
 
-  // `Spy<T>` used to inherit the `readonly` of the class it describes, and the runtime never had
-  // that restriction. The type half is in `src/type-tests/spy.test-d.ts`.
-  it('lets a readonly member of the class be reassigned on the double', () => {
+  // `Spy<T>` keeps the `readonly` of the class it describes, and `mockValueProp` is the way past
+  // it. Stripping the modifier instead was tried and reverted: see the accessor case below for what
+  // a plain assignment does when the member is a spied accessor. The type half of this pair is in
+  // `src/type-tests/spy.test-d.ts`; the `@ts-expect-error` here is checked by `npm run typecheck`.
+  it('replaces a readonly member of the class through mockValueProp', () => {
     const spy = createSpyFromClass(MyService);
     const replacement = (): number => 7;
 
-    spy.counter = replacement as typeof spy.counter;
+    // @ts-expect-error -- TS2540: `counter` is readonly on the class and stays readonly on the double
+    spy.counter = replacement;
+    mockValueProp(spy, 'counter', replacement);
 
     expect(spy.counter()).toBe(7);
+    restoreMockedProps();
+  });
+
+  // Probed on node before the revert: against a spied accessor whose getter answers `undefined`,
+  // both a plain assignment and `Reflect.set` invoke the same `[[Set]]` — the setter spy records,
+  // the getter keeps answering `undefined` — and `Reflect.set` returns `true` on top, which
+  // misleads a caller that checks the result. Only `defineProperty`, which is what `mockValueProp`
+  // does, makes the value readable.
+  it('leaves a spied accessor answering undefined after an assignment, where mockValueProp does not', () => {
+    const spy = createSpyFromClass(MyService, { gettersToSpyOn: ['userName'] });
+
+    spy.userName = 'assigned';
+    expect(spy.accessorSpies.setters.userName).toHaveBeenCalledWith('assigned');
+    expect(spy.userName).toBeUndefined();
+
+    expect(Reflect.set(spy, 'userName', 'reflected')).toBe(true);
+    expect(spy.userName).toBeUndefined();
+
+    mockValueProp(spy, 'userName', 'defined');
+    expect(spy.userName).toBe('defined');
+    restoreMockedProps();
   });
 
   it('accepts an array of method names', () => {
