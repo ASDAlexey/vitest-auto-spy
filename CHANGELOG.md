@@ -12,6 +12,31 @@ The latest released version here must always match the one published on
 
 ### Added
 
+- **`vitest-auto-spy/rstest` — the same core on Rstest, the Rspack-powered runner.** The entry
+  registers an adapter over `rstest.fn()` / `rstest.spyOn()`, and the public API is the Vitest one
+  name for name, so a spec moves between the two by rewriting its import. Rstest implements the
+  Jest/Vitest mock surface, which is why none of the `node:test` differences apply here:
+  `spy.method.mock.calls[0]` is a bare argument array, the `mockReturnValue` family is native, and
+  `gettersToSpyOn` / `settersToSpyOn` go through `rstest.spyOn(obj, 'prop', 'get' | 'set')` instead of
+  the redefinition fallback. The library's method spies come from its own engine rather than the
+  runner's, so a run-wide clear needed a bridge: the entry plants one sentinel mock whose `mockClear`
+  / `mockReset` sweep them, and `rstest.clearAllMocks()`, `rstest.resetAllMocks()` and the
+  `clearMocks: true` / `resetMocks: true` config keys all reach a double built by
+  `createSpyFromClass`, with nothing to enable.
+
+  Two things are deliberately not part of it. `vitest-auto-spy/setup` is wired to Vitest's hooks —
+  on Rstest, import the entry once in the setup file, which is the part a setup file is for. And
+  `trackNodeMocks()` stays `node:test`-only: Rstest drops its mock registry between files, like
+  Vitest and Bun, so there is nothing to track.
+
+  `npx vitest-auto-spy init` and `doctor` recognise an Rstest project — `@rstest/core` in the
+  dependencies, or `rstest` in a test script — and write `vitest-auto-spy/rstest` into the agent
+  instructions instead of the Vitest entry. The suite runs on the real runner in the gate
+  (`npm run test:rstest`), against the built package rather than the sources. A new entry point costs
+  a new bundle and nothing else: `./rstest` is 15.30 kB min+gzip, and no existing entry moved by more
+  than 0.02 kB. Rstest is 0.x; Vitest remains the zero-config default, and this entry is for a suite
+  that already runs on Rspack.
+
 - **`configs.typeErrors` — the rules whose findings do not compile, as a config you can spread.**
   `configs.recommended` grades every rule `error`; a suite landing the plugin on an existing codebase
   routinely rebuilds that map as `warn` and fixes in batches. Two rules should not go with it, and the

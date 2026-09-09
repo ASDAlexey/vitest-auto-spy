@@ -1,7 +1,7 @@
 # vitest-auto-spy — instructions for AI coding agents
 
 You are looking at the agent-facing reference for **`vitest-auto-spy`**: typed test spies generated
-from a class, a type, or nothing at all, on Vitest / `bun:test` / `node:test`.
+from a class, a type, or nothing at all, on Vitest / `bun:test` / `node:test` / Rstest.
 
 This file is written for an agent **using** the library in someone's test suite. It is shipped
 inside the npm package, so it is readable with no network:
@@ -2279,6 +2279,25 @@ Spies created **before** the call stay there too. `mock.reset()` in `afterEach` 
 and costs +206 B per mock against +65 B for naming at creation, measured over 200 000 mocks. `getMockName()` still does not exist there: read `spy.method.name`. Nothing labels a
 mock in `node:test`'s reporter output on its own. Full account:
 <https://asdalexey.github.io/vitest-auto-spy/runtimes/node#spy-names>.
+
+### Rstest
+
+`vitest-auto-spy/rstest` drives the same core through `rstest.fn()` / `rstest.spyOn()`. Rstest
+implements the Jest/Vitest mock surface, so **none of the `node:test` differences above apply**:
+`spy.method.mock.calls[0]` is a bare argument array, the `mockReturnValue` family is native, and
+`gettersToSpyOn` / `settersToSpyOn` go through `rstest.spyOn(obj, 'prop', 'get' | 'set')` rather than
+the redefinition fallback. `rstest.clearAllMocks()`, `rstest.resetAllMocks()` and the
+`clearMocks: true` / `resetMocks: true` config keys reach spies built by `createSpyFromClass` — the
+entry plants one sentinel mock for it, and there is nothing to enable.
+
+Two things are not there. `vitest-auto-spy/setup` is wired to Vitest's hooks, so `setupAutoSpy()` and
+the fake-timer helpers are Vitest-only — on Rstest, import `vitest-auto-spy/rstest` once in the setup
+file, which is the part a setup file is for. `trackNodeMocks()` is `node:test`-only and is not needed:
+Rstest drops its mock registry between files, like Vitest and Bun.
+
+Rstest is 0.x. Vitest stays the zero-config default; reach for this entry when the suite already runs
+on Rstest, which is typically an Rspack project reusing its bundler config for tests. Full account:
+<https://asdalexey.github.io/vitest-auto-spy/runtimes/rstest>.
 
 ---
 
