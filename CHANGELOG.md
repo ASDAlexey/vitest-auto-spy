@@ -10,6 +10,74 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+### Changed
+
+- **A spied method rejects the *stub* the real one rejects, not only the arguments.** `Spy<T>`
+  carried the mock surface as a bare `MockInstance`, whose type parameter defaults to `Procedure` —
+  `(...args: any[]) => any` — so every helper that *configures* a double took `any`.
+  `spy.getPosters.mockReturnValue(42)` compiled on a method returning `Poster[][]`, so did
+  `mockReturnValue(undefined)`, and so did `mockImplementation(() => of(null))` on one returning
+  `Observable<Token>`; the spec then stayed green until production code read the value. This was the
+  other half of the 3.13.0 fix that stopped a double accepting *calls* the real method rejects, and
+  the asymmetry it left behind was visible one line away: the `calledWith(…)` continuation has always
+  typed `mockReturnValue` against `ReturnType<Method>`, while the bare call next to it accepted
+  anything.
+
+  The surface is now `MockInstance<Method>`. `mockReturnValue` / `mockReturnValueOnce` take
+  `ReturnType<Method>`, `mockImplementation` / `mockImplementationOnce` / `withImplementation` take
+  `(...args: Parameters<Method>) => ReturnType<Method>`, `mockResolvedValue` takes the awaited
+  return, and `mock.calls`, `mock.lastCall` and `getMockImplementation()` come back typed instead of
+  `any[]`. The zero-argument `mockReturnValue()` on a `void` method still compiles — that overload
+  is this package's own and is unaffected — and the overload selected by `Spy<T, { overload: 'first' }>`
+  is the one the stub is checked against.
+
+  Reported twice independently while a large Angular monorepo moved 122 specs off `jest-auto-spies`,
+  each time with a standalone `tsc --strict` probe rather than an inference, because a typed spy that
+  accepts a wrong stub reads as a spy that is not typed at all.
+
+  **This tightens type checking on existing suites**: a `mockReturnValue` / `mockImplementation` /
+  `mockResolvedValue` that stubbed the wrong shape used to compile and now does not. Nothing changes
+  at run time, and this repository's own suite needed no edit. Cost measured on the `types:budget`
+  fixture: 9044 → 9318 instantiations, against a budget of 11 000.
+
+- **`Spy<T>` and `DeepMockProxy<T>` no longer copy `readonly` onto the double.** Both are
+  homomorphic mapped types, so a `readonly` member of the source type arrived `readonly` on the
+  stand-in for it — and the runtime never had that restriction: `overrides` seeds with `Reflect.set`
+  and a `createAutoMock` proxy has a write trap. What the modifier actually cost was a spec whose
+  point is that a value changes between two calls — an interceptor whose retry must read a token the
+  refresh step replaced — where a seed cannot help, because a seed is read once at construction. The
+  answer was `Mutable<Spy<T>>` — and this package has *exported* `Mutable<T>` since 3.5.0, which the
+  reports that led here had hand-written instead, so the workaround was costing a rediscovery as well
+  as a line. The mapping is `-readonly` now, which makes `Mutable<Spy<T>>` and `Spy<T>` the same
+  type; `Mutable<T>` stays exported for everything else. Dropping a modifier widens the type, so no call
+  site that compiled before stops compiling. Unchanged: on a member replaced by a **spied accessor**
+  (`gettersToSpyOn`) a direct write reaches the setter spy while the getter still answers
+  `undefined` — `mockValueProp` / `mockReadonlyProp` remain the helpers there.
+
+- **The cross-family `invocationCallOrder` mismatch is now stated where a migration meets it.** No
+  behaviour change: `toHaveBeenCalledBefore` / `toHaveBeenCalledAfter` between one of this package's
+  method spies and a hand-written `vi.fn()` still compare two counters that never met, and
+  `setSpyEngine('runner')` is still the switch that makes them one. What changed is the description
+  of it. `AGENTS.md` called the comparison "meaningless", which undersells a matcher that returns an
+  **answer** rather than an error; `docs-site/migrating.md` did not mention it at all, and that is the
+  page a reader is on when the regression happens — under `jest-auto-spies` both families were
+  `jest.fn()`, so the assertion used to mean what it said. Measured in a converted suite: a double
+  reporting `[164, 165, 167, 168, 169]` beside a `vi.fn()` reporting `[28]` for its single call in the
+  same test, under an assertion that had been passing. Two tests in `fast-spy.spec.ts` now pin it —
+  one that three runner calls do not move this package's counter, and an `it.fails` that the matcher
+  denies an ordering that did happen — so the day the two become comparable is a red test rather than
+  a quiet change of meaning.
+
+- **`prefer-provide-auto-spy` names `overrides`, on both halves of its message.** The class-side
+  message described `provideAutoSpy(Class)` as spying methods and stopped there, so the rule read as
+  asking for something the class factory could not express — a member the double must *be* rather
+  than answer with — and the reader reached for `gettersToSpyOn`, which is a different thing.
+  `ClassSpyConfiguration.overrides` has taken property seeds since 3.5.0, with the same shape and
+  semantics as `provideAutoSpyForToken`'s second argument; only the message was silent about it. The
+  token-side message gained the nested case for the same reason: a bare type-driven double is one
+  level deep, every key it is asked for becomes a function spy, so a request-shaped fixture needs
+  `provideAutoSpyForToken(REQUEST, { headers: { get: vi.fn() } })` rather than the bare call.
+
 ### Fixed
 
 - **`explainSpy` reads a double built by another entry point again.** From the published package it

@@ -88,6 +88,105 @@ callable. Type 'TestContext' has no call signatures.` — text the rule's own de
   `Spy<T>`-in-argument-position case `no-mocked-for-spy` exists to rescue. Worth adding one case
   per helper as each is touched, rather than in one sweep.
 
+## Field findings — 122 specs off `jest-auto-spies`, 2026-09-09
+
+Eight items reported from a consumer, by eight agents converting 122 Angular specs off
+`jest-auto-spies` against 5.0.1. Every one was reproduced **here** before anything was changed, with
+this repository's own fixtures, and three of the eight did not survive that — recorded because a
+finding that evaporates is worth as much as one that lands, and the same three will otherwise be
+reported again.
+
+Shipped (see `CHANGELOG.md`, `## [Unreleased]`):
+
+- **A stub is type-checked.** `MockInstance` → `MockInstance<Method>` in
+  `AddSpyMethodsByReturnTypes` (`lib/types.ts`). Reproduced as four `@ts-expect-error` cases that
+  were all reported "unused" against 5.0.1 — `mockReturnValue(42)`, `mockReturnValue(undefined)`,
+  `mockImplementation(() => 42)` and `mockResolvedValue('one')` on methods that return none of
+  those. Cost 274 type instantiations of an 11 000 budget; the runtime suite and every other type
+  test were unaffected.
+- **`readonly` no longer reaches the double.** `-readonly` on `Spy<T>` and `DeepMockProxy<T>`.
+- **`prefer-provide-auto-spy` names `overrides`** on the class half and the nested-seed form on the
+  token half.
+
+Did **not** reproduce, and why:
+
+- **"`provideAutoSpy` cannot seed a data property."** `ClassSpyConfiguration.overrides` has taken
+  property seeds since 3.5.0 and `provideAutoSpy` forwards the whole configuration. Proved with a
+  runtime test. What was true is that nothing said so where a reader would look: the parameter is
+  named `methodsToSpyOnOrConfig`, its JSDoc example showed only `methodsToSpyOn`, and the lint rule
+  that reports the `useValue` literal described the class factory as spying methods and stopped.
+  All three now name `overrides`.
+- **"`prefer-create-spy-from-class` recommends the one constructor that cannot work on a
+  declaration-only abstract class."** `createSpyFromClass(LocalStorage)` on
+  `abstract class LocalStorage extends AbstractStorage {}` produces a working double — the
+  empty-prototype fallback covers exactly that shape. The **partially** abstract class is the real
+  case, it is documented, and `fillMissing` is the answer. Both probed.
+- **"`provideAutoSpy` / `injectSpy` are not on the root entry"** as a gap. They are not, deliberately,
+  and the split is the first diff on `docs-site/migrating.md`; `doctor`'s `helper-from-wrong-entry`
+  finds every miss in a suite at once. The migration page now says so where the diff is.
+
+- **`invocationCallOrder` across the two spy families gives a wrong verdict** — reproduced, pinned,
+  **not** made comparable. `lib/fast-spy.ts` keeps `invocationCallCounter`; `@vitest/spy` keeps its
+  own at `dist/index.js:311`, a module-private `let` that is neither exported nor advanced by
+  anything outside it. So `toHaveBeenCalledBefore` across one of each answers from two sequences that
+  never met — and answers, rather than failing. Under `jest-auto-spies` the question did not arise:
+  both halves were `jest.fn()`. Measured in the converted suite as `[164, 165, 167, 168, 169]` beside
+  `[28]` for a call in the same test; reproduced here with three warm-up calls, which is all it takes
+  to invert the verdict.
+
+  Four ways to make them comparable were considered and all four are worse than the switch that
+  already exists:
+
+  - **Read the runner's counter.** It is not reachable. Nothing in `@vitest/spy`'s export list
+    touches it.
+  - **Sample it by calling a throwaway `vi.fn()` on every auto-spy call.** That is a runner-mock
+    invocation per call on the hot path the fast spy exists to avoid, plus an unbounded `calls` array
+    on the sampler. It is `setSpyEngine('runner')` with extra steps and worse memory.
+  - **Anchor the two scales once, at startup.** They diverge again on the next call of either family;
+    an anchored pair produces ties, not orderings.
+  - **Wrap `vi.fn` so both families feed one counter.** Patching a runner global for every consumer,
+    to change the meaning of a field two matchers read. Not this library's business.
+
+  What is left is where it was made loud: `AGENTS.md` now says "wrong" rather than "meaningless" and
+  carries the measured numbers, `docs-site/migrating.md` has a row and a section (it had nothing, and
+  it is the page a reader is on when the assertion silently changes meaning), and two tests pin the
+  divergence. A fifth option — overriding `toHaveBeenCalledBefore` / `toHaveBeenCalledAfter` through
+  `expect.extend` so a cross-family comparison **throws** — is the only one that would catch it
+  without a doc, and it is a real option: the library already installs matchers from five modules. It
+  is not taken here because it replaces a runner built-in for every consumer of `setupAutoSpy`, which
+  is the maintainer's call and not a doc-shaped one. Recorded so the trade is not re-derived.
+
+- [~] **`injectSpy(Service)` inferring `Service<{}>` instead of the generic's declared default.** Not
+      this library's to fix, and measured rather than argued: TypeScript instantiates a generic
+      class's own type parameters to their **constraints**, not their **defaults**, in every
+      inference position. On tsc 5.9 both `f<T>(token: new (…) => T): T` and
+      `g<C extends abstract new (…) => unknown>(token: C): InstanceType<C>` yield `Service<{}>` for a
+      class declared `Service<T = Defaults>`. No signature this package could write changes that; an
+      explicit type argument is the only fix, which is what `injectSpy`'s docstring already says.
+
+Left as proposals, deliberately:
+
+- [~] **Narrowing `prefer-provide-auto-spy` to skip a literal whose `vi.fn()`s all sit below the
+      first level** (`{ headers: { get: vi.fn() } }` behind a request token). The premise checks out
+      — `createAutoMock<T>()` makes every accessed key a function spy, so `req.headers` is a spy and
+      `req.headers.get(…)` reads a property off one — but the conclusion does not follow: the second
+      argument expresses it exactly (`provideAutoSpyForToken(REQUEST, { headers: { get: vi.fn() } })`,
+      seeded verbatim), and `mockDeep` is the other answer. So the message gained the nested case
+      instead. Weakening a rule on one report, when the recommendation it makes is reachable, buys a
+      false negative for every genuinely nested service double.
+- [~] **A lint rule for `helper-from-wrong-entry`.** Still the `doctor` check only. The reason on
+      record — resolving a name to an entry needs the installed version's own export map, which a
+      per-file linter has none of — is unchanged by this report, and the table is generated
+      (`src/cli/checks/export-map.generated.ts`), so a rule *could* carry it. What would decide it is
+      evidence that the miss survives a type gate; every instance in this report was found by `tsc`.
+- [~] **A `writableProps` option on `createAutoMock`.** The narrower form of the `readonly` fix — keep
+      the modifier, drop it for the seeded keys — cannot be written in TypeScript for the call shape
+      that needs it. It would take inferring the seed's type into a second type parameter, and
+      supplying **any** explicit type argument turns inference off for all of them: the ubiquitous
+      call is `createAutoMock<AuthorizationService>({ … })`, which would fall back to the default and
+      seed nothing. Stripping `readonly` wholesale is what shipped for that reason, and the note it
+      costs — an assignment to a *spied accessor* is silently inert — is documented next to it.
+
 ## Timeout budgets — closed 2026-08-30, and the one part that stays out of reach
 
 Reported from the same consumer monorepo. Jest resolves **one** budget for a hook and for a test body
