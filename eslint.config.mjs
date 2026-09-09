@@ -54,7 +54,7 @@ export default defineConfig([
   // ===== Library source =====
   {
     files: ['src/**/*.ts'],
-    ignores: ['**/*.spec.ts', 'src/bun-tests/**/*.ts'],
+    ignores: ['**/*.spec.ts', 'src/bun-tests/**/*.ts', 'src/rstest-tests/**/*.ts'],
     extends: [js.configs.recommended, tseslint.configs['flat/recommended']],
     languageOptions,
     // Replaces `@eslint-community/eslint-comments/no-unused-disable`, which the core option
@@ -124,7 +124,7 @@ export default defineConfig([
 
   // ===== Tests =====
   {
-    files: ['src/**/*.spec.ts', 'src/bun-tests/**/*.ts', 'src/test-setup.ts'],
+    files: ['src/**/*.spec.ts', 'src/bun-tests/**/*.ts', 'src/rstest-tests/**/*.ts', 'src/test-setup.ts'],
     extends: [js.configs.recommended, tseslint.configs['flat/recommended']],
     languageOptions,
     linterOptions: { reportUnusedDisableDirectives: 'error' },

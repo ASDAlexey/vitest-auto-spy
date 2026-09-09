@@ -63,6 +63,12 @@ jobs:
       - name: Test (engine invariants)
         run: npm run test:invariants
 
+      # Rstest is the one runner in the gate that bundles the suite before running it, so the
+      # source-level registration of the adapter — which no stubbed unit spec can prove — and the
+      # `sideEffects` entry that keeps rspack from dropping it are covered here or nowhere.
+      - name: Test (rstest runner)
+        run: npm run test:rstest
+
       - name: Build
         run: npm run build
 
