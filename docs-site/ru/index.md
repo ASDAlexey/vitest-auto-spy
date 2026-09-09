@@ -2,12 +2,12 @@
 # https://vitepress.dev/reference/default-theme-home-page
 layout: home
 title: vitest-auto-spy
-description: Единственная auto-spy библиотека, которая читает настоящий класс и возвращает полностью типизированный спай каждого метода, с хелперами управления, следующими за типом возврата, — одинаково на Vitest, Bun и node:test. Drop-in замена jest-auto-spies и jasmine-auto-spies с кодмодом, который дописывает переезд.
+description: Единственная auto-spy библиотека, которая читает настоящий класс и возвращает полностью типизированный спай каждого метода, с хелперами управления, следующими за типом возврата, — одинаково на Vitest, Bun, node:test и Rstest. Drop-in замена jest-auto-spies и jasmine-auto-spies с кодмодом, который дописывает переезд.
 
 hero:
   name: 'vitest-auto-spy'
   text: 'Типизированный спай каждого метода, прочитанный из класса'
-  tagline: 'Наведите на класс — и каждый метод вернётся спаем, типизированным, с хелперами, которые заслужил его собственный тип возврата. Одно API на Vitest, bun:test и node:test.'
+  tagline: 'Наведите на класс — и каждый метод вернётся спаем, типизированным, с хелперами, которые заслужил его собственный тип возврата. Одно API на Vitest, bun:test, node:test и Rstest.'
   actions:
     - theme: brand
       text: Начать
@@ -29,8 +29,8 @@ features:
   - title: Vitest 5 тем же пакетом
     details: 'Один пакет покрывает Vitest с 2.1 по 5.x — без второго мажора, без раздвоенных типов, без единой правки в спеке. Та же сюита идёт на 7.7 % быстрее на Vitest 5, а встроенный движок спаев даёт ещё 8.1 % поверх vi.fn().'
     link: /ru/runtimes/vitest#vitest-5
-  - title: Одно ядро, три среды запуска
-    details: 'vi.fn() и его аналоги сидят за адаптером, который каждая входная точка регистрирует при импорте, поэтому один и тот же файл спеки идёт на Vitest, bun:test и node:test.'
+  - title: Одно ядро, четыре среды запуска
+    details: 'vi.fn() и его аналоги сидят за адаптером, который каждая входная точка регистрирует при импорте, поэтому один и тот же файл спеки идёт на Vitest, bun:test, node:test и Rstest.'
     link: /ru/runtimes/vitest
   - title: Angular, NestJS, React, Vue, Svelte
     details: 'У каждого фреймворка своя входная точка — провайдеры DI, поверхностный TestBed без дочернего поддерева, сигналы и ресурсы, которыми спека управляет руками.'
@@ -62,6 +62,7 @@ npm i -D vitest-auto-spy
 import { createSpyFromClass } from 'vitest-auto-spy'; // Vitest, без настройки
 import { createSpyFromClass } from 'vitest-auto-spy/bun'; // bun:test
 import { createSpyFromClass } from 'vitest-auto-spy/node'; // node:test
+import { createSpyFromClass } from 'vitest-auto-spy/rstest'; // Rstest
 ```
 
 </div>
@@ -132,6 +133,7 @@ users.save.rejectWith(new HttpError(409));
 - [Bun](/ru/runtimes/bun)
 - [Angular на Bun](/ru/runtimes/bun-angular)
 - [node:test](/ru/runtimes/node)
+- [Rstest](/ru/runtimes/rstest)
 - [RxJS](/ru/runtimes/rxjs)
 
 </div>
@@ -178,7 +180,7 @@ users.save.rejectWith(new HttpError(409));
 <div class="vas-facts">
 
 <div class="vas-fact"><b>0</b><span>runtime-зависимостей</span></div>
-<div class="vas-fact"><b>3</b><span>среды, одно ядро</span></div>
+<div class="vas-fact"><b>4</b><span>среды, одно ядро</span></div>
 <div class="vas-fact"><b>5</b><span>адаптеров фреймворков</span></div>
 <div class="vas-fact"><b>20</b><span>правил линтера</span></div>
 <div class="vas-fact"><b>100%</b><span>покрытие ядра</span></div>

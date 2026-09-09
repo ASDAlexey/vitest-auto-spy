@@ -2,12 +2,12 @@
 # https://vitepress.dev/reference/default-theme-home-page
 layout: home
 title: vitest-auto-spy
-description: The only auto-spy library that reads a real class and returns a fully-typed spy of every method, with control helpers that follow each return type — identical on Vitest, Bun and node:test. Drop-in replacement for jest-auto-spies and jasmine-auto-spies, with a codemod that finishes the move.
+description: The only auto-spy library that reads a real class and returns a fully-typed spy of every method, with control helpers that follow each return type — identical on Vitest, Bun, node:test and Rstest. Drop-in replacement for jest-auto-spies and jasmine-auto-spies, with a codemod that finishes the move.
 
 hero:
   name: 'vitest-auto-spy'
   text: 'A typed spy of every method, read off the class'
-  tagline: 'Point it at a class and every method comes back spied, typed, and carrying the helpers its own return type earns. One API on Vitest, bun:test and node:test.'
+  tagline: 'Point it at a class and every method comes back spied, typed, and carrying the helpers its own return type earns. One API on Vitest, bun:test, node:test and Rstest.'
   actions:
     - theme: brand
       text: Get started
@@ -29,8 +29,8 @@ features:
   - title: Vitest 5 on the same install
     details: 'One package spans Vitest 2.1 through 5.x — no second major, no version-split types, no edit to a spec. The same suite runs 7.7 % faster on Vitest 5, and the bundled spy engine adds another 8.1 % over vi.fn().'
     link: /runtimes/vitest#vitest-5
-  - title: One core, three runtimes
-    details: 'vi.fn() and its equivalents sit behind an adapter that each entry point registers on import, so the same spec file runs on Vitest, bun:test and node:test.'
+  - title: One core, four runtimes
+    details: 'vi.fn() and its equivalents sit behind an adapter that each entry point registers on import, so the same spec file runs on Vitest, bun:test, node:test and Rstest.'
     link: /runtimes/vitest
   - title: Angular, NestJS, React, Vue, Svelte
     details: 'Every framework has its own entry point — DI providers, a shallow TestBed that skips the child subtree, signals and resources a spec can drive by hand.'
@@ -63,6 +63,7 @@ Then import from the entry point that matches your runner — everything after t
 import { createSpyFromClass } from 'vitest-auto-spy'; // Vitest, zero config
 import { createSpyFromClass } from 'vitest-auto-spy/bun'; // bun:test
 import { createSpyFromClass } from 'vitest-auto-spy/node'; // node:test
+import { createSpyFromClass } from 'vitest-auto-spy/rstest'; // Rstest
 ```
 
 </div>
@@ -133,6 +134,7 @@ from a type or an interface.
 - [Bun](/runtimes/bun)
 - [Angular on Bun](/runtimes/bun-angular)
 - [node:test](/runtimes/node)
+- [Rstest](/runtimes/rstest)
 - [RxJS](/runtimes/rxjs)
 
 </div>
@@ -179,7 +181,7 @@ from a type or an interface.
 <div class="vas-facts">
 
 <div class="vas-fact"><b>0</b><span>runtime dependencies</span></div>
-<div class="vas-fact"><b>3</b><span>runtimes, one core</span></div>
+<div class="vas-fact"><b>4</b><span>runtimes, one core</span></div>
 <div class="vas-fact"><b>5</b><span>framework adapters</span></div>
 <div class="vas-fact"><b>20</b><span>lint rules</span></div>
 <div class="vas-fact"><b>100%</b><span>covered core</span></div>

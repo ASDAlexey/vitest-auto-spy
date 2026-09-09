@@ -1,6 +1,6 @@
 ---
 title: Installation
-description: Install vitest-auto-spy, pick the entry point that matches your runner, and wire it into Vitest, Bun or node:test.
+description: Install vitest-auto-spy, pick the entry point that matches your runner, and wire it into Vitest, Bun, node:test or Rstest.
 ---
 
 # Installation
@@ -104,6 +104,7 @@ since 4.0.0, into its TypeScript program either:
 | `vitest-auto-spy/bun`            | the same core, driven by Bun's `bun:test` mocks                                                                                                                                                                                                                         | `bun:test`                                               |
 | `vitest-auto-spy/bun-angular`    | Angular's `TestBed` under `bun test` — DOM, JIT `templateUrl` resolution and a zoneless environment from one preload, plus the core and the Angular helpers                                                                                                             | `bun:test`, `@angular/core`, `@angular/platform-browser` |
 | `vitest-auto-spy/node`           | the same core, driven by `node:test`'s `mock.fn()`                                                                                                                                                                                                                      | `node:test`                                              |
+| `vitest-auto-spy/rstest`         | the same core, driven by Rstest's `rstest.fn()` / `rstest.spyOn()` — [the Rstest runner](../runtimes/rstest)                                                                                                                                                            | `@rstest/core`                                           |
 | `vitest-auto-spy/rxjs`           | observable spies (`nextWith`, `nextWithValues`, `observablePropsToSpyOn`, …) and `createObservableWithValues`                                                                                                                                                           | `rxjs`                                                   |
 | `vitest-auto-spy/dom-stubs`      | the globals a component builds for itself — `stubIntersectionObserver`, `stubResizeObserver`, `stubMutationObserver`, `stubObserver`, `stubMediaElement`, `stubAbortController` and the entry builders. On the root entry until 4.0.0                                   | —                                                        |
 | `vitest-auto-spy/diagnostics`    | `compareTestRuns` / `summarizeTestRun` / `formatTestRunComparison` and `diffByField` — the two reports a counter cannot give. On the root entry until 4.0.0; pure functions, so this one can be imported from a plain Node script too                                   | —                                                        |
@@ -196,6 +197,26 @@ node --test
 
 `node:test` has no `expect`; pair it with `node:assert` (or any assertion library) — the spy surface
 is the same either way.
+
+### Rstest
+
+```bash
+npm i -D @rstest/core vitest-auto-spy
+```
+
+```ts
+// user.test.ts
+import { describe, expect, it } from '@rstest/core';
+import { createSpyFromClass } from 'vitest-auto-spy/rstest';
+```
+
+```bash
+npx rstest run
+```
+
+With `globals: true` in the config the `rs` / `rstest` globals replace that first import line. The
+native mock surface is Vitest-shaped — bare-array `mock.calls`, the `mockReturnValue` family — so
+[Control helpers](./control-helpers) read the same as on Vitest. See [Rstest](/runtimes/rstest).
 
 ## TypeScript
 

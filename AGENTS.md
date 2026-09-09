@@ -43,6 +43,7 @@ adapter installed and spies fail at runtime.
 | `bun test`           | `vitest-auto-spy/bun`         |
 | `bun test` + Angular | `vitest-auto-spy/bun-angular` |
 | `node --test`        | `vitest-auto-spy/node`        |
+| `rstest run`         | `vitest-auto-spy/rstest`      |
 | Angular + Vitest     | `vitest-auto-spy/angular`     |
 | NestJS               | `vitest-auto-spy/nestjs`      |
 | React                | `vitest-auto-spy/react`       |
@@ -1139,10 +1140,16 @@ Everything a spec can observe is the same, and the suite pins it by putting the 
   Vitest applies through those two functions.
 
 **The one difference.** `mock.invocationCallOrder` counts on this library's own scale, so
-`expect(a).toHaveBeenCalledBefore(b)` is exact between two auto-spies and meaningless between an
-auto-spy and a hand-written `vi.fn()` — the two counters never met. Nothing else in the library or in
-Vitest reads that field. If a suite needs the comparison, switch the whole run back to the runner's
-factory:
+`expect(a).toHaveBeenCalledBefore(b)` is exact between two auto-spies and **wrong** between an
+auto-spy and a hand-written `vi.fn()` — not an error, an answer, computed from two counters that
+never met. `@vitest/spy` keeps its own in a module-private variable it neither exports nor lets
+anything advance, so the scales cannot be reconciled after the fact; they drift apart by however many
+calls of each kind the run has already made. Measured in a converted suite: a double reporting
+`[164, 165, 167, 168, 169]` beside a `vi.fn()` reporting `[28]` for its single call in the same test,
+under an assertion that had been passing — because `jest-auto-spies` built both halves with
+`jest.fn()`, which did share one counter. Three earlier calls of one family are enough to invert the
+verdict. Nothing else in the library or in Vitest reads that field. If a suite needs the comparison,
+compare two doubles of the same family, or switch the whole run back to the runner's factory:
 
 ```ts
 // vitest.setup.ts
@@ -2585,7 +2592,8 @@ packages, which a subpath export can never be.
 | `TS2540: Cannot assign to 'X' because it is a read-only property`                                        | a `readonly` field of an object under test                                                                                                           | `mockValueProp(obj, 'X', value)` — on a class **getter**, `mockReadonlyProp`                                                            |
 | `TypeError: Cannot read properties of undefined (reading 'mockReturnValue')`                             | the member is an **instance field**, not on the prototype — `Router.currentNavigation` since Angular 20                                              | `provideAutoSpy(Router, { instanceMethodsToSpyOn: ['currentNavigation'] })` (§5)                                                        |
 | `throwWith` reaching the success branch first, with the previous test's value                            | the spy's `ReplaySubject(1)` outlived the test that filled it                                                                                        | upgrade; and `resetAutoSpy(spy)` in `beforeEach` when the TestBed is built in `beforeAll`                                               |
-| `TS2540` on a `Spy<T>` / `createAutoMock` member, which the runtime writes fine                          | `Spy<T>` is homomorphic, so it keeps the `readonly` of an abstract getter                                                                            | `Mutable<Spy<T>>` for direct assignment, or `mockValueProp` for a patch that is undone                                                  |
+| `TS2540` on a `Spy<T>` / `createAutoMock` member, which the runtime writes fine                          | an older `Spy<T>` was homomorphic and kept the `readonly` of the source member                                                                       | upgrade — the mapping is `-readonly` now; on a member replaced by a **spied accessor** it is still `mockValueProp` / `mockReadonlyProp` |
+| `TS2345` from `mockReturnValue` / `mockImplementation` / `mockResolvedValue` on a double that used to compile | the mock surface is `MockInstance<Method>`, so the stub is now checked against the method's own return type                                          | stub with what the method returns; if the double is meant to answer something else, the method's type or the spec's expectation is wrong |
 | `delete mock.optionalMethod` leaving the member present and truthy                                       | the Proxy had no `deleteProperty` trap before 3.5.0                                                                                                  | upgrade; before that, `mock.optionalMethod = undefined`                                                                                 |
 | half a double's methods reaching the real implementation after `Object.assign`                           | `ownKeys` on a type-driven Proxy lists only the keys already read                                                                                    | `createSpyFromClass(X)` — a real object, with enumerable method keys                                                                    |
 | `let s: MockInstance<() => unknown>` not matching anything                                               | `MockInstance<F>` is invariant in `F`; Jest's `SpyInstance` was not                                                                                  | `MockInstance<T['method']>`, or better `injectSpy(X).method`                                                                            |

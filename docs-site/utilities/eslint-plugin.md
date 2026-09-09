@@ -306,6 +306,25 @@ A middle road that ages better: keep every rule at `error` and put the not-yet-f
 second block with the offending rules `off` in it. A shrinking list of paths is visible progress; a
 suite-wide `warn` is a decision nobody revisits.
 
+**Two rules should keep their severity through that block, and they are the two in the
+[Types](#types) table: `prefer-as-spy` and `no-mocked-for-spy`.** Every other rule here reports code
+that compiles and runs — a preference about how a double is built. These two report code that does
+not compile: `TestBed.inject(X) as Spy<X>` is `TS2352` and `let s: Mocked<T>` is `TS2322`, by
+construction rather than by luck, so the "fix them in batches" plan does not apply to them. A file
+carrying ten of the first shape — which is what one file of a `jest-auto-spies` suite carries, one
+per injected double — lints clean under the blanket `warn` and then fails the type gate with ten
+errors that name `accessorSpies` and never name the rule that already found them. Both are `--fix`,
+so keeping them at `error` costs one `eslint --fix` run rather than a batch of manual edits:
+
+```js
+rules: {
+  ...autoSpy.configs.recommended.rules,
+  ...asWarnings,
+  'vitest-auto-spy/prefer-as-spy': 'error',
+  'vitest-auto-spy/no-mocked-for-spy': 'error',
+},
+```
+
 ### The three rules that can report on correct code
 
 Every rule here is syntactic, and three of them are asked a question one file cannot always answer.
@@ -320,7 +339,7 @@ below — but these are the ones to look at first if the first run surprises you
 
 Only the first has an option, and there `setupModules` is the fix rather than the severity: it tells
 the rule where the layer is installed and it stops guessing. Importing an entry that _cannot_ load
-the jasmine one (`vitest-auto-spy/bun`, `…/node`) silences it for that file too.
+the jasmine one (`vitest-auto-spy/bun`, `…/node`, `…/rstest`) silences it for that file too.
 
 `no-unregistered-inject-spy` needs no option in most projects because it is **already** conservative:
 it says nothing unless the file calls `provideAutoSpy` at least once, and it goes quiet the moment it
@@ -925,8 +944,8 @@ nothing". That is still a narrowing, not a proof, and it is why this rule and
 `no-unregistered-inject-spy` are the two that can report on a correct project. Until 4.0.0 the
 answer to that was a `warn`; it is an `error` now, because a warning nothing reads is not a safety
 margin, and the actual fix is one option away. Two escape hatches: importing any entry that _cannot_
-load the jasmine one (`vitest-auto-spy/bun`, `…/node`, which necessarily install the layer from a
-setup file) silences the file, and a project can name its own setup module:
+load the jasmine one (`vitest-auto-spy/bun`, `…/node`, `…/rstest`, which necessarily install the
+layer from a setup file) silences the file, and a project can name its own setup module:
 
 ```js
 {

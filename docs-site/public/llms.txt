@@ -17,8 +17,8 @@ spied method earns helpers from its return type — `calledWith`/`mustBeCalledWi
 
 ## Core
 
-- [Introduction](https://asdalexey.github.io/vitest-auto-spy/core/introduction): What vitest-auto-spy does — a typed spy of every method of a class, on Vitest, Bun or node:test.
-- [Installation](https://asdalexey.github.io/vitest-auto-spy/core/installation): Install vitest-auto-spy, pick the entry point that matches your runner, and wire it into Vitest, Bun or node:test.
+- [Introduction](https://asdalexey.github.io/vitest-auto-spy/core/introduction): What vitest-auto-spy does — a typed spy of every method of a class, on Vitest, Bun, node:test or Rstest.
+- [Installation](https://asdalexey.github.io/vitest-auto-spy/core/installation): Install vitest-auto-spy, pick the entry point that matches your runner, and wire it into Vitest, Bun, node:test or Rstest.
 - [How it works](https://asdalexey.github.io/vitest-auto-spy/core/how-it-works): The two ideas behind vitest-auto-spy — a prototype-chain walk at runtime, and conditional types that pick helpers from a method's return type.
 - [createSpyFromClass](https://asdalexey.github.io/vitest-auto-spy/core/create-spy-from-class): Build a fully-typed Spy<T> from a class — configuration, the Spy<T> shape, accessor spies and the edge cases.
 - [Control helpers](https://asdalexey.github.io/vitest-auto-spy/core/control-helpers): calledWith, mustBeCalledWith, resolveWith, nextWith and the rest — the helpers each spied method earns from its return type.
@@ -38,6 +38,7 @@ spied method earns helpers from its return type — `calledWith`/`mustBeCalledWi
 - [Bun](https://asdalexey.github.io/vitest-auto-spy/runtimes/bun): Run vitest-auto-spy on Bun's bun:test, including Bun 1.4's --isolate, --parallel, --shard and --changed.
 - [Angular on Bun](https://asdalexey.github.io/vitest-auto-spy/runtimes/bun-angular): Run Angular's TestBed under bun test — DOM, JIT templates and zoneless change detection from one preload.
 - [node:test](https://asdalexey.github.io/vitest-auto-spy/runtimes/node): Run vitest-auto-spy on Node's built-in test runner — a runnable example and how node:test's native mock surface differs.
+- [Rstest](https://asdalexey.github.io/vitest-auto-spy/runtimes/rstest): Run vitest-auto-spy on Rstest, the Rspack-powered test runner — a runnable example and how the Vitest-shaped mock surface maps.
 - [RxJS](https://asdalexey.github.io/vitest-auto-spy/runtimes/rxjs): The opt-in observable layer — nextWith, nextWithValues, nextWithPerCall, returnSubject, how delays behave, and why no declaration names rxjs.
 
 ## Utilities

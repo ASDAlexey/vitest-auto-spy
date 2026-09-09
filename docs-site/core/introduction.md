@@ -1,12 +1,13 @@
 ---
 title: Introduction
-description: What vitest-auto-spy does — a typed spy of every method of a class, on Vitest, Bun or node:test.
+description: What vitest-auto-spy does — a typed spy of every method of a class, on Vitest, Bun, node:test or Rstest.
 ---
 
 # Introduction
 
 `vitest-auto-spy` reads a class and generates a typed spy for **every** method, powered by your
-test runner's mock primitive (`vi.fn()` on Vitest, and the equivalents on Bun and `node:test`).
+test runner's mock primitive (`vi.fn()` on Vitest, and the equivalents on Bun, `node:test` and
+Rstest).
 It is a drop-in successor to [`jest-auto-spies`](https://www.npmjs.com/package/jest-auto-spies):
 the same API, but spying on Vitest-compatible runners instead of Jest.
 
@@ -44,6 +45,7 @@ the rest of the API is identical.
 import { createSpyFromClass } from 'vitest-auto-spy'; // Vitest (default, zero-config)
 import { createSpyFromClass } from 'vitest-auto-spy/bun'; // Bun — bun:test
 import { createSpyFromClass } from 'vitest-auto-spy/node'; // node:test
+import { createSpyFromClass } from 'vitest-auto-spy/rstest'; // Rstest
 ```
 
 Angular's `TestBed` runs on Bun too, which nothing else offers — see

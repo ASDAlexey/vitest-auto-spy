@@ -304,6 +304,7 @@ agent that knows only the bare specifier writes a spec that throws at the first 
 | `vitest-auto-spy/rxjs`                    | `nextWith`, `observablePropsToSpyOn`, `throwWith` — imported once, in setup     |
 | `vitest-auto-spy/bun`                     | any spec run by `bun test` (`/bun-angular` for Angular's TestBed there)         |
 | `vitest-auto-spy/node`                    | a `node --test` suite, ESM or CJS                                               |
+| `vitest-auto-spy/rstest`                  | any spec run by [Rstest](/runtimes/rstest) — `npx rstest run`                   |
 | `vitest-auto-spy/angular`                 | `provideAutoSpy`, `injectSpy`, `renderShallow`, the override helpers            |
 | `vitest-auto-spy/setup`                   | `setupAutoSpy`, the clock helpers, `installPerTest`, focus matchers             |
 | [`vitest-auto-spy/zone`](/utilities/zone) | `fakeAsync` / `waitForAsync` on Vitest — zone.js stays out of every other entry |

@@ -20,7 +20,7 @@ spied method earns helpers from its return type — `calledWith`/`mustBeCalledWi
 
 # Overview
 
-Point it at a class and every method comes back spied, typed, and carrying the helpers its own return type earns. One API on Vitest, bun:test and node:test.
+Point it at a class and every method comes back spied, typed, and carrying the helpers its own return type earns. One API on Vitest, bun:test, node:test and Rstest.
 
 
 
@@ -31,7 +31,8 @@ Source: https://asdalexey.github.io/vitest-auto-spy/core/introduction
 # Introduction
 
 `vitest-auto-spy` reads a class and generates a typed spy for **every** method, powered by your
-test runner's mock primitive (`vi.fn()` on Vitest, and the equivalents on Bun and `node:test`).
+test runner's mock primitive (`vi.fn()` on Vitest, and the equivalents on Bun, `node:test` and
+Rstest).
 It is a drop-in successor to [`jest-auto-spies`](https://www.npmjs.com/package/jest-auto-spies):
 the same API, but spying on Vitest-compatible runners instead of Jest.
 
@@ -69,6 +70,7 @@ the rest of the API is identical.
 import { createSpyFromClass } from 'vitest-auto-spy'; // Vitest (default, zero-config)
 import { createSpyFromClass } from 'vitest-auto-spy/bun'; // Bun — bun:test
 import { createSpyFromClass } from 'vitest-auto-spy/node'; // node:test
+import { createSpyFromClass } from 'vitest-auto-spy/rstest'; // Rstest
 ```
 
 Angular's `TestBed` runs on Bun too, which nothing else offers — see
@@ -181,6 +183,7 @@ since 4.0.0, into its TypeScript program either:
 | `vitest-auto-spy/bun`            | the same core, driven by Bun's `bun:test` mocks                                                                                                                                                                                                                         | `bun:test`                                               |
 | `vitest-auto-spy/bun-angular`    | Angular's `TestBed` under `bun test` — DOM, JIT `templateUrl` resolution and a zoneless environment from one preload, plus the core and the Angular helpers                                                                                                             | `bun:test`, `@angular/core`, `@angular/platform-browser` |
 | `vitest-auto-spy/node`           | the same core, driven by `node:test`'s `mock.fn()`                                                                                                                                                                                                                      | `node:test`                                              |
+| `vitest-auto-spy/rstest`         | the same core, driven by Rstest's `rstest.fn()` / `rstest.spyOn()` — [the Rstest runner](https://asdalexey.github.io/vitest-auto-spy/runtimes/rstest)                                                                                                                                                            | `@rstest/core`                                           |
 | `vitest-auto-spy/rxjs`           | observable spies (`nextWith`, `nextWithValues`, `observablePropsToSpyOn`, …) and `createObservableWithValues`                                                                                                                                                           | `rxjs`                                                   |
 | `vitest-auto-spy/dom-stubs`      | the globals a component builds for itself — `stubIntersectionObserver`, `stubResizeObserver`, `stubMutationObserver`, `stubObserver`, `stubMediaElement`, `stubAbortController` and the entry builders. On the root entry until 4.0.0                                   | —                                                        |
 | `vitest-auto-spy/diagnostics`    | `compareTestRuns` / `summarizeTestRun` / `formatTestRunComparison` and `diffByField` — the two reports a counter cannot give. On the root entry until 4.0.0; pure functions, so this one can be imported from a plain Node script too                                   | —                                                        |
@@ -273,6 +276,26 @@ node --test
 
 `node:test` has no `expect`; pair it with `node:assert` (or any assertion library) — the spy surface
 is the same either way.
+
+### Rstest
+
+```bash
+npm i -D @rstest/core vitest-auto-spy
+```
+
+```ts
+// user.test.ts
+import { describe, expect, it } from '@rstest/core';
+import { createSpyFromClass } from 'vitest-auto-spy/rstest';
+```
+
+```bash
+npx rstest run
+```
+
+With `globals: true` in the config the `rs` / `rstest` globals replace that first import line. The
+native mock surface is Vitest-shaped — bare-array `mock.calls`, the `mockReturnValue` family — so
+[Control helpers](https://asdalexey.github.io/vitest-auto-spy/core/control-helpers) read the same as on Vitest. See [Rstest](https://asdalexey.github.io/vitest-auto-spy/runtimes/rstest).
 
 ## TypeScript
 
@@ -2088,18 +2111,74 @@ is also `Overload<Client['get'], 0>`, which is what to put in a `MockInstance<�
 
 ## The only call signature is the method's own
 
-The mock surface on each spied method is `MockInstance` — the same helpers (`mockReturnValue`,
-`mockImplementation`, `calls`, …) **without** a call signature of its own. Up to 3.12.1 it was
-`Mock`, which with no type argument is `Mock<Procedure>` — `(...args: any[]) => any` — and an
-intersection accepts a call matching _either_ member: on a double of `read(key: string)` all of
-`read(1)`, `read('ok', 'extra')` and `read()` compiled, while none of them compiles on the real
+The mock surface on each spied method is `MockInstance<Method>` — the same helpers
+(`mockReturnValue`, `mockImplementation`, `calls`, …) **without** a call signature of its own. Up to
+3.12.1 it was `Mock`, which with no type argument is `Mock<Procedure>` — `(...args: any[]) => any` —
+and an intersection accepts a call matching _either_ member: on a double of `read(key: string)` all
+of `read(1)`, `read('ok', 'extra')` and `read()` compiled, while none of them compiles on the real
 instance, so a spec could call the double a way production code never could and stay green.
 
 Now the only call signature left is the method's own, and a call the real method rejects fails to
-compile on the double too. Configuring one is unchanged — `MockInstance` defaults to `Procedure` as
-well, so `mockReturnValue` / `mockImplementation` stay as lenient as they were — and a side effect
-worth having: `expectTypeOf(spy.method).parameters` and `.returns` resolve, instead of collapsing to
-`never` against two competing call signatures.
+compile on the double too. A side effect worth having: `expectTypeOf(spy.method).parameters` and
+`.returns` resolve, instead of collapsing to `never` against two competing call signatures.
+
+## The stub is checked too, not only the call
+
+That type argument on `MockInstance<Method>` is the second half, and for a while it was missing:
+left bare, the parameter defaults to `Procedure` again and every helper that _configures_ a double
+took `any`.
+
+```ts
+const posters = createSpyFromClass(PosterService); // getPosters(shelfId: string): Poster[][]
+
+posters.getPosters.mockReturnValue(42); // ❌ TS2345 — used to compile
+posters.getPosters.mockReturnValue(undefined); // ❌ TS2345 — used to compile
+posters.getPosters.mockImplementation(() => of(null)); // ❌ TS2345 — used to compile
+posters.getPosters.mockReturnValue([[poster]]); // ✅
+```
+
+Stubbing a return value is the most common thing anyone does with a spy, so a spy that could not
+check it was not doing the job it exists for — and the asymmetry was visible one line away, because
+the `calledWith(…)` continuation has always been typed:
+
+```ts
+posters.getPosters.calledWith('shelf-1').mockReturnValue(42); // ❌ — this one always failed
+```
+
+What is checked now: `mockReturnValue` / `mockReturnValueOnce` against `ReturnType<Method>`,
+`mockImplementation` / `mockImplementationOnce` / `withImplementation` against
+`(...args: Parameters<Method>) => ReturnType<Method>`, `mockResolvedValue` /
+`mockResolvedValueOnce` against the awaited return. `mock.calls`, `mock.lastCall` and
+`getMockImplementation()` come back typed rather than as `any[]`. On an overloaded method it is the
+signature `{ overload: … }` selected, so the two options agree.
+
+Two things deliberately did **not** change. `mockReturnValue()` with no argument at all still
+compiles on a `void` method — that overload is this package's own, added because the runner's
+demands an argument on a method whose point is that it returns nothing. And `mockRejectedValue`
+still takes `unknown`, because a rejection is not the method's return type.
+
+## `readonly` on the source type does not reach the double
+
+`Spy<T>` and `DeepMockProxy<T>` map with `-readonly`. The modifier is a statement about the
+production object, and the runtime never applied it to a stand-in — `overrides` seeds with
+`Reflect.set`, and a `createAutoMock` proxy has a write trap — so a spec can say what it means:
+
+```ts
+interface Session {
+  readonly accessToken: string;
+}
+
+const session = createAutoMock<Session>({ accessToken: 'first' });
+
+session.accessToken = 'second'; // ✅ the retry has to read the value the refresh step replaced
+```
+
+A seed cannot express that, because a seed is read once, at construction. `Mutable<Spy<T>>` used to
+be the answer and is no longer needed; `Mutable<T>` is still exported for everything else.
+
+One case the assignment does not cover: a member replaced by a **spied accessor**
+(`gettersToSpyOn: ['size']`) routes the write to the setter spy, and the getter spy keeps answering
+`undefined`. Use [`mockValueProp` / `mockReadonlyProp`](https://asdalexey.github.io/vitest-auto-spy/utilities/setup) there, as before.
 
 ## `Spy<T>`, not `Mocked<T>`
 
@@ -4190,6 +4269,92 @@ Vitest and Bun both drop their own registries between files, so none of this app
 `node:test` needs no dependency at all beyond Node, which makes it a good fit for a library with no
 build step. For an app suite, [Vitest](https://asdalexey.github.io/vitest-auto-spy/runtimes/vitest) or [Bun](https://asdalexey.github.io/vitest-auto-spy/runtimes/bun) will be less work —
 both ship `expect` and a watch mode.
+
+---
+
+Source: https://asdalexey.github.io/vitest-auto-spy/runtimes/rstest
+
+# Rstest
+
+The `vitest-auto-spy/rstest` entry runs the same core on Rstest's `rstest.fn()` / `rstest.spyOn()`.
+
+```ts
+import { createSpyFromClass } from 'vitest-auto-spy/rstest';
+
+// rstest run
+```
+
+The public API is identical to the Vitest entry. Importing the entry registers the Rstest adapter;
+the auto-spy helpers (`calledWith`, `resolveWith`, `nextWith`, …) are normalised, while native mock
+methods stay the runner's own.
+
+## A runnable example
+
+Rstest ships `describe` / `it` / `expect` — import them from `@rstest/core`, or use the `rs` /
+`rstest` globals with `globals: true`.
+
+```js
+// user.spec.ts
+import { describe, expect, it } from '@rstest/core';
+import { createSpyFromClass } from 'vitest-auto-spy/rstest';
+
+class UserService {
+  getName(id) {
+    return `user-${id}`;
+  }
+
+  async load(id) {
+    return `loaded-${id}`;
+  }
+}
+
+describe('UserService spy', () => {
+  it('returns per-argument values and resolves promises', async () => {
+    const users = createSpyFromClass(UserService);
+
+    users.getName.calledWith(7).mockReturnValue('seven');
+    users.load.resolveWith('ok');
+
+    expect(users.getName(7)).toBe('seven');
+    await expect(users.load(1)).resolves.toBe('ok');
+    expect(users.getName.mock.calls[0]).toEqual([7]);
+  });
+});
+```
+
+```bash
+npx rstest run
+```
+
+## The native surface is Vitest-shaped
+
+Rstest implements the Jest/Vitest mock API, so none of the [node:test differences](https://asdalexey.github.io/vitest-auto-spy/runtimes/node#where-the-native-surface-differs)
+apply. `spy.method.mock.calls[0]` is a bare argument array, the `mockReturnValue` family is native,
+`mockClear()` / `mockReset()` behave like Vitest's, and accessor spies go through Rstest's own
+`rstest.spyOn(obj, 'prop', 'get' | 'set')` — so `gettersToSpyOn` / `settersToSpyOn` need no
+redefinition fallback. The normalised helpers are still the better habit: they read the same on
+every runtime.
+
+## `rstest.clearAllMocks()` sweeps the library spies
+
+The library's method spies come from its own engine (the default since 4.1), not the runner's, so a
+run-wide clear needs a bridge. Rstest walks every mock it created — called or not — and the entry
+plants one sentinel mock whose `mockClear` / `mockReset` sweep the library's spies too. There is
+nothing to enable: `rstest.clearAllMocks()`, `rstest.resetAllMocks()`, and the `clearMocks: true` /
+`resetMocks: true` config keys all reach spies built by `createSpyFromClass`.
+
+## What is not here yet
+
+- The [`/setup`](https://asdalexey.github.io/vitest-auto-spy/utilities/setup) entry — `setupAutoSpy()`, the fake-timer helpers, stray-rejection and
+  stray-timer tracking — is wired to Vitest's hooks. On Rstest, import `vitest-auto-spy/rstest` once
+  in your setup file; registering the adapter is the part a setup file is for.
+- `trackNodeMocks()` is node:test-only. Rstest drops its mock registry between files, like Vitest
+  and Bun, so there is nothing to track.
+
+**Which runtime**
+Rstest is young — 0.x at the time of writing. [Vitest](https://asdalexey.github.io/vitest-auto-spy/runtimes/vitest) remains the zero-config
+default; reach for this entry when the suite already runs on Rstest, which is typically an
+Rspack-based project reusing its bundler config for tests.
 
 ---
 
@@ -7059,6 +7224,25 @@ A middle road that ages better: keep every rule at `error` and put the not-yet-f
 second block with the offending rules `off` in it. A shrinking list of paths is visible progress; a
 suite-wide `warn` is a decision nobody revisits.
 
+**Two rules should keep their severity through that block, and they are the two in the
+[Types](#types) table: `prefer-as-spy` and `no-mocked-for-spy`.** Every other rule here reports code
+that compiles and runs — a preference about how a double is built. These two report code that does
+not compile: `TestBed.inject(X) as Spy<X>` is `TS2352` and `let s: Mocked<T>` is `TS2322`, by
+construction rather than by luck, so the "fix them in batches" plan does not apply to them. A file
+carrying ten of the first shape — which is what one file of a `jest-auto-spies` suite carries, one
+per injected double — lints clean under the blanket `warn` and then fails the type gate with ten
+errors that name `accessorSpies` and never name the rule that already found them. Both are `--fix`,
+so keeping them at `error` costs one `eslint --fix` run rather than a batch of manual edits:
+
+```js
+rules: {
+  ...autoSpy.configs.recommended.rules,
+  ...asWarnings,
+  'vitest-auto-spy/prefer-as-spy': 'error',
+  'vitest-auto-spy/no-mocked-for-spy': 'error',
+},
+```
+
 ### The three rules that can report on correct code
 
 Every rule here is syntactic, and three of them are asked a question one file cannot always answer.
@@ -7073,7 +7257,7 @@ below — but these are the ones to look at first if the first run surprises you
 
 Only the first has an option, and there `setupModules` is the fix rather than the severity: it tells
 the rule where the layer is installed and it stops guessing. Importing an entry that _cannot_ load
-the jasmine one (`vitest-auto-spy/bun`, `…/node`) silences it for that file too.
+the jasmine one (`vitest-auto-spy/bun`, `…/node`, `…/rstest`) silences it for that file too.
 
 `no-unregistered-inject-spy` needs no option in most projects because it is **already** conservative:
 it says nothing unless the file calls `provideAutoSpy` at least once, and it goes quiet the moment it
@@ -7677,8 +7861,8 @@ nothing". That is still a narrowing, not a proof, and it is why this rule and
 `no-unregistered-inject-spy` are the two that can report on a correct project. Until 4.0.0 the
 answer to that was a `warn`; it is an `error` now, because a warning nothing reads is not a safety
 margin, and the actual fix is one option away. Two escape hatches: importing any entry that _cannot_
-load the jasmine one (`vitest-auto-spy/bun`, `…/node`, which necessarily install the layer from a
-setup file) silences the file, and a project can name its own setup module:
+load the jasmine one (`vitest-auto-spy/bun`, `…/node`, `…/rstest`, which necessarily install the
+layer from a setup file) silences the file, and a project can name its own setup module:
 
 ```js
 {
@@ -11824,6 +12008,13 @@ is a **find-and-replace of the import**:
 The only API-shape change is that the Angular helpers and the observable layer live behind the
 `/angular` and `/rxjs` subpaths (see [Installation → Entry points](https://asdalexey.github.io/vitest-auto-spy/core/installation)).
 
+It is also the single most repeated edit in a large migration, because upstream ships
+`provideAutoSpy` on its root and the natural first attempt is a one-token rename of the module
+specifier. The miss does not always fail loudly, so find them all at once rather than one compile
+error at a time: `npx vitest-auto-spy doctor` reports `helper-from-wrong-entry` for every named
+import taken from an entry that does not export it, resolved against the installed version's own
+export map (details in [CLI → doctor](https://asdalexey.github.io/vitest-auto-spy/utilities/cli)).
+
 **Coming from `jasmine-auto-spies` instead?**
 The two upstream packages are siblings over the same `@hirez_io/auto-spies-core`, so everything on
 this page applies — with one addition and one hazard. The addition: upstream parks its async helpers
@@ -11943,6 +12134,7 @@ different name.
 | `jest.fn().mockImplementation()` with no argument       | **requires one**      | `mockImplementation(() => undefined)` — Jest installed the no-op for you                                                                         |
 | `xit` / `xdescribe`                                     | **none**              | `it.skip` / `describe.skip`; the rename fails as `TS2304: Cannot find name 'xit'`                                                                |
 | `testTimeout: 30000` (one budget)                       | **two fields**        | set `hookTimeout` to the same number — Vitest resolves it separately and defaults it to 10 000 ms                                                |
+| `expect(a).toHaveBeenCalledBefore(b)` across spy families | **a wrong verdict, no error** | compare two auto-spies, or `setSpyEngine('runner')` — the counters are not shared, see below                                                     |
 | `collectCoverageFrom: [...]`                            | `coverage.include`    | and **not** `coverage.all`: the key was removed in Vitest 4, where `include` alone drives the pass over files no test imported                   |
 
 The timeout row is the quietest of them. `jest-circus` spends one `testTimeout` on a hook and on a
@@ -11980,6 +12172,29 @@ an argument, `vi.hoisted()` for a package that genuinely must be replaced). The 
 same failure with the sound turned up: reaching for `vi.spyOn` on the barrel instead throws
 `Cannot redefine property`, and an accessor spy taken through this package re-throws that one
 naming the property, the target and the way out.
+
+**The call-order row is the only one here that answers rather than fails, and that is what makes it
+worth reading before the rename.** `toHaveBeenCalledBefore` / `toHaveBeenCalledAfter` compare
+`mock.invocationCallOrder`, and this package's method spies number their calls on their own counter
+while `@vitest/spy` keeps its own in a module-private variable it neither exports nor lets anything
+advance. Under Jest the question did not arise: `jest-auto-spies` built its doubles with `jest.fn()`,
+so an auto-spy and a hand-written mock shared one sequence and the assertion meant what it said. Here
+they do not, and the two scales drift apart by however many calls of each kind the suite has already
+made — measured in one converted suite as a double reporting `[164, 165, 167, 168, 169]` beside a
+`vi.fn()` reporting `[28]` for its single call **in the same test**, under an assertion that had been
+passing. Three earlier calls of one family are enough to invert the answer.
+
+Two fixes, both one line. Compare two doubles of the same family — usually the honest reading anyway,
+since both sides of an ordering claim are collaborators of the code under test. Or put the whole run
+on the runner's factory:
+
+```ts
+import { setSpyEngine } from 'vitest-auto-spy/setup';
+
+setSpyEngine('runner'); // method spies are vi.fn()s again, so both families share one counter
+```
+
+That is the only thing the two engines do not share, and it is the only reason the switch exists.
 
 **Restricting is a separate option**
 Up to v1 this library read `methodsToSpyOn` as an exhaustive whitelist, which is the opposite of
@@ -15202,6 +15417,7 @@ agent that knows only the bare specifier writes a spec that throws at the first 
 | `vitest-auto-spy/rxjs`                    | `nextWith`, `observablePropsToSpyOn`, `throwWith` — imported once, in setup     |
 | `vitest-auto-spy/bun`                     | any spec run by `bun test` (`/bun-angular` for Angular's TestBed there)         |
 | `vitest-auto-spy/node`                    | a `node --test` suite, ESM or CJS                                               |
+| `vitest-auto-spy/rstest`                  | any spec run by [Rstest](https://asdalexey.github.io/vitest-auto-spy/runtimes/rstest) — `npx rstest run`                   |
 | `vitest-auto-spy/angular`                 | `provideAutoSpy`, `injectSpy`, `renderShallow`, the override helpers            |
 | `vitest-auto-spy/setup`                   | `setupAutoSpy`, the clock helpers, `installPerTest`, focus matchers             |
 | [`vitest-auto-spy/zone`](https://asdalexey.github.io/vitest-auto-spy/utilities/zone) | `fakeAsync` / `waitForAsync` on Vitest — zone.js stays out of every other entry |

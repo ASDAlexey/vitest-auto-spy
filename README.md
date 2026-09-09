@@ -8,7 +8,7 @@ The only auto-spy library that reads a **class** and gives a **fully-typed** spy
 with **return-type-aware** helpers — `resolveWith` / `rejectWith` for `Promise`s, `nextWith` /
 `throwWith` for RxJS `Observable`s, and `calledWith` / `mustBeCalledWith` for argument matching. Or
 skip the class entirely and mock straight from a **type or interface** with `createAutoMock<T>()` and
-recursive `mockDeep<T>()`. Runs on **Vitest**, **Bun** (`bun:test`) and **`node:test`** behind one
+recursive `mockDeep<T>()`. Runs on **Vitest**, **Bun** (`bun:test`), **`node:test`** and **Rstest** behind one
 identical API, with **RxJS** spies and **Angular / NestJS / React / Vue·Pinia / Svelte** recipes
 ([availability](#availability)). A drop-in replacement for
 [`jest-auto-spies`](https://www.npmjs.com/package/jest-auto-spies) — same API, and roughly 1.5x
@@ -719,7 +719,7 @@ the time. It works in any client that _is_ Claude Code — the z.ai and Kimi set
 
 ## Availability
 
-> **All entry points are published.** The **Vitest / Bun / `node:test`** runtimes, the **RxJS** layer,
+> **All entry points are published.** The **Vitest / Bun / `node:test` / Rstest** runtimes, the **RxJS** layer,
 > and the **Angular / NestJS / React / Vue·Pinia / Svelte** recipes all ship as importable entry points —
 > one identical API across every runner and framework.
 
@@ -727,6 +727,7 @@ the time. It works in any client that _is_ Claude Code — the z.ai and Kimi set
 | ---------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `vitest-auto-spy` · `vitest-auto-spy/rxjs` · `vitest-auto-spy/angular`             | ✅ **Published**                                                                                                                                                                                |
 | `vitest-auto-spy/bun` · `vitest-auto-spy/bun-angular` · `vitest-auto-spy/node`     | ✅ **Published**                                                                                                                                                                                |
+| `vitest-auto-spy/rstest`                                                           | ✅ **Published**                                                                                                                                                                                |
 | `vitest-auto-spy/nestjs` · `/react` · `/vue` · `/svelte` · `/console`              | `provideAutoSpy`, `injectSpy` for `Test.createTestingModule`; `createNestUnit` builds the unit from its DI metadata with every unprovided token auto-spied, `expose` for sociable collaborators |
 | `vitest-auto-spy/setup` · `vitest-auto-spy/zone` · `vitest-auto-spy/eslint-plugin` | ✅ **Published**                                                                                                                                                                                |
 | `vitest-auto-spy/jasmine` · `/jasmine-compat` · `/observer-spy`                    | ✅ **Published**                                                                                                                                                                                |
@@ -1154,6 +1155,7 @@ Node / Bun / React / Vue project pulls **neither rxjs nor Angular into its runti
 | `vitest-auto-spy/bun`            | the same core, driven by Bun's `bun:test` mocks                                                                                                                                                                | `bun:test`                                               |   ✅   |
 | `vitest-auto-spy/bun-angular`    | Angular's `TestBed` under `bun test` — DOM, JIT `templateUrl` resolution and a zoneless environment, from one preload                                                                                          | `bun:test`, `@angular/core`, `@angular/platform-browser` |   ✅   |
 | `vitest-auto-spy/node`           | the same core, driven by `node:test`'s `mock.fn()`, plus `trackNodeMocks()` — a private `MockTracker` so dropped spies are actually freed                                                                      | `node:test`                                              |   ✅   |
+| `vitest-auto-spy/rstest`         | the same core, driven by Rstest's `rstest.fn()` / `rstest.spyOn()`                                                                                                                                             | `@rstest/core`                                           |   ✅   |
 | `vitest-auto-spy/nestjs`         | `provideAutoSpy`, `injectSpy` for `Test.createTestingModule`                                                                                                                                                   | — (your `@nestjs/*`)                                     |   ✅   |
 | `vitest-auto-spy/react`          | the core, with a natural import for React Testing Library suites                                                                                                                                               | — (your `react`)                                         |   ✅   |
 | `vitest-auto-spy/vue`            | `provideAutoSpy` for `global.provide` + Pinia store spying                                                                                                                                                     | — (your `vue`/`pinia`)                                   |   ✅   |
@@ -1202,18 +1204,19 @@ import 'vitest-auto-spy/rxjs';
 
 The core is runner-agnostic behind a `MockAdapter`: pick the entry that matches your test
 runner — the public API (`createSpyFromClass`, `calledWith`, `resolveWith`, `nextWith`, …) is
-identical across all three.
+identical across all four.
 
 ```ts
 import { createSpyFromClass } from 'vitest-auto-spy'; // Vitest (default, zero-config)
 import { createSpyFromClass } from 'vitest-auto-spy/bun'; // Bun — bun:test
 import { createSpyFromClass } from 'vitest-auto-spy/node'; // node:test
+import { createSpyFromClass } from 'vitest-auto-spy/rstest'; // Rstest
 ```
 
 Angular's `TestBed` runs on Bun too — see [Angular on Bun](#angular-on-bun-buntest) below.
 
 > Only the auto-spy helpers are normalised across runtimes; **native** mock methods stay the
-> runner's own — `mockReturnValue` on Vitest/Bun, `spy.method.mock.mockImplementation` on
+> runner's own — `mockReturnValue` on Vitest/Bun/Rstest, `spy.method.mock.mockImplementation` on
 > `node:test`. Each entry registers its adapter on import, so import the one matching your runner.
 
 > Using an observable spy (`observablePropsToSpyOn`, `nextWith`, …) without importing
@@ -3218,6 +3221,7 @@ names are unfindable from these messages otherwise — no `TS2739` text contains
 | `TS2322: Type 'Spy<X>' is not assignable to type 'Mocked<X>' …`                   | the variable was declared `Mocked<T>`                                                                               | declare it `Spy<T>`                                |
 | `'AddPromiseSpyMethods<unknown>' is missing … from type 'WithMockReturnValue<…>'` | a generic class inferred as `Service<any>`                                                                          | `asSpy<Service>(…)` / `injectSpy<Service>(…)`      |
 | `TS2345` / `TS2554` **on a call to a spied method** (wrong arguments)             | the arguments the real method rejects — the double's call signature is the method's own; it used to accept anything | fix the call; don't re-widen the spy               |
+| `TS2345` **inside `mockReturnValue` / `mockImplementation` / `mockResolvedValue`** | the stub is not what the method returns — the mock surface is `MockInstance<Method>`, so it is checked                | fix the stub; a deliberate mismatch is a type bug  |
 | `TS2739 … 'Spy<X>' is missing …` **on a line with `injectSpy`**                   | the provider handed back the real object                                                                            | `provideAutoSpy(X)`, or an honest `TestBed.inject` |
 
 Two notes that cost real time when they are missing.

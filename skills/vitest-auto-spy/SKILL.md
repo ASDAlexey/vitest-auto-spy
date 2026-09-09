@@ -1,6 +1,6 @@
 ---
 name: vitest-auto-spy
-description: Write or fix tests that use vitest-auto-spy — typed spies from a class or a type on Vitest, bun:test and node:test. Use when a spec imports `vitest-auto-spy` or a subpath (`/angular`, `/angular-http`, `/bun-angular`, `/bun`, `/node`, `/rxjs`, `/nestjs`, `/jasmine`, `/observer-spy`, `/setup`, `/zone`, `/diagnostics`, `/eslint-plugin`), the user mentions createSpyFromClass, createAutoMock, createMock, mockDeep, createFunctionSpy, createSpyObj, enableJasmineCompat, subscribeSpyTo, provideAutoSpy, provideHttpTesting, expectRequest, injectSpy, createNestUnit, extendWithAutoSpies, renderShallow, createWithAutoSpies, createDirectiveHost, overrideComponentProvider, enableAngularDiagnostics, trackInjections, runEffect, settleResource, httpResource, mockResourceProp, mockSignalProp, mockReadonlyProp, captureArg, createSpyFromInstance, explainSpy, expectEmission, expectError, setupAutoSpy, setSpyEngine, restoreWebStorage, assertMocked, Spy<T>, calledWith, mustBeCalledWith, onlyMethodsToSpyOn, strict, onUnstubbedCall, resolveWith or nextWith, migrating off jest-auto-spies, jasmine-auto-spies or @ngneat/spectator (createSpyObject, mockProvider, SpectatorService), or a test fails with "No mock adapter registered", "Observable spies require rxjs", "not on the class prototype", "strict mode is on", "the override did not apply", "is not a constructor", "Expected to be running in 'ProxyZone'", "jasmine is not defined", "no HttpTestingController", "localStorage.setItem is not a function" or "Spy<T> is not assignable".
+description: Write or fix tests that use vitest-auto-spy — typed spies from a class or a type on Vitest, bun:test, node:test and Rstest. Use when a spec imports `vitest-auto-spy` or a subpath (`/angular`, `/bun-angular`, `/bun`, `/node`, `/rstest`, `/rxjs`, `/nestjs`, `/jasmine`, `/observer-spy`, `/setup`, `/zone`, `/diagnostics`, `/eslint-plugin`), the user mentions createSpyFromClass, createAutoMock, createMock, mockDeep, createFunctionSpy, createSpyObj, enableJasmineCompat, subscribeSpyTo, provideAutoSpy, provideHttpTesting, expectRequest, injectSpy, createNestUnit, extendWithAutoSpies, renderShallow, createWithAutoSpies, createDirectiveHost, overrideComponentProvider, enableAngularDiagnostics, trackInjections, runEffect, settleResource, httpResource, mockResourceProp, mockSignalProp, mockReadonlyProp, captureArg, createSpyFromInstance, explainSpy, expectEmission, expectError, setupAutoSpy, setSpyEngine, restoreWebStorage, assertMocked, Spy<T>, calledWith, mustBeCalledWith, onlyMethodsToSpyOn, strict, onUnstubbedCall, resolveWith or nextWith, migrating off jest-auto-spies, jasmine-auto-spies or @ngneat/spectator (createSpyObject, mockProvider, SpectatorService), or a test fails with "No mock adapter registered", "Observable spies require rxjs", "not on the class prototype", "strict mode is on", "the override did not apply", "is not a constructor", "Expected to be running in 'ProxyZone'", "jasmine is not defined", "no HttpTestingController", "localStorage.setItem is not a function" or "Spy<T> is not assignable".
 ---
 
 # vitest-auto-spy
@@ -24,9 +24,9 @@ The **types are the authority** when any doc and the code disagree — check
 
 ## Before writing anything
 
-1. **Identify the runner.** `package.json` scripts plus the config file: Vitest, `bun test`, or
-   `node --test`. The import path depends on it — `vitest-auto-spy` / `…/bun` / `…/node` — and the
-   wrong one leaves the wrong mock adapter registered.
+1. **Identify the runner.** `package.json` scripts plus the config file: Vitest, `bun test`,
+   `node --test`, or `rstest run`. The import path depends on it — `vitest-auto-spy` / `…/bun` /
+   `…/node` / `…/rstest` — and the wrong one leaves the wrong mock adapter registered.
 2. **Check the setup file** for `import 'vitest-auto-spy/rxjs'` and `setupAutoSpy()`. Observable
    helpers (`nextWith`, `observablePropsToSpyOn`) throw without the rxjs import, and since 4.0.0
    that file has to be inside the spec `tsconfig` too — `returnSubject()` is typed as rxjs's
@@ -187,6 +187,8 @@ it('loads', async () => {
 | a dependency behind an `InjectionToken`, with no class to spy                    | `provideAutoSpyForToken(TOKEN)` + `injectSpy(TOKEN)`                                                 |
 | `Expected to be running in 'ProxyZone', but it was not found`                    | `import 'vitest-auto-spy/zone'` (needs `globals: true`)                                              |
 | `Property 'mockReturnValue' does not exist on type 'never'`                      | upgrade — the spy no longer collapses on an unreadable return type                                   |
+| `TS2345` inside `mockReturnValue` / `mockImplementation` / `mockResolvedValue`   | the stub is checked against the method's return type now — fix the stub, not the spy                 |
+| `TS2540: Cannot assign to 'x'` on a double whose runtime write works                | upgrade — `Spy<T>` no longer copies `readonly`; a spied **accessor** still needs `mockValueProp`      |
 | a signal-valued getter that `gettersToSpyOn` will not accept                     | it accepts any key now; for a signal prefer `mockSignalProp`                                         |
 | five `asInstance(…)` in one call, found one per `tsc` run                        | `...asInstances(a, b, c, d, e)`                                                                      |
 | `nextWith` demanding `HttpEvent<T>` on a generated client                        | `asSpy<Client, { overload: 'first' }>(…)` / `Overload<M, 0>`                                         |
@@ -289,7 +291,7 @@ import { type Spy, createSpyFromClass, provideAutoSpy } from 'vitest-auto-spy/ja
 That entry registers the Vitest adapter and installs `.and`, `.calls` and `.withArgs` on every spy.
 `import { jasmine } from 'vitest-auto-spy/jasmine'` restores the whole `jasmine` namespace
 (`objectContaining`, `any`, `createSpyObj`, `clock()`, the eight matchers Vitest has no twin for);
-nothing is put on `globalThis`. On `bun test` / `node --test` that entry cannot load — call
+nothing is put on `globalThis`. On `bun test` / `node --test` / `rstest run` that entry cannot load — call
 `enableJasmineCompat()` from `vitest-auto-spy/jasmine-compat` once, in a setup file, before any spy
 is built.
 

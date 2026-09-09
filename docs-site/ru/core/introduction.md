@@ -1,12 +1,12 @@
 ---
 title: Введение
-description: Что делает vitest-auto-spy — типизированный спай на каждый метод класса, на Vitest, Bun или node:test.
+description: Что делает vitest-auto-spy — типизированный спай на каждый метод класса, на Vitest, Bun, node:test или Rstest.
 ---
 
 # Введение
 
 `vitest-auto-spy` читает класс и генерирует типизированный спай (spy) для **каждого** метода,
-опираясь на примитив моков вашего раннера (`vi.fn()` в Vitest и его аналоги в Bun и `node:test`).
+опираясь на примитив моков вашего раннера (`vi.fn()` в Vitest и его аналоги в Bun, `node:test` и Rstest).
 Это прямая замена [`jest-auto-spies`](https://www.npmjs.com/package/jest-auto-spies): тот же API,
 только работает на Vitest-совместимых раннерах, а не на Jest.
 
@@ -44,6 +44,7 @@ beforeEach(() => {
 import { createSpyFromClass } from 'vitest-auto-spy'; // Vitest (по умолчанию, без настройки)
 import { createSpyFromClass } from 'vitest-auto-spy/bun'; // Bun — bun:test
 import { createSpyFromClass } from 'vitest-auto-spy/node'; // node:test
+import { createSpyFromClass } from 'vitest-auto-spy/rstest'; // Rstest
 ```
 
 Ангуляровский `TestBed` работает и на Bun — такого больше нет нигде, см.

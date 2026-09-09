@@ -1,6 +1,6 @@
 ---
 title: Установка
-description: Поставьте vitest-auto-spy, выберите точку входа под свой раннер и подключите её к Vitest, Bun или node:test.
+description: Поставьте vitest-auto-spy, выберите точку входа под свой раннер и подключите её к Vitest, Bun, node:test или Rstest.
 ---
 
 # Установка
@@ -67,6 +67,7 @@ CommonJS — `vitest-auto-spy/node` (сюита `node --test`, написанн�
 | `vitest-auto-spy/bun`            | то же ядро, но на моках `bun:test` из Bun                                                                                                                                                                                                                               | `bun:test`                  |
 | `vitest-auto-spy/bun-angular`    | ангуляровский `TestBed` под `bun test` — DOM, JIT-резолв `templateUrl` и zoneless-окружение из одного preload, плюс ядро и ангуляровские хелперы                                                                                                                        | `bun:test`, `@angular/core` |
 | `vitest-auto-spy/node`           | то же ядро, но на `mock.fn()` из `node:test`                                                                                                                                                                                                                            | `node:test`                 |
+| `vitest-auto-spy/rstest`         | то же ядро, но на `rstest.fn()` / `rstest.spyOn()` из Rstest — [раннер Rstest](../runtimes/rstest)                                                                                                                                                                     | `@rstest/core`              |
 | `vitest-auto-spy/rxjs`           | спаев за observable (`nextWith`, `nextWithValues`, `observablePropsToSpyOn`, …) и `createObservableWithValues`                                                                                                                                                        | `rxjs`                      |
 | `vitest-auto-spy/dom-stubs`      | глобальные объекты, которые компонент создаёт себе сам, — `stubIntersectionObserver`, `stubResizeObserver`, `stubMutationObserver`, `stubObserver`, `stubMediaElement`, `stubAbortController` и билдеры записей. До 4.0.0 жили в корневой точке входа                    | —                           |
 | `vitest-auto-spy/diagnostics`    | `compareTestRuns` / `summarizeTestRun` / `formatTestRunComparison` и `diffByField` — два отчёта, которых счётчик не даст. До 4.0.0 жили в корневой точке входа; чистые функции, так что этот подпуть импортируется и из простого Node-скрипта                            | —                           |
@@ -161,6 +162,26 @@ node --test
 
 У `node:test` нет `expect`; берите к нему `node:assert` (или любую библиотеку проверок) — поверхность
 спая от этого не меняется.
+
+### Rstest {#rstest}
+
+```bash
+npm i -D @rstest/core vitest-auto-spy
+```
+
+```ts
+// user.test.ts
+import { describe, expect, it } from '@rstest/core';
+import { createSpyFromClass } from 'vitest-auto-spy/rstest';
+```
+
+```bash
+npx rstest run
+```
+
+С `globals: true` в конфиге глобалы `rs` / `rstest` заменяют первую строку импорта. Нативная поверхность
+моков повторяет Vitest — `mock.calls` как голый массив, семейство `mockReturnValue`, — поэтому
+[управляющие хелперы](./control-helpers) читаются так же, как на Vitest. См. [Rstest](/ru/runtimes/rstest).
 
 ## TypeScript {#typescript}
 

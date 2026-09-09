@@ -310,6 +310,7 @@ _симптом_: текст ошибки или форма падения, по
 | `vitest-auto-spy/rxjs`                       | `nextWith`, `observablePropsToSpyOn`, `throwWith` — импортируется один раз, в setup       |
 | `vitest-auto-spy/bun`                        | любой спеки, которую гоняет `bun test` (`/bun-angular` — для тамошнего `TestBed` Angular) |
 | `vitest-auto-spy/node`                       | сюиты на `node --test`, ESM или CJS                                                       |
+| `vitest-auto-spy/rstest`                     | любой спеки, которую гоняет [Rstest](/ru/runtimes/rstest), — `npx rstest run`             |
 | `vitest-auto-spy/angular`                    | `provideAutoSpy`, `injectSpy`, `renderShallow`, хелперов переопределения                  |
 | `vitest-auto-spy/setup`                      | `setupAutoSpy`, хелперов часов, `installPerTest`, матчеров фокуса                         |
 | [`vitest-auto-spy/zone`](/ru/utilities/zone) | `fakeAsync` / `waitForAsync` на Vitest — zone.js не попадает ни в одну другую точку входа |

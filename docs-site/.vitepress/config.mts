@@ -96,6 +96,7 @@ const SIDEBAR = [
       { text: 'Bun', link: '/runtimes/bun' },
       { text: 'Angular on Bun', link: '/runtimes/bun-angular' },
       { text: 'node:test', link: '/runtimes/node' },
+      { text: 'Rstest', link: '/runtimes/rstest' },
       { text: 'RxJS', link: '/runtimes/rxjs' },
     ],
   },
@@ -195,7 +196,7 @@ for (const entry of SIDEBAR) {
 export default defineConfig({
   title: 'vitest-auto-spy',
   description:
-    'Automatic, fully-typed test spies from a class — runtime-agnostic across Vitest, Bun and node:test. A drop-in replacement for jest-auto-spies and jasmine-auto-spies.',
+    'Automatic, fully-typed test spies from a class — runtime-agnostic across Vitest, Bun, node:test and Rstest. A drop-in replacement for jest-auto-spies and jasmine-auto-spies.',
 
   // Served from https://asdalexey.github.io/vitest-auto-spy/ — required for asset/link paths.
   // If you add a custom domain (CNAME), change this to '/'.
@@ -215,7 +216,7 @@ export default defineConfig({
       lang: 'ru-RU',
       link: '/ru/',
       description:
-        'Автоматические типизированные спаи из настоящего класса — одинаково на Vitest, Bun и node:test. Замена jest-auto-spies и jasmine-auto-spies с кодмодом, который дописывает переезд.',
+        'Автоматические типизированные спаи из настоящего класса — одинаково на Vitest, Bun, node:test и Rstest. Замена jest-auto-spies и jasmine-auto-spies с кодмодом, который дописывает переезд.',
       themeConfig: {
         nav: [
           { text: 'Руководство', link: '/ru/core/introduction' },
@@ -356,7 +357,7 @@ export default defineConfig({
     ['meta', { property: 'og:image', content: OG_IMAGE }],
     ['meta', { property: 'og:image:width', content: '1200' }],
     ['meta', { property: 'og:image:height', content: '630' }],
-    ['meta', { property: 'og:image:alt', content: 'vitest-auto-spy — fully-typed test spies from a class, on Vitest, Bun and node:test' }],
+    ['meta', { property: 'og:image:alt', content: 'vitest-auto-spy — fully-typed test spies from a class, on Vitest, Bun, node:test and Rstest' }],
     ['meta', { name: 'twitter:card', content: 'summary_large_image' }],
     ['meta', { name: 'twitter:image', content: OG_IMAGE }],
     ['link', { rel: 'icon', href: '/vitest-auto-spy/favicon.svg', type: 'image/svg+xml' }],
@@ -376,7 +377,7 @@ export default defineConfig({
         '@type': 'SoftwareSourceCode',
         name: 'vitest-auto-spy',
         description:
-          'Auto-generate fully-typed test spies from a class across Vitest, Bun and node:test. A drop-in replacement for jest-auto-spies and for jasmine-auto-spies, with a codemod that finishes the move.',
+          'Auto-generate fully-typed test spies from a class across Vitest, Bun, node:test and Rstest. A drop-in replacement for jest-auto-spies and for jasmine-auto-spies, with a codemod that finishes the move.',
         codeRepository: 'https://github.com/ASDAlexey/vitest-auto-spy',
         programmingLanguage: 'TypeScript',
         license: 'https://opensource.org/licenses/MIT',
@@ -414,18 +415,18 @@ export default defineConfig({
             applicationCategory: 'DeveloperApplication',
             applicationSubCategory: 'Testing library',
             operatingSystem: 'Node.js, Bun, any browser test runner',
-            softwareRequirements: 'Vitest >= 2.1, or bun test, or node --test',
+            softwareRequirements: 'Vitest >= 2.1, or bun test, or node --test, or rstest',
             downloadUrl: 'https://www.npmjs.com/package/vitest-auto-spy',
             installUrl: 'https://www.npmjs.com/package/vitest-auto-spy',
             license: 'https://opensource.org/licenses/MIT',
             author: { '@id': `${HOSTNAME}#author` },
             url: HOSTNAME,
             description:
-              'Generate fully-typed test spies from a class, an interface or nothing at all. One API across Vitest, Bun and node:test, with Angular, NestJS, React, Vue and Svelte recipes, RxJS observable spies and eighteen ESLint rules. A drop-in replacement for jest-auto-spies and for jasmine-auto-spies, whose .and / .calls / .withArgs namespaces it restores so a Karma-era suite runs before it is rewritten.',
+              'Generate fully-typed test spies from a class, an interface or nothing at all. One API across Vitest, Bun, node:test and Rstest, with Angular, NestJS, React, Vue and Svelte recipes, RxJS observable spies and eighteen ESLint rules. A drop-in replacement for jest-auto-spies and for jasmine-auto-spies, whose .and / .calls / .withArgs namespaces it restores so a Karma-era suite runs before it is rewritten.',
             featureList: [
               'Typed spies generated from a class prototype',
               'createAutoMock<T>() — a mock from a type alone, no class required',
-              'One mock adapter core across Vitest, bun:test and node:test',
+              'One mock adapter core across Vitest, bun:test, node:test and Rstest',
               'Angular TestBed helpers: provideAutoSpy, injectSpy, renderShallow',
               'Observable assertions that fail on silence',
               'Eighteen ESLint rules and editor diagnostics for WebStorm and VS Code',
