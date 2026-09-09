@@ -2157,11 +2157,10 @@ compiles on a `void` method — that overload is this package's own, added becau
 demands an argument on a method whose point is that it returns nothing. And `mockRejectedValue`
 still takes `unknown`, because a rejection is not the method's return type.
 
-## `readonly` on the source type does not reach the double
+## `readonly` survives onto the double, and `mockValueProp` is the answer
 
-`Spy<T>` and `DeepMockProxy<T>` map with `-readonly`. The modifier is a statement about the
-production object, and the runtime never applied it to a stand-in — `overrides` seeds with
-`Reflect.set`, and a `createAutoMock` proxy has a write trap — so a spec can say what it means:
+`Spy<T>` and `DeepMockProxy<T>` are homomorphic mapped types, so a member the source type declares
+`readonly` is `readonly` on the double too, and a plain assignment is `TS2540`:
 
 ```ts
 interface Session {
@@ -2170,15 +2169,44 @@ interface Session {
 
 const session = createAutoMock<Session>({ accessToken: 'first' });
 
-session.accessToken = 'second'; // ✅ the retry has to read the value the refresh step replaced
+session.accessToken = 'second'; // ❌ TS2540
+mockValueProp(session, 'accessToken', 'second'); // ✅ the retry reads what the refresh step replaced
 ```
 
-A seed cannot express that, because a seed is read once, at construction. `Mutable<Spy<T>>` used to
-be the answer and is no longer needed; `Mutable<T>` is still exported for everything else.
+A seed cannot express that second value, because a seed is read once, at construction — so
+something has to write it, and which write it is matters more than it looks.
 
-One case the assignment does not cover: a member replaced by a **spied accessor**
-(`gettersToSpyOn: ['size']`) routes the write to the setter spy, and the getter spy keeps answering
-`undefined`. Use [`mockValueProp` / `mockReadonlyProp`](https://asdalexey.github.io/vitest-auto-spy/utilities/setup) there, as before.
+Stripping the modifier was tried and reverted. It made the assignment compile everywhere, including
+on a member replaced by a **spied accessor** (`gettersToSpyOn: ['accessToken']`), where the write
+reaches the setter spy and the getter goes on answering `undefined` — a loud, one-line-fixable type
+error traded for a silent runtime no-op, which is the same class of defect the typed mock surface
+above exists to remove.
+
+**`Reflect.set` is not the escape hatch it looks like.** It invokes the same `[[Set]]`, so it is
+just as inert on a spied accessor, and it returns `true` on top of that — which misleads a caller
+that checks the result. Probed against a spied accessor whose getter answers `undefined`:
+
+| Write                                               | Getter afterwards | Setter spy | Returned |
+| --------------------------------------------------- | ----------------- | ---------- | -------- |
+| `double.token = 'x'`                                | `undefined`       | recorded   | —        |
+| `Reflect.set(double, 'token', 'x')`                 | `undefined`       | recorded   | `true`   |
+| `Object.defineProperty` — what `mockValueProp` does | `'x'`             | —          | —        |
+
+So [`mockValueProp` / `mockReadonlyProp`](https://asdalexey.github.io/vitest-auto-spy/utilities/setup) is the answer in both cases, and it
+needs no type at all: `readonly` does not take a key out of `keyof T`, so the checked overload
+`mockValueProp<T, K extends keyof T>(object, property, value)` accepts the member as it stands, and
+`restoreMockedProps()` undoes the patch.
+
+`Mutable<T>` is the secondary, opt-in answer, for a spec that would rather write plain assignments
+to plain **data** members and does not want the bookkeeping:
+
+```ts
+const session: Mutable<Spy<SessionService>> = createSpyFromClass(SessionService);
+
+session.accessToken = 'second';
+```
+
+It does not help on a spied accessor — it produces the same `[[Set]]`, and so the same no-op.
 
 ## `Spy<T>`, not `Mocked<T>`
 

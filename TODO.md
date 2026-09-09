@@ -184,8 +184,14 @@ Left as proposals, deliberately:
       that needs it. It would take inferring the seed's type into a second type parameter, and
       supplying **any** explicit type argument turns inference off for all of them: the ubiquitous
       call is `createAutoMock<AuthorizationService>({ … })`, which would fall back to the default and
-      seed nothing. Stripping `readonly` wholesale is what shipped for that reason, and the note it
-      costs — an assignment to a *spied accessor* is silently inert — is documented next to it.
+      seed nothing. That fact is measured and still holds. What no longer follows from it is the
+      wholesale form: stripping `readonly` from `Spy<T>` and `DeepMockProxy<T>` shipped briefly and
+      was reverted, because an assignment to a *spied accessor* is silently inert — the write lands
+      on the setter spy while the getter keeps answering `undefined`, so a loud `TS2540` fixable in
+      one line became a green test asserting nothing. `mockValueProp` is the answer instead, and it
+      needs no new option and no new type: `readonly` does not take a key out of `keyof T`, so the
+      checked overload already accepts the member, and `defineProperty` makes the value readable
+      where `[[Set]]` — plain assignment, `Reflect.set` and `Mutable<T>` alike — does not.
 
 ## Timeout budgets — closed 2026-08-30, and the one part that stays out of reach
 

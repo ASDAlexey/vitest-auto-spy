@@ -40,19 +40,30 @@ The latest released version here must always match the one published on
   at run time, and this repository's own suite needed no edit. Cost measured on the `types:budget`
   fixture: 9044 → 9318 instantiations, against a budget of 11 000.
 
-- **`Spy<T>` and `DeepMockProxy<T>` no longer copy `readonly` onto the double.** Both are
-  homomorphic mapped types, so a `readonly` member of the source type arrived `readonly` on the
-  stand-in for it — and the runtime never had that restriction: `overrides` seeds with `Reflect.set`
-  and a `createAutoMock` proxy has a write trap. What the modifier actually cost was a spec whose
-  point is that a value changes between two calls — an interceptor whose retry must read a token the
-  refresh step replaced — where a seed cannot help, because a seed is read once at construction. The
-  answer was `Mutable<Spy<T>>` — and this package has *exported* `Mutable<T>` since 3.5.0, which the
-  reports that led here had hand-written instead, so the workaround was costing a rediscovery as well
-  as a line. The mapping is `-readonly` now, which makes `Mutable<Spy<T>>` and `Spy<T>` the same
-  type; `Mutable<T>` stays exported for everything else. Dropping a modifier widens the type, so no call
-  site that compiled before stops compiling. Unchanged: on a member replaced by a **spied accessor**
-  (`gettersToSpyOn`) a direct write reaches the setter spy while the getter still answers
-  `undefined` — `mockValueProp` / `mockReadonlyProp` remain the helpers there.
+- **`Spy<T>` and `DeepMockProxy<T>` keep `readonly`, and `mockValueProp` is how a double is
+  rewritten.** Both are homomorphic mapped types, so a `readonly` member of the source type arrives
+  `readonly` on the stand-in for it. Dropping the modifier was tried here first, on the argument that
+  the runtime never had the restriction, and it is reverted: it made a plain assignment compile
+  everywhere — including on a member replaced by a **spied accessor** (`gettersToSpyOn`), where the
+  write reaches the setter spy and the getter goes on answering `undefined`. That trades a `TS2540`
+  fixable in one line for a silent no-op at run time, which is the defect class the stub-typing
+  change in this same section removes.
+
+  Measured on a spied accessor rather than argued, and the middle row is the trap worth naming:
+
+  | write | getter after | setter spy | returned |
+  | --- | --- | --- | --- |
+  | `double.token = 'x'` | `undefined` | recorded | — |
+  | `Reflect.set(double, 'token', 'x')` | `undefined` | recorded | **`true`** |
+  | `mockValueProp(double, 'token', 'x')` | `'x'` | — | — |
+
+  So `Reflect.set` is **not** an escape hatch: it invokes the same `[[Set]]`, is equally inert, and
+  reports success. `mockValueProp` redefines the property as a data slot, which is why it is the one
+  that works on a plain member and on a spied accessor alike — and its checked overload
+  (`K extends keyof T`) already accepts a `readonly` member, because `readonly` does not remove a key
+  from `keyof T`. For a suite that would rather write assignments to data properties, `Mutable<T>` has
+  been exported since 3.5.0 and is the opt-in — `createAutoMock<Mutable<Service>>({ … })` — with the
+  same caveat about spied accessors.
 
 - **The cross-family `invocationCallOrder` mismatch is now stated where a migration meets it.** No
   behaviour change: `toHaveBeenCalledBefore` / `toHaveBeenCalledAfter` between one of this package's

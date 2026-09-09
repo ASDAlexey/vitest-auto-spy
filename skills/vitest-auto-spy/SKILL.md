@@ -188,7 +188,7 @@ it('loads', async () => {
 | `Expected to be running in 'ProxyZone', but it was not found`                    | `import 'vitest-auto-spy/zone'` (needs `globals: true`)                                              |
 | `Property 'mockReturnValue' does not exist on type 'never'`                      | upgrade — the spy no longer collapses on an unreadable return type                                   |
 | `TS2345` inside `mockReturnValue` / `mockImplementation` / `mockResolvedValue`   | the stub is checked against the method's return type now — fix the stub, not the spy                 |
-| `TS2540: Cannot assign to 'x'` on a double whose runtime write works                | upgrade — `Spy<T>` no longer copies `readonly`; a spied **accessor** still needs `mockValueProp`      |
+| `TS2540: Cannot assign to 'x'` on a double whose runtime write works                | `Spy<T>` keeps `readonly` on purpose — `mockValueProp(spy, 'x', v)`, which a spied **accessor** also needs |
 | a signal-valued getter that `gettersToSpyOn` will not accept                     | it accepts any key now; for a signal prefer `mockSignalProp`                                         |
 | five `asInstance(…)` in one call, found one per `tsc` run                        | `...asInstances(a, b, c, d, e)`                                                                      |
 | `nextWith` demanding `HttpEvent<T>` on a generated client                        | `asSpy<Client, { overload: 'first' }>(…)` / `Overload<M, 0>`                                         |
