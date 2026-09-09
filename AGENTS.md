@@ -2370,6 +2370,10 @@ export default [
 ];
 ```
 
+`autoSpy.configs.typeErrors` is a second flat config holding the subset whose findings are compile
+errors — `prefer-as-spy` (`TS2352`) and `no-mocked-for-spy` (`TS2322`). Spread its `rules` after a
+blanket downgrade so those keep their severity; do not copy the two names into a consumer's config.
+
 | Rule                              | Level   | Fix               | Flags                                                                                                                                     |
 | --------------------------------- | ------- | ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
 | `no-expect-in-subscribe`          | `error` | suggest           | `expect()` inside `subscribe()` → `expectEmission` / `firstValueFrom`                                                                     |

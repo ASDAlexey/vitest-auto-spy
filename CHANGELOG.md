@@ -10,6 +10,18 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+### Added
+
+- **`configs.typeErrors` — the rules whose findings do not compile, as a config you can spread.**
+  `configs.recommended` grades every rule `error`; a suite landing the plugin on an existing codebase
+  routinely rebuilds that map as `warn` and fixes in batches. Two rules should not go with it, and the
+  recipe used to say so by having the reader copy their names back: `prefer-as-spy` reports `TS2352`
+  and `no-mocked-for-spy` reports `TS2322`, by construction rather than by luck, so "fix them in
+  batches" does not describe them — the type gate fails first, with errors that never name the rule
+  that already found them. Both are `--fix`, so keeping them at `error` costs one `eslint --fix` run.
+  Spread `...autoSpy.configs.typeErrors.rules` after the downgrade instead of maintaining two string
+  literals in your own config. Nothing in `recommended` changed.
+
 ### Changed
 
 - **A spied method rejects the *stub* the real one rejects, not only the arguments.** `Spy<T>`

@@ -3020,6 +3020,11 @@ export default [
 ];
 ```
 
+A second config, `autoSpy.configs.typeErrors`, holds the subset whose findings are compile errors
+(`prefer-as-spy` is `TS2352`, `no-mocked-for-spy` is `TS2322`). Spread it **after** a blanket
+downgrade so those keep their severity — the recipe is a spread rather than rule names copied into
+your config, where they would go stale silently.
+
 The full dial — landing it on a large existing suite without a red CI, the three rules that can
 report on correct code, and `setupModules` — is on the docs site:
 [ESLint plugin → Tuning it for your project](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-plugin#tuning-it-for-your-project).

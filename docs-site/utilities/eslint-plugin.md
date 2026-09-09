@@ -53,6 +53,11 @@ export default [
 ];
 ```
 
+There is a second config, `configs.typeErrors` — the subset whose findings are compile errors, for
+[landing the plugin on a large suite](#land-it-on-a-large-existing-suite-without-a-red-ci) without a
+red CI. It is a subset of `recommended`, so a project adopting the plugin outright needs only the
+one above.
+
 ### 2. The `files` glob is not optional
 
 There is no default glob, and that is deliberate: only you know where your specs live. Get it wrong
@@ -306,24 +311,34 @@ A middle road that ages better: keep every rule at `error` and put the not-yet-f
 second block with the offending rules `off` in it. A shrinking list of paths is visible progress; a
 suite-wide `warn` is a decision nobody revisits.
 
-**Two rules should keep their severity through that block, and they are the two in the
-[Types](#types) table: `prefer-as-spy` and `no-mocked-for-spy`.** Every other rule here reports code
-that compiles and runs — a preference about how a double is built. These two report code that does
-not compile: `TestBed.inject(X) as Spy<X>` is `TS2352` and `let s: Mocked<T>` is `TS2322`, by
-construction rather than by luck, so the "fix them in batches" plan does not apply to them. A file
-carrying ten of the first shape — which is what one file of a `jest-auto-spies` suite carries, one
-per injected double — lints clean under the blanket `warn` and then fails the type gate with ten
-errors that name `accessorSpies` and never name the rule that already found them. Both are `--fix`,
-so keeping them at `error` costs one `eslint --fix` run rather than a batch of manual edits:
+**Some rules should keep their severity through that block, and `autoSpy.configs.typeErrors` is
+them.** Spread it after the downgrade:
 
 ```js
 rules: {
   ...autoSpy.configs.recommended.rules,
   ...asWarnings,
-  'vitest-auto-spy/prefer-as-spy': 'error',
-  'vitest-auto-spy/no-mocked-for-spy': 'error',
+  ...autoSpy.configs.typeErrors.rules, // the findings that are compile errors stay errors
 },
 ```
+
+It is a flat config like `recommended`, so it also works as its own block in the array
+(`autoSpy.configs.typeErrors` after the downgraded one) when the two are scoped to different files.
+
+The set is not "the important ones" — that is your call, and the dial above is one line. It is the
+rules whose findings **do not compile**, which is a fact about the finding rather than a preference:
+`TestBed.inject(X) as Spy<X>` is `TS2352` and `let s: Mocked<T>` is `TS2322`, by construction rather
+than by luck. Every other rule here reports code that compiles and runs — a preference about how a
+double is built — so "fix them in batches" is a real plan for it, and for these it is not: the batch
+is the build, already red. A file carrying ten of the first shape — which is what one file of a
+`jest-auto-spies` suite carries, one per injected double — lints clean under the blanket `warn` and
+then fails the type gate with ten errors that name `accessorSpies` and never name the rule that
+already found them. Both are `--fix`, so keeping them at `error` costs one `eslint --fix` run rather
+than a batch of manual edits.
+
+Today that is `prefer-as-spy` and `no-mocked-for-spy`, the two in the [Types](#types) table. Spread
+the config rather than copying the two names: the list is the package's to keep in step, and a copy
+in your config goes stale silently.
 
 ### The three rules that can report on correct code
 
