@@ -338,6 +338,12 @@ evidence that the types still hold. Where it cannot prove the rename it downgrad
 accept those together with the repair at the creation site, usually `createAutoMock<T>()` in place of
 an object literal.
 
+**Landing the plugin on an existing suite: downgrade `configs.recommended` to `warn`, then spread
+`...autoSpy.configs.typeErrors.rules` after it.** Those two rules — `prefer-as-spy` and
+`no-mocked-for-spy` — report findings that fail `tsc` (`TS2352`, `TS2322`) by construction, so
+"fix them in batches" does not describe them; both are `--fix`, so keeping them at `error` costs one
+`eslint --fix` run. Nothing in `recommended` changes.
+
 Four of those rules are for a suite mid-migration off `jasmine-auto-spies`:
 `jasmine-namespace-without-entry`, `no-jasmine-globals`, `no-save-arguments-by-value`, and
 `prefer-native-spy-api` — the last one is **`off`** in the recommended config on purpose, because it
