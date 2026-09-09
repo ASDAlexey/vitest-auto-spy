@@ -154,6 +154,22 @@ describe('prefer-provide-auto-spy', () => {
     expect(message).toContain('provideAutoSpyForToken(TOKEN)');
   });
 
+  it('points at overrides for a data member, on both halves of the message', () => {
+    // The rule was read as asking for something the class factory could not express — a double
+    // whose `remoteConfig` has to *be* an object rather than answer with one — and the reader
+    // reached for `gettersToSpyOn`, which is not that. `overrides` has been on the class
+    // configuration for as long as it has been on the token factory; only the message was silent.
+    expect(firstMessage('const p = { provide: CartService, useValue: { total: vi.fn() } };', 'prefer-provide-auto-spy')).toContain(
+      '{ overrides: … }',
+    );
+
+    // And the token half says what a nested shape needs, which is the same second argument: the
+    // bare double makes every key a function spy, so `req.headers.get(…)` reads a property off one.
+    expect(firstMessage('const p = { provide: REQUEST, useValue: { headers: { get: vi.fn() } } };', 'prefer-provide-auto-spy')).toContain(
+      '{ headers: { get: vi.fn() } }',
+    );
+  });
+
   it('reads a class out of every initialiser that is not a token', () => {
     const classMessage = (setup: string): string =>
       firstMessage(setup + '\nconst p = { provide: Cart, useValue: { total: vi.fn() } };', 'prefer-provide-auto-spy');

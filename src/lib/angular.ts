@@ -30,6 +30,26 @@ export type AngularValueProvider<T> = { provide: ClassType<T>; useValue: Spy<T> 
  *   providers: [provideAutoSpy(MyService), provideAutoSpy(ApiService, { methodsToSpyOn: ['get'] })],
  * });
  * ```
+ *
+ * @param ObjectClass The class to read. Its prototype decides what is spied.
+ * @param methodsToSpyOnOrConfig A bare list of extra callables, or the full
+ *   {@link ClassSpyConfiguration}. The parameter's name is older than the configuration object and
+ *   undersells it: `returns` says what a method answers, and **`overrides` seeds a member the
+ *   double must *be* rather than spy on** — the same channel, shape and semantics as
+ *   {@link provideAutoSpyForToken}'s second argument. That symmetry is easy to miss from the name
+ *   alone, and missing it sends a reader to `gettersToSpyOn`, which is a different thing: a spied
+ *   accessor answers `undefined` until it is configured, while the code under test usually needs
+ *   the member to already *hold* a value — and inside a `providers: []` array there is no later
+ *   statement in which to put one.
+ *
+ * ```ts
+ * providers: [
+ *   provideAutoSpy(RemoteConfigService, {
+ *     overrides: { remoteConfig: { theme: 'dark' }, updates$: of(undefined) },
+ *     returns: { load: of([]) },
+ *   }),
+ * ];
+ * ```
  */
 export function provideAutoSpy<T>(
   ObjectClass: ClassType<T>,
