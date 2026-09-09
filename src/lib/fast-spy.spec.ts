@@ -75,6 +75,48 @@ describe('createFastSpy', () => {
     expect(second).toHaveBeenCalledAfter(asRunnerMock(first));
   });
 
+  // The counter behind `invocationCallOrder` is this module's own, and `@vitest/spy` keeps its own
+  // in a module-private `let` it neither exports nor lets anything advance. So the two families
+  // number their calls on unrelated scales, and `toHaveBeenCalledBefore` across one of each returns
+  // a verdict computed from two sequences that never met — a wrong answer rather than an error, and
+  // one that used to be right under Jest, where `jest-auto-spies` built both halves with
+  // `jest.fn()`. `setSpyEngine('runner')` is the fix; this pins the divergence so the day it stops
+  // being true is a failing test rather than a quiet change of meaning.
+  it('numbers its calls on a scale the runner never advances', () => {
+    const before = createFastSpy();
+    const after = createFastSpy();
+
+    before();
+    vi.fn()();
+    vi.fn()();
+    vi.fn()();
+    after();
+
+    expect(after.mock.invocationCallOrder).toEqual(before.mock.invocationCallOrder.map((order) => order + 1));
+  });
+
+  // The consequence, pinned as the failure it is: three earlier calls are enough to put the two
+  // scales out of step, and the matcher then denies an ordering that did happen. In a real suite the
+  // gap is hundreds — a double reporting `[164 … 169]` beside a `vi.fn()` reporting `[28]` for a call
+  // in the same test — and there the same mechanism produces a *pass* instead, which is worse. An
+  // `it.fails` rather than a comment, so that a future change making the two comparable turns this
+  // into a red test and gets read.
+  it.fails('cannot be ordered against a runner mock, and says so by giving the wrong answer', () => {
+    const warmup = createFastSpy();
+
+    warmup();
+    warmup();
+    warmup();
+
+    const ours = createFastSpy();
+    const theirs = vi.fn();
+
+    ours();
+    theirs();
+
+    expect(ours).toHaveBeenCalledBefore(theirs);
+  });
+
   it('records a thrown error as the runner does, and rethrows it', () => {
     const failure = new Error('nope');
     const ours = createFastSpy(() => {

@@ -19,6 +19,13 @@ is a **find-and-replace of the import**:
 The only API-shape change is that the Angular helpers and the observable layer live behind the
 `/angular` and `/rxjs` subpaths (see [Installation → Entry points](/core/installation)).
 
+It is also the single most repeated edit in a large migration, because upstream ships
+`provideAutoSpy` on its root and the natural first attempt is a one-token rename of the module
+specifier. The miss does not always fail loudly, so find them all at once rather than one compile
+error at a time: `npx vitest-auto-spy doctor` reports `helper-from-wrong-entry` for every named
+import taken from an entry that does not export it, resolved against the installed version's own
+export map (details in [CLI → doctor](/utilities/cli)).
+
 ::: tip Coming from `jasmine-auto-spies` instead?
 The two upstream packages are siblings over the same `@hirez_io/auto-spies-core`, so everything on
 this page applies — with one addition and one hazard. The addition: upstream parks its async helpers
@@ -140,6 +147,7 @@ different name.
 | `jest.fn().mockImplementation()` with no argument       | **requires one**      | `mockImplementation(() => undefined)` — Jest installed the no-op for you                                                                         |
 | `xit` / `xdescribe`                                     | **none**              | `it.skip` / `describe.skip`; the rename fails as `TS2304: Cannot find name 'xit'`                                                                |
 | `testTimeout: 30000` (one budget)                       | **two fields**        | set `hookTimeout` to the same number — Vitest resolves it separately and defaults it to 10 000 ms                                                |
+| `expect(a).toHaveBeenCalledBefore(b)` across spy families | **a wrong verdict, no error** | compare two auto-spies, or `setSpyEngine('runner')` — the counters are not shared, see below                                                     |
 | `collectCoverageFrom: [...]`                            | `coverage.include`    | and **not** `coverage.all`: the key was removed in Vitest 4, where `include` alone drives the pass over files no test imported                   |
 
 The timeout row is the quietest of them. `jest-circus` spends one `testTimeout` on a hook and on a
@@ -177,6 +185,29 @@ an argument, `vi.hoisted()` for a package that genuinely must be replaced). The 
 same failure with the sound turned up: reaching for `vi.spyOn` on the barrel instead throws
 `Cannot redefine property`, and an accessor spy taken through this package re-throws that one
 naming the property, the target and the way out.
+
+**The call-order row is the only one here that answers rather than fails, and that is what makes it
+worth reading before the rename.** `toHaveBeenCalledBefore` / `toHaveBeenCalledAfter` compare
+`mock.invocationCallOrder`, and this package's method spies number their calls on their own counter
+while `@vitest/spy` keeps its own in a module-private variable it neither exports nor lets anything
+advance. Under Jest the question did not arise: `jest-auto-spies` built its doubles with `jest.fn()`,
+so an auto-spy and a hand-written mock shared one sequence and the assertion meant what it said. Here
+they do not, and the two scales drift apart by however many calls of each kind the suite has already
+made — measured in one converted suite as a double reporting `[164, 165, 167, 168, 169]` beside a
+`vi.fn()` reporting `[28]` for its single call **in the same test**, under an assertion that had been
+passing. Three earlier calls of one family are enough to invert the answer.
+
+Two fixes, both one line. Compare two doubles of the same family — usually the honest reading anyway,
+since both sides of an ordering claim are collaborators of the code under test. Or put the whole run
+on the runner's factory:
+
+```ts
+import { setSpyEngine } from 'vitest-auto-spy/setup';
+
+setSpyEngine('runner'); // method spies are vi.fn()s again, so both families share one counter
+```
+
+That is the only thing the two engines do not share, and it is the only reason the switch exists.
 
 ::: tip Restricting is a separate option
 Up to v1 this library read `methodsToSpyOn` as an exhaustive whitelist, which is the opposite of
