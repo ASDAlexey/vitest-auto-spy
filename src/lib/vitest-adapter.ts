@@ -11,6 +11,7 @@ import { type Mock, vi } from 'vitest';
 import { SWEEP_SENTINEL } from './constants';
 import { clearAllFastSpies, createFastSpy, resetAllFastSpies } from './fast-spy';
 import { type MockAdapter, type MockFn, guardAccessorSpies } from './mock-adapter';
+import { getSpyEngine } from './spy-engine';
 import type { Func } from './types';
 
 /** View a runtime-agnostic {@link MockFn} as the concrete Vitest mock it actually is here. */
@@ -56,31 +57,7 @@ sweepSentinel.mockReset = function resetAllMocksSweep(): typeof sweepSentinel {
 // it, so this one call keeps it reachable for the worker's life. Vitest 4 reaches it either way.
 sweepSentinel();
 
-/**
- * Which factory a double's method spies come out of.
- *
- * `'auto-spy'` — this library's own, the default and the one every published number is measured on.
- * `'runner'` — Vitest's `vi.fn()`, method for method, as every release before 4.1 built them.
- *
- * The switch exists for the one thing the two do not share: `mock.invocationCallOrder` is a
- * different scale in each, so `expect(a).toHaveBeenCalledBefore(b)` across an auto-spy and a
- * hand-written `vi.fn()` compares two counters that never met. Everything else — `vi.isMockFunction`,
- * every matcher, `vi.clearAllMocks()`, the whole `mockReturnValue` family — behaves identically, and
- * the suite pins that by putting the two side by side.
- */
-export type SpyEngine = 'auto-spy' | 'runner';
-
-let engine: SpyEngine = 'auto-spy';
-
-/** Build every method spy from `engine` from here on. Doubles already built keep the engine they were built with. */
-export function setSpyEngine(next: SpyEngine): void {
-  engine = next;
-}
-
-/** The engine every double built from here on will use. */
-export function getSpyEngine(): SpyEngine {
-  return engine;
-}
+export { getSpyEngine, setSpyEngine, type SpyEngine } from './spy-engine';
 
 /** A `vi.fn()`, named for diagnostics — the `'runner'` engine, and what the library used before it had one of its own. */
 function createRunnerMockFn(implementation?: Func, name?: string): MockFn {
@@ -95,7 +72,7 @@ function createRunnerMockFn(implementation?: Func, name?: string): MockFn {
 
 export const vitestMockAdapter: MockAdapter = guardAccessorSpies({
   createMockFn(implementation?: Func, name?: string): MockFn {
-    return engine === 'auto-spy' ? createFastSpy(implementation, name) : createRunnerMockFn(implementation, name);
+    return getSpyEngine() === 'auto-spy' ? createFastSpy(implementation, name) : createRunnerMockFn(implementation, name);
   },
 
   spyOnGetter(target: object, property: string): MockFn {

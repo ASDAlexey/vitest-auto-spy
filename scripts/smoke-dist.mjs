@@ -26,6 +26,7 @@ const DIST = new URL('dist/', ROOT);
 // each one is the gate for it.
 const REQUIRES_HOST = new Map([
   ['./bun', 'imports bun:test — covered by npm run test:bun'],
+  ['./rstest', 'imports @rstest/core — covered by npm run test:rstest'],
   ['./bun-angular', 'imports bun:test — covered by npm run test:bun:angular'],
   ['./angular-http', 'needs a Vitest run context — covered by the default suite'],
   ['./zone', 'needs zone.js/testing and runner globals — covered by npm run test:zone'],

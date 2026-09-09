@@ -53,10 +53,10 @@ const JASMINE_ENTRIES = entries('jasmine');
 /**
  * The entries whose runtime cannot load the jasmine one.
  *
- * Bun and `node:test` get the layer from `enableJasmineCompat()` in a setup file — the only
- * arrangement the docs offer them — so a spec of theirs importing nothing else is correct.
+ * Bun, `node:test` and Rstest get the layer from `enableJasmineCompat()` in a setup file — the
+ * only arrangement the docs offer them — so a spec of theirs importing nothing else is correct.
  */
-const FOREIGN_RUNTIME_ENTRIES = entries('bun', 'bun-angular', 'node');
+const FOREIGN_RUNTIME_ENTRIES = entries('bun', 'bun-angular', 'node', 'rstest');
 
 /** The factories whose result carries this library's spy helpers, and therefore the namespaces. */
 const SPY_FACTORIES = new Set([

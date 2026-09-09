@@ -59,6 +59,11 @@
         "default": "./node.cjs"
       }
     },
+    "./rstest": {
+      "types": "./rstest.d.ts",
+      "import": "./rstest.js",
+      "default": "./rstest.js"
+    },
     "./rxjs": {
       "types": "./rxjs.d.ts",
       "import": "./rxjs.js",
@@ -188,6 +193,7 @@
     "./bun-angular.js",
     "./node.js",
     "./node.cjs",
+    "./rstest.js",
     "./rxjs.js",
     "./console.js",
     "./dom-stubs.js",

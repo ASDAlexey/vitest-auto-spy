@@ -123,7 +123,7 @@ export function resetMockAdapter(): void {
 
 const MISSING_MOCK_ADAPTER = withDocs(
   'No mock adapter registered. Import a runtime entry once before creating spies — ' +
-    "'vitest-auto-spy' (default, Vitest) or a runtime variant such as 'vitest-auto-spy/bun' / 'vitest-auto-spy/node'. " +
+    "'vitest-auto-spy' (default, Vitest) or a runtime variant such as 'vitest-auto-spy/bun' / 'vitest-auto-spy/node' / 'vitest-auto-spy/rstest'. " +
     'Importing the entry is what registers the adapter, so it has to happen before the first spy is built.',
   DOCS_LINKS.installation,
 );

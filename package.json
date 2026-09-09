@@ -1,7 +1,7 @@
 {
   "name": "vitest-auto-spy",
   "version": "5.0.1",
-  "description": "Auto-generate fully-typed test spies from a class — across Vitest, Bun and node:test, with Angular/NestJS/React/Vue/Svelte recipes. Drop-in replacement for jest-auto-spies and jasmine-auto-spies.",
+  "description": "Auto-generate fully-typed test spies from a class — across Vitest, Bun, node:test and Rstest, with Angular/NestJS/React/Vue/Svelte recipes. Drop-in replacement for jest-auto-spies and jasmine-auto-spies.",
   "keywords": [
     "auto-mock",
     "automock",
@@ -35,6 +35,7 @@
     "bun-angular",
     "angular-testbed",
     "node-test",
+    "rstest",
     "nestjs",
     "react",
     "vue",
@@ -95,6 +96,11 @@
         "types": "./dist/node.d.cts",
         "default": "./dist/node.cjs"
       }
+    },
+    "./rstest": {
+      "types": "./dist/rstest.d.ts",
+      "import": "./dist/rstest.js",
+      "default": "./dist/rstest.js"
     },
     "./rxjs": {
       "types": "./dist/rxjs.d.ts",
@@ -196,6 +202,8 @@
     "**/bun-angular.js",
     "**/node.js",
     "**/node.cjs",
+    "**/rstest.js",
+    "src/rstest.ts",
     "**/angular.js",
     "**/angular-http.js",
     "**/nestjs.js",
@@ -255,6 +263,7 @@
     "test:bun": "bun test ./src/bun-tests/core.bun.test.ts ./src/bun-tests/rxjs.bun.test.ts ./src/bun-tests/jasmine.bun.test.ts",
     "test:bun:angular": "bun test --preload ./src/bun-angular.ts ./src/bun-tests",
     "test:bun:isolate": "bun test --isolate --preload ./src/bun-angular.ts ./src/bun-tests",
+    "test:rstest": "rstest run",
     "bench": "node scripts/bench-self.mjs",
     "bench:vs": "node scripts/bench-run.mjs",
     "bench:vs:fast": "node scripts/bench-run.mjs --fast",
@@ -270,7 +279,7 @@
     "format:check": "prettier -c \"src/**/*.ts\"",
     "deps:check": "node scripts/check-dep-drift.mjs",
     "jscpd": "jscpd",
-    "check": "npm run deps:check && npm run typecheck && npm run lint && npm run format:check && npm run jscpd && npm run export-map:check && npm run llms:check && npm run docs:check && npm run ru:check && npm run plugin:sync:check && npm run skill:check && npm run alias:sync:check && npm run test:coverage && npm run test:types && npm run types:budget && npm run test:shared-env && npm run test:zone && npm run test:happy-dom && npm run test:invariants && npm run test:bun && npm run test:bun:angular",
+    "check": "npm run deps:check && npm run typecheck && npm run lint && npm run format:check && npm run jscpd && npm run export-map:check && npm run llms:check && npm run docs:check && npm run ru:check && npm run plugin:sync:check && npm run skill:check && npm run alias:sync:check && npm run test:coverage && npm run test:types && npm run types:budget && npm run test:shared-env && npm run test:zone && npm run test:happy-dom && npm run test:invariants && npm run test:bun && npm run test:bun:angular && npm run test:rstest",
     "prepublishOnly": "npm run build",
     "version": "node scripts/sync-plugin-version.mjs && node scripts/sync-alias.mjs && node scripts/generate-export-map.mjs && git add .claude-plugin alias src/cli/checks/export-map.generated.ts"
   },
@@ -315,6 +324,7 @@
     "@eslint-community/eslint-plugin-eslint-comments": "^4.7.2",
     "@eslint/js": "^10.0.1",
     "@happy-dom/global-registrator": "^20.14.0",
+    "@rstest/core": "^0.11.12",
     "@trivago/prettier-plugin-sort-imports": "^6.0.2",
     "@types/jsdom": "^30.0.0",
     "@types/node": "^24.13.3",
