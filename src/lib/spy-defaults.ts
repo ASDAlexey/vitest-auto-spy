@@ -40,6 +40,17 @@ import type { ClassSpyConfiguration, ClassType, OnlyMethodKeysOf } from './types
 type Registration = Record<string, unknown>;
 
 /**
+ * On `globalThis`, not in the module: tsup inlines this file into every entry bundle, so a
+ * module-level `Map` would give the setup file that registers and the spec that creates two
+ * registries whenever they import from different entry points — `vitest-auto-spy` and
+ * `vitest-auto-spy/vue`, say — and the defaults would silently not apply.
+ */
+declare global {
+  // A `globalThis` augmentation has to be declared with `var`.
+  var __vitestAutoSpyDefaults__: Map<object, Registration> | undefined;
+}
+
+/**
  * Keyed by the class object itself.
  *
  * A plain `Map` rather than a `WeakMap`, deliberately: the registry is filled once from a setup
@@ -47,7 +58,17 @@ type Registration = Record<string, unknown>;
  * `clearAutoSpyDefaults()` has to be able to empty it — which a `WeakMap` cannot do without a
  * second structure that would defeat the weakness it was chosen for.
  */
-const registry = new Map<object, Registration>();
+/**
+ * The reference is cached per bundle, the map itself is not: every bundle ends up holding the same
+ * `Map`, and a `globalThis` read on the creation path is not free — reading it per
+ * `createSpyFromClass` cost 1.2 µs a spy on the 100-method probe, which is more than the merge it
+ * guards.
+ */
+let sharedRegistry: Map<object, Registration> | undefined;
+
+function registry(): Map<object, Registration> {
+  return (sharedRegistry ??= globalThis.__vitestAutoSpyDefaults__ ??= new Map());
+}
 
 /**
  * Register the configuration every double of `ObjectClass` should start from.
@@ -63,7 +84,7 @@ const registry = new Map<object, Registration>();
  * ```
  */
 export function registerAutoSpyDefaults<T>(ObjectClass: ClassType<T>, config: ClassSpyConfiguration<T>): void {
-  registry.set(ObjectClass, { ...config });
+  registry().set(ObjectClass, { ...config });
 }
 
 /**
@@ -80,12 +101,12 @@ export function registerAutoSpyDefaults<T>(ObjectClass: ClassType<T>, config: Cl
  */
 export function clearAutoSpyDefaults(ObjectClass?: ClassType<unknown>): void {
   if (ObjectClass) {
-    registry.delete(ObjectClass);
+    registry().delete(ObjectClass);
 
     return;
   }
 
-  registry.clear();
+  registry().clear();
 }
 
 /** Whether a value is a plain object worth merging key by key rather than replacing. */
@@ -114,7 +135,7 @@ export function mergeAutoSpyDefaults<T>(
   ObjectClass: ClassType<T>,
   local: ClassSpyConfiguration<T> | OnlyMethodKeysOf<T>[] | undefined,
 ): ClassSpyConfiguration<T> | OnlyMethodKeysOf<T>[] | undefined {
-  const defaults = registry.get(ObjectClass);
+  const defaults = registry().get(ObjectClass);
 
   if (!defaults) {
     return local;

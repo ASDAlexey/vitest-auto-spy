@@ -102,6 +102,64 @@ const CROSS_ENTRY = [
       assert(message.includes('Called as: Cart.remove(7)'), 'strict mode did not render the arguments');
     `,
   },
+  {
+    // A setup file registers from the package root and a Vue/React/Svelte spec creates from its own
+    // entry — two bundles, and a module-level registry would leave the second one with an empty map
+    // and no error to say so.
+    name: 'defaults registered through the root entry reach a double built by another entry',
+    entries: ['./node', './vue'],
+    body: `
+      const { registerAutoSpyDefaults, clearAutoSpyDefaults } = await import(NODE);
+      const { createSpyFromClass } = await import(VUE);
+
+      class Session {
+        get token() { return ''; }
+      }
+
+      registerAutoSpyDefaults(Session, { gettersToSpyOn: ['token'] });
+
+      const session = createSpyFromClass(Session);
+      assert(Boolean(session.accessorSpies?.getters?.token), 'the registration did not reach the other entry point');
+
+      clearAutoSpyDefaults(Session);
+      const plain = createSpyFromClass(Session);
+      assert(!plain.accessorSpies?.getters?.token, 'clearing through one entry did not reach the other');
+    `,
+  },
+  {
+    // The outside-a-hook report spans two bundles by construction — `setupAutoSpy` ships only from
+    // `./setup` and the `mock*Prop` helpers only from the core entries — so the epoch it compares
+    // has to be one counter for both. The epoch is advanced from a `beforeEach`, which plain Node
+    // has no way to reach; what this can check is the shared counter the two sides agree on, and a
+    // per-bundle one fails it before the sweep is ever involved.
+    name: 'the outside-a-hook epoch is one counter for every entry point',
+    entries: ['./node', './setup'],
+    body: `
+      const { mockValueProp, restoreMockedProps, reportPropsOutsideHooks } = await import(NODE);
+      await import(SETUP);
+
+      const target = { value: 'real' };
+      mockValueProp(target, 'value', 'fake');
+
+      const epoch = globalThis.__vitestAutoSpyPropEpoch__;
+      assert(epoch !== undefined, 'the patch was stamped from a counter private to one bundle');
+
+      // What the sweep in the other bundle does between two tests.
+      epoch.current += 1;
+
+      const warnings = [];
+      const realWarn = console.warn;
+      console.warn = (...args) => warnings.push(args.join(' '));
+      restoreMockedProps();
+      console.warn = realWarn;
+
+      assert(warnings.length === 1, 'the sweep did not judge the patch against the shared counter');
+      assert(target.value === 'real', 'the sweep did not put the real property back');
+
+      reportPropsOutsideHooks('off');
+      assert(globalThis.__vitestAutoSpyOutsideHookReaction__ === 'off', 'the reaction was set on a bundle-private variable');
+    `,
+  },
 ];
 
 function fail(message) {

@@ -44,8 +44,23 @@ interface PatchedProp {
  * apart, and it needs nothing from the runner beyond the `beforeEach` `setupAutoSpy` already
  * installs: a patch made inside a per-test hook carries the current epoch, one made outside carries
  * an older one.
+ *
+ * The counter shares the journal's home on `globalThis` and has to: `setupAutoSpy` ships only from
+ * `vitest-auto-spy/setup` and `mockValueProp` only from the core entries, so the hook that advances
+ * the epoch and the call that stamps one are always in different bundles. A module-scoped counter
+ * left every correctly-placed patch stamped `0` against a sweep counting from its own copy, and the
+ * report fired on exactly the code it exists to bless.
  */
-let propEpoch = 0;
+declare global {
+  // A `globalThis` augmentation has to be declared with `var`.
+  var __vitestAutoSpyPropEpoch__: { current: number } | undefined;
+}
+
+let sharedEpoch: { current: number } | undefined;
+
+function propEpoch(): { current: number } {
+  return (sharedEpoch ??= globalThis.__vitestAutoSpyPropEpoch__ ??= { current: 0 });
+}
 
 /**
  * Start a new per-test epoch. Called from `setupAutoSpy`'s `beforeEach`, before anything else.
@@ -54,7 +69,7 @@ let propEpoch = 0;
  * correct, because without the sweep a `describe`-body patch stays where it was put.
  */
 export function beginPropEpoch(): void {
-  propEpoch += 1;
+  propEpoch().current += 1;
 }
 
 /**
@@ -84,7 +99,7 @@ function rememberProp<T>(object: T, property: PropertyKey, descriptor: PropertyD
     property,
     descriptor,
     undone: false,
-    epoch: propEpoch,
+    epoch: propEpoch().current,
   };
 
   getPatchedProps().push(patch);
@@ -199,11 +214,19 @@ export function countMockedProps(): number {
  */
 export type OutsideHookReaction = 'off' | 'throw' | 'warn';
 
-let outsideHookReaction: OutsideHookReaction = 'warn';
+/** On `globalThis` for the reason the epoch is: the grader and the sweep sit in different bundles. */
+declare global {
+  // A `globalThis` augmentation has to be declared with `var`.
+  var __vitestAutoSpyOutsideHookReaction__: OutsideHookReaction | undefined;
+}
+
+function outsideHookReaction(): OutsideHookReaction {
+  return globalThis.__vitestAutoSpyOutsideHookReaction__ ?? 'warn';
+}
 
 /** Set by `setupAutoSpy`; exported so a suite can grade the report without the setup helper. */
 export function reportPropsOutsideHooks(reaction: OutsideHookReaction): void {
-  outsideHookReaction = reaction;
+  globalThis.__vitestAutoSpyOutsideHookReaction__ = reaction;
 }
 
 /**
@@ -237,7 +260,7 @@ function firstReportOf({ object, property }: PatchedProp): boolean {
  * teardown it is diagnosing.
  */
 function reportOutsideHook(patches: readonly PatchedProp[]): void {
-  if (outsideHookReaction === 'off') {
+  if (outsideHookReaction() === 'off') {
     return;
   }
 
@@ -258,7 +281,7 @@ function reportOutsideHook(patches: readonly PatchedProp[]): void {
     DOCS_LINKS.setup,
   );
 
-  if (outsideHookReaction === 'throw') {
+  if (outsideHookReaction() === 'throw') {
     throw new Error(message);
   }
 
@@ -308,7 +331,7 @@ export function restoreMockedProps(): void {
     // Recorded before the restore, because the restore is what makes it unrecoverable: a patch made
     // in an epoch older than the one this sweep runs in was applied outside a per-test hook, so
     // nothing will put it back.
-    if (patch.epoch < propEpoch) {
+    if (patch.epoch < propEpoch().current) {
       outsideHook.push(patch);
     }
 
