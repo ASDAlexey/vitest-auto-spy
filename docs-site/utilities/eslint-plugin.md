@@ -1,6 +1,6 @@
 ---
 title: ESLint plugin
-description: Twenty flat-config lint rules that steer a suite onto the auto-spy helpers, grouped by subject, every one an error by default, with the dial documented and the false-positive cases named.
+description: Twenty-two flat-config lint rules that steer a suite onto the auto-spy helpers, grouped by subject, every one an error by default, with the dial documented and the false-positive cases named.
 ---
 
 # ESLint plugin
@@ -22,7 +22,7 @@ which a subpath export of this package can never be.
 
 **How this page is laid out.** [Adding it](#adding-it-to-your-project) is the four things a first
 config needs. [Which apply to you](#which-of-the-twenty-apply-to-you) answers the question a
-Vitest-only project asks — four of the twenty are about a dialect you may not speak.
+Vitest-only project asks — four of the twenty-two are about a dialect you may not speak.
 [Rules](#rules) is the reference table, in five groups. [Tuning](#tuning-it-for-your-project) is
 every dial, including the three rules that can report on correct code. Everything after that is
 _why_ — one section per rule, for when a report has arrived and you want to know what it saved you
@@ -78,15 +78,27 @@ In a monorepo, one block at the root covers every package as long as the glob is
 `'**/*.spec.ts'` matches `packages/*/src/**` fine. Add a second block only where one package's specs
 need different severities.
 
-### 3. No type information required
+### 3. Type information is optional, and one rule wants it
 
-Every rule is syntactic: they read the file's own AST and never ask the type checker. So the plugin
-works with `parserOptions.project` unset, adds nothing measurable to lint time, and does not need
-your specs to be in a `tsconfig` — which matters in the repositories where they are not.
+Twenty-one of the twenty-two are syntactic: they read the file's own AST and never ask the type checker.
+So the plugin works with `parserOptions.project` unset, adds nothing measurable to lint time, and
+does not need your specs to be in a `tsconfig` — which matters in the repositories where they are
+not.
 
 The cost of that is the honest limit of [the three rules that can report on correct
 code](#the-three-rules-that-can-report-on-correct-code): what a rule cannot see in one file, it
 cannot know.
+
+[`no-private-member-access`](#no-private-member-access-%E2%80%94-the-one-rule-that-reads-types) is
+the exception, and it **needs** a program: without one it reports nothing at all rather than falling
+back to the syntax. Half of it — the `Object.getPrototypeOf` escape — keeps working either way. Turn
+it on where your specs are already in a project:
+
+```js
+languageOptions: {
+  parserOptions: { projectService: true, tsconfigRootDir: import.meta.dirname },
+},
+```
 
 ### 4. What the first run looks like
 
@@ -101,7 +113,7 @@ npx eslint . --format stylish | tail -30   # the summary tells you which rule do
 Whatever is left is either a real finding or a rule you would rather not enforce yet. Both are
 answered below.
 
-## Which of the twenty apply to you
+## Which of the twenty-two apply to you {#which-of-the-twenty-apply-to-you}
 
 Reasonable question if you came straight to Vitest and have never written a line of Jasmine: **four
 of these rules are about a dialect you do not speak.** They are still on, and the reason is not
@@ -109,9 +121,9 @@ principle — it is that they cannot fire on your code.
 
 | You are                                    | What the plugin does for you                                                                         |
 | ------------------------------------------ | ---------------------------------------------------------------------------------------------------- |
-| writing Vitest, never used Jasmine or Jest | the fifteen core rules work; **the four jasmine rules are inert** — leave them on and never see them |
+| writing Vitest, never used Jasmine or Jest | the seventeen core rules work; **the four jasmine rules are inert** — leave them on and never see them |
 | migrating off `jest-auto-spies` / Jest     | the core rules do the work, `no-done-callback` and `prefer-as-spy` most of it                        |
-| migrating off `jasmine-auto-spies`         | all twenty, with `prefer-native-spy-api` set to `'off'` until the bridge is gone                   |
+| migrating off `jasmine-auto-spies`         | all twenty-two, with `prefer-native-spy-api` set to `'off'` until the bridge is gone                   |
 
 ### If you never used Jasmine
 
@@ -158,7 +170,7 @@ never jasmine's.
 ### If you are coming from Jest
 
 There is no separate Jest rule set, because most of what a Jest suite has to unlearn is already in
-the core fifteen — these are the ones that carry a migration:
+the core seventeen — these are the ones that carry a migration:
 
 | Rule                           | What it catches in a Jest suite                                                                                                                                                                                                                               |
 | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -181,7 +193,7 @@ that file needs). See [Migrating from jest-auto-spies](/migrating).
 
 ### If you are coming from Jasmine
 
-All twenty apply, and the four in the last group are the ones written for you. Two are pure
+All twenty-two apply, and the four in the last group are the ones written for you. Two are pure
 diagnosis — `no-jasmine-globals` and `no-save-arguments-by-value` name silent behaviour changes that
 survive a rename — and `jasmine-namespace-without-entry` catches the spy built before the layer was
 installed. The fourth, `prefer-native-spy-api`, reports the bridge itself, so it is the one line of
@@ -241,7 +253,16 @@ Five ways a provider ends up not being the double the spec thinks it registered.
 | [`no-unregistered-inject-spy`](#the-spy-that-only-the-compiler-can-see)                            | `injectSpy(X)` for a token this file never registered → the real instance, whose spy helpers exist only for the compiler | —       | red _(by construction)_ |
 | [`prefer-render-shallow`](#the-render-nobody-reads)                                                | `TestBed.createComponent` in a file that never reads the template → `renderShallow(X)`                                  | suggest |          green          |
 | [`no-overridden-provider`](#two-providers-one-token)                                               | two providers for one token in one array → the earlier one never runs; the exact duplicate can be deleted                | suggest |          green          |
-| [`no-inject-before-override`](#the-trap-this-plugin-s-own-advice-sets)                             | `TestBed.inject()` in a hook, in a suite that still calls `override*`                                                    | —       |           red           |
+| [`no-inject-before-override`](#the-trap-this-plugin-s-own-advice-sets)                             | `TestBed.inject()` / `injectSpy()` / `renderShallow()` in a hook, in a suite that still calls `override*`                | —       |           red           |
+| [`no-dead-schemas`](#no-dead-schemas-%E2%80%94-the-charm-that-protects-nobody)                        | `schemas` on a testing module that declares nothing → the schema applies to nothing                                      | —       | green _(by construction)_ |
+
+### Reaching past the public surface
+
+The one rule here that reads types, and the only group with a single member.
+
+| Rule                                                                                            | Flags                                                                                                                | Fix |       Without it        |
+| ----------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- | --- | :---------------------: |
+| [`no-private-member-access`](#no-private-member-access-%E2%80%94-the-one-rule-that-reads-types) | `instance['privateMember']`, `(instance as any).privateMember` and `vi.spyOn(Object.getPrototypeOf(x), 'm')` → drive the member through the public API | —   | green _(by construction)_ |
 
 ### Types
 
@@ -914,7 +935,7 @@ double in a `jest-auto-spies` suite, and every one of them fails with `TS2352` u
 
 ## The four jasmine rules
 
-They steer in the opposite direction from the rest of the plugin. The other fifteen push a Vitest
+They steer in the opposite direction from the rest of the plugin. The other eighteen push a Vitest
 suite towards this library's API; these four are about a suite that has not arrived yet — one
 running on [`vitest-auto-spy/jasmine`](/migrating-jasmine), or one that thinks it is.
 
@@ -1014,7 +1035,7 @@ this rule declines. See [Migrating from jasmine-auto-spies](/migrating-jasmine).
 
 ## Which rules fix, and why so few
 
-Three of the twenty rewrite the source on their own, eight offer the rewrite as a suggestion, and
+Three of the twenty-two rewrite the source on their own, eight offer the rewrite as a suggestion, and
 the split is about what a wrong guess costs rather than about how hard the rewrite is.
 
 `no-mocked-for-spy` touches nothing but a **declaration**. Get it wrong and the file stops
@@ -1255,6 +1276,132 @@ calls — `clearMocks: true` does reach a module-level `vi.fn()` and does clear 
 probes said so. What leaks is everything else a fixture holds next to its spies, which is why the fix
 is a factory rather than a `beforeEach` that clears harder. Which file runs first is the runner's
 choice, so the failure arrives as flakiness.
+
+### `no-dead-schemas` — the charm that protects nobody
+
+A schema is a property of the module's **`declarations`**. `NO_ERRORS_SCHEMA` tells the compiler to
+stop complaining about unknown elements in the templates of the components this module *declares*; a
+standalone component brought in through `imports` carries its own dependency scope, and the schema
+never reaches it.
+
+```ts
+await TestBed.configureTestingModule({
+  imports: [FooterComponent], // standalone — carries its own scope
+  schemas: [NO_ERRORS_SCHEMA], // applies to nothing
+}).compileComponents();
+```
+
+Measured over one Angular suite: of 333 files mentioning a schema, **230 entries in 204 files** are
+dead — `apps/smart` 63, `libs/purchase` 61, `apps/web` 22, `libs/gamification` 22, the rest a tail.
+
+Nothing is being silenced, so this is not a green-and-wrong test: whatever the schema was added for
+is still unresolved and still fails. What the line costs is **a false sense of protection**.
+`NO_ERRORS_SCHEMA` is the commonest way to make `NG8001` go away, so a spec carrying it reads as
+"unknown elements are excused here" to everyone who opens it — and the day somebody adds
+`declarations`, the same line starts working and a typo in a template quietly stops being an error.
+
+It is the static twin of [`enableAngularDiagnostics({ deadSchemas })`](/adapters/angular-diagnostics#deadschemas),
+and both are worth having. The diagnostic knows more — it can see that an `imports` entry really is a
+standalone component — but it throws inside `it()`, so a suite yields its list one red run at a time.
+The rule reads one object and hands over all 204 files at once, which is what a cleanup is planned
+from.
+
+**The file decides, not the call.** Angular merges successive `configureTestingModule` calls before
+the module is instantiated, so a schema in one hook and the declarations in another is one live
+configuration written twice. The rule stays silent for the whole file as soon as any configuration in
+it declares something, and it treats a list it cannot count — a spread, a name, a helper call — as
+present rather than empty.
+
+**`overrideComponent` and `overrideModule` are outside the rule**, and that is a decision rather
+than a side effect of where it looks — the tests pin it. A schema added there compensates a real
+removal the spec made on purpose:
+
+```ts
+TestBed.overrideComponent(TicketQrCode, {
+  remove: { imports: [QRCodeComponent] }, // draws on a canvas; jsdom cannot
+  add: { schemas: [NO_ERRORS_SCHEMA] }, // so the element it left behind needs excusing
+});
+```
+
+Take that schema away and the template stops compiling. Checked over the whole suite: of 41 specs
+that combine an override call with a schema, the rule reports **none** of the override blocks. The
+signal of a live schema on a standalone component is **any interference with the component's own
+`imports`** — `set: { imports: [] }`, `set: { imports: [MockThing] }`, `remove: { imports: [X] }` —
+never the module's `declarations`.
+
+A `remove: { imports }` is deliberately not read as "this file declares something" either. In every
+such file the module-level `schemas` was dead *as well*, and removing it left the spec green — so
+letting an override silence the whole file would hide exactly the findings the cleanup confirmed.
+
+::: warning Check the removal with a run, not with a green lint
+There is no autofix here on purpose, and this is why. Applied to one suite the rule cleaned **85
+files and 107 entries with no spec failing**, which is the accuracy it was built for — but the one
+edit that went wrong went wrong silently: a `schemas:` line inside an `overrideComponent` block was
+deleted along with the reported one because the two lines read identically, and six tests died on
+`NG0303: Can't bind to 'collapsed' since it isn't a known property of 'present-button'`. Neither the
+compiler nor ESLint had anything to say about it. Drop the `NO_ERRORS_SCHEMA` import only when
+nothing else in the file still uses it, and run the file.
+:::
+
+### `no-private-member-access` — the one rule that reads types
+
+`instance['privateMember']` is not a loophole TypeScript forgot to close. Bracket access is how an
+index signature is read, so the visibility check is spelled only on the dotted form — and a spec
+written the other way compiles, runs, and pins a member the class never promised anybody. Rename it
+and the refactor is green everywhere except a test file, which is the wrong place to learn that a
+name was load-bearing.
+
+```ts
+// what the rule reports
+expect(component['recalculate']()).toBe(3);
+(component as any).recalculate();
+vi.spyOn(Object.getPrototypeOf(component), 'recalculate');
+
+// what it asks for instead
+component.onResize(); // the public call that reaches it
+expect(component.total()).toBe(3); // and the effect it has
+```
+
+**Why it has to be type-aware, in one number.** Measured over a 1759-file Angular spec corpus:
+a syntax-only version — every `obj['literal']` — reports **511 sites in 85 files**. Of those,
+**324 in 45 files** resolve to a member declared `private` or `protected`. The other **187 (37 %)**
+are correct code the rule must not touch: `process.env['APP_KM_ENABLED']`, `dataset['error']`, a
+route's `queryParams['id']`, `req.headers['x-request-id']`, `form.controls['profileName']`,
+`errors?.['required']` — index signatures, all of them. **41 of those 85 files hold no private
+access at all**, which is the number to keep: matching a key against a list of names declared
+`private` somewhere inflates the file count more than the site count. A plain grep is worse still:
+~1726 bracket reads against the same 324 findings.
+
+So the resolution goes through the checker, and the name comes from the **type** of the key rather
+than from the source text — `const KEY = 'secret'; card[KEY]` resolves the same as the inline
+string, and `card[key]` where `key` is a plain `string` resolves to nothing and is left alone.
+Without a program the rule reports nothing rather than falling back to the syntax; the other two
+forms need no types and keep working either way.
+
+**The third form is a cast, and it is the one the checker is most needed for**, because the access
+itself is dotted and therefore *was* visibility-checked — against a type the spec substituted a line
+earlier:
+
+```ts
+(service as any).privateMember;
+(service as unknown as { privateMember: T }).privateMember;
+(service as DecoyDeclaredInTheSpec).privateMember;
+```
+
+All three ask the same question, so the rule walks a cast chain to the bottom — the middle of
+`as unknown as …` is `unknown` and answers nothing — and reads the member off the expression that
+still carries the real type. A dotted access with **no** cast in front of it is never resolved,
+which is both correct (the compiler checked it) and what keeps the rule off every `a.b` in the file.
+On the same corpus: **50 casts in 10 files**, against 324 bracket reads and 9 prototype spies —
+**383 findings in 55 files** in total, 204 of them in two files.
+
+**There is deliberately no helper for this.** A `readPrivate(instance, 'x')` export would legitimise
+exactly what the rule is for, and the repair is never mechanical: drive the member through the
+public API that uses it and assert the effect. On a component the rendered template is the other
+public surface, and it is the one `protected` exists for — `renderShallow(Cmp)` and read the DOM.
+When nothing public reaches the member at all, that is a fact about the design rather than a reason
+to step around the modifier: it either wants to be public, or wants to move into a collaborator the
+spec can provide a double for.
 
 ### `no-object-define-property` — nothing puts the descriptor back
 

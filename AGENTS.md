@@ -2440,7 +2440,9 @@ blanket downgrade so those keep their severity; do not copy the two names into a
 | `no-floating-assertion`           | `error` | —                 | `expect()` in a `.then()` nobody awaits → `expect(await promise)`                                                                         |
 | `no-bare-called-with`             | `error` | —                 | `spy.m.calledWith(1);` as a statement — a stub nobody continued, asserting nothing; chai's `expect(fn).to.have.been.calledWith()` exempt  |
 | `no-overridden-provider`          | `error` | suggest           | two providers for one token in one array → the earlier one never runs; the exact duplicate can be deleted                                 |
-| `no-inject-before-override`       | `error` | —                 | `TestBed.inject()` in a hook, in a suite that still calls `override*`                                                                     |
+| `no-inject-before-override`       | `error` | —                 | `TestBed.inject()` / `injectSpy()` / `renderShallow()` in a hook, in a suite that still calls `override*`                                                                     |
+| `no-private-member-access`        | `error` | —                 | `instance['privateMember']`, `(instance as any).privateMember` (and `as unknown as`, and a decoy type), `vi.spyOn(Object.getPrototypeOf(x), 'm')` → drive the member through the public API. **Type-aware**: silent without `parserOptions.project`, and silent on an index signature |
+| `no-dead-schemas`                 | `error` | —                 | `schemas` on a testing module with no `declarations` — the schema applies to nothing; the file decides, so a `declarations` in another `configureTestingModule` call silences it |
 | `no-import-time-spread`           | `error` | suggest           | `export const x = [...Imported]` at module scope → a `TypeError` while the bundle loads                                                   |
 | `no-unregistered-inject-spy`      | `error` | —                 | `injectSpy(X)` for a token this file never registered → the real instance, whose spy helpers exist only for the compiler                  |
 | `prefer-render-shallow`           | `error` | suggest           | `TestBed.createComponent` in a file that never reads the template → `renderShallow(X)`; 0.24× the per-test cycle at 100 children          |
@@ -2449,8 +2451,9 @@ blanket downgrade so those keep their severity; do not copy the two names into a
 | `no-save-arguments-by-value`      | `error` | —                 | `spy.calls.saveArgumentsByValue()` — a no-op here, so the spec silently asserts on post-mutation state                                    |
 | `prefer-native-spy-api`           | `error` | `--fix` / suggest | `.and` / `.calls` where the spy's own API says the same thing — turn it on for the last mile off the jasmine shim                         |
 
-Nineteen rules, **every one an `error` since 4.0.0**; three fix on their own, seven offer
-suggestions. The config used to be a graded mix of `error` / `warn` / `off`, which decided for the
+Twenty-two rules, **every one an `error` since 4.0.0**; three fix on their own, eight offer
+suggestions. Twenty-one are syntactic; `no-private-member-access` is the one that reads types, and it
+reports nothing at all without `parserOptions.project` / `projectService` rather than guessing. The config used to be a graded mix of `error` / `warn` / `off`, which decided for the
 consumer how much each finding mattered — a `warn` nothing reads is `off` with extra output. Three of
 them can report on a _correct_ project, and only one has an option:
 `jasmine-namespace-without-entry` takes `['error', { setupModules: ['./test-setup'] }]`, naming the

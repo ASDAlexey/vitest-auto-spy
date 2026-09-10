@@ -331,12 +331,22 @@ npx vitest-auto-spy codemod --verify  # after a migration: anything the transfor
 Most of this library's guarantees are type-level, so a green run that does not type-check is not
 done. Report failures with their output rather than describing them as passing.
 
-**After any `eslint --fix` over specs, run `npx tsc --noEmit`.** The twenty rules in
+**After any `eslint --fix` over specs, run `npx tsc --noEmit`.** The twenty-two rules in
 `vitest-auto-spy/eslint-plugin` are lint, not typecheck: `no-mocked-for-spy` rewrites a declaration
 to `Spy<T>` and cannot see what the name is assigned two lines below, so a clean lint pass is not
 evidence that the types still hold. Where it cannot prove the rename it downgrades to a suggestion —
 accept those together with the repair at the creation site, usually `createAutoMock<T>()` in place of
 an object literal.
+
+**`no-private-member-access` is the only rule here that needs type information.** It reports
+`instance['privateMember']` (bracket access, which TypeScript does not visibility-check),
+`(instance as any).privateMember` and its `as unknown as { … }` / decoy-interface variants (the
+access is checked — against a type the spec substituted), and
+`vi.spyOn(Object.getPrototypeOf(x), 'm')`. Without `parserOptions.project` / `projectService` it
+reports nothing rather than falling back to the syntax, because the same brackets are how an index
+signature is read (`process.env['KEY']`, `queryParams['id']`). The repair is never a helper: drive
+the member through the public API, or — on a component — through the rendered template, where a
+`protected` member really is reachable.
 
 **`registerAutoSpyDefaults(Class, config)` puts a spy's composition with the class, once.** Call it
 from the setup file for a class every suite doubles the same way (`Router` with
