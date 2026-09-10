@@ -629,15 +629,15 @@ prune reaches only one and the run dies out of memory.
 
 ## Bundle size
 
-The badge says 16.0 kB min+gzip, and that is the whole core entry bundled together. It is also the
+The badge says 16.1 kB min+gzip, and that is the whole core entry bundled together. It is also the
 largest number a consumer can pay for the core, because entries are separate subpaths and a project
 only pays for the ones it imports:
 
 | Imported                                        |    min+gzip |
 | ----------------------------------------------- | ----------: |
-| `.` — the core entry, what the badge measures   | **16.0 kB** |
+| `.` — the core entry, what the badge measures   | **16.1 kB** |
 | `vitest-auto-spy/angular`                       |     20.1 kB |
-| `vitest-auto-spy/react` / `/vue` / `/svelte`    |     16.1 kB |
+| `vitest-auto-spy/react` / `/vue` / `/svelte`    |     16.2 kB |
 | `vitest-auto-spy/node`                          |     15.3 kB |
 | `vitest-auto-spy/dom-stubs`                     |      5.3 kB |
 | `vitest-auto-spy/rxjs`                          |      2.3 kB |
