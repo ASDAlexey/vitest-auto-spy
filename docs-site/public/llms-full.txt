@@ -11014,9 +11014,10 @@ Cursor, Windsurf and VSCodium install that ESLint extension from Open VSX and re
 | `spy.calls.saveArgumentsByValue()`                           | a no-op here, so the spec quietly starts asserting on post-mutation state                                                                   | `no-save-arguments-by-value`      |
 
 The last three are for a suite [migrating off `jasmine-auto-spies`](https://asdalexey.github.io/vitest-auto-spy/migrating-jasmine).
-`prefer-native-spy-api`, which finishes that migration under `--fix`, is `off` in the recommended
-config — it reports working code, so it is switched on for the last mile rather than left underlining
-a bridge that is still being crossed.
+`prefer-native-spy-api`, which finishes that migration under `--fix`, ships at `error` like the rest,
+and it is the one rule a suite is expected to set to `'off'` for a while: it reports working bridge
+code, so on day one it underlines every line of the shim. Turn it back on for the last mile — the
+migration is finished when it is silent again.
 
 Each message ends with a link to the README recipe that shows the replacement, so the rule never
 only says "don't". The full descriptions, severities and the reasoning behind which rules fix and
@@ -13852,7 +13853,8 @@ ahead.
 ## 3. Every ESLint rule is an error
 
 `configs.recommended` used to grade its nineteen rules `error` / `warn` / `off`. They are all
-`error` now.
+`error` now — with one exception added later: `prefer-render-shallow` ships as a `warn`, because it
+reports a cost rather than a defect. [The plugin page](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-plugin#rules) says why.
 
 A `warn` is a finding a build does not stop for, so in a repository that does not read lint output it
 is `off` with extra noise — and choosing that on your behalf was the part that was wrong. Which
@@ -14852,10 +14854,13 @@ step 1 and step 3:
 
 | Rule                              | Level   | Reports                                                                                                      |
 | --------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------ |
-| `jasmine-namespace-without-entry` | `warn`  | `.and` / `.calls` / `.withArgs` on a library spy, in a file that installs the layer nowhere                  |
+| `jasmine-namespace-without-entry` | `error` | `.and` / `.calls` / `.withArgs` on a library spy, in a file that installs the layer nowhere                  |
 | `no-jasmine-globals`              | `error` | `jasmine.*`, bare `spyOn(` / `spyOnProperty(` / `spyOnAllFunctions(` / `fail(` / `pending(`, `.withContext(` |
 | `no-save-arguments-by-value`      | `error` | the no-op above                                                                                              |
-| `prefer-native-spy-api`           | `off`   | `.and` / `.calls` where the spy's own API says the same thing — **`--fix`** where it can trace the receiver  |
+| `prefer-native-spy-api`           | `error` | `.and` / `.calls` where the spy's own API says the same thing — **`--fix`** where it can trace the receiver  |
+
+All four ship at `error`; the last one is the rule to hold at `'off'` for the length of the
+migration, for the reason below.
 
 `no-done-callback`, which is on at `error` in the recommended config anyway, is the fifth one this
 migration leans on: besides the `(done) =>` parameter it reports `done.fail(…)` at the call site.

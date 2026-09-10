@@ -177,6 +177,7 @@ users.save.rejectWith(new HttpError(409));
 - [Паттерны, которые держатся](/ru/recipes)
 - [Строгий режим](/ru/core/strict-mode)
 - [ESLint-плагин](/ru/utilities/eslint-plugin)
+- [Правила ESLint](/ru/utilities/eslint-rules)
 - [Написано для AI-агентов](/ru/agents)
 
 </div>

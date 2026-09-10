@@ -310,6 +310,8 @@ export default defineConfig({
           'node 25 localStorage vitest, node 26 web storage, restoreWebStorage, ' +
           'did the migration lose a test, compare two test runs, jest vs vitest test names diff, ' +
           'eslint plugin for vitest spies, done callback is deprecated use promise instead, ' +
+          'what does this eslint rule mean, turn off one eslint rule, link to a lint rule doc, ' +
+          'prefer-render-shallow, why is this rule a warning, eslint rule severity vitest spies, ' +
           'createSpyFromClass, createAutoMock, mockDeep, deep mock, createFixture, createFixtureFactory, ' +
           'resolveWith, calledWith, mustBeCalledWith, failWith, mockThrow, throw for specific arguments, nextWithValues, assertMocked, ' +
           'extendWithAutoSpies, test.extend fixtures, TestBed fixtures, vitest 4.1, detect-async-leaks, stray timers, onStrayTimers, no-bare-called-with, ' +

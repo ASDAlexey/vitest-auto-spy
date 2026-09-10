@@ -178,6 +178,7 @@ from a type or an interface.
 - [Patterns that hold up](/recipes)
 - [Strict mode](/core/strict-mode)
 - [ESLint plugin](/utilities/eslint-plugin)
+- [ESLint rules](/utilities/eslint-rules)
 - [Written for AI agents](/agents)
 
 </div>
