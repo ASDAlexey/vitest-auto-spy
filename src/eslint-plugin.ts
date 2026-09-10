@@ -88,6 +88,7 @@ const recommendedRules: Record<string, RuleSeverity> = {
   [`${PLUGIN_NAME}/no-import-time-spread`]: 'error',
   [`${PLUGIN_NAME}/no-unregistered-inject-spy`]: 'error',
   [`${PLUGIN_NAME}/prefer-render-shallow`]: 'error',
+  [`${PLUGIN_NAME}/prefer-observer-stub`]: 'error',
   [`${PLUGIN_NAME}/jasmine-namespace-without-entry`]: 'error',
   [`${PLUGIN_NAME}/no-jasmine-globals`]: 'error',
   [`${PLUGIN_NAME}/no-save-arguments-by-value`]: 'error',

@@ -44,7 +44,6 @@ import { type EsPromiseExecutor, type EsSubscribeCall, awaitedRewriteFor } from 
 import { bindingState, findBinding } from './bindings';
 import { noDeadSchemas } from './dead-schemas';
 import { defineRule } from './define-rule';
-import { RENDER_MESSAGES, buildsDirectiveHarness, readsRenderedTemplate, renderShallowSuggestion, templatePolicy } from './dom-reads';
 import { isFloatingChain, isPromiseCallback } from './floating-assertion';
 import {
   countRunnerFns,
@@ -58,7 +57,9 @@ import { lazyValueSuggestion, runsAtImportTime, spreadOfImport } from './import-
 import { type EsSpyCast, asSpyFixes, assertedValue, injectSpySuggestion, injectedFromVariable, isTestBedInject } from './injected-spy';
 import { jasmineRules } from './jasmine-rules';
 import { type EsMockedTypeName, namesOneType, rewritesTheWholeDeclaration, spyTypeFixes } from './mocked-declaration';
+import { preferObserverStub } from './observer-stub';
 import { OVERRIDE_MESSAGES, deleteProviderSuggestion, overriddenProviders } from './overridden-provider';
+import { preferRenderShallow } from './prefer-render-shallow';
 import { noPrivateMemberAccess } from './private-access';
 import { patchKey, propHelperSuggestion } from './prop-helpers';
 import {
@@ -641,40 +642,6 @@ const noUnregisteredInjectSpy = defineRule({
 });
 
 /** `TestBed.createComponent(X)` in a file that never reads the DOM → `renderShallow(X)`. */
-const preferRenderShallow = defineRule({
-  anchor: '-a-components-children',
-  description: 'Render through renderShallow() when the spec never reads the rendered template',
-  hasSuggestions: true,
-  schema: [{ type: 'object', properties: { templates: { enum: ['as-needed', 'never'] } }, additionalProperties: false }],
-  messages: RENDER_MESSAGES,
-  create: (context) => ({
-    'CallExpression[callee.object.name="TestBed"][callee.property.name="createComponent"]': (node: EsCallExpression): void => {
-      // Asked of the whole file, not of this fixture: see `readsRenderedTemplate`. Under
-      // `{ templates: 'never' }` the question is not asked at all — no spec renders a template,
-      // except the harness a directive has no way to be reached without.
-      const source = context.sourceCode.getText();
-      const policy = templatePolicy(context);
-
-      if (policy === 'as-needed' ? readsRenderedTemplate(source) : buildsDirectiveHarness(source)) {
-        return;
-      }
-
-      // Two findings, not one wording: `as-needed` reports a render nobody reads and may say so,
-      // while `never` reports the policy and knows nothing about the reads — under it the file that
-      // gets reported is usually the one that reads the template hardest.
-      const messageId = policy === 'never' ? 'templatesNever' : 'preferRenderShallow';
-      const suggestion = renderShallowSuggestion(context, node);
-
-      context.report(suggestion ? { node, messageId, suggest: [suggestion] } : { node, messageId });
-    },
-    'Property[key.name="keepTemplate"][value.value=true]': (node: EsNode): void => {
-      if (templatePolicy(context) === 'never') {
-        context.report({ node, messageId: 'keepTemplate' });
-      }
-    },
-  }),
-});
-
 /**
  * Every rule the plugin ships, keyed by the name used in an ESLint config.
  *
@@ -702,5 +669,6 @@ export const rules: Record<string, RuleModule> = {
   'no-import-time-spread': noImportTimeSpread,
   'no-unregistered-inject-spy': noUnregisteredInjectSpy,
   'prefer-render-shallow': preferRenderShallow,
+  'prefer-observer-stub': preferObserverStub,
   ...jasmineRules,
 };
