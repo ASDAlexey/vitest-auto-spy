@@ -132,9 +132,9 @@ function checkDeadSchemas(config: unknown): void {
 const HTTP_TESTING_CONTROLLER = 'HttpTestingController';
 
 /** Flatten a provider list: nested arrays, and the `ɵproviders` of an `EnvironmentProviders` wrapper. */
-function flattenProviders(value: unknown, into: unknown[]): void {
+function forEachProvider(value: unknown, visit: (provider: unknown) => void): void {
   if (Array.isArray(value)) {
-    value.forEach((entry) => flattenProviders(entry, into));
+    value.forEach((entry) => forEachProvider(entry, visit));
 
     return;
   }
@@ -142,12 +142,17 @@ function flattenProviders(value: unknown, into: unknown[]): void {
   const wrapped = readProperty(value, 'ɵproviders');
 
   if (wrapped === undefined) {
-    into.push(value);
+    visit(value);
 
     return;
   }
 
-  flattenProviders(wrapped, into);
+  forEachProvider(wrapped, visit);
+}
+
+/** The same walk, materialised — for the callers that search the list rather than fold over it. */
+function flattenProviders(value: unknown, into: unknown[]): void {
+  forEachProvider(value, (provider) => into.push(provider));
 }
 
 function findControllerToken(providers: unknown): unknown {
@@ -314,22 +319,27 @@ export function assertNoPendingRequests(): void {
  */
 const moduleDoubles = new Map<unknown, unknown>();
 
+/**
+ * Remember one provider, if it registers a double under a token.
+ *
+ * Module-level rather than a closure inside {@link collectModuleDoubles}: that one runs on every
+ * `configureTestingModule` of the run, and this way the walk allocates neither the flattened list
+ * nor a visitor.
+ */
+function rememberModuleDouble(provider: unknown): void {
+  const token = readProperty(provider, 'provide');
+  const useValue = readProperty(provider, 'useValue');
+
+  // A `multi` provider resolves to an array, which can never be the double itself — comparing
+  // them would report every multi registration in the suite.
+  if (token !== undefined && isAutoSpyLike(useValue) && readProperty(provider, 'multi') !== true) {
+    moduleDoubles.set(token, useValue);
+  }
+}
+
 /** Collect the doubles a configuration registers, keeping the last per token, as Angular does. */
 function collectModuleDoubles(config: unknown): void {
-  const flat: unknown[] = [];
-
-  flattenProviders(readProperty(config, 'providers'), flat);
-
-  flat.forEach((provider) => {
-    const token = readProperty(provider, 'provide');
-    const useValue = readProperty(provider, 'useValue');
-
-    // A `multi` provider resolves to an array, which can never be the double itself — comparing
-    // them would report every multi registration in the suite.
-    if (token !== undefined && isAutoSpyLike(useValue) && readProperty(provider, 'multi') !== true) {
-      moduleDoubles.set(token, useValue);
-    }
-  });
+  forEachProvider(readProperty(config, 'providers'), rememberModuleDouble);
 }
 
 /** How a token reads in the failure — its class name, or whatever an `InjectionToken` calls itself. */

@@ -307,16 +307,29 @@ export function readProperty(value: unknown, key: string): unknown {
 }
 
 /**
- * An absent list, or one that flattens to nothing.
+ * An absent list, or one that nests nothing but empty lists.
  *
- * Flattened rather than length-checked because the compiler nests: the `ɵinj.imports` of
+ * Nesting rather than a `length === 0` because the compiler nests: the `ɵinj.imports` of
  * `@NgModule({})` is `[[], []]` — the module's own imports and exports, both empty — which a plain
- * `length === 0` reads as two entries and calls a contribution.
+ * `length === 0` reads as two entries and calls a contribution. Recursive rather than
+ * `flat(Infinity).length === 0`, which answers the same question by allocating the flattened array
+ * first; this runs on every import of every `configureTestingModule` in the run.
  */
 function isEmptyList(value: unknown): boolean {
-  return value === undefined || (Array.isArray(value) && value.flat(Infinity).length === 0);
+  return value === undefined || (Array.isArray(value) && value.every((entry) => Array.isArray(entry) && isEmptyList(entry)));
 }
 
+/**
+ * Verdicts, keyed by the module definition rather than by the module.
+ *
+ * `TestBed` recompiles an overridden module by defining a **new** `ɵmod`, so an entry here can only
+ * ever be read for the definition it was computed from. The other half of the verdict comes from
+ * `ɵinj`, which `TestBed` mutates in place — but only to replace providers that are already there,
+ * and a module reaching this cache with no providers at all has nothing to replace.
+ */
+const deadModuleVerdicts = new WeakMap<object, boolean>();
+
+/** Whether a module's declarations and exports are both empty — the looser half of {@link isDeadNgModuleImport}. */
 function hasEmptyRuntimeScope(module: unknown): boolean {
   const definition = readProperty(module, 'ɵmod');
 
@@ -339,13 +352,28 @@ function hasEmptyRuntimeScope(module: unknown): boolean {
  * that is a mistake no matter what it was imported for.
  */
 export function isDeadNgModuleImport(module: unknown): boolean {
-  if (!hasEmptyRuntimeScope(module)) {
+  const definition = readProperty(module, 'ɵmod');
+
+  if (typeof definition !== 'object' || definition === null) {
     return false;
   }
 
-  const injector = readProperty(module, 'ɵinj');
+  const cached = deadModuleVerdicts.get(definition);
 
-  return isEmptyList(readProperty(injector, 'providers')) && isEmptyList(readProperty(injector, 'imports'));
+  if (cached !== undefined) {
+    return cached;
+  }
+
+  const injector = readProperty(module, 'ɵinj');
+  const dead =
+    isEmptyList(readProperty(definition, 'declarations')) &&
+    isEmptyList(readProperty(definition, 'exports')) &&
+    isEmptyList(readProperty(injector, 'providers')) &&
+    isEmptyList(readProperty(injector, 'imports'));
+
+  deadModuleVerdicts.set(definition, dead);
+
+  return dead;
 }
 
 function moduleName(module: unknown): string {
