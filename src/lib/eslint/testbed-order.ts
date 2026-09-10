@@ -20,12 +20,32 @@
  * …and any `override*` in the file, including one inside a `createComponent` helper, stops working.
  * Found twice independently, once for sixteen tests at a stroke, both times after a migration.
  *
+ * **The same instantiation has three more spellings, and two of them are this package's own.**
+ * `injectSpy(X)` *is* `TestBed.inject(X)` and `renderShallow(Cmp)` ends in
+ * `TestBed.createComponent`, so a rule reading only the `TestBed.` forms stayed silent on exactly
+ * the file the rest of the plugin had just rewritten — an `injectSpy` in `beforeEach` above a
+ * `TestBed.overrideComponent`, failing at run time with `Cannot override component when the test
+ * module has already been instantiated` and reported by nothing. Found by hand in a migrated suite.
+ * `TestBed.runInInjectionContext` is the third, and needs the injector for the same reason.
+ *
  * The check is deliberately order-free. Lexical order is not run order — an `override*` written
  * above the hook, inside a helper the tests call, still runs after it — so the question asked is
  * "does this suite override at all", with the one exemption that can be read off the source: an
  * `override*` that sits in the same hook body *before* the injection really does run first.
  */
 import { type EsNode, countInSubtree, isCallExpression, isIdentifier, isMemberCall } from './rule-types';
+
+/**
+ * Every spelling that instantiates the testing module, as one esquery selector list.
+ *
+ * The second half is this package's own helpers, and leaving it out is what kept
+ * `no-inject-before-override` silent on the file the rest of the plugin had just rewritten. A bare
+ * callee, not a member one: the two-argument `injectSpy(moduleRef, token)` of
+ * `vitest-auto-spy/nestjs` reaches no TestBed.
+ */
+export const INSTANTIATES_THE_MODULE =
+  'CallExpression[callee.object.name="TestBed"][callee.property.name=/^(inject|createComponent|runInInjectionContext)$/],' +
+  'CallExpression[callee.type="Identifier"][callee.name=/^(injectSpy|renderShallow)$/]';
 
 /** The calls that need an uninstantiated module. */
 const OVERRIDES = new Set([

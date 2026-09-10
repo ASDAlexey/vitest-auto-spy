@@ -84,7 +84,7 @@ import {
   propertyName,
 } from './rule-types';
 import { type EsNamedCall, type SubscribeRepair, enclosingSubscribe, helperAssertions, repairFor } from './subscribe-repair';
-import { breaksAnOverride } from './testbed-order';
+import { INSTANTIATES_THE_MODULE, breaksAnOverride } from './testbed-order';
 import { emptyRegistrations, readCall, readProviders, unregisteredInjections } from './unregistered-spy';
 
 /** `{ provide: X, useValue: { a: vi.fn() } }` → `provideAutoSpy(X)`. */
@@ -225,7 +225,7 @@ const noObjectDefineProperty = defineRule({
   },
 });
 
-/** `TestBed.inject()` in a hook, in a suite that still overrides → the override throws. */
+/** `TestBed.inject()` / `injectSpy()` in a hook, in a suite that still overrides → the override throws. */
 const noInjectBeforeOverride = defineRule({
   anchor: '-a-service-behind-angular-di',
   description: 'Do not instantiate the TestBed in a hook when the suite still needs to override a provider',
@@ -234,7 +234,7 @@ const noInjectBeforeOverride = defineRule({
       'This instantiates the testing module, and this suite overrides something: every `TestBed.override*` that runs afterwards — in a test, or in a `createComponent` helper written above this line — throws `Cannot override provider when the test module has already been instantiated`. The trap is one that migrating *to* `provideAutoSpy` creates: a hand-rolled `useValue` configured its return values in the literal, and the replacement has nowhere to put them, so the line lands in `beforeEach`. Configure the double after every override instead — `injectSpy(X)` inside the test — or keep the access lazy (`const api = () => injectSpy(Api)`), which moves instantiation into the first test, after the overrides have run.',
   },
   create: (context) => ({
-    'CallExpression[callee.object.name="TestBed"][callee.property.name=/^(inject|createComponent)$/]': (node: EsNode): void => {
+    [INSTANTIATES_THE_MODULE]: (node: EsNode): void => {
       if (breaksAnOverride(node)) {
         context.report({ node, messageId: 'noInjectBeforeOverride' });
       }

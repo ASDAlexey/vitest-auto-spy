@@ -1325,8 +1325,37 @@ describe('no-inject-before-override', () => {
     expect(lint(separate, 'no-inject-before-override')).toEqual([]);
   });
 
+  /**
+   * The spelling the rest of this plugin asks for. `injectSpy(X)` **is** `TestBed.inject(X)` and
+   * `renderShallow` ends in `TestBed.createComponent`, so a rule that read only the `TestBed.` forms
+   * stayed silent on precisely the file the other rules had just rewritten — found by hand in a
+   * migrated suite, as `Cannot override component when the test module has already been
+   * instantiated` with no lint report anywhere near it.
+   */
+  it("flags this package's own helpers, which instantiate the module just as `TestBed.` does", () => {
+    expect(lint(suite('api = injectSpy(Api);', 'TestBed.overrideComponent(PageComponent, {});'), 'no-inject-before-override')).toEqual([
+      'vitest-auto-spy/no-inject-before-override',
+    ]);
+    expect(
+      lint(suite('host = renderShallow(PageComponent);', 'TestBed.overrideProvider(Other, {});'), 'no-inject-before-override'),
+    ).toHaveLength(1);
+    expect(
+      lint(suite('TestBed.runInInjectionContext(() => inject(Api));', 'TestBed.overrideProvider(Other, {});'), 'no-inject-before-override'),
+    ).toHaveLength(1);
+  });
+
+  it('flags the override written after the injection in one hook, which is the order that fails', () => {
+    // The shape the report came in on: both lines in the same `beforeEach`, the override second.
+    const hook = 'const api = injectSpy(Api);\n    TestBed.overrideComponent(PageComponent, {});';
+
+    expect(lint(suite(hook, 'expect(1).toBe(1);'), 'no-inject-before-override')).toHaveLength(1);
+  });
+
   it('reads an injection written outside any suite, and any call that merely looks like one', () => {
     expect(lint('TestBed.inject(Api);\nTestBed.overrideProvider(Other, {});', 'no-inject-before-override')).toEqual([]);
+    // A member call of the same name is somebody else's API — `vitest-auto-spy/nestjs` aside, which
+    // reaches no TestBed and therefore no `TestBed.override*` either.
+    expect(lint(suite('api = moduleRef.injectSpy(Api);', 'TestBed.overrideProvider(Other, {});'), 'no-inject-before-override')).toEqual([]);
     expect(
       lint("beforeEach(() => { TestBed.inject(Api); });\nit('x', () => bed.overrideProvider(Other, {}));", 'no-inject-before-override'),
     ).toEqual([]);
