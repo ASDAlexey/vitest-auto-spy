@@ -18,8 +18,8 @@
  * `mock.*` and `getMockName()`, all of which this implements with the same semantics.
  */
 import { DISPOSE } from './dispose-symbol';
-import { setSharedHelperSink } from './spy-decoration';
-import { FAST_SPY_BRAND, isThenable } from './spy-probe';
+import { type Helpers, setSharedHelperSink } from './spy-decoration';
+import { FAST_SPY_BRAND, isFastSpy, isThenable } from './spy-probe';
 import type { Func } from './types';
 
 /**
@@ -313,26 +313,138 @@ function self(value: unknown): FastSpy {
  */
 const FAST_SPY_PROTOTYPE: Record<PropertyKey, unknown> = Object.create(Function.prototype);
 
-/** Attach one shared method to the prototype, non-enumerable as the runner's own mock methods are not enumerable in a spread. */
+/** Attach one shared method to a prototype, non-enumerable as the runner's own mock methods are not enumerable in a spread. */
+function defineMember(prototype: object, key: PropertyKey, value: unknown): void {
+  Object.defineProperty(prototype, key, { value, writable: true, configurable: true, enumerable: false });
+}
+
+/** {@link defineMember} against this module's own prototype, which is what all but one caller wants. */
 function definePrototypeMember(key: PropertyKey, value: unknown): void {
-  Object.defineProperty(FAST_SPY_PROTOTYPE, key, { value, writable: true, configurable: true, enumerable: false });
+  defineMember(FAST_SPY_PROTOTYPE, key, value);
 }
 
 definePrototypeMember(FAST_SPY_BRAND, true);
 definePrototypeMember('_isMockFunction', true);
 
 /**
- * Put a bundle of helper methods on the prototype every fast spy inherits, once for the run.
+ * Where the record of "which bundle owns which key on this prototype" lives: on the prototype.
+ *
+ * Not in this module's scope, and that is the whole correctness argument. The package is routinely
+ * loaded as more than one copy — `dist/index.js` and `dist/angular.js` are each built unsplit, so
+ * each carries its own copy of this module and its own `FAST_SPY_PROTOTYPE`, while the mock adapter
+ * every spy is built through is pinned to the single `dist/shared-state.js`. So a spy reaches the
+ * `attachHelpers` — and the sink — of a copy that does not own the prototype it inherits from, and
+ * anything a copy remembers privately is blind to what the others have already written there. 5.4.0
+ * remembered only "this bundle has been shared", against no prototype at all, and wrote it onto its
+ * own prototype: every spy in an Angular consumer lost `calledWith`, `mustBeCalledWith` and
+ * `resolveWith`, while the observable bundle survived because the copy that recorded it did happen
+ * to own the prototype. Remembering it per prototype but still per copy only moves the blindness —
+ * two copies then both believe they own the prototype and the second overwrites the first, which
+ * trades a missing helper for one that rejects the spy it was called on. The prototype is the one
+ * object every copy holds, so the record goes on it, under a `Symbol.for` they all resolve alike.
+ */
+const SHARED_HELPERS = Symbol.for('vitest-auto-spy.sharedHelpers');
+
+/**
+ * The prototype's key-to-bundle record, created on first use.
+ *
+ * `undefined` when the property is there but is not a record this understands — a prototype
+ * something else has written to is left alone, and the bundle is copied onto the spy instead.
+ */
+function ownersOf(prototype: object): Map<string, Helpers> | undefined {
+  if (Object.hasOwn(prototype, SHARED_HELPERS)) {
+    const existing: unknown = Reflect.get(prototype, SHARED_HELPERS);
+
+    return existing instanceof Map ? existing : undefined;
+  }
+
+  const created = new Map<string, Helpers>();
+
+  defineMember(prototype, SHARED_HELPERS, created);
+
+  return created;
+}
+
+/**
+ * The prototype a bundle may be shared on, or `undefined` when the target has none of ours.
+ *
+ * The brand has to be the prototype's **own** property. {@link isFastSpy} reads it through the
+ * chain, and a spy something re-parented would otherwise have a bundle written onto an object this
+ * module hands to nobody — where the write is both invisible to every spy and visible to whatever
+ * else inherits from it.
+ */
+function shareablePrototypeOf(target: object): object | undefined {
+  if (!isFastSpy(target)) {
+    return undefined;
+  }
+
+  const prototype: unknown = Object.getPrototypeOf(target);
+
+  if (typeof prototype !== 'object' || prototype === null || !Object.hasOwn(prototype, FAST_SPY_BRAND)) {
+    return undefined;
+  }
+
+  return prototype;
+}
+
+/**
+ * Put a bundle of helper methods on the prototype `target` inherits from, once per prototype.
  *
  * The alternative is `Object.assign` per spy, which is what a runner-backed mock still gets: it has
  * no prototype of ours to share. Six own property slots on every materialised method spy is not a
  * closure each — the functions were already shared — but it is six slots, and a wide double in a
  * large suite has thousands of them.
+ *
+ * Answers `false` where the bundle cannot be shared safely, and the caller then copies it onto the
+ * spy. Two copies of the package have two `SPY_HELPERS` objects whose `calledWith` reads the spy
+ * through that copy's own internals class, so a helper of the wrong copy throws at a perfectly
+ * attached call: the first bundle to claim a key keeps it and every later one is refused, which is
+ * exactly what every spy had before the bundles were shared at all.
  */
-function shareFastSpyHelpers(helpers: Record<string, unknown>): void {
-  for (const key of Object.keys(helpers)) {
-    definePrototypeMember(key, helpers[key]);
+function shareFastSpyHelpers(target: object, helpers: Helpers): boolean {
+  const prototype = shareablePrototypeOf(target);
+
+  if (prototype === undefined) {
+    return false;
   }
+
+  const keys = Object.keys(helpers);
+  const firstKey = keys[0];
+
+  if (firstKey === undefined) {
+    return true;
+  }
+
+  const owners = ownersOf(prototype);
+
+  if (owners === undefined) {
+    return false;
+  }
+
+  // A bundle is installed all-or-nothing, so the first key answers for the whole of it — which keeps
+  // the path every spy after the first takes at one map lookup.
+  const owner = owners.get(firstKey);
+
+  if (owner === helpers) {
+    return true;
+  }
+
+  if (owner !== undefined) {
+    return false;
+  }
+
+  for (const key of keys) {
+    if (owners.has(key)) {
+      return false;
+    }
+  }
+
+  for (const key of keys) {
+    owners.set(key, helpers);
+    defineMember(prototype, key, helpers[key]);
+  }
+
+  return true;
 }
 
 // Registered rather than imported: `spy-decoration` is reached from every entry, and this module is
