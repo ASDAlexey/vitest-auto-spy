@@ -41,7 +41,7 @@ const EXTERNAL = [
 //     Measured 2026-09-03 with `minifyWhitespace: true`: `dist` on disk −144 kB, but `/setup`
 //     min+gzip **10 585 → 11 816 B, +11.6 %** in every consumer's bundle. `minifySyntax` on top
 //     changes nothing either way (11 809 B). `/setup` is where the audit could see it because it is
-//     the entry whose module-level state the marks were added for — see `TODO.md`; this is the
+//     the entry whose module-level state the marks were added for — see `DECISIONS.md`; this is the
 //     second time that same 1.2 kB has appeared there.
 //
 // So install weight is not a free lever: the bytes that come off `dist` are also the bytes that

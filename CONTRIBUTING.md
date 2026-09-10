@@ -22,6 +22,7 @@ npm ci
 | `npm run deps:check` | Fail when `node_modules` drifted from `package-lock.json`, so the gate tests the versions `npm ci` installs |
 | `npm run test:types` | Assert what callers **infer** — `expectTypeOf` cases under `src/type-tests` |
 | `npm run types:budget` | Count the type instantiations `Spy<T>` costs `tsc` on a generated fixture; fails past the budget in `scripts/check-type-budget.mjs` (`--measure` prints the numbers, `--print` the fixture) |
+| `npm run test:node` | Run `src/node-tests/` on the real `node --test`, the only place the `node:test` adapter is not a stub |
 | `npm run build` | Build the ESM + CJS bundles and type declarations |
 | `npm run bench` | Micro-benchmark this package only (`bench/auto-spy.bench.ts`) — runs in any checkout, no extra install |
 | `npm run bench:vs` | Head-to-head micro-benchmark against `@bugsplat/vitest-auto-spies`, `vitest-mock-extended`, `@golevelup/ts-vitest` and a hand-written `vi.fn()` control (`bench/vs-libraries.bench.ts`) — needs `npm ci --prefix bench` first |
@@ -94,15 +95,15 @@ are checked in CI, the rest are not, and the ones that are not are the ones that
 | Plugin manifest | `.claude-plugin/` | `npm run plugin:sync:check` |
 | Alias package | `alias/` — a new **entry point** must appear there | `npm run alias:sync:check` |
 | Size badge | the `minzip` badge, when the main entry grew | `npm run size:badge:check` |
-| TODO | `TODO.md` — mark what shipped, and record what it deliberately did **not** ship | — |
+| TODO | `TODO.md` — what is still open; `DECISIONS.md` — what it deliberately did **not** ship, and why | — |
 
 Two habits that keep this cheap:
 
 - **Write the docs page before the last commit, not after the release.** A page written later
   documents what you remember, which is never the same as what you built.
-- **Say what was left out.** A `TODO.md` entry that records the three things a feature does not do
-  is worth more than one that says it is done — the next person reads it before re-deriving the
-  same three trade-offs.
+- **Say what was left out.** A `DECISIONS.md` entry that records the three things a feature does not
+  do is worth more than one that says it is done — the next person reads it before re-deriving the
+  same three trade-offs. `TODO.md` carries only what is still to be taken.
 
 ## Commit messages
 
