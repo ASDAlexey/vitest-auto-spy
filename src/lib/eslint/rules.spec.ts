@@ -1562,7 +1562,7 @@ describe('the plugin', () => {
     ]);
   });
 
-  it('ships every rule as an error, with no graded middle for the plugin to decide', () => {
+  it('ships every rule as an error bar the one that reports a cost rather than a defect', () => {
     const levels = Object.values(plugin.configs.recommended.rules);
 
     // Until 4.0.0 this config was a mix of `error` / `warn` / `off`, which chose for the consumer
@@ -1573,7 +1573,16 @@ describe('the plugin', () => {
     // `setupModules` option is the fix), `no-unregistered-inject-spy` takes no option and silences
     // itself wherever it cannot read a file's registrations in full, and `prefer-native-spy-api`
     // flags a bridge that is still needed. Documented overrides, not severities.
-    expect(new Set(levels)).toEqual(new Set(['error']));
+    //
+    // `prefer-render-shallow` is the one severity the plugin does grade, and it is not a fourth
+    // entry on that list: the other twenty-two name something wrong or dead, while this one names a
+    // file that could render more cheaply. Moving onto `renderShallow` is a choice a suite makes,
+    // and at `error` the plugin would gate it — 491 findings across 398 of one consumer's 1759 spec
+    // files, i.e. a `recommended` that exists to be overridden. `off` would be the wrong end of the
+    // same mistake, so the assertion pins the value rather than allowing "not error".
+    expect(new Set(levels)).toEqual(new Set(['error', 'warn']));
+    expect(plugin.configs.recommended.rules['vitest-auto-spy/prefer-render-shallow']).toBe('warn');
+    expect(levels.filter((level) => level !== 'error')).toHaveLength(1);
     expect(levels).toHaveLength(Object.keys(rules).length);
   });
 

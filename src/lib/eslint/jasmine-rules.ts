@@ -10,8 +10,10 @@
  * - `no-jasmine-globals` — a global jasmine's runner provided and Vitest does not;
  * - `no-save-arguments-by-value` — the one jasmine helper this library answers with a no-op, which
  *   makes it the only shape here that changes what a test *claims* without changing whether it passes;
- * - `prefer-native-spy-api` — the renames that let the layer be dropped, off by default because the
- *   layer is legitimate for as long as the migration lasts.
+ * - `prefer-native-spy-api` — the renames that let the layer be dropped. It ships as an `error` like
+ *   everything else, and it is the one rule a suite is expected to switch `'off'` for a while: the
+ *   layer is legitimate for as long as the migration lasts, so on day one this fires on every line
+ *   of the bridge. The migration is finished when it is silent again.
  *
  * **Why `prefer-native-spy-api` fixes rather than only suggests.** Each of its rewrites stays inside
  * one call expression and keeps the receiver: `.and.returnValue(x)` installs the same implementation

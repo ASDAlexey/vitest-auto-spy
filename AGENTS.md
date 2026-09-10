@@ -2485,17 +2485,24 @@ blanket downgrade so those keep their severity; do not copy the two names into a
 | `no-dead-schemas`                 | `error` | —                 | `schemas` on a testing module with no `declarations` — the schema applies to nothing; the file decides, so a `declarations` in another `configureTestingModule` call silences it |
 | `no-import-time-spread`           | `error` | suggest           | `export const x = [...Imported]` at module scope → a `TypeError` while the bundle loads                                                   |
 | `no-unregistered-inject-spy`      | `error` | —                 | `injectSpy(X)` for a token this file never registered → the real instance, whose spy helpers exist only for the compiler                  |
-| `prefer-render-shallow`           | `error` | suggest           | `TestBed.createComponent` in a file that never reads the template → `renderShallow(X)`; 0.24× the per-test cycle at 100 children          |
+| `prefer-render-shallow`           | `warn`  | suggest           | `TestBed.createComponent` in a file that never reads the template → `renderShallow(X)`; 0.24× the per-test cycle at 100 children          |
 | `prefer-observer-stub`            | `error` | —                 | a hand-rolled observer global → `stubIntersectionObserver()` / `stubResizeObserver()` / `stubMutationObserver()`; the manual save-and-restore goes too, `restoreMockedProps()` runs the undo |
 | `jasmine-namespace-without-entry` | `error` | —                 | `.and` / `.calls` / `.withArgs` on a library spy in a file that installs the compat layer nowhere — option: `{ setupModules: […] }`       |
 | `no-jasmine-globals`              | `error` | —                 | `jasmine.*`, bare `spyOn(` / `spyOnProperty(` / `spyOnAllFunctions(` / `fail(` / `pending(`, `.withContext(`                              |
 | `no-save-arguments-by-value`      | `error` | —                 | `spy.calls.saveArgumentsByValue()` — a no-op here, so the spec silently asserts on post-mutation state                                    |
 | `prefer-native-spy-api`           | `error` | `--fix` / suggest | `.and` / `.calls` where the spy's own API says the same thing — turn it on for the last mile off the jasmine shim                         |
 
-Twenty-three rules, **every one an `error` since 4.0.0**; three fix on their own, eight offer
-suggestions. Twenty-two are syntactic; `no-private-member-access` is the one that reads types, and it
-reports nothing at all without `parserOptions.project` / `projectService` rather than guessing. The config used to be a graded mix of `error` / `warn` / `off`, which decided for the
-consumer how much each finding mattered — a `warn` nothing reads is `off` with extra output. Three of
+Twenty-three rules, **every one an `error` since 4.0.0 except `prefer-render-shallow`**; three fix on
+their own, eight offer suggestions. Twenty-two are syntactic; `no-private-member-access` is the one
+that reads types, and it reports nothing at all without `parserOptions.project` / `projectService`
+rather than guessing. The config used to be a graded mix of `error` / `warn` / `off`, which decided for the
+consumer how much each finding mattered — a `warn` nothing reads is `off` with extra output. The one
+`warn` left is not a judgement about how much that finding matters but about what kind of finding it
+is: every other rule names something wrong or dead, while `prefer-render-shallow` names a file that
+could render more cheaply, and `renderShallow` is a migration a suite either takes or does not. At
+`error` the plugin would gate that migration — 491 findings across 398 of one consumer's 1759 spec
+files — so `recommended` would exist to be overridden. Set it to `'error'` once the project has decided
+to make the move. Three of
 them can report on a _correct_ project, and only one has an option:
 `jasmine-namespace-without-entry` takes `['error', { setupModules: ['./test-setup'] }]`, naming the
 file where `enableJasmineCompat()` is called; `prefer-native-spy-api` goes `'off'` for as long as a

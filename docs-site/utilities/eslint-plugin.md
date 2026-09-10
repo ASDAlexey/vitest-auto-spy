@@ -1,6 +1,6 @@
 ---
 title: ESLint plugin
-description: Twenty-three flat-config lint rules that steer a suite onto the auto-spy helpers, grouped by subject, every one an error by default, with the dial documented and the false-positive cases named.
+description: Twenty-three flat-config lint rules that steer a suite onto the auto-spy helpers, grouped by subject, every one an error by default bar the one that reports a cost, with the dial documented and the false-positive cases named.
 ---
 
 # ESLint plugin
@@ -102,8 +102,11 @@ languageOptions: {
 
 ### 4. What the first run looks like
 
-Every rule is an `error`, so on an existing suite the first run is likely to be red — that is the
-point of the default, not a misconfiguration. Two things make the first pass short:
+Every rule but one is an `error`, so on an existing suite the first run is likely to be red — that is
+the point of the default, not a misconfiguration. The exception is
+[`prefer-render-shallow`](#the-render-nobody-reads), which ships as a `warn`: it is the one rule here
+that reports a cost rather than a defect, so it shows up in the output without holding the build. Two
+things make the first pass short:
 
 ```bash
 npx eslint . --fix          # prefer-as-spy, no-mocked-for-spy and prefer-native-spy-api rewrite themselves
@@ -121,7 +124,7 @@ principle — it is that they cannot fire on your code.
 
 | You are                                    | What the plugin does for you                                                                         |
 | ------------------------------------------ | ---------------------------------------------------------------------------------------------------- |
-| writing Vitest, never used Jasmine or Jest | the seventeen core rules work; **the four jasmine rules are inert** — leave them on and never see them |
+| writing Vitest, never used Jasmine or Jest | the nineteen core rules work; **the four jasmine rules are inert** — leave them on and never see them |
 | migrating off `jest-auto-spies` / Jest     | the core rules do the work, `no-done-callback` and `prefer-as-spy` most of it                        |
 | migrating off `jasmine-auto-spies`         | all twenty-three, with `prefer-native-spy-api` set to `'off'` until the bridge is gone                   |
 
@@ -170,7 +173,7 @@ never jasmine's.
 ### If you are coming from Jest
 
 There is no separate Jest rule set, because most of what a Jest suite has to unlearn is already in
-the core seventeen — these are the ones that carry a migration:
+the core nineteen — these are the ones that carry a migration:
 
 | Rule                           | What it catches in a Jest suite                                                                                                                                                                                                                               |
 | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -208,10 +211,21 @@ autofix. See [Migrating from jasmine-auto-spies](/migrating-jasmine).
 
 ## Rules
 
-Every rule is an `error`. Until 4.0.0 this table was a graded mix of `error` / `warn` / `off`, which
-meant the plugin decided how much each project cared; a `warn` that nothing reads is `off` with extra
-output, and which findings block a merge is a project's call, not a library's. Turning one down is
-[one line](#turn-one-rule-down).
+Every rule is an `error` bar one. Until 4.0.0 this table was a graded mix of `error` / `warn` / `off`,
+which meant the plugin decided how much each project cared; a `warn` that nothing reads is `off` with
+extra output, and which findings block a merge is a project's call, not a library's. Turning one down
+is [one line](#turn-one-rule-down).
+
+The one exception is [`prefer-render-shallow`](#the-render-nobody-reads), which ships as a **`warn`**,
+and the reason is the kind of thing it says rather than how much it matters. Every other rule in these
+tables names something wrong or dead — a double that drifts from its class, an assertion that never
+runs, a provider the container already dropped, a schema guarding nothing. That one names a file that
+could render more cheaply, which is a choice a suite makes and not a defect in the file: moving onto
+`renderShallow` is a migration a project either takes or does not, and at `error` the plugin would be
+gating it. On the 1759-file suite the rule was measured against it reports **491 times across 398
+files** — a first run every consumer would have to answer with a project-wide `warn` of its own. So the
+default is the `warn`, and a project that has decided to make the move sets it to `'error'` in the same
+[one line](#turn-one-rule-down) that turns the others down.
 
 The **Without it** column is what the run does when the rule is not there, and it is the reason the
 list is worth reading rather than skimming: over half of these guard against a test that is _green
@@ -329,9 +343,14 @@ export default [
 ];
 ```
 
-A middle road that ages better: keep every rule at `error` and put the not-yet-fixed files behind a
-second block with the offending rules `off` in it. A shrinking list of paths is visible progress; a
-suite-wide `warn` is a decision nobody revisits.
+One rule needs no downgrading: `prefer-render-shallow` is already a `warn`, and it is usually the
+loudest rule on a component suite. If the reason you reached for this recipe was the size of the first
+run, check how much of it that one accounts for before downgrading the rest — the rules that survive
+its removal are the ones about a test being wrong, and a red CI is what those are for.
+
+A middle road that ages better: keep every rule at the severity it ships with and put the not-yet-fixed
+files behind a second block with the offending rules `off` in it. A shrinking list of paths is visible
+progress; a suite-wide `warn` is a decision nobody revisits.
 
 **Some rules should keep their severity through that block, and `autoSpy.configs.typeErrors` is
 them.** Spread it after the downgrade:
@@ -436,6 +455,11 @@ helper reached through an object. Measured over 1759 spec files: **zero** false 
 every `TestBed.createComponent` and every `keepTemplate: true`, for a project that has decided markup
 belongs to e2e. It costs a 100 % coverage threshold on components; the measurement is in
 [the render nobody reads](#the-render-nobody-reads).
+
+Note the `'error'` in that line: the array form carries the severity as well as the option, so it
+raises the rule off the `warn` it ships with. That is the right way round — a project spelling out
+`{ templates: 'never' }` has taken the decision the default declines to take for it — but write
+`['warn', { templates: 'never' }]` if you want the policy reported without blocking a merge.
 
 `prefer-create-spy-from-class` takes one:
 
@@ -852,6 +876,10 @@ not have, or a `TestBed.inject(X)` that says the real implementation was the poi
 rendered template — no `nativeElement`, no `debugElement`, no `By.css`, no `querySelector`. The code
 works; the run is green either way. What the rule is about is the bill.
 
+Which is why it is the one rule in `recommended` that ships as a **`warn`** rather than an `error`:
+what it reports is a suite's choice about how it renders, not a mistake in the file — see
+[Rules](#rules).
+
 `TestBed.createComponent` compiles the component's template and instantiates the whole child
 subtree. A spec that only sets inputs and asserts on signals or plain state buys nothing with that
 subtree, and pays for it once per test. `renderShallow(X)` is the same `TestBed`, the same real
@@ -956,7 +984,7 @@ double in a `jest-auto-spies` suite, and every one of them fails with `TS2352` u
 
 ## The four jasmine rules
 
-They steer in the opposite direction from the rest of the plugin. The other eighteen push a Vitest
+They steer in the opposite direction from the rest of the plugin. The other nineteen push a Vitest
 suite towards this library's API; these four are about a suite that has not arrived yet — one
 running on [`vitest-auto-spy/jasmine`](/migrating-jasmine), or one that thinks it is.
 
@@ -1214,7 +1242,9 @@ The column that matters is the last one. Six of the eleven probed here guard aga
 against a red test whose message is already clear; one is a compiler error. That split is what the
 _Without it_ column in [Rules](#rules) reports, and it used to be what severity followed too — until
 4.0.0 graded the config `error` / `warn` / `off` along it. It does not any more: how loud a finding
-is belongs to the project, and this table is the evidence for deciding rather than the decision.
+is belongs to the project, and this table is the evidence for deciding rather than the decision. The
+one severity the config does still grade — `prefer-render-shallow`'s `warn` — is not on this axis:
+that rule reports no failure mode at all, only a bill.
 
 The [four jasmine rules](#the-four-jasmine-rules) are not in this table because they were not probed
 the same way — their subject is a migration, not a runner behaviour. Two of them belong on the green

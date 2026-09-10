@@ -3026,11 +3026,11 @@ import autoSpy from 'vitest-auto-spy/eslint-plugin';
 export default [{ files: ['**/*.spec.ts'], ...autoSpy.configs.recommended }];
 ```
 
-**Every rule is an `error` since 4.0.0.** The config used to grade them `error` / `warn` / `off`,
-which chose for you how much each finding mattered; a `warn` in a repository that does not read lint
-output is `off` with extra noise, and which findings block a merge is one line of config either way.
-To turn one down, spread the rule map as well — a bare `rules` key beside the spread config replaces
-it rather than merging, silently:
+**Every rule is an `error` since 4.0.0, bar one.** The config used to grade them `error` / `warn` /
+`off`, which chose for you how much each finding mattered; a `warn` in a repository that does not read
+lint output is `off` with extra noise, and which findings block a merge is one line of config either
+way. To turn one down, spread the rule map as well — a bare `rules` key beside the spread config
+replaces it rather than merging, silently:
 
 ```js
 export default [
@@ -3041,6 +3041,16 @@ export default [
   },
 ];
 ```
+
+The one exception is `prefer-render-shallow`, which ships as a **`warn`**, and the reason is the kind
+of thing it says rather than how much it matters. Every other rule here names something wrong or dead
+— a double that drifts from its class, an assertion that never runs, a provider the container already
+dropped, a schema guarding nothing. That one names a file that could render more cheaply, which is a
+choice a suite makes and not a defect in the file: moving onto `renderShallow` is a migration a
+project either takes or does not, and at `error` the plugin would be gating it. On the 1759-file suite
+it was measured against the rule reports 491 times across 398 files — a first run every consumer would
+have to answer with a project-wide `warn` of its own. A project that has decided to make the move sets
+it to `'error'` in the same one line that turns the others down.
 
 A second config, `autoSpy.configs.typeErrors`, holds the subset whose findings are compile errors
 (`prefer-as-spy` is `TS2352`, `no-mocked-for-spy` is `TS2322`). Spread it **after** a blanket
@@ -3075,7 +3085,7 @@ export can never be.
 | `no-dead-schemas`                 |   `error`   | —                 | `schemas` on a testing module that declares nothing — a charm protecting nobody, and one that starts working the day `declarations` arrive                                                                            |
 | `no-import-time-spread`           |   `error`   | suggest           | `export const x = [...Imported]` at module scope → a `TypeError` while the bundle loads                                                    |
 | `no-unregistered-inject-spy`      |   `error`   | —                 | `injectSpy(X)` for a token this file never registered → the real instance, whose spy helpers exist only for the compiler                   |
-| `prefer-render-shallow`           |   `error`   | suggest           | `TestBed.createComponent` in a file that never reads the template → `renderShallow(X)`; 0.24× the per-test cycle at 100 children           |
+| `prefer-render-shallow`           |   `warn`    | suggest           | `TestBed.createComponent` in a file that never reads the template → `renderShallow(X)`; 0.24× the per-test cycle at 100 children           |
 | `prefer-observer-stub`            |   `error`   | —                 | a hand-rolled `IntersectionObserver` / `ResizeObserver` / `MutationObserver` written into a global → `stubIntersectionObserver()` and friends, whose undo `restoreMockedProps()` already runs                        |
 | `jasmine-namespace-without-entry` |   `error`   | —                 | `.and` / `.calls` / `.withArgs` on a library spy in a file that installs the compatibility layer nowhere                                   |
 | `no-jasmine-globals`              |   `error`   | —                 | `jasmine.*`, `spyOn(` / `spyOnProperty(` / `spyOnAllFunctions(` / `fail(` / `pending(`, `.withContext(` — none of them exist under Vitest  |

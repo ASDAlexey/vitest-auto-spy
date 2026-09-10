@@ -441,9 +441,10 @@ What it deliberately does **not** do, so the next person does not re-derive it:
   `NO_ERRORS_SCHEMA` and runs the first change detection. Applied unattended across a repository that
   changes what the module holds, and throws outright on a spec that had already instantiated it.
 - **No second rule for the strict reading.** `no-template-rendering` was built and then folded into
-  `{ templates: 'never' }`: the plugin's contract is that every rule ships in `recommended` as
-  `error`, and a policy that turns a working component suite red cannot be one. As an option it is a
-  project's choice, which is what it always was.
+  `{ templates: 'never' }`: the plugin's contract is that every rule ships in `recommended` switched
+  on, and a policy nobody in the project agreed to cannot be one — the cost finding itself only earns
+  a place there as a `warn`, and `'never'` would aim that warning at every component spec. As an
+  option it is a project's choice, which is what it always was.
 - **Nothing can hide the coverage it costs.** With `templateUrl` the compiled template already maps
   back to the `.html` and never entered a `*.ts` coverage glob. What `'never'` stops executing is the
   component's own TypeScript — a method whose entry condition is a `viewChild` the template supplies.

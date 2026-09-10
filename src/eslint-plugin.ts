@@ -40,14 +40,26 @@ export interface AutoSpyEslintPlugin {
 const PLUGIN_NAME = 'vitest-auto-spy';
 
 /**
- * Every rule, every one of them an **error** (4.0.0). Before that the config was a graded mix of
- * `error` / `warn` / `off`, which meant the plugin decided how much each project cared.
+ * Every rule, and all but one of them an **error** (4.0.0). Before that the config was a graded mix
+ * of `error` / `warn` / `off`, which meant the plugin decided how much each project cared.
  *
  * A `warn` is a finding a build does not stop for, so in a repository that does not read lint
  * output it is the same as `off` with extra noise. Choosing that for someone else is the part that
  * was wrong: which findings block a merge is a project's call, and it is one line of config either
  * way. So the default is the strict end, and the docs carry the dial —
  * `docs-site/utilities/eslint-plugin.md` → *Tuning it for your project*.
+ *
+ * **The exception is `prefer-render-shallow`, and what makes it one is the kind of thing it says.**
+ * Every other rule here names something that is wrong or dead: a double built the way that drifts
+ * from its class, an assertion that never runs, a provider the container already dropped, a schema
+ * guarding nothing. This one names a file that could be rendered more cheaply. That is an
+ * architectural choice a suite makes — `renderShallow` is a migration a project either takes or does
+ * not — rather than a defect in the file it reports, and at `error` the plugin would be gating a
+ * migration nobody agreed to. On the consumer it was measured against, 1759 spec files, the rule
+ * reports 491 times across 398 files: `error` there is a red CI on day one, silenced by a project-wide
+ * `warn` in the consumer's config, so `recommended` would exist mainly to be overridden. Shipping it
+ * as a `warn` says the same thing without holding a merge, and a project that has decided to make the
+ * move turns it up in the same one line everything else here is turned down in.
  *
  * **Three of these can report on code that is correct, and each one is listed there with what to do
  * about it.** They are not mistakes in the rules; they are the limit of what one file can know, and
@@ -87,7 +99,7 @@ const recommendedRules: Record<string, RuleSeverity> = {
   [`${PLUGIN_NAME}/no-dead-schemas`]: 'error',
   [`${PLUGIN_NAME}/no-import-time-spread`]: 'error',
   [`${PLUGIN_NAME}/no-unregistered-inject-spy`]: 'error',
-  [`${PLUGIN_NAME}/prefer-render-shallow`]: 'error',
+  [`${PLUGIN_NAME}/prefer-render-shallow`]: 'warn',
   [`${PLUGIN_NAME}/prefer-observer-stub`]: 'error',
   [`${PLUGIN_NAME}/jasmine-namespace-without-entry`]: 'error',
   [`${PLUGIN_NAME}/no-jasmine-globals`]: 'error',

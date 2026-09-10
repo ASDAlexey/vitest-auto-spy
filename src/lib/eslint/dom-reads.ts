@@ -40,11 +40,12 @@ const TEMPLATE_READS = [
  *
  * `'as-needed'` — the default — reports only the render nobody reads, which is a defect-free finding
  * about cost. `'never'` is a **policy**: markup is e2e's business, so no spec renders a real template
- * at all. It is an option rather than a second rule because every rule this plugin ships is on and
- * `error`, and a policy that turns a working component suite red cannot be that. Measured before it
- * was offered: on one consumer suite `'never'` took 18 of 40 tests in a component spec red and
- * coverage from 100 % to 95.7 %, because the `computed`s and handlers a template reaches stop
- * executing. That cost belongs to whoever chooses it.
+ * at all. It is an option rather than a second rule because every rule this plugin ships is on in
+ * `recommended`, and a policy nobody in the project agreed to cannot be — the cost finding itself only
+ * earns a place there as a `warn`, and `'never'` would point that warning at every component spec.
+ * Measured before it was offered: on one consumer suite `'never'` took 18 of 40 tests in a component
+ * spec red and coverage from 100 % to 95.7 %, because the `computed`s and handlers a template reaches
+ * stop executing. That cost belongs to whoever chooses it.
  */
 export function templatePolicy(context: RuleContext): 'as-needed' | 'never' {
   return Reflect.get(Object(context.options[0]), 'templates') === 'never' ? 'never' : 'as-needed';
