@@ -133,6 +133,16 @@ The latest released version here must always match the one published on
 
 ### Documentation
 
+- **A per-rule reference, separate from the setup page.** `docs-site/utilities/eslint-rules.md` gives
+  each of the twenty-three rules a section under a stable anchor —
+  `…/utilities/eslint-rules#no-bare-called-with` — so a consumer's config can link to the rule it
+  turns down instead of to a page. Each section answers the six questions a thematic table cannot:
+  what counts as a finding, what the rule _decides on_ (AST shape, a name, the whole file, or the
+  type checker, which is what tells a reader when it will stay quiet and when it will be wrong), the
+  finding before and after, the concrete failure a suite gets without it, where it reports working
+  code and what quiets it, and why its severity is what it is. `docs-site/utilities/eslint-plugin.md`
+  stays the page about installing it. Russian at `docs-site/ru/utilities/eslint-rules.md`.
+
 - **The `vitest/expect-expect` pairing, as a convention rather than a list.** `assertFunctionNames:
   ['expect*', 'assert*', '**.expect*']` covers this package's `expectEmission` family, its `assert*`
   helpers and a helper reached through an object, and needs no edit when a suite grows another one.
@@ -260,6 +270,20 @@ The latest released version here must always match the one published on
   ignored.
 
 ### Changed
+
+- **`prefer-render-shallow` ships as a `warn` in `configs.recommended` rather than an `error`.** It is
+  the one rule in that config whose finding is not a defect. Every other rule there names something
+  wrong or dead — a double that drifts from the class it stands in for, an assertion that never runs, a
+  provider the container already dropped, a schema guarding nothing — while this one names a file that
+  could be rendered more cheaply. Moving a suite onto `renderShallow` is an architectural choice a
+  project takes or declines, not a repair, and at `error` the plugin was gating that choice: on the
+  1759-spec-file suite the rule was measured against it reports **491 times across 398 files**, so the
+  first run is red and every such consumer answers it by downgrading the rule in its own config — a
+  `recommended` whose job was to be overridden. Nothing about what the rule reports or how it reports
+  it has changed, and a project that has taken the decision sets `'error'` in the same one line the
+  docs already describe for turning a rule down. `{ templates: 'never' }` is still documented as
+  `['error', { templates: 'never' }]`: the array form carries the severity as well as the option, which
+  is the right way round for a project spelling the policy out.
 
 - **The Rstest entry no longer passes `rstest.spyOn` to the adapter**, since accessor spies are
   installed by redefinition on every runtime now. `RstestApi` is `{ fn }` alone.
