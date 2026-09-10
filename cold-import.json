@@ -1,5 +1,5 @@
 {
-  "measuredOn": "2026-09-09",
+  "measuredOn": "2026-09-10",
   "node": "v24.19.0",
   "tolerance": {
     "ratio": 0.02,
@@ -8,27 +8,27 @@
   "entries": {
     ".": {
       "modules": 2,
-      "bytes": 100367
+      "bytes": 105749
     },
     "./angular": {
       "modules": 2,
-      "bytes": 121805
+      "bytes": 129554
     },
     "./angular-http": {
       "modules": 3,
       "bytes": 10066
     },
     "./bun": {
-      "modules": 11,
-      "bytes": 95558
+      "modules": 10,
+      "bytes": 98630
     },
     "./bun-angular": {
-      "modules": 13,
-      "bytes": 114331
+      "modules": 12,
+      "bytes": 117403
     },
     "./console": {
       "modules": 9,
-      "bytes": 51011
+      "bytes": 53935
     },
     "./diagnostics": {
       "modules": 2,
@@ -36,15 +36,15 @@
     },
     "./dom-stubs": {
       "modules": 2,
-      "bytes": 32607
+      "bytes": 35041
     },
     "./eslint-plugin": {
       "modules": 2,
-      "bytes": 86575
+      "bytes": 101450
     },
     "./jasmine": {
       "modules": 12,
-      "bytes": 86207
+      "bytes": 90425
     },
     "./jasmine-compat": {
       "modules": 3,
@@ -52,11 +52,11 @@
     },
     "./nestjs": {
       "modules": 11,
-      "bytes": 80968
+      "bytes": 85186
     },
     "./node": {
-      "modules": 10,
-      "bytes": 98496
+      "modules": 9,
+      "bytes": 101598
     },
     "./observer-spy": {
       "modules": 2,
@@ -64,11 +64,11 @@
     },
     "./react": {
       "modules": 12,
-      "bytes": 105603
+      "bytes": 111615
     },
     "./rstest": {
       "modules": 10,
-      "bytes": 105639
+      "bytes": 110013
     },
     "./rxjs": {
       "modules": 5,
@@ -76,15 +76,15 @@
     },
     "./setup": {
       "modules": 11,
-      "bytes": 91099
+      "bytes": 95884
     },
     "./svelte": {
       "modules": 12,
-      "bytes": 105603
+      "bytes": 111615
     },
     "./vue": {
       "modules": 12,
-      "bytes": 105873
+      "bytes": 111885
     },
     "./zone": {
       "modules": 1,

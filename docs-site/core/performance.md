@@ -591,22 +591,23 @@ prune reaches only one and the run dies out of memory.
 
 ## Bundle size
 
-The badge says 15.1 kB min+gzip, and that is the whole core entry bundled together. It is also the
+The badge says 15.8 kB min+gzip, and that is the whole core entry bundled together. It is also the
 largest number a consumer can pay for the core, because entries are separate subpaths and a project
 only pays for the ones it imports:
 
 | Imported                                      |    min+gzip |
 | --------------------------------------------- | ----------: |
-| `.` — the core entry, what the badge measures | **15.1 kB** |
-| `vitest-auto-spy/angular`                     |     18.7 kB |
-| `vitest-auto-spy/node`                        |     14.5 kB |
-| `vitest-auto-spy/dom-stubs`                   |      5.2 kB |
+| `.` — the core entry, what the badge measures | **15.8 kB** |
+| `vitest-auto-spy/angular`                     |     19.8 kB |
+| `vitest-auto-spy/node`                        |     15.2 kB |
+| `vitest-auto-spy/dom-stubs`                   |      5.4 kB |
 | `vitest-auto-spy/rxjs`                        |      2.2 kB |
 | `vitest-auto-spy/zone`                        |      1.1 kB |
 
-Every figure here is the committed baseline in `size-entries.json` as of 2026-09-07, which is what
-`size:entries:check` and the badge both read; an earlier edition of this table quoted 14.3, 18.2 and
-13.7 kB for the first three rows, taken before the 4.3 additions. `/dom-stubs` last moved for the
+Every figure here is the committed baseline in `size-entries.json` as of 2026-09-10, which is what
+`size:entries:check` and the badge both read; an earlier edition of this table quoted 15.1, 18.7 and
+14.5 kB for the first three rows, taken before the defaults registry, the outside-a-hook report and
+the shadowed-provider check. `/dom-stubs` last moved for the
 `AbortSignal` statics and the `currentTime` setter, +219 B.
 
 `npm run size:entries` prints all twenty and compares them against a committed baseline, so an entry

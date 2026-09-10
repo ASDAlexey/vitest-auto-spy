@@ -234,6 +234,26 @@ The latest released version here must always match the one published on
 - **The Rstest entry no longer passes `rstest.spyOn` to the adapter**, since accessor spies are
   installed by redefinition on every runtime now. `RstestApi` is `{ fn }` alone.
 
+### Size and memory
+
+`/eslint-plugin` is **+3.33 kB** (18 229 → 21 564 B min+gzip, +18.3 %), and all of it is the three
+new rules: `no-private-member-access` (226 lines, the only type-aware rule in the plugin and the
+largest of the three), `no-dead-schemas` (123) and `prefer-observer-stub` (252), plus the shared
+`rule-types` surface the type-aware one needs. The entry is a subpath no runtime imports — a lint
+config loads it, a spec never does — so the weight lands on the ESLint process and on nothing else.
+
+The other entries move by what the release added to the core: **+697 B** on `.` / `/react` / `/vue`
+/ `/svelte` / `/rstest` (+4.6 %) and +520…600 B on `/bun`, `/node` and `/bun-angular`, which is
+`registerAutoSpyDefaults` and its merge (145 lines) plus the epoch journal behind the
+outside-a-hook report (117). `/setup` is **+539 B** (+4.3 %) for the report itself, and `/angular`
+**+1.08 kB** (+5.8 %) for `shadowedProviders` and `assertNoShadowedProviders` — the component-def
+walk and the injector comparison behind them. `/rxjs`, `/diagnostics`, `/angular-http`,
+`/jasmine-compat`, `/observer-spy` and `/zone` are unchanged.
+
+Memory is flat and both timings improved: **2.89 kB per spied method, unchanged** over 100 000 of
+them, spy creation **21.03 → 18.78 µs** (−10.7 %) and the first call of every method **4 410 →
+4 174 ns** (−5.4 %), measured on the `/node` entry against the published 5.1.0.
+
 ## [5.1.0] - 2026-09-09
 
 **Why upgrade.** A wrong stub on a spied method is now a compile error instead of a green test, the
