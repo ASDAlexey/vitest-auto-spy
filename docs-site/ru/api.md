@@ -139,6 +139,14 @@ description: Все экспорты vitest-auto-spy и его подпутей,
 **`ValueConfig`** (для `nextWithValues`): `{ value, delay? }` | `{ errorValue, delay? }` |
 `{ complete?, delay? }`.
 
+**`registerAutoSpyDefaults(Class, config)`** — `ClassSpyConfiguration`, зарегистрированная один раз
+из setup-файла: с неё начинается каждый `createSpyFromClass(Class)` / `provideAutoSpy(Class)`, а
+место вызова **сливается** с ней — списки объединяются, `returns` и `overrides` сливаются по ключам,
+скаляры выигрывает место вызова. `registerAutoSpyDefaults([[Class, config], …])` регистрирует
+несколько сразу, и каждая строка проверяется по своему классу; `AutoSpyDefaultEntry<T>` — тип этой
+строки, для строки, собранной вне литерала. `clearAutoSpyDefaults(Class)` снимает одну регистрацию,
+`clearAutoSpyDefaults()` — все. См. [состав шпиона живёт при классе](/ru/core/create-spy-from-class#registerautospydefaults-—-the-composition-lives-with-the-class).
+
 ## Публичные типы {#public-types}
 
 **`Spy<T>`** — собранный спай. **Отображённый тип** (mapped type) над `T`: каждый метод становится
@@ -204,6 +212,7 @@ _обращения_ к свойству: цепочка, идущая чере�
 **`ValueConfig<T>`**, `UnstubbedCall`, `UnstubbedCallHandler`, `NextValueConfig`, `ErrorValueConfig`,
 `CompleteValueConfig`, `ValueConfigPerCall`, `OnlyMethodKeysOf<T>`, `OnlyObservablePropsOf<T>`,
 `AccessorKeysOf<T>`, `MethodReturns<T>`, `PropStubValue<V>`, `SpyOptions`, `Overloads<F>`,
+`AutoSpyDefaultEntry<T>`,
 `AddThrowHelper` (тот самый `failWith`, который несёт каждый спай метода) экспортируются из ядра тоже;
 `/angular` добавляет `AutoSpyFixture`, `SpiedFixtures<Spec>` и `ExtendWithAutoSpiesOptions` для
 `extendWithAutoSpies`; `/angular-http` добавляет `RequestMatcher`, `RequestExpectation`, `ResponseBody`,

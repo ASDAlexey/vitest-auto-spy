@@ -691,6 +691,21 @@ A second registration for the same class replaces the first, because two of them
 drift this removes rather than a merge to perform. `clearAutoSpyDefaults(Class)` drops one,
 `clearAutoSpyDefaults()` the lot.
 
+A setup file that registers more than a handful of classes can say them as one table instead of one
+call each. Rows apply in order, and each is checked against **its own** class — a key `Router` does
+not carry fails on that row, naming `Router`'s members and nothing else:
+
+```ts
+registerAutoSpyDefaults([
+  [Router, { observablePropsToSpyOn: ['events'], gettersToSpyOn: ['url'] }],
+  [DomainEventsService, { instanceMethodsToSpyOn: ['announce'] }],
+  [BaseLocalStorage, { instanceMethodsToSpyOn: ['getItem', 'setItem'] }],
+]);
+```
+
+A later row for a class an earlier row already named replaces it, exactly as a second call would.
+`AutoSpyDefaultEntry<T>` is the row type, for a row built outside the literal.
+
 ### `strict` — a method nobody configured throws instead of answering `undefined`
 
 ```ts

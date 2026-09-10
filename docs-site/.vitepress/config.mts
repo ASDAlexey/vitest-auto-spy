@@ -335,6 +335,7 @@ export default defineConfig({
           'mockValueProp only works in the first test, property mock stops applying, patch in beforeAll not reapplied, ' +
           'propsOutsideHooks, reportPropsOutsideHooks, registerAutoSpyDefaults, clearAutoSpyDefaults, ' +
           'same spy config repeated in every spec, default spy configuration per class, ' +
+          'register spy defaults for many classes, AutoSpyDefaultEntry, bulk register spy defaults, ' +
           'component providers shadow TestBed provider, provideAutoSpy ignored by component, assertNoShadowedProviders, ' +
           'spy provided but real service used, no-private-member-access, no-dead-schemas, ' +
           'not assignable to parameter of type HttpEvent, overloaded method mock wrong signature, ' +

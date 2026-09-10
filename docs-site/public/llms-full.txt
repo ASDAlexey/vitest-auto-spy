@@ -759,6 +759,42 @@ one suite is the drift this exists to remove, and quietly combining them would h
 `clearAutoSpyDefaults(Class)` drops one, `clearAutoSpyDefaults()` the lot — for a suite that
 registers per project rather than per run, and for a spec that has to prove the registry is empty.
 
+### Many classes at once
+
+A setup file registering a dozen classes is a dozen near-identical calls. The same registrations are
+also a table, and it says the same thing:
+
+```ts
+// vitest-setup.ts, once
+registerAutoSpyDefaults([
+  [Router, { observablePropsToSpyOn: ['events'], gettersToSpyOn: ['url'] }],
+  [AccountService, { gettersToSpyOn: ['isGuest', 'currentProfile'] }],
+  [LocalStorage, { instanceMethodsToSpyOn: ['getItem', 'setItem'] }],
+]);
+```
+
+**Every row is checked against its own class.** That is the whole reason the form is typed the way it
+is, rather than as an array of `[ClassType<unknown>, ClassSpyConfiguration<unknown>]` — a
+configuration names keys _of its class_, so widening the row to one common type gives up the
+checking. A key the row's class does not carry fails **on that row's line**, and the diagnostic names
+that class's members and nothing else:
+
+```ts
+registerAutoSpyDefaults([
+  // Type '"isGuest"' is not assignable to type '"navigate" | "navigateByUrl" | …' — Router's
+  // own methods, never a union with the members of the row below
+  [Router, { instanceMethodsToSpyOn: ['isGuest'] }],
+  [AccountService, { gettersToSpyOn: ['isGuest'] }],
+]);
+```
+
+**Rows apply in order**, so a later row for a class an earlier row already named replaces it —
+exactly what a second call does, and for the same reason. The two forms share one registry: a table
+and a per-class call in the same setup file are the same registrations, whichever wrote them.
+
+`AutoSpyDefaultEntry<T>` is the row type, exported for a row that has to be built outside the
+literal — a helper that returns one, or a list assembled per project.
+
 ## Lazy spies — `lazySpies`
 
 **What it is.** A method's spy is built on **first access** (`spy.method`) and then cached, so
@@ -2988,15 +3024,15 @@ prune reaches only one and the run dies out of memory.
 
 ## Bundle size
 
-The badge says 16.0 kB min+gzip, and that is the whole core entry bundled together. It is also the
+The badge says 16.1 kB min+gzip, and that is the whole core entry bundled together. It is also the
 largest number a consumer can pay for the core, because entries are separate subpaths and a project
 only pays for the ones it imports:
 
 | Imported                                        |    min+gzip |
 | ----------------------------------------------- | ----------: |
-| `.` — the core entry, what the badge measures   | **16.0 kB** |
+| `.` — the core entry, what the badge measures   | **16.1 kB** |
 | `vitest-auto-spy/angular`                       |     20.1 kB |
-| `vitest-auto-spy/react` / `/vue` / `/svelte`    |     16.1 kB |
+| `vitest-auto-spy/react` / `/vue` / `/svelte`    |     16.2 kB |
 | `vitest-auto-spy/node`                          |     15.3 kB |
 | `vitest-auto-spy/dom-stubs`                     |      5.3 kB |
 | `vitest-auto-spy/rxjs`                          |      2.3 kB |
@@ -16594,6 +16630,14 @@ armed by one file's setup would otherwise still be armed for files that never op
 **`ValueConfig`** (for `nextWithValues`): `{ value, delay? }` | `{ errorValue, delay? }` |
 `{ complete?, delay? }`.
 
+**`registerAutoSpyDefaults(Class, config)`** — a `ClassSpyConfiguration` registered once, from a
+setup file, that every `createSpyFromClass(Class)` / `provideAutoSpy(Class)` starts from and the call
+site **merges** into: lists unioned, `returns` and `overrides` merged key by key, scalars won by the
+call site. `registerAutoSpyDefaults([[Class, config], …])` registers several at once, each row
+checked against its own class; `AutoSpyDefaultEntry<T>` is that row's type, for a row built outside
+the literal. `clearAutoSpyDefaults(Class)` drops one registration, `clearAutoSpyDefaults()` all of
+them. See [the composition lives with the class](https://asdalexey.github.io/vitest-auto-spy/core/create-spy-from-class#registerautospydefaults-—-the-composition-lives-with-the-class).
+
 ## Public types
 
 **`Spy<T>`** — the assembled spy. A **mapped type** over `T`: every method becomes
@@ -16656,6 +16700,7 @@ a `NodeList` stays assignable to the mapping of itself.
 **`ValueConfig<T>`**, `UnstubbedCall`, `UnstubbedCallHandler`, `NextValueConfig`, `ErrorValueConfig`,
 `CompleteValueConfig`, `ValueConfigPerCall`, `OnlyMethodKeysOf<T>`, `OnlyObservablePropsOf<T>`,
 `AccessorKeysOf<T>`, `MethodReturns<T>`, `PropStubValue<V>`, `SpyOptions`, `Overloads<F>`,
+`AutoSpyDefaultEntry<T>`,
 `AddThrowHelper` (the `failWith` every method spy carries) are exported from the core as well;
 `/angular` adds `AutoSpyFixture`, `SpiedFixtures<Spec>` and `ExtendWithAutoSpiesOptions` for
 `extendWithAutoSpies`; `/angular-http` adds `RequestMatcher`, `RequestExpectation`, `ResponseBody`,

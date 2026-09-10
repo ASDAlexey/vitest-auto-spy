@@ -358,7 +358,8 @@ from the setup file for a class every suite doubles the same way (`Router` with
 and `createSpyFromClass(X)` then merge it under whatever the call site adds — lists unioned, `returns`
 and `overrides` merged per key, scalars won by the call site. It is by class identity, not by
 inheritance, and `clearAutoSpyDefaults(Class)` — or `clearAutoSpyDefaults()` for the lot — drops a
-registration again. Reach for it when the same class carries different configurations in different specs:
+registration again. Several classes at once are one table — `registerAutoSpyDefaults([[Router, { … }], [AccountService, { … }]])` — rows applying in order, each checked against its own class (`AutoSpyDefaultEntry<T>` is that row's type).
+Reach for it when the same class carries different configurations in different specs:
 the list options are additive and never complain about a name they cannot find, so the file that
 forgot one is silent about it.
 

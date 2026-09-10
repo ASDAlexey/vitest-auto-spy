@@ -27,7 +27,7 @@ features:
     details: 'A method returning a Promise gets resolveWith and rejectWith, one returning an Observable gets nextWith and throwWith, and every method gets calledWith, mustBeCalledWith and failWith.'
     link: /core/control-helpers
   - title: Spy defaults that live with the class
-    details: 'registerAutoSpyDefaults(Router, config) once in a setup file and every provideAutoSpy or createSpyFromClass starts from it — merged with what the call site adds, not replaced. One Angular suite carried 23 different configurations of the same class across 109 spec files.'
+    details: 'registerAutoSpyDefaults(Router, config) once in a setup file and every provideAutoSpy or createSpyFromClass starts from it — merged with what the call site adds, not replaced. One Angular suite carried 23 different configurations of the same class across 109 spec files; a dozen classes go in as one table, each row checked against its own class.'
     link: /core/create-spy-from-class
   - title: Vitest 5 on the same install
     details: 'One package spans Vitest 2.1 through 5.x — no second major, no version-split types, no edit to a spec. The same suite runs 7.7 % faster on Vitest 5, and the bundled spy engine adds another 8.1 % over vi.fn().'

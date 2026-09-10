@@ -208,6 +208,42 @@ one suite is the drift this exists to remove, and quietly combining them would h
 `clearAutoSpyDefaults(Class)` drops one, `clearAutoSpyDefaults()` the lot — for a suite that
 registers per project rather than per run, and for a spec that has to prove the registry is empty.
 
+### Many classes at once {#many-at-once}
+
+A setup file registering a dozen classes is a dozen near-identical calls. The same registrations are
+also a table, and it says the same thing:
+
+```ts
+// vitest-setup.ts, once
+registerAutoSpyDefaults([
+  [Router, { observablePropsToSpyOn: ['events'], gettersToSpyOn: ['url'] }],
+  [AccountService, { gettersToSpyOn: ['isGuest', 'currentProfile'] }],
+  [LocalStorage, { instanceMethodsToSpyOn: ['getItem', 'setItem'] }],
+]);
+```
+
+**Every row is checked against its own class.** That is the whole reason the form is typed the way it
+is, rather than as an array of `[ClassType<unknown>, ClassSpyConfiguration<unknown>]` — a
+configuration names keys _of its class_, so widening the row to one common type gives up the
+checking. A key the row's class does not carry fails **on that row's line**, and the diagnostic names
+that class's members and nothing else:
+
+```ts
+registerAutoSpyDefaults([
+  // Type '"isGuest"' is not assignable to type '"navigate" | "navigateByUrl" | …' — Router's
+  // own methods, never a union with the members of the row below
+  [Router, { instanceMethodsToSpyOn: ['isGuest'] }],
+  [AccountService, { gettersToSpyOn: ['isGuest'] }],
+]);
+```
+
+**Rows apply in order**, so a later row for a class an earlier row already named replaces it —
+exactly what a second call does, and for the same reason. The two forms share one registry: a table
+and a per-class call in the same setup file are the same registrations, whichever wrote them.
+
+`AutoSpyDefaultEntry<T>` is the row type, exported for a row that has to be built outside the
+literal — a helper that returns one, or a list assembled per project.
+
 ## Lazy spies — `lazySpies`
 
 **What it is.** A method's spy is built on **first access** (`spy.method`) and then cached, so

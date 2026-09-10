@@ -138,6 +138,14 @@ armed by one file's setup would otherwise still be armed for files that never op
 **`ValueConfig`** (for `nextWithValues`): `{ value, delay? }` | `{ errorValue, delay? }` |
 `{ complete?, delay? }`.
 
+**`registerAutoSpyDefaults(Class, config)`** — a `ClassSpyConfiguration` registered once, from a
+setup file, that every `createSpyFromClass(Class)` / `provideAutoSpy(Class)` starts from and the call
+site **merges** into: lists unioned, `returns` and `overrides` merged key by key, scalars won by the
+call site. `registerAutoSpyDefaults([[Class, config], …])` registers several at once, each row
+checked against its own class; `AutoSpyDefaultEntry<T>` is that row's type, for a row built outside
+the literal. `clearAutoSpyDefaults(Class)` drops one registration, `clearAutoSpyDefaults()` all of
+them. See [the composition lives with the class](/core/create-spy-from-class#registerautospydefaults-—-the-composition-lives-with-the-class).
+
 ## Public types
 
 **`Spy<T>`** — the assembled spy. A **mapped type** over `T`: every method becomes
@@ -200,6 +208,7 @@ a `NodeList` stays assignable to the mapping of itself.
 **`ValueConfig<T>`**, `UnstubbedCall`, `UnstubbedCallHandler`, `NextValueConfig`, `ErrorValueConfig`,
 `CompleteValueConfig`, `ValueConfigPerCall`, `OnlyMethodKeysOf<T>`, `OnlyObservablePropsOf<T>`,
 `AccessorKeysOf<T>`, `MethodReturns<T>`, `PropStubValue<V>`, `SpyOptions`, `Overloads<F>`,
+`AutoSpyDefaultEntry<T>`,
 `AddThrowHelper` (the `failWith` every method spy carries) are exported from the core as well;
 `/angular` adds `AutoSpyFixture`, `SpiedFixtures<Spec>` and `ExtendWithAutoSpiesOptions` for
 `extendWithAutoSpies`; `/angular-http` adds `RequestMatcher`, `RequestExpectation`, `ResponseBody`,

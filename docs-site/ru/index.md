@@ -27,7 +27,7 @@ features:
     details: 'Метод, возвращающий Promise, получает resolveWith и rejectWith, возвращающий Observable — nextWith и throwWith, а каждый метод получает calledWith, mustBeCalledWith и failWith.'
     link: /ru/core/control-helpers
   - title: Настройки спая живут рядом с классом
-    details: 'registerAutoSpyDefaults(Router, config) один раз в setup-файле — и каждый provideAutoSpy или createSpyFromClass стартует с них, сливая с тем, что добавил вызов, а не заменяя. В одной Angular-сюите один и тот же класс собрал 23 разные конфигурации в 109 файлах спек.'
+    details: 'registerAutoSpyDefaults(Router, config) один раз в setup-файле — и каждый provideAutoSpy или createSpyFromClass стартует с них, сливая с тем, что добавил вызов, а не заменяя. В одной Angular-сюите один и тот же класс собрал 23 разные конфигурации в 109 файлах спек; десяток классов заезжает одной таблицей, и каждая строка проверяется по своему классу.'
     link: /ru/core/create-spy-from-class
   - title: Vitest 5 тем же пакетом
     details: 'Один пакет покрывает Vitest с 2.1 по 5.x — без второго мажора, без раздвоенных типов, без единой правки в спеке. Та же сюита идёт на 7.7 % быстрее на Vitest 5, а встроенный движок спаев даёт ещё 8.1 % поверх vi.fn().'
