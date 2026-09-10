@@ -109,10 +109,22 @@ async function measureGraph(entry) {
   });
 
   const inputs = Object.values(result.metafile.inputs);
+  const peers = new Set();
+
+  for (const input of inputs) {
+    for (const imported of input.imports ?? []) {
+      // Externals only, and no builtins: `node:fs` is already resident in every process, so
+      // pre-loading it would measure nothing.
+      if (imported.external && !imported.path.startsWith('node:')) {
+        peers.add(imported.path);
+      }
+    }
+  }
 
   return {
     modules: inputs.length,
     bytes: inputs.reduce((total, input) => total + input.bytes, 0),
+    peers: [...peers],
   };
 }
 
@@ -122,8 +134,20 @@ async function measureGraph(entry) {
  * The timer lives inside the child and brackets the import alone, so Node's own startup — the other
  * half of what a worker pays — stays out of the number.
  */
-function timeImport(specifier) {
+function timeImport(specifier, peers = []) {
+  // Pre-loaded before the clock starts, and only when the caller asks: with the peers resident, the
+  // number left is this package's own share of the same import. A peer that will not load in Node
+  // is skipped rather than fatal — it then stays inside the timed part, which understates the share
+  // rather than inventing one.
+  const preload = `
+    for (const peer of ${JSON.stringify(peers)}) {
+      try {
+        await import(peer);
+      } catch {}
+    }
+  `;
   const source = `
+    ${peers.length > 0 ? preload : ''}
     const started = performance.now();
     await import(${JSON.stringify(specifier)});
     process.stdout.write(String(performance.now() - started));
@@ -159,6 +183,7 @@ function measureTimings(entries, runs) {
     }
 
     const samples = [];
+    const ours = [];
 
     for (let run = 0; run < runs; run += 1) {
       const attempt = timeImport(entry.specifier);
@@ -168,11 +193,24 @@ function measureTimings(entries, runs) {
       }
 
       samples.push(attempt.milliseconds);
+
+      const withPeers = timeImport(entry.specifier, entry.peers ?? []);
+
+      if (!withPeers.error) {
+        ours.push(withPeers.milliseconds);
+      }
     }
 
     samples.sort((left, right) => left - right);
+    ours.sort((left, right) => left - right);
 
-    return { ...entry, best: samples[0], median: samples[Math.floor(samples.length / 2)], runs: samples.length };
+    return {
+      ...entry,
+      best: samples[0],
+      median: samples[Math.floor(samples.length / 2)],
+      ours: ours.length > 0 ? ours[Math.floor(ours.length / 2)] : undefined,
+      runs: samples.length,
+    };
   });
 }
 
@@ -286,18 +324,29 @@ function printGraphTable(measurements, baseline, style) {
   stdout.write(`${renderTable(headers, rows, { style }).join('\n')}\n`);
 }
 
+/** The package's own share of one entry's cold import — the rest is the peers it re-exports from. */
+function formatShare(timing) {
+  if (timing.ours === undefined || timing.median === 0) {
+    return ['—', '—'];
+  }
+
+  return [timing.ours.toFixed(1), `${((timing.ours / timing.median) * 100).toFixed(1)}%`];
+}
+
 function printTimingTable(timings, runs, style) {
-  const headers = ['Entry', 'Best, ms', 'Median, ms', 'Runs'];
+  const headers = ['Entry', 'Best, ms', 'Median, ms', 'This package, ms', 'Its share', 'Runs'];
   const rows = timings.map((timing) =>
     timing.skipped
-      ? [timing.subpath, 'skipped', timing.skipped, '—']
-      : [timing.subpath, timing.best.toFixed(1), timing.median.toFixed(1), String(timing.runs)],
+      ? [timing.subpath, 'skipped', timing.skipped, '—', '—', '—']
+      : [timing.subpath, timing.best.toFixed(1), timing.median.toFixed(1), ...formatShare(timing), String(timing.runs)],
   );
 
   stdout.write(`${renderHeading(`Cold import, ${runs} runs per entry (machine-local, never gated)`, style).join('\n')}\n`);
   stdout.write(`${renderTable(headers, rows, { style }).join('\n')}\n`);
   stdout.write(`\nThese milliseconds describe this machine and this ${version} only — they are documentation, not a\n`);
   stdout.write('gate, and a number from another machine is not comparable. Only the table above is checked.\n');
+  stdout.write('"This package" is the same import measured again with the peer dependencies already resident, so\n');
+  stdout.write('the difference is Angular, Vitest and rxjs loading — not this package. Read the share, not the total.\n');
 }
 
 async function main() {
@@ -376,7 +425,7 @@ async function main() {
 
   if (timing) {
     stdout.write('\n');
-    printTimingTable(measureTimings(entries, runs), runs, style);
+    printTimingTable(measureTimings(measurements, runs), runs, style);
   }
 }
 
