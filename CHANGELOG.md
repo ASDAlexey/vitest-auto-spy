@@ -133,6 +133,39 @@ The latest released version here must always match the one published on
 
 ### Documentation
 
+- **What jsdom actually costs, measured once instead of argued twice.** Two earlier measurements
+  disagreed by a factor of forty about the per-file price of a DOM, and the reason turns out to be
+  the isolation mode rather than the DOM: on 40 trivial spec files, one worker, `isolate: true`,
+  jsdom costs **228 ms of user CPU per file** over the `node` environment, because the environment is
+  rebuilt per file. Under `isolate: false` the same set costs **5.8 ms per file** — one build per
+  worker, amortised. `happy-dom` sits between them (92 ms per file isolated), and on this package's
+  own 117-file Angular suite it is 26.5 s of user CPU against jsdom's 23.2 s, or 12 % less. `perf`
+  now offers that swap as `perf-environment-engine`.
+
+- **The worker count is a memory setting.** `perf` reports `perf-workers` on a run over a minute of
+  summed CPU that declares no `maxWorkers`: 1.42 GB of resident memory plus ~155 MB per worker, so a
+  cap of four on a 16-core machine is about 1.9 GB, and the wall clock it costs was 2.8 % on a field
+  deployment. Documented in `utilities/cli` on both language sides.
+
+- **The `mock*Prop` journal holds strong references, and the docs now say what that means under
+  `isolate: false`.** Every entry keeps the patched object and the descriptor it replaced, and an
+  undone patch is marked rather than spliced out, so the list is only ever emptied wholesale by
+  `restoreMockedProps()`. Per-file under `isolate: true`; per-worker without it.
+
+- **The per-method constants, published.** A lazy placeholder is 294 B and 191 ns, materialising it
+  on first read is 1 923 B and another 454 ns, and a bare `vi.fn()` is 5 783 B and 3 380 ns — so a
+  touched method is 3.0× lighter and 5.2× faster to build, and an untouched one 20× lighter. The
+  spread is published with the median, because the last of the three is wide.
+
+- **The size table says what the framework entries weigh.** `react`, `vue` and `svelte` are 16.1 kB
+  each because that is what the core weighs: `src/react.ts` is a barrel whose own code is seven bytes
+  in the bundle. Nobody should go looking for weight in it.
+
+- **`cold-import` prints this package's share of each entry's import time.** The same import is
+  measured again with the peers already resident, so the table now says that `.` is 2.8 ms of 18.9
+  and `./angular` 3.1 ms of 84.0 — the rest is Angular, Vitest and rxjs. Without the denominator any
+  future size-against-speed argument is held with the wrong number.
+
 - **A per-rule reference, separate from the setup page.** `docs-site/utilities/eslint-rules.md` gives
   each of the twenty-three rules a section under a stable anchor —
   `…/utilities/eslint-rules#no-bare-called-with` — so a consumer's config can link to the rule it
@@ -188,6 +221,30 @@ The latest released version here must always match the one published on
   `MockInstance<Method>`, the runner's own surface, which nothing this package wraps can reach.
 
 ### Fixed
+
+- **`renderShallow({ keepTemplate: true })` kept the template and dropped the vocabulary it is
+  written in.** The override replaced the component's `imports` with `keepChildren ?? []` whether or
+  not the template survived, so a kept template lost its own pipes and directives with it: a
+  `{{ label | shout }}` failed with `NG0302: The pipe 'shout' could not be found`, and an attribute
+  directive was worse — `el.injector.get(MarkDirective, null)` came back `null`, nothing threw, and
+  the spec stayed green over behaviour that never ran. The override now keeps the component's own
+  scope minus the child *components*, which is what makes the render shallow; `keepChildren` is
+  added to it rather than substituted for it. A child re-exported by an imported `NgModule` still
+  renders — the module is kept whole, because dropping it would take the pipes and directives it
+  exports with it. `bench-angular/baseline.json` is re-measured on the fixed version: the
+  `keepTemplate` rung is 1.29× the full cycle where it read 1.60×, and the difference is a template
+  that now actually renders.
+
+- **`sideEffects` did not list `dom-stubs.js`.** The entry schedules its sweep sentinel and installs
+  its own copy of the fast-spy prototype on import, so it is a side-effect module, and the field said
+  otherwise. Verified rather than reasoned: a two-line esbuild entry point whose only statement is
+  `import 'vitest-auto-spy/dom-stubs'` bundled to **0 bytes** without the glob and 8 853 B with it.
+
+- **`coverage-include-recompiles-globs` gave Vitest 5 advice about a bug Vitest 5 fixed.** The check
+  described a provider that recompiles the pattern list on every filename, which stopped being true
+  in `BaseCoverageProvider.getGlobMatchers()`. The measurement behind it stands and still applies to
+  the versions the package supports (peer `>=2.1.0`), so the check is gated on the installed major
+  instead of being removed, and its message names the mechanism correctly.
 
 - **Two pieces of state this release added were per-bundle, and only the published package could
   show it.** tsup inlines the core into every entry bundle, so a module-scoped variable is one
@@ -299,6 +356,21 @@ The latest released version here must always match the one published on
 
 ### Internal
 
+- **The heap-plateau invariant grew an arm that can actually fail, and three more populations.**
+  The existing arm sweeps with `vi.clearAllMocks()` inside the cycle, and on Vitest 5 that *empties*
+  the mock registry — so a regression back to `vi.fn()` would have plateaued at `ratio 1.000` and
+  passed. The new arm runs the same cycle without the sweep, where the registry only grows; put on
+  the runner engine it fails at `ratio 1.488` with the heap climbing to 610 MB, while every sweeping
+  arm stays green. The cycle is also parameterised over four factories — the class spy materialised
+  and untouched, `createAutoMock` and `mockDeep` — since they retain along four different routes.
+  Together, +0.5 s on `test:invariants`.
+
+- **The docblocks on `mock-registry.ts` described `@vitest/spy` before version 5.** They said mocks
+  enter one module-level `Set` on creation and that nothing removes them. On 5, `REGISTERED_MOCKS`
+  holds `WeakRef`s drained by a `FinalizationRegistry`, `clearAllMocks()` walks `DIRTY_MOCK_STATES`
+  instead, a mock joins that on its first *call*, and `mockClear()` takes it back out. The code was
+  right; the comment that a reader would use to decide whether the epochs can be touched was not.
+
 - **The `node:test` adapter is now proven on `node:test`.** It was the one adapter with no suite of
   its own: `src/bun-tests/` runs the Bun entry on Bun and `src/rstest-tests/` runs Rstest through its
   bundler, while everything Node-shaped was asserted against a stub under Vitest — which cannot load
@@ -325,6 +397,38 @@ The latest released version here must always match the one published on
   line number.
 
 ### Size and memory
+
+**Doubles got lighter, measured on `bench:memory` (2026-09-10, Vitest 5.0.0).** A materialised
+method retains **1 923 B** where it retained 1 971, because the helper bundle now lives on the
+prototype every fast spy inherits instead of being copied onto each spy — 48 B per materialised
+method, in every arm and both widths. An untouched `createAutoMock<T>()` retains **705 B** where it
+retained 1 249: its Proxy handler used to be an object and seven trap closures per double, and it is
+now one handler for the whole run with everything that varies kept on the Proxy's own target. A
+runner-backed mock (`setSpyEngine('runner')`, Bun, `node:test`) is a foreign object with no
+prototype of ours and still gets the copy. The stream handle is built on the first stream helper
+rather than on every spy.
+
+**`dist/shared-state.js` is 7.3 kB → 4.9 kB.** `guardAccessorSpies` lived in `mock-adapter.ts`,
+which is pinned into that file, so it dragged `redefine-failure` and its whole message in with it —
+a sixth copy of code every entry's graph already carried. It now lives in
+`redefine-accessor-spy.ts`, next to the `defineProperty` that raises the failure.
+
+**Entry sizes**, against the 5.3.0 baseline: `.` +198 B (+1.2 %), `/angular` +170 B (+0.9 %),
+`/bun-angular` +237 B, `/react` / `/vue` / `/svelte` +77…83 B (+0.5 %). That is the new code — the
+shared-prototype path, the singleton auto-mock traps, the kept-template branch and the memoised
+NgModule verdict. Four entries went the other way on the shared-state split: `/dom-stubs` −87 B,
+`/setup` −61 B, `/diagnostics` and `/jasmine-compat` −33 B each. Total across all twenty-one:
+229.9 kB.
+
+**`/rxjs` is the one entry over 3 %: +88 B on 2.19 kB (+4.0 %), and it is worth naming exactly.**
+The rxjs stream helpers now go on the shared prototype like every other bundle, so `observable-spy`
+reaches `attachHelpers` in `spy-decoration`, which reaches `isFastSpy` in `spy-probe` — and that puts
+`spy-probe` into the chunk this entry downloads, `isThenable` included, which `/rxjs` never calls.
+The shared chunk goes 1 942 → 2 795 B raw for it. Extracting `isThenable` into a module of its own
+was tried and measured: it saved nothing on `/rxjs` (+1 B) and made the whole package **570 B
+larger**, because a fifth chunk boundary costs more than the function does. So the 88 B stays, and
+what it buys is seven fewer own property slots on every materialised spy in a suite that loads
+`/rxjs` — which, in an Angular suite, is every suite.
 
 `/eslint-plugin` is **+3.33 kB** (18 229 → 21 564 B min+gzip, +18.3 %), and all of it is the three
 new rules: `no-private-member-access` (226 lines, the only type-aware rule in the plugin and the
