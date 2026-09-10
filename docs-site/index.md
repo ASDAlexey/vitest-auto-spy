@@ -38,9 +38,12 @@ features:
   - title: Strict mode instead of undefined
     details: 'The method nobody stubbed throws with the class, the method and the arguments in the message, rather than returning undefined that fails three frames later.'
     link: /core/strict-mode
-  - title: Twenty lint rules and a codemod
-    details: 'The ESLint plugin underlines the old patterns as you type, and the CLI codemod rewrites a jest-auto-spies suite into a diff you can read before you keep it.'
+  - title: Twenty-three lint rules and a codemod
+    details: 'The ESLint plugin underlines the old patterns as you type — a private member reached through a cast, an observer global stubbed by hand, schemas that can never apply — and the CLI codemod rewrites a jest-auto-spies suite into a diff you can read before you keep it.'
     link: /utilities/eslint-plugin
+  - title: Failures nothing else reports
+    details: 'A mock*Prop patch left in a describe body stops applying after the first test, and a component whose own providers shadow the spy quietly runs the real service — silent under every runner, named here by the property or the token.'
+    link: /utilities/setup
 ---
 
 <div class="vas-section">

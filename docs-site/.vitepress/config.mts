@@ -327,6 +327,13 @@ export default defineConfig({
           'jest to vitest codemod, jest.Mock type arguments, migrate jest to vitest, ' +
           'jasmine-auto-spies, jasmine to vitest, karma to vitest, migrate jasmine, jasmine.createSpyObj, ' +
           'jasmine spyOn call through, withContext vitest, DEFAULT_TIMEOUT_INTERVAL, ' +
+          'prefer-observer-stub, hand rolled IntersectionObserver stub, MutationObserver is not a constructor, ' +
+          'mockValueProp only works in the first test, property mock stops applying, patch in beforeAll not reapplied, ' +
+          'propsOutsideHooks, reportPropsOutsideHooks, registerAutoSpyDefaults, clearAutoSpyDefaults, ' +
+          'same spy config repeated in every spec, default spy configuration per class, ' +
+          'component providers shadow TestBed provider, provideAutoSpy ignored by component, assertNoShadowedProviders, ' +
+          'spy provided but real service used, no-private-member-access, no-dead-schemas, ' +
+          'not assignable to parameter of type HttpEvent, overloaded method mock wrong signature, ' +
           'prefer-render-shallow, TestBed.createComponent slow, angular component test slow, ' +
           'shallow render angular test, renderShallow, NO_ERRORS_SCHEMA vitest, ' +
           'webstorm eslint inspections, vs code extension, anti-patterns, spy typing, ' +
