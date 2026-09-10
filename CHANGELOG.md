@@ -12,6 +12,34 @@ The latest released version here must always match the one published on
 
 ### Added
 
+- **`prefer-observer-stub` — the observer stub that was already written.** Reports an
+  `IntersectionObserver` / `ResizeObserver` / `MutationObserver` constructor replaced by hand, in the
+  three spellings it is written in — `globalThis.X = class { … }` (cast, computed key or a name
+  declared above it), `vi.stubGlobal('X', Fake)` and `vi.spyOn(globalThis, 'X')` — and names
+  `stubIntersectionObserver()` / `stubResizeObserver()` / `stubMutationObserver()`, which is the same
+  block in one line. The message spends its length on the half nobody guesses: the save and the
+  `afterEach` restore are not the author's to write, because the helper installs through
+  `mockValueProp` and `restoreMockedProps()` runs the undo after every test. That half is a defect
+  rather than verbosity — a restore parked at the end of an `it` runs only if every assertion above
+  it passed, so the first red test leaves the stub live for the rest of the file and, under
+  `isolate: false`, for every later file the worker picks up.
+
+  Measured over the Angular monorepo of 1 759 spec files it was written for, at the commit before that
+  suite moved onto the helpers: **six spec files** replaced a global observer by hand — four with a
+  module-scope `global.IntersectionObserver = vi.fn(() => ({ … }))`, two with
+  `vi.stubGlobal('IntersectionObserver', …)` over four call sites. Eight spec files call the helpers
+  today and those two still do not, which is what a rule is for: nothing but review was going to find
+  them. One of the hand-rolled ones carried a comment saying there was no other way.
+
+  Three shapes match and stay silent by construction: the restore itself
+  (`globalThis.IntersectionObserver = original`), because what is assigned is a name holding whatever
+  was read out of the global rather than a double; a real implementation from a polyfill
+  (`window.ResizeObserver = ResizeObserver`), which is application code doing its job; and a receiver
+  that is not the global object, such as a fake `window` a spec hands to the code under test.
+  `Object.defineProperty(globalThis, 'ResizeObserver', …)` is left to `no-object-define-property`,
+  which already reports every `defineProperty` in a spec and names the same helper family — two rules
+  on one line would say the same thing twice.
+
 - **`registerAutoSpyDefaults(Class, config)` — a spy's composition lives with the class, not in 109
   specs.** Register once from a setup file and every `provideAutoSpy(X)` / `createSpyFromClass(X)`
   starts from it, **merged** with whatever the call site adds rather than replaced: lists unioned,
@@ -102,6 +130,43 @@ The latest released version here must always match the one published on
   third-party package appends a signature to a global interface — `web-vitals` does exactly that to
   `Performance.getEntriesByType` — so which one `ReturnType` reads depends on which packages are in
   the program, and can move on a dependency bump with nothing in the diff to say so.
+
+### Documentation
+
+- **The `vitest/expect-expect` pairing, as a convention rather than a list.** `assertFunctionNames:
+  ['expect*', 'assert*', '**.expect*']` covers this package's `expectEmission` family, its `assert*`
+  helpers and a helper reached through an object, and needs no edit when a suite grows another one.
+  Measured over 1759 spec files: zero false positives. Naming helpers one by one does not survive
+  contact with a real suite — in that one a genuine assertion helper was called `find`, and listing
+  `find` swallows every `Array.prototype.find`.
+
+- **Replacing a hand-rolled global observer stub**, next to `stubIntersectionObserver` and friends:
+  the nineteen-line `global.IntersectionObserver = class { … } as unknown as typeof IntersectionObserver`
+  against the one-line helper, and what the helper adds — a double the spec can drive, a patch
+  `restoreMockedProps()` undoes on its own, and no cast. The page links to
+  `prefer-observer-stub`, which reports the hand-rolled form rather than leaving it to review.
+
+- **`overload` is now findable from the message that leads to it.** The symptom is a stub of the
+  real response shape being rejected — `TS2345: Argument of type 'Page' is not assignable to
+  parameter of type 'HttpEvent<Page>'` — with nothing in it about overload order, and the workaround
+  it attracts is `@ts-expect-error`: in one migration, sixty of them across twenty-five files while
+  another person on the same codebase found `{ overload: 'first' }`. The wording now appears
+  verbatim next to the option — in `SpyOptions.overload`'s own JSDoc, in `spy-typing`, in `AGENTS.md`
+  and in the skill's symptom table — and a type test pins the helper half of it (`nextWith`'s
+  parameter, not only `ReturnType`).
+
+  **Putting the hint in the compiler's own text was tried first and does not pay**, which is
+  recorded in `spy-typing` so it is not retried. It works: a payload named
+  `OverloadCollapsed_UseSpyOverloadOption<HttpEvent<Page>>` does print, because a type alias whose
+  body builds a union keeps its name in a `TS2345` where a pass-through alias is erased. It fails on
+  everything else. Cost — the flag has to be decided per member, which stops the payload bundles
+  being shared between members: a flag whose body is the constant `false`, with no overload
+  detection at all, already takes `types:budget` from a delta of **9 665 to 11 769** against a
+  ceiling of 11 000, and detection adds ~840 more (the cheapest probe measured 12 605, the most
+  obvious one 16 355). Precision — on a four-overload `api-mgw` client, where `'last'` is already
+  right, an honestly wrong stub reads `OverloadCollapsed_UseSpyOverloadOption<Movie[]>` and is sent
+  to an option that would change nothing. Coverage — `mockReturnValue` is typed by
+  `MockInstance<Method>`, the runner's own surface, which nothing this package wraps can reach.
 
 ### Fixed
 
