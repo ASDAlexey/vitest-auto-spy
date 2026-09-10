@@ -1093,6 +1093,31 @@ describe('provideAutoSpy / injectSpy', () => {
     expect(service.theme).toBe('dark');
   });
 
+  it('seeds a readonly instance field, which no prototype walk can reach', () => {
+    // The member `provideAutoSpy` is routinely assumed not to cover: a `readonly` field assigned in
+    // the constructor is not on the prototype, so discovery cannot see it and the double answers
+    // `undefined`. `overrides` is the channel for it — the same one `things$` uses above — and it
+    // checks against the class, so a field the class drops fails here rather than in the spec that
+    // reads it. `mockReadonlyProp(spy, 'focusStrategies', …)` is the other answer, and the one to
+    // reach for when the value has to change between tests rather than be seeded once.
+    class NewCardService {
+      readonly focusStrategies: Record<string, number> = { poster: 1 };
+
+      load(): number {
+        return 1;
+      }
+    }
+
+    TestBed.configureTestingModule({
+      providers: [provideAutoSpy(NewCardService, { overrides: { focusStrategies: { poster: 9, button: 8 } } })],
+    });
+
+    const cards = injectSpy(NewCardService);
+
+    expect(cards.focusStrategies).toEqual({ poster: 9, button: 8 });
+    expect(cards.load).toHaveBeenCalledTimes(0);
+  });
+
   it('seeds method results behind an InjectionToken too', async () => {
     const PRODUCTS = new InjectionToken<{ getProducts(): Observable<string[]> }>('PRODUCTS');
 
