@@ -117,6 +117,42 @@ overload of a method. On a generated API client (`ng-openapi-gen`, `openapi-gene
 `{ overload: 'first' }` types the spy against the first signature instead. For a single method there
 is also `Overload<Client['get'], 0>`, which is what to put in a `MockInstance<…>` or a `vi.fn<…>()`.
 
+### Name the method, not the whole double
+
+`'first'` applied to the type moves **every** overloaded member at once, and on a wide type that
+breaks the members nobody was fixing: `Spy<Response, { overload: 'first' }>` put on one method
+collected five `TS2769`s on `download` in the same file. Pass a map instead:
+
+```ts
+let perf: Spy<Performance, { overload: { getEntriesByType: 'first' } }>;
+```
+
+A name the type does not have never matches, so a rename leaves a dead entry rather than a red
+build — the same trade `instanceMethodsToSpyOn` makes, and for the same reason.
+
+### Why the default stays `'last'`
+
+Because "the useful one" is not decidable from the type. On a generated `observe` client the first
+signature is the one to take; on a four-overload `api-mgw` client the last one is, and both live in
+the same suite. There is no structural test that separates them without naming Angular's
+`HttpEvent`, which no declaration this package ships is allowed to do.
+
+Worth knowing, because it is the strongest argument for naming the method rather than trusting the
+default: **overload order is not always the author's**. `declare global` in a third-party package
+appends to a global interface, and the appended signature is last —
+
+```ts
+// web-vitals
+declare global {
+  interface Performance {
+    getEntriesByType<K>(type: K): PerformanceEntryMap[K][];
+  }
+}
+```
+
+— so which signature `ReturnType` reads depends on which packages are in the program, and can change
+on a dependency bump with nothing in the diff to say so.
+
 ## The only call signature is the method's own
 
 The mock surface on each spied method is `MockInstance<Method>` — the same helpers

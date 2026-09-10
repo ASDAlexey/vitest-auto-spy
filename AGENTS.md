@@ -634,6 +634,22 @@ Also true, and worth not re-deriving:
   mapping = createSpyFromClass(MgwMappingService); // no second type argument here
   ```
 
+  **Name the method rather than the whole double.** `'first'` on the type moves *every* overloaded
+  member, and on a wide type that breaks the ones nobody was fixing — `Spy<Response, { overload:
+  'first' }>` for one method collected five `TS2769`s on `download`. `overload` also takes a map:
+
+  ```ts
+  let perf: Spy<Performance, { overload: { getEntriesByType: 'first' } }>;
+  ```
+
+  A name the type does not have never matches, so a rename leaves a dead entry rather than a red
+  build. The default stays `'last'` because "the useful signature" is not decidable from the type: on
+  a generated `observe` client it is the first, on a four-overload `api-mgw` client the last, and both
+  live in one suite. And **overload order is not always the author's** — `declare global` in a
+  third-party package appends to a global interface (`web-vitals` does exactly this to
+  `Performance.getEntriesByType`), so which signature is last depends on which packages are in the
+  program and can move on a dependency bump.
+
 **A getter that returns a `Signal<T>` goes in `instanceMethodsToSpyOn`**, not in `gettersToSpyOn`.
 `get isKidMode(): Signal<boolean> { return this._isKidMode.asReadonly(); }` is read as a property
 and called as a function, and the accessor route makes you write
@@ -751,6 +767,23 @@ it says "type parameter":
 const config = asSpy<FeatureFlagService>(TestBed.inject(FeatureFlagService)); // ✅
 const config = injectSpy<FeatureFlagService>(FeatureFlagService);             // ✅
 ```
+
+**A declared default now reaches the double, and used not to.** `class RemoteConfigService<T =
+RemoteConfigDefaults>` handed to `createSpyFromClass` / `injectSpy` inferred `T` as `unknown`, so
+every member typed against it read as `unknown` on a class that had said exactly what it should be.
+Two shapes caused it, both fixed: the `& { [key: string]: any }` intersection `ClassType<T>` used to
+carry (an index signature makes inference drop the default) and the union in `injectSpy`'s token
+parameter (a union does too — a class now matches a bare construct-signature overload first).
+Spelling the argument out still works and is still the answer when the class has **no** default.
+
+**A generic *method* is a different thing, and it does collapse.** `show<T, U>(component: Type<T>,
+data: U)` on a modal or factory service reaches `Spy<T>` through `Parameters` / `ReturnType`, which
+instantiate the method's own type parameters — so the double types as `show(component: Type<unknown>,
+data: unknown)`. No mapped type in TypeScript can preserve a generic signature, so this is a limit
+rather than a defect, and it is usually harmless: `unknown` accepts every argument and every seeded
+return, so `spy.show.calledWith(MyModal, data).mockReturnValue(ref)` compiles. It bites only where
+the instantiated type appears in a **contravariant** position; there, name the shape on a declaration
+of your own and assign the factory's result to it.
 
 ---
 
