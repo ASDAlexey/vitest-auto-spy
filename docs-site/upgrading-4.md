@@ -157,7 +157,8 @@ ahead.
 ## 3. Every ESLint rule is an error
 
 `configs.recommended` used to grade its nineteen rules `error` / `warn` / `off`. They are all
-`error` now.
+`error` now — with one exception added later: `prefer-render-shallow` ships as a `warn`, because it
+reports a cost rather than a defect. [The plugin page](/utilities/eslint-plugin#rules) says why.
 
 A `warn` is a finding a build does not stop for, so in a repository that does not read lint output it
 is `off` with extra noise — and choosing that on your behalf was the part that was wrong. Which

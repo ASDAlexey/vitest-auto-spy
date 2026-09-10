@@ -1,6 +1,6 @@
 ---
 title: Editor diagnostics — WebStorm and VS Code
-description: Underline the vitest-auto-spy anti-patterns while the spec is being written — the twenty shipped ESLint rules, shown natively by WebStorm and the other JetBrains IDEs, and by the ESLint extension in VS Code, Cursor and Windsurf.
+description: Underline the vitest-auto-spy anti-patterns while the spec is being written — the twenty-three shipped ESLint rules, shown natively by WebStorm and the other JetBrains IDEs, and by the ESLint extension in VS Code, Cursor and Windsurf.
 ---
 
 # Editor diagnostics
@@ -110,9 +110,10 @@ Cursor, Windsurf and VSCodium install that ESLint extension from Open VSX and re
 | `spy.calls.saveArgumentsByValue()`                           | a no-op here, so the spec quietly starts asserting on post-mutation state                                                                   | `no-save-arguments-by-value`      |
 
 The last three are for a suite [migrating off `jasmine-auto-spies`](/migrating-jasmine).
-`prefer-native-spy-api`, which finishes that migration under `--fix`, is `off` in the recommended
-config — it reports working code, so it is switched on for the last mile rather than left underlining
-a bridge that is still being crossed.
+`prefer-native-spy-api`, which finishes that migration under `--fix`, ships at `error` like the rest,
+and it is the one rule a suite is expected to set to `'off'` for a while: it reports working bridge
+code, so on day one it underlines every line of the shim. Turn it back on for the last mile — the
+migration is finished when it is silent again.
 
 Each message ends with a link to the README recipe that shows the replacement, so the rule never
 only says "don't". The full descriptions, severities and the reasoning behind which rules fix and

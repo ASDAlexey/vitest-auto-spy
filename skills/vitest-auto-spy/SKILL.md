@@ -370,8 +370,14 @@ forgot one is silent about it.
 
 Four of those rules are for a suite mid-migration off `jasmine-auto-spies`:
 `jasmine-namespace-without-entry`, `no-jasmine-globals`, `no-save-arguments-by-value`, and
-`prefer-native-spy-api` — the last one is **`off`** in the recommended config on purpose, because it
-reports working code. Turn it on for the last mile, once the suite is green, and not before.
+`prefer-native-spy-api` — the last one ships at `error` like the rest, and it is the one rule to set
+to **`'off'`** yourself while the migration lasts, because it reports working bridge code. Turn it
+back on for the last mile, once the suite is green, and not before.
+
+**`prefer-render-shallow` is the only `warn` in `recommended`**, and the reason is what it reports:
+every other rule names something wrong or dead, while this one names a spec that could render more
+cheaply. Moving onto `renderShallow` is a suite's decision, not a repair, so it shows up in the output
+without holding a build — set it to `'error'` once the project has taken that decision.
 
 `doctor` is read-only. It reports what neither the runner nor the compiler can: a `tsconfig`
 `include` pattern that matches no file, a production module importing a spec, a spec importing

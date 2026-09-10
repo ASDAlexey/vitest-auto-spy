@@ -460,10 +460,13 @@ step 1 and step 3:
 
 | Rule                              | Level   | Reports                                                                                                      |
 | --------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------ |
-| `jasmine-namespace-without-entry` | `warn`  | `.and` / `.calls` / `.withArgs` on a library spy, in a file that installs the layer nowhere                  |
+| `jasmine-namespace-without-entry` | `error` | `.and` / `.calls` / `.withArgs` on a library spy, in a file that installs the layer nowhere                  |
 | `no-jasmine-globals`              | `error` | `jasmine.*`, bare `spyOn(` / `spyOnProperty(` / `spyOnAllFunctions(` / `fail(` / `pending(`, `.withContext(` |
 | `no-save-arguments-by-value`      | `error` | the no-op above                                                                                              |
-| `prefer-native-spy-api`           | `off`   | `.and` / `.calls` where the spy's own API says the same thing — **`--fix`** where it can trace the receiver  |
+| `prefer-native-spy-api`           | `error` | `.and` / `.calls` where the spy's own API says the same thing — **`--fix`** where it can trace the receiver  |
+
+All four ship at `error`; the last one is the rule to hold at `'off'` for the length of the
+migration, for the reason below.
 
 `no-done-callback`, which is on at `error` in the recommended config anyway, is the fifth one this
 migration leans on: besides the `(done) =>` parameter it reports `done.fail(…)` at the call site.

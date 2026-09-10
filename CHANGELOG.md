@@ -143,6 +143,15 @@ The latest released version here must always match the one published on
   code and what quiets it, and why its severity is what it is. `docs-site/utilities/eslint-plugin.md`
   stays the page about installing it. Russian at `docs-site/ru/utilities/eslint-rules.md`.
 
+- **Three severities the docs still reported from before 4.0.0.** `prefer-native-spy-api` and
+  `jasmine-namespace-without-entry` ship at `error` and have since 4.0.0, but the rule table in
+  [Migrating from jasmine-auto-spies](https://asdalexey.github.io/vitest-auto-spy/migrating-jasmine)
+  still listed them as `off` and `warn`, and both the editor-diagnostics page and the agent skill said
+  in prose that `prefer-native-spy-api` is `off` in `recommended`. It is a rule a suite switches off
+  for itself while the bridge is still in place, which is what all four now say. The
+  editor-diagnostics page also counted twenty rules in its description where the body counts
+  twenty-three.
+
 - **The `vitest/expect-expect` pairing, as a convention rather than a list.** `assertFunctionNames:
   ['expect*', 'assert*', '**.expect*']` covers this package's `expectEmission` family, its `assert*`
   helpers and a helper reached through an object, and needs no edit when a suite grows another one.
