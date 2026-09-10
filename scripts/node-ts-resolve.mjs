@@ -7,8 +7,10 @@
 //
 // What Node cannot do on its own is find them: the library's own imports are extensionless
 // (`./lib/mock-adapter`), and the ESM resolver never tries `.ts` for a specifier that names no
-// extension. `--experimental-transform-types` handles the rest — plain strip-only mode dies on the
-// parameter properties in `src/lib/**` with `ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX`.
+// extension. Type stripping handles the rest, with no flag: Node 26 removed
+// `--experimental-transform-types` and left strip-only mode as the whole of it, so every source this
+// suite loads keeps to erasable syntax — no parameter properties, enums or namespaces — and this
+// suite is what proves it, on the oldest and newest Node the matrix runs.
 import { existsSync } from 'node:fs';
 import { registerHooks } from 'node:module';
 import { fileURLToPath } from 'node:url';

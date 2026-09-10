@@ -262,8 +262,11 @@ function nextWithPerCallHelper<Self, T>(
  * spy; `reset` — inherited — is what `resetAutoSpy` calls to drop the buffered subject.
  */
 class SpyObservableState<T> extends ObservableTarget<T> implements ObservableStream, PerCallTarget {
-  constructor(readonly container: ReturnValueContainer) {
+  readonly container: ReturnValueContainer;
+
+  constructor(container: ReturnValueContainer) {
     super();
+    this.container = container;
   }
 
   publish(stream: Observable<T>): void {
@@ -305,11 +308,13 @@ export function createFunctionSpyStream(valueContainer: ReturnValueContainer): O
 class ChainObservableTarget<T> extends ObservableTarget<T> implements PerCallTarget {
   readonly container: ReturnValueContainer = { value: undefined };
 
-  constructor(
-    private readonly calledWithObject: CalledWithObject,
-    private readonly calledWithArgs: unknown[],
-  ) {
+  readonly #calledWithObject: CalledWithObject;
+  readonly #calledWithArgs: unknown[];
+
+  constructor(calledWithObject: CalledWithObject, calledWithArgs: unknown[]) {
     super();
+    this.#calledWithObject = calledWithObject;
+    this.#calledWithArgs = calledWithArgs;
   }
 
   publish(stream: Observable<T>): void {
@@ -319,7 +324,7 @@ class ChainObservableTarget<T> extends ObservableTarget<T> implements PerCallTar
   }
 
   configured(): void {
-    this.calledWithObject.argsToValuesMap.set(this.calledWithArgs, this.container);
+    this.#calledWithObject.argsToValuesMap.set(this.#calledWithArgs, this.container);
   }
 }
 

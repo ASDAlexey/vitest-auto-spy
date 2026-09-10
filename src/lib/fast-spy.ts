@@ -157,10 +157,14 @@ class FastMockStateImpl implements FastMockState {
   recordedResults: RecordedResult[] = [];
   recordedSettledResults: RecordedResult[] = [];
 
-  constructor(private readonly owner: FastSpy) {}
+  readonly #owner: FastSpy;
+
+  constructor(owner: FastSpy) {
+    this.#owner = owner;
+  }
 
   get calls(): unknown[][] {
-    syncEpochs(this.owner);
+    syncEpochs(this.#owner);
 
     return this.recordedCalls;
   }
@@ -170,7 +174,7 @@ class FastMockStateImpl implements FastMockState {
   }
 
   get contexts(): unknown[] {
-    syncEpochs(this.owner);
+    syncEpochs(this.#owner);
 
     return this.recordedContexts;
   }
@@ -180,7 +184,7 @@ class FastMockStateImpl implements FastMockState {
   }
 
   get instances(): unknown[] {
-    syncEpochs(this.owner);
+    syncEpochs(this.#owner);
 
     return this.recordedInstances;
   }
@@ -190,7 +194,7 @@ class FastMockStateImpl implements FastMockState {
   }
 
   get invocationCallOrder(): number[] {
-    syncEpochs(this.owner);
+    syncEpochs(this.#owner);
 
     return this.recordedOrder;
   }
@@ -200,7 +204,7 @@ class FastMockStateImpl implements FastMockState {
   }
 
   get results(): FastMockResult[] {
-    syncEpochs(this.owner);
+    syncEpochs(this.#owner);
 
     // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- see `RecordedResult`: the entries are completed in place, so they are recorded mutably and published as the union.
     return this.recordedResults as FastMockResult[];
@@ -211,7 +215,7 @@ class FastMockStateImpl implements FastMockState {
   }
 
   get settledResults(): FastMockSettledResult[] {
-    syncEpochs(this.owner);
+    syncEpochs(this.#owner);
 
     // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- see `results`.
     return this.recordedSettledResults as FastMockSettledResult[];

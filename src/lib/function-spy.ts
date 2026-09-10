@@ -272,13 +272,19 @@ class FunctionSpyInternals implements MarkHooks {
   /** Built on the first stream helper, not on every spy — see {@link ObservableSupport.streamForFunctionSpy}. */
   #observable: ObservableStream | undefined = undefined;
 
-  constructor(
-    readonly state: SpyState,
-    readonly valueContainer: ReturnValueContainer,
-    readonly host: MockFn,
-    readonly dispatch: Func,
-    readonly recorder: SettledResultsRecorder,
-  ) {}
+  readonly state: SpyState;
+  readonly valueContainer: ReturnValueContainer;
+  readonly host: MockFn;
+  readonly dispatch: Func;
+  readonly recorder: SettledResultsRecorder;
+
+  constructor(state: SpyState, valueContainer: ReturnValueContainer, host: MockFn, dispatch: Func, recorder: SettledResultsRecorder) {
+    this.state = state;
+    this.valueContainer = valueContainer;
+    this.host = host;
+    this.dispatch = dispatch;
+    this.recorder = recorder;
+  }
 
   /**
    * The rxjs layer's state for this spy, materialised on first use.

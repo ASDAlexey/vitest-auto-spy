@@ -261,7 +261,7 @@
     "test:invariants": "vitest run --config vitest.invariants.config.mts",
     "test:types": "vitest run --config vitest.types.config.mts",
     "types:budget": "node scripts/check-type-budget.mjs",
-    "test:node": "node --experimental-transform-types --import ./scripts/node-ts-resolve.mjs --test \"src/node-tests/*.node.test.ts\"",
+    "test:node": "node --import ./scripts/node-ts-resolve.mjs --test \"src/node-tests/*.node.test.ts\"",
     "test:bun": "bun test ./src/bun-tests/core.bun.test.ts ./src/bun-tests/rxjs.bun.test.ts ./src/bun-tests/jasmine.bun.test.ts",
     "test:bun:angular": "bun test --preload ./src/bun-angular.ts ./src/bun-tests",
     "test:bun:isolate": "bun test --isolate --preload ./src/bun-angular.ts ./src/bun-tests",

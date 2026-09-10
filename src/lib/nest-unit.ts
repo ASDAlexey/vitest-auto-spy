@@ -138,10 +138,10 @@ class NestGraph {
   readonly #built: unknown[] = [];
   readonly #building: NestUnitClass[] = [];
 
-  constructor(
-    readonly target: NestUnitClass,
-    options: CreateNestUnitOptions,
-  ) {
+  readonly target: NestUnitClass;
+
+  constructor(target: NestUnitClass, options: CreateNestUnitOptions) {
+    this.target = target;
     this.#provided = new Map((options.providers ?? []).map((provider) => [provider.provide, provider]));
     this.#exposed = new Set(options.expose ?? []);
   }
