@@ -42,6 +42,7 @@
  */
 import { type EsPromiseExecutor, type EsSubscribeCall, awaitedRewriteFor } from './await-emission';
 import { bindingState, findBinding } from './bindings';
+import { noDeadSchemas } from './dead-schemas';
 import { defineRule } from './define-rule';
 import { RENDER_MESSAGES, buildsDirectiveHarness, readsRenderedTemplate, renderShallowSuggestion, templatePolicy } from './dom-reads';
 import { isFloatingChain, isPromiseCallback } from './floating-assertion';
@@ -58,6 +59,7 @@ import { type EsSpyCast, asSpyFixes, assertedValue, injectSpySuggestion, injecte
 import { jasmineRules } from './jasmine-rules';
 import { type EsMockedTypeName, namesOneType, rewritesTheWholeDeclaration, spyTypeFixes } from './mocked-declaration';
 import { OVERRIDE_MESSAGES, deleteProviderSuggestion, overriddenProviders } from './overridden-provider';
+import { noPrivateMemberAccess } from './private-access';
 import { patchKey, propHelperSuggestion } from './prop-helpers';
 import {
   type EsArrayExpression,
@@ -695,6 +697,8 @@ export const rules: Record<string, RuleModule> = {
   'no-bare-called-with': noBareCalledWith,
   'no-overridden-provider': noOverriddenProvider,
   'no-inject-before-override': noInjectBeforeOverride,
+  'no-private-member-access': noPrivateMemberAccess,
+  'no-dead-schemas': noDeadSchemas,
   'no-import-time-spread': noImportTimeSpread,
   'no-unregistered-inject-spy': noUnregisteredInjectSpy,
   'prefer-render-shallow': preferRenderShallow,

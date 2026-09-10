@@ -196,6 +196,54 @@ export interface EsSourceCode {
    * the comma between them.
    */
   getTokenAfter(node: EsNode): EsNode;
+  /**
+   * What the parser published. ESLint always sets the property — it is `{}` for a parser that
+   * publishes nothing — so a rule that needs types can tell the difference and stay silent rather
+   * than guess.
+   */
+  readonly parserServices: ParserServices;
+}
+
+/**
+ * A TypeScript AST node, in the one shape this plugin reads off it.
+ *
+ * Declared rather than imported, for the same reason ESLint's own types are: `typescript` would
+ * then sit in the way of every consumer of the published `.d.ts`, for a plugin most of them never
+ * load. A modifier is read as **text**, not as a `ts.SyntaxKind`, which is what makes that possible
+ * and is the more durable of the two anyway — the numbers move between TypeScript releases,
+ * `private` does not.
+ */
+export interface TsNode {
+  readonly modifiers?: readonly { getText(): string }[];
+}
+
+/** The one thing this plugin asks a TypeScript type: what it holds, and — for a literal — what it is. */
+export interface TsType {
+  getProperty(name: string): { readonly declarations?: readonly TsNode[] } | undefined;
+  /** Present on a literal type only; a string here is what makes `obj['x']` a named member read. */
+  readonly value?: unknown;
+}
+
+/**
+ * ESTree → TypeScript. `@typescript-eslint/parser` fills it for every node it converted.
+ *
+ * The reverse map exists too and is not used here: it covers the **file being linted** alone, so it
+ * answers nothing for the class under test, which lives in another file nine times out of ten.
+ */
+export interface EsToTsMap {
+  get(node: EsNode): TsNode;
+}
+
+/**
+ * The `@typescript-eslint/parser` services a type-aware rule needs.
+ *
+ * Both members are optional because the property is also `{}` under a parser that publishes none —
+ * espree, or `@typescript-eslint/parser` with neither `project` nor `projectService`. A rule reads
+ * both or neither.
+ */
+export interface ParserServices {
+  readonly program?: { getTypeChecker(): { getTypeAtLocation(node: TsNode): TsType } };
+  readonly esTreeNodeToTSNodeMap?: EsToTsMap;
 }
 
 /** The sliver of ESLint's rule context the rules use. */
@@ -229,6 +277,26 @@ export interface RuleModule {
     hasSuggestions?: boolean;
   };
   create(context: RuleContext): RuleListener;
+}
+
+/**
+ * A cast — `x as T`, or the older `<T>x`.
+ *
+ * The one ESTree shape a *dotted* member access has to be checked against: the compiler enforces
+ * visibility on `obj.hidden`, so the only way that line compiles is if `obj` was retyped first.
+ */
+export interface EsCast extends EsNode {
+  expression: EsNode;
+}
+
+/** Whether a node retypes its operand. Both spellings, because both remove the same modifier. */
+export function isCast(node: EsNode): node is EsCast {
+  return node.type === 'TSAsExpression' || node.type === 'TSTypeAssertion';
+}
+
+/** Narrow to an array literal — the shape every list key of a testing module is written in. */
+export function isArrayExpression(node: EsNode): node is EsArrayExpression {
+  return node.type === 'ArrayExpression';
 }
 
 /** Narrow to an object literal. */

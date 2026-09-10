@@ -83,6 +83,8 @@ const recommendedRules: Record<string, RuleSeverity> = {
   [`${PLUGIN_NAME}/no-bare-called-with`]: 'error',
   [`${PLUGIN_NAME}/no-overridden-provider`]: 'error',
   [`${PLUGIN_NAME}/no-inject-before-override`]: 'error',
+  [`${PLUGIN_NAME}/no-private-member-access`]: 'error',
+  [`${PLUGIN_NAME}/no-dead-schemas`]: 'error',
   [`${PLUGIN_NAME}/no-import-time-spread`]: 'error',
   [`${PLUGIN_NAME}/no-unregistered-inject-spy`]: 'error',
   [`${PLUGIN_NAME}/prefer-render-shallow`]: 'error',

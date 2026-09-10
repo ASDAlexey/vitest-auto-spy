@@ -32,6 +32,15 @@ declare module 'eslint' {
 
   export interface LinterOptions {
     configType?: 'eslintrc' | 'flat';
+    /**
+     * What a flat config's `files` patterns are matched against.
+     *
+     * Declared because one rule spec lints fixtures from a throwaway directory outside the
+     * repository: without it every fixture comes back as a single `No matching configuration found`
+     * message instead of the rule's own reports — which reads as a green `[]` in every "must not
+     * report" assertion and fails only the ones that must.
+     */
+    cwd?: string;
   }
 
   export class Linter {
