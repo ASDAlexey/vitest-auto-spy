@@ -46,6 +46,11 @@ function lint(code: string, ruleName: string): string[] {
   return verify(code, ruleName).map((message) => message.ruleId ?? 'parse-error');
 }
 
+/** The lines reported for a snippet — for asserting that every violator of a list is named, not just one. */
+function lines(code: string, ruleName: string): number[] {
+  return verify(code, ruleName).map((message) => message.line);
+}
+
 /** Run the rule the way `eslint --fix` does, repeated passes and all. */
 function autofix(code: string, ruleName: string): string {
   return linter.verifyAndFix(
@@ -130,6 +135,44 @@ describe('prefer-provide-auto-spy', () => {
     expect(lint('const p = { provide: Cart, useValue: buildCart() };', 'prefer-provide-auto-spy')).toEqual([]);
     expect(lint("import { nav } from './fixtures';\nconst p = { provide: Nav, useValue: nav };", 'prefer-provide-auto-spy')).toEqual([]);
     expect(lint('const nav = { go: () => vi.fn() };\nconst p = { provide: Nav, useValue: nav };', 'prefer-provide-auto-spy')).toEqual([]);
+  });
+
+  /**
+   * One pass, every violator — the property a lint rule has to have before a suite can be cleared
+   * against it and the rule raised to `error`. A rule that reported in batches would make "zero
+   * findings" mean nothing, and the inventory taken from one run an undercount.
+   *
+   * Reported as a defect from a migration and not reproducible: the two `providers` arrays behind
+   * that report each held a shape this rule is deliberately silent on — the three in
+   * "leaves a name it cannot follow to an object of spies alone" above, plus `multi: true`. That
+   * silence is the real limit on the inventory, and it does not move when a neighbour is fixed.
+   */
+  it('reports every hand-rolled provider of one array in a single pass', () => {
+    const providers = [
+      'TestBed.configureTestingModule({',
+      '  providers: [',
+      '    { provide: NewCardService, useValue: { load: vi.fn(), save: vi.fn() } },',
+      '    { provide: DomainEventsService, useValue: { emit: vi.fn(), listen: vi.fn() } },',
+      '    { provide: FocusService, useValue: { focus: vi.fn() } },',
+      '  ],',
+      '});',
+    ].join('\n');
+
+    expect(lines(providers, 'prefer-provide-auto-spy')).toEqual([3, 4, 5]);
+  });
+
+  it('reports the survivors unchanged once one of them has been converted', () => {
+    const converted = [
+      'TestBed.configureTestingModule({',
+      '  providers: [',
+      '    provideAutoSpy(NewCardService),',
+      '    { provide: DomainEventsService, useValue: { emit: vi.fn(), listen: vi.fn() } },',
+      '    { provide: FocusService, useValue: { focus: vi.fn() } },',
+      '  ],',
+      '});',
+    ].join('\n');
+
+    expect(lines(converted, 'prefer-provide-auto-spy')).toEqual([4, 5]);
   });
 
   it('names provideAutoSpyForToken when the thing provided is a token, not a class', () => {
