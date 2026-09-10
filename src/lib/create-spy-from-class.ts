@@ -12,6 +12,7 @@ import { createLazySpyProxy } from './lazy-spy-proxy';
 import { getMockAdapter } from './mock-adapter';
 import { requireObservableSupport } from './observable-support';
 import { attachDispose } from './reset-auto-spy';
+import { mergeAutoSpyDefaults } from './spy-defaults';
 import type { ClassSpyConfiguration, ClassType, Func, OnlyMethodKeysOf, Spy, SpyOptions, UnstubbedCallHandler } from './types';
 
 /** All names to spy on, flattened from either form of the config argument. */
@@ -443,7 +444,9 @@ export function createSpyFromClass<T, Options extends SpyOptions = SpyOptions>(
   ObjectClass: ClassType<T>,
   methodsToSpyOnOrConfig?: ClassSpyConfiguration<T> | OnlyMethodKeysOf<T>[],
 ): Spy<T, Options> {
-  const config = resolveConfiguration(methodsToSpyOnOrConfig);
+  // The class's registration first, the call site's own configuration merged over it — so a spec
+  // that needs one extra member names one extra member instead of restating the composition.
+  const config = resolveConfiguration(mergeAutoSpyDefaults(ObjectClass, methodsToSpyOnOrConfig));
   const autoSpy = assembleSpy<T, Options>(ObjectClass, config);
 
   applyReturns(autoSpy, `createSpyFromClass(${ObjectClass.name})`, config.returns);
