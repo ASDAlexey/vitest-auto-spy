@@ -385,12 +385,20 @@ describe('checkCoverageConfig', () => {
 
   it('reports a coverage scope large enough that matching it costs more than collecting it', () => {
     const globs = (prefix: string, count: number): string[] => Array.from({ length: count }, (_, index) => `${prefix}${index}/**/*.ts`);
-    const wide = createTempRepo({
-      'package.json': '{}',
-      'vitest.config.ts': `export default { test: { coverage: { include: ${JSON.stringify(globs('libs/a', 30))}, exclude: ${JSON.stringify(globs('libs/b', 25))} } } };`,
-    });
+    const scope = `export default { test: { coverage: { include: ${JSON.stringify(globs('libs/a', 30))}, exclude: ${JSON.stringify(globs('libs/b', 25))} } } };`;
+    const wide = createTempRepo({ 'package.json': '{}', 'vitest.config.ts': scope, ...vitest('4.1.9') });
 
     expect(checks(checkCoverageConfig(readProfile(wide)))).toEqual(['coverage-include-recompiles-globs']);
+  });
+
+  it('says nothing about the same scope on the version that compiles the globs once', () => {
+    const globs = (prefix: string, count: number): string[] => Array.from({ length: count }, (_, index) => `${prefix}${index}/**/*.ts`);
+    const scope = `export default { test: { coverage: { include: ${JSON.stringify(globs('libs/a', 30))}, exclude: ${JSON.stringify(globs('libs/b', 25))} } } };`;
+    const five = createTempRepo({ 'package.json': '{}', 'vitest.config.ts': scope, ...vitest('5.0.0') });
+    const unknown = createTempRepo({ 'package.json': '{}', 'vitest.config.ts': scope });
+
+    expect(checkCoverageConfig(readProfile(five))).toEqual([]);
+    expect(checkCoverageConfig(readProfile(unknown))).toEqual([]);
   });
 
   it('counts the globs a unit-test target declares towards the same scope', () => {
@@ -412,6 +420,7 @@ describe('checkCoverageConfig', () => {
       'package.json': '{}',
       'angular.json': target(['spec-*.js', ...wide], ['**/*.spec.ts']),
       'vitest-runner.config.ts': 'export default { test: { coverage: { provider: "v8" } } };',
+      ...vitest('4.1.9'),
     });
 
     expect(checks(checkCoverageConfig(readProfile(root)))).toEqual(['coverage-include-recompiles-globs']);

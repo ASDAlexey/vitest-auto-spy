@@ -38,7 +38,16 @@ const UNIT_TEST_BUILDER = '@angular/build:unit-test';
 const ALL_REMOVED_IN = 4;
 
 /**
- * Patterns above which `isIncluded` stops being free.
+ * Vitest 5 is where the coverage provider started compiling `coverage.include`/`exclude` once.
+ *
+ * `BaseCoverageProvider.getGlobMatchers()` builds the two `picomatch` matchers on first use and
+ * keeps them; before it, `isIncluded()` went through `picomatch.isMatch(file, patterns, options)`,
+ * which compiles the list again on every call.
+ */
+const GLOBS_COMPILED_ONCE_IN = 5;
+
+/**
+ * Patterns above which `isIncluded` stops being free on the versions that recompile them.
  *
  * The provider memoises the *verdict*, keyed by filename, and never the compiled matcher, so
  * `picomatch` recompiles the whole list once per file. The number is a floor, not a cliff: on a real
@@ -239,13 +248,13 @@ export function checkCoverageConfig(profile: Profile): Finding[] {
 
     const scopeSize = arrayPatterns(block, 'include').length + arrayPatterns(block, 'exclude').length + targetScope;
 
-    if (scopeSize >= RECOMPILE_THRESHOLD) {
+    if (major !== undefined && major < GLOBS_COMPILED_ONCE_IN && scopeSize >= RECOMPILE_THRESHOLD) {
       findings.push({
         check: 'coverage-include-recompiles-globs',
         severity: 'info',
         file,
-        message: `The coverage scope here is ${scopeSize} globs, and \`@vitest/coverage-v8\` recompiles all of them for every filename: its \`globCache\` memoises the verdict, keyed by the file, and never the matcher. Nothing fails — the report is correct, it is just paid for once per file per pattern.`,
-        fix: 'Swap the provider for a wrapper that compiles the list once: `coverage.provider: "custom"` plus a `customProviderModule` that re-exports `@vitest/coverage-v8` and overwrites `isIncluded` in `getProvider()`. Measured on one 1 725-file suite: 229.59 s → 22.88 s on a shard, with a byte-identical report. The recipe is in the docs — Adapters → Angular, "Coverage matching costs more than coverage".',
+        message: `The coverage scope here is ${scopeSize} globs, and on Vitest ${major} the provider recompiles all of them for every filename: \`isIncluded()\` calls \`picomatch.isMatch(file, patterns, options)\`, which builds the matchers again on every call, and the \`globCache\` beside it only memoises the finished verdict per file. Nothing fails — the report is correct, it is just paid for once per file per pattern.`,
+        fix: `Upgrade to Vitest ${GLOBS_COMPILED_ONCE_IN}, where \`getGlobMatchers()\` compiles the list once and this stops being a cost. To stay on ${major}: \`coverage.provider: "custom"\` plus a \`customProviderModule\` that re-exports \`@vitest/coverage-v8\` and overwrites \`isIncluded\` in \`getProvider()\`. Measured on one 1 725-file suite: 229.59 s → 22.88 s on a shard, with a byte-identical report. The recipe is in the docs — Adapters → Angular, "Coverage matching costs more than coverage".`,
       });
     }
 
