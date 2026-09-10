@@ -8,11 +8,11 @@
   "entries": {
     ".": {
       "modules": 2,
-      "bytes": 106194
+      "bytes": 107605
     },
     "./angular": {
       "modules": 2,
-      "bytes": 130871
+      "bytes": 132093
     },
     "./angular-http": {
       "modules": 3,
@@ -20,15 +20,15 @@
     },
     "./bun": {
       "modules": 10,
-      "bytes": 99168
+      "bytes": 99195
     },
     "./bun-angular": {
       "modules": 12,
-      "bytes": 118536
+      "bytes": 118563
     },
     "./console": {
       "modules": 9,
-      "bytes": 54817
+      "bytes": 56065
     },
     "./diagnostics": {
       "modules": 2,
@@ -36,7 +36,7 @@
     },
     "./dom-stubs": {
       "modules": 2,
-      "bytes": 33295
+      "bytes": 33400
     },
     "./eslint-plugin": {
       "modules": 2,
@@ -44,7 +44,7 @@
     },
     "./jasmine": {
       "modules": 12,
-      "bytes": 92272
+      "bytes": 93709
     },
     "./jasmine-compat": {
       "modules": 3,
@@ -52,11 +52,11 @@
     },
     "./nestjs": {
       "modules": 11,
-      "bytes": 87033
+      "bytes": 88470
     },
     "./node": {
       "modules": 9,
-      "bytes": 102137
+      "bytes": 102164
     },
     "./observer-spy": {
       "modules": 2,
@@ -64,27 +64,27 @@
     },
     "./react": {
       "modules": 12,
-      "bytes": 112290
+      "bytes": 113727
     },
     "./rstest": {
       "modules": 10,
-      "bytes": 110753
+      "bytes": 112190
     },
     "./rxjs": {
       "modules": 5,
-      "bytes": 18041
+      "bytes": 17515
     },
     "./setup": {
       "modules": 11,
-      "bytes": 95594
+      "bytes": 96842
     },
     "./svelte": {
       "modules": 12,
-      "bytes": 112290
+      "bytes": 113727
     },
     "./vue": {
       "modules": 12,
-      "bytes": 112560
+      "bytes": 113997
     },
     "./zone": {
       "modules": 1,
