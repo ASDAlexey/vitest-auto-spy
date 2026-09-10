@@ -1,6 +1,6 @@
 ---
 title: ESLint plugin
-description: Twenty-three flat-config lint rules that steer a suite onto the auto-spy helpers, grouped by subject, every one an error by default bar the one that reports a cost, with the dial documented and the false-positive cases named.
+description: Twenty-five flat-config lint rules that steer a suite onto the auto-spy helpers, grouped by subject, every one an error by default bar the three that report a cost or a heuristic, with the dial documented and the false-positive cases named.
 ---
 
 # ESLint plugin
@@ -22,7 +22,7 @@ which a subpath export of this package can never be.
 
 **How this page is laid out.** [Adding it](#adding-it-to-your-project) is the four things a first
 config needs. [Which apply to you](#which-of-the-twenty-apply-to-you) answers the question a
-Vitest-only project asks — four of the twenty-three are about a dialect you may not speak.
+Vitest-only project asks — four of the twenty-five are about a dialect you may not speak.
 [Rules](#rules) is the reference table, in five groups. [Tuning](#tuning-it-for-your-project) is
 every dial, including the three rules that can report on correct code. Everything after that is
 _why_ — one section per rule, for when a report has arrived and you want to know what it saved you
@@ -80,7 +80,7 @@ need different severities.
 
 ### 3. Type information is optional, and one rule wants it
 
-Twenty-two of the twenty-three are syntactic: they read the file's own AST and never ask the type checker.
+Twenty-four of the twenty-five are syntactic: they read the file's own AST and never ask the type checker.
 So the plugin works with `parserOptions.project` unset, adds nothing measurable to lint time, and
 does not need your specs to be in a `tsconfig` — which matters in the repositories where they are
 not.
@@ -102,11 +102,13 @@ languageOptions: {
 
 ### 4. What the first run looks like
 
-Every rule but one is an `error`, so on an existing suite the first run is likely to be red — that is
-the point of the default, not a misconfiguration. The exception is
-[`prefer-render-shallow`](#the-render-nobody-reads), which ships as a `warn`: it is the one rule here
-that reports a cost rather than a defect, so it shows up in the output without holding the build. Two
-things make the first pass short:
+Every rule but three is an `error`, so on an existing suite the first run is likely to be red — that
+is the point of the default, not a misconfiguration. The exceptions are
+[`prefer-render-shallow`](#the-render-nobody-reads), which reports a cost rather than a defect, and
+[`no-stub-class-double`](/utilities/eslint-rules#no-stub-class-double) and
+[`no-structural-double`](/utilities/eslint-rules#no-structural-double), which report a defect on
+heuristic evidence; all three show up in the output without holding the build. Two things make the
+first pass short:
 
 ```bash
 npx eslint . --fix          # prefer-as-spy, no-mocked-for-spy and prefer-native-spy-api rewrite themselves
@@ -116,7 +118,7 @@ npx eslint . --format stylish | tail -30   # the summary tells you which rule do
 Whatever is left is either a real finding or a rule you would rather not enforce yet. Both are
 answered below.
 
-## Which of the twenty-three apply to you {#which-of-the-twenty-apply-to-you}
+## Which of the twenty-five apply to you {#which-of-the-twenty-apply-to-you}
 
 Reasonable question if you came straight to Vitest and have never written a line of Jasmine: **four
 of these rules are about a dialect you do not speak.** They are still on, and the reason is not
@@ -126,7 +128,7 @@ principle — it is that they cannot fire on your code.
 | ------------------------------------------ | ---------------------------------------------------------------------------------------------------- |
 | writing Vitest, never used Jasmine or Jest | the nineteen core rules work; **the four jasmine rules are inert** — leave them on and never see them |
 | migrating off `jest-auto-spies` / Jest     | the core rules do the work, `no-done-callback` and `prefer-as-spy` most of it                        |
-| migrating off `jasmine-auto-spies`         | all twenty-three, with `prefer-native-spy-api` set to `'off'` until the bridge is gone                   |
+| migrating off `jasmine-auto-spies`         | all twenty-five, with `prefer-native-spy-api` set to `'off'` until the bridge is gone                   |
 
 ### If you never used Jasmine
 
@@ -196,7 +198,7 @@ that file needs). See [Migrating from jest-auto-spies](/migrating).
 
 ### If you are coming from Jasmine
 
-All twenty-three apply, and the four in the last group are the ones written for you. Two are pure
+All twenty-five apply, and the four in the last group are the ones written for you. Two are pure
 diagnosis — `no-jasmine-globals` and `no-save-arguments-by-value` name silent behaviour changes that
 survive a rename — and `jasmine-namespace-without-entry` catches the spy built before the layer was
 installed. The fourth, `prefer-native-spy-api`, reports the bridge itself, so it is the one line of
@@ -216,8 +218,8 @@ which meant the plugin decided how much each project cared; a `warn` that nothin
 extra output, and which findings block a merge is a project's call, not a library's. Turning one down
 is [one line](#turn-one-rule-down).
 
-The one exception is [`prefer-render-shallow`](#the-render-nobody-reads), which ships as a **`warn`**,
-and the reason is the kind of thing it says rather than how much it matters. Every other rule in these
+One of the three exceptions is [`prefer-render-shallow`](#the-render-nobody-reads), which ships as a
+**`warn`**, and its reason is the kind of thing it says rather than how much it matters. Every other rule in these
 tables names something wrong or dead — a double that drifts from its class, an assertion that never
 runs, a provider the container already dropped, a schema guarding nothing. That one names a file that
 could render more cheaply, which is a choice a suite makes and not a defect in the file: moving onto
@@ -226,6 +228,22 @@ gating it. On the 1759-file suite the rule was measured against it reports **491
 files** — a first run every consumer would have to answer with a project-wide `warn` of its own. So the
 default is the `warn`, and a project that has decided to make the move sets it to `'error'` in the same
 [one line](#turn-one-rule-down) that turns the others down.
+
+The other two, `no-stub-class-double` and `no-structural-double` (5.5.0), are graded on the
+*evidence* rather than on the kind of finding. Both report the same drift
+`prefer-create-spy-from-class` reports at `error` — a double whose shape was written by hand and is
+free to fall behind the class — but neither has a `provide:` beside it to settle the question, so
+each decides on a heuristic: a class whose fields are `vi.fn()`s, an object whose *declared type* is
+an object of Vitest `Mock`s. Neither would be defensible at `error`, and that judgement does not move
+with the count — which is worth saying because the counts moved a lot inside this release. On the same
+1759-file suite the two started at 12 reports across 8 files and 115 across 74; once
+`prefer-provide-auto-spy` learnt to follow a name into a `useValue` and a stub class through a
+`useExisting:`, they are 10 in 7 and 5 in 4, because 112 of those doubles turned out to be handed to
+Angular DI one name away, where a `provide:` settles the question and the answer is
+`provideAutoSpy(X)` rather than `createAutoMock<T>()`. That rule now reports **154 times across 87
+files** on the same suite, all of it at `error` and all of it `provide:`-backed. It is also why these
+are rules of their own rather than arms of the count-based one: a project that disagrees with either
+reading switches it off without losing the rule that reads a count.
 
 The **Without it** column is what the run does when the rule is not there, and it is the reason the
 list is worth reading rather than skimming: over half of these guard against a test that is _green
@@ -252,6 +270,8 @@ Not about a single test but about what one file leaves behind for the next.
 | Rule                                                                                                 | Flags                                                                                                                    | Fix     |       Without it        |
 | ---------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ | ------- | :---------------------: |
 | [`prefer-create-spy-from-class`](#two-things-these-rules-learned-the-hard-way)                       | an object literal of two or more `vi.fn()`s → `createSpyFromClass` / `createAutoMock`, unless it is a factory's own seed | —       |           red           |
+| [`no-stub-class-double`](/utilities/eslint-rules#no-stub-class-double)                               | a class whose fields are `vi.fn()`s → `createSpyFromClass` / `provideAutoSpy`, the stub class deleted; `warn`            | —       |           red           |
+| [`no-structural-double`](/utilities/eslint-rules#no-structural-double)                               | an object of `vi.fn()`s bound to a name declared `{ load: Mock }` → `createAutoMock<T>()`; `warn`                        | —       |           red           |
 | [`no-shared-module-level-mock`](#a-double-built-once-per-worker-not-once-per-test)                   | an **exported** value holding `vi.fn()`s → export a factory that returns it                                              | —       |          green          |
 | [`no-object-define-property`](#no-object-define-property-%E2%80%94-nothing-puts-the-descriptor-back) | `Object.defineProperty` in a spec → `mockReadonlyProp` / `mockValueProp`                                                 | suggest |          green          |
 | [`no-import-time-spread`](#the-spread-that-only-fails-under-a-bundler)                               | `export const x = [...Imported]` at module scope → a `TypeError` while the bundle loads                                  | suggest | red _(by construction)_ |
@@ -263,11 +283,11 @@ Five ways a provider ends up not being the double the spec thinks it registered.
 
 | Rule                                                                                               | Flags                                                                                                                    | Fix     |       Without it        |
 | -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ | ------- | :---------------------: |
-| [`prefer-provide-auto-spy`](#two-things-these-rules-learned-the-hard-way)                          | a hand-rolled `useValue` **or** `useFactory` → `provideAutoSpy(Class)` / `provideAutoSpyForToken(TOKEN)`                 | —       |           red           |
+| [`prefer-provide-auto-spy`](#two-things-these-rules-learned-the-hard-way)                          | a hand-rolled `useValue`, `useFactory`, `useClass` or `useExisting`, in a provider or a `TestBed.overrideProvider` → `provideAutoSpy(Class)` / `provideAutoSpyForToken(TOKEN)` | —       |           red           |
 | [`prefer-inject-spy`](#the-three-prefer-rules-%E2%80%94-drift-and-one-line-that-undoes-a-provider) | `vi.spyOn(TestBed.inject(X), 'm')`, inline or via a `const` → `injectSpy(X).m`                                           | suggest |           red           |
 | [`no-unregistered-inject-spy`](#the-spy-that-only-the-compiler-can-see)                            | `injectSpy(X)` for a token this file never registered → the real instance, whose spy helpers exist only for the compiler | —       | red _(by construction)_ |
 | [`prefer-render-shallow`](#the-render-nobody-reads)                                                | `TestBed.createComponent` in a file that never reads the template → `renderShallow(X)`                                  | suggest |          green          |
-| [`no-overridden-provider`](#two-providers-one-token)                                               | two providers for one token in one array → the earlier one never runs; the exact duplicate can be deleted                | suggest |          green          |
+| [`no-overridden-provider`](#two-providers-one-token)                                               | two providers for one token in one array, or one a `TestBed.overrideProvider` replaces → the earlier one never runs; the exact duplicate can be deleted | suggest |          green          |
 | [`no-inject-before-override`](#the-trap-this-plugin-s-own-advice-sets)                             | `TestBed.inject()` / `injectSpy()` / `renderShallow()` in a hook, in a suite that still calls `override*`                | —       |           red           |
 | [`no-dead-schemas`](#no-dead-schemas-%E2%80%94-the-charm-that-protects-nobody)                        | `schemas` on a testing module that declares nothing → the schema applies to nothing                                      | —       | green _(by construction)_ |
 
@@ -343,8 +363,9 @@ export default [
 ];
 ```
 
-One rule needs no downgrading: `prefer-render-shallow` is already a `warn`, and it is usually the
-loudest rule on a component suite. If the reason you reached for this recipe was the size of the first
+Three rules need no downgrading: `prefer-render-shallow`, `no-stub-class-double` and
+`no-structural-double` are already `warn`, and the first is usually the loudest rule on a component
+suite. If the reason you reached for this recipe was the size of the first
 run, check how much of it that one accounts for before downgrading the rest — the rules that survive
 its removal are the ones about a test being wrong, and a red CI is what those are for.
 
@@ -487,7 +508,8 @@ const api = mockDeep<Api>({ api: { load: vi.fn(), save: vi.fn() } }); // ✅ nor
 Anything inside a call to `autoMocked`, `createAutoMock`, `createMock`, `createSpyClass`,
 `createSpyFromClass`, `mockConstructor`, `mockDeep`, `provideAutoSpy` or `provideAutoSpyForToken`
 is exempt. `prefer-provide-auto-spy` needs no such exemption: a `useValue` a factory built is a
-call, and it only ever looked at object literals.
+call, and it only ever looked at object literals — a name it follows one step lands on that same
+call and stops there.
 
 ### Picking rules by hand
 
@@ -706,6 +728,25 @@ Exactly backwards: the more a hand-rolled double has been tuned, the further it 
 class it stands in for, and the more it was worth reporting. The chain is now unwound to the call
 that created the mock, however long it is.
 
+**A double is usually one name away from the provider.** `prefer-provide-auto-spy` reads a `useValue`
+that is written in place, and follows a name that is not. Which spellings of "a name" it follows is
+the whole of the rule's reach, and it took two migrations to get right: a `const` above the TestBed
+first, and then the shape a migrated suite writes by default —
+
+```ts
+let nav: { go: Mock };
+beforeEach(() => {
+  nav = { go: vi.fn() };
+  TestBed.configureTestingModule({ providers: [{ provide: NavService, useValue: nav }] });
+});
+```
+
+— which is how *every* `provideAutoSpy` opportunity in one 170-file shard was written, and which the
+rule read as nothing. Both directions had to learn it at once: `no-structural-double` stands on that
+literal and asks where it ends up, so a reading that only looked at the enclosing property made the
+shape above two reports rather than one, recommending two different factories. From the **second**
+write on the name is left alone: what it holds at the use site then depends on run order.
+
 **A token is not a class.** `prefer-provide-auto-spy` used to recommend `provideAutoSpy(Token)` for
 everything, and on an `InjectionToken` that advice does not compile — `provideAutoSpy` reads a class
 prototype, and a token has none. Three migration batches reported it independently; in one of them
@@ -766,6 +807,17 @@ object sees `provideAutoSpy` beside it and reads the migration as already done.
 
 Tokens are compared as written, not resolved: in a `providers` array a token appears by name, once,
 next to the double it stands for, so there is nothing for a resolver to add.
+
+**A `TestBed.overrideProvider` buries a registration the same way**, from a statement of its own
+(5.5.0). The two halves are never in one expression, so they are collected across the file and
+matched at the end — and on three conditions, each of which a consumer file made necessary: the same
+suite compared by identity (an override in a nested `describe` decides for that block alone), an
+override written directly in a `beforeEach` / `beforeAll` so that every test of the suite reaches it
+(one file overrides three tokens from a helper three of its thirty-four tests call), and a
+`providers` array that is not a decorated class's own — reaching a component-level provider is the
+documented use of `overrideProvider`, not a defect. Measured on the 1759-file suite: 9 reports in 5
+files, and every one of them a configured `provideAutoSpy(X, { … })` buried by a barer provider for
+the same token.
 
 #### The pair is classified, because the two halves are not the same defect
 
@@ -1084,7 +1136,7 @@ this rule declines. See [Migrating from jasmine-auto-spies](/migrating-jasmine).
 
 ## Which rules fix, and why so few
 
-Three of the twenty-three rewrite the source on their own, eight offer the rewrite as a suggestion, and
+Three of the twenty-five rewrite the source on their own, eight offer the rewrite as a suggestion, and
 the split is about what a wrong guess costs rather than about how hard the rewrite is.
 
 `no-mocked-for-spy` touches nothing but a **declaration**. Get it wrong and the file stops
@@ -1243,8 +1295,10 @@ against a red test whose message is already clear; one is a compiler error. That
 _Without it_ column in [Rules](#rules) reports, and it used to be what severity followed too — until
 4.0.0 graded the config `error` / `warn` / `off` along it. It does not any more: how loud a finding
 is belongs to the project, and this table is the evidence for deciding rather than the decision. The
-one severity the config does still grade — `prefer-render-shallow`'s `warn` — is not on this axis:
-that rule reports no failure mode at all, only a bill.
+three severities the config does still grade are not on this axis: `prefer-render-shallow` reports no
+failure mode at all, only a bill, and `no-stub-class-double` and `no-structural-double` report a
+failure mode that is red without them — they are graded on how the evidence is obtained, not on what
+happens without them.
 
 The [four jasmine rules](#the-four-jasmine-rules) are not in this table because they were not probed
 the same way — their subject is a migration, not a runner behaviour. Two of them belong on the green

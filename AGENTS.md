@@ -1046,6 +1046,29 @@ property. That is how you add an Observable member that `provideAutoSpy` did not
 What the second overload costs is the property-name check, so a typo in the name compiles. Nothing
 checks the _value_ on either overload; that is deliberate, and the partial fixture above is why.
 
+**A read the constructor does cannot be seeded by any of these.** They patch an object that already
+exists, so the earliest they can run is after the double is built — and a component that reads
+`service.paymentParams.offer` in a field initializer or in its constructor has already read it by the
+time `TestBed.createComponent` returns:
+
+```ts
+fixture = TestBed.createComponent(PaymentComponent); // ← TypeError thrown here, inside the component
+mockReadonlyProp(paymentService, 'paymentParams', params); // never reached
+```
+
+Nothing warns, because nothing of this library runs: the throw is a plain `TypeError` from the
+component's own line, and the stack names the component rather than the seeding that is missing. The
+only place early enough is the registration:
+
+```ts
+providers: [provideAutoSpy(PaymentService, { overrides: { paymentParams: params } })];
+providers: [provideAutoSpyForToken(STATE_TOKEN, { snapshot })]; // a token's second argument does the same
+```
+
+Three migration shards found this independently, each of them after the failure had pointed at the
+service. A `mock*Prop` after the render is right for everything a template or a method reads later —
+which is most of them — and wrong only for a constructor-time read.
+
 ### Properties of DOM objects — the same helpers, and the reason to look for them
 
 `document.fullscreenElement`, `document.visibilityState`, `document.cookie`, `navigator.userAgent`,
@@ -2485,8 +2508,10 @@ blanket downgrade so those keep their severity; do not copy the two names into a
 | --------------------------------- | ------- | ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
 | `no-expect-in-subscribe`          | `error` | suggest           | `expect()` inside `subscribe()` → `expectEmission` / `firstValueFrom`                                                                     |
 | `no-object-define-property`       | `error` | suggest           | `Object.defineProperty` in a spec → `mockReadonlyProp` / `mockValueProp`                                                                  |
-| `prefer-provide-auto-spy`         | `error` | —                 | a hand-rolled `useValue` **or** `useFactory` → `provideAutoSpy(Class)` / `provideAutoSpyForToken(TOKEN)`                                  |
+| `prefer-provide-auto-spy`         | `error` | —                 | a hand-rolled `useValue`, `useFactory`, `useClass` or `useExisting` (also `useValue: new StubMock()`), in a provider **or** a `TestBed.overrideProvider(X, { … })` → `provideAutoSpy(Class)` / `provideAutoSpyForToken(TOKEN)`. A name in the slot is followed one step, through an initialiser or a single `beforeEach` assignment |
 | `prefer-create-spy-from-class`    | `error` | —                 | an object literal of 2+ `vi.fn()`s → `createSpyFromClass` (a factory's own seed is exempt)                                                |
+| `no-stub-class-double`            | `warn`  | —                 | a class whose fields are `vi.fn()`s → `createSpyFromClass` / `provideAutoSpy` and delete the stub; a decorated, `implements`-ing, `extends`-ing or unnamed class is exempt — option: `{ minRunnerFns }` |
+| `no-structural-double`            | `warn`  | —                 | an object of `vi.fn()`s bound to a name declared `{ load: Mock }` → `createAutoMock<T>()`; a bare `let fn: Mock` is a callback and never reported — option: `{ minRunnerFns }` |
 | `prefer-inject-spy`               | `error` | suggest           | `vi.spyOn(TestBed.inject(X), 'm')`, inline or via a `const` → `injectSpy(X).m`                                                            |
 | `no-shared-module-level-mock`     | `error` | —                 | an **exported** value holding `vi.fn()`s → export a factory instead                                                                       |
 | `no-mocked-for-spy`               | `error` | `--fix` / suggest | `Mocked<T>` in any type position → `Spy<T>`, import and all — a suggestion where the assigned value is not from a factory of this library |
@@ -2494,7 +2519,7 @@ blanket downgrade so those keep their severity; do not copy the two names into a
 | `no-done-callback`                | `error` | —                 | `it('x', (done) => …)` → `async` + an awaited assertion, and `done.fail(…)` at the call site                                              |
 | `no-floating-assertion`           | `error` | —                 | `expect()` in a `.then()` nobody awaits → `expect(await promise)`                                                                         |
 | `no-bare-called-with`             | `error` | —                 | `spy.m.calledWith(1);` as a statement — a stub nobody continued, asserting nothing; chai's `expect(fn).to.have.been.calledWith()` exempt  |
-| `no-overridden-provider`          | `error` | suggest           | two providers for one token in one array → the earlier one never runs; the exact duplicate can be deleted                                 |
+| `no-overridden-provider`          | `error` | suggest           | two providers for one token in one array, or one a `TestBed.overrideProvider` in the same hook replaces → the earlier one never runs; the exact duplicate can be deleted |
 | `no-inject-before-override`       | `error` | —                 | `TestBed.inject()` / `injectSpy()` / `renderShallow()` in a hook, in a suite that still calls `override*`                                                                     |
 | `no-private-member-access`        | `error` | —                 | `instance['privateMember']`, `(instance as any).privateMember` (and `as unknown as`, and a decoy type), `vi.spyOn(Object.getPrototypeOf(x), 'm')` → drive the member through the public API. **Type-aware**: silent without `parserOptions.project`, and silent on an index signature |
 | `no-dead-schemas`                 | `error` | —                 | `schemas` on a testing module with no `declarations` — the schema applies to nothing; the file decides, so a `declarations` in another `configureTestingModule` call silences it |
@@ -2507,17 +2532,25 @@ blanket downgrade so those keep their severity; do not copy the two names into a
 | `no-save-arguments-by-value`      | `error` | —                 | `spy.calls.saveArgumentsByValue()` — a no-op here, so the spec silently asserts on post-mutation state                                    |
 | `prefer-native-spy-api`           | `error` | `--fix` / suggest | `.and` / `.calls` where the spy's own API says the same thing — turn it on for the last mile off the jasmine shim                         |
 
-Twenty-three rules, **every one an `error` since 4.0.0 except `prefer-render-shallow`**; three fix on
-their own, eight offer suggestions. Twenty-two are syntactic; `no-private-member-access` is the one
+Twenty-five rules, **every one an `error` since 4.0.0 except `prefer-render-shallow`,
+`no-stub-class-double` and `no-structural-double`**; three fix on their own, eight offer suggestions. Twenty-four are syntactic; `no-private-member-access` is the one
 that reads types, and it reports nothing at all without `parserOptions.project` / `projectService`
 rather than guessing. The config used to be a graded mix of `error` / `warn` / `off`, which decided for the
-consumer how much each finding mattered — a `warn` nothing reads is `off` with extra output. The one
-`warn` left is not a judgement about how much that finding matters but about what kind of finding it
-is: every other rule names something wrong or dead, while `prefer-render-shallow` names a file that
-could render more cheaply, and `renderShallow` is a migration a suite either takes or does not. At
-`error` the plugin would gate that migration — 491 findings across 398 of one consumer's 1759 spec
-files — so `recommended` would exist to be overridden. Set it to `'error'` once the project has decided
-to make the move. Three of
+consumer how much each finding mattered — a `warn` nothing reads is `off` with extra output. The
+three `warn`s left are not judgements about how much a finding matters. `prefer-render-shallow` is
+about the *kind* of finding: every other rule names something wrong or dead, while this one names a
+file that could render more cheaply, and `renderShallow` is a migration a suite either takes or does
+not. At `error` the plugin would gate that migration — 491 findings across 398 of one consumer's
+1759 spec files — so `recommended` would exist to be overridden. `no-stub-class-double` and
+`no-structural-double` (5.5.0) are about the *evidence*: both report the same drift
+`prefer-create-spy-from-class` reports at `error`, but neither has a `provide:` beside it to settle
+the question, so each decides on a heuristic — and a project that disagrees with the reading has to
+be able to switch it off without losing the rule that reads a count. The counts are not the argument
+and moved a long way inside the release: measured on the same 1759 files, the two started at 12
+reports in 8 files and 115 in 74, and are 10 in 7 and 5 in 4 once `prefer-provide-auto-spy` learnt to
+follow a name into a `useValue` — 112 of those doubles are handed to Angular DI one name away, where
+a `provide:` settles it. That rule reports **154 times across 87 files** on the same suite, all at
+`error`. Set any of the three `warn`s to `'error'` once the batch is done. Three of
 them can report on a _correct_ project, and only one has an option:
 `jasmine-namespace-without-entry` takes `['error', { setupModules: ['./test-setup'] }]`, naming the
 file where `enableJasmineCompat()` is called; `prefer-native-spy-api` goes `'off'` for as long as a
@@ -2663,6 +2696,8 @@ packages, which a subpath export can never be.
 | `overrideComponentProvider(…): the override did not apply`                                               | the component injects a different token, or a later `overrideProvider` won                                                                           | pass the token the component actually injects (a base class, an `InjectionToken`), and override after nothing else re-configures        |
 | `the test ended with N unflushed HttpTestingController request(s)`                                       | `enableAngularDiagnostics({ pendingRequests })` — nothing answered them                                                                              | flush each (`controller.expectOne(url).flush(body)`), or `controller.verify()` where absence is the assertion (§13)                     |
 | `NgModule(s) with an empty runtime scope: …`                                                             | `ngModuleScopes` (or `assertNgModuleScopes`) — an AOT test bundle stripped `ɵɵsetNgModuleScope`, so the import contributes nothing                   | declare what the spec needs in the TestBed module directly; pass only modules expected to bring declarations (§13)                      |
+| `Cannot read properties of undefined`, stack inside the component's own constructor or a field initializer  | a member the double must **hold** rather than spy on is read while the component is being constructed, and the `mockReadonlyProp` that seeds it is written *below* `TestBed.createComponent` — so it has not run yet, and never will  | seed it **before** construction: `provideAutoSpy(X, { overrides: { paymentParams: … } })`, or `provideAutoSpyForToken(TOKEN, { … })`. No later call can repair this — the throw happens inside `createComponent`, so the helper is not reached and cannot say so; the stack names the component (§9, §13) |
+| `arr.map(asInstance)` infers `unknown[]`                                                                 | `asInstance` is overloaded, and passing it **by reference** resolves against the `DeepMockProxy<T>` overload, from which `T` cannot be inferred  | `arr.map((spy) => asInstance(spy))` — the arrow gives each call its own inference. For a fixed set, `asInstances(a, b, c)` keeps the tuple types (§6) |
 | `Cannot read properties of undefined (reading 'provide')`, stack inside `render3/di_setup`               | a barrel chunk had not run when the component's definition was built, so a provider slot is `undefined`                                              | `assertComponentDefIntact(Cmp)` before `createComponent` — it names the list and the index (§13)                                        |
 | `assertComponentDefIntact(): argument N is undefined, which carries no ɵcmp or ɵdir`                     | the class reference itself never arrived — the `Cannot read properties of undefined (reading 'ɵcmp')` case                                           | the same split barrel; import the component from its own module, not the barrel (§13)                                                   |
 | `TS1117: An object literal cannot have multiple properties with the same name`, in a fixture             | a hundred-line model literal copied into eight specs and edited independently                                                                        | one `createFixtureFactory<T>(defaults)`; note the runtime keeps the **second** key, so do not auto-fix by dropping one (§12)            |

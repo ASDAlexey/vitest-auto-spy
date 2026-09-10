@@ -1,6 +1,6 @@
 ---
 title: ESLint rules
-description: A reference section for each of the twenty-three rules — what it reports, what it decides on, why it is in recommended, where it reports working code, and why its severity is what it is.
+description: A reference section for each of the twenty-five rules — what it reports, what it decides on, why it is in recommended, where it reports working code, and why its severity is what it is.
 ---
 
 # ESLint rules
@@ -31,10 +31,10 @@ Every section answers the same six questions:
 - **Limits** — where it reports working code, and what quiets it.
 - **Severity** — and why that one.
 
-## The twenty-three rules
+## The twenty-five rules
 
 Grouped by subject, the same grouping the [setup page](/utilities/eslint-plugin) uses. Every rule is
-an `error` except one.
+an `error` except three.
 
 | Rule                                                              | In `recommended` | Reports                                                                                |
 | ----------------------------------------------------------------- | ---------------- | -------------------------------------------------------------------------------------- |
@@ -43,15 +43,17 @@ an `error` except one.
 | [`no-done-callback`](#no-done-callback)                           | `error`          | a named first parameter on a test or hook, and `done.fail(…)` beneath it                |
 | [`no-bare-called-with`](#no-bare-called-with)                     | `error`          | `calledWith(…)` / `mustBeCalledWith(…)` as a statement of its own                      |
 | [`prefer-create-spy-from-class`](#prefer-create-spy-from-class)   | `error`          | an object literal of two or more `vi.fn()`s                                            |
+| [`no-stub-class-double`](#no-stub-class-double)                   | `warn`           | a class whose fields are `vi.fn()`s — the same double with a `new` in front of it       |
+| [`no-structural-double`](#no-structural-double)                   | `warn`           | an object of `vi.fn()`s bound to a name declared as an object of Vitest `Mock`s        |
 | [`no-shared-module-level-mock`](#no-shared-module-level-mock)     | `error`          | an **exported** value that builds `vi.fn()`s while the module loads                    |
 | [`no-object-define-property`](#no-object-define-property)         | `error`          | `Object.defineProperty` / `defineProperties` in a spec                                 |
 | [`no-import-time-spread`](#no-import-time-spread)                 | `error`          | a spread of an imported binding evaluated at module scope                              |
 | [`prefer-observer-stub`](#prefer-observer-stub)                   | `error`          | an observer global replaced by hand or through the runner                               |
-| [`prefer-provide-auto-spy`](#prefer-provide-auto-spy)             | `error`          | a `useValue` / `useFactory` provider that hand-rolls a service double                  |
+| [`prefer-provide-auto-spy`](#prefer-provide-auto-spy)             | `error`          | a provider — or a `TestBed.overrideProvider` — that hand-rolls a service double        |
 | [`prefer-inject-spy`](#prefer-inject-spy)                         | `error`          | `vi.spyOn` over the instance `TestBed.inject` handed back                              |
 | [`no-unregistered-inject-spy`](#no-unregistered-inject-spy)       | `error`          | `injectSpy(X)` for a token this file never registered as an auto-spy                   |
 | [`prefer-render-shallow`](#prefer-render-shallow)                 | `warn`           | `TestBed.createComponent` in a file that never reads the rendered template             |
-| [`no-overridden-provider`](#no-overridden-provider)               | `error`          | two providers for one token in one array — Angular keeps the last                      |
+| [`no-overridden-provider`](#no-overridden-provider)               | `error`          | a provider a later one, or a `TestBed.overrideProvider`, replaces                      |
 | [`no-inject-before-override`](#no-inject-before-override)         | `error`          | an injection in a hook, in a suite that still calls `TestBed.override*`                |
 | [`no-dead-schemas`](#no-dead-schemas)                             | `error`          | `schemas` on a testing module that declares nothing                                    |
 | [`no-private-member-access`](#no-private-member-access)           | `error`          | a `private` / `protected` member reached through brackets, a cast, or the prototype     |
@@ -62,8 +64,10 @@ an `error` except one.
 | [`no-save-arguments-by-value`](#no-save-arguments-by-value)       | `error`          | `spy.calls.saveArgumentsByValue()` — a no-op here                                      |
 | [`prefer-native-spy-api`](#prefer-native-spy-api)                 | `error`          | `.and` / `.calls` where the spy's own API says the same thing                          |
 
-Three of them have options: [`prefer-create-spy-from-class`](#prefer-create-spy-from-class)
-(`minRunnerFns`), [`prefer-render-shallow`](#prefer-render-shallow) (`templates`) and
+Five of them have options: [`prefer-create-spy-from-class`](#prefer-create-spy-from-class),
+[`no-stub-class-double`](#no-stub-class-double) and
+[`no-structural-double`](#no-structural-double) (`minRunnerFns`),
+[`prefer-render-shallow`](#prefer-render-shallow) (`templates`) and
 [`jasmine-namespace-without-entry`](#jasmine-namespace-without-entry) (`setupModules`). One of them
 reads types: [`no-private-member-access`](#no-private-member-access). Two are also shipped as
 `configs.typeErrors`, because their findings do not compile:
@@ -279,9 +283,11 @@ unwraps to `vi.fn()` / `jest.fn()` — the walk goes down a configured chain, so
 needs no special handling because the rule fires on every object literal in the file, so an inner
 object is judged on its own properties. Four shapes are subtracted:
 
-- an object that is a provider's `useValue` — that is
-  [`prefer-provide-auto-spy`](#prefer-provide-auto-spy)'s line, and two reports on one line teach
-  people to disable both;
+- an object a provider's `useValue` hands to DI, whether it is written in the slot or one name away
+  (5.5.0) — that is [`prefer-provide-auto-spy`](#prefer-provide-auto-spy)'s line, and two reports on
+  one double teach people to disable both. The name step matters because that rule follows a name
+  *into* the slot: before this was read from both ends, a literal parked in a `const` drew a report
+  from each of the two, one recommending `createSpyFromClass` and one `provideAutoSpy`;
 - anything inside a call to `autoMocked`, `createAutoMock`, `createMock`, `createSpyClass`,
   `createSpyFromClass`, `mockConstructor`, `mockDeep`, `provideAutoSpy` or `provideAutoSpyForToken`,
   at any depth — that object is a **seed**, which is what the rule asked for;
@@ -317,12 +323,192 @@ migration batches tripped over, so the threshold is named in the message:
 'vitest-auto-spy/prefer-create-spy-from-class': ['error', { minRunnerFns: 1 }],
 ```
 
-The case those reports were actually about is covered from the side that can prove it:
-[`prefer-provide-auto-spy`](#prefer-provide-auto-spy) has a `provide:` next to the object, so it
-fires at **one**.
+The case those reports were actually about is covered from every side that can prove it:
+[`prefer-provide-auto-spy`](#prefer-provide-auto-spy) has a `provide:` next to the object,
+[`no-structural-double`](#no-structural-double) has a declaration saying the object stands in for a
+type, and [`no-stub-class-double`](#no-stub-class-double) reads the class spelling of the same
+double — all three fire at **one**.
 
 **Severity.** `error`. Without the rule the failure is red, but its message names a method rather
 than the double, and the repair is a rewrite of the double rather than a line.
+
+## no-stub-class-double
+
+**`warn`** · no fix · syntax only · option `minRunnerFns`
+
+**Reports.** A class whose own fields are initialised with `vi.fn()` / `jest.fn()`.
+
+**Decides on.** A count of the class's own initialised fields, and four subtractions. The count reads
+`PropertyDefinition` nodes only, unwrapping a configured chain the same way the object rule does, so
+`load = vi.fn().mockReturnValue(of(url))` counts; `static` counts too, because a `static` field of
+`vi.fn()`s is the same double built once per module instead of once per instance. A field with no
+initialiser, a computed key and a field assigned in the constructor are not counted.
+
+The four subtractions are the design, because a spec file is full of classes that hold a `vi.fn()`
+and are not service doubles:
+
+- a **decorated** class — a test host or a testing module, whose `vi.fn()` fields are event handlers
+  (`onChange = vi.fn()`);
+- a class with a non-empty **`implements`** clause, which *cannot* drift: add a member to the type
+  and the stub stops compiling, so the failure the report would be claiming does not exist;
+- a class that **`extends`** something, which inherits the real behaviour it is specialising, so
+  `provideAutoSpy` is not its replacement;
+- a class with **no name of its own** — a class expression in a property slot. That one replaces a
+  module export, which is then used as a DI token, and a token has to be a constructor.
+  `insideModuleMock` catches the inline spelling (`vi.mock('m', () => ({ C: class { … } }))`) and
+  misses the one that costs, where the object is a `const` the factory merely names.
+
+The count starts at **one**, where [`prefer-create-spy-from-class`](#prefer-create-spy-from-class)
+needs two, and the four subtractions are why: that threshold exists because `{ onDone: vi.fn() }`
+cannot be told apart from `{ load: vi.fn() }`, and nobody writes an options bag as a class. Measured
+both ways on one consumer's 1759 spec files — two fields reports 6, one field reports 12, and the six
+the threshold hid are all named `*Mock` or `Mock*`.
+
+A class the same file hands to DI is not reported here — through a `useClass:`, a `useExisting:`, a
+`useValue: new StubMock()`, or a `TestBed.overrideProvider` whose descriptor names it (5.5.0). That
+registration is [`prefer-provide-auto-spy`](#prefer-provide-auto-spy)'s, at `error`, and it is the
+site where the repair is written. The stand-down copies that rule's own conditions exactly,
+`multi: true` included: where it stays silent, this one does not.
+
+**Finding, and the repair.**
+
+```ts
+class NewCardServiceMock {
+  getTrailerPlayUrl = vi.fn().mockReturnValue(of(url));
+  load = vi.fn();
+} // ❌
+
+const mock = new NewCardServiceMock();
+```
+
+```ts
+const mock = createSpyFromClass(NewCardService);
+// or, where the double stands in for an interface or an abstract class:
+const mock = createAutoMock<NewCardService>();
+// and behind DI, the whole stub class goes away:
+providers: [provideAutoSpy(NewCardService)];
+```
+
+**Why it is recommended.** The same drift as
+[`prefer-create-spy-from-class`](#prefer-create-spy-from-class), and it is the same object with a
+`new` in front of it: the class grows a method, the stub does not, and the spec dies on
+`TypeError: mock.applyPromo is not a function` in application code. It is worth having as a rule of
+its own because it was the *largest* family left in a suite running every `error` rule of
+`recommended` with no `eslint-disable` anywhere — 112 `vi.fn()` fields in 46 classes across 32 files,
+reported by nothing, because `prefer-create-spy-from-class` matches an object literal and a class
+declaration is not one.
+
+**Limits.** A stub class in a shared `*.mock.ts` is invisible: the report needs the declaration in
+the linted file. A stub whose fields are assigned in the constructor (`this.load = vi.fn()`) is not
+counted. And the one shape that is reported without being a service double is a non-decorated,
+non-extending local helper class holding a `vi.fn()` callback — none exists in the suite this was
+measured on, and the message names `createAutoMock<T>()`, which is still the right answer if the
+class stands in for anything at all.
+
+**Severity.** `warn`, and the reason is the evidence rather than the finding. What it reports is a
+defect, exactly the one `prefer-create-spy-from-class` reports at `error` — but that rule has a
+count it can defend and this one has a heuristic with four hand-picked exemptions in it, and a
+project that disagrees with the reading has to be able to switch it off without losing the rule that
+reads a count. Measured before the severity was chosen: 12 reports across 8 of one consumer's 1759
+spec files, 10 in 7 once the two stubs entering DI through a `useExisting:` moved to the provider
+rule. Turn it up once the batch is done.
+
+## no-structural-double
+
+**`warn`** · no fix · syntax only · option `minRunnerFns`
+
+**Reports.** An object literal of `vi.fn()`s bound to a name whose **declared type** is an inline
+object type with a Vitest mock member — `let card: { load: Mock }`.
+
+**Decides on.** The declaration, which is the evidence
+[`prefer-create-spy-from-class`](#prefer-create-spy-from-class) does not have. That rule needs two
+`vi.fn()`s because `{ onDone: vi.fn() }` and `{ load: vi.fn() }` are the same tree; writing `Mock`
+as a **member of an object type** resolves the ambiguity, because nobody annotates an options bag
+`{ onDone: Mock }`. So the report fires at a single `vi.fn()`, the same way
+[`prefer-provide-auto-spy`](#prefer-provide-auto-spy) does when a `provide:` proves the point.
+
+The name is followed in both directions a spec writes it. A declarator's own annotation
+(`const svc: { load: Mock } = { … }`) and — the one that matters — an assignment back to the `let`
+that declared it, because in the suite this was measured on **not one** of the 120 annotated doubles
+carried an initialiser: every one is `let x: { … };` at the top of the `describe` and `x = { … }` in
+a `beforeEach`.
+
+Any of Vitest's mock type names counts as the member type: `Mock`, `MockInstance`, `Mocked`,
+`MockedClass`, `MockedFunction`, `MockedFunctionDeep`, `MockedObject`, `MockedObjectDeep`,
+`PartialMock`. Which of them *means* a whole-object double is
+[`no-mocked-for-spy`](#no-mocked-for-spy)'s question and does not apply here — whichever appears,
+it appears as the type of one **member**, and a member of a hand-written object type is a method
+somebody remembered.
+
+Four shapes are subtracted, three of them the same ones the object rule subtracts (a double handed to
+Angular DI, a factory seed, a `vi.mock()` factory) and one of its own: the rule sits **below**
+`prefer-create-spy-from-class`'s threshold. At two `vi.fn()`s and up that rule already reports, at
+`error`, and this one keeps quiet, so one double never draws two reports. Both read the same
+`minRunnerFns`, so a project that moves the threshold moves it on both.
+
+**The DI carve-out is one name wide** (5.5.0), not a look at the enclosing property, because
+[`prefer-provide-auto-spy`](#prefer-provide-auto-spy) follows a name into a `useValue` and this rule
+follows the same name back out to its declaration — a parent-only reading made the shape below two
+reports rather than one, and the two disagree about the repair:
+
+```ts
+let svc: { load: Mock };
+
+beforeEach(() => {
+  svc = { load: vi.fn() };
+  TestBed.configureTestingModule({ providers: [{ provide: Card, useValue: svc }] });
+});
+```
+
+That is where most of them turned out to be. Of the 115 reports this rule made on the consumer it
+was measured against, **110** are handed to DI one name away and belong to the provider rule, whose
+answer is `provideAutoSpy(Card)`. The rule's own subject is a service *without* DI, so the carve-out
+is what it says it does; what is left is 5 reports in 4 files.
+
+A declaration wrapped in anything is read as "no": `Mocked<{ load: Mock }>` is
+[`no-mocked-for-spy`](#no-mocked-for-spy)'s report, an intersection carrying real fields alongside
+the mocks is the one shape where the object genuinely is part configuration, and an `interface` or a
+`type` alias describes a shape with no value in view, so there is no creation site to point at.
+
+**Finding, and the repair.**
+
+```ts
+let devModeService: { devMode: Mock };
+
+beforeEach(() => {
+  devModeService = { devMode: vi.fn().mockReturnValue(true) }; // ❌
+});
+```
+
+```ts
+let devModeService: Spy<DevModeService>;
+
+beforeEach(() => {
+  devModeService = createAutoMock<DevModeService>();
+  devModeService.devMode.mockReturnValue(true);
+});
+```
+
+**Why it is recommended.** The declaration says the object stands in for a type, and then the object
+hand-writes the stand-in one method at a time — so it drifts, and the annotation is what makes that
+provable rather than a guess. `createAutoMock<T>()` reads the type and is also the answer where
+`provideAutoSpy` cannot go at all, an abstract class or an interface having no constructor to read.
+
+**Limits.** A **bare** `let fn: Mock` is never reported and must not be: that is a plain `vi.fn()`
+callback, and `Mock` is its correct type — 109 of the 290 `Mock` references in the suite this was
+measured on are that. Neither is an `X.y as Mock` cast, which retypes a function that already
+exists. The rule reads one level of annotation and no more, so a double declared through an
+interface, a type alias, a `Record<…, Mock>` or an intersection is not reported; and an object
+assigned to something other than a plain name (`state.svc = { … }`, a destructured binding, a
+parameter) has no declaration in view.
+
+**Severity.** `warn`, for the same reason [`no-stub-class-double`](#no-stub-class-double) is: the
+finding is a real defect, but the evidence is a reading of a declaration rather than a count, and
+nothing else in the file proves the object is a stand-in. It looked like the loudest thing in this
+release at 115 reports across 74 of one consumer's 1759 spec files; once the DI carve-out above went
+in it is 5 in 4, and 110 of those doubles moved to `prefer-provide-auto-spy` at `error`, where a
+`provide:` is the evidence. The severity did not change with the count, because the count was never
+the argument for it — the evidence was.
 
 ## no-shared-module-level-mock
 
@@ -555,22 +741,47 @@ is a per-line disable. The three-name list is closed: a fourth observer global g
 
 **`error`** · no fix · syntax only
 
-**Reports.** A provider object whose `useValue` or `useFactory` hands DI a hand-rolled service
-double.
+**Reports.** A provider whose `useValue`, `useFactory`, `useClass` or `useExisting` hands DI a
+hand-rolled service double — in a `providers` array, or through `TestBed.overrideProvider`.
 
-**Decides on.** The object has a `provide` key, and the double is read one of two ways round —
-which is the interesting part:
+**Decides on.** A `provide` key names the token (or, at an override call, argument 0 does), and the
+double is read one of three ways round — which is the interesting part:
 
 - **`useValue` is read up to the function boundary.** The value may be the object literal itself or
-  a name, followed one step to its initialiser, because in the suite this came from eight
-  hand-rolled doubles were declared above the TestBed and passed by name and the rule reported none
-  of them. A single `vi.fn()` anywhere in that subtree is enough — one method is a service double
-  when there is a `provide:` next to it — and the walk stops at every function, because a `vi.fn()`
-  behind an arrow is created per call, which is the shape the rule steers towards.
+  a name, and a name is followed one step to the value the file settles it with — an initialiser
+  (`const nav = { go: vi.fn() }`) or a single later assignment (`let nav; beforeEach(() => { nav = { go:
+  vi.fn() }; })`). Both spellings had to be read, and each was measured on a suite that reported
+  none of them: eight doubles declared above the TestBed and passed by name in one, and in another
+  an entire 170-file shard whose every `provideAutoSpy` opportunity was the `beforeEach` form. From
+  the *second* write on the name is left alone — what it holds at the use site then depends on run
+  order, which no rule reading one file can decide. A single `vi.fn()` anywhere in that subtree is
+  enough — one method is a service double when there is a `provide:` next to it — and the walk stops
+  at every function, because a `vi.fn()` behind an arrow is created per call, which is the shape the
+  rule steers towards.
 - **`useFactory` is read *through* the function.** A factory's whole body is what DI ends up
   holding. Missing that let three layers of fiction hide behind one line —
   `useFactory: vi.fn().mockImplementation(() => ({ isKeyEnabled: vi.fn() }))`, a structural double
   with no relation to the class, and a double cast to make it fit.
+- **`useClass` and `useExisting` are read as a class the linted file declares** (5.5.0), and so is a
+  `useValue: new StubMock()` — the same double instantiated by hand, which the object reading could
+  never see because it answers for an `ObjectExpression` and a `new` expression is not one. One
+  `vi.fn()` field is enough, for the same reason it is enough in a `useValue`: the `provide:` proves
+  the class is a service double. A class the file does not declare — imported from a shared
+  `*.mock.ts`, reached through a namespace — resolves to nothing and is not reported, and the four
+  exemptions of [`no-stub-class-double`](#no-stub-class-double) apply here too. The two slots differ
+  in what Angular constructs — `useClass` builds an instance per injector, `useExisting` aliases the
+  token — and in neither case does that change the repair, which is why they share a message.
+
+**`TestBed.overrideProvider(X, { … })` is the same substitution from outside the array**, and until
+5.5.0 no rule here read it: the `provide:` key is not there, the token is argument 0. On one
+consumer's 1759 spec files there are 61 override calls in 36 files, 33 of them handing over an
+object literal. A call whose second argument is **not** an object literal is left entirely alone —
+`.overrideProvider(X, provideAutoSpy(X, { … }))` is the idiom to aim for and 28 of those 61 calls
+already are it, because `provideAutoSpy` returns `{ provide, useValue }` and `overrideProvider`
+reads the `useValue` off it. That call site gets a message of its own, since what differs there is
+not which factory to reach for but where the configuration goes, and one case is not a defect at
+all: a component that declares the token in its own `providers` cannot be reached by a module-level
+provider, so the override stays and only what it hands over changes.
 
 Which of two messages you get turns on whether the thing provided is a **token**: settled outright
 by a `new InjectionToken<…>(…)` initialiser the resolver can reach, and otherwise by the name — a
@@ -587,6 +798,12 @@ overriding one — there is nothing to recommend, so nothing is said.
 
 ```ts
 providers: [{ provide: CartService, useValue: { total: vi.fn(), add: vi.fn() } }]; // ❌
+
+class CartServiceMock {
+  total = vi.fn().mockReturnValue(0);
+  add = vi.fn();
+}
+providers: [{ provide: CartService, useClass: CartServiceMock }]; // ❌ — and the stub class goes too
 ```
 
 ```ts
@@ -605,10 +822,30 @@ system said nothing because a `useValue` is typed `any`.
 **Limits.** The token heuristic is a name test, so a class written in SCREAMING_CASE is told to use
 `provideAutoSpyForToken` and a token named like a class is told to use `provideAutoSpy` — both are
 one word wrong in a message rather than a false finding. The `useValue` read follows a name exactly
-one step, so a double assembled by a local helper is not followed and not reported.
+one step and only while a single write settles it, so a double assembled by a local helper, or a
+`let` two hooks write to, is not followed and not reported. The `useClass` read needs the class
+declaration in the linted file: a stub class living in a shared `*.mock.ts` is provided the same way
+and reported by nobody, which is the one part of this gap that stays open. The override arm reads
+only a literal descriptor, so a hand-rolled double handed over by name
+(`.overrideProvider(X, descriptor)`) is missed — deliberately, because the shape it shares with
+`.overrideProvider(X, provideAutoSpy(X))` is exactly the one that must not be reported.
 
-**Severity.** `error`. Red without the rule, but with a message that names a missing method rather
-than the object that is missing it.
+**Where the rule does *not* run is worth checking before concluding it is blind.** One migration
+shard reported ~100 `vi.fn()` invisible to the plugin across six shared `*.service.mock.ts` files, a
+provider factory each: `export function providePaymentsMock(): Provider { return { provide: X,
+useValue: new XMock() }; }`. The rule reads that perfectly — run over those 84 `*.mock.ts` files it
+reports 9 in 9 — and the reason nothing appeared is that the consumer scopes this config to
+`**/*.spec.ts`, as [the plugin page](./eslint-plugin.md) tells you to. A suite that keeps fixtures
+next to the specs wants `['**/*.spec.ts', '**/*.mock.ts']`.
+
+**Severity.** `error`, and it is the loudest rule here on a suite that has never run it: measured on
+one consumer's 1759 spec files, 154 reports across 87 files — 100 `useValue`, 28 of them behind a
+token, 20 stub classes and 6 at an override call. Most of that is the name-following: the same
+doubles were previously reported, at `warn`, by [`no-structural-double`](#no-structural-double),
+whose message recommends `createAutoMock<T>()` — the right answer for a double *without* DI and the
+wrong one here. Nothing about the evidence is heuristic, which is what keeps this at `error`: every
+one of those reports has a `provide:` or an override token beside it. Landing it on a suite this
+size is [the gradual recipe](./eslint-plugin.md), not a severity change.
 
 ## prefer-inject-spy
 
@@ -802,9 +1039,10 @@ test module has already been instantiated*, and `--fix` runs unattended across a
 also offered only for the one-argument form: the two-argument form carries options `renderShallow`
 spells differently, and dropping them would be silent damage.
 
-**Severity.** `warn`, and the only graded severity in the config. The other twenty-two rules name
-something wrong or dead; this one names a file that could render more cheaply, which is an
-architectural choice a suite makes rather than a defect it has. At `error` the plugin would gate
+**Severity.** `warn`, and the only one of the three graded severities that is graded on the *kind*
+of finding rather than on the evidence behind it. Every other rule names something wrong or dead;
+this one names a file that could render more cheaply, which is an architectural choice a suite makes
+rather than a defect it has. At `error` the plugin would gate
 that choice: **491 findings across 398 of one consumer's 1759 spec files** — a `recommended` that
 exists to be overridden. `off` would be the wrong end of the same mistake, so the value is pinned
 rather than merely kept below `error`.
@@ -813,8 +1051,9 @@ rather than merely kept below `error`.
 
 **`error`** · suggestion (duplicates only) · syntax only
 
-**Reports.** A provider that a later provider for the same token buries, in the same array. Three
-messages, because the two halves of the field data are not the same defect.
+**Reports.** A provider that a later provider for the same token buries — in the same array, or from
+a `TestBed.overrideProvider` call in the same suite. Four messages, because the halves of the field
+data are not the same defect.
 
 **Decides on.** One walk of the array, right to left, because the provider Angular keeps is the
 last: the first registration met for a token is the survivor, and everything met afterwards is dead
@@ -835,6 +1074,30 @@ Which message depends on how the two compare:
   scores 2 against a bare call's 0. Nothing can be deleted for you here, because which of the two to
   keep is the whole question.
 - **`noOverriddenProvider`** — two different providers, and the later one wins.
+- **`overriddenByTestBedOverride`** (5.5.0) — the buried provider survived its own array and is then
+  replaced by a `TestBed.overrideProvider` for the same token. Order is not read at all: an override
+  wins over a module provider whenever it runs, which is what makes this decidable from the source in
+  the first place.
+
+**The override arm is deliberately narrow, and each condition earned its place on the consumer's own
+files.** The two halves are never in one expression — the registration is inside
+`configureTestingModule`, the override a statement or a chained call after it — so they are collected
+across the file and matched at the end, on three conditions:
+
+- **the same suite, compared by identity.** An override inside a nested `describe` replaces the
+  provider only for the tests of that block, so a registration in the enclosing suite is still what
+  every other test gets and is not dead. The consumer has that exact shape.
+- **the override must be written where every test of the suite reaches it** — directly in a
+  `beforeEach` / `beforeAll`. One file registers three tokens and overrides each of them from a
+  helper that three of its thirty-four tests call, and for the other thirty-one the registration is
+  what ran.
+- **not a `providers` array below a decorator**, which belongs to a component declared in the spec
+  rather than to the testing module. Reaching a component-level provider is the documented use of
+  `overrideProvider`, not a defect.
+
+A suite that calls `TestBed.resetTestingModule()` is exempt outright, for the reason
+[`no-inject-before-override`](#no-inject-before-override) exempts one, and a registration the array
+itself already buried is reported once rather than twice.
 
 `multi: true` is exempt, and has to be: Angular **accumulates** multi providers rather than keeping
 the last, so a spec asserting that two `BEFORE_INIT` hooks run in registration order needs both and
@@ -868,12 +1131,17 @@ read the token back with `injectSpy` and the run is red with
 against the hand-rolled double — which is what the file that prompted this rule did — and everything
 passes while the `provideAutoSpy` above it never ran.
 
-**Limits.** One array at a time. A token provided in `configureTestingModule` and again in a
-component's own `providers` is a different problem, and
+**Limits.** One array at a time, plus the override calls of the same suite. A token provided in
+`configureTestingModule` and again in a component's own `providers` is a different problem, and
 [`assertNoShadowedProviders`](/adapters/angular-overrides) is the tool for it. A `providers` array
-built by concatenation, or a token spelled differently in the two entries, is not compared.
+built by concatenation, or a token spelled differently in the two entries, is not compared. The
+override arm reads only what a suite says lexically: an override reached through a helper is not
+matched at all, which is the trade taken to keep the arm free of the one false positive it can have.
 
-**Severity.** `error`. Green and wrong wherever the surviving double happens to answer.
+**Severity.** `error`. Green and wrong wherever the surviving double happens to answer, and the
+override arm is small enough to land at that severity: measured on one consumer's 1759 spec files,
+9 reports in 5 files, every one of them a configured `provideAutoSpy(X, { … })` buried by a barer
+provider for the same token — the spy the spec set up is not the spy it got.
 
 ## no-inject-before-override
 
@@ -1153,6 +1421,22 @@ leaves that alone — what it reports is the declaration whose assignment then f
 which is correct — the declaration is wrong either way — but the message names Vitest's type. The
 name-matched assignment scan is loose in one safe direction only: a same-named assignment in another
 scope can demote a fix to a suggestion, never promote one.
+
+**Two of Vitest's mock type names, and only two.** The other seven are not oversights, and the
+dividing line is the type parameter rather than the spelling:
+
+| type | parameter | verdict |
+| ---- | --------- | ------- |
+| `Mocked<T>`, `MockedObject<T>` | any `T`, mapped member by member | **reported** — this is the whole-object double, and `Spy<T>` is what it should be |
+| `Mock<T>`, `MockInstance<T>`, `MockedFunction<T>`, `MockedFunctionDeep<T>`, `PartialMock<T>` | `T extends Procedure \| Constructable` | not reported — `T` is a *function* type, so none of them can name a class in the first place; each types one `vi.fn()`, which is correct usage |
+| `MockedClass<T>` | `T extends Constructable` | not reported — a mocked class **constructor**, whose counterpart here is `createSpyClass` / `mockConstructor`, not `Spy<T>` |
+| `MockedObjectDeep<T>` | any `T`, mapped deeply | not reported — the deep double here is `mockDeep<T>()`, whose type is `DeepMockProxy<T>` rather than `Spy<T>` |
+
+So a suite that types its doubles as `Mock` is not writing `Mocked<T>` in another spelling: it is
+writing the *members* of a hand-built object type, and the shape worth reporting is the object type
+around them. That is [`no-structural-double`](#no-structural-double), which is a rule of its own
+rather than an arm of this one because its finding **compiles** — `let s: { load: Mock }` is
+perfectly legal — and everything in `configs.typeErrors` has to be a finding that does not.
 
 **Severity.** `error`, and one of the two rules in `configs.typeErrors`. The finding does not
 compile — `TS2322`, by construction rather than by luck — so "warn now, fix in batches" is not a

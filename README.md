@@ -23,7 +23,7 @@ faster at suite scale ([benchmarks](#benchmarks)) — and for
 [![downloads per month](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fapi.npmjs.org%2Fdownloads%2Fpoint%2Flast-month%2Fvitest-auto-spy&query=%24.downloads&color=brightgreen&logo=npm&label=downloads%2Fmonth)](https://www.npmjs.com/package/vitest-auto-spy)
 [![downloads over 18 months](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fapi.npmjs.org%2Fdownloads%2Fpoint%2F2026-06-21%3A2030-01-01%2Fvitest-auto-spy&query=%24.downloads&color=brightgreen&logo=npm&label=downloads%2F18mo)](https://www.npmjs.com/package/vitest-auto-spy)
 [![CI](https://github.com/ASDAlexey/vitest-auto-spy/actions/workflows/ci.yml/badge.svg)](https://github.com/ASDAlexey/vitest-auto-spy/actions/workflows/ci.yml)
-[![minzipped size](https://img.shields.io/badge/minzip-16.1%20kB-brightgreen)](#install)
+[![minzipped size](https://img.shields.io/badge/minzip-16.2%20kB-brightgreen)](#install)
 [![types](https://img.shields.io/npm/types/vitest-auto-spy?logo=typescript&logoColor=white)](https://www.npmjs.com/package/vitest-auto-spy)
 [![coverage](https://img.shields.io/badge/coverage-100%25-brightgreen)](https://github.com/ASDAlexey/vitest-auto-spy/actions/workflows/ci.yml)
 [![license](https://img.shields.io/npm/l/vitest-auto-spy?color=blue)](./LICENSE)
@@ -76,7 +76,7 @@ faster at suite scale ([benchmarks](#benchmarks)) — and for
 - 🧩 Module mocks that prove they applied — `assertMocked`, `moduleNamespace`, for a `vi.mock()` a bundler quietly ignored
 - 🧾 Fixtures without casts — deep-partial `createMock`, `createFixture` / `createFixtureFactory`, `narrow()`, `withOverrides()`, `asInstances()`, `captureArg()`
 - 🚚 A migration you can verify — `vitest-auto-spy/diagnostics`: `compareTestRuns` on the two JSON reports, `summarizeTestRun` / `formatTestRunComparison` to read the answer, `diffByField` for the assertion the reporter collapses, `explainSpy` for a double that answered something you did not configure
-- 📏 Lint rules and one-line test-run hygiene — twenty-three rules in `vitest-auto-spy/eslint-plugin` (three `--fix`, eight suggestions, four of them for a suite mid-migration off jasmine), `setupAutoSpy()`
+- 📏 Lint rules and one-line test-run hygiene — twenty-five rules in `vitest-auto-spy/eslint-plugin` (three `--fix`, eight suggestions, four of them for a suite mid-migration off jasmine), `setupAutoSpy()`
 - 🩺 [Editor diagnostics](#editor-diagnostics--webstorm--vs-code) — the same anti-patterns underlined while you type: native ESLint inspections in **WebStorm** and the other JetBrains IDEs, the ESLint extension in **VS Code**, no extra plugin either way
 - 🔎 [`npx vitest-auto-spy doctor`](#the-cli--doctor-perf-codemod-and-init) — suite-level defects **that never fail a run**: a `tsconfig` `include` matching no file, a production module importing a spec, a `@jest-environment` pragma the runner never reads, config left behind for a runner that is gone. Read-only, no config, exits 1 in CI
 - ⏱️ [`npx vitest-auto-spy perf`](#perf--where-the-cpu-time-actually-goes) — where a suite's CPU time actually goes, phase by phase, and which spec files to act on: the ones that reach no DOM and could run under `node`, the ones that import a barrel. Runs Vitest once with a reporter this package ships, reads `TestModule.diagnostic()`, names files, states the rule behind each finding
@@ -3065,7 +3065,7 @@ export default [
 ];
 ```
 
-The one exception is `prefer-render-shallow`, which ships as a **`warn`**, and the reason is the kind
+One of the three exceptions is `prefer-render-shallow`, which ships as a **`warn`**, and its reason is the kind
 of thing it says rather than how much it matters. Every other rule here names something wrong or dead
 — a double that drifts from its class, an assertion that never runs, a provider the container already
 dropped, a schema guarding nothing. That one names a file that could render more cheaply, which is a
@@ -3074,6 +3074,18 @@ project either takes or does not, and at `error` the plugin would be gating it. 
 it was measured against the rule reports 491 times across 398 files — a first run every consumer would
 have to answer with a project-wide `warn` of its own. A project that has decided to make the move sets
 it to `'error'` in the same one line that turns the others down.
+
+The other two, `no-stub-class-double` and `no-structural-double` (5.5.0), are graded on the
+*evidence* rather than on the kind of finding. Both report the same drift
+`prefer-create-spy-from-class` reports at `error` — a double whose shape was written by hand and is
+free to fall behind the class — but neither has a `provide:` beside it to settle the question, so
+each decides on a heuristic: a class whose fields are `vi.fn()`s, an object whose *declared type* is
+an object of Vitest `Mock`s. On the same 1759-file suite they report 12 times across 8 files and 115
+across 74, against 18 at `error` for the `useClass:` reading `prefer-provide-auto-spy` gained in the
+same release, whose evidence is a `provide:`. A hundred-odd new errors is the wrong way to introduce
+a heuristic — and it is also why they are rules of their own rather than arms of the count-based one:
+a project that disagrees with either reading switches it off without losing the rule that reads a
+count.
 
 A second config, `autoSpy.configs.typeErrors`, holds the subset whose findings are compile errors
 (`prefer-as-spy` is `TS2352`, `no-mocked-for-spy` is `TS2322`). Spread it **after** a blanket
@@ -3091,8 +3103,10 @@ export can never be.
 
 | Rule                              | Recommended | Fix               | Flags                                                                                                                                      |
 | --------------------------------- | :---------: | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| `prefer-provide-auto-spy`         |   `error`   | —                 | a hand-rolled `useValue` **or** `useFactory` → `provideAutoSpy(Class)` / `provideAutoSpyForToken(TOKEN)`                                   |
+| `prefer-provide-auto-spy`         |   `error`   | —                 | a hand-rolled `useValue`, `useFactory` **or** `useClass` → `provideAutoSpy(Class)` / `provideAutoSpyForToken(TOKEN)`                       |
 | `prefer-create-spy-from-class`    |   `error`   | —                 | an object literal of two or more `vi.fn()`s → `createSpyFromClass` / `createAutoMock`, unless it is a factory's own seed                   |
+| `no-stub-class-double`            |   `warn`    | —                 | a class whose fields are `vi.fn()`s → `createSpyFromClass` / `provideAutoSpy`, the stub class deleted                                      |
+| `no-structural-double`            |   `warn`    | —                 | an object of `vi.fn()`s bound to a name declared `{ load: Mock }` → `createAutoMock<T>()`                                                  |
 | `prefer-inject-spy`               |   `error`   | suggest           | `vi.spyOn(TestBed.inject(X), 'm')`, in one step or two → `injectSpy(X).m`                                                                  |
 | `no-object-define-property`       |   `error`   | suggest           | `Object.defineProperty` in a spec → `mockReadonlyProp` / `mockValueProp`                                                                   |
 | `no-expect-in-subscribe`          |   `error`   | suggest           | `expect()` inside a `subscribe()` callback → `expectEmission` / `firstValueFrom`                                                           |
@@ -3119,7 +3133,7 @@ Every message ends with a link to the matching [recipe](#how-to-mock): a rule th
 "don't" moves the problem rather than solving it. Rules travel with the API they recommend, so they
 are versioned together and stop being re-written in every project that installs the package.
 
-**Three of the twenty-three fix on their own, eight offer suggestions**, and the split is not about how hard
+**Three of the twenty-five fix on their own, eight offer suggestions**, and the split is not about how hard
 the rewrite is. `no-mocked-for-spy` touches a _declaration_: get it wrong and the file stops
 compiling, which is the loudest, cheapest failure there is — so `--fix` rewrites the type, adds
 `import type { Spy } from 'vitest-auto-spy'` and drops the `Mocked` import once nothing else uses
@@ -3223,7 +3237,7 @@ package's own — it needs its ESLint integration switched on.
 ### WebStorm and the other JetBrains IDEs
 
 No plugin to install: WebStorm, IntelliJ IDEA Ultimate, PhpStorm, PyCharm Professional and RubyMine
-all run ESLint natively, so the twenty-three rules appear inline, in the **Problems** tool window, and
+all run ESLint natively, so the twenty-five rules appear inline, in the **Problems** tool window, and
 under **Code → Inspect Code** for the whole project.
 
 ```js
@@ -3240,7 +3254,7 @@ has supported flat config since 2023.3); scope the block to spec files yourself;
 the fixes and suggestions live.
 
 A native JetBrains plugin is **not** planned — it would duplicate an integration the IDE already has
-and then keep a second copy of twenty-three rules, in Kotlin, in step with the TypeScript ones.
+and then keep a second copy of twenty-five rules, in Kotlin, in step with the TypeScript ones.
 
 ### VS Code, Cursor, Windsurf, VSCodium
 
