@@ -1,7 +1,8 @@
 # Release staging — `changes/`
 
 Optional local mirror of the next release's notes. **The root `CHANGELOG.md` is canonical**, and
-GitHub Releases are auto-generated from Conventional Commits — nothing here is pasted anywhere.
+GitHub Release notes come from that file — Conventional Commits only cover a version it has no
+section for yet — so nothing here is pasted anywhere.
 
 - **`unreleased.md`** — a human-readable mirror of the `## [Unreleased]` section of the root
   `CHANGELOG.md`. Keep it roughly in sync as work lands; it is not required to cut a release.

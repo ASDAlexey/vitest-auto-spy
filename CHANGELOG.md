@@ -169,6 +169,14 @@ The latest released version here must always match the one published on
 - **The Rstest entry no longer passes `rstest.spyOn` to the adapter**, since accessor spies are
   installed by redefinition on every runtime now. `RstestApi` is `{ fn }` alone.
 
+## [5.1.0] - 2026-09-09
+
+**Why upgrade.** A wrong stub on a spied method is now a compile error instead of a green test, the
+same suite runs on Rstest by rewriting one import, and `configs.typeErrors` spreads the two lint
+rules that should not be downgraded to `warn`.
+
+### Added
+
 - **`vitest-auto-spy/rstest` — the same core on Rstest, the Rspack-powered runner.** The entry
   registers an adapter over `rstest.fn()` / `rstest.spyOn()`, and the public API is the Vitest one
   name for name, so a spec moves between the two by rewriting its import. Rstest implements the
@@ -282,6 +290,11 @@ The latest released version here must always match the one published on
   token-side message gained the nested case for the same reason: a bare type-driven double is one
   level deep, every key it is asked for becomes a function spy, so a request-shaped fixture needs
   `provideAutoSpyForToken(REQUEST, { headers: { get: vi.fn() } })` rather than the bare call.
+
+## [5.0.1] - 2026-09-07
+
+**Why upgrade.** `explainSpy` reads a double again, whatever entry point built it — from the
+published package it answered `nothing configured` for every configured double.
 
 ### Fixed
 
@@ -3696,6 +3709,9 @@ by hand there, in more than one place, by more than one person.
   `mockAccessorsProp`.
 - Dual ESM + CJS build with type declarations; 100% test coverage.
 
+[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.1.0...HEAD
+[5.1.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.0.1...v5.1.0
+[5.0.1]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.0.0...v5.0.1
 [5.0.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v4.6.1...v5.0.0
 [4.6.1]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v4.6.0...v4.6.1
 [4.6.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v4.5.1...v4.6.0

@@ -196,7 +196,7 @@ this repository's own fixtures, and three of the eight did not survive that — 
 finding that evaporates is worth as much as one that lands, and the same three will otherwise be
 reported again.
 
-Shipped (see `CHANGELOG.md`, `## [Unreleased]`):
+Shipped (see `CHANGELOG.md`, `## [5.1.0]`):
 
 - **A stub is type-checked.** `MockInstance` → `MockInstance<Method>` in
   `AddSpyMethodsByReturnTypes` (`lib/types.ts`). Reproduced as four `@ts-expect-error` cases that
@@ -204,7 +204,9 @@ Shipped (see `CHANGELOG.md`, `## [Unreleased]`):
   `mockImplementation(() => 42)` and `mockResolvedValue('one')` on methods that return none of
   those. Cost 274 type instantiations of an 11 000 budget; the runtime suite and every other type
   test were unaffected.
-- **`readonly` no longer reaches the double.** `-readonly` on `Spy<T>` and `DeepMockProxy<T>`.
+- **`readonly` stays on the double.** The `-readonly` strip on `Spy<T>` and `DeepMockProxy<T>` was
+  tried and reverted before release: an assignment to a spied accessor is silently inert, and
+  `mockValueProp` already covers the checked case. The full account is under `writableProps` below.
 - **`prefer-provide-auto-spy` names `overrides`** on the class half and the nested-seed form on the
   token half.
 
