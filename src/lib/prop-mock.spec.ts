@@ -7,9 +7,9 @@
  *
  * The rest of the helpers' behaviour is covered from the public entry in `src/auto-spy.spec.ts`.
  */
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { countMockedProps, mockValueProp, restoreMockedProps } from './prop-mock';
+import { beginPropEpoch, countMockedProps, mockValueProp, reportPropsOutsideHooks, restoreMockedProps } from './prop-mock';
 
 describe('restoreMockedProps, when a patch cannot be undone', () => {
   // The journal is process-wide; a failing sweep in one test must not colour the next.
@@ -118,5 +118,105 @@ describe('a property that refuses to be replaced', () => {
 
     expect(() => mockValueProp(host, 'value', 'patched')).toThrow(RangeError);
     expect(countMockedProps()).toBe(0);
+  });
+});
+
+/**
+ * A patch is undone by the sweep after the test **during which it was applied**, whenever it was
+ * created — so one written in a `describe` body or a `beforeAll` survives exactly one test. The
+ * first passes, every test after it reads the real member, and the failure lands as
+ * `… is not a function` nowhere near the line that caused it. Found in six files of one suite at
+ * once during a bulk move onto `mockValueProp`, and the same shape as the `restoreMocks` defect that
+ * took the accessor spies off a double: a helper put in the wrong hook stops applying, quietly.
+ *
+ * The report is a warning by default rather than a re-installation, and the reason is that
+ * re-installing cannot be right in general: `restoreMockedProps` exists so a patch does not outlive
+ * its file, and a patch that puts itself back on every test would defeat that under `isolate: false`
+ * — where "the file it belongs to" is not something this module can observe.
+ */
+describe('a patch applied outside a per-test hook', () => {
+  /** One sweep, with the epoch advanced in between — what a `describe`-body patch meets. */
+  const sweepAfterANewTest = (patch: () => void): void => {
+    patch();
+    beginPropEpoch();
+    restoreMockedProps();
+  };
+
+  afterEach(() => {
+    reportPropsOutsideHooks('warn');
+  });
+
+  it('warns, naming the property and the hook to move it to', () => {
+    const host = { value: 'real' };
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    sweepAfterANewTest(() => mockValueProp(host, 'value', 'patched'));
+
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0]?.[0]).toContain('value — patched outside a per-test hook');
+    expect(warn.mock.calls[0]?.[0]).toContain('`beforeEach`');
+
+    warn.mockRestore();
+  });
+
+  it('says nothing about a patch made during the test that is now ending', () => {
+    // The shape the report must never fire on, and the one every correct spec has.
+    const host = { value: 'real' };
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    beginPropEpoch();
+    mockValueProp(host, 'value', 'patched');
+    restoreMockedProps();
+
+    expect(warn).not.toHaveBeenCalled();
+
+    warn.mockRestore();
+  });
+
+  it('names one object/property pair once, however many sweeps see it', () => {
+    const host = { value: 'real' };
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    sweepAfterANewTest(() => mockValueProp(host, 'value', 'first'));
+    sweepAfterANewTest(() => mockValueProp(host, 'value', 'second'));
+
+    expect(warn).toHaveBeenCalledTimes(1);
+
+    warn.mockRestore();
+  });
+
+  it('reports the same property name on a second object, which a name-keyed set would not', () => {
+    // Under `isolate: false` two files of one worker patch a member of the same name on different
+    // objects; silencing the second would be the blind spot this dedup is keyed to avoid.
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    sweepAfterANewTest(() => mockValueProp({ value: 'real' }, 'value', 'patched'));
+    sweepAfterANewTest(() => mockValueProp({ value: 'real' }, 'value', 'patched'));
+
+    expect(warn).toHaveBeenCalledTimes(2);
+
+    warn.mockRestore();
+  });
+
+  it('throws instead, for a suite that would rather fail on the first test', () => {
+    reportPropsOutsideHooks('throw');
+
+    const host = { value: 'real' };
+
+    expect(() => sweepAfterANewTest(() => mockValueProp(host, 'value', 'patched'))).toThrow(/patched outside a per-test hook/);
+    // The sweep finished before the report, so the property is real again whatever the reaction.
+    expect(host.value).toBe('real');
+  });
+
+  it('says nothing at all when the report is off', () => {
+    reportPropsOutsideHooks('off');
+
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    sweepAfterANewTest(() => mockValueProp({ value: 'real' }, 'value', 'patched'));
+
+    expect(warn).not.toHaveBeenCalled();
+
+    warn.mockRestore();
   });
 });

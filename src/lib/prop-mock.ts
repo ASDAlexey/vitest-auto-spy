@@ -27,6 +27,34 @@ interface PatchedProp {
   descriptor: PropertyDescriptor | undefined;
   /** Set by the patch's own undo, so the sweep skips it — see {@link rememberProp}. */
   undone: boolean;
+  /** Which test was running when the patch was applied — see {@link beginPropEpoch}. */
+  epoch: number;
+}
+
+/**
+ * Which test is running, counted rather than named.
+ *
+ * A patch is undone by the sweep that runs after the test **during which it was applied**, whenever
+ * it was created. So one written in a `describe` body — or in `beforeAll` — is taken off after the
+ * first test of the block and never put back: test one passes, every test after it reads the real
+ * member, and the failure is `X is not a function` several tests away from the line that caused it.
+ * Reproduced in six files of one suite at once, during a bulk move onto `mockValueProp`.
+ *
+ * Comparing the epoch a patch was made in with the epoch the sweep runs in is what tells the two
+ * apart, and it needs nothing from the runner beyond the `beforeEach` `setupAutoSpy` already
+ * installs: a patch made inside a per-test hook carries the current epoch, one made outside carries
+ * an older one.
+ */
+let propEpoch = 0;
+
+/**
+ * Start a new per-test epoch. Called from `setupAutoSpy`'s `beforeEach`, before anything else.
+ *
+ * A suite that does not call `setupAutoSpy` never advances it, so nothing is ever reported there —
+ * correct, because without the sweep a `describe`-body patch stays where it was put.
+ */
+export function beginPropEpoch(): void {
+  propEpoch += 1;
 }
 
 /**
@@ -56,6 +84,7 @@ function rememberProp<T>(object: T, property: PropertyKey, descriptor: PropertyD
     property,
     descriptor,
     undone: false,
+    epoch: propEpoch,
   };
 
   getPatchedProps().push(patch);
@@ -161,6 +190,83 @@ export function countMockedProps(): number {
 }
 
 /**
+ * How a sweep reacts to a patch that was applied outside a per-test hook.
+ *
+ * `'warn'` by default, which is this package's channel for "you wrote something that does not do
+ * what you think" — the same one `injectSpy` uses for a provider that is not a spy. `'throw'` is for
+ * a suite that would rather fail on the first test than read a warning; `'off'` for one that has
+ * decided its `beforeAll` patches are its own business.
+ */
+export type OutsideHookReaction = 'off' | 'throw' | 'warn';
+
+let outsideHookReaction: OutsideHookReaction = 'warn';
+
+/** Set by `setupAutoSpy`; exported so a suite can grade the report without the setup helper. */
+export function reportPropsOutsideHooks(reaction: OutsideHookReaction): void {
+  outsideHookReaction = reaction;
+}
+
+/**
+ * What has already been reported, so a patch is named once rather than once per sweep.
+ *
+ * Keyed by the patched **object** rather than by the property name: under `isolate: false` two files
+ * of one worker routinely patch a member of the same name on different objects, and a name-keyed set
+ * would report the first and silence the second.
+ */
+const reportedOutsideHooks = new WeakMap<object, Set<PropertyKey>>();
+
+/** Whether this object/property pair is worth reporting, remembering it if so. */
+function firstReportOf({ object, property }: PatchedProp): boolean {
+  const seen = reportedOutsideHooks.get(object) ?? new Set<PropertyKey>();
+
+  reportedOutsideHooks.set(object, seen);
+
+  if (seen.has(property)) {
+    return false;
+  }
+
+  seen.add(property);
+
+  return true;
+}
+
+/**
+ * Say that a patch is about to be taken off and not put back.
+ *
+ * The report goes out **after** the sweep has restored everything, so the diagnosis never costs the
+ * teardown it is diagnosing.
+ */
+function reportOutsideHook(patches: readonly PatchedProp[]): void {
+  if (outsideHookReaction === 'off') {
+    return;
+  }
+
+  const fresh = patches.filter(firstReportOf).map((patch) => String(patch.property));
+
+  if (fresh.length === 0) {
+    return;
+  }
+
+  const message = withDocs(
+    `[vitest-auto-spy] ${fresh.join(', ')} — patched outside a per-test hook, and the patch is now off for good.\n` +
+      'A `mock*Prop` patch is undone by the sweep that runs after the test **during which it was applied**, whenever it was ' +
+      'created. One written in a `describe` body or in `beforeAll` therefore survives exactly one test: the first passes, ' +
+      'every test after it reads the real member, and the failure surfaces as `… is not a function` nowhere near the line ' +
+      'that caused it.\n' +
+      'Move the call into `beforeEach`, which is where a patch every test needs belongs — it costs one line and the patch ' +
+      'is then re-applied for each test.',
+    DOCS_LINKS.setup,
+  );
+
+  if (outsideHookReaction === 'throw') {
+    throw new Error(message);
+  }
+
+  // eslint-disable-next-line no-console -- a dev-time misconfiguration warning, the channel this library already uses for `injectSpy`'s not-a-spy report.
+  console.warn(message);
+}
+
+/**
  * Undo every patch the `mock*Prop` helpers applied since the last call, newest first.
  *
  * Nothing calls this for you: `vi.restoreAllMocks()` knows about spies, not about properties these
@@ -190,12 +296,21 @@ export function restoreMockedProps(): void {
   // it against a descriptor the failure left in place is how one broken restore becomes many.
   patchedProps.length = 0;
 
+  const outsideHook: PatchedProp[] = [];
+
   for (const patch of pending) {
     if (patch.undone) {
       continue;
     }
 
     patch.undone = true;
+
+    // Recorded before the restore, because the restore is what makes it unrecoverable: a patch made
+    // in an epoch older than the one this sweep runs in was applied outside a per-test hook, so
+    // nothing will put it back.
+    if (patch.epoch < propEpoch) {
+      outsideHook.push(patch);
+    }
 
     try {
       restorePatch(patch);
@@ -207,6 +322,8 @@ export function restoreMockedProps(): void {
   if (failures.length > 0) {
     throw new Error(describeRestoreFailures(failures));
   }
+
+  reportOutsideHook(outsideHook);
 }
 
 /**

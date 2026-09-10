@@ -24,7 +24,7 @@ import { annotateHookTimeout, readRunnerTimeouts } from './hook-timeout';
 import { trackMockRegistry } from './mock-registry';
 import { type BlockNetworkOptions, blockNetwork } from './network-stub';
 import { describeDuplicateCopies } from './package-identity';
-import { countMockedProps, restoreMockedProps } from './prop-mock';
+import { type OutsideHookReaction, beginPropEpoch, countMockedProps, reportPropsOutsideHooks, restoreMockedProps } from './prop-mock';
 import { type StrayRejection, flushStrayRejections, trackStrayRejections } from './stray-rejections';
 import { cancelStrayTimers, detectsAsyncLeaks, trackStrayTimers } from './stray-timers';
 import { restoreTimerGlobals } from './timer-globals';
@@ -47,6 +47,17 @@ export interface SetupAutoSpyOptions {
   duplicateCopies?: DuplicateCopiesReaction;
   /** Undo `mock*Prop` patches after every test. Default `true`. */
   restoreProps?: boolean;
+  /**
+   * React to a `mock*Prop` patch applied outside a per-test hook — in a `describe` body, or in
+   * `beforeAll`. Default `'warn'`.
+   *
+   * Such a patch is undone after the **first** test of the block and never put back, so the first
+   * test passes and every one after it reads the real member. Nothing says so today: the failure is
+   * `… is not a function` several tests away from the line that caused it. Read together with
+   * `restoreProps`, which is what takes the patch off; with `restoreProps: false` nothing sweeps and
+   * nothing is reported.
+   */
+  propsOutsideHooks?: OutsideHookReaction;
   /**
    * Call `vi.restoreAllMocks()` after every test. Default `false`, because it also drops `vi.spyOn`
    * stubs a suite may have installed in `beforeAll`. Turn it on when running with `isolate: false`,
@@ -662,6 +673,10 @@ export function setupAutoSpy(options: SetupAutoSpyOptions = {}): void {
 
   if (options.restoreProps ?? true) {
     restores.push(restoreMockedProps);
+    reportPropsOutsideHooks(options.propsOutsideHooks ?? 'warn');
+    // First of the per-test hooks, so a patch made in the spec's own `beforeEach` carries this
+    // test's epoch and one made in a `describe` body carries an older one.
+    beforeEach(beginPropEpoch);
   }
 
   if (options.restoreMocks ?? false) {
