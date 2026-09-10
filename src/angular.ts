@@ -28,6 +28,7 @@ export {
 } from './lib/angular-overrides';
 export {
   assertNoPendingRequests,
+  assertNoShadowedProviders,
   disableAngularDiagnostics,
   enableAngularDiagnostics,
   type AngularDiagnosticsOptions,
