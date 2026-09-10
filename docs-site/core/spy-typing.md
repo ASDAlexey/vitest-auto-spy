@@ -116,6 +116,7 @@ overload of a method. On a generated API client (`ng-openapi-gen`, `openapi-gene
 
 `{ overload: 'first' }` types the spy against the first signature instead. For a single method there
 is also `Overload<Client['get'], 0>`, which is what to put in a `MockInstance<…>` or a `vi.fn<…>()`.
+The value the option takes is exported as `OverloadChoice`, for a helper that passes one along.
 
 ### The stub stops fitting the real response
 

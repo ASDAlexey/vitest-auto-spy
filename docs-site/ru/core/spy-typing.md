@@ -50,10 +50,10 @@ expect(WorkerSpy.calls[0]).toEqual(['./task.js']);
 WorkerSpy.instances[0].postMessage.mockReturnValue(undefined);
 ```
 
-| Член        | Что в нём лежит                                              |
-| ----------- | ------------------------------------------------------------ |
-| `calls`     | Аргументы каждого `new` (и обычного вызова), по порядку       |
-| `instances` | `Spy<T>`, полученный при каждом конструировании, по порядку   |
+| Член        | Что в нём лежит                                             |
+| ----------- | ----------------------------------------------------------- |
+| `calls`     | Аргументы каждого `new` (и обычного вызова), по порядку     |
+| `instances` | `Spy<T>`, полученный при каждом конструировании, по порядку |
 
 Он принимает тот же необязательный второй аргумент, что и
 [`createSpyFromClass`](./create-spy-from-class), так что каждый экземпляр настраивается обычным
@@ -65,11 +65,11 @@ WorkerSpy.instances[0].postMessage.mockReturnValue(undefined);
 одновременно слов «spy» и «instance» — поэтому по сообщению трудно догадаться, что чинить, и поэтому
 же обычным лечением оказывается двойное приведение, которое заодно прячет настоящие расхождения.
 
-| Сообщение                                                                            | Направление | Как чинить                        |
-| ------------------------------------------------------------------------------------ | ----------- | --------------------------------- |
-| `TS2352: … 'accessorSpies' is missing in type 'Router'`                              | `T` → спай | `asSpy(TestBed.inject(Router))`   |
-| `TS2739` / `TS2740: Type 'Spy<X>' is missing the following properties from type 'X'` | спай → `T` | `asInstance(spy)`                 |
-| `TS2345: Argument of type 'Spy<X>' is not assignable to parameter of type 'X'`       | спай → `T` | `asInstance(spy)`                 |
+| Сообщение                                                                            | Направление | Как чинить                          |
+| ------------------------------------------------------------------------------------ | ----------- | ----------------------------------- |
+| `TS2352: … 'accessorSpies' is missing in type 'Router'`                              | `T` → спай  | `asSpy(TestBed.inject(Router))`     |
+| `TS2739` / `TS2740: Type 'Spy<X>' is missing the following properties from type 'X'` | спай → `T`  | `asInstance(spy)`                   |
+| `TS2345: Argument of type 'Spy<X>' is not assignable to parameter of type 'X'`       | спай → `T`  | `asInstance(spy)`                   |
 | `is missing the following properties: _modalOpened, body, …` (приватные имена)       | —           | объявить `Spy<T>`, а не `Mocked<T>` |
 
 `TS2352` — та, в которую перенесённая сюита упирается сразу и повсюду: `TestBed.inject(X) as Spy<X>`
@@ -119,6 +119,8 @@ const client = createSpyFromClass<VenuesService, { overload: 'first' }>(VenuesSe
 
 `{ overload: 'first' }` типизирует спая по первой сигнатуре. Для отдельного метода есть ещё
 `Overload<Client['get'], 0>` — то, что кладут в `MockInstance<…>` или в `vi.fn<…>()`.
+Значение, которое принимает опция, экспортируется как `OverloadChoice` — для хелпера, который
+пробрасывает его дальше.
 
 ### Заглушка перестала подходить к настоящему ответу {#the-stub-stops-fitting-the-real-response}
 
@@ -276,11 +278,11 @@ mockValueProp(session, 'accessToken', 'second'); // ✅ ретрай читае�
 вызывающего, который проверяет результат. Проверено на заспаенном аксессоре, чей геттер отвечает
 `undefined`:
 
-| Запись                                              | Геттер после  | Шпион-сеттер | Вернулось |
-| --------------------------------------------------- | ------------- | ------------ | --------- |
-| `double.token = 'x'`                                | `undefined`   | записал      | —         |
-| `Reflect.set(double, 'token', 'x')`                 | `undefined`   | записал      | `true`    |
-| `Object.defineProperty` — то, что делает `mockValueProp` | `'x'`     | —            | —         |
+| Запись                                                   | Геттер после | Шпион-сеттер | Вернулось |
+| -------------------------------------------------------- | ------------ | ------------ | --------- |
+| `double.token = 'x'`                                     | `undefined`  | записал      | —         |
+| `Reflect.set(double, 'token', 'x')`                      | `undefined`  | записал      | `true`    |
+| `Object.defineProperty` — то, что делает `mockValueProp` | `'x'`        | —            | —         |
 
 Так что [`mockValueProp` / `mockReadonlyProp`](/ru/utilities/setup) — ответ в обоих случаях, и
 никакого типа для него не нужно: `readonly` не убирает ключ из `keyof T`, поэтому проверяющая

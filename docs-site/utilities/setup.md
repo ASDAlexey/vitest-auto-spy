@@ -738,6 +738,9 @@ test, `'off'` to decide that its `beforeAll` patches are its own business:
 setupAutoSpy({ propsOutsideHooks: 'throw' });
 ```
 
+For a suite that wires its own hooks rather than calling `setupAutoSpy`, `reportPropsOutsideHooks(reaction)`
+sets the same dial directly; the reaction type is exported as `OutsideHookReaction`.
+
 It fires once per object and property, so a `describe`-body patch is named once rather than once per
 test, and it is keyed by the object rather than by the name — under `isolate: false` two files of one
 worker routinely patch a member of the same name on different objects, and a name-keyed report would
