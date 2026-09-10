@@ -63,6 +63,15 @@ jobs:
       - name: Test (engine invariants)
         run: npm run test:invariants
 
+      # `node:test` is a built-in Vitest cannot bundle, so every suite above runs the Node adapter
+      # against a stub — including the one thing only Node decides, what a spy is *called*: its
+      # `mock.fn()` reports the implementation's own `name`, and `util.inspect` and `assert` diffs
+      # read it. This runs the sources directly on `node --test`, which is also what keeps
+      # `sideEffects: false` from tree-shaking the adapter registration in `src/node.ts` out of the
+      # harness. Free coverage of the whole `engines` range, since the matrix is Node's.
+      - name: Test (node:test runner)
+        run: npm run test:node
+
       # Rstest is the one runner in the gate that bundles the suite before running it, so the
       # source-level registration of the adapter — which no stubbed unit spec can prove — and the
       # `sideEffects` entry that keeps rspack from dropping it are covered here or nowhere.
