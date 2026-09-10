@@ -4,7 +4,20 @@
  * (DI, inputs, `ngOnInit`, the real `ComponentFixture`) and the escape hatches for the cases where
  * a spec genuinely needs the template back.
  */
-import { Component, Injectable, OnInit, inject, input, makeEnvironmentProviders, signal } from '@angular/core';
+import {
+  Component,
+  Directive,
+  ElementRef,
+  Injectable,
+  OnInit,
+  Pipe,
+  type PipeTransform,
+  inject,
+  input,
+  makeEnvironmentProviders,
+  signal,
+} from '@angular/core';
+import { By } from '@angular/platform-browser';
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import { disableAngularDiagnostics, enableAngularDiagnostics, injectSpy, provideAutoSpy } from '../angular';
@@ -50,6 +63,37 @@ class LegacyComponent {
   readonly name = 'legacy';
 }
 
+@Pipe({ name: 'shout' })
+class ShoutPipe implements PipeTransform {
+  transform(value: string): string {
+    return `${value}!`;
+  }
+}
+
+@Directive({ selector: '[appMark]' })
+class MarkDirective {
+  readonly host = inject(ElementRef<HTMLElement>).nativeElement;
+}
+
+@Component({
+  selector: 'app-with-pipe',
+  imports: [ShoutPipe],
+  template: '{{ label | shout }}',
+})
+class WithPipeComponent {
+  readonly label = 'hello';
+}
+
+@Component({ selector: 'app-bare', template: '<span>bare</span>' })
+class BareComponent {}
+
+@Component({
+  selector: 'app-with-directive',
+  imports: [MarkDirective],
+  template: '<span appMark>marked</span>',
+})
+class WithDirectiveComponent {}
+
 beforeEach(() => {
   childInstances = 0;
 });
@@ -93,6 +137,25 @@ describe('renderShallow', () => {
 
     expect(fixture.nativeElement.textContent).toContain('real-0');
     expect(childInstances).toBe(0);
+  });
+
+  it('keeps the pipes of the real template resolvable', () => {
+    const { fixture } = renderShallow(WithPipeComponent, { keepTemplate: true });
+
+    expect(fixture.nativeElement.textContent).toBe('hello!');
+  });
+
+  it('keeps the directives of the real template applied', () => {
+    const { fixture } = renderShallow(WithDirectiveComponent, { keepTemplate: true });
+    const span = fixture.debugElement.query(By.css('span'));
+
+    expect(span.injector.get(MarkDirective, null)).not.toBeNull();
+  });
+
+  it('keeps a template that imports nothing at all', () => {
+    const { fixture } = renderShallow(BareComponent, { keepTemplate: true });
+
+    expect(fixture.nativeElement.textContent).toBe('bare');
   });
 
   it('keeps the children that are named explicitly', () => {

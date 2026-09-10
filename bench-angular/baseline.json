@@ -1,57 +1,57 @@
 {
+  "generated": {
+    "date": "2026-09-10",
+    "node": "v24.19.0",
+    "command": "npm run bench:angular -- --repeat 5 --json bench-results.angular.json && npm run bench:check -- bench-results.angular.json --baseline bench-angular/baseline.json --update",
+    "note": "Measured on Angular 22, TypeScript 6 and Vitest 5, on the Vitest 5 benchmark API — the re-measurement the previous note asked for. The two arms that sat over their limit there were the Angular 22 upgrade, and this baseline is taken on it. `renderShallow({ keepTemplate: true })` also moved for a reason that is not the stack: a kept template used to lose its own `imports`, so its pipes threw NG0302 and its directives silently never applied; keeping that scope is more work than dropping it, and the arm now measures a template that actually renders. Two-decimal ratios and a wide rme are inherent here — the reference itself is a TestBed cycle. See bench-angular/README.md."
+  },
   "cases": {
     "per-render cycle — 0 children": {
       "reference": "TestBed.createComponent, full cycle",
       "ratios": {
-        "renderShallow, full cycle": 0.9557,
+        "renderShallow, full cycle": 1.2006,
         "TestBed.createComponent, full cycle": 1
       }
     },
     "per-render cycle — 100 children": {
       "reference": "TestBed.createComponent, full cycle",
       "ratios": {
-        "renderShallow, full cycle": 0.2354,
+        "renderShallow, full cycle": 0.2552,
         "TestBed.createComponent, full cycle": 1
       }
     },
     "per-render cycle — 25 children": {
       "reference": "TestBed.createComponent, full cycle",
       "ratios": {
-        "renderShallow, full cycle": 0.5676,
+        "renderShallow, full cycle": 0.6274,
         "TestBed.createComponent, full cycle": 1
       }
     },
     "per-render cycle — 400 children": {
       "reference": "TestBed.createComponent, full cycle",
       "ratios": {
-        "renderShallow, full cycle": 0.0504,
+        "renderShallow, full cycle": 0.059,
         "TestBed.createComponent, full cycle": 1
       }
     },
     "the three rungs — 100 children": {
       "reference": "TestBed.createComponent, full cycle",
       "ratios": {
-        "renderShallow(), full cycle": 0.1737,
-        "renderShallow({ keepTemplate: true }), full cycle": 0.5908,
+        "renderShallow(), full cycle": 0.2504,
+        "renderShallow({ keepTemplate: true }), full cycle": 0.8153,
         "TestBed.createComponent, full cycle": 1
       }
     },
     "where the cycle spends its time — 100 children": {
       "reference": "full per-test cycle (reset + configure + createComponent + CD)",
       "ratios": {
-        "compileComponents() on a standalone AOT bed": 0.0046,
-        "configureTestingModule + overrideComponent + createComponent + CD": 0.3312,
-        "createComponent + CD on an already-configured module": 0.8412,
+        "compileComponents() on a standalone AOT bed": 0.0012,
+        "configureTestingModule + overrideComponent + createComponent + CD": 0.2437,
+        "createComponent + CD on an already-configured module": 0.8161,
         "full per-test cycle (reset + configure + createComponent + CD)": 1,
-        "resetTestingModule() + configureTestingModule()": 0.0019,
-        "resetTestingModule() alone": 0.0017
+        "resetTestingModule() + configureTestingModule()": 0.0006,
+        "resetTestingModule() alone": 0.0004
       }
     }
-  },
-  "generated": {
-    "date": "2026-09-04",
-    "node": "v24.19.0",
-    "command": "npm run bench:angular -- --repeat 5 --json bench-results.angular.json && npm run bench:check -- bench-results.angular.json --baseline bench-angular/baseline.json --update",
-    "note": "Measured on Angular 21 and Vitest 4, before the Angular 22 / TypeScript 6 upgrade and before the harness was ported to the Vitest 5 benchmark API. Deliberately not re-measured for the port: the same benchmark run back to back on Vitest 4.1.11 and Vitest 5.0.0 on 2026-09-06 agreed within this benchmark's own run-to-run spread. Two arms do sit over their limit on BOTH runners — 'per-render cycle - 0 children' and 'the three rungs - renderShallow({ keepTemplate: true })' — which is the Angular 22 upgrade, not the port, and is what a deliberate re-measurement should settle. See bench-angular/README.md."
   }
 }
