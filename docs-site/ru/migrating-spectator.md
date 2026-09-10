@@ -155,11 +155,11 @@ diff <(norm ngneat-spectator.mjs) <(norm openng-spectator.mjs)
 
 В обоих бандлах по 2543 строки, и после нормализации различаются ровно **три**:
 
-| Рантайм форка отличается тем, что                                     | Подробность                                                     |
-| ---------------------------------------------------------------------- | ---------------------------------------------------------------- |
-| Пересобран более новым компилятором Angular                           | `version: "22.0.5"` в декларациях против `"20.1.0"`             |
-| Внутренний host-компонент получил стратегию обнаружения изменений     | `changeDetection: ChangeDetectionStrategy.Eager`                |
-| Из бандла пропала triple-slash-ссылка на `matchers-types.ts`          | следствие того, как упакованы типы, — ниже                      |
+| Рантайм форка отличается тем, что                                 | Подробность                                         |
+| ----------------------------------------------------------------- | --------------------------------------------------- |
+| Пересобран более новым компилятором Angular                       | `version: "22.0.5"` в декларациях против `"20.1.0"` |
+| Внутренний host-компонент получил стратегию обнаружения изменений | `changeDetection: ChangeDetectionStrategy.Eager`    |
+| Из бандла пропала triple-slash-ссылка на `matchers-types.ts`      | следствие того, как упакованы типы, — ниже          |
 
 Упаковка отличается сильнее, чем код: 33 файла против 121, потому что форк поставляет четыре
 свёрнутых бандла деклараций в `types/` вместо зеркала дерева исходников. `peerDependencies` уезжают на
@@ -194,11 +194,11 @@ Spectator — это две вещи, скрученные вместе: **фа�
 
 Поэтому честная форма этой миграции такова:
 
-| Spectator умеет                            | Здесь                                                                                          |
-| ------------------------------------------ | ---------------------------------------------------------------------------------------------- |
-| дубли сервисов и DI                        | **покрыто полностью**, причём с типизацией, которой компилятор действительно может пользоваться |
-| поверхностная настройка компонента         | **покрыто** через [`renderShallow`](/ru/adapters/angular#shallow-component-rendering)          |
-| запросы к DOM, события, DOM-матчеры        | **не покрыто** — берите `fixture.debugElement.query(By.css(…))` или `@testing-library/angular` |
+| Spectator умеет                     | Здесь                                                                                           |
+| ----------------------------------- | ----------------------------------------------------------------------------------------------- |
+| дубли сервисов и DI                 | **покрыто полностью**, причём с типизацией, которой компилятор действительно может пользоваться |
+| поверхностная настройка компонента  | **покрыто** через [`renderShallow`](/ru/adapters/angular#shallow-component-rendering)           |
+| запросы к DOM, события, DOM-матчеры | **не покрыто** — берите `fixture.debugElement.query(By.css(…))` или `@testing-library/angular`  |
 
 Если ваша сюита состоит в основном из спек на сервисы — это механический перевод, который делается
 файл за файлом. Если в основном из компонентных спек с проверками DOM — рассчитывайте поставить рядом
@@ -223,31 +223,31 @@ npm un @ngneat/spectator
 ## Таблица перевода {#the-translation-table}
 
 | `@ngneat/spectator`                                          | `vitest-auto-spy`                                                               | Примечания                                                                             |
-| ------------------------------------------------------------ | -------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| `createSpyObject(Service)`                                   | [`createSpyFromClass(Service)`](/ru/core/create-spy-from-class)                  | читает настоящий прототип; см. [разницу в типизации](#the-typing-trap)                  |
-| `mockProvider(Service)`                                      | [`provideAutoSpy(Service)`](/ru/adapters/angular)                                | идёт в `providers`, туда же                                                            |
-| `mockProvider(Service, { getX: 1 })`                         | `provideAutoSpy(Service, { returns: { getX: 1 } })`                              | `overrides` — для члена, который не является результатом метода                         |
-| `createServiceFactory(Service)`                              | `TestBed.configureTestingModule({ providers: [...] })`                           | собственный API Angular; никакой фабрики создавать не нужно                             |
-| `spectator.service`                                          | `TestBed.inject(Service)`                                                        | настоящий тестируемый экземпляр                                                         |
-| `spectator.inject(Dep)`                                      | [`injectSpy(Dep)`](/ru/adapters/angular)                                         | **предупреждает**, когда инжектор вернул настоящий экземпляр, — Spectator так не умеет  |
-| `SpyObject<T>`                                               | [`Spy<T>`](/ru/core/create-spy-from-class)                                       | mapped type над настоящим прототипом                                                    |
-| приведение `as SpyObject<T>`                                 | [`asSpy(x)`](/ru/core/create-spy-from-class) / `asInstance(spy)`                 | именованные представления вместо утверждения, с которым спорит линтер                   |
-| `spy.method.andReturn(v)`                                    | `spy.method.mockReturnValue(v)`                                                  | плюс `calledWith(...)` для разветвления по аргументам                                   |
-| `spy.method.andCallFake(fn)`                                 | `spy.method.mockImplementation(fn)`                                              |                                                                                          |
-| _(нет эквивалента)_                                          | `spy.load.resolveWith(v)` / `.nextWith(v)` / `.failWith(e)`                      | [хелперы, выбранные по типу возврата](/ru/core/control-helpers)                          |
-| _(нет эквивалента)_                                          | `gettersToSpyOn` / `settersToSpyOn` / `autoSpyAccessors`                         | у Spectator спаев на аксессоры нет вообще                                               |
-| `createComponentFactory(Cmp)` (поверхностный)                | [`renderShallow(Cmp, { … })`](/ru/adapters/angular#shallow-component-rendering)  | один вызов вместо `configureTestingModule` + `NO_ERRORS_SCHEMA` + `overrideComponent`   |
-| `spectator.component`                                        | `component` из `renderShallow`                                                   |                                                                                          |
-| `spectator.fixture`                                          | `fixture` из `renderShallow`                                                     | настоящий `ComponentFixture`                                                            |
-| `spectator.detectChanges()`                                  | `fixture.detectChanges()` / `await stable(fixture)`                              | в zoneless предпочитайте `stable` — см. [ловушку](/ru/adapters/angular)                 |
-| `spectator.setInput({ x: 1 })`                               | `inputs: { x: 1 }` у `renderShallow` либо `fixture.componentRef.setInput`        | сигнальные входы принимают **значение**                                                 |
-| `SpectatorHost` / `createHostFactory`                        | `renderShallow(Cmp, { template: '…', keepTemplate: true })`                      | ближайший аналог; не идентичен                                                          |
-| `spectator.query(byTestId('x'))`                             | `fixture.debugElement.query(By.css('[data-testid=x]'))`                          | **здесь не предоставляется** — собственный API Angular либо Testing Library             |
-| `spectator.click(el)`, `typeInElement`, `dispatchMouseEvent` | `@testing-library/angular` + `@testing-library/user-event`                       | **здесь не предоставляется**                                                            |
-| `toHaveClass`, `toHaveText`, `toBeVisible`, …                | `@testing-library/jest-dom`                                                      | **здесь не предоставляется**                                                            |
-| `SpectatorHttp` / `createHttpFactory`                        | [`provideHttpTesting()` / `expectRequest()`](/ru/adapters/angular-http)          | и он валит тест, который оставил запрос без ответа                                      |
-| `flushEffects()`                                             | [`flushEffects()`](/ru/adapters/angular)                                         | то же имя, та же работа                                                                 |
-| `runInInjectionContext(fn)`                                  | `TestBed.runInInjectionContext(fn)`                                              | собственный API Angular                                                                 |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| `createSpyObject(Service)`                                   | [`createSpyFromClass(Service)`](/ru/core/create-spy-from-class)                 | читает настоящий прототип; см. [разницу в типизации](#the-typing-trap)                 |
+| `mockProvider(Service)`                                      | [`provideAutoSpy(Service)`](/ru/adapters/angular)                               | идёт в `providers`, туда же                                                            |
+| `mockProvider(Service, { getX: 1 })`                         | `provideAutoSpy(Service, { returns: { getX: 1 } })`                             | `overrides` — для члена, который не является результатом метода                        |
+| `createServiceFactory(Service)`                              | `TestBed.configureTestingModule({ providers: [...] })`                          | собственный API Angular; никакой фабрики создавать не нужно                            |
+| `spectator.service`                                          | `TestBed.inject(Service)`                                                       | настоящий тестируемый экземпляр                                                        |
+| `spectator.inject(Dep)`                                      | [`injectSpy(Dep)`](/ru/adapters/angular)                                        | **предупреждает**, когда инжектор вернул настоящий экземпляр, — Spectator так не умеет |
+| `SpyObject<T>`                                               | [`Spy<T>`](/ru/core/create-spy-from-class)                                      | mapped type над настоящим прототипом                                                   |
+| приведение `as SpyObject<T>`                                 | [`asSpy(x)`](/ru/core/create-spy-from-class) / `asInstance(spy)`                | именованные представления вместо утверждения, с которым спорит линтер                  |
+| `spy.method.andReturn(v)`                                    | `spy.method.mockReturnValue(v)`                                                 | плюс `calledWith(...)` для разветвления по аргументам                                  |
+| `spy.method.andCallFake(fn)`                                 | `spy.method.mockImplementation(fn)`                                             |                                                                                        |
+| _(нет эквивалента)_                                          | `spy.load.resolveWith(v)` / `.nextWith(v)` / `.failWith(e)`                     | [хелперы, выбранные по типу возврата](/ru/core/control-helpers)                        |
+| _(нет эквивалента)_                                          | `gettersToSpyOn` / `settersToSpyOn` / `autoSpyAccessors`                        | у Spectator спаев на аксессоры нет вообще                                              |
+| `createComponentFactory(Cmp)` (поверхностный)                | [`renderShallow(Cmp, { … })`](/ru/adapters/angular#shallow-component-rendering) | один вызов вместо `configureTestingModule` + `NO_ERRORS_SCHEMA` + `overrideComponent`  |
+| `spectator.component`                                        | `component` из `renderShallow`                                                  |                                                                                        |
+| `spectator.fixture`                                          | `fixture` из `renderShallow`                                                    | настоящий `ComponentFixture`                                                           |
+| `spectator.detectChanges()`                                  | `fixture.detectChanges()` / `await stable(fixture)`                             | в zoneless предпочитайте `stable` — см. [ловушку](/ru/adapters/angular)                |
+| `spectator.setInput({ x: 1 })`                               | `inputs: { x: 1 }` у `renderShallow` либо `fixture.componentRef.setInput`       | сигнальные входы принимают **значение**                                                |
+| `SpectatorHost` / `createHostFactory`                        | `renderShallow(Cmp, { template: '…', keepTemplate: true })`                     | ближайший аналог; не идентичен                                                         |
+| `spectator.query(byTestId('x'))`                             | `fixture.debugElement.query(By.css('[data-testid=x]'))`                         | **здесь не предоставляется** — собственный API Angular либо Testing Library            |
+| `spectator.click(el)`, `typeInElement`, `dispatchMouseEvent` | `@testing-library/angular` + `@testing-library/user-event`                      | **здесь не предоставляется**                                                           |
+| `toHaveClass`, `toHaveText`, `toBeVisible`, …                | `@testing-library/jest-dom`                                                     | **здесь не предоставляется**                                                           |
+| `SpectatorHttp` / `createHttpFactory`                        | [`provideHttpTesting()` / `expectRequest()`](/ru/adapters/angular-http)         | и он валит тест, который оставил запрос без ответа                                     |
+| `flushEffects()`                                             | [`flushEffects()`](/ru/adapters/angular)                                        | то же имя, та же работа                                                                |
+| `runInInjectionContext(fn)`                                  | `TestBed.runInInjectionContext(fn)`                                             | собственный API Angular                                                                |
 
 ## Спека сервиса до и после {#a-service-spec-before-and-after}
 
@@ -460,7 +460,7 @@ row.triggerEventHandler('click', {});
   способа, которыми AOT-бандл тестов падает через полчаса в чужой спеке.
 - **За пределами Vitest** тот же API работает на `bun:test` и `node:test`, а `TestBed` из Angular
   работает [под `bun test`](/ru/runtimes/bun-angular).
-- **[Двадцать правил линтера](/ru/utilities/eslint-plugin)**, версионируемых вместе с API, который
+- **[Двадцать три правила линтера](/ru/utilities/eslint-plugin)**, версионируемые вместе с API, который
   они рекомендуют.
 
 ## Не потеряла ли миграция тест? {#did-the-migration-lose-a-test}

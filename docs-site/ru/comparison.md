@@ -39,16 +39,16 @@ Bun / `node:test` и между Angular / NestJS / React / Vue / Svelte.**
 пишет. Последний релиз по каждому пакету, прочитано из реестра 2026-08-30 и перечитано без изменений
 2026-09-04:
 
-| Библиотека | Последняя | Опубликована | Репозиторий | Состояние |
-| --- | --- | --- | --- | --- |
-| [ts-auto-mock](https://www.npmjs.com/package/ts-auto-mock)                               | 3.7.4   | **2024-08-24** | [Typescript-TDD/ts-auto-mock](https://github.com/Typescript-TDD/ts-auto-mock)                                     | заморожен автором по функциональности |
-| [testdouble](https://www.npmjs.com/package/testdouble)                                   | 3.20.2  | **2024-03-21** | [testdouble/testdouble.js](https://github.com/testdouble/testdouble.js)                                           | спит около 2,5 лет                    |
-| [moq.ts](https://www.npmjs.com/package/moq.ts)                                           | 10.0.8  | **2023-05-02** | [dvabuzyarov/moq.ts](https://github.com/dvabuzyarov/moq.ts)                                                       | спит с 2023 года                      |
-| [@fluffy-spoon/substitute](https://www.npmjs.com/package/@fluffy-spoon/substitute)       | 1.208.0 | **2021-05-07** | [ffMathy/FluffySpoon.JavaScript.Testing.Faking](https://github.com/ffMathy/FluffySpoon.JavaScript.Testing.Faking) | последний релиз в 2021                |
-| [@golevelup/nestjs-testing](https://www.npmjs.com/package/@golevelup/nestjs-testing)     | 0.1.2   | **2019**       | [golevelup/nestjs](https://github.com/golevelup/nestjs)                                                           | мёртв — не ссылайтесь на него как на актуальный |
-| [@ngneat/spectator](https://www.npmjs.com/package/@ngneat/spectator)                     | 22.1.0  | **2025-11-02** | `ngneat/spectator` отдаёт **HTTP 404** → [ngneat-archive/spectator](https://github.com/ngneat-archive/spectator)  | около 10 месяцев, репозитория нет     |
-| [jest-auto-spies](https://www.npmjs.com/package/jest-auto-spies)                         | 3.0.1   | 2025-09-22     | [hirezio/auto-spies](https://github.com/hirezio/auto-spies)                                                       | тихо; его ядровая зависимость от 2023 |
-| [@bugsplat/vitest-auto-spies](https://www.npmjs.com/package/@bugsplat/vitest-auto-spies) | 1.0.0   | 2026-02-04     | [BugSplat-Git/auto-spies](https://github.com/BugSplat-Git/auto-spies)                                             | 102 загрузки за окно                  |
+| Библиотека                                                                               | Последняя | Опубликована   | Репозиторий                                                                                                       | Состояние                                       |
+| ---------------------------------------------------------------------------------------- | --------- | -------------- | ----------------------------------------------------------------------------------------------------------------- | ----------------------------------------------- |
+| [ts-auto-mock](https://www.npmjs.com/package/ts-auto-mock)                               | 3.7.4     | **2024-08-24** | [Typescript-TDD/ts-auto-mock](https://github.com/Typescript-TDD/ts-auto-mock)                                     | заморожен автором по функциональности           |
+| [testdouble](https://www.npmjs.com/package/testdouble)                                   | 3.20.2    | **2024-03-21** | [testdouble/testdouble.js](https://github.com/testdouble/testdouble.js)                                           | спит около 2,5 лет                              |
+| [moq.ts](https://www.npmjs.com/package/moq.ts)                                           | 10.0.8    | **2023-05-02** | [dvabuzyarov/moq.ts](https://github.com/dvabuzyarov/moq.ts)                                                       | спит с 2023 года                                |
+| [@fluffy-spoon/substitute](https://www.npmjs.com/package/@fluffy-spoon/substitute)       | 1.208.0   | **2021-05-07** | [ffMathy/FluffySpoon.JavaScript.Testing.Faking](https://github.com/ffMathy/FluffySpoon.JavaScript.Testing.Faking) | последний релиз в 2021                          |
+| [@golevelup/nestjs-testing](https://www.npmjs.com/package/@golevelup/nestjs-testing)     | 0.1.2     | **2019**       | [golevelup/nestjs](https://github.com/golevelup/nestjs)                                                           | мёртв — не ссылайтесь на него как на актуальный |
+| [@ngneat/spectator](https://www.npmjs.com/package/@ngneat/spectator)                     | 22.1.0    | **2025-11-02** | `ngneat/spectator` отдаёт **HTTP 404** → [ngneat-archive/spectator](https://github.com/ngneat-archive/spectator)  | около 10 месяцев, репозитория нет               |
+| [jest-auto-spies](https://www.npmjs.com/package/jest-auto-spies)                         | 3.0.1     | 2025-09-22     | [hirezio/auto-spies](https://github.com/hirezio/auto-spies)                                                       | тихо; его ядровая зависимость от 2023           |
+| [@bugsplat/vitest-auto-spies](https://www.npmjs.com/package/@bugsplat/vitest-auto-spies) | 1.0.0     | 2026-02-04     | [BugSplat-Git/auto-spies](https://github.com/BugSplat-Git/auto-spies)                                             | 102 загрузки за окно                            |
 
 Пять из них последний раз публиковались больше года назад, а у шестого репозитория больше не
 существует. По состоянию на 2026-09-04 этим пяти 740, 896, 1 220, 1 945 и 2 486 дней;
@@ -86,16 +86,16 @@ Bun / `node:test` и между Angular / NestJS / React / Vue / Svelte.**
 
 Конкуренты, которые действительно выпускают релизы, с загрузками за то же окно:
 
-| Библиотека | Последняя | Загрузок/мес | Репозиторий | Что это |
-| --- | --- | --- | --- | --- |
+| Библиотека                                                                         | Последняя           | Загрузок/мес | Репозиторий                                                                                           | Что это                                                                          |
+| ---------------------------------------------------------------------------------- | ------------------- | ------------ | ----------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
 | [sinon](https://www.npmjs.com/package/sinon)                                       | 22.1.0, 2026-07-20  | 50 371 190   | [sinonjs/sinon](https://github.com/sinonjs/sinon)                                                     | универсальный набор инструментов; за чтение класса отвечает `createStubInstance` |
-| [jest-mock-extended](https://www.npmjs.com/package/jest-mock-extended)             | 4.0.1, 2026-04-20   | 9 397 966    | [marchaos/jest-mock-extended](https://github.com/marchaos/jest-mock-extended)                         | глубокие Proxy-моки по типу, Jest                                               |
-| [vitest-mock-extended](https://www.npmjs.com/package/vitest-mock-extended)         | 5.1.1, 2026-08-02   | 5 443 915    | [eratio08/vitest-mock-extended](https://github.com/eratio08/vitest-mock-extended)                     | то же самое, портированное на Vitest                                            |
-| [ng-mocks](https://www.npmjs.com/package/ng-mocks)                                 | 14.17.3, 2026-08-24 | 2 502 024    | [help-me-mom/ng-mocks](https://github.com/help-me-mom/ng-mocks)                                       | здоров; мокает **граф деклараций** Angular, а не один класс                     |
+| [jest-mock-extended](https://www.npmjs.com/package/jest-mock-extended)             | 4.0.1, 2026-04-20   | 9 397 966    | [marchaos/jest-mock-extended](https://github.com/marchaos/jest-mock-extended)                         | глубокие Proxy-моки по типу, Jest                                                |
+| [vitest-mock-extended](https://www.npmjs.com/package/vitest-mock-extended)         | 5.1.1, 2026-08-02   | 5 443 915    | [eratio08/vitest-mock-extended](https://github.com/eratio08/vitest-mock-extended)                     | то же самое, портированное на Vitest                                             |
+| [ng-mocks](https://www.npmjs.com/package/ng-mocks)                                 | 14.17.3, 2026-08-24 | 2 502 024    | [help-me-mom/ng-mocks](https://github.com/help-me-mom/ng-mocks)                                       | здоров; мокает **граф деклараций** Angular, а не один класс                      |
 | [@testing-library/angular](https://www.npmjs.com/package/@testing-library/angular) | 19.4.2, 2026-08-07  | 1 020 821    | [testing-library/angular-testing-library](https://github.com/testing-library/angular-testing-library) | сначала рендеринг, но `/vitest-utils` поставляет собственный `createMock`        |
 | [vitest-when](https://www.npmjs.com/package/vitest-when)                           | 0.10.2, 2026-09-03  | 702 637      | [mcous/vitest-when](https://github.com/mcous/vitest-when)                                             | `when(mock).calledWith(…).thenReturn(…)` для моков, которые у вас уже есть       |
 | [@suites/unit](https://www.npmjs.com/package/@suites/unit)                         | 3.1.1, 2026-05-08   | 473 130      | [suites-dev/suites](https://github.com/suites-dev/suites)                                             | сборщик юнитов на основе DI, рекомендован документацией NestJS                   |
-| [@golevelup/ts-vitest](https://www.npmjs.com/package/@golevelup/ts-vitest)         | 4.0.0, 2026-03-18   | 353 803      | [golevelup/nestjs](https://github.com/golevelup/nestjs)                                               | глубокий Proxy `createMock<T>()`, дефолт сообщества Nest                        |
+| [@golevelup/ts-vitest](https://www.npmjs.com/package/@golevelup/ts-vitest)         | 4.0.0, 2026-03-18   | 353 803      | [golevelup/nestjs](https://github.com/golevelup/nestjs)                                               | глубокий Proxy `createMock<T>()`, дефолт сообщества Nest                         |
 | [Собственный `vi` в Vitest](https://vitest.dev/api/vi)                             | Vitest 4            | —            | [vitest-dev/vitest](https://github.com/vitest-dev/vitest)                                             | `vi.fn` / `vi.spyOn` / `vi.mockObject` — всё чаще ответ по умолчанию             |
 
 Для масштаба в другую сторону: `jasmine-core` до сих пор набирает **23 922 905** загрузок в месяц, а
@@ -107,17 +107,17 @@ Bun / `node:test` и между Angular / NestJS / React / Vue / Svelte.**
 
 ### Сам дубль {#the-double-itself}
 
-|                                          | vitest-auto-spy | jest-auto-spies | \*-mock-extended | @golevelup/ts-vitest |     @suites/unit     | ng-mocks | @testing-library/angular | @ngneat/spectator |         sinon          | Встроенное в Vitest 4 |
-| ---------------------------------------- | :-------------: | :-------------: | :--------------: | :------------------: | :------------------: | :------: | :----------------------: | :---------------: | :--------------------: | :----------------: |
-| Читает настоящий **класс** в рантайме    |       ✅        |       ✅        |        ❌        |      частично        | метаданные конструктора |    ✅    |            ✅            |        ✅         |  `createStubInstance`  |  `vi.mockObject`   |
-| Мокает по **типу**, без класса           |       ✅        |       ❌        |        ✅        |          ✅          |          ❌          |    ❌    |            ❌            |        ❌         |           ❌           |         ❌         |
-| Рекурсивный глубокий мок                 |       ✅        |       ❌        |        ✅        |          ✅          |          ❌          |    ❌    |            ❌            |        ❌         |           ❌           |      частично      |
-| Хелперы для **Promise** по типу возврата |       ✅        |       ✅        |        ❌        |          ❌          |          ❌          |    ❌    |            ❌            |        ❌         |           ❌           |         ❌         |
-| Хелперы для **Observable** по типу возврата |    ✅        |       ✅        |        ❌        |          ❌          |          ❌          |    ❌    |            ❌            |        ❌         |           ❌           |         ❌         |
-| **Спаи геттеров / сеттеров**             |       ✅        |       ✅        |        ❌        |          ❌          |          ❌          |    ❌    |            ❌            |        ❌         |           ✅           |         ✅         |
-| `calledWith`                             |       ✅        |       ✅        |        ✅        |          ❌          |          ❌          |    ❌    |            ❌            |        ❌         |       `withArgs`       |         ❌         |
-| `mustBeCalledWith` (падает при несовпадении) |   ✅        |       ✅        |        ❌        |          ❌          |          ❌          |    ❌    |            ❌            |        ❌         |           ❌           |         ❌         |
-| Типизирован как **спай-тип**, а не как `T` |  `Spy<T>`     |    `Spy<T>`     |  `MockProxy<T>`  |   `DeepMocked<T>`    |     `Mocked<T>`      | **`T`**  |  `Mock<T>` (см. ниже)    |  `SpyObject<T>`   | `SinonStubbedInstance` | `MaybeMockedDeep`  |
+|                                              | vitest-auto-spy | jest-auto-spies | \*-mock-extended | @golevelup/ts-vitest |      @suites/unit       | ng-mocks | @testing-library/angular | @ngneat/spectator |         sinon          | Встроенное в Vitest 4 |
+| -------------------------------------------- | :-------------: | :-------------: | :--------------: | :------------------: | :---------------------: | :------: | :----------------------: | :---------------: | :--------------------: | :-------------------: |
+| Читает настоящий **класс** в рантайме        |       ✅        |       ✅        |        ❌        |       частично       | метаданные конструктора |    ✅    |            ✅            |        ✅         |  `createStubInstance`  |    `vi.mockObject`    |
+| Мокает по **типу**, без класса               |       ✅        |       ❌        |        ✅        |          ✅          |           ❌            |    ❌    |            ❌            |        ❌         |           ❌           |          ❌           |
+| Рекурсивный глубокий мок                     |       ✅        |       ❌        |        ✅        |          ✅          |           ❌            |    ❌    |            ❌            |        ❌         |           ❌           |       частично        |
+| Хелперы для **Promise** по типу возврата     |       ✅        |       ✅        |        ❌        |          ❌          |           ❌            |    ❌    |            ❌            |        ❌         |           ❌           |          ❌           |
+| Хелперы для **Observable** по типу возврата  |       ✅        |       ✅        |        ❌        |          ❌          |           ❌            |    ❌    |            ❌            |        ❌         |           ❌           |          ❌           |
+| **Спаи геттеров / сеттеров**                 |       ✅        |       ✅        |        ❌        |          ❌          |           ❌            |    ❌    |            ❌            |        ❌         |           ✅           |          ✅           |
+| `calledWith`                                 |       ✅        |       ✅        |        ✅        |          ❌          |           ❌            |    ❌    |            ❌            |        ❌         |       `withArgs`       |          ❌           |
+| `mustBeCalledWith` (падает при несовпадении) |       ✅        |       ✅        |        ❌        |          ❌          |           ❌            |    ❌    |            ❌            |        ❌         |           ❌           |          ❌           |
+| Типизирован как **спай-тип**, а не как `T`   |    `Spy<T>`     |    `Spy<T>`     |  `MockProxy<T>`  |   `DeepMocked<T>`    |       `Mocked<T>`       | **`T`**  |   `Mock<T>` (см. ниже)   |  `SpyObject<T>`   | `SinonStubbedInstance` |   `MaybeMockedDeep`   |
 
 Две ячейки стоит раскрыть, обе прочитаны из опубликованных тарболлов 2026-08-30:
 
@@ -157,21 +157,21 @@ Promise и Observable по типу возврата, нет сюжета для
 
 ### Где это работает и сколько стоит {#where-it-runs-and-what-it-costs}
 
-|                                   | vitest-auto-spy | jest-auto-spies | vitest-mock-extended | jest-mock-extended | @golevelup/ts-vitest | @suites/unit |   ng-mocks   | @testing-library/angular | @ngneat/spectator |   sinon    |
-| --------------------------------- | :-------------: | :-------------: | :------------------: | :----------------: | :------------------: | :----------: | :----------: | :----------------------: | :---------------: | :--------: |
-| Vitest                            |       ✅        |       ❌        |          ✅          |         ❌         |          ✅          |      ✅      |      ✅      |            ✅            |     частично¹     | свои стабы³ |
-| Jest                              |    пока нет²    |       ✅        |          ❌          |         ✅         |          ❌          |      ✅      |      ✅      |            ✅            |        ✅         | свои стабы³ |
-| Bun (`bun:test`)                  |     **✅**      |       ❌        |          ❌          |         ❌         |          ❌          |      ❌      |      ❌      |            ❌            |        ❌         | свои стабы³ |
-| `node:test`                       |     **✅**      |       ❌        |          ❌          |         ❌         |          ❌          |      ❌      |      ❌      |            ❌            |        ❌         | свои стабы³ |
-| Хелперы для Angular `TestBed`     |       ✅        |       ✅        |          ❌          |         ❌         |          ❌          |    **❌**    |      ✅      |            ✅            |        ✅         |     ❌     |
-| Angular **TestBed под `bun`**     |     **✅**      |       ❌        |          ❌          |         ❌         |          ❌          |      ❌      |      ❌      |            ❌            |        ❌         |     ❌     |
-| **Зонлесс**-хелперы для Angular   |       ✅        |       ❌        |          ❌          |         ❌         |          ❌          |      ❌      |      ❌      |    ✅ (`./zoneless`)     |        ❌         |     ❌     |
-| Тестовый хелпер для `httpResource()` |  **✅**      |       ❌        |          ❌          |         ❌         |          ❌          |      ❌      |      ❌      |            ❌            |        ❌         |     ❌     |
-| Работает со спеками, скомпилированными **AOT** | ✅ |        —        |          —           |         —          |          —           |      —       | `aot: false` |            —             |         —         |     —      |
-| Рецепт для NestJS                 |       ✅        |       ❌        |          ❌          |         ❌         |          ✅          |      ✅      |      ❌      |            ❌            |        ❌         |     ❌     |
-| Юнит NestJS из DI-метаданных      |       ✅        |       ❌        |          ❌          |         ❌         |          ❌          |      ✅      |      ❌      |            ❌            |        ❌         |     ❌     |
-| Рецепты для React / Vue / Svelte  |       ✅        |       ❌        |          ❌          |         ❌         |          ❌          |      ❌      |      ❌      |            ❌            |        ❌         |     ❌     |
-| Рантайм-зависимости               |      **0**      |        1        |          1           |         2          |          0           |      4       |      0       |            1             | 3 (включая jQuery) |     4      |
+|                                                | vitest-auto-spy | jest-auto-spies | vitest-mock-extended | jest-mock-extended | @golevelup/ts-vitest | @suites/unit |   ng-mocks   | @testing-library/angular | @ngneat/spectator  |    sinon    |
+| ---------------------------------------------- | :-------------: | :-------------: | :------------------: | :----------------: | :------------------: | :----------: | :----------: | :----------------------: | :----------------: | :---------: |
+| Vitest                                         |       ✅        |       ❌        |          ✅          |         ❌         |          ✅          |      ✅      |      ✅      |            ✅            |     частично¹      | свои стабы³ |
+| Jest                                           |    пока нет²    |       ✅        |          ❌          |         ✅         |          ❌          |      ✅      |      ✅      |            ✅            |         ✅         | свои стабы³ |
+| Bun (`bun:test`)                               |     **✅**      |       ❌        |          ❌          |         ❌         |          ❌          |      ❌      |      ❌      |            ❌            |         ❌         | свои стабы³ |
+| `node:test`                                    |     **✅**      |       ❌        |          ❌          |         ❌         |          ❌          |      ❌      |      ❌      |            ❌            |         ❌         | свои стабы³ |
+| Хелперы для Angular `TestBed`                  |       ✅        |       ✅        |          ❌          |         ❌         |          ❌          |    **❌**    |      ✅      |            ✅            |         ✅         |     ❌      |
+| Angular **TestBed под `bun`**                  |     **✅**      |       ❌        |          ❌          |         ❌         |          ❌          |      ❌      |      ❌      |            ❌            |         ❌         |     ❌      |
+| **Зонлесс**-хелперы для Angular                |       ✅        |       ❌        |          ❌          |         ❌         |          ❌          |      ❌      |      ❌      |    ✅ (`./zoneless`)     |         ❌         |     ❌      |
+| Тестовый хелпер для `httpResource()`           |     **✅**      |       ❌        |          ❌          |         ❌         |          ❌          |      ❌      |      ❌      |            ❌            |         ❌         |     ❌      |
+| Работает со спеками, скомпилированными **AOT** |       ✅        |        —        |          —           |         —          |          —           |      —       | `aot: false` |            —             |         —          |      —      |
+| Рецепт для NestJS                              |       ✅        |       ❌        |          ❌          |         ❌         |          ✅          |      ✅      |      ❌      |            ❌            |         ❌         |     ❌      |
+| Юнит NestJS из DI-метаданных                   |       ✅        |       ❌        |          ❌          |         ❌         |          ❌          |      ✅      |      ❌      |            ❌            |         ❌         |     ❌      |
+| Рецепты для React / Vue / Svelte               |       ✅        |       ❌        |          ❌          |         ❌         |          ❌          |      ❌      |      ❌      |            ❌            |         ❌         |     ❌      |
+| Рантайм-зависимости                            |      **0**      |        1        |          1           |         2          |          0           |      4       |      0       |            1             | 3 (включая jQuery) |      4      |
 
 ¹ Есть настоящая вторичная точка входа `@ngneat/spectator/vitest`, поставляемая с 19.2.0
 (2024-12-17) — Vitest поддержан, а не прикручен сбоку. Звёздочка в другом: пакет поставляет
@@ -246,11 +246,11 @@ SpyObject<T>` — **каждый** токен типизирован как сп
 2026-08-29 — одна фикстура, класс на 80 членов, 30 объявлений моков, 600 обращений к членам,
 `tsc --extendedDiagnostics`, одинаково на трёх прогонах:
 
-| Тип | Инстанцирований |
-| --- | ---: |
-| `Spy<T>` (этот пакет)   |      **2 656** |
-| `@golevelup/ts-vitest`  |          5 092 |
-| `vitest-mock-extended`  |          5 614 |
+| Тип                    | Инстанцирований |
+| ---------------------- | --------------: |
+| `Spy<T>` (этот пакет)  |       **2 656** |
+| `@golevelup/ts-vitest` |           5 092 |
+| `vitest-mock-extended` |           5 614 |
 
 Примерно вдвое меньше работы тайпчекера, чем у библиотек на глубоких Proxy, при том что на каждом
 методе висит больше хелперов. Это единственное число на странице, не перемеренное 2026-08-30.
@@ -301,14 +301,14 @@ SpyObject<T>` — **каждый** токен типизирован как сп
 паритетом; самый узкий отрыв теперь 2,19×, в строке, где тест вызывает каждый метод класса, который
 он задублировал:
 
-|                                        |               4.0 |          4.1 |                  лучшая чужая ветка |
-| -------------------------------------- | ----------------: | -----------: | ------------------------------: |
-| вызваны все 14 из 14 методов           | 18,92 мкс (проигрыш) |  **8,17 мкс** | 17,92 мкс рукописный `vi.fn()` |
-| вызваны все 45 из 45 методов           | 75,33 мкс (проигрыш) | **26,12 мкс** | 62,04 мкс рукописный `vi.fn()` |
-| `createAutoMock<T>()`, 40 членов       | 72,88 мкс (проигрыш) | **18,92 мкс** |   56,79 мкс vitest-mock-extended |
-| `mockDeep<T>()`, 3 уровня              |  8,83 мкс (проигрыш) |  **2,29 мкс** |    5,46 мкс vitest-mock-extended |
-| диспетчеризация `calledWith`           |  0,54 мкс (паритет) |  **0,17 мкс** |    0,54 мкс vitest-mock-extended |
-| удержанная куча, один материализованный метод | 5 445 Б      |  **1 929 Б** |  5 169 Б рукописный `vi.fn()` |
+|                                               |                  4.0 |           4.1 |             лучшая чужая ветка |
+| --------------------------------------------- | -------------------: | ------------: | -----------------------------: |
+| вызваны все 14 из 14 методов                  | 18,92 мкс (проигрыш) |  **8,17 мкс** | 17,92 мкс рукописный `vi.fn()` |
+| вызваны все 45 из 45 методов                  | 75,33 мкс (проигрыш) | **26,12 мкс** | 62,04 мкс рукописный `vi.fn()` |
+| `createAutoMock<T>()`, 40 членов              | 72,88 мкс (проигрыш) | **18,92 мкс** | 56,79 мкс vitest-mock-extended |
+| `mockDeep<T>()`, 3 уровня                     |  8,83 мкс (проигрыш) |  **2,29 мкс** |  5,46 мкс vitest-mock-extended |
+| диспетчеризация `calledWith`                  |   0,54 мкс (паритет) |  **0,17 мкс** |  0,54 мкс vitest-mock-extended |
+| удержанная куча, один материализованный метод |              5 445 Б |   **1 929 Б** |   5 169 Б рукописный `vi.fn()` |
 
 Теперь этот пакет лидирует в **каждой** опубликованной очной таблице, включая два блока
 `worst case`, где тест вызывает каждый метод задублированного класса и ленивой библиотеке нечего
@@ -489,7 +489,7 @@ ng-mocks 14.17.3, `@ngneat/spectator` 22.1.0 и `@testing-library/angular` 19.4.
   ничего не забирает, удержанный в пределах моков, переживающих файл. При `isolate: false` именно он
   делает `clearMocks` дороже с каждым уже пройденным тестом и держит записанные аргументы всего
   прогона — и деревья компонентов за ними — живыми в одном воркере.
-- [Двадцать правил ESLint](/ru/utilities/eslint-plugin), версионируемых вместе с тем API, который
+- [Двадцать три правила ESLint](/ru/utilities/eslint-plugin), версионируемые вместе с тем API, который
   они рекомендуют, и [`setupAutoSpy()`](/ru/utilities/setup) для той гигиены прогона, которая нужна
   общей среде.
 - [Пофайловая диагностика `TestBed`](/ru/adapters/angular#where-a-spec-spends-its-time) — какие спеки

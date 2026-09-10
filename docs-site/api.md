@@ -80,7 +80,7 @@ The exported surface of `vitest-auto-spy` and its subpaths.
 | `consoleDebugSpy` … `consoleWarnSpy`                                                                         | Silent typed spies replacing the global `console` methods on import (`/console`)                                                                                    |
 | `installConsoleSpies()` / `resetConsoleSpies()` / `restoreConsole()`                                         | Install / clear / undo the console spies (`/console`)                                                                                                               |
 | `errorHandler`                                                                                               | The `mustBeCalledWith` argument-mismatch error helper                                                                                                               |
-| `vitest-auto-spy/eslint-plugin`                                                                              | Twenty flat-config lint rules that steer a suite onto these helpers                                                                                               |
+| `vitest-auto-spy/eslint-plugin`                                                                              | Twenty-three flat-config lint rules that steer a suite onto these helpers                                                                                           |
 
 ## Helper surface by return type
 

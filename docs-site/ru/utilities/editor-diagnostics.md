@@ -11,7 +11,7 @@ Vitest никогда не вызовет, — все дёшевы в почин
 потом, потому что каждая из них **проходит**.
 
 Канал ровно один, и он уже лежит в пакете:
-[`vitest-auto-spy/eslint-plugin`](/ru/utilities/eslint-plugin). Двадцать правил по настоящему
+[`vitest-auto-spy/eslint-plugin`](/ru/utilities/eslint-plugin). Двадцать три правила по настоящему
 синтаксическому дереву, с фиксом или подсказкой там, где переписывание однозначно, — те же правила в
 редакторе и в CI, так что ничто не проходит локально и не падает на сборке. Никакому редактору не нужен
 собственный плагин этого пакета; ему нужна включённая интеграция с ESLint, а она есть у каждой IDE ниже.
@@ -19,7 +19,7 @@ Vitest никогда не вызовет, — все дёшевы в почин
 ## WebStorm и другие IDE от JetBrains {#webstorm-and-the-other-jetbrains-ides}
 
 WebStorm, IntelliJ IDEA Ultimate, PhpStorm, PyCharm Professional и RubyMine запускают ESLint нативно,
-поэтому правила загораются **прямо в коде, без установки плагина** — те же двадцать проверок, в
+поэтому правила загораются **прямо в коде, без установки плагина** — те же двадцать три проверки, в
 редакторе, в окне Problems и в **Code → Inspect Code** для всего проекта.
 
 Установить и настроить один раз:
@@ -64,7 +64,7 @@ export default [
 
 ::: tip Нативный плагин для JetBrains не планируется
 Плагин в JetBrains Marketplace дублировал бы интеграцию, которая у IDE уже есть, и потом ему пришлось
-бы держать вторую копию двадцати правил — на Kotlin — в согласии с TypeScript-овыми. Там, где путь через
+бы держать вторую копию двадцати трёх правил — на Kotlin — в согласии с TypeScript-овыми. Там, где путь через
 ESLint действительно не работает (репозиторий вообще без ESLint), честное решение — четыре строки
 `eslint.config.js`, а не вторая реализация.
 :::
@@ -72,7 +72,7 @@ ESLint действительно не работает (репозиторий 
 ## VS Code, Cursor, Windsurf, VSCodium {#vs-code-cursor-windsurf-vscodium}
 
 Поставьте [расширение ESLint](https://marketplace.visualstudio.com/items?itemName=dbaeumer.vscode-eslint),
-и flat config выше уже достаточно: те же двадцать правил, в коде и в панели Problems.
+и flat config выше уже достаточно: те же двадцать три правила, в коде и в панели Problems.
 
 ```jsonc
 // .vscode/settings.json
@@ -92,23 +92,23 @@ Cursor, Windsurf и VSCodium ставят то же расширение ESLint 
 
 ## Что именно подчёркивается {#what-gets-underlined}
 
-| Форма                                                        | Почему это неправильно                                                                                                                                       | Правило                           |
-| ------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------- |
-| `expect()` внутри `subscribe()`                              | молчащий поток никогда не выполнит колбэк — тест проходит, ничего не проверив                                                                                  | `no-expect-in-subscribe`          |
-| `it('x', (done) => …)` и `done.fail(…)`                      | Vitest передаёт `TestContext`; тест проходит, выполнив почти ничего из своего тела, а `done.fail` бросает ошибку в промис, которого никто не ждёт             | `no-done-callback`                |
-| цепочка `.then()`, которая проверяет и которую никто не ждёт | ассерт приземляется уже после конца теста, где падать нечему                                                                                                   | `no-floating-assertion`           |
-| `{ provide: X, useValue: { m: vi.fn() } }`                   | `provideAutoSpy(X)` не отстанет, когда у класса появится новый метод                                                                                           | `prefer-provide-auto-spy`         |
-| объект из `vi.fn()` вместо класса                            | `createSpyFromClass(X)` читает прототип, а не список, который протухает                                                                                        | `prefer-create-spy-from-class`    |
-| `TestBed.inject<X>()` или приведение на выходе               | `injectSpy(X)` возвращает `Spy<X>` без дженерика и без приведения                                                                                              | `prefer-inject-spy`               |
-| `vi.mocked()` поверх того, что уже спай                      | `Mocked<T>` теряет `calledWith`, `resolveWith` и `nextWith` — чинится автофиксом                                                                                | `no-mocked-for-spy`               |
+| Форма                                                        | Почему это неправильно                                                                                                                                            | Правило                           |
+| ------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------- |
+| `expect()` внутри `subscribe()`                              | молчащий поток никогда не выполнит колбэк — тест проходит, ничего не проверив                                                                                     | `no-expect-in-subscribe`          |
+| `it('x', (done) => …)` и `done.fail(…)`                      | Vitest передаёт `TestContext`; тест проходит, выполнив почти ничего из своего тела, а `done.fail` бросает ошибку в промис, которого никто не ждёт                 | `no-done-callback`                |
+| цепочка `.then()`, которая проверяет и которую никто не ждёт | ассерт приземляется уже после конца теста, где падать нечему                                                                                                      | `no-floating-assertion`           |
+| `{ provide: X, useValue: { m: vi.fn() } }`                   | `provideAutoSpy(X)` не отстанет, когда у класса появится новый метод                                                                                              | `prefer-provide-auto-spy`         |
+| объект из `vi.fn()` вместо класса                            | `createSpyFromClass(X)` читает прототип, а не список, который протухает                                                                                           | `prefer-create-spy-from-class`    |
+| `TestBed.inject<X>()` или приведение на выходе               | `injectSpy(X)` возвращает `Spy<X>` без дженерика и без приведения                                                                                                 | `prefer-inject-spy`               |
+| `vi.mocked()` поверх того, что уже спай                      | `Mocked<T>` теряет `calledWith`, `resolveWith` и `nextWith` — чинится автофиксом                                                                                  | `no-mocked-for-spy`               |
 | `TestBed.inject(X) as Spy<X>`                                | приведение, которое сюита на `jest-auto-spies` таскает повсюду, здесь перестаёт компилироваться — `asSpy(…)` утверждает то же самое без него и чинится автофиксом | `prefer-as-spy`                   |
-| `Object.defineProperty` в спеке                              | откат никто не запоминает — а `mockReadonlyProp` / `mockValueProp` запоминают                                                                                  | `no-object-define-property`       |
-| экспортированный объект из `vi.fn()` на уровне модуля        | при `isolate: false` все файлы спек делят один набор спаев                                                                                                     | `no-shared-module-level-mock`     |
-| один и тот же токен, поданный в массиве дважды               | второй провайдер молча заменяет первый                                                                                                                         | `no-overridden-provider`          |
-| `TestBed.inject()` до `override*` в той же сюите             | инъекция инстанцирует модуль, и каждый последующий оверрайд бросает ошибку                                                                                      | `no-inject-before-override`       |
-| `spyOn(o, 'm')`, `jasmine.*`, `fail(`, `.withContext(`       | `spyOn` из jasmine **заглушает**, а `vi.spyOn` **вызывает оригинал**, так что переименование молча инвертирует поведение; остальное — `ReferenceError`         | `no-jasmine-globals`              |
-| `.and` / `.calls` / `.withArgs`, когда их никто не установил | эти неймспейсы приходят из `vitest-auto-spy/jasmine` — без них строка читает `undefined`                                                                        | `jasmine-namespace-without-entry` |
-| `spy.calls.saveArgumentsByValue()`                           | здесь это no-op, так что спека тихо начинает проверять состояние уже после мутации                                                                              | `no-save-arguments-by-value`      |
+| `Object.defineProperty` в спеке                              | откат никто не запоминает — а `mockReadonlyProp` / `mockValueProp` запоминают                                                                                     | `no-object-define-property`       |
+| экспортированный объект из `vi.fn()` на уровне модуля        | при `isolate: false` все файлы спек делят один набор спаев                                                                                                        | `no-shared-module-level-mock`     |
+| один и тот же токен, поданный в массиве дважды               | второй провайдер молча заменяет первый                                                                                                                            | `no-overridden-provider`          |
+| `TestBed.inject()` до `override*` в той же сюите             | инъекция инстанцирует модуль, и каждый последующий оверрайд бросает ошибку                                                                                        | `no-inject-before-override`       |
+| `spyOn(o, 'm')`, `jasmine.*`, `fail(`, `.withContext(`       | `spyOn` из jasmine **заглушает**, а `vi.spyOn` **вызывает оригинал**, так что переименование молча инвертирует поведение; остальное — `ReferenceError`            | `no-jasmine-globals`              |
+| `.and` / `.calls` / `.withArgs`, когда их никто не установил | эти неймспейсы приходят из `vitest-auto-spy/jasmine` — без них строка читает `undefined`                                                                          | `jasmine-namespace-without-entry` |
+| `spy.calls.saveArgumentsByValue()`                           | здесь это no-op, так что спека тихо начинает проверять состояние уже после мутации                                                                                | `no-save-arguments-by-value`      |
 
 Последние три — для сюиты, [переезжающей с `jasmine-auto-spies`](/ru/migrating-jasmine).
 `prefer-native-spy-api`, который дозавершает этот переезд под `--fix`, в рекомендованном конфиге стоит

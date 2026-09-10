@@ -26,6 +26,9 @@ features:
   - title: Helpers that follow the return type
     details: 'A method returning a Promise gets resolveWith and rejectWith, one returning an Observable gets nextWith and throwWith, and every method gets calledWith, mustBeCalledWith and failWith.'
     link: /core/control-helpers
+  - title: Spy defaults that live with the class
+    details: 'registerAutoSpyDefaults(Router, config) once in a setup file and every provideAutoSpy or createSpyFromClass starts from it — merged with what the call site adds, not replaced. One Angular suite carried 23 different configurations of the same class across 109 spec files.'
+    link: /core/create-spy-from-class
   - title: Vitest 5 on the same install
     details: 'One package spans Vitest 2.1 through 5.x — no second major, no version-split types, no edit to a spec. The same suite runs 7.7 % faster on Vitest 5, and the bundled spy engine adds another 8.1 % over vi.fn().'
     link: /runtimes/vitest#vitest-5
@@ -186,7 +189,7 @@ from a type or an interface.
 <div class="vas-fact"><b>0</b><span>runtime dependencies</span></div>
 <div class="vas-fact"><b>4</b><span>runtimes, one core</span></div>
 <div class="vas-fact"><b>5</b><span>framework adapters</span></div>
-<div class="vas-fact"><b>20</b><span>lint rules</span></div>
+<div class="vas-fact"><b>23</b><span>lint rules</span></div>
 <div class="vas-fact"><b>100%</b><span>covered core</span></div>
 
 </div>

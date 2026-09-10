@@ -598,7 +598,7 @@ only pays for the ones it imports:
 | Imported                                      |    min+gzip |
 | --------------------------------------------- | ----------: |
 | `.` — the core entry, what the badge measures | **15.8 kB** |
-| `vitest-auto-spy/angular`                     |     19.8 kB |
+| `vitest-auto-spy/angular`                     |     19.9 kB |
 | `vitest-auto-spy/node`                        |     15.2 kB |
 | `vitest-auto-spy/dom-stubs`                   |      5.4 kB |
 | `vitest-auto-spy/rxjs`                        |      2.2 kB |

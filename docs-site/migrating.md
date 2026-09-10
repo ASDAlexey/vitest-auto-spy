@@ -134,21 +134,21 @@ A mechanical `jest.` → `vi.` rename produces calls that do not exist, and the 
 knowing before the rename, because for each of them the honest answer is a different design, not a
 different name.
 
-| Jest                                                    | Vitest                | What to do instead                                                                                                                               |
-| ------------------------------------------------------- | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `jest.requireMock(id)`                                  | **none**              | provide the double through the TestBed / the container, or pass it as an argument                                                                |
-| `jest.requireActual(id)`                                | `vi.importActual(id)` | `await`ed, and only inside a `vi.mock` factory                                                                                                   |
-| `jest.fn().mockImplementation(() => o)` used with `new` | **not constructible** | [`mockConstructor` / `stubConstructor`](/utilities/constructor-doubles)                                                                          |
-| `jest.spyOn(global, 'Date')`                            | **throws**            | `mockSystemTime(iso)` — fake timers already own `Date`                                                                                           |
-| `jest.replaceProperty(obj, key, value)`                 | **none**              | `mockValueProp(obj, key, value)` — and it restores itself                                                                                        |
-| `fakeTimers: { enableGlobally: true }`                  | **no setting**        | `setupAutoSpy({ globalFakeTimers: true })`                                                                                                       |
-| `jest.mock('some-barrel')`                              | `vi.mock(…)`          | a **silent no-op** once the specs are bundled — the module boundary it would replace no longer exists                                            |
-| `jest.spyOn(barrel, 'exported')`                        | **throws**            | `TypeError: Cannot redefine property` — a bundled export is not configurable; [provide a real seam](/utilities/module-mocks#provide-a-real-seam) |
-| `jest.fn().mockImplementation()` with no argument       | **requires one**      | `mockImplementation(() => undefined)` — Jest installed the no-op for you                                                                         |
-| `xit` / `xdescribe`                                     | **none**              | `it.skip` / `describe.skip`; the rename fails as `TS2304: Cannot find name 'xit'`                                                                |
-| `testTimeout: 30000` (one budget)                       | **two fields**        | set `hookTimeout` to the same number — Vitest resolves it separately and defaults it to 10 000 ms                                                |
+| Jest                                                      | Vitest                        | What to do instead                                                                                                                               |
+| --------------------------------------------------------- | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `jest.requireMock(id)`                                    | **none**                      | provide the double through the TestBed / the container, or pass it as an argument                                                                |
+| `jest.requireActual(id)`                                  | `vi.importActual(id)`         | `await`ed, and only inside a `vi.mock` factory                                                                                                   |
+| `jest.fn().mockImplementation(() => o)` used with `new`   | **not constructible**         | [`mockConstructor` / `stubConstructor`](/utilities/constructor-doubles)                                                                          |
+| `jest.spyOn(global, 'Date')`                              | **throws**                    | `mockSystemTime(iso)` — fake timers already own `Date`                                                                                           |
+| `jest.replaceProperty(obj, key, value)`                   | **none**                      | `mockValueProp(obj, key, value)` — and it restores itself                                                                                        |
+| `fakeTimers: { enableGlobally: true }`                    | **no setting**                | `setupAutoSpy({ globalFakeTimers: true })`                                                                                                       |
+| `jest.mock('some-barrel')`                                | `vi.mock(…)`                  | a **silent no-op** once the specs are bundled — the module boundary it would replace no longer exists                                            |
+| `jest.spyOn(barrel, 'exported')`                          | **throws**                    | `TypeError: Cannot redefine property` — a bundled export is not configurable; [provide a real seam](/utilities/module-mocks#provide-a-real-seam) |
+| `jest.fn().mockImplementation()` with no argument         | **requires one**              | `mockImplementation(() => undefined)` — Jest installed the no-op for you                                                                         |
+| `xit` / `xdescribe`                                       | **none**                      | `it.skip` / `describe.skip`; the rename fails as `TS2304: Cannot find name 'xit'`                                                                |
+| `testTimeout: 30000` (one budget)                         | **two fields**                | set `hookTimeout` to the same number — Vitest resolves it separately and defaults it to 10 000 ms                                                |
 | `expect(a).toHaveBeenCalledBefore(b)` across spy families | **a wrong verdict, no error** | compare two auto-spies, or `setSpyEngine('runner')` — the counters are not shared, see below                                                     |
-| `collectCoverageFrom: [...]`                            | `coverage.include`    | and **not** `coverage.all`: the key was removed in Vitest 4, where `include` alone drives the pass over files no test imported                   |
+| `collectCoverageFrom: [...]`                              | `coverage.include`            | and **not** `coverage.all`: the key was removed in Vitest 4, where `include` alone drives the pass over files no test imported                   |
 
 The timeout row is the quietest of them. `jest-circus` spends one `testTimeout` on a hook and on a
 test body alike; Vitest resolves `hookTimeout` on its own, so a config that carried the single Jest
@@ -340,7 +340,7 @@ Beyond the runner swap, everything the old API did not have:
 [`renderShallow` and `createWithAutoSpies`](/adapters/angular),
 [observable assertions](/core/observable-assertions),
 [fake timers that settle](/utilities/fake-timers),
-[console spies](/utilities/console), [twenty ESLint rules](/utilities/eslint-plugin),
+[console spies](/utilities/console), [twenty-three ESLint rules](/utilities/eslint-plugin),
 Bun and `node:test` support — and [Angular's `TestBed` under `bun test`](/runtimes/bun-angular).
 
 ## Did the migration lose a test?

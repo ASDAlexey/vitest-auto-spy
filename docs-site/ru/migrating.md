@@ -54,19 +54,19 @@ auto-spies, и для собственных глобалов jasmine (`createSp
 реэкспортирует тот же API `jest-auto-spies`, поэтому замена идентична (и сверху вы получаете Bun /
 `node:test`, `createAutoMock`, рецепты под фреймворки и спаи на консоль).
 
-| jest-auto-spies                                                       | vitest-auto-spy                                             | Статус         |
-| --------------------------------------------------------------------- | ----------------------------------------------------------- | -------------- |
-| `createSpyFromClass`                                                  | `createSpyFromClass`                                        | ✅ идентично   |
-| `methodsToSpyOn`                                                      | `methodsToSpyOn` — там дополняющий и здесь дополняющий      | ✅ идентично   |
-| `provideAutoSpy`                                                      | `provideAutoSpy` (из `/angular`)                            | ✅ идентично   |
-| `calledWith` / `mustBeCalledWith`                                     | так же                                                      | ✅ идентично   |
-| `calledWith(...).returnValue(v)`                                      | так же — работают **и** `.returnValue`, **и** `.mockReturnValue` | ✅ идентично   |
-| `resolveWith` / `rejectWith` / `resolveWithPerCall`                   | так же                                                      | ✅ идентично   |
-| `nextWith` / `nextOneTimeWith` / `nextWithValues` / `nextWithPerCall` | так же                                                      | ✅ идентично   |
-| `throwWith` / `complete` / `returnSubject`                            | так же                                                      | ✅ идентично   |
-| `accessorSpies.getters/setters`                                       | так же                                                      | ✅ идентично   |
-| `createObservableWithValues`                                          | так же (из `/rxjs`)                                         | ✅ идентично   |
-| нижележащий mock                                                      | `jest.fn()` → `vi.fn()`                                     | 🔁 заменено    |
+| jest-auto-spies                                                       | vitest-auto-spy                                                  | Статус       |
+| --------------------------------------------------------------------- | ---------------------------------------------------------------- | ------------ |
+| `createSpyFromClass`                                                  | `createSpyFromClass`                                             | ✅ идентично |
+| `methodsToSpyOn`                                                      | `methodsToSpyOn` — там дополняющий и здесь дополняющий           | ✅ идентично |
+| `provideAutoSpy`                                                      | `provideAutoSpy` (из `/angular`)                                 | ✅ идентично |
+| `calledWith` / `mustBeCalledWith`                                     | так же                                                           | ✅ идентично |
+| `calledWith(...).returnValue(v)`                                      | так же — работают **и** `.returnValue`, **и** `.mockReturnValue` | ✅ идентично |
+| `resolveWith` / `rejectWith` / `resolveWithPerCall`                   | так же                                                           | ✅ идентично |
+| `nextWith` / `nextOneTimeWith` / `nextWithValues` / `nextWithPerCall` | так же                                                           | ✅ идентично |
+| `throwWith` / `complete` / `returnSubject`                            | так же                                                           | ✅ идентично |
+| `accessorSpies.getters/setters`                                       | так же                                                           | ✅ идентично |
+| `createObservableWithValues`                                          | так же (из `/rxjs`)                                              | ✅ идентично |
+| нижележащий mock                                                      | `jest.fn()` → `vi.fn()`                                          | 🔁 заменено  |
 
 Осталось только убедиться, что тесты идут под Vitest (или под Bun / `node:test` через свою точку
 входа), а для Angular — что поднят `TestBed`.
@@ -142,21 +142,21 @@ error  `vitest` type import should occur after import of `@angular/router`  impo
 `TypeError: vi.requireMock is not a function` читается как «раннер сломался». Вот те, которые стоит
 знать до переименования, потому что для каждого честный ответ — другая конструкция, а не другое имя.
 
-| Jest                                                    | Vitest                | Что делать вместо этого                                                                                                                          |
-| ------------------------------------------------------- | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `jest.requireMock(id)`                                  | **нет**               | отдать дубль через TestBed / контейнер либо передать аргументом                                                                                  |
-| `jest.requireActual(id)`                                | `vi.importActual(id)` | через `await` и только внутри фабрики `vi.mock`                                                                                                  |
-| `jest.fn().mockImplementation(() => o)` вместе с `new`  | **не конструктор**    | [`mockConstructor` / `stubConstructor`](/ru/utilities/constructor-doubles)                                                                       |
-| `jest.spyOn(global, 'Date')`                            | **бросает**           | `mockSystemTime(iso)` — фейковые таймеры уже владеют `Date`                                                                                      |
-| `jest.replaceProperty(obj, key, value)`                 | **нет**               | `mockValueProp(obj, key, value)` — и он восстанавливает себя сам                                                                                  |
-| `fakeTimers: { enableGlobally: true }`                  | **нет настройки**     | `setupAutoSpy({ globalFakeTimers: true })`                                                                                                       |
-| `jest.mock('some-barrel')`                              | `vi.mock(…)`          | **молчаливый no-op**, как только спеки собраны в бандл — границы модуля, которую он подменял бы, больше нет                                       |
-| `jest.spyOn(barrel, 'exported')`                        | **бросает**           | `TypeError: Cannot redefine property` — экспорт из бандла не configurable; [сделайте настоящий шов](/ru/utilities/module-mocks#provide-a-real-seam) |
-| `jest.fn().mockImplementation()` без аргумента          | **аргумент обязателен** | `mockImplementation(() => undefined)` — Jest подставлял вам no-op сам                                                                            |
-| `xit` / `xdescribe`                                     | **нет**               | `it.skip` / `describe.skip`; переименование падает как `TS2304: Cannot find name 'xit'`                                                           |
-| `testTimeout: 30000` (один бюджет)                      | **два поля**          | выставьте `hookTimeout` в то же число — Vitest разрешает его отдельно и по умолчанию ставит 10 000 мс                                             |
-| `expect(a).toHaveBeenCalledBefore(b)` между разными семействами шпионов | **неверный вердикт, без ошибки** | сравнивайте два авто-шпиона либо включите `setSpyEngine('runner')` — счётчики не общие, см. ниже                                                  |
-| `collectCoverageFrom: [...]`                            | `coverage.include`    | и **не** `coverage.all`: ключ убрали в Vitest 4, где проход по файлам, которые не импортировал ни один тест, ведёт один только `include`          |
+| Jest                                                                    | Vitest                           | Что делать вместо этого                                                                                                                             |
+| ----------------------------------------------------------------------- | -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `jest.requireMock(id)`                                                  | **нет**                          | отдать дубль через TestBed / контейнер либо передать аргументом                                                                                     |
+| `jest.requireActual(id)`                                                | `vi.importActual(id)`            | через `await` и только внутри фабрики `vi.mock`                                                                                                     |
+| `jest.fn().mockImplementation(() => o)` вместе с `new`                  | **не конструктор**               | [`mockConstructor` / `stubConstructor`](/ru/utilities/constructor-doubles)                                                                          |
+| `jest.spyOn(global, 'Date')`                                            | **бросает**                      | `mockSystemTime(iso)` — фейковые таймеры уже владеют `Date`                                                                                         |
+| `jest.replaceProperty(obj, key, value)`                                 | **нет**                          | `mockValueProp(obj, key, value)` — и он восстанавливает себя сам                                                                                    |
+| `fakeTimers: { enableGlobally: true }`                                  | **нет настройки**                | `setupAutoSpy({ globalFakeTimers: true })`                                                                                                          |
+| `jest.mock('some-barrel')`                                              | `vi.mock(…)`                     | **молчаливый no-op**, как только спеки собраны в бандл — границы модуля, которую он подменял бы, больше нет                                         |
+| `jest.spyOn(barrel, 'exported')`                                        | **бросает**                      | `TypeError: Cannot redefine property` — экспорт из бандла не configurable; [сделайте настоящий шов](/ru/utilities/module-mocks#provide-a-real-seam) |
+| `jest.fn().mockImplementation()` без аргумента                          | **аргумент обязателен**          | `mockImplementation(() => undefined)` — Jest подставлял вам no-op сам                                                                               |
+| `xit` / `xdescribe`                                                     | **нет**                          | `it.skip` / `describe.skip`; переименование падает как `TS2304: Cannot find name 'xit'`                                                             |
+| `testTimeout: 30000` (один бюджет)                                      | **два поля**                     | выставьте `hookTimeout` в то же число — Vitest разрешает его отдельно и по умолчанию ставит 10 000 мс                                               |
+| `expect(a).toHaveBeenCalledBefore(b)` между разными семействами шпионов | **неверный вердикт, без ошибки** | сравнивайте два авто-шпиона либо включите `setSpyEngine('runner')` — счётчики не общие, см. ниже                                                    |
+| `collectCoverageFrom: [...]`                                            | `coverage.include`               | и **не** `coverage.all`: ключ убрали в Vitest 4, где проход по файлам, которые не импортировал ни один тест, ведёт один только `include`            |
 
 Строка про таймауты — самая тихая из всех. `jest-circus` тратит один `testTimeout` и на хук, и на тело
 теста; Vitest разрешает `hookTimeout` сам по себе, поэтому конфиг, перевёзший единственное число из
@@ -352,7 +352,7 @@ source$ = new Subject<Page>(); // дубль всё ещё выдаёт мёрт
 [`renderShallow` и `createWithAutoSpies`](/ru/adapters/angular),
 [проверки на observable](/ru/core/observable-assertions),
 [фейковые таймеры, которые дожидаются успокоения](/ru/utilities/fake-timers),
-[спаи на консоль](/ru/utilities/console), [двадцать правил ESLint](/ru/utilities/eslint-plugin),
+[спаи на консоль](/ru/utilities/console), [двадцать три правила ESLint](/ru/utilities/eslint-plugin),
 поддержку Bun и `node:test` — и [`TestBed` из Angular под `bun test`](/ru/runtimes/bun-angular).
 
 ## Не потеряла ли миграция тест? {#did-the-migration-lose-a-test}

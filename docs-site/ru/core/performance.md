@@ -612,7 +612,7 @@ npm run bench:suite --help       # стенд масштаба сюиты сам
 | Импортировано                                    |    min+gzip |
 | ------------------------------------------------ | ----------: |
 | `.` — корневая точка входа, то, что меряет бейдж | **15,8 кБ** |
-| `vitest-auto-spy/angular`                        |     19,8 кБ |
+| `vitest-auto-spy/angular`                        |     19,9 кБ |
 | `vitest-auto-spy/node`                           |     15,2 кБ |
 | `vitest-auto-spy/dom-stubs`                      |      5,4 кБ |
 | `vitest-auto-spy/rxjs`                           |      2,2 кБ |

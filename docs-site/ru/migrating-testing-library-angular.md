@@ -76,20 +76,20 @@ npm i -D vitest-auto-spy
 
 ## Перевод {#the-translation}
 
-| `@testing-library/angular/vitest-utils`       | `vitest-auto-spy`                                                     |
-| --------------------------------------------- | ---------------------------------------------------------------------- |
-| `createMock(Service)`                         | [`createSpyFromClass(Service)`](/ru/core/create-spy-from-class)        |
-| `createMock<SomeInterface>(…)` — невозможно   | [`createAutoMock<SomeInterface>()`](/ru/core/auto-mock-by-type)        |
-| `createMockWithValues(Service, { a: 1 })`     | `createSpyFromClass(Service, { overrides: { a: 1 } })`                 |
-| `provideMock(Service)`                        | [`provideAutoSpy(Service)`](/ru/adapters/angular)                      |
-| `provideMockWithValues(Service, { a: 1 })`    | `provideAutoSpy(Service, { overrides: { a: 1 } })`                     |
-| — эквивалента нет                             | `provideAutoSpy(Service, { returns: { load: of([]) } })`               |
-| — эквивалента нет                             | [`provideAutoSpyForToken(TOKEN)`](/ru/adapters/angular)                |
-| `TestBed.inject(Service)` с ручным приведением | [`injectSpy(Service)`](/ru/adapters/angular)                           |
-| `Mock<T>`                                     | [`Spy<T>`](/ru/core/spy-typing)                                        |
-| `mock.method.mockReturnValue(v)`              | то же самое, плюс `resolveWith` / `nextWith` / `calledWith`            |
-| — эквивалента нет                             | [`gettersToSpyOn` / `settersToSpyOn`](/ru/core/create-spy-from-class)  |
-| — эквивалента нет                             | [`strict: true`](/ru/core/strict-mode)                                 |
+| `@testing-library/angular/vitest-utils`        | `vitest-auto-spy`                                                     |
+| ---------------------------------------------- | --------------------------------------------------------------------- |
+| `createMock(Service)`                          | [`createSpyFromClass(Service)`](/ru/core/create-spy-from-class)       |
+| `createMock<SomeInterface>(…)` — невозможно    | [`createAutoMock<SomeInterface>()`](/ru/core/auto-mock-by-type)       |
+| `createMockWithValues(Service, { a: 1 })`      | `createSpyFromClass(Service, { overrides: { a: 1 } })`                |
+| `provideMock(Service)`                         | [`provideAutoSpy(Service)`](/ru/adapters/angular)                     |
+| `provideMockWithValues(Service, { a: 1 })`     | `provideAutoSpy(Service, { overrides: { a: 1 } })`                    |
+| — эквивалента нет                              | `provideAutoSpy(Service, { returns: { load: of([]) } })`              |
+| — эквивалента нет                              | [`provideAutoSpyForToken(TOKEN)`](/ru/adapters/angular)               |
+| `TestBed.inject(Service)` с ручным приведением | [`injectSpy(Service)`](/ru/adapters/angular)                          |
+| `Mock<T>`                                      | [`Spy<T>`](/ru/core/spy-typing)                                       |
+| `mock.method.mockReturnValue(v)`               | то же самое, плюс `resolveWith` / `nextWith` / `calledWith`           |
+| — эквивалента нет                              | [`gettersToSpyOn` / `settersToSpyOn`](/ru/core/create-spy-from-class) |
+| — эквивалента нет                              | [`strict: true`](/ru/core/strict-mode)                                |
 
 Две строки заслуживают того, чтобы их назвать по именам. `values` у `createMockWithValues`
 присваиваются поверх готового мока, затирая то, что там было, — это `overrides`, затравка, которая
@@ -294,7 +294,7 @@ _удерживает_ нетронутый дубль, а не сколько �
   а не типизирует настоящий сервис как дубль.
 - **То же API вне Angular** — [`bun:test`](/ru/runtimes/bun), [`node:test`](/ru/runtimes/node),
   NestJS, React, Vue, Svelte, а `TestBed` из Angular — [под `bun test`](/ru/runtimes/bun-angular).
-- **[Двадцать правил линтера](/ru/utilities/eslint-plugin)**, версионируемых вместе с тем API,
+- **[Двадцать три правила линтера](/ru/utilities/eslint-plugin)**, версионируемые вместе с тем API,
   который они советуют.
 
 ## Версии, по которым это писалось {#versions-this-was-written-against}

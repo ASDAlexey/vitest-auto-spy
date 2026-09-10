@@ -26,6 +26,9 @@ features:
   - title: Хелперы, которые следуют за типом возврата
     details: 'Метод, возвращающий Promise, получает resolveWith и rejectWith, возвращающий Observable — nextWith и throwWith, а каждый метод получает calledWith, mustBeCalledWith и failWith.'
     link: /ru/core/control-helpers
+  - title: Настройки спая живут рядом с классом
+    details: 'registerAutoSpyDefaults(Router, config) один раз в setup-файле — и каждый provideAutoSpy или createSpyFromClass стартует с них, сливая с тем, что добавил вызов, а не заменяя. В одной Angular-сюите один и тот же класс собрал 23 разные конфигурации в 109 файлах спек.'
+    link: /ru/core/create-spy-from-class
   - title: Vitest 5 тем же пакетом
     details: 'Один пакет покрывает Vitest с 2.1 по 5.x — без второго мажора, без раздвоенных типов, без единой правки в спеке. Та же сюита идёт на 7.7 % быстрее на Vitest 5, а встроенный движок спаев даёт ещё 8.1 % поверх vi.fn().'
     link: /ru/runtimes/vitest#vitest-5
@@ -185,7 +188,7 @@ users.save.rejectWith(new HttpError(409));
 <div class="vas-fact"><b>0</b><span>runtime-зависимостей</span></div>
 <div class="vas-fact"><b>4</b><span>среды, одно ядро</span></div>
 <div class="vas-fact"><b>5</b><span>адаптеров фреймворков</span></div>
-<div class="vas-fact"><b>20</b><span>правил линтера</span></div>
+<div class="vas-fact"><b>23</b><span>правила линтера</span></div>
 <div class="vas-fact"><b>100%</b><span>покрытие ядра</span></div>
 
 </div>
