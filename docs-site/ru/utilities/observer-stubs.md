@@ -115,6 +115,41 @@ intersectionEntry(element, true, { boundingClientRect: new DOMRect(0, 0, 200, 10
 observers.last.emit([{ contentRect: { width: 320 } } as ResizeObserverEntry]);
 ```
 
+## Замена рукописной заглушки глобала {#replacing-a-hand-rolled-global-stub}
+
+Форма, которую это заменяет, — встречается в поле и пишется руками чаще, чем нужно:
+
+```ts
+// было — девятнадцать строк, каст и восстановление, о котором надо помнить
+const original = global.IntersectionObserver;
+
+global.IntersectionObserver = class {
+  observe(): void {}
+  unobserve(): void {}
+  disconnect(): void {}
+} as unknown as typeof IntersectionObserver;
+
+afterEach(() => {
+  global.IntersectionObserver = original;
+});
+```
+
+```ts
+// стало
+const observer = stubIntersectionObserver();
+```
+
+Одной строкой приезжает три вещи: заглушка — настоящий дубль, которым спека управляет
+(`observer.emit(...)`); присваивание регистрируется как патч свойства, поэтому `restoreMockedProps()`
+(а значит и `setupAutoSpy()`) возвращает глобал сам; и `as unknown as` исчезает, потому что заглушка
+типизирована тем же типом, что и глобал, который она подменяет.
+
+Рукописную форму не оставляют на ревью — о ней сообщает
+[`prefer-observer-stub`](./eslint-plugin#the-observer-stub-everybody-writes-again): оно ловит все три
+написания — присваивание выше, `vi.stubGlobal('IntersectionObserver', Fake)` и
+`vi.spyOn(globalThis, 'ResizeObserver')` — и называет хелпер, который его заменяет. В
+`configs.recommended` это `error`, как и все остальные правила плагина.
+
 ## Установщики {#the-installers}
 
 | Функция                      | Какой глобал подменяет   |

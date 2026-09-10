@@ -113,6 +113,41 @@ from them varies too much to guess:
 observers.last.emit([{ contentRect: { width: 320 } } as ResizeObserverEntry]);
 ```
 
+## Replacing a hand-rolled global stub
+
+The shape this replaces, found in the field and still written by hand more often than it needs to be:
+
+```ts
+// before — 19 lines, a cast, and a restore you have to remember
+const original = global.IntersectionObserver;
+
+global.IntersectionObserver = class {
+  observe(): void {}
+  unobserve(): void {}
+  disconnect(): void {}
+} as unknown as typeof IntersectionObserver;
+
+afterEach(() => {
+  global.IntersectionObserver = original;
+});
+```
+
+```ts
+// after
+const observer = stubIntersectionObserver();
+```
+
+Three things come with the one line: the stub is a real double the spec can drive (`observer.emit(...)`),
+the assignment is registered as a property patch so `restoreMockedProps()` — and therefore
+`setupAutoSpy()` — puts the global back on its own, and the `as unknown as` goes away because the stub
+is typed as the global it replaces.
+
+The hand-rolled form is reported rather than left to review:
+[`prefer-observer-stub`](./eslint-plugin#the-observer-stub-everybody-writes-again) catches all three
+spellings it is written in — the assignment above, `vi.stubGlobal('IntersectionObserver', Fake)` and
+`vi.spyOn(globalThis, 'ResizeObserver')` — and names the helper that replaces it. It is an
+`error` in `configs.recommended`, like every other rule in the plugin.
+
 ## The installers
 
 | Function                     | Global replaced           |

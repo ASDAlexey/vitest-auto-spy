@@ -1,6 +1,6 @@
 ---
 title: ESLint plugin
-description: Twenty-two flat-config lint rules that steer a suite onto the auto-spy helpers, grouped by subject, every one an error by default, with the dial documented and the false-positive cases named.
+description: Twenty-three flat-config lint rules that steer a suite onto the auto-spy helpers, grouped by subject, every one an error by default, with the dial documented and the false-positive cases named.
 ---
 
 # ESLint plugin
@@ -22,7 +22,7 @@ which a subpath export of this package can never be.
 
 **How this page is laid out.** [Adding it](#adding-it-to-your-project) is the four things a first
 config needs. [Which apply to you](#which-of-the-twenty-apply-to-you) answers the question a
-Vitest-only project asks — four of the twenty-two are about a dialect you may not speak.
+Vitest-only project asks — four of the twenty-three are about a dialect you may not speak.
 [Rules](#rules) is the reference table, in five groups. [Tuning](#tuning-it-for-your-project) is
 every dial, including the three rules that can report on correct code. Everything after that is
 _why_ — one section per rule, for when a report has arrived and you want to know what it saved you
@@ -80,7 +80,7 @@ need different severities.
 
 ### 3. Type information is optional, and one rule wants it
 
-Twenty-one of the twenty-two are syntactic: they read the file's own AST and never ask the type checker.
+Twenty-two of the twenty-three are syntactic: they read the file's own AST and never ask the type checker.
 So the plugin works with `parserOptions.project` unset, adds nothing measurable to lint time, and
 does not need your specs to be in a `tsconfig` — which matters in the repositories where they are
 not.
@@ -113,7 +113,7 @@ npx eslint . --format stylish | tail -30   # the summary tells you which rule do
 Whatever is left is either a real finding or a rule you would rather not enforce yet. Both are
 answered below.
 
-## Which of the twenty-two apply to you {#which-of-the-twenty-apply-to-you}
+## Which of the twenty-three apply to you {#which-of-the-twenty-apply-to-you}
 
 Reasonable question if you came straight to Vitest and have never written a line of Jasmine: **four
 of these rules are about a dialect you do not speak.** They are still on, and the reason is not
@@ -123,7 +123,7 @@ principle — it is that they cannot fire on your code.
 | ------------------------------------------ | ---------------------------------------------------------------------------------------------------- |
 | writing Vitest, never used Jasmine or Jest | the seventeen core rules work; **the four jasmine rules are inert** — leave them on and never see them |
 | migrating off `jest-auto-spies` / Jest     | the core rules do the work, `no-done-callback` and `prefer-as-spy` most of it                        |
-| migrating off `jasmine-auto-spies`         | all twenty-two, with `prefer-native-spy-api` set to `'off'` until the bridge is gone                   |
+| migrating off `jasmine-auto-spies`         | all twenty-three, with `prefer-native-spy-api` set to `'off'` until the bridge is gone                   |
 
 ### If you never used Jasmine
 
@@ -193,7 +193,7 @@ that file needs). See [Migrating from jest-auto-spies](/migrating).
 
 ### If you are coming from Jasmine
 
-All twenty-two apply, and the four in the last group are the ones written for you. Two are pure
+All twenty-three apply, and the four in the last group are the ones written for you. Two are pure
 diagnosis — `no-jasmine-globals` and `no-save-arguments-by-value` name silent behaviour changes that
 survive a rename — and `jasmine-namespace-without-entry` catches the spy built before the layer was
 installed. The fourth, `prefer-native-spy-api`, reports the bridge itself, so it is the one line of
@@ -241,6 +241,7 @@ Not about a single test but about what one file leaves behind for the next.
 | [`no-shared-module-level-mock`](#a-double-built-once-per-worker-not-once-per-test)                   | an **exported** value holding `vi.fn()`s → export a factory that returns it                                              | —       |          green          |
 | [`no-object-define-property`](#no-object-define-property-%E2%80%94-nothing-puts-the-descriptor-back) | `Object.defineProperty` in a spec → `mockReadonlyProp` / `mockValueProp`                                                 | suggest |          green          |
 | [`no-import-time-spread`](#the-spread-that-only-fails-under-a-bundler)                               | `export const x = [...Imported]` at module scope → a `TypeError` while the bundle loads                                  | suggest | red _(by construction)_ |
+| [`prefer-observer-stub`](#the-observer-stub-everybody-writes-again)                                  | a hand-rolled `IntersectionObserver` / `ResizeObserver` / `MutationObserver` written into a global → `stubIntersectionObserver()` and friends | —       |          green          |
 
 ### Angular DI and the TestBed
 
@@ -402,6 +403,26 @@ npx eslint --print-config src/app/cart.spec.ts | grep vitest-auto-spy
 
 If that prints nothing, the `files` glob does not match — which is the same symptom as "the plugin
 found no problems", and the reason to check it before concluding the suite is clean.
+
+### Alongside `vitest/expect-expect`
+
+Nothing here duplicates it: `expect-expect` reports a test with **no** assertion, and every rule in
+this plugin reports an assertion that is there. They are worth running together, and the one thing
+that makes the pairing work in a real suite is how `assertFunctionNames` is written.
+
+Naming the helpers one by one does not survive: the list has to grow with every new helper, and in a
+suite measured for this it could not have been written at all — one of the real assertion helpers was
+called `find`, and putting `find` in the list swallows every `Array.prototype.find`. A convention
+works instead:
+
+```js
+'vitest/expect-expect': ['error', { assertFunctionNames: ['expect*', 'assert*', '**.expect*'] }],
+```
+
+`expect*` covers `expectEmission`, `expectEmissions`, `expectNoEmission`, `expectCompletion` and
+`expectError` from this package along with the project's own; `assert*` covers
+`assertNoPendingRequests`, `assertNoShadowedProviders` and `assertMocked`; `**.expect*` covers a
+helper reached through an object. Measured over 1759 spec files: **zero** false positives.
 
 ### Rule options
 
@@ -1035,7 +1056,7 @@ this rule declines. See [Migrating from jasmine-auto-spies](/migrating-jasmine).
 
 ## Which rules fix, and why so few
 
-Three of the twenty-two rewrite the source on their own, eight offer the rewrite as a suggestion, and
+Three of the twenty-three rewrite the source on their own, eight offer the rewrite as a suggestion, and
 the split is about what a wrong guess costs rather than about how hard the rewrite is.
 
 `no-mocked-for-spy` touches nothing but a **declaration**. Get it wrong and the file stops
@@ -1276,6 +1297,61 @@ calls — `clearMocks: true` does reach a module-level `vi.fn()` and does clear 
 probes said so. What leaks is everything else a fixture holds next to its spies, which is why the fix
 is a factory rather than a `beforeEach` that clears harder. Which file runs first is the runner's
 choice, so the failure arrives as flakiness.
+
+### The observer stub everybody writes again
+
+jsdom ships no `IntersectionObserver`, no `ResizeObserver` and no `MutationObserver`, so the first
+spec that renders a component which builds one dies on `IntersectionObserver is not defined`. The
+repair is the same nineteen lines every time:
+
+```ts
+let originalIntersectionObserver: typeof IntersectionObserver;
+
+beforeEach(() => {
+  disconnectSpy = vi.fn();
+  originalIntersectionObserver = global.IntersectionObserver;
+  global.IntersectionObserver = class {
+    observe(): void {}
+    unobserve(): void {}
+    disconnect(): void {
+      disconnectSpy();
+    }
+  } as unknown as typeof IntersectionObserver;
+});
+
+afterEach(() => {
+  global.IntersectionObserver = originalIntersectionObserver;
+});
+```
+
+[`stubIntersectionObserver()`](/utilities/observer-stubs) is those nineteen lines, and
+`observers.last.disconnected` is that `disconnectSpy` — so the whole block is one call. The rule
+exists because the person writing the block does not know that: one of the ones this was measured on
+carried a comment saying there was no other way.
+
+**The save and the restore are not the author's to write, and that half is a defect rather than
+verbosity.** The stub goes on through `mockValueProp`, whose undo `restoreMockedProps()` runs after
+every test. A hand-written restore parked at the end of an `it` runs only if every assertion above it
+passed, so the first red test leaves the stub installed for the rest of the file — and, under
+`isolate: false`, for every later file the worker picks up, where it surfaces as `observe is not a
+function` in a component nobody edited.
+
+Measured over an Angular monorepo of 1 758 spec files: **16 places** replace one of the three globals
+by hand — 14 assignments and 2 `vi.spyOn(globalThis, 'MutationObserver')`, across five libraries and
+both applications, one of them behind a cast that a grep for `global.IntersectionObserver =` does not
+find. Fifteen are reported (the sixteenth sits under a file-wide `/* eslint-disable */`), and
+**fourteen of the fifteen are test code**; the one that is not is an SSR shim under `apps/web/server`,
+which is outside the spec glob this plugin asks you to scope it to. Three lines match the shape and
+are deliberately silent: the two `afterEach` restores, because the value assigned is a name rather
+than a double, and `window.ResizeObserver = ResizeObserver` in an application module, because the
+value came from an import.
+
+`vi.stubGlobal('IntersectionObserver', RecordingObserver)` is reported as well — the same fake, and
+`vi.unstubAllGlobals()` is off by default. `Object.defineProperty(globalThis, 'ResizeObserver', …)`
+is not, because
+[`no-object-define-property`](#no-object-define-property-%E2%80%94-nothing-puts-the-descriptor-back)
+already reports every `defineProperty` in a spec and names the same helper family; two reports on one
+line saying the same thing is how a rule gets switched off.
 
 ### `no-dead-schemas` — the charm that protects nobody
 
