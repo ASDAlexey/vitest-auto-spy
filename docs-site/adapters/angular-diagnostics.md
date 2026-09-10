@@ -1,6 +1,6 @@
 ---
 title: Angular diagnostics
-description: enableAngularDiagnostics — four silent Angular-testing failures (dead NgModule imports, dead schemas, unspied providers, unflushed HTTP requests) turned into loud ones.
+description: enableAngularDiagnostics — five silent Angular-testing failures (dead NgModule imports, dead schemas, unspied providers, unflushed HTTP requests, a double the component's own providers shadow) turned into loud ones.
 ---
 
 # Angular diagnostics
@@ -9,14 +9,14 @@ description: enableAngularDiagnostics — four silent Angular-testing failures (
 // vitest.setup.ts — after the Angular test environment is initialised
 import { enableAngularDiagnostics } from 'vitest-auto-spy/angular';
 
-enableAngularDiagnostics(); // all four
+enableAngularDiagnostics(); // all five
 enableAngularDiagnostics({ pendingRequests: false }); // or pick
 ```
 
-Four checks, one decision. Each member has the same shape: something a spec wrote does nothing,
+Five checks, one decision. Each member has the same shape: something a spec wrote does nothing,
 nothing says so, and the test passes for a reason its author did not intend. They ship as one group
-rather than four helpers because turning a suite from "passes" into "passes for the stated reason"
-is taken once, in a setup file — and because three of the four hang off the same
+rather than five helpers because turning a suite from "passes" into "passes for the stated reason"
+is taken once, in a setup file — and because four of the five hang off the same
 `TestBed.configureTestingModule` hook the
 [timing diagnostics](/adapters/angular#where-a-spec-spends-its-time) already install.
 
@@ -26,6 +26,7 @@ is taken once, in a setup file — and because three of the four hang off the sa
 | `deadSchemas`      | `true`  | `schemas` sit next to a standalone component, where they can never apply           |
 | `unspiedProviders` | `true`  | `injectSpy` gets a real instance — a `console.warn` today, a throw under the group |
 | `pendingRequests`  | `true`  | a test ends with unflushed `HttpTestingController` requests                        |
+| `shadowedProviders` | `true` | a double on the testing module loses to the component's own `providers`            |
 
 Every member defaults to `true`; pass `false` to leave one out. Calling `enableAngularDiagnostics`
 again **replaces** the previous selection rather than adding to it, and the per-test hooks are
@@ -196,6 +197,57 @@ assertNoPendingRequests(); // nothing else went out
 Because reading takes the requests, calling it yourself is not paid for twice: the group's own
 `afterEach` will not re-report what you already inspected. It is a no-op when the group is off, and
 a no-op when the test never configured HTTP testing at all.
+
+## `shadowedProviders`
+
+```ts
+// the component declares its own providers
+@Component({ selector: 'app-promo', providers: [PromoService], template: '…' })
+export class PromoComponent {}
+
+// the spec registers the double one level too high
+TestBed.configureTestingModule({ imports: [PromoComponent], providers: [provideAutoSpy(PromoService)] });
+const fixture = TestBed.createComponent(PromoComponent); // ← fails here, under the group
+```
+
+A component-level provider is resolved by the component's **node** injector, and the module injector
+is only consulted when the node injector has nothing. So a `provideAutoSpy(X)` on the testing module
+never reaches a component that declares `X` itself: the component talks to the real service, the
+double records nothing, and an assertion that it was *not* called passes for the wrong reason.
+
+Measured in one Angular suite: of 71 component specs whose subject declares its own `providers`, 43
+register the same token on the module too. 22 of those work around it with
+`TestBed.overrideComponent({ set: { providers } })`, 14 with `TestBed.overrideProvider`, 4 read back
+through the component's injector — and **7 do nothing at all**, which is this failure.
+
+The repair is one line:
+
+```ts
+overrideComponentProvider(PromoComponent, PromoService, provideAutoSpy(PromoService));
+```
+
+[`overrideComponentProvider`](/adapters/angular-overrides) has existed since 3.1.0 and had **zero**
+uses in that repository, which is the argument for the check rather than against the helper: it
+cannot be found from the symptom, because there is no symptom. Nothing fails, nothing warns, and the
+spec reads exactly like one that works.
+
+**Silent when the component's answer is itself a double.** A spec that reached for
+`TestBed.overrideProvider`, `overrideComponentProvider` or a `viewProviders` double has already
+decided this question and its answer wins on purpose — only a **real** instance is reported. That is
+also what keeps the check off the 40 specs of that suite that had handled it one way or another.
+
+### `assertNoShadowedProviders(component, fixture)`
+
+The same check, callable. `shadowedProviders` runs it on every fixture the TestBed builds; a spec
+that renders through a helper of its own can ask directly:
+
+```ts
+const fixture = renderThroughOurHelper(CartComponent);
+
+assertNoShadowedProviders(CartComponent, fixture); // the doubles really are the ones in play
+```
+
+A no-op when the fixture never rendered that component.
 
 ## What this group does not include
 
