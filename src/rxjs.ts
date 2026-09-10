@@ -24,7 +24,12 @@
  */
 import type { Subject } from 'rxjs';
 
-import { addObservableHelpersToCalledWithObject, addObservableHelpersToFunctionSpy, createObservablePropSpy } from './lib/observable-spy';
+import {
+  addObservableHelpersToCalledWithObject,
+  addObservableHelpersToFunctionSpy,
+  createFunctionSpyStream,
+  createObservablePropSpy,
+} from './lib/observable-spy';
 import { registerObservableSupport } from './lib/observable-support';
 
 declare module 'vitest-auto-spy' {
@@ -35,6 +40,7 @@ declare module 'vitest-auto-spy' {
 
 registerObservableSupport({
   addToFunctionSpy: addObservableHelpersToFunctionSpy,
+  streamForFunctionSpy: createFunctionSpyStream,
   addToCalledWithObject: addObservableHelpersToCalledWithObject,
   createPropSpy: createObservablePropSpy,
 });

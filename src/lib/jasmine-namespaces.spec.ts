@@ -19,7 +19,12 @@ import { toThrownError } from './jasmine-namespaces';
 import { resetJasmineSupport } from './jasmine-support';
 import type { JasmineAccessorSpy, JasmineMethodSpy } from './jasmine-types';
 import { type MockAdapter, type MockFn, registerMockAdapter } from './mock-adapter';
-import { addObservableHelpersToCalledWithObject, addObservableHelpersToFunctionSpy, createObservablePropSpy } from './observable-spy';
+import {
+  addObservableHelpersToCalledWithObject,
+  addObservableHelpersToFunctionSpy,
+  createFunctionSpyStream,
+  createObservablePropSpy,
+} from './observable-spy';
 import { registerObservableSupport } from './observable-support';
 import { resetAutoSpy } from './reset-auto-spy';
 import { vitestMockAdapter } from './vitest-adapter';
@@ -63,6 +68,7 @@ describe('jasmine namespaces', () => {
     registerMockAdapter(vitestMockAdapter);
     registerObservableSupport({
       addToFunctionSpy: addObservableHelpersToFunctionSpy,
+      streamForFunctionSpy: createFunctionSpyStream,
       addToCalledWithObject: addObservableHelpersToCalledWithObject,
       createPropSpy: createObservablePropSpy,
     });

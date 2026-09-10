@@ -10,11 +10,11 @@ import { errorHandler } from './error-handler';
 import type { CalledWithObject, ReturnValueContainer } from './internal-types';
 import { getJasmineSupport } from './jasmine-support';
 import { type MockFn, getMockAdapter } from './mock-adapter';
-import { type ObservableStream, getObservableSupport } from './observable-support';
+import { type ObservableStream, getObservableSupport, requireObservableSupport } from './observable-support';
 import { addPromiseHelpersToCalledWithObject, promiseHelpers, storePromiseConfig } from './promise-spy';
 import { serializeValue } from './serialize-args';
 import { type SettledResultsRecorder, installSettledResultsPolyfill } from './settled-results';
-import { decorate, detachedHelperError } from './spy-decoration';
+import { attachHelpers, decorate, detachedHelperError } from './spy-decoration';
 import { AUTO_SPY_MARK, type MarkHooks, markAsMock } from './spy-mark';
 import type { AddSpyMethodsByReturnTypes, Func, UnstubbedCall, UnstubbedCallHandler } from './types';
 
@@ -269,7 +269,8 @@ function ensureCalledWithObject(state: SpyState, chain: 'calledWith' | 'mustBeCa
  * own time on top of the runner's; the closures and the extra symbol properties were most of it.
  */
 class FunctionSpyInternals implements MarkHooks {
-  observable: ObservableStream | undefined = undefined;
+  /** Built on the first stream helper, not on every spy — see {@link ObservableSupport.streamForFunctionSpy}. */
+  #observable: ObservableStream | undefined = undefined;
 
   constructor(
     readonly state: SpyState,
@@ -278,6 +279,19 @@ class FunctionSpyInternals implements MarkHooks {
     readonly dispatch: Func,
     readonly recorder: SettledResultsRecorder,
   ) {}
+
+  /**
+   * The rxjs layer's state for this spy, materialised on first use.
+   *
+   * Reaching it means a stream helper is running, which means the `/rxjs` entry is loaded — so this
+   * requires the support rather than testing for it, and a spy that never sees a stream helper never
+   * pays for the object.
+   */
+  get observable(): ObservableStream {
+    this.#observable ??= requireObservableSupport().streamForFunctionSpy(this.valueContainer);
+
+    return this.#observable;
+  }
 
   /**
    * `resetAutoSpy` reverts this spy's configuration; the state lives here, where the host runner's
@@ -298,7 +312,7 @@ class FunctionSpyInternals implements MarkHooks {
     // The observable layer keeps its `ReplaySubject` in a closure the container cannot reach, and
     // its buffer is configuration in exactly the sense `calledWith` is: without this, a value from
     // one test is replayed to the next one — ahead of the error that test configured.
-    this.observable?.reset();
+    this.#observable?.reset();
     // Re-install the library dispatch so a bare `spy.method.mockReturnValue(…)`
     // set directly on the host mock is reverted too (mockClear alone can't).
     getMockAdapter().restoreImplementation(this.host, this.dispatch);
@@ -421,9 +435,9 @@ export function createFunctionSpy<FunctionType extends Func>(
   settledResultsRecorder = recorder.record;
 
   const internals = new FunctionSpyInternals(state, valueContainer, functionSpy, dispatch, recorder);
-  const spy = decorate(functionSpy, SPY_HELPERS);
+  const spy = attachHelpers(functionSpy, SPY_HELPERS);
 
-  internals.observable = getObservableSupport()?.addToFunctionSpy(spy, valueContainer);
+  getObservableSupport()?.addToFunctionSpy(spy);
 
   // `.and` / `.calls` / `.withArgs`, for a suite arriving from `jasmine-auto-spies`. Installed only
   // when `vitest-auto-spy/jasmine` has been imported — one `undefined` check for everyone else.

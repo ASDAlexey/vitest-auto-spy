@@ -5,6 +5,11 @@
  * spy, do not bundle the module that does: `settled-results` is on every runtime's create path, and
  * importing the predicates from `fast-spy` pulled roughly a kilobyte of gzipped dead code into
  * `/node` and `/bun`.
+ *
+ * `isThenable` stays here rather than in a module of its own. `spy-decoration` reaches this file for
+ * `isFastSpy`, which puts the pair into the chunk a thin entry like `/rxjs` downloads — but pulling
+ * `isThenable` out made the whole package **570 B larger**, because a fifth chunk boundary costs
+ * more than the function does. Measured 2026-09-10; do not re-open it without re-measuring.
  */
 
 /** The brand {@link isFastSpy} reads. A symbol, so nothing a spec puts on a double can collide with it. */

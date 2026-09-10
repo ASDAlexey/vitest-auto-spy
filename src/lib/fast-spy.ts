@@ -18,6 +18,7 @@
  * `mock.*` and `getMockName()`, all of which this implements with the same semantics.
  */
 import { DISPOSE } from './dispose-symbol';
+import { setSharedHelperSink } from './spy-decoration';
 import { FAST_SPY_BRAND, isThenable } from './spy-probe';
 import type { Func } from './types';
 
@@ -315,6 +316,24 @@ function definePrototypeMember(key: PropertyKey, value: unknown): void {
 
 definePrototypeMember(FAST_SPY_BRAND, true);
 definePrototypeMember('_isMockFunction', true);
+
+/**
+ * Put a bundle of helper methods on the prototype every fast spy inherits, once for the run.
+ *
+ * The alternative is `Object.assign` per spy, which is what a runner-backed mock still gets: it has
+ * no prototype of ours to share. Six own property slots on every materialised method spy is not a
+ * closure each — the functions were already shared — but it is six slots, and a wide double in a
+ * large suite has thousands of them.
+ */
+function shareFastSpyHelpers(helpers: Record<string, unknown>): void {
+  for (const key of Object.keys(helpers)) {
+    definePrototypeMember(key, helpers[key]);
+  }
+}
+
+// Registered rather than imported: `spy-decoration` is reached from every entry, and this module is
+// not — see the note on `setSharedHelperSink`.
+setSharedHelperSink(shareFastSpyHelpers);
 
 Object.defineProperty(FAST_SPY_PROTOTYPE, 'mock', {
   get(this: unknown): FastMockState {

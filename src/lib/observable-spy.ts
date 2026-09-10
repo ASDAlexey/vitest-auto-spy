@@ -28,7 +28,7 @@ import {
 import { REPLAY_BUFFER_SIZE } from './constants';
 import type { CalledWithObject, ReturnValueContainer } from './internal-types';
 import { type ObservableStream } from './observable-support';
-import { decorate, detachedHelperError } from './spy-decoration';
+import { attachHelpers, decorate, detachedHelperError } from './spy-decoration';
 import { hooksOf } from './spy-mark';
 import type { AddObservableSpyMethods, ValueConfig, ValueConfigPerCall } from './types';
 import { isCompleteConfig, isErrorConfig, isNextValueConfig } from './value-config-guards';
@@ -293,9 +293,11 @@ const SPY_OBSERVABLE_HELPERS = /* @__PURE__ */ Object.assign(
   /* @__PURE__ */ nextWithPerCallHelper<unknown, unknown>(spyObservableStateOf),
 );
 
-export function addObservableHelpersToFunctionSpy(spyFunction: object, valueContainer: ReturnValueContainer): ObservableStream {
-  decorate(spyFunction, SPY_OBSERVABLE_HELPERS);
+export function addObservableHelpersToFunctionSpy(spyFunction: object): void {
+  attachHelpers(spyFunction, SPY_OBSERVABLE_HELPERS);
+}
 
+export function createFunctionSpyStream(valueContainer: ReturnValueContainer): ObservableStream {
   return new SpyObservableState(valueContainer);
 }
 

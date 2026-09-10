@@ -19,13 +19,16 @@ export interface ObservableStream {
 }
 
 export interface ObservableSupport {
+  /** Install the stream helpers on a function spy — shared through a prototype where the engine has one. */
+  addToFunctionSpy(spyFunction: object): void;
   /**
-   * @returns the spy's observable reset, which {@link createFunctionSpy} folds into its
-   *   configuration reset — the backing `ReplaySubject`'s buffer is configuration, and a spy that
-   *   outlives a test must not carry it into the next one.
+   * The spy's stream state, built on the first stream helper rather than on every spy.
+   *
+   * Its `reset` is what {@link createFunctionSpy} folds into the configuration reset — the backing
+   * `ReplaySubject`'s buffer is configuration, and a spy that outlives a test must not carry it into
+   * the next one. A spy nobody configured a stream on never builds one and has nothing to reset.
    */
-  /** Install the stream helpers and hand back the spy's stream state, whose `reset` `resetAutoSpy` calls. */
-  addToFunctionSpy(spyFunction: object, valueContainer: ReturnValueContainer): ObservableStream;
+  streamForFunctionSpy(valueContainer: ReturnValueContainer): ObservableStream;
   addToCalledWithObject(calledWithObject: CalledWithObject, calledWithArgs: unknown[]): void;
   createPropSpy(): object;
 }

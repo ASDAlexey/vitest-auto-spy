@@ -11,7 +11,12 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { createSpyFromClass } from './create-spy-from-class';
 import { createFunctionSpy } from './function-spy';
 import { registerMockAdapter } from './mock-adapter';
-import { addObservableHelpersToCalledWithObject, addObservableHelpersToFunctionSpy, createObservablePropSpy } from './observable-spy';
+import {
+  addObservableHelpersToCalledWithObject,
+  addObservableHelpersToFunctionSpy,
+  createFunctionSpyStream,
+  createObservablePropSpy,
+} from './observable-spy';
 import { registerObservableSupport } from './observable-support';
 import { resetAutoSpy } from './reset-auto-spy';
 import { vitestMockAdapter } from './vitest-adapter';
@@ -20,6 +25,7 @@ beforeAll(() => {
   registerMockAdapter(vitestMockAdapter);
   registerObservableSupport({
     addToFunctionSpy: addObservableHelpersToFunctionSpy,
+    streamForFunctionSpy: createFunctionSpyStream,
     addToCalledWithObject: addObservableHelpersToCalledWithObject,
     createPropSpy: createObservablePropSpy,
   });
