@@ -1,12 +1,12 @@
 /**
  * Keeping `@vitest/spy`'s registry of every mock ever created from growing for the whole run.
  *
- * `vi.fn()` and `vi.spyOn()` add the mock they create to one module-level `Set` inside
- * `@vitest/spy`, because that is what `vi.clearAllMocks()` walks. With `isolate: true` the module is
- * re-evaluated per file and the set starts empty every time. With `isolate: false` it is evaluated
- * once per worker and only ever grows: every mock of every file stays in it, and so does everything
- * the mock closes over — its recorded arguments, and through them whole component trees. Two things
- * follow, and a large suite feels both:
+ * Up to Vitest 4, `vi.fn()` and `vi.spyOn()` add the mock they create to one module-level `Set`
+ * inside `@vitest/spy`, because that is what `vi.clearAllMocks()` walks. With `isolate: true` the
+ * module is re-evaluated per file and the set starts empty every time. With `isolate: false` it is
+ * evaluated once per worker and only ever grows: every mock of every file stays in it, and so does
+ * everything the mock closes over — its recorded arguments, and through them whole component trees.
+ * Two things follow, and a large suite feels both:
  *
  *  - `clearMocks: true` walks the entire accumulated set **before every single test**, so the cost
  *    of clearing grows with the number of tests already run.
@@ -17,8 +17,12 @@
  * briefly patched `Set.prototype.forEach` hands it over. The capture is verified against a probe
  * mock, and without a match nothing is pruned — a slower run beats a broken one.
  *
- * Vitest 5 holds the registry as weak refs and clears only the mocks that recorded something, which
- * fixes both problems upstream: there is no set to capture, and this module stands down.
+ * Vitest 5 splits that one set in two, and neither half behaves this way. `REGISTERED_MOCKS` holds
+ * `WeakRef`s that a `FinalizationRegistry` drains, so it retains nothing and is not what clearing
+ * walks. `vi.clearAllMocks()` walks `DIRTY_MOCK_STATES`, which a mock joins **when it is called**
+ * rather than when it is created, and which `mockClear()` removes it from again — so the run-wide
+ * sweep empties the set instead of accumulating it. Both problems are fixed upstream: there is no
+ * growing set to capture, the capture below fails on purpose, and this module stands down.
  *
  * **What must not be pruned, and the reason this module exists at all.** Dropping a mock from the
  * registry means `vi.clearAllMocks()` and `clearMocks: true` can no longer see it, so its calls
@@ -104,8 +108,10 @@ interface RememberedImplementation {
  * The long-lived mocks that carry an implementation, so the restore walks a handful rather than the
  * whole registry before every test.
  *
- * Strong references, unlike {@link longLived}, and that costs nothing: everything in here is also in
- * the registry, which is a strong `Set` that keeps it for the worker's life either way.
+ * Strong references, unlike {@link longLived}, and they hold next to nothing. On the runners where
+ * this module does any work — the ones whose registry is a single strong `Set` — everything in here
+ * is already held there for the worker's life. On Vitest 5 the capture fails by design, so the only
+ * entries are the ones a spec named itself through {@link keepMockRegistered}.
  */
 let rememberedImplementations: RememberedImplementation[] = [];
 
