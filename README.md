@@ -23,7 +23,7 @@ faster at suite scale ([benchmarks](#benchmarks)) — and for
 [![downloads per month](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fapi.npmjs.org%2Fdownloads%2Fpoint%2Flast-month%2Fvitest-auto-spy&query=%24.downloads&color=brightgreen&logo=npm&label=downloads%2Fmonth)](https://www.npmjs.com/package/vitest-auto-spy)
 [![downloads over 18 months](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fapi.npmjs.org%2Fdownloads%2Fpoint%2F2026-06-21%3A2030-01-01%2Fvitest-auto-spy&query=%24.downloads&color=brightgreen&logo=npm&label=downloads%2F18mo)](https://www.npmjs.com/package/vitest-auto-spy)
 [![CI](https://github.com/ASDAlexey/vitest-auto-spy/actions/workflows/ci.yml/badge.svg)](https://github.com/ASDAlexey/vitest-auto-spy/actions/workflows/ci.yml)
-[![minzipped size](https://img.shields.io/badge/minzip-15.8%20kB-brightgreen)](#install)
+[![minzipped size](https://img.shields.io/badge/minzip-16.0%20kB-brightgreen)](#install)
 [![types](https://img.shields.io/npm/types/vitest-auto-spy?logo=typescript&logoColor=white)](https://www.npmjs.com/package/vitest-auto-spy)
 [![coverage](https://img.shields.io/badge/coverage-100%25-brightgreen)](https://github.com/ASDAlexey/vitest-auto-spy/actions/workflows/ci.yml)
 [![license](https://img.shields.io/npm/l/vitest-auto-spy?color=blue)](./LICENSE)
@@ -441,6 +441,13 @@ positive is somebody's suite failing on `document is not defined`.
 per file) and `transform` (whole run). Where the isolation finding suggests `test.isolate: false`,
 it links to this package's own memory measurements rather than repeating the numbers here — that
 flag trades per-file cleanup for memory that grows with the suite.
+
+Two findings are about settings rather than files. `perf-environment-engine` offers `happy-dom` to a
+`jsdom` config whose environment time dominates — 23.2 s of user CPU against 26.5 s on this
+repository's own 117-file suite, and 119 ms against 253 ms per file on a spec that builds a DOM and
+does nothing else. `perf-workers` is the one about **memory**: with no `maxWorkers` declared, Vitest
+takes one worker per core, and a worker measured at ~155 MB on top of a 1.42 GB floor — a cap of four
+cost 2.8 % of wall clock and about 2 GB less on a 16-core machine.
 
 Full reference, phase by phase and finding by finding: **[The CLI](https://asdalexey.github.io/vitest-auto-spy/utilities/cli)**.
 
@@ -2135,11 +2142,14 @@ per-render ratio is also the upper bound on what a whole spec file can gain rath
 of it: a file's wall clock pays for imports, the `TestBed` module and the assertions too, none of
 which shallow rendering touches.
 
-`keepTemplate: true` is the middle rung — the component's own template with an empty subtree.
-`buildOverride` applies `imports: keepChildren ?? []` whether or not the template is kept, so with
-`keepTemplate: true` the template renders while every child in it resolves to nothing under
-`NO_ERRORS_SCHEMA`. Reach for it when the spec reads something the template creates, and keep
-`keepChildren` for the handful of children it genuinely needs resolvable. Full write-up:
+`keepTemplate: true` is the middle rung — the component's own template with an empty subtree. The
+override keeps the component's own `imports` minus the child *components*, so the template renders
+with its own pipes and directives working while every child component in it resolves to nothing
+under `NO_ERRORS_SCHEMA`. (Before 5.4.0 the whole scope was dropped, which made a pipe in a kept
+template throw `NG0302` and an attribute directive silently never apply.) A child re-exported by an
+imported `NgModule` still renders — the module is kept whole. Reach for it when the spec reads
+something the template creates, and keep `keepChildren` for the handful of children it genuinely
+needs resolvable. Full write-up:
 [Performance](https://asdalexey.github.io/vitest-auto-spy/core/performance#_2-rendering-the-child-subtree).
 
 Use [the diagnostics](#where-a-spec-spends-its-time) to find the files worth converting rather than

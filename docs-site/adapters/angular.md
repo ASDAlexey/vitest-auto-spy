@@ -315,8 +315,9 @@ the per-test `overrideComponent` costs more than it saves. **Shallow rendering p
 real child tree to skip.** Use [the diagnostics](#where-a-spec-spends-its-time) to find the files
 worth converting rather than guessing.
 
-A spec that needs the real template is not excluded from this: `keepTemplate: true` still empties
-the child imports, and still measures 1.8× against the full cycle — see
+A spec that needs the real template is not excluded from this: `keepTemplate: true` still drops the
+child components — while keeping the pipes and directives the template is written in — and still
+measures 1.29× against the full cycle — see
 [the middle rung](/core/performance#the-middle-rung-keeptemplate-true).
 
 ## Building a class with auto-spied dependencies
@@ -824,6 +825,13 @@ faster. On a large workspace it makes the run **slower**, and the reason is not 
 calls `picomatch` with the whole pattern array. Its `globCache` memoises the **verdict**, keyed by
 the filename — never the compiled matcher. So every filename recompiles every pattern.
 
+::: tip Fixed upstream in Vitest 5
+`BaseCoverageProvider.getGlobMatchers()` builds the two matchers on first use and keeps them, so on
+Vitest 5 the surcharge below is gone and the wrapper is unnecessary. Everything from here to the end
+of this section applies to Vitest 4 and earlier — which the package still supports, its peer range
+being `>=2.1.0`. Upgrading is the cheaper fix where it is available.
+:::
+
 Profiled on one shard of a 1 725-file Angular suite, with a scope of 124 include globs plus 304
 negations:
 
@@ -925,8 +933,9 @@ is green, the percentages are in the log, and there is no line highlighting in t
 all. That failure names nothing, which is why it is worth knowing the number.
 
 `npx vitest-auto-spy doctor` reports `coverage-include-recompiles-globs` when it sees a scope large
-enough for this to be worth the twenty lines above. It is an `info` finding — nothing is broken, and
-the report it produces is correct.
+enough for this to be worth the twenty lines above, and only on a Vitest older than 5 — on 5 it says
+nothing, because there is nothing left to say. It is an `info` finding — nothing is broken, and the
+report it produces is correct.
 
 ## Asserting a signal
 
@@ -960,6 +969,16 @@ back — and each one also returns the undo for _its own_ patch, for a stub that
 inside a single test. That matters when the patched object outlives the spec file (a global, a
 class prototype, a singleton), which is always the case under Vitest's `isolate: false`:
 [`setupAutoSpy()`](../utilities/setup) wires the `afterEach` for you.
+
+**That journal is made of strong references, which is the memory half of the same rule.** Each
+entry holds the patched object *and* the descriptor it replaced, and an entry whose patch has
+already been undone is marked rather than spliced out — splicing would make a suite that patches
+thousands of properties quadratic. The list is therefore only ever emptied wholesale, by
+`restoreMockedProps()`. Under `isolate: true` it lives on a per-file `globalThis` and dies with the
+file, so nothing accumulates. Under `isolate: false` it is the worker's, and without a
+`restoreMockedProps()` between tests every object every spec has patched stays reachable for the
+whole run — which is the case `setupAutoSpy()` covers, and the reason to run it rather than to
+remember the undo by hand.
 
 Nothing about these helpers is Angular-specific: they are exported from the **core** entry too, and
 `vitest-auto-spy/angular` keeps re-exporting them unchanged. `countMockedProps()` reports how many

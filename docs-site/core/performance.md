@@ -93,6 +93,10 @@ What it bought, on the two metrics this page keeps — every figure the median o
 | retained heap, one materialised method                 |                                     5 445 B |                     **1 929 B** |
 | retained heap per method, eager double, nothing called |                                     4 418 B |                       **632 B** |
 
+Those figures are the 4.1 release measurement, taken on Vitest 4. Both sides of the two heap rows
+have moved on Vitest 5 — the runner's own mock most of all — so read
+[Retained memory per double](#retained-memory-per-double) for the current numbers rather than these.
+
 The `calledWith` dispatch row moved too — 0.54 → 0.17 µs — but for a different reason, and it is
 [in the micro-benchmark section](#micro-benchmark) rather than here: that one was a string key being
 rendered on every call, not the mock underneath it.
@@ -172,14 +176,30 @@ A materialised spy used to be mostly the host runner's own mock, and nothing the
 shrink it. That is no longer true on Vitest, where [the spy engine](#the-spy-engine) replaced
 `vi.fn()` with a spy of the library's own: one shared prototype instead of twenty-five own
 properties, and call state allocated on the first call instead of six arrays at creation. A
-materialised method now retains **1 929 B** where it retained 5 445 B before — measured
-[below](#retained-memory-per-double). On Bun and `node:test` the runner's mock is still the floor.
+materialised method retains **1 923 B** where the runner's own mock retains 5 783 B on the same
+machine and the same runner — measured [below](#retained-memory-per-double). On Bun and `node:test`
+the runner's mock is still the floor.
 
 What the library adds on top used to include two `calledWith` chains built with every spy, each an
 object plus an argument map, whether or not the spec ever called `calledWith`. They are now built on
 first use, which is nearly always never — and it costs nothing when a spec does use `calledWith`,
 because the chain is then built exactly as before. `resetAutoSpy()` drops the chains rather than
 replacing them with empty maps, so a reset spy is back to a fresh spy's footprint.
+
+**The three numbers worth carrying around**, per *method*, on Node v24.19.0 and Vitest 5.0.0, the
+same machine as everything else on this page:
+
+|                          |         retained |              time |
+| ------------------------ | ---------------: | ----------------: |
+| lazy placeholder, never touched | **294 B** |      **191 ns** |
+| materialised on first read      | **1 923 B** | **454 ns** on top |
+| a bare `vi.fn()`                | **5 783 B** |    **3 380 ns** |
+
+So a method a spec never touches is 20× lighter than a `vi.fn()` that stands in for it, and one it
+does touch is **3.0× lighter and 5.2× faster** to build (191 + 454 ns against 3 380). The retained
+column is `bench:memory` ([below](#retained-memory-per-double)); the time column is 20 000 doubles of
+10 methods each, median of seven passes, spread 182–220 / 423–666 / 3 042–7 947 ns — publish the
+spread with the median, because the last one is wide.
 
 Memory matters more than the time here. Under `isolate: false` a worker keeps everything its files
 allocated until the run ends, and it is the heap — not the clock — that ends up killing a CI job in
@@ -196,6 +216,15 @@ find their spy through `this`, and the reset and clear hooks live on the spy's s
 sits under the spy's mark in place of `true` — so the brand and both hooks cost one property
 definition where they cost three.
 
+On the library's own engine they are not even a property each. A bundle goes on the prototype every
+spy inherits, once for the run, instead of being copied onto each spy: six slots saved per
+materialised method, and seven more once `vitest-auto-spy/rxjs` is loaded. Measured at **48 B per
+materialised method** on the [table below](#retained-memory-per-double) — small per spy, and the
+same multiplication as everything else on this page. A runner-backed mock (`setSpyEngine('runner')`,
+Bun, `node:test`) is a foreign object with no prototype of ours, so it still gets the copy. The
+stream handle moved the same way: it is built on the first stream helper rather than on every spy,
+so a spy nobody configured a stream on does not pay for one.
+
 How much that saves depends on the runtime, and on the two non-Vitest ones the floor is the
 runner's rather than this library's: `node:test` captures a stack trace into every recorded call and
 creates its mock as a Proxy, through which every property this library attaches has to pass, so the
@@ -209,7 +238,8 @@ and the two shapes that work (`spy.load.resolveWith(v)`, or `bind` it first). Th
 namespaces bind, so nothing changes there.
 
 **Creating** a _double_ is still one `defineProperty` per lazy accessor, and that is now most of what
-it costs. Materialising a **method** did move, and by a large multiple — see
+it costs — the helper bundle above moved to the shared prototype, the placeholders cannot, and the
+end of this paragraph is why. Materialising a **method** did move, and by a large multiple — see
 [the spy engine](#the-spy-engine). The rest of this note is about the accessors, which are the part
 that did not. Sharing the accessor descriptors across spies looked like the obvious cut and was
 faster to build — and then markedly _slower_ to materialise, because V8 keeps an object whose
@@ -392,41 +422,49 @@ prevent.
 
 ### Retained memory per double
 
-`npm run bench:memory`, 2026-09-03, re-run 2026-09-04 with every cell agreeing to within 0.4%,
-Node v24.19.0. 500 doubles held alive at once, 5 repeats per
-cell (median), 4 GC passes forced per settle. Each cell is heap delta divided by the 500 doubles,
-i.e. **bytes per double** — the number in parentheses divides that further by the method count, i.e.
-bytes per method. The mock registry — `@vitest/spy` keeps every mock it ever creates in a
-module-level `Set` — is pruned between arms; without that, every arm after the first would carry
-forward everything the earlier arms allocated, and the numbers would be a running total rather than
-each library's own footprint. Pruning was verified clean — worst residual 0.2% — and run-to-run
-agreement was better than 0.01% except on the smallest cells, where the floor is ±2–4%.
+`npm run bench:memory`, 2026-09-10, Node v24.19.0, **Vitest 5.0.0**. 500 doubles held alive at once,
+5 repeats per cell (median), 4 GC passes forced per settle. Each cell is heap delta divided by the
+500 doubles, i.e. **bytes per double** — the number in parentheses divides that further by the
+method count, i.e. bytes per method. The mock registry is pruned between arms; without that, every
+arm after the first would carry forward everything the earlier arms allocated, and the numbers would
+be a running total rather than each library's own footprint. Pruning was verified clean — worst
+residual 0.2% — and run-to-run spread was at worst ±6%, on the smallest cells.
 
 **Built from a class:**
 
 | Arm                                  |     10 methods, untouched |            10, all called |     100 methods, untouched |            100, all called |
 | ------------------------------------ | ------------------------: | ------------------------: | -------------------------: | -------------------------: |
-| vitest-auto-spy default lazy         |    2 950 B (295 B/method) | 19 708 B (1 971 B/method) |    25 601 B (256 B/method) | 192 913 B (1 929 B/method) |
-| vitest-auto-spy `lazySpies: 'proxy'` |    1 857 B (186 B/method) | 20 677 B (2 068 B/method) |      4 097 B (41 B/method) | 191 443 B (1 914 B/method) |
-| vitest-auto-spy `lazySpies: false`   |    6 034 B (603 B/method) | 19 021 B (1 902 B/method) |    63 239 B (632 B/method) | 192 888 B (1 929 B/method) |
-| jest-auto-spies                      | 58 116 B (5 812 B/method) | 68 356 B (6 836 B/method) | 583 477 B (5 835 B/method) | 685 887 B (6 859 B/method) |
-| jasmine-auto-spies                   | 60 621 B (6 062 B/method) | 70 874 B (7 087 B/method) | 608 290 B (6 083 B/method) | 710 720 B (7 107 B/method) |
-| @bugsplat/vitest-auto-spies          | 58 123 B (5 812 B/method) | 68 381 B (6 838 B/method) | 583 480 B (5 835 B/method) | 685 906 B (6 859 B/method) |
-| hand-written `vi.fn()`               | 41 018 B (4 102 B/method) | 51 258 B (5 126 B/method) | 414 461 B (4 145 B/method) | 516 886 B (5 169 B/method) |
+| vitest-auto-spy default lazy         |    2 940 B (294 B/method) | 19 227 B (1 923 B/method) |    25 601 B (256 B/method) | 188 143 B (1 881 B/method) |
+| vitest-auto-spy `lazySpies: 'proxy'` |    1 859 B (186 B/method) | 20 214 B (2 021 B/method) |      4 097 B (41 B/method) | 186 666 B (1 867 B/method) |
+| vitest-auto-spy `lazySpies: false`   |    5 561 B (556 B/method) | 18 567 B (1 857 B/method) |    58 441 B (584 B/method) | 188 115 B (1 881 B/method) |
+| jest-auto-spies                      | 67 246 B (6 725 B/method) | 77 802 B (7 780 B/method) | 674 658 B (6 747 B/method) | 779 712 B (7 797 B/method) |
+| jasmine-auto-spies                   | 69 722 B (6 972 B/method) | 80 287 B (8 029 B/method) | 699 472 B (6 995 B/method) | 804 525 B (8 045 B/method) |
+| @bugsplat/vitest-auto-spies          | 67 252 B (6 725 B/method) | 77 822 B (7 782 B/method) | 674 674 B (6 747 B/method) | 779 725 B (7 797 B/method) |
+| hand-written `vi.fn()`               | 47 258 B (4 726 B/method) | 57 825 B (5 783 B/method) | 476 862 B (4 769 B/method) | 581 910 B (5 819 B/method) |
 
-The four competitor rows are within 0.03% of the run this table replaces, which is what says the
-harness did not move. The three rows that did are this package's, and they moved for one reason:
-[the spy engine](#the-spy-engine). A materialised method went from 5 445 to **1 929 B**, and an
-eagerly built one (`lazySpies: false`, untouched) from 4 418 to **632 B** — 7× — because a spy that
-is never called now allocates none of the six arrays `vi.fn()` allocates up front.
+**Every row moved against the edition this replaces, and only one of the two reasons is this
+package.** The other is the runner: on Vitest 5 a bare `vi.fn()` retains 4 726 B where it retained
+4 102 B, and the three jest-auto-spies-family libraries are built on it, so their rows moved with it.
+Read the columns against each other on this table, never against a number from the Vitest 4 edition.
+
+This package's own rows moved for two reasons of their own. [The spy engine](#the-spy-engine) is the
+large one: a materialised method retains **1 923 B** against the runner's own 5 783 B, and an eagerly
+built but never-called one (`lazySpies: false`, untouched) **556 B**, because a spy that is never
+called allocates none of the six arrays `vi.fn()` allocates up front. The smaller one is that the
+helper bundle now lives on the prototype every spy inherits rather than being copied onto each spy —
+worth 48 B per materialised method, visible in every "all called" cell.
 
 **Built from a type.** Untouched is width-independent — it is the same Proxy object either way:
 
 | Arm                               | untouched | 10 members called | 100 members called |
 | --------------------------------- | --------: | ----------------: | -----------------: |
-| vitest-auto-spy `createAutoMock`  |   1 184 B |          20 250 B |          191 161 B |
-| vitest-mock-extended `mock`       |     353 B |          53 578 B |          537 191 B |
-| @golevelup/ts-vitest `createMock` |     496 B |         103 654 B |        1 030 848 B |
+| vitest-auto-spy `createAutoMock`  |     705 B |          19 302 B |          185 878 B |
+| vitest-mock-extended `mock`       |     353 B |          60 143 B |          602 216 B |
+| @golevelup/ts-vitest `createMock` |     496 B |         116 462 B |        1 158 265 B |
+
+The untouched cell is 705 B where the previous edition measured 1 184 B, and that is this package
+too: an auto-mock's Proxy handler used to be an object and seven trap closures per double, and it is
+now one handler for the whole run, with everything that varies kept on the Proxy's own target.
 
 **What this establishes:**
 
@@ -435,26 +473,26 @@ is never called now allocates none of the six arrays `vi.fn()` allocates up fron
    cheaper than both other strategies. The narrow-class crossover noted
    [above](#where-the-remaining-memory-is-and-lazyspies-proxy) is a creation-time crossover only;
    nothing in this table implies a memory break-even.
-2. **`jest-auto-spies` and `@bugsplat` agree to within 0.02%** on retained bytes, confirming the
+2. **`jest-auto-spies` and `@bugsplat` agree to within 0.01%** on retained bytes, confirming the
    shared-core claim ([above](#the-three-jest-auto-spies-family-libraries-all-measured)) on a metric
    that has nothing to do with timing noise.
-3. **The jest-auto-spies core costs about 1.7 kB per method over a raw `vi.fn()`** before anything
-   is called (5 812 vs 4 102 B per method) — its `calledWith` machinery is roughly 40% on top of the
+3. **The jest-auto-spies core costs about 2.0 kB per method over a raw `vi.fn()`** before anything
+   is called (6 725 vs 4 726 B per method) — its `calledWith` machinery is roughly 42% on top of the
    mock. `jasmine-auto-spies` is a further ~4% above that.
 4. **Full materialisation is no longer a measurement of `@vitest/spy` for every arm.** It still is
-   for four of them: the hand-written control retains 5 169 B per mock after one call and the three
-   jest-auto-spies-family libraries land 32–38% above it. This package's spy is not one of the
-   runner's, so it sits **2.7× below that floor** at 1 929 B — the same shape the micro-benchmark
+   for four of them: the hand-written control retains 5 783 B per mock after one call and the three
+   jest-auto-spies-family libraries land 35–39% above it. This package's spy is not one of the
+   runner's, so it sits **3.0× below that floor** at 1 923 B — the same shape the micro-benchmark
    shows, measured in bytes instead of microseconds.
 
 **Where this package loses on memory, at full weight:**
 
-- Untouched `createAutoMock<T>()` retains **1 184 B** against `vitest-mock-extended`'s **353 B** and
-  `@golevelup`'s **496 B** — 3.4× and 2.4× worse, last in its family by a wide multiple. That is the
-  bare Proxy before anything is touched, and it is the one memory row this package still loses; from
-  the first member called onwards it is 2.6× lighter than `vitest-mock-extended` and 5.1× lighter
-  than `@golevelup`.
-- `lazySpies: false` is marginally cheaper than the default at 10 all-called (19 021 vs 19 708 B) —
+- Untouched `createAutoMock<T>()` retains **705 B** against `vitest-mock-extended`'s **353 B** and
+  `@golevelup`'s **496 B** — 2.0× and 1.4× worse, still last in its family. That is the bare Proxy
+  before anything is touched, and it is the one memory row this package still loses; from the first
+  member called onwards it is 3.1× lighter than `vitest-mock-extended` and 6.0× lighter than
+  `@golevelup`.
+- `lazySpies: false` is marginally cheaper than the default at 10 all-called (18 567 vs 19 227 B) —
   the placeholder accessors the default installs are not free, and when every method is materialised
   anyway there is nothing for them to save.
 
@@ -591,18 +629,24 @@ prune reaches only one and the run dies out of memory.
 
 ## Bundle size
 
-The badge says 15.8 kB min+gzip, and that is the whole core entry bundled together. It is also the
+The badge says 16.0 kB min+gzip, and that is the whole core entry bundled together. It is also the
 largest number a consumer can pay for the core, because entries are separate subpaths and a project
 only pays for the ones it imports:
 
-| Imported                                      |    min+gzip |
-| --------------------------------------------- | ----------: |
-| `.` — the core entry, what the badge measures | **15.8 kB** |
-| `vitest-auto-spy/angular`                     |     19.9 kB |
-| `vitest-auto-spy/node`                        |     15.2 kB |
-| `vitest-auto-spy/dom-stubs`                   |      5.4 kB |
-| `vitest-auto-spy/rxjs`                        |      2.2 kB |
-| `vitest-auto-spy/zone`                        |      1.1 kB |
+| Imported                                        |    min+gzip |
+| ----------------------------------------------- | ----------: |
+| `.` — the core entry, what the badge measures   | **16.0 kB** |
+| `vitest-auto-spy/angular`                       |     20.1 kB |
+| `vitest-auto-spy/react` / `/vue` / `/svelte`    |     16.1 kB |
+| `vitest-auto-spy/node`                          |     15.3 kB |
+| `vitest-auto-spy/dom-stubs`                     |      5.3 kB |
+| `vitest-auto-spy/rxjs`                          |      2.3 kB |
+| `vitest-auto-spy/zone`                          |      1.1 kB |
+
+**The framework rows are not a framework tax.** `react`, `vue` and `svelte` weigh what the core
+weighs, within a rounding error of each other, because that is what they are: `src/react.ts` is a
+barrel — a `registerMockAdapter` call and `export * from './auto-spy'` — and its own code is seven
+bytes in the bundle. Nobody should go looking for weight in it.
 
 Every figure here is the committed baseline in `size-entries.json` as of 2026-09-10, which is what
 `size:entries:check` and the badge both read; an earlier edition of this table quoted 15.1, 18.7 and
@@ -799,21 +843,21 @@ holding an `@for` of a minimal child, full per-test cycle each time — `resetTe
 
 | Child instances | `TestBed.createComponent` | `renderShallow` | ratio |
 | --------------: | ------------------------: | --------------: | ----: |
-|               0 |                  0.447 ms |        0.471 ms | 0.95× |
-|              25 |                  0.585 ms |        0.338 ms | 1.73× |
-|             100 |                  1.373 ms |        0.306 ms | 4.50× |
-|             400 |                  5.658 ms |        0.272 ms | 20.8× |
+|               0 |                  0.487 ms |        0.619 ms | 0.79× |
+|              25 |                  0.762 ms |        0.470 ms | 1.62× |
+|             100 |                  1.757 ms |        0.457 ms | 3.85× |
+|             400 |                  7.047 ms |        0.403 ms | 17.5× |
 
 Read the first row before the last: at zero children `renderShallow` is **slower, not faster** —
-0.95× here, 0.87× on a second five-pass run — because there is no subtree to skip and the per-test
+0.79× here, 0.80× on a second five-pass run — because there is no subtree to skip and the per-test
 `overrideComponent` is pure cost. That is the same sentence as the paragraph above it, with a number
 on it. The last row is the other end of the same curve, and neither is "the" figure — the ratio is
 whatever the component's own markup is worth.
 
-Median of 60 reps per arm, five passes merged by median, on Node v24.19.0 and Angular 21
-(2026-09-04). The three lower rows reproduced to within 1 % on a second independent five-pass run
-(1.73× / 4.49× / 20.7×); the childless row is the one that moves, because both of its arms are
-dominated by the fixed cost of the cycle. Reproduce with `npm run bench:angular -- --repeat 5`; the
+Median of 60 reps per arm, five passes merged by median, on Node v24.19.0, **Angular 22 and
+Vitest 5** (2026-09-10). A second independent five-pass run gave 0.80× / 1.50× / 3.89× / 16.4×, which
+is the width to read these at: this benchmark's reference is itself a TestBed cycle, and its
+per-arm rme runs from ±4 % to ±24 %. Reproduce with `npm run bench:angular -- --repeat 5`; the
 methodology, and the two ways this benchmark can silently measure nothing, are in
 `bench-angular/README.md`.
 
@@ -822,15 +866,15 @@ is short:
 
 | Rung of the cycle                                                       |   median |
 | ----------------------------------------------------------------------- | -------: |
-| Full per-test cycle: reset + configure + `createComponent` + CD         | 1.215 ms |
-| `resetTestingModule()` alone                                            | 0.002 ms |
-| `resetTestingModule()` + `configureTestingModule()`                     | 0.002 ms |
-| `createComponent` + CD on an **already-configured** module              | 1.049 ms |
-| `configureTestingModule` + `overrideComponent` + `createComponent` + CD | 0.384 ms |
-| `compileComponents()` on a standalone AOT bed                           | 0.005 ms |
+| Full per-test cycle: reset + configure + `createComponent` + CD         | 1.556 ms |
+| `resetTestingModule()` alone                                            | 0.001 ms |
+| `resetTestingModule()` + `configureTestingModule()`                     | 0.001 ms |
+| `createComponent` + CD on an **already-configured** module              | 1.277 ms |
+| `configureTestingModule` + `overrideComponent` + `createComponent` + CD | 0.365 ms |
+| `compileComponents()` on a standalone AOT bed                           | 0.002 ms |
 
 `configureTestingModule` compiles nothing — it records metadata and returns — so reset and configure
-together are **0.3 % of the cycle**, and reusing a configured bed across tests recovers 14 % of it.
+together are **0.06 % of the cycle**, and reusing a configured bed across tests recovers 18 % of it.
 That last row is worth knowing before reaching for a library that sells bed reuse: on this shape the
 mechanism has almost nothing to win, because essentially all of the cycle is `createComponent` plus
 the first change detection building the child subtree — which is the part `renderShallow` removes.
@@ -847,26 +891,33 @@ files where that bound is worth chasing.
 #### The middle rung, `keepTemplate: true`
 
 A spec that needs a `viewChild`, content projection or a host binding needs the component's own
-template, and it is easy to read that as paying for the whole tree again. It is not.
-`buildOverride` (`lib/render-shallow.ts:83-98`) applies `imports: options.keepChildren ?? []`
-whether or not the template is kept, so with `keepTemplate: true` the template renders while every
-child in it resolves to nothing under `NO_ERRORS_SCHEMA`.
+template, and it is easy to read that as paying for the whole tree again. It is not. `buildOverride`
+(`lib/render-shallow.ts`) rewrites the component's `imports` to its own scope minus the child
+*components*, so with `keepTemplate: true` the template renders — with its own pipes and directives
+working — while every child component in it resolves to nothing under `NO_ERRORS_SCHEMA`.
+
+::: warning Before 5.4.0 this dropped the whole scope
+`imports` was replaced with `keepChildren ?? []` whether or not the template was kept, which took
+the template's pipes and directives with it: a `{{ value | shout }}` threw `NG0302`, and an
+attribute directive silently never applied — the spec stayed green over behaviour that never ran.
+The rung below is measured on the fixed version, which is why it is slower than the figure a
+previous edition of this page published: keeping the vocabulary a template is written in is work.
+:::
 
 So there are three rungs, not two: the full cycle, the component's own template with an empty
 subtree, and no template at all. On the same 100-child shape as the table above:
 
 | Rung                                    |   median | vs full cycle |
 | --------------------------------------- | -------: | ------------: |
-| `TestBed.createComponent`, full cycle   | 1.374 ms |             — |
-| `renderShallow({ keepTemplate: true })` | 0.862 ms |         1.60× |
-| `renderShallow()`                       | 0.227 ms |         6.07× |
+| `TestBed.createComponent`, full cycle   | 1.558 ms |             — |
+| `renderShallow({ keepTemplate: true })` | 1.211 ms |         1.29× |
+| `renderShallow()`                       | 0.356 ms |         4.38× |
 
 The middle rung's saving is exactly the children's own cost, so it is the one figure here that
 depends most on what a child is: this benchmark's child owns a single element and a single binding,
-which makes 1.60× a floor rather than a typical case. It is also the noisiest row on this page — the
-two `renderShallow` rows reproduced to within 1 % on a second five-pass run, while the full cycle
-came back at 1.213 ms, putting the middle rung at 1.41× — so read it as **roughly 1.4–1.6× on a
-minimal child**, and more on a real one. Reach for the middle rung when the spec reads something the
+which makes 1.29× a floor rather than a typical case. A second independent five-pass run put it at
+1.24× and the bottom rung at 3.89×, so read the middle one as **roughly 1.2–1.3× on a minimal
+child**, and more on a real one. Reach for the middle rung when the spec reads something the
 template creates, and keep `keepChildren` for the handful of children it genuinely needs resolvable.
 
 ### 3. Worker count

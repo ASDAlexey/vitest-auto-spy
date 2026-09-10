@@ -190,6 +190,16 @@ the rule cannot resolve — an import it cannot follow, a package off the allowl
 defined`, and that costs more than a missed optimisation. On this repository the rule names nothing
 and calls 109 files undecided, for the reason above.
 
+**`perf-environment-engine`** is the other half of the same advice, for the files `perf-environment`
+cannot move: a spec that genuinely needs a DOM still has to build one, and `happy-dom` builds it for
+less. Measured on this package's own Angular suite, the same 117 files and the same assertions:
+**26.5 s of user CPU against 23.2 s**, or 12 % less. On a spec that builds a DOM and does nothing
+else the gap is far wider — 253 ms against 119 ms of environment time per file — so how much of it a
+suite gets back depends on how much of a file the environment is. It fires only when a `vite(st).config.*` names `jsdom` and
+nothing in those configs mentions `happy-dom` — a suite that has already made the choice does not
+get asked again. It is a swap, not a flag: `happy-dom` implements less of the platform, so change
+one project at a time and keep the suite green after each.
+
 **`perf-import`** fires when `import` dominates, and names every spec that reaches its subject
 through a barrel — an `index`/`public-api` module with no declaration of its own, only re-exports —
 because a spec importing one loads everything the barrel re-exports to use one export from it. It
@@ -203,6 +213,16 @@ rather than repeating the numbers here: without isolation, every double a file c
 for the rest of the worker, so peak memory grows with the suite. `perf` does not suggest the flag
 when a `vite(st).config.*` already sets `isolate: false` — reporting a setting a reader already
 made is not a finding.
+
+**`perf-workers`** is the one finding here that is about memory rather than time. Vitest takes one
+worker per core, and a worker is a whole runtime: measured on this package's own Angular suite,
+resident memory came to **1.42 GB plus ~155 MB per worker**, so on a 16-core machine the eight
+workers past a cap of four are about 1.9 GB on their own. The wall clock that cap costs is small —
+on a field deployment of this package, **13.50 s against 13.13 s** at the eight-worker optimum, or
+2.8 %, for 3.7 GB of resident memory instead of 5.8 GB. It fires only on a run whose summed CPU time
+is over a minute, and only when no `maxWorkers` is declared: below that the setting is a detail, and
+a suite that has set it has already had this thought. The number itself is a property of the
+machine, not of the suite — take your own reading before fixing it.
 
 **Exit code.** `perf` always exits `0` on a successful analysis — a slow suite is not a failing one,
 so it never fails a CI job on its own. It exits `1` only when it has nothing to read: no Vitest

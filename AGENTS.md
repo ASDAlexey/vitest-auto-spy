@@ -2872,6 +2872,17 @@ re-exporting a whole directory). When `environment` + `setup` + `prepare` togeth
 of that trade rather than restating them — read that page before recommending the flag, since it
 raises peak memory.
 
+Two more findings are about settings rather than files. `perf-environment-engine` fires when
+`environment` dominates and a `vite(st).config.*` names `jsdom` while nothing in those configs
+mentions `happy-dom`: measured on this package's own 117-file Angular suite, `happy-dom` is 23.2 s of
+user CPU against jsdom's 26.5 s, and on a spec that builds a DOM and does nothing else the gap is
+253 ms against 119 ms per file. It is a swap, not a flag — `happy-dom` implements less of the
+platform — so take one project at a time. `perf-workers` fires on a run over a minute of summed CPU
+that declares no `maxWorkers`, and it is the one finding here about **memory**: one worker per core
+is the default, resident memory measured at 1.42 GB plus ~155 MB per worker, and a cap of four costs
+about 2.8 % of wall clock. Do not quote a worker count as universally right — it is a property of
+the machine.
+
 `--json <path>` re-analyses a report an earlier `--out <path>` run wrote, instead of running Vitest
 again. Full reference: <https://asdalexey.github.io/vitest-auto-spy/utilities/cli>.
 
