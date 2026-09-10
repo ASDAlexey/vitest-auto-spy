@@ -84,13 +84,19 @@ npm run bench:angular -- --repeat 5 --json bench-results.angular.json
 npm run bench:check -- bench-results.angular.json --baseline bench-angular/baseline.json --update
 ```
 
-Two things about `--update` here. It rewrites `generated.command` with the **self**-benchmark's
-command line, because `scripts/bench-check.mjs` hard-codes that string; correct that one line by
-hand afterwards. And it honours the `reference` arm already recorded for each case, which is why
-those are pinned to `TestBed.createComponent, full cycle` (and to the full cycle in the last block)
-rather than left to default to the fastest arm: the ratio worth gating is `renderShallow`'s share of
-a plain cycle, and if the reference floated to whichever arm happened to win, a `renderShallow`
-regression would silently rebase the whole block instead of showing up.
+Two things about `--update` here. It rewrites the ratios, the reference arms, the date and the Node
+version, and carries `generated.command` and `generated.note` over from the file it overwrites — so
+the command line above stays recorded as the command line above, and the note explaining why these
+numbers were not re-measured for the Vitest 5 port survives the regeneration. Pass
+`--command "<text>"` when the recipe itself changes; that text is written into `generated.command`
+verbatim. (Until this was fixed, `--update` stamped the self-benchmark's command line over that
+field and dropped the note, and both went back in by hand.)
+
+It also honours the `reference` arm already recorded for each case, which is why those are pinned to
+`TestBed.createComponent, full cycle` (and to the full cycle in the last block) rather than left to
+default to the fastest arm: the ratio worth gating is `renderShallow`'s share of a plain cycle, and
+if the reference floated to whichever arm happened to win, a `renderShallow` regression would
+silently rebase the whole block instead of showing up.
 
 ## Why this is not in `bench/`
 

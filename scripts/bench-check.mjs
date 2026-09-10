@@ -28,11 +28,22 @@
 // opt-in that can fail a build. A case or arm the baseline knows and this run did not measure is
 // reported and never fails — arms get renamed, and a rename is not a regression.
 //
+// `--update` rewrites what the run measured and keeps what the run cannot know. Out go the ratios,
+// the reference arms, the date and the Node version. `generated.command` and `generated.note` are
+// carried over from the baseline being overwritten: one says how that particular file is regenerated
+// and the other says why its numbers are what they are, and re-running a benchmark is a statement
+// about neither. Until this carried nothing, every `--update` of `bench-angular/baseline.json`
+// stamped the SELF-benchmark's command line over the one that had actually produced it, and dropped
+// its note, both of which then went back in by hand. `--command "<text>"` writes that line verbatim —
+// for a baseline that has none yet, or whose recipe has changed. With neither the flag nor a previous
+// command, the self-benchmark's line is the fallback.
+//
 // Usage:
 //   node scripts/bench-check.mjs [results.json]           compare and print; always exits 0
 //   node scripts/bench-check.mjs [results.json] --strict  exit 1 when an arm is over tolerance
 //   node scripts/bench-check.mjs [results.json] --update  rewrite the baseline from this run
 //   node scripts/bench-check.mjs --baseline <path>        compare against another baseline file
+//   node scripts/bench-check.mjs --command "<text>"       with --update: the command line to record
 //   node scripts/bench-check.mjs --markdown               markdown output, for a job summary
 //
 // The results file is what `npm run bench -- --json <path>` writes; the `bench-results.json` that
@@ -46,12 +57,19 @@ import { paint, renderHeading, renderTable, styleFor } from './bench-table.mjs';
 
 const DEFAULT_RESULTS = 'bench-results.self.json';
 const DEFAULT_BASELINE = fileURLToPath(new URL('../bench/baseline.json', import.meta.url));
+const SELF_COMMAND = `npm run bench -- --json ${DEFAULT_RESULTS} --no-memory && npm run bench:check -- ${DEFAULT_RESULTS} --update`;
 const FLOOR = 0.15;
 const RME_FACTOR = 2;
+const VALUE_FLAGS = new Set(['--baseline', '--command']);
+const KNOWN_FLAGS = new Set(['--strict', '--update', '--markdown', ...VALUE_FLAGS]);
 
 function usage() {
-  // The file's own header, so the help and the comment cannot drift apart.
-  stdout.write(readFileSync(new URL(import.meta.url), 'utf8').split('\n').slice(1, 39).join('\n').replace(/^\/\/ ?/gm, ''));
+  // The file's own header, so the help and the comment cannot drift apart. Read to the first line
+  // that is not a comment rather than to a line number, so growing the header cannot truncate it.
+  const lines = readFileSync(new URL(import.meta.url), 'utf8').split('\n').slice(1);
+  const end = lines.findIndex((line) => !line.startsWith('//'));
+
+  stdout.write(lines.slice(0, end).join('\n').replace(/^\/\/ ?/gm, ''));
   stdout.write('\n');
 }
 
@@ -186,7 +204,7 @@ function renderCase(entry, style) {
 }
 
 /** Alphabetical everywhere, so a re-generated baseline diffs to the lines that actually moved. */
-function buildBaseline(groups, previous) {
+function buildBaseline(groups, previous, command) {
   const cases = {};
 
   for (const group of [...groups].sort((a, b) => a.title.localeCompare(b.title))) {
@@ -200,13 +218,42 @@ function buildBaseline(groups, previous) {
     cases[group.title] = { reference: reference.name, ratios };
   }
 
+  const generated = {
+    date: new Date().toISOString().slice(0, 10),
+    node: version,
+    command: command ?? previous.generated?.command ?? SELF_COMMAND,
+  };
+
+  if (previous.generated?.note !== undefined) {
+    generated.note = previous.generated.note;
+  }
+
+  return { generated, cases };
+}
+
+/**
+ * Flags, their values and the positionals, with a value-taking flag's value belonging to the flag.
+ *
+ * Marking the taken indices, rather than testing whether a position follows the one flag that used to
+ * take a value, is what makes that hold for two of them — and for a value that happens to look like a
+ * flag or like a results path.
+ */
+function parse(args) {
+  const values = new Map();
+  const taken = new Set();
+
+  for (const [index, arg] of args.entries()) {
+    if (VALUE_FLAGS.has(arg)) {
+      values.set(arg, args[index + 1]);
+      taken.add(index + 1);
+    }
+  }
+
   return {
-    generated: {
-      date: new Date().toISOString().slice(0, 10),
-      node: version,
-      command: `npm run bench -- --json ${DEFAULT_RESULTS} --no-memory && npm run bench:check -- ${DEFAULT_RESULTS} --update`,
-    },
-    cases,
+    values,
+    missing: [...values].find(([, value]) => value === undefined)?.[0],
+    positionals: args.filter((arg, index) => !taken.has(index) && !arg.startsWith('-')),
+    stray: args.find((arg, index) => !taken.has(index) && arg.startsWith('-') && !KNOWN_FLAGS.has(arg)),
   };
 }
 
@@ -218,18 +265,26 @@ function main() {
     exit(0);
   }
 
-  const known = new Set(['--strict', '--update', '--markdown', '--baseline']);
-  const baselineIndex = args.indexOf('--baseline');
-  const positionals = args.filter((arg, index) => !arg.startsWith('-') && !(baselineIndex !== -1 && index === baselineIndex + 1));
-  const stray = args.find((arg) => arg.startsWith('-') && !known.has(arg));
+  const { values, missing, positionals, stray } = parse(args);
 
   if (stray) {
-    stdout.write(`Unknown argument "${stray}". Known flags: --strict, --update, --baseline <path>, --markdown.\n`);
+    stdout.write(`Unknown argument "${stray}". Known flags: --strict, --update, --baseline <path>, --command <text>, --markdown.\n`);
+    exit(1);
+  }
+
+  if (missing) {
+    stdout.write(`${missing} needs a value.\n`);
+    exit(1);
+  }
+
+  // Nothing but --update writes a baseline, so --command without it would do nothing at all.
+  if (values.has('--command') && !args.includes('--update')) {
+    stdout.write('--command records generated.command in a baseline, so it needs --update.\n');
     exit(1);
   }
 
   const resultsPath = positionals[0] ?? DEFAULT_RESULTS;
-  const baselinePath = baselineIndex === -1 ? DEFAULT_BASELINE : args[baselineIndex + 1];
+  const baselinePath = values.get('--baseline') ?? DEFAULT_BASELINE;
   const strict = args.includes('--strict');
   const style = styleFor(stdout, args);
   const groups = readGroups(resultsPath);
@@ -248,7 +303,7 @@ function main() {
       previous = { cases: {} };
     }
 
-    writeFileSync(baselinePath, `${JSON.stringify(buildBaseline(groups, previous), undefined, 2)}\n`);
+    writeFileSync(baselinePath, `${JSON.stringify(buildBaseline(groups, previous, values.get('--command')), undefined, 2)}\n`);
     stdout.write(`Wrote ${groups.length} cases to ${baselinePath}.\n`);
     exit(0);
   }
