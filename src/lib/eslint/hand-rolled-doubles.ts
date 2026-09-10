@@ -8,7 +8,7 @@
  * of this library's own factories, or inside a `vi.mock()` factory. Keeping that reading in one
  * module is what stops the two rules from drifting into disagreeing about the same literal.
  */
-import { initializerOf } from './bindings';
+import { boundValueOf, findBinding, initializerOf } from './bindings';
 import {
   type EsNode,
   type EsObjectExpression,
@@ -16,12 +16,16 @@ import {
   type RuleContext,
   buildsRunnerFn,
   buildsRunnerFnAtModuleScope,
+  findProperty,
+  hasAncestor,
+  isAssignmentExpression,
   isCallExpression,
   isIdentifier,
   isNewExpression,
   isObjectExpression,
   isRunnerCall,
   isRunnerFnCall,
+  isVariableDeclarator,
   propertyName,
   propertyValue,
 } from './rule-types';
@@ -39,11 +43,18 @@ export function looksLikeHandRolledMock(object: EsObjectExpression): boolean {
 }
 
 /**
- * The double a provider hands over, whether it is written in place or parked in a `const` above.
+ * The double a provider hands over, whether it is written in place or parked in a name above.
  *
  * The identifier step is not a refinement: in the suite this came from, eight hand-rolled doubles
  * were declared above the TestBed and passed by name, and the rule — reading only the literal form
  * — reported none of them.
+ *
+ * It follows a name through **either** spelling of a single binding — a `const` initialiser and a
+ * `let` filled in by a `beforeEach` alike, which is what {@link boundValueOf} means by settled. The
+ * second spelling is what one migration shard's whole set of opportunities was written in, and
+ * before it was read the double behind it was reported by the count-based rule instead: the message
+ * then recommends `createSpyFromClass` and never mentions `provideAutoSpy`, which is the only answer
+ * for a double DI hands out.
  */
 export function providedDouble(context: RuleContext, value: EsNode): EsObjectExpression | undefined {
   if (isObjectExpression(value)) {
@@ -54,9 +65,73 @@ export function providedDouble(context: RuleContext, value: EsNode): EsObjectExp
     return undefined;
   }
 
-  const initializer = initializerOf(context.sourceCode.getScope(value), value);
+  const bound = boundValueOf(context.sourceCode.getScope(value), value);
 
-  return initializer && isObjectExpression(initializer) ? initializer : undefined;
+  return bound && isObjectExpression(bound) ? bound : undefined;
+}
+
+/**
+ * Whether a node **is** a provider's `useValue`, rather than merely sitting somewhere below one.
+ *
+ * `useValue` and nothing else, because this is the carve-out of the rules that read an *object
+ * literal*, and `useValue` is the only slot in which `prefer-provide-auto-spy` reads one — its
+ * `useClass:` and `useExisting:` arms answer for a class by name. Widening the set would silence
+ * those two rules on a shape the provider rule does not speak for either, which is how a report
+ * goes missing rather than moves.
+ */
+function isProvidedValue(node: EsNode): boolean {
+  const { parent } = node;
+
+  return propertyName(parent) === 'useValue' && propertyValue(parent) === node;
+}
+
+/**
+ * The name an object literal is bound to — written in place or assigned below.
+ *
+ * The assignment arm is what makes this worth having. In the suite this was measured on, not one of
+ * the 120 annotated doubles carried an initialiser: every single one is `let x: { … };` at the top
+ * of the `describe` and `x = { … }` in a `beforeEach`, so a reading that only looked at declarators
+ * would have seen none of them.
+ */
+export function boundName(object: EsObjectExpression): EsNode | undefined {
+  const { parent } = object;
+
+  if (isVariableDeclarator(parent) && parent.init === object) {
+    return parent.id;
+  }
+
+  return isAssignmentExpression(parent) && parent.right === object ? parent.left : undefined;
+}
+
+/**
+ * Whether this object literal is what a provider substitutes a dependency with — in the slot, or
+ * one name away from it.
+ *
+ * The carve-out every rule reading a bare object literal needs, and it has to be read in the
+ * *forward* direction: `providedDouble` walks from the slot down to the literal, which answers
+ * nothing for a rule standing on the literal and asking where it ends up. Both directions have to
+ * follow a name for the same reason, so a literal parked in a `const` or filled into a `let` is
+ * this as much as one written inline.
+ *
+ * Reading `parent` off a reference that sits **below** this node in the file is safe: ESLint
+ * assigns every `parent` in one traversal and only then starts emitting the events rules listen to
+ * — which is why this needs none of the `Program:exit` deferral `no-stub-class-double` uses to
+ * collect a set.
+ */
+export function substitutesADependency(context: RuleContext, object: EsObjectExpression): boolean {
+  if (isProvidedValue(object)) {
+    return true;
+  }
+
+  const name = boundName(object);
+
+  if (!name || !isIdentifier(name)) {
+    return false;
+  }
+
+  const binding = findBinding(context.sourceCode.getScope(object), name.name);
+
+  return binding?.references.some((reference) => isProvidedValue(reference.identifier)) === true;
 }
 
 export function countRunnerFns(object: EsObjectExpression): number {
@@ -102,16 +177,16 @@ export function providesToken(context: RuleContext, provide: EsNode): boolean {
  * `useFactory: vi.fn().mockImplementation(() => ({ isKeyEnabled: vi.fn() }))`, a structural double
  * with no relation to the class, and a double cast to make it fit.
  */
-export function handRolledProvider(
-  context: RuleContext,
-  useValue: EsProperty | undefined,
-  useFactory: EsProperty | undefined,
-): EsProperty | undefined {
+export function handRolledProvider(context: RuleContext, descriptor: EsObjectExpression): EsProperty | undefined {
+  const useValue = findProperty(descriptor, 'useValue');
+
   if (useValue) {
     const double = providedDouble(context, useValue.value);
 
     return double && looksLikeHandRolledMock(double) ? useValue : undefined;
   }
+
+  const useFactory = findProperty(descriptor, 'useFactory');
 
   return useFactory && buildsRunnerFn(factoryBody(context, useFactory.value), true) ? useFactory : undefined;
 }
@@ -122,7 +197,7 @@ export function factoryBody(context: RuleContext, value: EsNode): EsNode {
     return value;
   }
 
-  return initializerOf(context.sourceCode.getScope(value), value) ?? value;
+  return boundValueOf(context.sourceCode.getScope(value), value) ?? value;
 }
 /**
  * The factories this library offers, whose arguments are seeds rather than hand-rolled doubles.
@@ -155,17 +230,7 @@ export function isFactoryCall(node: EsNode): boolean {
  * `mockDeep<T>({ api: { load: vi.fn(), save: vi.fn() } })` puts the object two levels below the call.
  */
 export function insideFactorySeed(node: EsNode): boolean {
-  let current = node;
-
-  while (current.type !== 'Program') {
-    if (isFactoryCall(current)) {
-      return true;
-    }
-
-    current = current.parent;
-  }
-
-  return false;
+  return hasAncestor(node, isFactoryCall);
 }
 
 /** `vi.mock(…)` and friends: the second argument replaces a module's exports, not a service. */
@@ -182,11 +247,16 @@ const MODULE_MOCKS = new Set(['doMock', 'mock']);
  * a service double and therefore fires at **one**. Since that rule learnt to follow a name to the
  * `const` above the TestBed, the overlap is covered from the side that can prove it. Projects that
  * want the stricter reading anyway can say so.
+ *
+ * `fallback` is what a rule reading a *different* shape asks for. `no-stub-class-double` takes one,
+ * because nobody writes an options bag as a class: the shapes that hold a lone `vi.fn()` field and
+ * are not doubles — a test host, a test subclass, an interface-conforming stub — are removed by that
+ * rule's own exemptions rather than by a threshold.
  */
-export function minRunnerFns(context: RuleContext): number {
+export function minRunnerFns(context: RuleContext, fallback = 2): number {
   const configured: unknown = Reflect.get(Object(context.options[0]), 'minRunnerFns');
 
-  return typeof configured === 'number' ? configured : 2;
+  return typeof configured === 'number' ? configured : fallback;
 }
 
 /**
@@ -198,15 +268,5 @@ export function minRunnerFns(context: RuleContext): number {
  * (`class DialogRefStub {}`) had nothing to do with what the message said.
  */
 export function insideModuleMock(node: EsNode): boolean {
-  let current = node;
-
-  while (current.type !== 'Program') {
-    if (isRunnerCall(current, MODULE_MOCKS)) {
-      return true;
-    }
-
-    current = current.parent;
-  }
-
-  return false;
+  return hasAncestor(node, (candidate) => isRunnerCall(candidate, MODULE_MOCKS));
 }

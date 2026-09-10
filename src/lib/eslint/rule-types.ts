@@ -24,6 +24,23 @@ export interface EsNode {
 
 export interface EsIdentifier extends EsNode {
   name: string;
+  /** The `: T` a declaration site carries. Absent everywhere else, which is most identifiers. */
+  typeAnnotation?: EsTypeAnnotation;
+}
+
+/** The `: T` wrapper ESTree puts between a declaration and its type. */
+export interface EsTypeAnnotation extends EsNode {
+  typeAnnotation: EsNode;
+}
+
+/** An inline object type — the `{ load: Mock; save: Mock }` of a structural double's declaration. */
+export interface EsTypeLiteral extends EsNode {
+  members: EsNode[];
+}
+
+/** One member of an object type or an interface. `typeAnnotation` is absent on a bare `{ a }`. */
+export interface EsPropertySignature extends EsNode {
+  typeAnnotation?: EsTypeAnnotation;
 }
 
 export interface EsLiteral extends EsNode {
@@ -37,6 +54,8 @@ export interface EsProperty extends EsNode {
 }
 
 export interface EsVariableDeclarator extends EsNode {
+  /** The declared name, which is where a `: T` annotation hangs. A destructuring pattern for the rest. */
+  id: EsNode;
   init: EsNode | null;
 }
 
@@ -107,6 +126,34 @@ export interface EsImportDeclaration extends EsNode {
   importKind?: string;
 }
 
+/** The member list of a class, which ESTree wraps in a node of its own rather than hanging off the class. */
+export interface EsClassBody extends EsNode {
+  body: EsNode[];
+}
+
+/**
+ * A class, in either spelling — a declaration or an expression.
+ *
+ * `id` is `null` for an anonymous class expression; `decorators` and `implements` are empty arrays
+ * rather than absent, on both spellings, so a `?? []` around either would be a branch nothing could
+ * take.
+ */
+export interface EsClass extends EsNode {
+  id: EsNode | null;
+  superClass: EsNode | null;
+  decorators: EsNode[];
+  implements: EsNode[];
+  body: EsClassBody;
+}
+
+/** A class field — `load = vi.fn();`. `value` is `null` for a field that is declared and not initialised. */
+export interface EsPropertyDefinition extends EsNode {
+  key: EsNode;
+  value: EsNode | null;
+  computed: boolean;
+  static: boolean;
+}
+
 /** The arguments of a generic type reference — `<CartService>` in `Mocked<CartService>`. */
 export interface EsTypeArguments extends EsNode {
   params: EsNode[];
@@ -114,6 +161,7 @@ export interface EsTypeArguments extends EsNode {
 
 /** A type reference, as the parent of the identifier that names it. */
 export interface EsTypeReference extends EsNode {
+  typeName: EsNode;
   typeArguments?: EsTypeArguments;
 }
 
@@ -196,6 +244,13 @@ export interface EsSourceCode {
    * the comma between them.
    */
   getTokenAfter(node: EsNode): EsNode;
+  /**
+   * The token before a node, comments skipped.
+   *
+   * Declared as always returning one for the same reason: the only node this is asked about is the
+   * first argument of a call, so the token is that call's opening parenthesis.
+   */
+  getTokenBefore(node: EsNode): EsNode;
   /**
    * What the parser published. ESLint always sets the property — it is `{}` for a parser that
    * publishes nothing — so a rule that needs types can tell the difference and stay silent rather
@@ -337,6 +392,26 @@ export function isNamedImportSpecifier(node: EsNode): node is EsImportSpecifier 
 /** Narrow to a variable declarator, the node a `const` / `let` definition points at. */
 export function isVariableDeclarator(node: EsNode): node is EsVariableDeclarator {
   return node.type === 'VariableDeclarator';
+}
+
+/** Narrow to a type reference — `Mock`, `Spy<T>`, and every other named type in a type position. */
+export function isTypeReference(node: EsNode): node is EsTypeReference {
+  return node.type === 'TSTypeReference';
+}
+
+/** Narrow to an assignment — the statement that decides what a `let` declared above it holds. */
+export function isAssignmentExpression(node: EsNode): node is EsAssignmentExpression {
+  return node.type === 'AssignmentExpression';
+}
+
+/** Narrow to a class in either spelling — a declaration or the expression a `const` is bound to. */
+export function isClass(node: EsNode): node is EsClass {
+  return node.type === 'ClassDeclaration' || node.type === 'ClassExpression';
+}
+
+/** Narrow to a class field. */
+export function isPropertyDefinition(node: EsNode): node is EsPropertyDefinition {
+  return node.type === 'PropertyDefinition';
 }
 
 /** Narrow to an identifier — the shape a non-computed member key takes. */
@@ -529,6 +604,28 @@ export function countInSubtree(node: EsNode, matches: (candidate: EsNode) => boo
 
     return isNode(value) ? total + countInSubtree(value, matches, throughFunctions) : total;
   }, 0);
+}
+
+/**
+ * Whether any ancestor of `node` — `node` itself included — satisfies `matches`.
+ *
+ * The upward counterpart of {@link countInSubtree}, and the shape of half a dozen questions this
+ * plugin asks: is this literal inside one of the library's own factories, inside a `vi.mock()`
+ * factory, below a decorator. The walk stops at `Program`, which every node in a linted file
+ * reaches.
+ */
+export function hasAncestor(node: EsNode, matches: (candidate: EsNode) => boolean): boolean {
+  let current = node;
+
+  while (current.type !== 'Program') {
+    if (matches(current)) {
+      return true;
+    }
+
+    current = current.parent;
+  }
+
+  return false;
 }
 
 /**

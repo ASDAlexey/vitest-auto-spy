@@ -121,28 +121,45 @@ export function dropNamedImport(source: EsSourceCode, fixer: EsFixer, variable: 
 }
 
 /**
- * What a name was initialised with, when that is knowably still what it holds.
+ * What a name holds, when the file settles that in one place — whichever of the two spellings put
+ * it there.
  *
- * "Knowably" is the whole job, and it is what lets a rule follow one step through a variable: both
- * `const events = TestBed.inject(EventsService)` and `const nav = { go: vi.fn() }` are the shape
- * the rule is about, written over two lines instead of one. A `let` that is assigned again holds
- * whatever that assignment put there by the time the use runs, and a name bound by an import or a
- * parameter was never initialised here at all — those look identical at the use site and are not
- * the same thing.
+ * "Settles" is the whole job, and it is what lets a rule follow one step through a variable. Two
+ * shapes qualify and they are the same statement written differently:
+ *
+ * ```ts
+ * const nav = { go: vi.fn() };                     // an initialiser
+ *
+ * let nav: { go: Mock };                           // …and a declaration whose value arrives below
+ * beforeEach(() => { nav = { go: vi.fn() }; });
+ * ```
+ *
+ * The second is not a refinement of the first; in one consumer's 1759 spec files it is how a double
+ * is written by default — not one of the 120 doubles whose declaration named a Vitest `Mock`
+ * carried an initialiser. What disqualifies a name is a *second* write: from the second assignment
+ * on, what the name holds at the use site depends on run order, which no rule reading one file can
+ * decide. A name bound by an import or a parameter has no write at all and is disqualified by the
+ * same count.
+ */
+export function boundValueOf(scope: EsScope, identifier: EsIdentifier): EsNode | undefined {
+  const written =
+    findBinding(scope, identifier.name)?.references.flatMap((reference) => (reference.writeExpr ? [reference.writeExpr] : [])) ?? [];
+
+  return written.length === 1 ? written[0] : undefined;
+}
+
+/**
+ * The same reading, restricted to a name that was **declared** with its value.
+ *
+ * The narrower one is what a *fixer* needs. `no-mocked-for-spy` rewrites a declaration, and the
+ * repair only holds together when the declaration is where the value is: a `let` filled in by a
+ * `beforeEach` has a type annotation the fix would edit and a literal three lines below that the new
+ * type has to accept, which is the shape that rule was already burnt by (see `rules.ts`). Rules that
+ * only *report* take {@link boundValueOf} and follow either spelling.
  */
 export function initializerOf(scope: EsScope, identifier: EsIdentifier): EsNode | undefined {
   const binding = findBinding(scope, identifier.name);
+  const declarator = binding?.defs.map((definition) => definition.node).find(isVariableDeclarator);
 
-  if (!binding) {
-    return undefined;
-  }
-
-  const declarator = binding.defs.map((definition) => definition.node).find(isVariableDeclarator);
-
-  if (!declarator?.init) {
-    return undefined;
-  }
-
-  // The initialiser itself counts as a write, so a second one means the value was replaced.
-  return binding.references.filter((reference) => reference.writeExpr).length > 1 ? undefined : declarator.init;
+  return declarator?.init && boundValueOf(scope, identifier) === declarator.init ? declarator.init : undefined;
 }

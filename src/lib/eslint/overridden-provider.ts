@@ -39,12 +39,22 @@
  * is still reported: Angular refuses that pair at runtime with
  * `Cannot mix multi providers and regular providers`, so it is a defect whichever half was meant.
  */
+import { defineRule } from './define-rule';
+import {
+  OVERRIDE_PROVIDER_CALL,
+  type ProviderOverride,
+  buriedRegistrations,
+  isTestingModuleProviders,
+  providerOverride,
+} from './provider-override';
 import {
   type EsArrayExpression,
+  type EsCallExpression,
   type EsFix,
   type EsNode,
   type EsObjectExpression,
   type RuleContext,
+  type RuleModule,
   type SuggestionDescriptor,
   findProperty,
   isCallExpression,
@@ -76,7 +86,7 @@ interface Registration {
 }
 
 /** How the provider Angular keeps relates to the one it buries. */
-export type OverrideKind =
+type OverrideKind =
   /** The survivor configures *less*: the spy the spec set up is not the spy the test got. */
   | 'barer'
   /** Two different providers, and the later one wins. Nothing can be said about which to keep. */
@@ -85,7 +95,7 @@ export type OverrideKind =
   | 'duplicate';
 
 /** One dead provider, the token it registered, and the provider that took its place. */
-export interface OverriddenProvider {
+interface OverriddenProvider {
   element: EsNode;
   token: string;
   kind: OverrideKind;
@@ -158,14 +168,14 @@ function overrideKind(buried: Registration, survivor: Registration): OverrideKin
 }
 
 /**
- * The providers of an array that a later one for the same token buries.
+ * Every element of an array that registers something, in source order.
  *
- * Walked right to left, because the provider Angular keeps is the last one: the first registration
- * met for a token is that survivor, and every one met afterwards is dead and knows what buried it.
- * Returned in source order, so a token registered three times reports the first two.
+ * Exported because `no-overridden-provider` also has to look *outside* the array: a
+ * `TestBed.overrideProvider` replaces a registration from a statement of its own, so the rule needs
+ * the survivors of each array as well as the ones the array itself buries.
  */
-export function overriddenProviders(context: RuleContext, node: EsArrayExpression): OverriddenProvider[] {
-  const registered = node.elements.flatMap((element) => {
+function registrationsIn(context: RuleContext, node: EsArrayExpression): Registration[] {
+  return node.elements.flatMap((element) => {
     if (!element) {
       return [];
     }
@@ -174,6 +184,17 @@ export function overriddenProviders(context: RuleContext, node: EsArrayExpressio
 
     return registration ? [registration] : [];
   });
+}
+
+/**
+ * The providers of an array that a later one for the same token buries.
+ *
+ * Walked right to left, because the provider Angular keeps is the last one: the first registration
+ * met for a token is that survivor, and every one met afterwards is dead and knows what buried it.
+ * Returned in source order, so a token registered three times reports the first two.
+ */
+function overriddenProviders(context: RuleContext, node: EsArrayExpression): OverriddenProvider[] {
+  const registered = registrationsIn(context, node);
 
   const survivors = new Map<string, Registration>();
   const buried: OverriddenProvider[] = [];
@@ -207,8 +228,22 @@ export function overriddenProviders(context: RuleContext, node: EsArrayExpressio
   return buried.reverse();
 }
 
+/**
+ * The registrations of a file that survive their own array and are then replaced by a
+ * `TestBed.override*` call.
+ *
+ * `multi: true` is exempt for the reason it is exempt inside an array — Angular accumulates those,
+ * and a spec that registers two of them means both — and a registration the array *already* buried
+ * is excluded so that one dead provider never draws two reports.
+ */
+function survivingRegistrations(context: RuleContext, node: EsArrayExpression): Registration[] {
+  const buried = new Set(overriddenProviders(context, node).map(({ element }) => element));
+
+  return registrationsIn(context, node).filter((registration) => !registration.multi && !buried.has(registration.element));
+}
+
 /** Which message each shape of the pair gets. The three are not the same defect. */
-export const OVERRIDE_MESSAGES: Record<OverrideKind, string> = {
+const OVERRIDE_MESSAGES: Record<OverrideKind, string> = {
   barer: 'overriddenByBarerProvider',
   different: 'noOverriddenProvider',
   duplicate: 'duplicateProvider',
@@ -222,7 +257,7 @@ export const OVERRIDE_MESSAGES: Record<OverrideKind, string> = {
  * after the element is that comma by construction — a buried provider always has a later element,
  * the one that buried it.
  */
-export function deleteProviderSuggestion(context: RuleContext, element: EsNode, token: string): SuggestionDescriptor {
+function deleteProviderSuggestion(context: RuleContext, element: EsNode, token: string): SuggestionDescriptor {
   const comma = context.sourceCode.getTokenAfter(element);
 
   return {
@@ -230,3 +265,61 @@ export function deleteProviderSuggestion(context: RuleContext, element: EsNode, 
     fix: (fixer): EsFix => fixer.replaceTextRange([element.range[0], comma.range[1]], ''),
   };
 }
+
+/** Two providers for one token in one array → the earlier one never runs. */
+export const noOverriddenProvider: RuleModule = defineRule({
+  anchor: '-a-service-behind-angular-di',
+  description: 'Register a token once — a second provider for it in the same array silently replaces the first',
+  hasSuggestions: true,
+  messages: {
+    noOverriddenProvider:
+      'Another provider for `{{token}}` follows this one in the same array, and Angular keeps the last: the one on line {{line}} is what DI hands out, and this one never runs. `provideAutoSpy({{token}})` sitting above `{ provide: {{token}}, useValue: … }` is not an auto-spy with extra configuration — it is a hand-rolled double, and the auto-spy is dead code. That misleads from both sides: assertions get written against a spy nothing provided, and whoever comes to replace the hand-rolled double sees the `provideAutoSpy` beside it and reads the work as done. Keep one.',
+    duplicateProvider:
+      '`{{token}}` is provided twice in this array, in the same words: the copy on line {{line}} is the one DI hands out, and Angular had already ignored this one. Deleting it therefore cannot change what the test gets, which is why this is the only shape here that comes with an edit — offered as a suggestion, because deleting a line of a `providers` array is not something to discover in a diff.',
+    overriddenByBarerProvider:
+      'Another provider for `{{token}}` follows this one on line {{line}}, and Angular keeps the last — so the double this spec configured is not the double it got. The survivor is the **barer** of the two: whatever is set up here (`gettersToSpyOn`, `instanceMethodsToSpyOn`, a `useValue` body) never reaches DI, and every assertion below runs against a poorer spy answering to the same name. Nothing can be deleted for you, because which of the two to keep is the question: move this configuration onto the provider on line {{line}}, or delete that one.',
+    overriddenByTestBedOverride:
+      '`TestBed.overrideProvider({{token}})` on line {{line}} replaces this registration, so this provider never reaches the code under test — an override wins over a module provider whenever it runs, which is why the order of the two lines says nothing. A `provideAutoSpy({{token}})` in this position is the misleading half: the spec looks configured, `injectSpy({{token}})` hands back whatever the override put there instead, and an assertion written against the auto-spy is asserting on a double nothing provided. Keep one. If the override is there because the component under test declares `{{token}}` in its own `providers` — the one case a module-level provider genuinely cannot win — then this registration is the redundant one and can go; otherwise configure the double once, here, and drop the override.',
+  },
+  create: (context) => {
+    // Collected and reported at the end: the two halves are never in one expression — the
+    // registration is inside `configureTestingModule`, the override a statement or a chained call
+    // after it — and either can be written first.
+    const registrations: Registration[] = [];
+    const overrides: ProviderOverride[] = [];
+
+    return {
+      ArrayExpression: (node: EsArrayExpression): void => {
+        overriddenProviders(context, node).forEach(({ element, token, kind, survivor }) => {
+          const report = {
+            node: element,
+            messageId: OVERRIDE_MESSAGES[kind],
+            data: { token, line: String(survivor.loc.start.line) },
+          };
+
+          context.report(kind === 'duplicate' ? { ...report, suggest: [deleteProviderSuggestion(context, element, token)] } : report);
+        });
+
+        if (isTestingModuleProviders(node)) {
+          registrations.push(...survivingRegistrations(context, node));
+        }
+      },
+      [OVERRIDE_PROVIDER_CALL]: (node: EsCallExpression): void => {
+        const override = providerOverride(context, node);
+
+        if (override) {
+          overrides.push(override);
+        }
+      },
+      'Program:exit': (): void => {
+        buriedRegistrations(registrations, overrides).forEach(({ element, token, override }) => {
+          context.report({
+            node: element,
+            messageId: 'overriddenByTestBedOverride',
+            data: { token, line: String(override.line) },
+          });
+        });
+      },
+    };
+  },
+});

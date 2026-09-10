@@ -40,8 +40,8 @@ export interface AutoSpyEslintPlugin {
 const PLUGIN_NAME = 'vitest-auto-spy';
 
 /**
- * Every rule, and all but one of them an **error** (4.0.0). Before that the config was a graded mix
- * of `error` / `warn` / `off`, which meant the plugin decided how much each project cared.
+ * Every rule, and all but three of them an **error** (4.0.0). Before that the config was a graded
+ * mix of `error` / `warn` / `off`, which meant the plugin decided how much each project cared.
  *
  * A `warn` is a finding a build does not stop for, so in a repository that does not read lint
  * output it is the same as `off` with extra noise. Choosing that for someone else is the part that
@@ -49,17 +49,39 @@ const PLUGIN_NAME = 'vitest-auto-spy';
  * way. So the default is the strict end, and the docs carry the dial —
  * `docs-site/utilities/eslint-plugin.md` → *Tuning it for your project*.
  *
- * **The exception is `prefer-render-shallow`, and what makes it one is the kind of thing it says.**
- * Every other rule here names something that is wrong or dead: a double built the way that drifts
- * from its class, an assertion that never runs, a provider the container already dropped, a schema
- * guarding nothing. This one names a file that could be rendered more cheaply. That is an
- * architectural choice a suite makes — `renderShallow` is a migration a project either takes or does
- * not — rather than a defect in the file it reports, and at `error` the plugin would be gating a
- * migration nobody agreed to. On the consumer it was measured against, 1759 spec files, the rule
- * reports 491 times across 398 files: `error` there is a red CI on day one, silenced by a project-wide
- * `warn` in the consumer's config, so `recommended` would exist mainly to be overridden. Shipping it
- * as a `warn` says the same thing without holding a merge, and a project that has decided to make the
- * move turns it up in the same one line everything else here is turned down in.
+ * **`prefer-render-shallow` is graded on the kind of thing it says.** Every other rule here names
+ * something that is wrong or dead: a double built the way that drifts from its class, an assertion
+ * that never runs, a provider the container already dropped, a schema guarding nothing. This one
+ * names a file that could be rendered more cheaply. That is an architectural choice a suite makes —
+ * `renderShallow` is a migration a project either takes or does not — rather than a defect in the
+ * file it reports, and at `error` the plugin would be gating a migration nobody agreed to. On the
+ * consumer it was measured against, 1759 spec files, the rule reports 491 times across 398 files:
+ * `error` there is a red CI on day one, silenced by a project-wide `warn` in the consumer's config,
+ * so `recommended` would exist mainly to be overridden. Shipping it as a `warn` says the same thing
+ * without holding a merge, and a project that has decided to make the move turns it up in the same
+ * one line everything else here is turned down in.
+ *
+ * **`no-stub-class-double` and `no-structural-double` are graded on the evidence** (5.5.0). Both
+ * report the same defect `prefer-create-spy-from-class` does — a double whose shape was written by
+ * hand and is free to fall behind the class — but neither has a `provide:` beside it to settle the
+ * question, so each decides on a heuristic: a class whose fields are `vi.fn()`s, an object whose
+ * *declared type* is an object of Vitest `Mock`s. That is the whole argument, and it is worth
+ * separating from the counts, because the counts moved a long way inside this one release. Measured
+ * on the same 1759 spec files, against a plugin under which that suite is green, the two started at
+ * 12 reports in 8 files and 115 in 74; once `prefer-provide-auto-spy` learnt to follow a name into a
+ * `useValue` and to read a stub class behind a `useExisting:`, they are 10 in 7 and 5 in 4, because
+ * 112 of those doubles are handed to Angular DI one name away. So the severity did not follow the
+ * count in either direction — a heuristic is not introduced at `error` because it happens to be
+ * loud, and it does not earn `error` by becoming quiet. It is also why they are rules of their own
+ * rather than arms of the count-based one: a project that disagrees with either reading has to be
+ * able to switch it off without losing the rule that reads a count.
+ *
+ * `provide:`-backed evidence stays at `error`, and that is where those 112 went:
+ * `prefer-provide-auto-spy` reports **154 times across 87 files** on the same suite — 128 of them
+ * from the name-following, 20 stub classes, 6 at a `TestBed.overrideProvider` call — and is not
+ * graded, because every one of those reports has a `provide:` or an override token beside it.
+ * `no-overridden-provider`'s new override arm is 9 reports in 5 files, at `error` for the same
+ * reason plus a stronger one: it reports a spec that configured a double nobody uses.
  *
  * **Three of these can report on code that is correct, and each one is listed there with what to do
  * about it.** They are not mistakes in the rules; they are the limit of what one file can know, and
@@ -100,6 +122,8 @@ const recommendedRules: Record<string, RuleSeverity> = {
   [`${PLUGIN_NAME}/no-import-time-spread`]: 'error',
   [`${PLUGIN_NAME}/no-unregistered-inject-spy`]: 'error',
   [`${PLUGIN_NAME}/prefer-render-shallow`]: 'warn',
+  [`${PLUGIN_NAME}/no-stub-class-double`]: 'warn',
+  [`${PLUGIN_NAME}/no-structural-double`]: 'warn',
   [`${PLUGIN_NAME}/prefer-observer-stub`]: 'error',
   [`${PLUGIN_NAME}/jasmine-namespace-without-entry`]: 'error',
   [`${PLUGIN_NAME}/no-jasmine-globals`]: 'error',

@@ -33,7 +33,7 @@
  * "does this suite override at all", with the one exemption that can be read off the source: an
  * `override*` that sits in the same hook body *before* the injection really does run first.
  */
-import { type EsNode, countInSubtree, isCallExpression, isIdentifier, isMemberCall } from './rule-types';
+import { type EsNode, countInSubtree, enclosingFunction, isCallExpression, isIdentifier, isMemberCall } from './rule-types';
 
 /**
  * Every spelling that instantiates the testing module, as one esquery selector list.
@@ -68,12 +68,17 @@ const HOOKS = new Set(['beforeAll', 'beforeEach']);
 /** The blocks a suite is written in. */
 const SUITES = new Set(['describe', 'suite']);
 
+/** Whether a node is a call of one of `names`, written bare. */
+function isNamedCall(node: EsNode, names: ReadonlySet<string>): boolean {
+  return isCallExpression(node) && isIdentifier(node.callee) && names.has(node.callee.name);
+}
+
 /** The nearest enclosing call of one of `names`, or nothing. */
 function enclosingCallOf(node: EsNode, names: ReadonlySet<string>): EsNode | undefined {
   let current = node;
 
   while (current.type !== 'Program') {
-    if (isCallExpression(current) && isIdentifier(current.callee) && names.has(current.callee.name)) {
+    if (isNamedCall(current, names)) {
       return current;
     }
 
@@ -83,19 +88,53 @@ function enclosingCallOf(node: EsNode, names: ReadonlySet<string>): EsNode | und
   return undefined;
 }
 
-/** The suite a node belongs to, or the whole file when it is written at the top level. */
-function enclosingSuite(node: EsNode): EsNode {
+/**
+ * The suite a node belongs to, or the whole file when it is written at the top level.
+ *
+ * Exported because `no-overridden-provider` compares the same scopes for the same reason: a
+ * `TestBed.override*` decides what the tests of *its* block get, and nothing about the ones outside
+ * it.
+ */
+export function enclosingSuite(node: EsNode): EsNode {
+  return enclosingCallOf(node, SUITES) ?? programOf(node);
+}
+
+/** The `Program` a node belongs to — where {@link enclosingSuite} lands for a top-level statement. */
+function programOf(node: EsNode): EsNode {
   let current = node;
 
   while (current.type !== 'Program') {
-    if (isCallExpression(current) && isIdentifier(current.callee) && SUITES.has(current.callee.name)) {
-      return current;
-    }
-
     current = current.parent;
   }
 
   return current;
+}
+
+/**
+ * Whether a statement is reached by **every** test of its suite.
+ *
+ * True only for something written directly in a `beforeEach` / `beforeAll` body. A statement inside
+ * a helper the suite declares — `const setRemoteConfig = (on) => TestBed.overrideProvider(…)` — runs
+ * where it is called, and the call sites are the fact that decides the outcome; a statement inside an
+ * `it` decides for that test alone. `no-overridden-provider` needs this before it may call a
+ * registration dead, and the file that taught it is real: three tests of thirty-four called such a
+ * helper, so the provider it "replaced" is what the other thirty-one ran against.
+ */
+export function runsBeforeEveryTest(node: EsNode): boolean {
+  const enclosing = enclosingFunction(node);
+
+  return enclosing !== undefined && isNamedCall(enclosing.parent, HOOKS);
+}
+
+/**
+ * Whether a suite puts the testing module back, which makes a registration live again.
+ *
+ * The documented way out of both defects read off this scope — an eager injection before an
+ * override, and a registration an override replaces — so a suite that uses it has already thought
+ * about the ordering and is exempt from each.
+ */
+export function resetsTheTestingModule(suite: EsNode): boolean {
+  return countInSubtree(suite, (node) => isMemberCall(node, TEST_BED, RESETS), true) > 0;
 }
 
 /** Whether an override is written in the same hook, ahead of the injection — the one order that works. */
@@ -120,7 +159,7 @@ export function breaksAnOverride(injection: EsNode): boolean {
 
   const suite = enclosingSuite(injection);
 
-  if (countInSubtree(suite, (node) => isMemberCall(node, TEST_BED, RESETS), true) > 0) {
+  if (resetsTheTestingModule(suite)) {
     return false;
   }
 

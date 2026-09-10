@@ -125,6 +125,36 @@ describe('prefer-provide-auto-spy', () => {
     expect(lint('const nav = { go: vi.fn() };\nconst p = { provide: Nav, useValue: nav };', 'prefer-provide-auto-spy')).toHaveLength(1);
   });
 
+  it('follows a name a hook fills in, which is how a migrated suite writes one', () => {
+    // The shape a whole 170-file migration shard was written in: every one of its six
+    // `provideAutoSpy` opportunities was a `let` declared above and assigned in a `beforeEach`, and
+    // the report it drew instead came from `prefer-create-spy-from-class`, whose message never
+    // mentions `provideAutoSpy`.
+    const assigned = [
+      "describe('x', () => {",
+      '  let nav: { go: Mock };',
+      '  beforeEach(() => {',
+      '    nav = { go: vi.fn() };',
+      '    TestBed.configureTestingModule({ providers: [{ provide: NavService, useValue: nav }] });',
+      '  });',
+      '});',
+    ].join('\n');
+
+    expect(lines(assigned, 'prefer-provide-auto-spy')).toEqual([5]);
+  });
+
+  it('leaves a name assigned more than once alone', () => {
+    // From the second assignment on, what the name holds where it is used depends on run order.
+    const twice = [
+      'let nav;',
+      'beforeEach(() => { nav = { go: vi.fn() }; });',
+      'afterEach(() => { nav = { go: vi.fn(), back: vi.fn() }; });',
+      'const p = { provide: NavService, useValue: nav };',
+    ].join('\n');
+
+    expect(lint(twice, 'prefer-provide-auto-spy')).toEqual([]);
+  });
+
   it('sees a spy nested below the top level of the useValue', () => {
     expect(
       lint("const p = { provide: PLATFORM, useValue: { type: 'tizen', application: { init: vi.fn() } } };", 'prefer-provide-auto-spy'),
@@ -239,6 +269,69 @@ describe('prefer-provide-auto-spy', () => {
     ).toHaveLength(1);
     expect(lint('const p = { provide: A, useFactory: buildRealThing };', 'prefer-provide-auto-spy')).toEqual([]);
     expect(lint('const p = { provide: A, useFactory: () => new CartService() };', 'prefer-provide-auto-spy')).toEqual([]);
+  });
+
+  it('reads a stub class handed over by useExisting, not just by useClass', () => {
+    // `useExisting` aliases the token instead of constructing the stub per injector, and neither
+    // difference changes the repair. Reported from the class instead, it drew
+    // `no-stub-class-double`'s message, which recommends `createSpyFromClass` and cannot know DI is
+    // involved.
+    const existing = 'class NavMock { go = vi.fn(); }\nconst p = { provide: NavService, useExisting: NavMock };';
+
+    expect(lint(existing, 'prefer-provide-auto-spy')).toHaveLength(1);
+    expect(firstMessage(existing, 'prefer-provide-auto-spy')).toContain('stub class whose fields are `vi.fn()`s');
+    // Aliasing to a real class is the ordinary use of the slot.
+    expect(lint('const p = { provide: SPECIAL_OFFER_OPENER, useExisting: SpecialOfferOpenService };', 'prefer-provide-auto-spy')).toEqual(
+      [],
+    );
+    // …and so is aliasing to a class this file cannot read.
+    expect(
+      lint("import { NavMock } from './nav.mock';\nconst p = { provide: NavService, useExisting: NavMock };", 'prefer-provide-auto-spy'),
+    ).toEqual([]);
+  });
+
+  it('flags a hand-rolled double handed to TestBed.overrideProvider', () => {
+    // The same substitution from outside a `providers` array, and the `provide:` this rule looks for
+    // is not there — the token is argument 0. 33 of one consumer's 61 override calls hand over an
+    // object literal, and nothing reported any of them.
+    expect(lint('TestBed.overrideProvider(CartService, { useValue: { total: vi.fn() } });', 'prefer-provide-auto-spy')).toEqual([
+      'vitest-auto-spy/prefer-provide-auto-spy',
+    ]);
+    // Chained off the configuration call, which is how most of them are written — a selector naming
+    // `TestBed` would match none of these.
+    expect(
+      lint('TestBed.configureTestingModule({}).overrideProvider(Cart, { useValue: { total: vi.fn() } });', 'prefer-provide-auto-spy'),
+    ).toHaveLength(1);
+    // A name above the call is followed here too.
+    expect(
+      lint('const cart = { total: vi.fn() };\nTestBed.overrideProvider(Cart, { useValue: cart });', 'prefer-provide-auto-spy'),
+    ).toHaveLength(1);
+    // A stub class and a factory reach the same message.
+    expect(
+      lint('class CartMock { total = vi.fn(); }\nTestBed.overrideProvider(Cart, { useClass: CartMock });', 'prefer-provide-auto-spy'),
+    ).toHaveLength(1);
+    expect(lint('TestBed.overrideProvider(Cart, { useFactory: () => ({ total: vi.fn() }) });', 'prefer-provide-auto-spy')).toHaveLength(1);
+  });
+
+  it('says where the replacement goes at an override call site', () => {
+    const message = firstMessage('TestBed.overrideProvider(Cart, { useValue: { total: vi.fn() } });', 'prefer-provide-auto-spy');
+
+    // The recommendation has to be the one that fits this call site: `provideAutoSpy` returns
+    // `{ provide, useValue }`, which is why it can be handed straight to `overrideProvider`.
+    expect(message).toContain('TestBed.overrideProvider(X, provideAutoSpy(X))');
+    expect(message).toContain('provideAutoSpyForToken(TOKEN)');
+    // …and the one case where the override is not the thing to delete.
+    expect(message).toContain('component under test declares its own `providers`');
+  });
+
+  it('leaves an override that already hands over an auto-spy alone', () => {
+    // The idiom one consumer settled on, 28 of its 61 override calls: the fix, not the problem.
+    expect(lint('TestBed.overrideProvider(Cart, provideAutoSpy(Cart));', 'prefer-provide-auto-spy')).toEqual([]);
+    expect(lint('TestBed.overrideProvider(Cart, { useValue: createSpyFromClass(Cart) });', 'prefer-provide-auto-spy')).toEqual([]);
+    // Nothing to read: no descriptor, a descriptor that is a name, and an empty double.
+    expect(lint('TestBed.overrideProvider(Cart);', 'prefer-provide-auto-spy')).toEqual([]);
+    expect(lint('TestBed.overrideProvider(Cart, descriptor);', 'prefer-provide-auto-spy')).toEqual([]);
+    expect(lint('TestBed.overrideProvider(KdsTvDomUtilsService, { useValue: {} });', 'prefer-provide-auto-spy')).toEqual([]);
   });
 
   it('points at the README recipe', () => {
@@ -1241,6 +1334,144 @@ describe('no-overridden-provider', () => {
     expect(firstMessage(shadowed, 'no-overridden-provider')).toContain('the one on line 1 is what DI hands out');
     expect(suggestionsFor(shadowed, 'no-overridden-provider')).toEqual([]);
   });
+
+  /**
+   * The second half of the same defect, one statement further out: `TestBed.overrideProvider` wins
+   * over a module provider whenever it runs, so a registration for the same token is dead.
+   *
+   * Found in a migration and reproduced on the consumer it came from: 9 reports in 5 files, and the
+   * shape of them is the interesting one — `provideAutoSpy(TvDevicesService, { instanceMethodsToSpyOn:
+   * ['getDevices'] })` in the array, buried by a bare `provideAutoSpy(TvDevicesService)` in the
+   * override, so the spy the spec configured is not the spy it got.
+   */
+  const overridden = (registration: string, override: string, hook = 'beforeEach'): string =>
+    [
+      "describe('page', () => {",
+      `  ${hook}(() => {`,
+      `    TestBed.configureTestingModule({ providers: [${registration}] })`,
+      `      .${override};`,
+      '  });',
+      '});',
+    ].join('\n');
+
+  it('flags a registration a TestBed.overrideProvider in the same hook replaces', () => {
+    const buried = overridden('provideAutoSpy(TvDevicesService)', 'overrideProvider(TvDevicesService, { useValue: devices })');
+
+    expect(lines(buried, 'no-overridden-provider')).toEqual([3]);
+    expect(firstMessage(buried, 'no-overridden-provider')).toContain('`TestBed.overrideProvider(TvDevicesService)` on line 4');
+    // Whatever the registration is spelled as, and whatever the override hands over.
+    expect(
+      lint(overridden('{ provide: A, useValue: mock }', 'overrideProvider(A, provideAutoSpy(A))'), 'no-overridden-provider'),
+    ).toHaveLength(1);
+    expect(
+      lint(overridden('provideAutoSpyForToken(TOKEN)', 'overrideProvider(TOKEN, { useValue: {} })'), 'no-overridden-provider'),
+    ).toHaveLength(1);
+    // `beforeAll` reaches every test of the suite the same way.
+    expect(
+      lint(overridden('provideAutoSpy(A)', 'overrideProvider(A, { useValue: mock })', 'beforeAll'), 'no-overridden-provider'),
+    ).toHaveLength(1);
+  });
+
+  it('leaves the registration alone when the override does not run for every test', () => {
+    // An override parked in a helper runs where the helper is called, and the call sites are the
+    // fact that decides the outcome. The file that taught this registers three tokens and overrides
+    // each of them from a helper three of its thirty-four tests call.
+    const helper = [
+      "describe('page', () => {",
+      '  const setRemoteConfig = (on) => TestBed.overrideProvider(RemoteConfigService, { useValue: { isKeyEnabled: () => on } });',
+      '  beforeEach(() => {',
+      '    TestBed.configureTestingModule({ providers: [{ provide: RemoteConfigService, useValue: { isKeyEnabled: () => false } }] });',
+      '  });',
+      "  it('reads the default', () => { expect(1).toBe(1); });",
+      "  it('reads the override', () => { setRemoteConfig(true); });",
+      '});',
+    ].join('\n');
+
+    expect(lint(helper, 'no-overridden-provider')).toEqual([]);
+
+    // An override inside one test decides for that test alone.
+    const inTest = [
+      "describe('page', () => {",
+      '  beforeEach(() => { TestBed.configureTestingModule({ providers: [provideAutoSpy(A)] }); });',
+      "  it('overrides', () => { TestBed.overrideProvider(A, { useValue: mock }); });",
+      '});',
+    ].join('\n');
+
+    expect(lint(inTest, 'no-overridden-provider')).toEqual([]);
+    // At module scope there is no hook to be inside of.
+    expect(
+      lint(
+        'TestBed.configureTestingModule({ providers: [provideAutoSpy(A)] });\nTestBed.overrideProvider(A, { useValue: mock });',
+        'no-overridden-provider',
+      ),
+    ).toEqual([]);
+  });
+
+  it('leaves the registration alone when the override belongs to a nested suite', () => {
+    // The override replaces the provider for the tests of its own block; every other test still
+    // gets the registration, so it is not dead. The consumer has this exact shape.
+    const nested = [
+      "describe('page', () => {",
+      '  beforeEach(() => { TestBed.configureTestingModule({ providers: [provideAutoSpy(ErrorService)] }); });',
+      "  describe('empty', () => {",
+      '    beforeEach(() => { TestBed.overrideProvider(ErrorService, { useValue: mock }); });',
+      '  });',
+      '});',
+    ].join('\n');
+
+    expect(lint(nested, 'no-overridden-provider')).toEqual([]);
+  });
+
+  it('leaves a suite that resets the testing module alone', () => {
+    // The documented way of putting the module back, after which the registration is live again.
+    const reset = [
+      "describe('page', () => {",
+      '  beforeEach(() => {',
+      '    TestBed.configureTestingModule({ providers: [provideAutoSpy(A)] });',
+      '    TestBed.overrideProvider(A, { useValue: mock });',
+      '  });',
+      "  it('starts over', () => { TestBed.resetTestingModule(); });",
+      '});',
+    ].join('\n');
+
+    expect(lint(reset, 'no-overridden-provider')).toEqual([]);
+  });
+
+  it('reads only what an override can actually bury', () => {
+    // A multi registration accumulates rather than being replaced.
+    expect(
+      lint(overridden('{ provide: T, useValue: a, multi: true }', 'overrideProvider(T, { useValue: b })'), 'no-overridden-provider'),
+    ).toEqual([]);
+    // A different token, and a call with no token to read.
+    expect(lint(overridden('provideAutoSpy(A)', 'overrideProvider(B, { useValue: mock })'), 'no-overridden-provider')).toEqual([]);
+    expect(lint(overridden('provideAutoSpy(A)', 'overrideProvider()'), 'no-overridden-provider')).toEqual([]);
+    // An array that is not a testing module's `providers`.
+    expect(
+      lint(
+        "describe('x', () => { beforeEach(() => { const p = [provideAutoSpy(A)]; TestBed.overrideProvider(A, { useValue: m }); }); });",
+        'no-overridden-provider',
+      ),
+    ).toEqual([]);
+    // A decorated class's own providers are the component's, and an override reaching them is the
+    // documented workaround rather than a defect.
+    const host = [
+      "describe('x', () => {",
+      '  @Component({ providers: [provideAutoSpy(A)] })',
+      '  class Host {}',
+      '  beforeEach(() => { TestBed.overrideProvider(A, { useValue: mock }); });',
+      '});',
+    ].join('\n');
+
+    expect(lint(host, 'no-overridden-provider')).toEqual([]);
+  });
+
+  it('reports a provider the array already buried only once', () => {
+    // Two reports for one dead provider would make the count of a cleared suite meaningless.
+    const both = overridden('provideAutoSpy(A), provideAutoSpy(A)', 'overrideProvider(A, { useValue: mock })');
+
+    expect(lint(both, 'no-overridden-provider')).toHaveLength(2);
+    expect(lines(both, 'no-overridden-provider')).toEqual([3, 3]);
+  });
 });
 
 describe('no-inject-before-override', () => {
@@ -1574,15 +1805,31 @@ describe('the plugin', () => {
     // itself wherever it cannot read a file's registrations in full, and `prefer-native-spy-api`
     // flags a bridge that is still needed. Documented overrides, not severities.
     //
-    // `prefer-render-shallow` is the one severity the plugin does grade, and it is not a fourth
-    // entry on that list: the other twenty-two name something wrong or dead, while this one names a
-    // file that could render more cheaply. Moving onto `renderShallow` is a choice a suite makes,
-    // and at `error` the plugin would gate it — 491 findings across 398 of one consumer's 1759 spec
-    // files, i.e. a `recommended` that exists to be overridden. `off` would be the wrong end of the
-    // same mistake, so the assertion pins the value rather than allowing "not error".
+    // Three rules are graded, and the reason differs between them.
+    //
+    // `prefer-render-shallow` is graded on the *kind* of thing it says: the others name something
+    // wrong or dead, while this one names a file that could render more cheaply. Moving onto
+    // `renderShallow` is a choice a suite makes, and at `error` the plugin would gate it — 491
+    // findings across 398 of one consumer's 1759 spec files, i.e. a `recommended` that exists to be
+    // overridden.
+    //
+    // `no-stub-class-double` and `no-structural-double` are graded on the *evidence*. Both report a
+    // real defect, the same drift `prefer-create-spy-from-class` reports, but both decide it on a
+    // heuristic that has no `provide:` next to it to settle the question — a class whose fields are
+    // `vi.fn()`s, an object whose declared type is an object of `Mock`s. Measured on the same 1759
+    // files against the same plugin: `no-stub-class-double` reports 12 in 8 files and
+    // `no-structural-double` 115 in 74, on a suite that is green under every `error` rule here.
+    // A project that disagrees with either heuristic has to be able to say so without losing the
+    // count-based rule, which is why they are rules of their own rather than arms of it — and a
+    // hundred-odd new errors on the first upgrade is the wrong way to introduce a heuristic.
+    //
+    // `off` would be the wrong end of the same mistake in all three cases, so the assertions pin the
+    // values rather than allowing "not error".
     expect(new Set(levels)).toEqual(new Set(['error', 'warn']));
     expect(plugin.configs.recommended.rules['vitest-auto-spy/prefer-render-shallow']).toBe('warn');
-    expect(levels.filter((level) => level !== 'error')).toHaveLength(1);
+    expect(plugin.configs.recommended.rules['vitest-auto-spy/no-stub-class-double']).toBe('warn');
+    expect(plugin.configs.recommended.rules['vitest-auto-spy/no-structural-double']).toBe('warn');
+    expect(levels.filter((level) => level !== 'error')).toHaveLength(3);
     expect(levels).toHaveLength(Object.keys(rules).length);
   });
 
