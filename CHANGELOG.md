@@ -170,6 +170,36 @@ The latest released version here must always match the one published on
 
 ### Fixed
 
+- **Two pieces of state this release added were per-bundle, and only the published package could
+  show it.** tsup inlines the core into every entry bundle, so a module-scoped variable is one
+  variable per entry point — and both new features are split across entry points by construction.
+  `registerAutoSpyDefaults` in a setup file importing `vitest-auto-spy` did not reach a
+  `createSpyFromClass` importing `vitest-auto-spy/vue`; the registration went into the root bundle's
+  map and the double was built from the Vue bundle's empty one, with nothing said. Worse, the
+  outside-a-hook epoch: `setupAutoSpy` ships only from `vitest-auto-spy/setup` and the `mock*Prop`
+  helpers only from the core entries, so the `beforeEach` advancing the counter and the call
+  stamping a patch with it were **always** in different bundles — every correctly placed
+  `mockValueProp` came out stamped `0` against a sweep counting from its own copy, and the new
+  report fired on exactly the code it exists to bless, once per patch per test, on the default
+  `'warn'`. Both now live on `globalThis`, where the patch journal already did for a related reason.
+  Every spec in `src/**` imports source, where there is one module and no split, which is why a
+  green gate said nothing; `smoke:dist` grew a case for each, and it now runs five cross-entry
+  checks over the built package instead of three.
+
+- **A rule that asks for types could take the whole lint run down, and on CI it did.**
+  `no-private-member-access` asks the checker to resolve a member, which makes TypeScript check the
+  file — and building one of *its* error messages throws on TypeScript 6.0.3 when the message has to
+  name a symbol from another module and the program carries neither `paths` nor `baseUrl`
+  (`getLocalModuleSpecifier` reads a path that is `undefined`). That program is precisely what
+  `@typescript-eslint/parser` falls back to: an isolated one-file program, handed over the **second**
+  time a single file is parsed in single-run mode — a mode it infers from `CI=true`, so the failure
+  exists only where nobody debugs. The throw came back out of the rule and ended the run, taking
+  every other rule's findings with it. The rule now answers a compiler that throws the way it already
+  answers a parser with no program at all: silence, because a program that cannot see the class has
+  nothing to say about it. Two tests pin it — one hands the rule a checker that throws, one parses
+  one file twice with the inference on — and the rule's own suite no longer changes behaviour with
+  the environment.
+
 - **A `mock*Prop` patch made outside a per-test hook is now reported instead of quietly expiring.**
   `restoreProps` undoes a patch after the test **during which it was applied**, whenever it was
   created — so one written in a `describe` body, or in `beforeAll`, survives exactly one test and is
@@ -234,6 +264,33 @@ The latest released version here must always match the one published on
 - **The Rstest entry no longer passes `rstest.spyOn` to the adapter**, since accessor spies are
   installed by redefinition on every runtime now. `RstestApi` is `{ fn }` alone.
 
+### Internal
+
+- **The `node:test` adapter is now proven on `node:test`.** It was the one adapter with no suite of
+  its own: `src/bun-tests/` runs the Bun entry on Bun and `src/rstest-tests/` runs Rstest through its
+  bundler, while everything Node-shaped was asserted against a stub under Vitest — which cannot load
+  `node:test` at all. `npm run test:node` runs `src/node-tests/` (27 tests over the core surface, the
+  mock naming, the swappable tracker and the emission helpers) on the real runner, and it is in the
+  gate and in the CI matrix, so it runs across the whole declared `engines` range. The suite loads
+  the TypeScript sources directly through `scripts/node-ts-resolve.mjs` rather than a bundle, because
+  `sideEffects: false` lets any bundler tree-shake `src/node.ts`'s `registerMockAdapter(...)` call
+  away — which would quietly delete the thing the suite exists to prove. What it does prove that
+  nothing else could: a spy reports the method's own name to `util.inspect()` and to `node:assert`
+  diffs, and keeps it through `resetCalls()`, `restore()` and a tracker-wide `mock.reset()`.
+
+- **`bench:check --update` stamped the wrong command over every baseline it rewrote.**
+  `scripts/bench-check.mjs` hard-coded the *self*-benchmark's command line into `generated.command`,
+  so regenerating `bench-angular/baseline.json` recorded a recipe that had never produced it — and
+  dropped `generated.note`, the paragraph saying why those numbers were not re-measured for the
+  Vitest 5 port. Both went back in by hand after every run, which is the kind of step that gets
+  skipped once and then believed. `--update` now rewrites only what the run measured — ratios,
+  reference arms, date, Node version — and carries the command and the note forward from the file it
+  overwrites; `--command "<text>"` records a new line when the recipe itself changes. Argument
+  parsing marks the indices a value-taking flag consumes instead of testing the one position after
+  `--baseline`, so a value that looks like a results path or like a flag is no longer mistaken for
+  one, and `--help` reads the header up to the first non-comment line rather than to a hard-coded
+  line number.
+
 ### Size and memory
 
 `/eslint-plugin` is **+3.33 kB** (18 229 → 21 564 B min+gzip, +18.3 %), and all of it is the three
@@ -242,17 +299,26 @@ largest of the three), `no-dead-schemas` (123) and `prefer-observer-stub` (252),
 `rule-types` surface the type-aware one needs. The entry is a subpath no runtime imports — a lint
 config loads it, a spec never does — so the weight lands on the ESLint process and on nothing else.
 
-The other entries move by what the release added to the core: **+697 B** on `.` / `/react` / `/vue`
-/ `/svelte` / `/rstest` (+4.6 %) and +520…600 B on `/bun`, `/node` and `/bun-angular`, which is
-`registerAutoSpyDefaults` and its merge (145 lines) plus the epoch journal behind the
-outside-a-hook report (117). `/setup` is **+539 B** (+4.3 %) for the report itself, and `/angular`
-**+1.08 kB** (+5.8 %) for `shadowedProviders` and `assertNoShadowedProviders` — the component-def
-walk and the injector comparison behind them. `/rxjs`, `/diagnostics`, `/angular-http`,
-`/jasmine-compat`, `/observer-spy` and `/zone` are unchanged.
+The other entries move by what the release added to the core: **+760 B** on `.` / `/rstest` (+5.0 %)
+and +750 B on `/react`, `/vue` and `/svelte` (+4.9 %), +570…680 B on `/bun`, `/node` and
+`/bun-angular`, which is `registerAutoSpyDefaults` and its merge (145 lines) plus the epoch journal
+behind the outside-a-hook report (117). `/setup` is **+570 B** (+4.6 %) for the report itself, and
+`/angular` **+1.18 kB** (+6.3 %) for `shadowedProviders` and `assertNoShadowedProviders` — the
+component-def walk and the injector comparison behind them. `/jasmine` and `/nestjs` take **+230 B**
+each and `/console` and `/dom-stubs` **+100…120 B**, all under 2.5 % — the share of the same core
+each of them pulls in. `/rxjs`, `/diagnostics`, `/angular-http`, `/jasmine-compat`, `/observer-spy`
+and `/zone` are unchanged.
 
-Memory is flat and both timings improved: **2.89 kB per spied method, unchanged** over 100 000 of
-them, spy creation **21.03 → 18.78 µs** (−10.7 %) and the first call of every method **4 410 →
-4 174 ns** (−5.4 %), measured on the `/node` entry against the published 5.1.0.
+Memory is flat — **2.89 kB per spied method, unchanged** over 100 000 of them — and so is the first
+call of every method, at **4 265 ns** either side. **Spy creation costs about 7 % more**: 18.5…20.4
+against 20.3…21.9 µs on a 100-method class, five independent runs of a median of seven landing
+between +4.9 % and +9.8 %, so the spread is wide but the sign never turns. It is
+`mergeAutoSpyDefaults` on the creation path — every `createSpyFromClass` now asks the registry
+whether the class has one, and building the same package with that one call removed puts creation
+back to parity (−6.5 % and +0.6 % on two runs). About **1.4 µs on a 100-method double, 14 ns per
+spied method**, against a feature that removes a repeated configuration from every spec that doubles
+the class; kept, and the number is written down here so a later release cannot spend it twice.
+Measured on the `/node` entry against the published 5.1.0.
 
 ## [5.1.0] - 2026-09-09
 
