@@ -31,11 +31,14 @@ import {
   type ProxyPropStore,
   createProxyPropStore,
   describeStoredProp,
+  dropStoredProp,
   hasStoredProp,
   isDeletedProp,
   isProtocolKey,
   readStoredAccessor,
-  storeWriteTraps,
+  storeDefinedProp,
+  writeStoredAccessor,
+  writeStoredValue,
 } from './proxy-props';
 import { disposeAutoSpy } from './reset-auto-spy';
 import { AUTO_SPY_MARK } from './spy-mark';
@@ -68,10 +71,12 @@ export function createAutoMock<T, Options extends SpyOptions = SpyOptions>(
   // knows about the double.
   const unstubbed = resolveUnstubbedGuard(undefined, { strict: config?.strict, onUnstubbedCall: config?.onUnstubbedCall });
 
+  const target: Record<PropertyKey, unknown> = { [INTERNALS]: { store: createProxyPropStore(overrides ?? {}), unstubbed } };
+
   // The Proxy assembles `T`'s spy surface lazily from runtime-accessed keys, so
   // its concrete `Spy<T>` shape only exists structurally, not statically.
   // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- the auto-mock is built dynamically from runtime-accessed keys; its `Spy<T>` shape cannot be expressed before access.
-  const mock = new Proxy<Record<PropertyKey, unknown>>({}, createAutoMockHandler(overrides ?? {}, unstubbed)) as Spy<T, Options>;
+  const mock = new Proxy<Record<PropertyKey, unknown>>(target, AUTO_MOCK_HANDLER) as Spy<T, Options>;
 
   applyObservableProps(mock, config?.observablePropsToSpyOn);
   applyMockReturns(mock, config?.returns);
@@ -190,26 +195,62 @@ function applyMockReturns(mock: object, returns: MethodReturns<never> | undefine
   }
 }
 
-/** Build the handler that gives an auto-mock its behaviour. */
-function createAutoMockHandler(seed: object, unstubbed: UnstubbedGuard | undefined): ProxyHandler<Record<PropertyKey, unknown>> {
-  const store = createProxyPropStore(seed);
+/**
+ * Where a double keeps everything its traps need, so the traps themselves can be one set for the run.
+ *
+ * On the proxy's own target rather than in a closure: a handler built per double is an object and
+ * seven closures per double, and none of them differ except in what they close over. The key is a
+ * module-private symbol, the target is extensible and the property is configurable, so no proxy
+ * invariant obliges `has` / `ownKeys` / `getOwnPropertyDescriptor` to admit it exists.
+ */
+const INTERNALS = Symbol('vitest-auto-spy.autoMock.internals');
 
-  return {
-    get: (_target, key, receiver): unknown => readKey(store, key, receiver, unstubbed),
-
-    ...storeWriteTraps<Record<PropertyKey, unknown>>(store),
-
-    has(_target, key): boolean {
-      return key === AUTO_SPY_MARK || key === DISPOSE || hasStoredProp(store, key);
-    },
-
-    ownKeys(): (string | symbol)[] {
-      return [...new Set([...store.values.keys(), ...store.accessors.keys()])];
-    },
-
-    getOwnPropertyDescriptor: (_target, key): PropertyDescriptor | undefined => describeStoredProp(store, key),
-  };
+interface AutoMockInternals {
+  readonly store: ProxyPropStore;
+  readonly unstubbed: UnstubbedGuard | undefined;
 }
+
+function internalsOf(target: object): AutoMockInternals {
+  // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- every target reaching these traps was built by `createAutoMock` two lines above, with this key on it.
+  return Reflect.get(target, INTERNALS) as AutoMockInternals;
+}
+
+/** The handler that gives every auto-mock its behaviour. */
+const AUTO_MOCK_HANDLER: ProxyHandler<Record<PropertyKey, unknown>> = {
+  get(target, key, receiver): unknown {
+    const { store, unstubbed } = internalsOf(target);
+
+    return readKey(store, key, receiver, unstubbed);
+  },
+
+  // The traps that route every write into the store — see `proxy-props.ts` for why their absence
+  // was silent rather than loud.
+  set(target, key, value, receiver): boolean {
+    const { store } = internalsOf(target);
+
+    if (!writeStoredAccessor(store, key, value, receiver)) {
+      writeStoredValue(store, key, value);
+    }
+
+    return true;
+  },
+
+  defineProperty: (target, key, descriptor): boolean => storeDefinedProp(internalsOf(target).store, key, descriptor),
+
+  deleteProperty: (target, key): boolean => dropStoredProp(internalsOf(target).store, key),
+
+  has(target, key): boolean {
+    return key === AUTO_SPY_MARK || key === DISPOSE || hasStoredProp(internalsOf(target).store, key);
+  },
+
+  ownKeys(target): (string | symbol)[] {
+    const { store } = internalsOf(target);
+
+    return [...new Set([...store.values.keys(), ...store.accessors.keys()])];
+  },
+
+  getOwnPropertyDescriptor: (target, key): PropertyDescriptor | undefined => describeStoredProp(internalsOf(target).store, key),
+};
 
 /** Answer one property read: a patched accessor, a known value, the brand, the dispose hook, or a freshly-made spy. */
 function readKey(store: ProxyPropStore, key: string | symbol, receiver: unknown, unstubbed: UnstubbedGuard | undefined): unknown {
