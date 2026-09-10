@@ -6,8 +6,15 @@
  * `get`/`set` of `target[property]` with a host mock (built by the adapter's own
  * `createMockFn`) by redefining the property — so every adapter that lacks a
  * native accessor spy shares one implementation.
+ *
+ * The wrapper that turns a non-configurable property into a diagnosable failure lives here too,
+ * next to the `defineProperty` that raises it. It used to sit in `mock-adapter.ts`, which is one of
+ * the modules pinned into `dist/shared-state.js`: that pulled `redefine-failure` and its message
+ * into the shared file as well, where it was a second copy of code every entry's own graph already
+ * carried. Moving it out took 2.4 kB off that file.
  */
 import type { MockAdapter, MockFn } from './mock-adapter';
+import { isCannotRedefine, redefineFailure } from './redefine-failure';
 import type { Func } from './types';
 
 /** The adapter's mock factory, narrowed to the single argument this helper passes. */
@@ -72,4 +79,38 @@ export function spyOnAccessorByRedefine(createMockFn: CreateMockFn, target: obje
   Object.defineProperty(target, property, descriptor);
 
   return mock;
+}
+
+/** Run an accessor spy, translating a non-configurable property into a failure that names the way out. */
+function spyOrExplain(spy: () => MockFn, target: object, property: string, accessor: 'get' | 'set'): MockFn {
+  try {
+    return spy();
+  } catch (error) {
+    if (isCannotRedefine(error)) {
+      throw redefineFailure(
+        `Cannot spy on the '${accessor}' accessor of '${property}': the property is not configurable, so it cannot be redefined.`,
+        target,
+        error,
+      );
+    }
+
+    throw error;
+  }
+}
+
+/**
+ * Wrap an adapter so its two accessor spies report a non-configurable property in full.
+ *
+ * Applied by each adapter to itself rather than by `registerMockAdapter`, so the exported
+ * adapter object and the registered one stay the same value — and so an adapter used directly (the
+ * Bun and Node factories are exported) carries the diagnostic too.
+ */
+export function guardAccessorSpies(adapter: MockAdapter): MockAdapter {
+  return {
+    ...adapter,
+    spyOnGetter: (target: object, property: string): MockFn =>
+      spyOrExplain(() => adapter.spyOnGetter(target, property), target, property, 'get'),
+    spyOnSetter: (target: object, property: string): MockFn =>
+      spyOrExplain(() => adapter.spyOnSetter(target, property), target, property, 'set'),
+  };
 }

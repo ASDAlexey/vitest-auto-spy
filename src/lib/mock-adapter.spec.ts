@@ -8,14 +8,8 @@
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import {
-  type MockAdapter,
-  getMockAdapter,
-  guardAccessorSpies,
-  hasMockAdapter,
-  registerMockAdapter,
-  resetMockAdapter,
-} from './mock-adapter';
+import { type MockAdapter, getMockAdapter, hasMockAdapter, registerMockAdapter, resetMockAdapter } from './mock-adapter';
+import { guardAccessorSpies } from './redefine-accessor-spy';
 
 const fakeAdapter: MockAdapter = {
   createMockFn: () => () => undefined,

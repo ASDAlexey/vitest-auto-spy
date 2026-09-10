@@ -11,8 +11,8 @@ import { type Mock, vi } from 'vitest';
 
 import { SWEEP_SENTINEL } from './constants';
 import { clearAllFastSpies, createFastSpy, resetAllFastSpies } from './fast-spy';
-import { type MockAdapter, type MockFn, guardAccessorSpies } from './mock-adapter';
-import { spyOnAccessorByRedefine } from './redefine-accessor-spy';
+import type { MockAdapter, MockFn } from './mock-adapter';
+import { guardAccessorSpies, spyOnAccessorByRedefine } from './redefine-accessor-spy';
 import { getSpyEngine } from './spy-engine';
 import type { Func } from './types';
 

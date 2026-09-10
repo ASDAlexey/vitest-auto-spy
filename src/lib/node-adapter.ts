@@ -11,8 +11,8 @@
  * bare argument array) and resets via `mock.resetCalls()`, so `getCalls` /
  * `reset` adapt that shape. Accessor spies reuse the shared redefine helper.
  */
-import { type MockAdapter, type MockFn, guardAccessorSpies } from './mock-adapter';
-import { createRedefineMockAdapter } from './redefine-accessor-spy';
+import type { MockAdapter, MockFn } from './mock-adapter';
+import { createRedefineMockAdapter, guardAccessorSpies } from './redefine-accessor-spy';
 import type { Func } from './types';
 
 /** A `node:test` mock function — the surface this adapter relies on. */
