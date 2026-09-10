@@ -26,6 +26,17 @@ import type { EsMemberExpression, ParserServices, RuleContext } from './rule-typ
  * fixtures live in a throwaway directory rather than under the repository. */
 let linter: Linter;
 
+/**
+ * Single-run inference off, because this suite lints one fixture more than once.
+ *
+ * `@typescript-eslint/parser` infers a "single run" from `CI=true` or an `eslint` binary in `argv`,
+ * and in that mode the **second** parse of a file falls back to an isolated one-file program — no
+ * `./card`, no `paths`, no `baseUrl`. Left inferred, this file passes on a laptop and fails on a
+ * runner. The option is the parser's own opt-out, and it is what makes the program the same one in
+ * both places.
+ */
+const TYPED = { disallowAutomaticSingleRunInference: true } as const;
+
 /** The class every fixture reads, with one member of each shape a modifier can be spelled on. */
 const CARD = `
 export class Card {
@@ -73,6 +84,7 @@ const FIXTURES: Record<string, string> = {
     'declare const vi: { spyOn(target: object, key: string): void };\n' +
     'declare const card: Card;\n' +
     "vi.spyOn(Object.getPrototypeOf(card), 'hide');\n",
+  'single-run.spec.ts': "import { Card } from './card';\ndeclare const card: Card;\nvoid card['secret'];\n",
   'ordinary-spy.spec.ts':
     "import { Card } from './card';\n" +
     'declare const vi: { spyOn(target: object, key: string): void };\n' +
@@ -107,6 +119,22 @@ afterAll(() => {
 
 /** Lint one fixture with the rule on and a real program behind it. */
 function lintTyped(fixture: string): LintMessage[] {
+  return linter.verify(
+    FIXTURES[fixture] ?? '',
+    [
+      {
+        files: ['**/*.ts'],
+        languageOptions: { parser: tsParser, parserOptions: { ...TYPED, project: ['./tsconfig.json'], tsconfigRootDir: root } },
+        plugins: { 'vitest-auto-spy': plugin },
+        rules: { 'vitest-auto-spy/no-private-member-access': 'error' },
+      },
+    ],
+    fixture,
+  );
+}
+
+/** The same lint with the inference left alone, which is what a runner gets. */
+function lintInferred(fixture: string): LintMessage[] {
   return linter.verify(
     FIXTURES[fixture] ?? '',
     [
@@ -241,5 +269,44 @@ describe('hiddenMemberOf without a full set of services', () => {
     ['a program but no maps', { program: { getTypeChecker: () => ({ getTypeAtLocation: () => ({ getProperty: () => undefined }) }) } }],
   ])('answers nothing given %s', (_case, services: ParserServices) => {
     expect(hiddenMemberOf(contextWith(services), node)).toBeUndefined();
+  });
+
+  it('answers nothing when the checker throws instead of answering', () => {
+    const throwing = {
+      program: {
+        getTypeChecker: () => ({
+          getTypeAtLocation: () => {
+            throw new TypeError("Cannot read properties of undefined (reading 'includes')");
+          },
+        }),
+      },
+      esTreeNodeToTSNodeMap: { get: () => ({}) },
+      tsNodeToESTreeNodeMap: { get: () => undefined },
+    } as unknown as ParserServices;
+    const computed = { type: 'MemberExpression', computed: true, object: {}, property: {} } as unknown as EsMemberExpression;
+
+    expect(hiddenMemberOf(contextWith(throwing), computed)).toBeUndefined();
+  });
+});
+
+/**
+ * The failure that got past every local run and took a release build down.
+ *
+ * `@typescript-eslint/parser` infers a single run from `CI=true`, and in that mode the second parse
+ * of one file falls back to an isolated one-file program. TypeScript 6.0.3 then throws while
+ * building an error message for it — `getLocalModuleSpecifier` on a program with neither `paths` nor
+ * `baseUrl` — and the throw came back out of the rule and ended the whole lint run. The isolated
+ * program cannot see `./card`, so nothing to report is the right answer; the crash was not.
+ */
+describe('a second parse of one file in single-run mode', () => {
+  it('reports on the first parse and stays silent on the second, rather than throwing', () => {
+    process.env['TSESTREE_SINGLE_RUN'] = 'true';
+
+    try {
+      expect(lintInferred('single-run.spec.ts')).toHaveLength(1);
+      expect(lintInferred('single-run.spec.ts')).toEqual([]);
+    } finally {
+      delete process.env['TSESTREE_SINGLE_RUN'];
+    }
   });
 });

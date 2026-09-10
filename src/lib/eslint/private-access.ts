@@ -159,14 +159,8 @@ function accessedName(services: TypeServices, node: EsMemberExpression): string 
   return isCast(node.object) && isIdentifier(node.property) ? node.property.name : undefined;
 }
 
-/** The member `node` reads, when the checker resolves it to one the class hid. */
-export function hiddenMemberOf(context: RuleContext, node: EsMemberExpression): HiddenMember | undefined {
-  const services = typeServices(context);
-
-  if (!services) {
-    return undefined;
-  }
-
+/** The member `node` reads, once the checker has resolved it. */
+function resolveHiddenMember(services: TypeServices, node: EsMemberExpression): HiddenMember | undefined {
   const name = accessedName(services, node);
 
   if (name === undefined) {
@@ -178,6 +172,31 @@ export function hiddenMemberOf(context: RuleContext, node: EsMemberExpression): 
   const accessibility = declarations && hiddenBy(declarations);
 
   return accessibility === undefined ? undefined : { accessibility, name };
+}
+
+/**
+ * The member `node` reads, when the checker resolves it to one the class hid.
+ *
+ * Asking for a type makes the compiler check the file, and **building one of its error messages can
+ * throw**: on TypeScript 6.0.3 a message that has to name a symbol from another module dies in
+ * `getLocalModuleSpecifier` when the program carries neither `paths` nor `baseUrl` — which is
+ * exactly the isolated program `@typescript-eslint/parser` falls back to when one file is parsed a
+ * second time in single-run mode (`CI=true`, or an `eslint` binary in `argv`). A program that knows
+ * nothing is a case this rule already answers with silence; a rule that rethrows takes the whole
+ * lint run with it, and every other rule's findings go with it.
+ */
+export function hiddenMemberOf(context: RuleContext, node: EsMemberExpression): HiddenMember | undefined {
+  const services = typeServices(context);
+
+  if (!services) {
+    return undefined;
+  }
+
+  try {
+    return resolveHiddenMember(services, node);
+  } catch {
+    return undefined;
+  }
 }
 
 /** Whether a call is `vi.spyOn(Object.getPrototypeOf(x), …)`, or the `jest` spelling of it. */
