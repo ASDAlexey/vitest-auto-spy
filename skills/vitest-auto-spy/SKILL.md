@@ -338,6 +338,15 @@ evidence that the types still hold. Where it cannot prove the rename it downgrad
 accept those together with the repair at the creation site, usually `createAutoMock<T>()` in place of
 an object literal.
 
+**`registerAutoSpyDefaults(Class, config)` puts a spy's composition with the class, once.** Call it
+from the setup file for a class every suite doubles the same way (`Router` with
+`observablePropsToSpyOn: ['events']`, a remote-config service with its one getter); `provideAutoSpy(X)`
+and `createSpyFromClass(X)` then merge it under whatever the call site adds — lists unioned, `returns`
+and `overrides` merged per key, scalars won by the call site. It is by class identity, not by
+inheritance. Reach for it when the same class carries different configurations in different specs:
+the list options are additive and never complain about a name they cannot find, so the file that
+forgot one is silent about it.
+
 **Landing the plugin on an existing suite: downgrade `configs.recommended` to `warn`, then spread
 `...autoSpy.configs.typeErrors.rules` after it.** Those two rules — `prefer-as-spy` and
 `no-mocked-for-spy` — report findings that fail `tsc` (`TS2352`, `TS2322`) by construction, so

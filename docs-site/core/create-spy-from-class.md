@@ -147,6 +147,67 @@ surrounding machinery probes to decide _what kind of object this is_ — `then`,
 `asymmetricMatch` turns every `toEqual` against the double into a matcher invocation, and one on
 `toJSON` rewrites every snapshot of it.
 
+## `registerAutoSpyDefaults` — the composition lives with the class
+
+A spy's composition is a fact about the **class**, not about the spec: `Router` needs `events` spied
+as an Observable property and `url` as a getter wherever it is doubled. Every file that repeats that
+is a file that can get it wrong.
+
+```ts
+// vitest-setup.ts, once
+import { registerAutoSpyDefaults } from 'vitest-auto-spy';
+
+registerAutoSpyDefaults(Router, { observablePropsToSpyOn: ['events'], gettersToSpyOn: ['url'] });
+registerAutoSpyDefaults(AccountService, { gettersToSpyOn: ['isGuest', 'currentProfile'] });
+```
+
+```ts
+// every spec, from then on
+provideAutoSpy(Router);
+provideAutoSpy(Router, { instanceMethodsToSpyOn: ['currentNavigation'] }); // adds, does not replace
+```
+
+**Why this is not only tidiness.** Measured over one Angular suite: 739 of 2228 `provideAutoSpy`
+calls carry a configuration, and the same class collects incompatible opinions —
+
+| class                  | calls | files | with a config | **distinct configurations** |
+| ---------------------- | ----: | ----: | ------------: | --------------------------: |
+| `Router`               |   122 |   109 |            60 |                      **23** |
+| `AccountService`       |    70 |    62 |            43 |                      **27** |
+| `PurchaseStateService` |    53 |    52 |            42 |                      **25** |
+| `SmartRemoteConfigService` | 85 |    70 |            47 |                           8 |
+
+— and the `*RemoteConfigService` family is 205 calls, 120 of them repeating
+`{ gettersToSpyOn: ['remoteConfig'] }` word for word. The list options are
+[additive and do not complain about a name they cannot find](#configuration), which is deliberate —
+they exist to name members no prototype carries — so 23 opinions about `Router` means most of those
+files do not spy `events` at all, and the day production grows a subscription to it, not one of them
+says so.
+
+### The merge
+
+The registration is the floor, the call site adds to it. Three behaviours, one per kind of key:
+
+| key                                                | merged how                              |
+| -------------------------------------------------- | --------------------------------------- |
+| every list (`gettersToSpyOn`, `observablePropsToSpyOn`, …) | unioned, registration first, no repeats |
+| `returns`, `overrides`                             | key by key, the call site winning       |
+| every scalar (`lazySpies`, `strict`, `fillMissing`) | the call site wins when it names the key |
+
+The bare-array form is taken too: `createSpyFromClass(X, ['reload'])` merges as
+`{ methodsToSpyOn: ['reload'] }`.
+
+**By class identity, not by inheritance.** A subclass gets nothing from its base class's
+registration. That is the conservative half of the design: walking the prototype chain would let a
+registration on a widely-extended base change the composition of doubles in files nobody was looking
+at, which is the failure this removes rather than relocates.
+
+**A second registration for the same class replaces the first.** Two registrations for one class in
+one suite is the drift this exists to remove, and quietly combining them would hide it.
+
+`clearAutoSpyDefaults(Class)` drops one, `clearAutoSpyDefaults()` the lot — for a suite that
+registers per project rather than per run, and for a spec that has to prove the registry is empty.
+
 ## Lazy spies — `lazySpies`
 
 **What it is.** A method's spy is built on **first access** (`spy.method`) and then cached, so
