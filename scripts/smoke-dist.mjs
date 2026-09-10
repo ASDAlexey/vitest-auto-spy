@@ -80,6 +80,40 @@ const CROSS_ENTRY = [
     `,
   },
   {
+    // The stream state is built on the first stream helper and lives behind the spy's mark, while
+    // the reset that has to drop it lives in the core entry. Two bundles, one object — and the
+    // buffer is what makes a miss silent: the `ReplaySubject` sits in a closure the value container
+    // cannot reach, so a value from one test replays into the next one *ahead of* what that test
+    // configured, and the spec fails on a value it never asked for.
+    name: 'resetAutoSpy from the root entry drops the replay buffer configured through rxjs',
+    entries: ['./node', './rxjs'],
+    body: `
+      const { createSpyFromClass, resetAutoSpy } = await import(NODE);
+      await import(RXJS);
+
+      class Feed {
+        items() { return null; }
+      }
+
+      const feed = createSpyFromClass(Feed);
+
+      feed.items.nextWith('first');
+      let before;
+      feed.items().subscribe((value) => { before = value; });
+      assert(before === 'first', 'the stream did not emit before the reset');
+
+      resetAutoSpy(feed);
+      feed.items.throwWith(new Error('boom'));
+
+      const seen = [];
+      let failed;
+      feed.items().subscribe({ next: (value) => seen.push(value), error: (error) => { failed = error.message; } });
+
+      assert(seen.length === 0, 'the pre-reset value replayed into the next configuration: ' + JSON.stringify(seen));
+      assert(failed === 'boom', 'the stream configured after the reset did not error');
+    `,
+  },
+  {
     name: 'a strict double throws the catalogued message, not a bare TypeError',
     entries: ['./node'],
     body: `
