@@ -634,6 +634,15 @@ Also true, and worth not re-deriving:
   mapping = createSpyFromClass(MgwMappingService); // no second type argument here
   ```
 
+  **The symptom that leads here says nothing about overloads**, which is why the option is hard to
+  find from the error. A stub of the real response shape is rejected on the spec's own line —
+  `TS2345: Argument of type 'Page' is not assignable to parameter of type 'HttpEvent<Page>'` — on
+  `nextWith(body)`, `resolveWith(body)`, `calledWith(…).returnValue(body)` or
+  `mockReturnValue(of(body))` against a generated `observe` client. Neither the double nor the stub
+  is wrong; both are being checked against the signature nobody calls. Reach for `overload`, never
+  for `@ts-expect-error`: one migration wrote sixty of those across twenty-five files before anyone
+  found this option, and each one stops checking the response shape that line exists to describe.
+
   **Name the method rather than the whole double.** `'first'` on the type moves *every* overloaded
   member, and on a wide type that breaks the ones nobody was fixing — `Spy<Response, { overload:
   'first' }>` for one method collected five `TS2769`s on `download`. `overload` also takes a map:
@@ -658,6 +667,29 @@ in question. Naming it as an instance method puts a plain spy at that key (the s
 class prototype, so nothing is being shadowed), and
 `service.isKidMode.mockReturnValue(false)` reads like every other member. `mockSignalProp` is the
 other answer when the value has to change during the test.
+
+### The composition belongs to the class — `registerAutoSpyDefaults`
+
+A class is doubled the same way in every file that doubles it, so register that once instead of
+repeating it:
+
+```ts
+// vitest.setup.ts, once
+registerAutoSpyDefaults(Router, { observablePropsToSpyOn: ['events'], gettersToSpyOn: ['url'] });
+
+// every spec, from then on
+provideAutoSpy(Router);
+provideAutoSpy(Router, { instanceMethodsToSpyOn: ['currentNavigation'] }); // ADDS to the registration
+```
+
+The call site is **merged** into the registration, not substituted for it: lists unioned
+(registration first, no repeats), `returns` / `overrides` merged key by key with the call site
+winning, scalars decided by the call site when it names the key. The bare-array form counts as
+`{ methodsToSpyOn: [...] }`. Registration is by class identity, so a subclass inherits nothing —
+walking the prototype chain would let one registration change doubles in files nobody was looking at.
+A second registration for the same class replaces the first, because two of them in one suite is the
+drift this removes rather than a merge to perform. `clearAutoSpyDefaults(Class)` drops one,
+`clearAutoSpyDefaults()` the lot.
 
 ### `strict` — a method nobody configured throws instead of answering `undefined`
 
@@ -1048,6 +1080,12 @@ getter return `undefined`, `ngOnDestroy` called it as a signal, the `TypeError` 
 and a template error about a null profile appeared in a different `describe`. The net puts the
 properties back and warns with the count and the cause. `countMockedProps()` is exported if you
 would rather assert it: `afterEach(() => expect(countMockedProps()).toBe(0))`.
+
+**A `mock*Prop` patch written in a `describe` body or a `beforeAll` is reported**, because the sweep
+undoes it after the test it was applied during and nothing puts it back: the first test passes and
+every one after it reads the real member. `propsOutsideHooks` grades that — `'warn'` (default),
+`'throw'`, `'off'` — and `reportPropsOutsideHooks(reaction)` sets the same dial for a suite that
+wires its own hooks. Move the call into `beforeEach`.
 
 **The one that only bites at scale:** with `isolate: false`, a `setTimeout` or
 `requestAnimationFrame` a component schedules and never clears keeps running after its file is done,
@@ -1933,11 +1971,13 @@ enableAngularDiagnostics(); // { ngModuleScopes, deadSchemas, unspiedProviders, 
 | `deadSchemas`      | `schemas` sit next to a standalone component (`declarations` empty) — a no-op    |
 | `unspiedProviders` | `injectSpy` got a real instance; a `console.warn` alone, a throw under the group |
 | `pendingRequests`  | the test ended with unflushed `HttpTestingController` requests, named one by one |
+| `shadowedProviders` | a double on the testing module loses to the component's own `providers`         |
 
 Every member defaults to `true`, takes `false` to opt out, and a second call **replaces** the
 selection (safe from anywhere, including inside a test). `disableAngularDiagnostics()` turns the
-group off and leaves the TestBed timing instrumentation alone. `assertNoPendingRequests()` is the
-HTTP check on its own, for use mid-test — reading takes the requests, so the group will not
+group off and leaves the TestBed timing instrumentation alone. `assertNoShadowedProviders(Component, fixture)`
+and `assertNoPendingRequests()` are the same checks on their own, for a spec that renders through a
+helper of its own or wants the HTTP one mid-test — reading takes the requests, so the group will not
 re-report what you inspected.
 
 Nothing here imports `@angular/common/http/testing`: the token is read out of the spec's own
@@ -2446,13 +2486,14 @@ blanket downgrade so those keep their severity; do not copy the two names into a
 | `no-import-time-spread`           | `error` | suggest           | `export const x = [...Imported]` at module scope → a `TypeError` while the bundle loads                                                   |
 | `no-unregistered-inject-spy`      | `error` | —                 | `injectSpy(X)` for a token this file never registered → the real instance, whose spy helpers exist only for the compiler                  |
 | `prefer-render-shallow`           | `error` | suggest           | `TestBed.createComponent` in a file that never reads the template → `renderShallow(X)`; 0.24× the per-test cycle at 100 children          |
+| `prefer-observer-stub`            | `error` | —                 | a hand-rolled observer global → `stubIntersectionObserver()` / `stubResizeObserver()` / `stubMutationObserver()`; the manual save-and-restore goes too, `restoreMockedProps()` runs the undo |
 | `jasmine-namespace-without-entry` | `error` | —                 | `.and` / `.calls` / `.withArgs` on a library spy in a file that installs the compat layer nowhere — option: `{ setupModules: […] }`       |
 | `no-jasmine-globals`              | `error` | —                 | `jasmine.*`, bare `spyOn(` / `spyOnProperty(` / `spyOnAllFunctions(` / `fail(` / `pending(`, `.withContext(`                              |
 | `no-save-arguments-by-value`      | `error` | —                 | `spy.calls.saveArgumentsByValue()` — a no-op here, so the spec silently asserts on post-mutation state                                    |
 | `prefer-native-spy-api`           | `error` | `--fix` / suggest | `.and` / `.calls` where the spy's own API says the same thing — turn it on for the last mile off the jasmine shim                         |
 
-Twenty-two rules, **every one an `error` since 4.0.0**; three fix on their own, eight offer
-suggestions. Twenty-one are syntactic; `no-private-member-access` is the one that reads types, and it
+Twenty-three rules, **every one an `error` since 4.0.0**; three fix on their own, eight offer
+suggestions. Twenty-two are syntactic; `no-private-member-access` is the one that reads types, and it
 reports nothing at all without `parserOptions.project` / `projectService` rather than guessing. The config used to be a graded mix of `error` / `warn` / `off`, which decided for the
 consumer how much each finding mattered — a `warn` nothing reads is `off` with extra output. Three of
 them can report on a _correct_ project, and only one has an option:

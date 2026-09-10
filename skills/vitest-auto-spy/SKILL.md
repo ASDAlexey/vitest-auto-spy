@@ -192,6 +192,7 @@ it('loads', async () => {
 | a signal-valued getter that `gettersToSpyOn` will not accept                     | it accepts any key now; for a signal prefer `mockSignalProp`                                         |
 | five `asInstance(…)` in one call, found one per `tsc` run                        | `...asInstances(a, b, c, d, e)`                                                                      |
 | `nextWith` demanding `HttpEvent<T>` on a generated client                        | `asSpy<Client, { overload: 'first' }>(…)` / `Overload<M, 0>`                                         |
+| `not assignable to parameter of type 'HttpEvent<…>'` in a stub of the real body   | same thing — the helpers read the **last** overload; `{ overload: { m: 'first' } }`, not `@ts-expect-error` |
 | a fixture that needs a nested object built by its own call                       | `createMock<T>({ a: { b: 1 } })` — deep partial, still exact                                         |
 | the same 100-line model literal copied into eight specs (`TS1117`)               | one `createFixtureFactory<T>(defaults)`; specs call it with what they change                         |
 | `'params' in link` ladders, or a cast, to pick a union branch                    | `narrow.byKey(link, 'params')` / `narrow.observable(x)`                                              |
@@ -331,7 +332,7 @@ npx vitest-auto-spy codemod --verify  # after a migration: anything the transfor
 Most of this library's guarantees are type-level, so a green run that does not type-check is not
 done. Report failures with their output rather than describing them as passing.
 
-**After any `eslint --fix` over specs, run `npx tsc --noEmit`.** The twenty-two rules in
+**After any `eslint --fix` over specs, run `npx tsc --noEmit`.** The twenty-three rules in
 `vitest-auto-spy/eslint-plugin` are lint, not typecheck: `no-mocked-for-spy` rewrites a declaration
 to `Spy<T>` and cannot see what the name is assigned two lines below, so a clean lint pass is not
 evidence that the types still hold. Where it cannot prove the rename it downgrades to a suggestion —
@@ -347,6 +348,8 @@ reports nothing rather than falling back to the syntax, because the same bracket
 signature is read (`process.env['KEY']`, `queryParams['id']`). The repair is never a helper: drive
 the member through the public API, or — on a component — through the rendered template, where a
 `protected` member really is reachable.
+
+**`prefer-observer-stub` reports an observer global replaced by hand** — `globalThis.IntersectionObserver = class { … }`, `vi.stubGlobal('ResizeObserver', …)`, `vi.spyOn(globalThis, 'MutationObserver')` — and names `stubIntersectionObserver()` / `stubResizeObserver()` / `stubMutationObserver()` instead. Take the `let original = globalThis.X` and the `afterEach` that assigns it back out with the block: the helper installs through `mockValueProp`, so `restoreMockedProps()` already owns the undo, and a restore written inside an `it` never runs once a test above it goes red.
 
 **`registerAutoSpyDefaults(Class, config)` puts a spy's composition with the class, once.** Call it
 from the setup file for a class every suite doubles the same way (`Router` with

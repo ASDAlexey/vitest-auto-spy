@@ -2170,6 +2170,32 @@ overload of a method. On a generated API client (`ng-openapi-gen`, `openapi-gene
 `{ overload: 'first' }` types the spy against the first signature instead. For a single method there
 is also `Overload<Client['get'], 0>`, which is what to put in a `MockInstance<…>` or a `vi.fn<…>()`.
 
+### The stub stops fitting the real response
+
+```
+TS2345: Argument of type 'Page' is not assignable to parameter of type 'HttpEvent<Page>'.
+```
+
+That message is this section, and nothing in it says so — which is why the option is hard to find
+from the error alone. It shows up wherever a helper reads the method's return type: `nextWith(body)`,
+`resolveWith(body)`, `calledWith(…).returnValue(body)` and the bare `mockReturnValue(of(body))`
+alike. Neither the double nor the stub is wrong; the two are being checked against the signature
+nobody calls.
+
+The fix is a type argument on the **declaration**, not a cast and not a suppression:
+
+```ts
+let venues: Spy<VenuesService, { overload: { getVenues: 'first' } }>;
+
+venues = createSpyFromClass(VenuesService); // no second type argument here
+venues.getVenues.nextWith(page); // `Page` again
+```
+
+`@ts-expect-error` on the failing line is the workaround this reliably attracts — one migration
+reached sixty of them across twenty-five files before anyone found the option — and it costs more
+than the stub: the line stops being checked at all, so a later change to `Page` goes unnoticed
+exactly where the response shape is being described.
+
 ### Name the method, not the whole double
 
 `'first'` applied to the type moves **every** overloaded member at once, and on a wide type that
@@ -2205,6 +2231,19 @@ declare global {
 
 — so which signature `ReturnType` reads depends on which packages are in the program, and can change
 on a dependency bump with nothing in the diff to say so.
+
+And the message cannot be made to carry the hint, which was tried before this section was written.
+Naming the payload so the compiler prints the name does work — `nextWith(value?:
+OverloadCollapsed_UseSpyOverloadOption<HttpEvent<Page>>)`, because a type alias whose body builds a
+union keeps its name in a `TS2345` where a pass-through alias is erased. It was dropped for three
+measured reasons. It costs the entire type budget: the flag has to be decided per member, a
+per-member flag stops the payload bundles being shared between members, and a flag whose body is the
+constant `false` already takes `types:budget` from a delta of 9 665 to 11 769 against a ceiling of
+11 000 — before any overload detection, which adds ~840 more. It misfires: on a four-overload
+`api-mgw` client, where `'last'` is already the right signature, an honestly wrong stub then reads
+`OverloadCollapsed_UseSpyOverloadOption<Movie[]>` and points at an option that would change nothing.
+And it misses the path that needs it most — `mockReturnValue` is typed by `MockInstance<Method>`,
+the runner's own surface, which nothing this package wraps can reach.
 
 ## The only call signature is the method's own
 
@@ -6022,6 +6061,41 @@ from them varies too much to guess:
 observers.last.emit([{ contentRect: { width: 320 } } as ResizeObserverEntry]);
 ```
 
+## Replacing a hand-rolled global stub
+
+The shape this replaces, found in the field and still written by hand more often than it needs to be:
+
+```ts
+// before — 19 lines, a cast, and a restore you have to remember
+const original = global.IntersectionObserver;
+
+global.IntersectionObserver = class {
+  observe(): void {}
+  unobserve(): void {}
+  disconnect(): void {}
+} as unknown as typeof IntersectionObserver;
+
+afterEach(() => {
+  global.IntersectionObserver = original;
+});
+```
+
+```ts
+// after
+const observer = stubIntersectionObserver();
+```
+
+Three things come with the one line: the stub is a real double the spec can drive (`observer.emit(...)`),
+the assignment is registered as a property patch so `restoreMockedProps()` — and therefore
+`setupAutoSpy()` — puts the global back on its own, and the `as unknown as` goes away because the stub
+is typed as the global it replaces.
+
+The hand-rolled form is reported rather than left to review:
+[`prefer-observer-stub`](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-plugin#the-observer-stub-everybody-writes-again) catches all three
+spellings it is written in — the assignment above, `vi.stubGlobal('IntersectionObserver', Fake)` and
+`vi.spyOn(globalThis, 'ResizeObserver')` — and names the helper that replaces it. It is an
+`error` in `configs.recommended`, like every other rule in the plugin.
+
 ## The installers
 
 | Function                     | Global replaced           |
@@ -7111,7 +7185,7 @@ which a subpath export of this package can never be.
 
 **How this page is laid out.** [Adding it](#adding-it-to-your-project) is the four things a first
 config needs. [Which apply to you](#which-of-the-twenty-apply-to-you) answers the question a
-Vitest-only project asks — four of the twenty-two are about a dialect you may not speak.
+Vitest-only project asks — four of the twenty-three are about a dialect you may not speak.
 [Rules](#rules) is the reference table, in five groups. [Tuning](#tuning-it-for-your-project) is
 every dial, including the three rules that can report on correct code. Everything after that is
 _why_ — one section per rule, for when a report has arrived and you want to know what it saved you
@@ -7169,7 +7243,7 @@ need different severities.
 
 ### 3. Type information is optional, and one rule wants it
 
-Twenty-one of the twenty-two are syntactic: they read the file's own AST and never ask the type checker.
+Twenty-two of the twenty-three are syntactic: they read the file's own AST and never ask the type checker.
 So the plugin works with `parserOptions.project` unset, adds nothing measurable to lint time, and
 does not need your specs to be in a `tsconfig` — which matters in the repositories where they are
 not.
@@ -7202,7 +7276,7 @@ npx eslint . --format stylish | tail -30   # the summary tells you which rule do
 Whatever is left is either a real finding or a rule you would rather not enforce yet. Both are
 answered below.
 
-## Which of the twenty-two apply to you
+## Which of the twenty-three apply to you
 
 Reasonable question if you came straight to Vitest and have never written a line of Jasmine: **four
 of these rules are about a dialect you do not speak.** They are still on, and the reason is not
@@ -7212,7 +7286,7 @@ principle — it is that they cannot fire on your code.
 | ------------------------------------------ | ---------------------------------------------------------------------------------------------------- |
 | writing Vitest, never used Jasmine or Jest | the seventeen core rules work; **the four jasmine rules are inert** — leave them on and never see them |
 | migrating off `jest-auto-spies` / Jest     | the core rules do the work, `no-done-callback` and `prefer-as-spy` most of it                        |
-| migrating off `jasmine-auto-spies`         | all twenty-two, with `prefer-native-spy-api` set to `'off'` until the bridge is gone                   |
+| migrating off `jasmine-auto-spies`         | all twenty-three, with `prefer-native-spy-api` set to `'off'` until the bridge is gone                   |
 
 ### If you never used Jasmine
 
@@ -7281,7 +7355,7 @@ that file needs). See [Migrating from jest-auto-spies](https://asdalexey.github.
 
 ### If you are coming from Jasmine
 
-All twenty-two apply, and the four in the last group are the ones written for you. Two are pure
+All twenty-three apply, and the four in the last group are the ones written for you. Two are pure
 diagnosis — `no-jasmine-globals` and `no-save-arguments-by-value` name silent behaviour changes that
 survive a rename — and `jasmine-namespace-without-entry` catches the spy built before the layer was
 installed. The fourth, `prefer-native-spy-api`, reports the bridge itself, so it is the one line of
@@ -7329,6 +7403,7 @@ Not about a single test but about what one file leaves behind for the next.
 | [`no-shared-module-level-mock`](#a-double-built-once-per-worker-not-once-per-test)                   | an **exported** value holding `vi.fn()`s → export a factory that returns it                                              | —       |          green          |
 | [`no-object-define-property`](#no-object-define-property-%E2%80%94-nothing-puts-the-descriptor-back) | `Object.defineProperty` in a spec → `mockReadonlyProp` / `mockValueProp`                                                 | suggest |          green          |
 | [`no-import-time-spread`](#the-spread-that-only-fails-under-a-bundler)                               | `export const x = [...Imported]` at module scope → a `TypeError` while the bundle loads                                  | suggest | red _(by construction)_ |
+| [`prefer-observer-stub`](#the-observer-stub-everybody-writes-again)                                  | a hand-rolled `IntersectionObserver` / `ResizeObserver` / `MutationObserver` written into a global → `stubIntersectionObserver()` and friends | —       |          green          |
 
 ### Angular DI and the TestBed
 
@@ -7490,6 +7565,26 @@ npx eslint --print-config src/app/cart.spec.ts | grep vitest-auto-spy
 
 If that prints nothing, the `files` glob does not match — which is the same symptom as "the plugin
 found no problems", and the reason to check it before concluding the suite is clean.
+
+### Alongside `vitest/expect-expect`
+
+Nothing here duplicates it: `expect-expect` reports a test with **no** assertion, and every rule in
+this plugin reports an assertion that is there. They are worth running together, and the one thing
+that makes the pairing work in a real suite is how `assertFunctionNames` is written.
+
+Naming the helpers one by one does not survive: the list has to grow with every new helper, and in a
+suite measured for this it could not have been written at all — one of the real assertion helpers was
+called `find`, and putting `find` in the list swallows every `Array.prototype.find`. A convention
+works instead:
+
+```js
+'vitest/expect-expect': ['error', { assertFunctionNames: ['expect*', 'assert*', '**.expect*'] }],
+```
+
+`expect*` covers `expectEmission`, `expectEmissions`, `expectNoEmission`, `expectCompletion` and
+`expectError` from this package along with the project's own; `assert*` covers
+`assertNoPendingRequests`, `assertNoShadowedProviders` and `assertMocked`; `**.expect*` covers a
+helper reached through an object. Measured over 1759 spec files: **zero** false positives.
 
 ### Rule options
 
@@ -8122,7 +8217,7 @@ this rule declines. See [Migrating from jasmine-auto-spies](https://asdalexey.gi
 
 ## Which rules fix, and why so few
 
-Three of the twenty-two rewrite the source on their own, eight offer the rewrite as a suggestion, and
+Three of the twenty-three rewrite the source on their own, eight offer the rewrite as a suggestion, and
 the split is about what a wrong guess costs rather than about how hard the rewrite is.
 
 `no-mocked-for-spy` touches nothing but a **declaration**. Get it wrong and the file stops
@@ -8362,6 +8457,61 @@ calls — `clearMocks: true` does reach a module-level `vi.fn()` and does clear 
 probes said so. What leaks is everything else a fixture holds next to its spies, which is why the fix
 is a factory rather than a `beforeEach` that clears harder. Which file runs first is the runner's
 choice, so the failure arrives as flakiness.
+
+### The observer stub everybody writes again
+
+jsdom ships no `IntersectionObserver`, no `ResizeObserver` and no `MutationObserver`, so the first
+spec that renders a component which builds one dies on `IntersectionObserver is not defined`. The
+repair is the same nineteen lines every time:
+
+```ts
+let originalIntersectionObserver: typeof IntersectionObserver;
+
+beforeEach(() => {
+  disconnectSpy = vi.fn();
+  originalIntersectionObserver = global.IntersectionObserver;
+  global.IntersectionObserver = class {
+    observe(): void {}
+    unobserve(): void {}
+    disconnect(): void {
+      disconnectSpy();
+    }
+  } as unknown as typeof IntersectionObserver;
+});
+
+afterEach(() => {
+  global.IntersectionObserver = originalIntersectionObserver;
+});
+```
+
+[`stubIntersectionObserver()`](https://asdalexey.github.io/vitest-auto-spy/utilities/observer-stubs) is those nineteen lines, and
+`observers.last.disconnected` is that `disconnectSpy` — so the whole block is one call. The rule
+exists because the person writing the block does not know that: one of the ones this was measured on
+carried a comment saying there was no other way.
+
+**The save and the restore are not the author's to write, and that half is a defect rather than
+verbosity.** The stub goes on through `mockValueProp`, whose undo `restoreMockedProps()` runs after
+every test. A hand-written restore parked at the end of an `it` runs only if every assertion above it
+passed, so the first red test leaves the stub installed for the rest of the file — and, under
+`isolate: false`, for every later file the worker picks up, where it surfaces as `observe is not a
+function` in a component nobody edited.
+
+Measured over an Angular monorepo of 1 758 spec files: **16 places** replace one of the three globals
+by hand — 14 assignments and 2 `vi.spyOn(globalThis, 'MutationObserver')`, across five libraries and
+both applications, one of them behind a cast that a grep for `global.IntersectionObserver =` does not
+find. Fifteen are reported (the sixteenth sits under a file-wide `/* eslint-disable */`), and
+**fourteen of the fifteen are test code**; the one that is not is an SSR shim under `apps/web/server`,
+which is outside the spec glob this plugin asks you to scope it to. Three lines match the shape and
+are deliberately silent: the two `afterEach` restores, because the value assigned is a name rather
+than a double, and `window.ResizeObserver = ResizeObserver` in an application module, because the
+value came from an import.
+
+`vi.stubGlobal('IntersectionObserver', RecordingObserver)` is reported as well — the same fake, and
+`vi.unstubAllGlobals()` is off by default. `Object.defineProperty(globalThis, 'ResizeObserver', …)`
+is not, because
+[`no-object-define-property`](#no-object-define-property-%E2%80%94-nothing-puts-the-descriptor-back)
+already reports every `defineProperty` in a spec and names the same helper family; two reports on one
+line saying the same thing is how a rule gets switched off.
 
 ### `no-dead-schemas` — the charm that protects nobody
 
