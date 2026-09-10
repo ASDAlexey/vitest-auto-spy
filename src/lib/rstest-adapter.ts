@@ -7,11 +7,12 @@
  * with a stub off the real runner.
  *
  * Rstest's mock surface is Vitest-shaped — bare argument arrays in `mock.calls`,
- * `mockClear` / `mockReset` / `mockImplementation`, native accessor spies through
- * `spyOn(obj, key, 'get' | 'set')` — so the mapping is one-to-one.
+ * `mockClear` / `mockReset` / `mockImplementation` — so the mapping is one-to-one.
+ * Accessor spies do not go through the runner's own `spyOn`; see `spyOnGetter` below.
  */
 import { clearAllFastSpies, createFastSpy, resetAllFastSpies } from './fast-spy';
 import { type MockAdapter, type MockFn, guardAccessorSpies } from './mock-adapter';
+import { spyOnAccessorByRedefine } from './redefine-accessor-spy';
 import { getSpyEngine } from './spy-engine';
 import type { Func } from './types';
 
@@ -25,15 +26,19 @@ export interface RstestMock {
   mockImplementation(implementation: Func): unknown;
 }
 
-/** The slice of Rstest's utilities the Rstest entry injects. */
+/**
+ * The slice of Rstest's utilities the Rstest entry injects.
+ *
+ * `spyOn` is deliberately not among them: accessor spies are installed by redefining the property
+ * (see `spyOnGetter` below), so the runner's own accessor spy is never asked for.
+ */
 export interface RstestApi {
   fn(implementation?: Func): RstestMock;
-  spyOn(target: object, property: string, accessType: 'get' | 'set'): RstestMock;
 }
 
 /** View a runtime-agnostic {@link MockFn} as the concrete Rstest mock it actually is here. */
 function asRstestMock(mock: MockFn): RstestMock {
-  // eslint-disable-next-line @typescript-eslint/consistent-type-assertions, @typescript-eslint/no-explicit-any -- every `MockFn` this adapter hands out is a `rstest.fn()` / `rstest.spyOn()`; the registry type is intentionally runtime-agnostic, so reading `.mock`/resetting narrows the bare callable back to the concrete Rstest mock.
+  // eslint-disable-next-line @typescript-eslint/consistent-type-assertions, @typescript-eslint/no-explicit-any -- every `MockFn` this adapter hands out is a `rstest.fn()` or one of this library's own spies; the registry type is intentionally runtime-agnostic, so reading `.mock`/resetting narrows the bare callable back to the concrete Rstest mock.
   return mock as any;
 }
 
@@ -73,17 +78,23 @@ export function createRstestMockAdapter(rstest: RstestApi): MockAdapter {
     return sweepSentinel;
   };
 
-  return guardAccessorSpies({
-    createMockFn(implementation?: Func, name?: string): MockFn {
-      return getSpyEngine() === 'auto-spy' ? createFastSpy(implementation, name) : createRunnerMockFn(rstest, implementation, name);
-    },
+  const createMockFn = (implementation?: Func, name?: string): MockFn =>
+    getSpyEngine() === 'auto-spy' ? createFastSpy(implementation, name) : createRunnerMockFn(rstest, implementation, name);
 
+  return guardAccessorSpies({
+    createMockFn,
+
+    // Redefined rather than spied through `rstest.spyOn`, for the reason spelled out in
+    // `vitest-adapter.ts`: a host accessor spy is undone by the runner's own `restoreMocks`, which
+    // runs before the `beforeEach` hooks and silently unhooks the configuration of every double
+    // built anywhere else. The runner's registry is not the right owner for an accessor this
+    // library installed on an object it built.
     spyOnGetter(target: object, property: string): MockFn {
-      return rstest.spyOn(target, property, 'get');
+      return spyOnAccessorByRedefine(createMockFn, target, property, 'get');
     },
 
     spyOnSetter(target: object, property: string): MockFn {
-      return rstest.spyOn(target, property, 'set');
+      return spyOnAccessorByRedefine(createMockFn, target, property, 'set');
     },
 
     getCalls(mock: MockFn): readonly unknown[][] {

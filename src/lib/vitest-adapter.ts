@@ -1,5 +1,6 @@
 /**
- * The default {@link MockAdapter}: Vitest's `vi.fn()` / `vi.spyOn()`.
+ * The default {@link MockAdapter}: Vitest's `vi.fn()`, plus accessor spies installed by redefining
+ * the property (see `spyOnGetter` below for why not `vi.spyOn`).
  *
  * This is the only core module that imports `vitest`. It is pulled in solely by
  * the `vitest-auto-spy` (and `vitest-auto-spy/angular`) entries, which register
@@ -11,6 +12,7 @@ import { type Mock, vi } from 'vitest';
 import { SWEEP_SENTINEL } from './constants';
 import { clearAllFastSpies, createFastSpy, resetAllFastSpies } from './fast-spy';
 import { type MockAdapter, type MockFn, guardAccessorSpies } from './mock-adapter';
+import { spyOnAccessorByRedefine } from './redefine-accessor-spy';
 import { getSpyEngine } from './spy-engine';
 import type { Func } from './types';
 
@@ -70,19 +72,41 @@ function createRunnerMockFn(implementation?: Func, name?: string): MockFn {
   return mock;
 }
 
-export const vitestMockAdapter: MockAdapter = guardAccessorSpies({
-  createMockFn(implementation?: Func, name?: string): MockFn {
-    return getSpyEngine() === 'auto-spy' ? createFastSpy(implementation, name) : createRunnerMockFn(implementation, name);
-  },
+/** The adapter's own mock factory, as a plain function the accessor wiring below can hand around. */
+function createAdapterMockFn(implementation?: Func, name?: string): MockFn {
+  return getSpyEngine() === 'auto-spy' ? createFastSpy(implementation, name) : createRunnerMockFn(implementation, name);
+}
 
+export const vitestMockAdapter: MockAdapter = guardAccessorSpies({
+  createMockFn: createAdapterMockFn,
+
+  /**
+   * Accessor spies are installed by redefining the property, **not** with `vi.spyOn`.
+   *
+   * `vi.spyOn` is the only call in this package that writes to `@vitest/spy`'s `MOCK_RESTORE` set,
+   * and `restoreMocks: true` empties that set in `onBeforeTryTask` — which runs *before* the
+   * `beforeEach` hooks, but after `beforeAll` and after a `describe` body. A double built anywhere
+   * but a `beforeEach` therefore had its spied accessors put back to the no-op scaffolding before
+   * the test body ran, while `accessorSpies.getters.x` stayed a live mock nobody was reading any
+   * more: `mockReturnValue` kept working and the property kept answering `undefined`. That is a
+   * configuration that silently stops applying — the failure mode this package exists to remove —
+   * and it read as a bug in the code under test, not in the spec.
+   *
+   * Redefining instead puts accessor spies on the same footing as the `mock*Prop` helpers, which
+   * keep their own journal (`restoreMockedProps()`) and were never affected, and on the same
+   * footing as the Bun and `node:test` adapters, which have no native accessor spy and have always
+   * gone through {@link spyOnAccessorByRedefine}. Nothing is lost: the only target this seam is
+   * ever given is an object this library has just built or has already journaled itself, so there
+   * was never an original for the runner to restore. `vi.clearAllMocks()` / `vi.resetAllMocks()`
+   * still reach these spies — through the sweep sentinel above under the `'auto-spy'` engine, and
+   * through the runner's own registry under `'runner'`.
+   */
   spyOnGetter(target: object, property: string): MockFn {
-    // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- `vi.spyOn`'s key parameter is typed against the static object shape, but `property` is only known at runtime; `as never` satisfies the accessor overload.
-    return vi.spyOn(target as Record<string, unknown>, property as never, 'get');
+    return spyOnAccessorByRedefine(createAdapterMockFn, target, property, 'get');
   },
 
   spyOnSetter(target: object, property: string): MockFn {
-    // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- see `spyOnGetter`: the key is a runtime-only string, narrowed via `as never` to satisfy `vi.spyOn`'s accessor overload.
-    return vi.spyOn(target as Record<string, unknown>, property as never, 'set');
+    return spyOnAccessorByRedefine(createAdapterMockFn, target, property, 'set');
   },
 
   getCalls(mock: MockFn): readonly unknown[][] {

@@ -72,6 +72,28 @@ describe('vitestMockAdapter', () => {
     expect(setter).toHaveBeenCalledWith(9);
     expect(backing).toBe(9);
   });
+
+  /**
+   * The accessor spies are the only place this package ever reached for `vi.spyOn`, and `vi.spyOn`
+   * is the only call that writes to the runner's restore registry — which `restoreMocks: true`
+   * empties before every test body, ahead of the `beforeEach` hooks. A double built in a `beforeAll`
+   * or a `describe` body therefore lost its spied accessors between configuration and assertion,
+   * with `accessorSpies.getters.x` still answering `mockReturnValue` and the property answering
+   * `undefined`. Redefining instead keeps them ours; nothing here belongs to the runner to restore.
+   */
+  it('installs accessor spies the runner cannot restore out from under the double', () => {
+    const backing = 5;
+    const target: Record<string, unknown> = {};
+    Object.defineProperty(target, 'value', { get: () => backing, configurable: true });
+
+    const getter = vitestMockAdapter.spyOnGetter(target, 'value');
+    vi.mocked(getter).mockReturnValue(41);
+
+    vi.restoreAllMocks();
+
+    expect(target['value']).toBe(41);
+    expect(backing).toBe(5);
+  });
 });
 
 /**

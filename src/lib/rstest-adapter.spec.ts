@@ -1,9 +1,8 @@
 /**
  * The Rstest adapter factory, exercised with a stub that mirrors Rstest's
  * Vitest-shaped mock surface (bare-array `mock.calls`, `mockClear` /
- * `mockReset` / `mockImplementation`, accessor spies that redefine the
- * property). `@rstest/core` only runs under the Rstest runner, so the factory
- * shape is what we can verify here.
+ * `mockReset` / `mockImplementation`). `@rstest/core` only runs under the Rstest
+ * runner, so the factory shape is what we can verify here.
  */
 import { afterEach, describe, expect, it } from 'vitest';
 
@@ -53,34 +52,7 @@ function makeRstestApi(): { api: RstestApi; created: RstestMock[]; names: string
     return mock;
   };
 
-  const api: RstestApi = {
-    fn,
-    spyOn: (target: object, property: string, accessType: 'get' | 'set'): RstestMock => {
-      const existing = Object.getOwnPropertyDescriptor(target, property);
-      const original = accessType === 'get' ? existing?.get : existing?.set;
-      const mock = fn(original);
-
-      const descriptor: PropertyDescriptor = { configurable: true, enumerable: existing?.enumerable ?? true };
-
-      if (existing?.get) {
-        descriptor.get = existing.get;
-      }
-
-      if (existing?.set) {
-        descriptor.set = existing.set;
-      }
-
-      if (accessType === 'get') {
-        descriptor.get = mock;
-      } else {
-        descriptor.set = mock;
-      }
-
-      Object.defineProperty(target, property, descriptor);
-
-      return mock;
-    },
-  };
+  const api: RstestApi = { fn };
 
   return {
     api,
@@ -161,7 +133,7 @@ describe('createRstestMockAdapter', () => {
     expect(fn()).toBe('restored');
   });
 
-  it('spyOnGetter / spyOnSetter delegate to the runner accessor spies', () => {
+  it('spyOnGetter / spyOnSetter install accessor spies by redefining the property', () => {
     const adapter = createRstestMockAdapter(makeRstestApi().api);
     const target: Record<string, unknown> = {};
     Object.defineProperty(target, 'value', {

@@ -5,7 +5,7 @@
  * library's words, and that the instance can be handed back real.
  */
 import { type Observable, firstValueFrom } from 'rxjs';
-import { afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { createSpyFromInstance, restoreSpiedInstance } from './create-spy-from-instance';
 import { registerMockAdapter } from './mock-adapter';
@@ -144,6 +144,22 @@ describe('createSpyFromInstance — configuration', () => {
     const named = spyOn(new PaymentsClient(), { gettersToSpyOn: ['fees'] });
 
     expect(named.accessorSpies.getters.fees).toHaveBeenCalledTimes(0);
+  });
+
+  it('keeps its accessor spies through vi.restoreAllMocks()', () => {
+    // The `restoreMocks: true` shape: the double is built and configured outside a `beforeEach`, and
+    // the runner's restore runs before the test body. `mockAccessorsProp` journals the patch and
+    // `createAccessorsSpies` redefines on top of it, so neither half is the runner's to undo — but
+    // while the accessor spies came from `vi.spyOn` the restore silently put the journalled no-op
+    // pair back and the configuration below stopped reaching the property.
+    const client = new PaymentsClient();
+    const spy = spyOn(client, { gettersToSpyOn: ['fees'] });
+
+    spy.accessorSpies.getters.fees.mockReturnValue(9);
+
+    vi.restoreAllMocks();
+
+    expect(client.fees).toBe(9);
   });
 
   it('applies returns and seeds overrides', () => {

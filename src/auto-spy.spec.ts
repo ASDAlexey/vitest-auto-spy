@@ -809,6 +809,31 @@ describe('accessor spies', () => {
     spy.theme = 'dark';
     expect(spy.accessorSpies.setters.theme).toHaveBeenCalledWith('dark');
   });
+
+  /**
+   * `restoreMocks: true` is `vi.restoreAllMocks()` in `onBeforeTryTask`, which runs **before** the
+   * `beforeEach` hooks and after `beforeAll` and the `describe` body — so a double built anywhere
+   * but a `beforeEach` used to reach its own test with the spied accessors put back to the no-op
+   * scaffolding. Nothing failed at that point: `accessorSpies.getters.x` was still a live mock, so
+   * configuring it kept working while the property answered `undefined`, and the report was a
+   * `Cannot read properties of undefined` in the code under test. Accessor spies are installed by
+   * redefinition now, so the runner's restore has nothing of ours to undo.
+   *
+   * Calling `vi.restoreAllMocks()` here rather than turning the config key on is deliberate: it is
+   * the same call the key makes, and it pins the behaviour without a second config in the gate.
+   */
+  it('survives vi.restoreAllMocks(), which is what `restoreMocks: true` runs before every test', () => {
+    const spy = createSpyFromClass(MyService, { gettersToSpyOn: ['userName'], settersToSpyOn: ['userName'] });
+
+    spy.accessorSpies.getters.userName.mockReturnValue('Fake Name');
+
+    vi.restoreAllMocks();
+
+    expect(spy.userName).toBe('Fake Name');
+
+    spy.userName = 'New Name';
+    expect(spy.accessorSpies.setters.userName).toHaveBeenCalledWith('New Name');
+  });
 });
 
 // ---------------------------------------------------------------------------

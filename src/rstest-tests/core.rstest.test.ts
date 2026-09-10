@@ -60,7 +60,7 @@ describe('createSpyFromClass on Rstest', () => {
     await expect(service.load(2)).rejects.toThrow('boom');
   });
 
-  it('spies accessors through the runner native accessor support', () => {
+  it('spies accessors, which are installed by redefining the property on every runtime', () => {
     const service = createSpyFromClass(UserService, {
       gettersToSpyOn: ['label'],
       settersToSpyOn: ['label'],
