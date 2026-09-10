@@ -12,6 +12,163 @@ The latest released version here must always match the one published on
 
 ### Added
 
+- **`registerAutoSpyDefaults(Class, config)` — a spy's composition lives with the class, not in 109
+  specs.** Register once from a setup file and every `provideAutoSpy(X)` / `createSpyFromClass(X)`
+  starts from it, **merged** with whatever the call site adds rather than replaced: lists unioned,
+  `returns` and `overrides` merged key by key, scalars won by the call site, and the bare-array form
+  taken too. `clearAutoSpyDefaults(Class)` drops one, `clearAutoSpyDefaults()` the lot.
+
+  The reason is not repetition. Measured over one Angular suite: 739 of 2228 `provideAutoSpy` calls
+  carry a configuration, and one class collects incompatible opinions — `Router` 122 calls in 109
+  files with **23 distinct configurations**, `AccountService` 70/62/**27**, `PurchaseStateService`
+  53/52/**25**, and the `*RemoteConfigService` family 205 calls with 120 repeating
+  `{ gettersToSpyOn: ['remoteConfig'] }` word for word. The list options are additive and never
+  complain about a name they cannot find — deliberately, since they exist to name members no
+  prototype carries — so 23 opinions about `Router` means most of those files do not spy `events` at
+  all, and the day production grows a subscription to it not one of them says so. **By class
+  identity, not by inheritance**: a registration on a widely-extended base changing doubles in files
+  nobody was looking at would relocate that failure rather than remove it. A second registration for
+  the same class replaces the first, for the same reason.
+
+- **`enableAngularDiagnostics({ shadowedProviders })` — the double the component never got.** A
+  component that declares its own `providers` resolves them through its **node** injector, so a
+  `provideAutoSpy(X)` on the testing module never reaches it: the component runs against the real
+  service, the double records nothing, and an assertion that it was *not* called passes for the wrong
+  reason. The check compares every double the module registered with what the component actually
+  resolved, and names each token that lost. Measured: of 71 component specs whose subject declares
+  its own `providers`, 43 register the same token on the module and **7 do nothing else** — while
+  `overrideComponentProvider`, which repairs it in one line, had **zero** uses in that repository.
+  That is the argument for the check rather than against the helper: it cannot be found from the
+  symptom, because there is none. Silent when what the component resolved is itself a double, so a
+  spec that already reached for `TestBed.overrideProvider` or `overrideComponentProvider` is left
+  alone. `assertNoShadowedProviders(component, fixture)` is the same check, callable, for a spec that
+  renders through a helper of its own.
+
+- **`no-dead-schemas` — `schemas` on a testing module that declares nothing.** A schema is a property
+  of the module's `declarations`; a standalone component brought in through `imports` carries its own
+  dependency scope and the schema never reaches it. The static twin of
+  `enableAngularDiagnostics({ deadSchemas })`, which knows more but throws inside `it()` — a suite
+  yields its list one red run at a time, where the rule hands over all of it at once. Measured over
+  one Angular suite: of 333 files mentioning a schema, **230 entries in 204 files** are dead
+  (`apps/smart` 63, `libs/purchase` 61, `apps/web` 22, `libs/gamification` 22). Nothing is being
+  silenced, so this is not a green-and-wrong test — what the line costs is a false sense of
+  protection, and the day somebody adds `declarations` it starts being true and a template typo
+  quietly stops being an error. **The file decides, not the call**: Angular merges successive
+  `configureTestingModule` calls, so a `declarations` anywhere in the file silences the rule for all
+  of it, and a list the rule cannot count (a spread, a name, a helper call) reads as present.
+
+- **`no-private-member-access` — the rule that reads types, and the only one that does.** It reports
+  the three spellings that get a spec past a modifier: `instance['privateMember']`, which compiles
+  because TypeScript checks visibility on the dotted form only (bracket access is also how an index
+  signature is read); `(instance as any).privateMember` — and `as unknown as { … }`, and a decoy
+  interface declared in the spec — where the access *was* checked, against a type substituted a line
+  earlier; and `vi.spyOn(Object.getPrototypeOf(component), 'privateMethod')`, which patches the
+  prototype every instance in the worker shares. All three pin a member no caller can reach, so a
+  rename is a green refactor that turns red in a test file and proves nothing about the public
+  surface. A cast chain is walked to the bottom, because the middle of `as unknown as …` is `unknown`
+  and answers nothing; a dotted access with no cast in front of it is never resolved, which is both
+  correct and what keeps the rule off every `a.b` in the file.
+
+  **Type-aware by necessity, with a number behind it.** Measured over a 1759-file Angular spec
+  corpus: a syntax-only version of the bracket half reports **511 sites in 85 files**, of which
+  **324 in 45 files** are really `private` / `protected`. The other **187 (37 %)** are correct code —
+  `process.env['KEY']`, `dataset['error']`, a route's `queryParams['id']`,
+  `form.controls['profileName']`, `errors?.['required']` — and **41 of those 85 files hold no private
+  access at all**. So nothing is reported unless the checker resolves the name to a class member
+  carrying the modifier, the name is taken from the **type** of the key (`const KEY = 'secret';
+  card[KEY]` resolves; `card[key]` with a plain `string` does not), and without
+  `parserOptions.project` / `projectService` the rule reports nothing at all rather than falling back
+  to the syntax. The cast and prototype halves need no types and work either way — **50** casts in 10
+  files and **9** prototype spies in 3 on the same corpus, for **383 findings in 55 files** in total.
+
+  There is deliberately **no paired helper**: an export for reading a private member would legitimise
+  what the rule is for. The message names the way out instead — the public API that reaches the
+  member, or, on a component, the rendered template, which is the surface `protected` exists for.
+
+- **`overload` takes a map, so the choice can be named per method.** `Spy<T, { overload: 'first' }>`
+  moves *every* overloaded member at once, which on a wide type breaks the ones nobody was fixing —
+  putting it on `Spy<Response>` for one method collected five `TS2769`s on `download` in the same
+  file, and the workaround reached for instead was widening `mock.calls[0]` to `unknown[]`.
+  `Spy<Performance, { overload: { getEntriesByType: 'first' } }>` moves that member and leaves its
+  siblings on the default. A name the type does not have never matches, so a rename leaves a dead
+  entry rather than a red build — the same trade `instanceMethodsToSpyOn` makes.
+
+  The default stays `'last'`, and that is a decision rather than an omission: "the useful signature"
+  is not decidable from the type. A generated `observe` client wants the first, a four-overload
+  `api-mgw` client wants the last, and both live in one suite; separating them structurally would
+  mean naming Angular's `HttpEvent` in a declaration this package ships, which nothing here is
+  allowed to do. What the docs now say out loud is the reason to name the method rather than trust
+  the default at all: **overload order is not always the author's.** A `declare global` in a
+  third-party package appends a signature to a global interface — `web-vitals` does exactly that to
+  `Performance.getEntriesByType` — so which one `ReturnType` reads depends on which packages are in
+  the program, and can move on a dependency bump with nothing in the diff to say so.
+
+### Fixed
+
+- **A `mock*Prop` patch made outside a per-test hook is now reported instead of quietly expiring.**
+  `restoreProps` undoes a patch after the test **during which it was applied**, whenever it was
+  created — so one written in a `describe` body, or in `beforeAll`, survives exactly one test and is
+  never put back. The first test passes, every test after it reads the real member, and the failure
+  arrives as `… is not a function` nowhere near the line that caused it; found in six files of one
+  suite at once during a bulk move onto `mockValueProp`. `setupAutoSpy` now names the property and
+  the hook to move the call to, graded by `propsOutsideHooks` — `'warn'` (default), `'throw'`,
+  `'off'` — and `reportPropsOutsideHooks` sets the same dial for a suite that wires its own hooks.
+  Reported once per object **and** property, keyed by the object rather than the name so that two
+  files of one worker patching the same member name are both named under `isolate: false`.
+
+  Reported rather than repaired, and the distinction is the point. The sibling defect —
+  `restoreMocks: true` taking accessor spies off a double built anywhere but a `beforeEach` — was
+  fixed silently because no spec could have meant it. This one has a legitimate reading and a
+  one-line repair, and re-applying the patch on every test would defeat what `restoreMockedProps()`
+  is for: keeping a patch from outliving its file, which is exactly what a self-restoring patch would
+  do under `isolate: false`.
+
+- **A generic class's declared default type argument reaches the double.** `class
+  RemoteConfigService<T = RemoteConfigDefaults>` handed to `createSpyFromClass` or `injectSpy`
+  inferred `T` as `unknown`, so every member typed against it read as `unknown` — on a class that
+  had declared exactly what it should be, with nothing in the failure naming a type parameter. Two
+  shapes caused it and both are gone: `ClassType<T>` carried an `& { [key: string]: any }`
+  intersection (an index signature makes inference drop a default), and `injectSpy`'s token
+  parameter was a union (a union drops it too, so the class case is now its own overload ahead of
+  it). Spelling the argument out keeps working, and is still the answer for a class with no default.
+  A generic **method** — `show<T, U>(…)` on a modal or factory service — still collapses to
+  `unknown`, because no mapped type in TypeScript can carry a generic signature through
+  `Parameters` / `ReturnType`; that limit is now documented rather than left to be rediscovered.
+
+- **`restoreMocks: true` no longer takes the accessor spies off a double before its test runs.**
+  `gettersToSpyOn` / `settersToSpyOn` were installed with `vi.spyOn`, the only call in this package
+  that writes to the runner's restore registry — and `restoreMocks: true` empties that registry in
+  `onBeforeTryTask`, which runs **before** the `beforeEach` hooks and after `beforeAll` and the
+  `describe` body. A double built anywhere but a `beforeEach` therefore arrived at its test with the
+  spied accessors put back to the no-op scaffolding, while `accessorSpies.getters.x` stayed a live
+  mock nobody read any more: `mockReturnValue` kept answering and the property kept answering
+  `undefined`. The report was `Cannot read properties of undefined` inside the code under test, with
+  nothing in it naming `restoreMocks`, `spyOn` or `accessorSpies`. The Vitest and Rstest adapters now
+  install accessor spies by redefining the property, which is the path the Bun and `node:test`
+  adapters have always taken — so an accessor spy is this library's to reset and nobody else's to
+  restore, on all four runtimes. `vi.clearAllMocks()` / `vi.resetAllMocks()` and the `clearMocks` /
+  `mockReset` config keys still reach them, through the same sweep sentinel the method spies use, and
+  the non-configurable-property diagnostic is unchanged. It fixes the same failure on
+  `createSpyFromInstance`, whose accessor patch was journalled by `mockAccessorsProp` and then
+  redefined on top by a spy the runner owned. `mockReadonlyProp` and the other `mock*Prop` helpers
+  were never affected — they keep their own journal — and that asymmetry between two helpers for one
+  job is what made the failure hard to place.
+
+- **`no-inject-before-override` reads `injectSpy()` and `renderShallow()`, not only the `TestBed.`
+  spellings.** `injectSpy(X)` *is* `TestBed.inject(X)` and `renderShallow` ends in
+  `TestBed.createComponent`, so the file the rest of the plugin had just rewritten was exactly the
+  file this rule stayed silent on: an `injectSpy` in `beforeEach` above a `TestBed.overrideComponent`,
+  failing at run time with `Cannot override component when the test module has already been
+  instantiated` and reported by nothing. Found by hand in a migrated suite.
+  `TestBed.runInInjectionContext` joins the member-call selector for the same reason; a member call
+  such as `moduleRef.injectSpy` — the two-argument NestJS form, which reaches no TestBed — is still
+  ignored.
+
+### Changed
+
+- **The Rstest entry no longer passes `rstest.spyOn` to the adapter**, since accessor spies are
+  installed by redefinition on every runtime now. `RstestApi` is `{ fn }` alone.
+
 - **`vitest-auto-spy/rstest` — the same core on Rstest, the Rspack-powered runner.** The entry
   registers an adapter over `rstest.fn()` / `rstest.spyOn()`, and the public API is the Vitest one
   name for name, so a spec moves between the two by rewriting its import. Rstest implements the

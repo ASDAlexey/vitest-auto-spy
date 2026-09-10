@@ -4,6 +4,106 @@ Everything still open on `vitest-auto-spy`, ordered by value. Shipped work is no
 kept here — it lives in `CHANGELOG.md` and in git history. Status markers: `[ ]`
 backlog, `[~]` considered and intentionally not done, with the reason.
 
+## Field findings — repository reconnaissance, 2026-09-10
+
+A static pass over the same consumer's 1759 spec files, asking "what is written here and does
+nothing" rather than chasing a failure. Numbers are that pass's; the rule reproduced them
+independently, which is the check worth having.
+
+- [x] **`no-dead-schemas`.** 230 entries in 204 files. Deliberately **not** given an autofix: the
+      repair is "delete the line and the import", and dropping an import is the one edit that turns a
+      lint pass into a compile error when something else still uses the name. Deliberately not
+      per-call either — Angular merges successive `configureTestingModule` calls, so the file decides.
+
+- [x] **`enableAngularDiagnostics({ shadowedProviders })`** and `assertNoShadowedProviders`. Not
+      shipped alongside it: the lint rule the recon also proposed, which would pair
+      `x.component.spec.ts` with `x.component.ts` and read the decorator statically. It would need to
+      resolve an import to a sibling file, which no rule in this plugin does — and the runtime check
+      answers the same question from evidence rather than from a naming convention. Worth revisiting
+      only if a project reports the diagnostic being too late to be useful.
+
+- [x] **`registerAutoSpyDefaults`.** Not shipped: inheritance (a subclass inheriting its base's
+      registration), because it would let one setup line change doubles in files nobody was looking
+      at. Not shipped: merging two registrations of the same class — the second replaces, so the
+      drift the API removes cannot reappear inside it. Still open: nothing warns when a registration
+      names a member no prototype carries, for the same reason the call-site lists do not — the
+      option exists to name instance fields, and telling a typo from one is not decidable.
+
+- [~] **A provider that replaced nothing** (`{ provide: 'LOCALE_ID', useValue: 'ru-RU' }` against the
+      real `LOCALE_ID` from `@angular/core`). Checked and **not folded** into `shadowedProviders`:
+      that check compares a registered *double* with what the component resolved, and this provider
+      is not a double, so there is nothing to compare. The general form — "declared, and nothing ever
+      asked for it" — needs to know whether a token was injected, which Angular does not report. No
+      dedicated rule either: one occurrence in the repository, already removed, and a rule on one
+      finding is a rule that gets switched off. Revisit if a second shape of it turns up.
+
+## Field findings — consumer suite hardening, 2026-09-09
+
+Reported from the same consumer while a batch of specs was being moved onto `provideAutoSpy` /
+`injectSpy` and its type suppressions removed. Everything here was reproduced in this repository
+before it was changed; the two that were **not** reproduced are recorded as such, because a finding
+that does not hold is worth as much as one that does.
+
+- [x] **A `mock*Prop` patch made outside a per-test hook expired after one test.** Shipped: the
+      report, graded by `propsOutsideHooks`. Deliberately **not** shipped: re-applying the patch on
+      every test. It is the fix this looks like it wants, and it would defeat what
+      `restoreMockedProps()` exists for — a patch that puts itself back-per-test  outlives its file under
+      `isolate: false`, and "the file this patch belongs to" is not something the journal can see.
+      Still open: nothing detects the same shape without `setupAutoSpy`, because without its
+      `beforeEach` there is no epoch to compare against — and without the sweep the patch stays put,
+      so there is nothing to report either.
+
+- [x] **Accessor spies did not survive `restoreMocks: true`.** Shipped: the Vitest and Rstest
+      adapters install them by redefining the property instead of through the runner's `spyOn`.
+      Deliberately **not** shipped: a diagnostic that recognises `restoreMocks` and fails with a
+      message. It was the other candidate, and it is the wrong one — it would report a breakage
+      where there is no longer one to report. The diagnostic that stays is the one for the failure
+      nothing can repair: a non-configurable property.
+
+- [x] **`no-inject-before-override` now reads `injectSpy()` / `renderShallow()` /
+      `TestBed.runInInjectionContext`.** Not shipped: following a helper of the consumer's own that
+      wraps `TestBed.inject`. That needs cross-file resolution, and the rule's whole guarantee is
+      that it decides from one file.
+
+- [x] **`no-private-member-access`, type-aware, three forms.** Bracket access, a cast
+      (`as any` / `as unknown as { … }` / a decoy interface) and `Object.getPrototypeOf`. The cast
+      form arrived after the first two shipped and is the one the checker is most needed for: the
+      access is dotted, so the compiler *did* check visibility — against the substituted type.
+      Deliberately **not** relying on the neighbouring props that happen to exist in the consumer
+      (`as any` banned by its lint config, `as unknown as` being weeded out separately): the next
+      repository has neither and the escape survives.
+
+      Not shipped, on purpose: any paired helper for reaching a private member. It would legitimise
+      exactly what the rule reports, and the repair is a design question rather than a mechanical
+      one. Also not shipped: a syntactic fallback when no program is configured — measured at 37 %
+      false positives on the consumer's corpus, which is the level at which a rule gets switched off
+      and takes the real findings with it.
+
+      Still open: a member reached through a variable holding a **union** of classes, and a
+      `#private` field (unreachable by any of these three forms, so nothing to report).
+
+- [~] **"`prefer-provide-auto-spy` reports violators in batches."** Checked and **not reproduced**:
+      three literals in one `providers` array give three reports, twenty give twenty, and the
+      before/after of converting one differs by exactly the one converted. What is real is the
+      opposite shape — four forms the rule is silent on *by construction* (a double a helper call
+      built, one imported from another file, `vi.fn()`s behind a function boundary, `multi: true`),
+      so a zero is a statement about forms rather than about the repository. **Measured** on the
+      consumer's 1759 spec files: the rule reports 0, and behind that zero sit **56 providers in 40
+      files** it cannot classify — 27 whose `useValue` comes from an unknown call, 29 from an import.
+      A further 94 come from one of this library's own factories, which is the shape the rule asks
+      for. The other two blind forms do not occur there at all: `vi.fn()` behind a function boundary
+      and `multi: true` are both **0**. Worth an option that reports an unresolvable `useValue`
+      identifier as "cannot see this one"? Probably not: it would fire on every
+      `useValue: someImportedConstant`, and the sample shows most of those are data fixtures
+      (`ENVIRONMENT_MOCK`, `MockAccount`) rather than service doubles.
+
+- [~] **"`provideAutoSpyForToken`'s second argument silently yields a non-spy."** Checked and **not
+      reproduced** as a silent failure. A data value where the type declares a method does not
+      compile — `DeepPartial<T>` narrows a function member to `T[K] | ((...args) => ReturnType<T[K]>)`
+      — and a plain arrow seeded there fails loudly at the assertion with the runner's own "received
+      value must be a mock or spy function". No change made; a warning on a seeded non-mock function
+      was considered and rejected as noise on a legitimate use.
+
 ## Field findings — consumer monorepo merge, 2026-08-29
 
 Reported from a consumer, not from this repo: merging four months of `master` into an Angular

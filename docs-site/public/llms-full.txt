@@ -698,6 +698,67 @@ surrounding machinery probes to decide _what kind of object this is_ — `then`,
 `asymmetricMatch` turns every `toEqual` against the double into a matcher invocation, and one on
 `toJSON` rewrites every snapshot of it.
 
+## `registerAutoSpyDefaults` — the composition lives with the class
+
+A spy's composition is a fact about the **class**, not about the spec: `Router` needs `events` spied
+as an Observable property and `url` as a getter wherever it is doubled. Every file that repeats that
+is a file that can get it wrong.
+
+```ts
+// vitest-setup.ts, once
+import { registerAutoSpyDefaults } from 'vitest-auto-spy';
+
+registerAutoSpyDefaults(Router, { observablePropsToSpyOn: ['events'], gettersToSpyOn: ['url'] });
+registerAutoSpyDefaults(AccountService, { gettersToSpyOn: ['isGuest', 'currentProfile'] });
+```
+
+```ts
+// every spec, from then on
+provideAutoSpy(Router);
+provideAutoSpy(Router, { instanceMethodsToSpyOn: ['currentNavigation'] }); // adds, does not replace
+```
+
+**Why this is not only tidiness.** Measured over one Angular suite: 739 of 2228 `provideAutoSpy`
+calls carry a configuration, and the same class collects incompatible opinions —
+
+| class                  | calls | files | with a config | **distinct configurations** |
+| ---------------------- | ----: | ----: | ------------: | --------------------------: |
+| `Router`               |   122 |   109 |            60 |                      **23** |
+| `AccountService`       |    70 |    62 |            43 |                      **27** |
+| `PurchaseStateService` |    53 |    52 |            42 |                      **25** |
+| `SmartRemoteConfigService` | 85 |    70 |            47 |                           8 |
+
+— and the `*RemoteConfigService` family is 205 calls, 120 of them repeating
+`{ gettersToSpyOn: ['remoteConfig'] }` word for word. The list options are
+[additive and do not complain about a name they cannot find](#configuration), which is deliberate —
+they exist to name members no prototype carries — so 23 opinions about `Router` means most of those
+files do not spy `events` at all, and the day production grows a subscription to it, not one of them
+says so.
+
+### The merge
+
+The registration is the floor, the call site adds to it. Three behaviours, one per kind of key:
+
+| key                                                | merged how                              |
+| -------------------------------------------------- | --------------------------------------- |
+| every list (`gettersToSpyOn`, `observablePropsToSpyOn`, …) | unioned, registration first, no repeats |
+| `returns`, `overrides`                             | key by key, the call site winning       |
+| every scalar (`lazySpies`, `strict`, `fillMissing`) | the call site wins when it names the key |
+
+The bare-array form is taken too: `createSpyFromClass(X, ['reload'])` merges as
+`{ methodsToSpyOn: ['reload'] }`.
+
+**By class identity, not by inheritance.** A subclass gets nothing from its base class's
+registration. That is the conservative half of the design: walking the prototype chain would let a
+registration on a widely-extended base change the composition of doubles in files nobody was looking
+at, which is the failure this removes rather than relocates.
+
+**A second registration for the same class replaces the first.** Two registrations for one class in
+one suite is the drift this exists to remove, and quietly combining them would hide it.
+
+`clearAutoSpyDefaults(Class)` drops one, `clearAutoSpyDefaults()` the lot — for a suite that
+registers per project rather than per run, and for a spec that has to prove the registry is empty.
+
 ## Lazy spies — `lazySpies`
 
 **What it is.** A method's spy is built on **first access** (`spy.method`) and then cached, so
@@ -2108,6 +2169,42 @@ overload of a method. On a generated API client (`ng-openapi-gen`, `openapi-gene
 
 `{ overload: 'first' }` types the spy against the first signature instead. For a single method there
 is also `Overload<Client['get'], 0>`, which is what to put in a `MockInstance<…>` or a `vi.fn<…>()`.
+
+### Name the method, not the whole double
+
+`'first'` applied to the type moves **every** overloaded member at once, and on a wide type that
+breaks the members nobody was fixing: `Spy<Response, { overload: 'first' }>` put on one method
+collected five `TS2769`s on `download` in the same file. Pass a map instead:
+
+```ts
+let perf: Spy<Performance, { overload: { getEntriesByType: 'first' } }>;
+```
+
+A name the type does not have never matches, so a rename leaves a dead entry rather than a red
+build — the same trade `instanceMethodsToSpyOn` makes, and for the same reason.
+
+### Why the default stays `'last'`
+
+Because "the useful one" is not decidable from the type. On a generated `observe` client the first
+signature is the one to take; on a four-overload `api-mgw` client the last one is, and both live in
+the same suite. There is no structural test that separates them without naming Angular's
+`HttpEvent`, which no declaration this package ships is allowed to do.
+
+Worth knowing, because it is the strongest argument for naming the method rather than trusting the
+default: **overload order is not always the author's**. `declare global` in a third-party package
+appends to a global interface, and the appended signature is last —
+
+```ts
+// web-vitals
+declare global {
+  interface Performance {
+    getEntriesByType<K>(type: K): PerformanceEntryMap[K][];
+  }
+}
+```
+
+— so which signature `ReturnType` reads depends on which packages are in the program, and can change
+on a dependency bump with nothing in the diff to say so.
 
 ## The only call signature is the method's own
 
@@ -5526,6 +5623,7 @@ each test: a stub installed for the previous test is exactly what must not still
 | --------------------- | --------- | ------------------------------------------------------------------------------- |
 | `duplicateCopies`     | `'throw'` | `'warn'` to report without failing, `'off'` to skip the check                   |
 | `restoreProps`        | `true`    | `restoreMockedProps()` in a global `afterEach`                                  |
+| `propsOutsideHooks`   | `'warn'`  | Report a `mock*Prop` patch made outside a per-test hook — see below             |
 | `restoreMocks`        | `false`   | `vi.restoreAllMocks()` in a global `afterEach` — turn on for `isolate: false`   |
 | `strayTimers`         | `false`   | Track and cancel timeouts, intervals and frames that outlive their file         |
 | `onStrayTimers`       | —         | Takes the per-file count the sweep cancelled, instead of the stderr warning     |
@@ -5548,6 +5646,50 @@ each test: a stub installed for the previous test is exactly what must not still
 ```ts
 setupAutoSpy({ restoreMocks: true, duplicateCopies: 'warn' });
 ```
+
+## A patch put in the wrong hook stops applying
+
+```ts
+describe('modal', () => {
+  const modal = new Modal();
+
+  mockValueProp(modal, 'onClose', () => 'patched'); // ← runs once, at collection
+
+  it('one', () => expect(modal.onClose()).toBe('patched')); // ✅
+  it('two', () => expect(modal.onClose()).toBe('patched')); // ❌ 'real'
+});
+```
+
+`restoreProps` undoes a `mock*Prop` patch after the test **during which it was applied**, whenever
+it was created. A patch written in a `describe` body — or in `beforeAll` — therefore survives exactly
+one test, and nothing puts it back. The first test passes, every test after it reads the real member,
+and the failure lands as `… is not a function` nowhere near the line that caused it. Found in six
+files of one suite at once, during a bulk move onto `mockValueProp`.
+
+The repair is one line: move the call into `beforeEach`, where a patch every test needs belongs.
+
+`setupAutoSpy` now says so rather than leaving it to be found by debugging. `propsOutsideHooks`
+grades the report — `'warn'` by default, `'throw'` for a suite that would rather fail on the first
+test, `'off'` to decide that its `beforeAll` patches are its own business:
+
+```ts
+setupAutoSpy({ propsOutsideHooks: 'throw' });
+```
+
+It fires once per object and property, so a `describe`-body patch is named once rather than once per
+test, and it is keyed by the object rather than by the name — under `isolate: false` two files of one
+worker routinely patch a member of the same name on different objects, and a name-keyed report would
+name the first and silence the second.
+
+**Why the patch is not simply re-applied**, which is the fix this looks like it should have.
+`restoreMockedProps()` exists so a patch does not outlive its file; a patch that put itself back on
+every test would defeat exactly that under `isolate: false`, where "the file this patch belongs to"
+is not something the journal can observe. The silence is what gets removed here, not the rule.
+
+This is the second helper of the pair — the first was `restoreMocks: true` taking accessor spies off
+a double built anywhere but a `beforeEach`. That one was fixed rather than reported, because there
+was nothing legitimate a spec could have meant by it; this one has a legitimate reading and a
+one-line repair, so it is reported.
 
 ## Fake timers for the whole run
 
@@ -6969,7 +7111,7 @@ which a subpath export of this package can never be.
 
 **How this page is laid out.** [Adding it](#adding-it-to-your-project) is the four things a first
 config needs. [Which apply to you](#which-of-the-twenty-apply-to-you) answers the question a
-Vitest-only project asks — four of the twenty are about a dialect you may not speak.
+Vitest-only project asks — four of the twenty-two are about a dialect you may not speak.
 [Rules](#rules) is the reference table, in five groups. [Tuning](#tuning-it-for-your-project) is
 every dial, including the three rules that can report on correct code. Everything after that is
 _why_ — one section per rule, for when a report has arrived and you want to know what it saved you
@@ -7025,15 +7167,27 @@ In a monorepo, one block at the root covers every package as long as the glob is
 `'**/*.spec.ts'` matches `packages/*/src/**` fine. Add a second block only where one package's specs
 need different severities.
 
-### 3. No type information required
+### 3. Type information is optional, and one rule wants it
 
-Every rule is syntactic: they read the file's own AST and never ask the type checker. So the plugin
-works with `parserOptions.project` unset, adds nothing measurable to lint time, and does not need
-your specs to be in a `tsconfig` — which matters in the repositories where they are not.
+Twenty-one of the twenty-two are syntactic: they read the file's own AST and never ask the type checker.
+So the plugin works with `parserOptions.project` unset, adds nothing measurable to lint time, and
+does not need your specs to be in a `tsconfig` — which matters in the repositories where they are
+not.
 
 The cost of that is the honest limit of [the three rules that can report on correct
 code](#the-three-rules-that-can-report-on-correct-code): what a rule cannot see in one file, it
 cannot know.
+
+[`no-private-member-access`](#no-private-member-access-%E2%80%94-the-one-rule-that-reads-types) is
+the exception, and it **needs** a program: without one it reports nothing at all rather than falling
+back to the syntax. Half of it — the `Object.getPrototypeOf` escape — keeps working either way. Turn
+it on where your specs are already in a project:
+
+```js
+languageOptions: {
+  parserOptions: { projectService: true, tsconfigRootDir: import.meta.dirname },
+},
+```
 
 ### 4. What the first run looks like
 
@@ -7048,7 +7202,7 @@ npx eslint . --format stylish | tail -30   # the summary tells you which rule do
 Whatever is left is either a real finding or a rule you would rather not enforce yet. Both are
 answered below.
 
-## Which of the twenty apply to you
+## Which of the twenty-two apply to you
 
 Reasonable question if you came straight to Vitest and have never written a line of Jasmine: **four
 of these rules are about a dialect you do not speak.** They are still on, and the reason is not
@@ -7056,9 +7210,9 @@ principle — it is that they cannot fire on your code.
 
 | You are                                    | What the plugin does for you                                                                         |
 | ------------------------------------------ | ---------------------------------------------------------------------------------------------------- |
-| writing Vitest, never used Jasmine or Jest | the fifteen core rules work; **the four jasmine rules are inert** — leave them on and never see them |
+| writing Vitest, never used Jasmine or Jest | the seventeen core rules work; **the four jasmine rules are inert** — leave them on and never see them |
 | migrating off `jest-auto-spies` / Jest     | the core rules do the work, `no-done-callback` and `prefer-as-spy` most of it                        |
-| migrating off `jasmine-auto-spies`         | all twenty, with `prefer-native-spy-api` set to `'off'` until the bridge is gone                   |
+| migrating off `jasmine-auto-spies`         | all twenty-two, with `prefer-native-spy-api` set to `'off'` until the bridge is gone                   |
 
 ### If you never used Jasmine
 
@@ -7104,7 +7258,7 @@ never jasmine's.
 ### If you are coming from Jest
 
 There is no separate Jest rule set, because most of what a Jest suite has to unlearn is already in
-the core fifteen — these are the ones that carry a migration:
+the core seventeen — these are the ones that carry a migration:
 
 | Rule                           | What it catches in a Jest suite                                                                                                                                                                                                                               |
 | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -7127,7 +7281,7 @@ that file needs). See [Migrating from jest-auto-spies](https://asdalexey.github.
 
 ### If you are coming from Jasmine
 
-All twenty apply, and the four in the last group are the ones written for you. Two are pure
+All twenty-two apply, and the four in the last group are the ones written for you. Two are pure
 diagnosis — `no-jasmine-globals` and `no-save-arguments-by-value` name silent behaviour changes that
 survive a rename — and `jasmine-namespace-without-entry` catches the spy built before the layer was
 installed. The fourth, `prefer-native-spy-api`, reports the bridge itself, so it is the one line of
@@ -7187,7 +7341,16 @@ Five ways a provider ends up not being the double the spec thinks it registered.
 | [`no-unregistered-inject-spy`](#the-spy-that-only-the-compiler-can-see)                            | `injectSpy(X)` for a token this file never registered → the real instance, whose spy helpers exist only for the compiler | —       | red _(by construction)_ |
 | [`prefer-render-shallow`](#the-render-nobody-reads)                                                | `TestBed.createComponent` in a file that never reads the template → `renderShallow(X)`                                  | suggest |          green          |
 | [`no-overridden-provider`](#two-providers-one-token)                                               | two providers for one token in one array → the earlier one never runs; the exact duplicate can be deleted                | suggest |          green          |
-| [`no-inject-before-override`](#the-trap-this-plugin-s-own-advice-sets)                             | `TestBed.inject()` in a hook, in a suite that still calls `override*`                                                    | —       |           red           |
+| [`no-inject-before-override`](#the-trap-this-plugin-s-own-advice-sets)                             | `TestBed.inject()` / `injectSpy()` / `renderShallow()` in a hook, in a suite that still calls `override*`                | —       |           red           |
+| [`no-dead-schemas`](#no-dead-schemas-%E2%80%94-the-charm-that-protects-nobody)                        | `schemas` on a testing module that declares nothing → the schema applies to nothing                                      | —       | green _(by construction)_ |
+
+### Reaching past the public surface
+
+The one rule here that reads types, and the only group with a single member.
+
+| Rule                                                                                            | Flags                                                                                                                | Fix |       Without it        |
+| ----------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- | --- | :---------------------: |
+| [`no-private-member-access`](#no-private-member-access-%E2%80%94-the-one-rule-that-reads-types) | `instance['privateMember']`, `(instance as any).privateMember` and `vi.spyOn(Object.getPrototypeOf(x), 'm')` → drive the member through the public API | —   | green _(by construction)_ |
 
 ### Types
 
@@ -7859,7 +8022,7 @@ double in a `jest-auto-spies` suite, and every one of them fails with `TS2352` u
 
 ## The four jasmine rules
 
-They steer in the opposite direction from the rest of the plugin. The other fifteen push a Vitest
+They steer in the opposite direction from the rest of the plugin. The other eighteen push a Vitest
 suite towards this library's API; these four are about a suite that has not arrived yet — one
 running on [`vitest-auto-spy/jasmine`](https://asdalexey.github.io/vitest-auto-spy/migrating-jasmine), or one that thinks it is.
 
@@ -7959,7 +8122,7 @@ this rule declines. See [Migrating from jasmine-auto-spies](https://asdalexey.gi
 
 ## Which rules fix, and why so few
 
-Three of the twenty rewrite the source on their own, eight offer the rewrite as a suggestion, and
+Three of the twenty-two rewrite the source on their own, eight offer the rewrite as a suggestion, and
 the split is about what a wrong guess costs rather than about how hard the rewrite is.
 
 `no-mocked-for-spy` touches nothing but a **declaration**. Get it wrong and the file stops
@@ -8199,6 +8362,131 @@ calls — `clearMocks: true` does reach a module-level `vi.fn()` and does clear 
 probes said so. What leaks is everything else a fixture holds next to its spies, which is why the fix
 is a factory rather than a `beforeEach` that clears harder. Which file runs first is the runner's
 choice, so the failure arrives as flakiness.
+
+### `no-dead-schemas` — the charm that protects nobody
+
+A schema is a property of the module's **`declarations`**. `NO_ERRORS_SCHEMA` tells the compiler to
+stop complaining about unknown elements in the templates of the components this module *declares*; a
+standalone component brought in through `imports` carries its own dependency scope, and the schema
+never reaches it.
+
+```ts
+await TestBed.configureTestingModule({
+  imports: [FooterComponent], // standalone — carries its own scope
+  schemas: [NO_ERRORS_SCHEMA], // applies to nothing
+}).compileComponents();
+```
+
+Measured over one Angular suite: of 333 files mentioning a schema, **230 entries in 204 files** are
+dead — `apps/smart` 63, `libs/purchase` 61, `apps/web` 22, `libs/gamification` 22, the rest a tail.
+
+Nothing is being silenced, so this is not a green-and-wrong test: whatever the schema was added for
+is still unresolved and still fails. What the line costs is **a false sense of protection**.
+`NO_ERRORS_SCHEMA` is the commonest way to make `NG8001` go away, so a spec carrying it reads as
+"unknown elements are excused here" to everyone who opens it — and the day somebody adds
+`declarations`, the same line starts working and a typo in a template quietly stops being an error.
+
+It is the static twin of [`enableAngularDiagnostics({ deadSchemas })`](https://asdalexey.github.io/vitest-auto-spy/adapters/angular-diagnostics#deadschemas),
+and both are worth having. The diagnostic knows more — it can see that an `imports` entry really is a
+standalone component — but it throws inside `it()`, so a suite yields its list one red run at a time.
+The rule reads one object and hands over all 204 files at once, which is what a cleanup is planned
+from.
+
+**The file decides, not the call.** Angular merges successive `configureTestingModule` calls before
+the module is instantiated, so a schema in one hook and the declarations in another is one live
+configuration written twice. The rule stays silent for the whole file as soon as any configuration in
+it declares something, and it treats a list it cannot count — a spread, a name, a helper call — as
+present rather than empty.
+
+**`overrideComponent` and `overrideModule` are outside the rule**, and that is a decision rather
+than a side effect of where it looks — the tests pin it. A schema added there compensates a real
+removal the spec made on purpose:
+
+```ts
+TestBed.overrideComponent(TicketQrCode, {
+  remove: { imports: [QRCodeComponent] }, // draws on a canvas; jsdom cannot
+  add: { schemas: [NO_ERRORS_SCHEMA] }, // so the element it left behind needs excusing
+});
+```
+
+Take that schema away and the template stops compiling. Checked over the whole suite: of 41 specs
+that combine an override call with a schema, the rule reports **none** of the override blocks. The
+signal of a live schema on a standalone component is **any interference with the component's own
+`imports`** — `set: { imports: [] }`, `set: { imports: [MockThing] }`, `remove: { imports: [X] }` —
+never the module's `declarations`.
+
+A `remove: { imports }` is deliberately not read as "this file declares something" either. In every
+such file the module-level `schemas` was dead *as well*, and removing it left the spec green — so
+letting an override silence the whole file would hide exactly the findings the cleanup confirmed.
+
+**Check the removal with a run, not with a green lint**
+There is no autofix here on purpose, and this is why. Applied to one suite the rule cleaned **85
+files and 107 entries with no spec failing**, which is the accuracy it was built for — but the one
+edit that went wrong went wrong silently: a `schemas:` line inside an `overrideComponent` block was
+deleted along with the reported one because the two lines read identically, and six tests died on
+`NG0303: Can't bind to 'collapsed' since it isn't a known property of 'present-button'`. Neither the
+compiler nor ESLint had anything to say about it. Drop the `NO_ERRORS_SCHEMA` import only when
+nothing else in the file still uses it, and run the file.
+
+### `no-private-member-access` — the one rule that reads types
+
+`instance['privateMember']` is not a loophole TypeScript forgot to close. Bracket access is how an
+index signature is read, so the visibility check is spelled only on the dotted form — and a spec
+written the other way compiles, runs, and pins a member the class never promised anybody. Rename it
+and the refactor is green everywhere except a test file, which is the wrong place to learn that a
+name was load-bearing.
+
+```ts
+// what the rule reports
+expect(component['recalculate']()).toBe(3);
+(component as any).recalculate();
+vi.spyOn(Object.getPrototypeOf(component), 'recalculate');
+
+// what it asks for instead
+component.onResize(); // the public call that reaches it
+expect(component.total()).toBe(3); // and the effect it has
+```
+
+**Why it has to be type-aware, in one number.** Measured over a 1759-file Angular spec corpus:
+a syntax-only version — every `obj['literal']` — reports **511 sites in 85 files**. Of those,
+**324 in 45 files** resolve to a member declared `private` or `protected`. The other **187 (37 %)**
+are correct code the rule must not touch: `process.env['APP_KM_ENABLED']`, `dataset['error']`, a
+route's `queryParams['id']`, `req.headers['x-request-id']`, `form.controls['profileName']`,
+`errors?.['required']` — index signatures, all of them. **41 of those 85 files hold no private
+access at all**, which is the number to keep: matching a key against a list of names declared
+`private` somewhere inflates the file count more than the site count. A plain grep is worse still:
+~1726 bracket reads against the same 324 findings.
+
+So the resolution goes through the checker, and the name comes from the **type** of the key rather
+than from the source text — `const KEY = 'secret'; card[KEY]` resolves the same as the inline
+string, and `card[key]` where `key` is a plain `string` resolves to nothing and is left alone.
+Without a program the rule reports nothing rather than falling back to the syntax; the other two
+forms need no types and keep working either way.
+
+**The third form is a cast, and it is the one the checker is most needed for**, because the access
+itself is dotted and therefore *was* visibility-checked — against a type the spec substituted a line
+earlier:
+
+```ts
+(service as any).privateMember;
+(service as unknown as { privateMember: T }).privateMember;
+(service as DecoyDeclaredInTheSpec).privateMember;
+```
+
+All three ask the same question, so the rule walks a cast chain to the bottom — the middle of
+`as unknown as …` is `unknown` and answers nothing — and reads the member off the expression that
+still carries the real type. A dotted access with **no** cast in front of it is never resolved,
+which is both correct (the compiler checked it) and what keeps the rule off every `a.b` in the file.
+On the same corpus: **50 casts in 10 files**, against 324 bracket reads and 9 prototype spies —
+**383 findings in 55 files** in total, 204 of them in two files.
+
+**There is deliberately no helper for this.** A `readPrivate(instance, 'x')` export would legitimise
+exactly what the rule is for, and the repair is never mechanical: drive the member through the
+public API that uses it and assert the effect. On a component the rendered template is the other
+public surface, and it is the one `protected` exists for — `renderShallow(Cmp)` and read the DOM.
+When nothing public reaches the member at all, that is a fact about the design rather than a reason
+to step around the modifier: it either wants to be public, or wants to move into a collaborator the
+spec can provide a double for.
 
 ### `no-object-define-property` — nothing puts the descriptor back
 
@@ -10649,14 +10937,14 @@ Source: https://asdalexey.github.io/vitest-auto-spy/adapters/angular-diagnostics
 // vitest.setup.ts — after the Angular test environment is initialised
 import { enableAngularDiagnostics } from 'vitest-auto-spy/angular';
 
-enableAngularDiagnostics(); // all four
+enableAngularDiagnostics(); // all five
 enableAngularDiagnostics({ pendingRequests: false }); // or pick
 ```
 
-Four checks, one decision. Each member has the same shape: something a spec wrote does nothing,
+Five checks, one decision. Each member has the same shape: something a spec wrote does nothing,
 nothing says so, and the test passes for a reason its author did not intend. They ship as one group
-rather than four helpers because turning a suite from "passes" into "passes for the stated reason"
-is taken once, in a setup file — and because three of the four hang off the same
+rather than five helpers because turning a suite from "passes" into "passes for the stated reason"
+is taken once, in a setup file — and because four of the five hang off the same
 `TestBed.configureTestingModule` hook the
 [timing diagnostics](https://asdalexey.github.io/vitest-auto-spy/adapters/angular#where-a-spec-spends-its-time) already install.
 
@@ -10666,6 +10954,7 @@ is taken once, in a setup file — and because three of the four hang off the sa
 | `deadSchemas`      | `true`  | `schemas` sit next to a standalone component, where they can never apply           |
 | `unspiedProviders` | `true`  | `injectSpy` gets a real instance — a `console.warn` today, a throw under the group |
 | `pendingRequests`  | `true`  | a test ends with unflushed `HttpTestingController` requests                        |
+| `shadowedProviders` | `true` | a double on the testing module loses to the component's own `providers`            |
 
 Every member defaults to `true`; pass `false` to leave one out. Calling `enableAngularDiagnostics`
 again **replaces** the previous selection rather than adding to it, and the per-test hooks are
@@ -10836,6 +11125,57 @@ assertNoPendingRequests(); // nothing else went out
 Because reading takes the requests, calling it yourself is not paid for twice: the group's own
 `afterEach` will not re-report what you already inspected. It is a no-op when the group is off, and
 a no-op when the test never configured HTTP testing at all.
+
+## `shadowedProviders`
+
+```ts
+// the component declares its own providers
+@Component({ selector: 'app-promo', providers: [PromoService], template: '…' })
+export class PromoComponent {}
+
+// the spec registers the double one level too high
+TestBed.configureTestingModule({ imports: [PromoComponent], providers: [provideAutoSpy(PromoService)] });
+const fixture = TestBed.createComponent(PromoComponent); // ← fails here, under the group
+```
+
+A component-level provider is resolved by the component's **node** injector, and the module injector
+is only consulted when the node injector has nothing. So a `provideAutoSpy(X)` on the testing module
+never reaches a component that declares `X` itself: the component talks to the real service, the
+double records nothing, and an assertion that it was *not* called passes for the wrong reason.
+
+Measured in one Angular suite: of 71 component specs whose subject declares its own `providers`, 43
+register the same token on the module too. 22 of those work around it with
+`TestBed.overrideComponent({ set: { providers } })`, 14 with `TestBed.overrideProvider`, 4 read back
+through the component's injector — and **7 do nothing at all**, which is this failure.
+
+The repair is one line:
+
+```ts
+overrideComponentProvider(PromoComponent, PromoService, provideAutoSpy(PromoService));
+```
+
+[`overrideComponentProvider`](https://asdalexey.github.io/vitest-auto-spy/adapters/angular-overrides) has existed since 3.1.0 and had **zero**
+uses in that repository, which is the argument for the check rather than against the helper: it
+cannot be found from the symptom, because there is no symptom. Nothing fails, nothing warns, and the
+spec reads exactly like one that works.
+
+**Silent when the component's answer is itself a double.** A spec that reached for
+`TestBed.overrideProvider`, `overrideComponentProvider` or a `viewProviders` double has already
+decided this question and its answer wins on purpose — only a **real** instance is reported. That is
+also what keeps the check off the 40 specs of that suite that had handled it one way or another.
+
+### `assertNoShadowedProviders(component, fixture)`
+
+The same check, callable. `shadowedProviders` runs it on every fixture the TestBed builds; a spec
+that renders through a helper of its own can ask directly:
+
+```ts
+const fixture = renderThroughOurHelper(CartComponent);
+
+assertNoShadowedProviders(CartComponent, fixture); // the doubles really are the ones in play
+```
+
+A no-op when the fixture never rendered that component.
 
 ## What this group does not include
 
