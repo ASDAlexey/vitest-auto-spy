@@ -11,6 +11,7 @@ import '../angular';
 import {
   assertComponentDefIntact,
   assertNgModuleScopes,
+  componentInjector,
   installResetWrapper,
   overrideAutoSpy,
   overrideComponentProvider,
@@ -246,6 +247,46 @@ describe('assertComponentDefIntact', () => {
 
   it('reports the class reference that itself never arrived', () => {
     expect(() => assertComponentDefIntact(MenuHostComponent, undefined)).toThrow(/argument 1 is undefined, which carries no ɵcmp or ɵdir/);
+  });
+});
+
+describe('componentInjector', () => {
+  /**
+   * The two "nothing to check" answers, taken directly because neither is reachable through
+   * `TestBed.createComponent`: Angular throws on a non-class before the hook that asks this runs,
+   * and a fixture whose root is a different component only happens inside a host.
+   */
+  it('answers nothing for a value that is not a component class', () => {
+    expect(componentInjector({}, 'not a class')).toBeUndefined();
+    expect(componentInjector({}, undefined)).toBeUndefined();
+  });
+
+  it('answers nothing when the fixture never rendered that component', () => {
+    class Absent {}
+
+    const fixture = {
+      componentInstance: {},
+      debugElement: { componentInstance: {}, injector: { get: (): null => null }, query: () => null },
+    };
+
+    expect(componentInjector(fixture, Absent)).toBeUndefined();
+  });
+
+  it('answers the injector of the element hosting it', () => {
+    class Hosted {}
+
+    const injector = { get: (): string => 'resolved' };
+    const hosted = { componentInstance: new Hosted(), injector, query: (): null => null };
+    const fixture = {
+      componentInstance: {},
+      debugElement: {
+        componentInstance: {},
+        injector: { get: (): null => null },
+        query: (predicate: (element: typeof hosted) => boolean) => (predicate(hosted) ? hosted : null),
+      },
+    };
+
+    expect(componentInjector(fixture, Hosted)).toBe(injector);
   });
 });
 

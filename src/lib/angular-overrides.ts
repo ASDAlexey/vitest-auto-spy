@@ -195,15 +195,32 @@ function injectorOf(fixture: FixtureLike, component: Type<unknown>): DebugElemen
   return hosted ? hosted.injector : undefined;
 }
 
+/**
+ * The injector a component resolves through, from the fixture that built it.
+ *
+ * Exported because two checks ask the same question from opposite directions — this file's own
+ * "did my override apply", and the diagnostics group's "did my module-level double lose to the
+ * component's own provider" — and a second copy of the walk would be a second place for the
+ * `@if`-never-rendered case to be forgotten.
+ */
+export function componentInjector(fixture: unknown, component: unknown): DebugElementLike['injector'] | undefined {
+  if (typeof component !== 'function') {
+    return undefined;
+  }
+
+  // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- `createComponent` returns a `ComponentFixture` and takes a component class; only the members `FixtureLike` and `Type` name are read off either.
+  return injectorOf(fixture as FixtureLike, component as Type<unknown>);
+}
+
 /** How the injector's answer reads in the failure: a class name where there is one, the value otherwise. */
-function describeResolved(resolved: unknown): string {
+export function describeResolved(resolved: unknown): string {
   const constructorName: unknown = readProperty(readProperty(resolved, 'constructor'), 'name');
 
   return typeof constructorName === 'string' && constructorName.length > 0 ? `a ${constructorName} instance` : String(resolved);
 }
 
-function verify(fixture: FixtureLike, { component, token, spy }: PendingVerification): void {
-  const injector = injectorOf(fixture, component);
+function verify(fixture: unknown, { component, token, spy }: PendingVerification): void {
+  const injector = componentInjector(fixture, component);
 
   // The component this fixture never rendered — behind an `@if`, on a lazy route, or simply a
   // different host. There is nothing to check yet, and guessing would fail a correct spec.
@@ -267,8 +284,7 @@ function verifyOnNextCreate(entry: PendingVerification): void {
     createComponentOriginal = undefined;
     pendingVerifications.length = 0;
 
-    // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- `createComponent` returns a `ComponentFixture`; only the two members `FixtureLike` names are ever read.
-    queued.forEach((pending) => verify(fixture as FixtureLike, pending));
+    queued.forEach((pending) => verify(fixture, pending));
 
     return fixture;
   };

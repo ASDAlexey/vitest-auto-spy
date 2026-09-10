@@ -29,11 +29,13 @@ import { TestBed } from '@angular/core/testing';
 import { afterEach, beforeEach } from 'vitest';
 
 import { failOnUnspiedProvider } from './angular';
-import { assertNgModuleScopes, isDeadNgModuleImport, readProperty } from './angular-overrides';
+import { assertNgModuleScopes, componentInjector, describeResolved, isDeadNgModuleImport, readProperty } from './angular-overrides';
 import { DOCS_LINKS, withDocs } from './docs-links';
+import { isAutoSpyLike } from './spy-mark';
 import {
   type LooseTestBedMethod,
   instrumentTestBed,
+  onComponentCreated,
   onTestingModuleConfigured,
   readTestBedMethod,
   verifyOnTeardown,
@@ -52,6 +54,11 @@ export interface AngularDiagnosticsOptions {
   unspiedProviders?: boolean;
   /** Fail a test that ends with unflushed `HttpTestingController` requests. */
   pendingRequests?: boolean;
+  /**
+   * Fail when a double registered on the testing module loses to the component's own `providers`,
+   * so the component under test is running against the real service.
+   */
+  shadowedProviders?: boolean;
 }
 
 /** Read a config key as a list, whatever the caller passed. */
@@ -284,9 +291,107 @@ export function assertNoPendingRequests(): void {
   );
 }
 
+/**
+ * `shadowedProviders`: the double the module registered, and the one the component actually got.
+ *
+ * A component that declares its own `providers` gets its own instance from its **node** injector,
+ * and a `provideAutoSpy(X)` on the testing module never reaches it — the module injector is further
+ * up the chain and is only consulted when the node injector has nothing. So the spec configures a
+ * double, asserts on it, and the component talks to the real service the whole time. Nothing fails:
+ * the double simply records no calls, and an assertion that it was *not* called passes for the
+ * wrong reason.
+ *
+ * Measured in one Angular suite: of 71 component specs whose subject declares its own `providers`,
+ * 43 register the same token on the module too — and 7 of those do nothing else, which is exactly
+ * this failure. The repair is one line, {@link overrideComponentProvider}, which has existed since
+ * 3.1.0 and had zero uses in that repository. That is the point of this check rather than a
+ * shortcoming of the helper: the helper cannot be found from the symptom, because there is none.
+ *
+ * **Silent when the component's answer is itself a double.** A spec that reached for
+ * `TestBed.overrideProvider`, `overrideComponentProvider` or a `viewProviders` double has decided
+ * this question already, and its answer wins on purpose. Only a **real** instance is reported, which
+ * is also what keeps the check off the 36 specs of that suite that had handled it one way or another.
+ */
+const moduleDoubles = new Map<unknown, unknown>();
+
+/** Collect the doubles a configuration registers, keeping the last per token, as Angular does. */
+function collectModuleDoubles(config: unknown): void {
+  const flat: unknown[] = [];
+
+  flattenProviders(readProperty(config, 'providers'), flat);
+
+  flat.forEach((provider) => {
+    const token = readProperty(provider, 'provide');
+    const useValue = readProperty(provider, 'useValue');
+
+    // A `multi` provider resolves to an array, which can never be the double itself — comparing
+    // them would report every multi registration in the suite.
+    if (token !== undefined && isAutoSpyLike(useValue) && readProperty(provider, 'multi') !== true) {
+      moduleDoubles.set(token, useValue);
+    }
+  });
+}
+
+/** How a token reads in the failure — its class name, or whatever an `InjectionToken` calls itself. */
+function tokenName(token: unknown): string {
+  const name = readProperty(token, 'name');
+
+  return typeof name === 'string' && name.length > 0 ? name : String(token);
+}
+
+/**
+ * Fail when a double this test registered on the testing module never reached `component`.
+ *
+ * `shadowedProviders` calls this on every fixture; it is exported for the same reason
+ * {@link assertNoPendingRequests} is — a spec that builds its component through a helper of its own
+ * can ask directly, and a check that can only be reached through one code path is a check that
+ * stops running the day that path changes.
+ *
+ * A no-op when the fixture never rendered `component`, and when everything it resolved is a double.
+ *
+ * @example
+ * ```ts
+ * const fixture = renderThroughOurHelper(CartComponent);
+ * assertNoShadowedProviders(CartComponent, fixture); // the doubles really are the ones in play
+ * ```
+ */
+export function assertNoShadowedProviders(component: unknown, fixture: unknown): void {
+  const injector = componentInjector(fixture, component);
+
+  // Nothing to compare against: the fixture did not render this component (an `@if` branch not
+  // taken, a different host), or `createComponent` was handed something that is not a class.
+  if (!injector) {
+    return;
+  }
+
+  const shadowed = [...moduleDoubles]
+    .map(([token, spy]) => ({ token, spy, resolved: injector.get(token, null) }))
+    .filter(({ spy, resolved }) => resolved !== null && resolved !== spy && !isAutoSpyLike(resolved));
+
+  if (shadowed.length === 0) {
+    return;
+  }
+
+  const named = shadowed.map(({ token, resolved }) => `${tokenName(token)} → ${describeResolved(resolved)}`);
+
+  throw new Error(
+    withDocs(
+      `[vitest-auto-spy] enableAngularDiagnostics({ shadowedProviders }): ${className(component)} declares its own ` +
+        `providers, so ${shadowed.length} double(s) registered on the testing module never reached it: ${named.join(', ')}.\n` +
+        "A component-level provider is resolved by the component's node injector, which is consulted before the module " +
+        'injector — so the component is running against the real service while the spec asserts on a double that records ' +
+        'nothing. An assertion that the double was *not* called passes here for the wrong reason.\n' +
+        `Replace the module-level registration with \`overrideComponentProvider(${className(component)}, Token, provideAutoSpy(Token))\`, ` +
+        'which puts the double where the component looks and checks that it applied.',
+      DOCS_LINKS.angularDiagnostics,
+    ),
+  );
+}
+
 /** The active selection, or `undefined` when the group is off. Read by the hooks, so a second call replaces it. */
 let active: Required<AngularDiagnosticsOptions> | undefined;
 let removeInspector: (() => void) | undefined;
+let removeComponentInspector: (() => void) | undefined;
 let hooksRegistered = false;
 
 /**
@@ -306,6 +411,7 @@ export function enableAngularDiagnostics(options: AngularDiagnosticsOptions = {}
     deadSchemas: options.deadSchemas ?? true,
     unspiedProviders: options.unspiedProviders ?? true,
     pendingRequests: options.pendingRequests ?? true,
+    shadowedProviders: options.shadowedProviders ?? true,
   };
 
   failOnUnspiedProvider(active.unspiedProviders);
@@ -328,7 +434,15 @@ export function enableAngularDiagnostics(options: AngularDiagnosticsOptions = {}
     if (selection.pendingRequests && controllerToken === undefined) {
       controllerToken = readControllerToken(config);
     }
+
+    if (selection.shadowedProviders) {
+      collectModuleDoubles(config);
+    }
   });
+
+  if (active.shadowedProviders) {
+    removeComponentInspector = onComponentCreated(assertNoShadowedProviders);
+  }
 
   if (active.pendingRequests) {
     wrapResetTestingModule();
@@ -346,6 +460,9 @@ export function enableAngularDiagnostics(options: AngularDiagnosticsOptions = {}
   beforeEach(() => {
     controllerToken = undefined;
     openAtReset = undefined;
+    // Per test, not per file: the doubles of the previous test are gone with its testing module, and
+    // comparing this test's component against them would report a token nobody registered here.
+    moduleDoubles.clear();
   });
 
   afterEach(() => {
@@ -368,6 +485,9 @@ export function disableAngularDiagnostics(): void {
   active = undefined;
   removeInspector?.();
   removeInspector = undefined;
+  removeComponentInspector?.();
+  removeComponentInspector = undefined;
+  moduleDoubles.clear();
   controllerToken = undefined;
   openAtReset = undefined;
   failOnUnspiedProvider(false);

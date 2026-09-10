@@ -106,6 +106,24 @@ export function onTestingModuleConfigured(inspector: (config: unknown) => void):
   };
 }
 
+/**
+ * The same seam on the other end: what `TestBed.createComponent` was asked for, and what it built.
+ *
+ * A check that compares a spec's *intent* with what the component actually resolved needs both, and
+ * needs them from the same wrapper — a second wrapper on `createComponent` would have to agree with
+ * this one about which of them runs first.
+ */
+const componentInspectors = new Set<(component: unknown, fixture: unknown) => void>();
+
+/** Register an inspector for every fixture. Returns the call that removes it. */
+export function onComponentCreated(inspector: (component: unknown, fixture: unknown) => void): () => void {
+  componentInspectors.add(inspector);
+
+  return () => {
+    componentInspectors.delete(inspector);
+  };
+}
+
 function reset(): void {
   counters = { testBedMs: 0, components: 0, configurations: 0 };
 }
@@ -131,7 +149,13 @@ function instrument(method: string, counter: 'components' | 'configurations' | u
     }
 
     try {
-      return original.apply(this, args);
+      const result = original.apply(this, args);
+
+      if (counter === 'components') {
+        componentInspectors.forEach((inspect) => inspect(args[0], result));
+      }
+
+      return result;
     } finally {
       counters.testBedMs += now() - startedAt;
     }

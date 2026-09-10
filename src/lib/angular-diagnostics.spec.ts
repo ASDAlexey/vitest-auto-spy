@@ -7,13 +7,20 @@
  */
 import { HttpClient, provideHttpClient } from '@angular/common/http';
 import { HttpClientTestingModule, provideHttpClientTesting } from '@angular/common/http/testing';
-import { Component, Injectable, NO_ERRORS_SCHEMA, NgModule } from '@angular/core';
+import { Component, Injectable, InjectionToken, NO_ERRORS_SCHEMA, NgModule, inject } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 
 import '../angular';
 import { injectSpy } from './angular';
-import { assertNoPendingRequests, disableAngularDiagnostics, enableAngularDiagnostics } from './angular-diagnostics';
+import { provideAutoSpy, provideAutoSpyForToken } from './angular';
+import {
+  assertNoPendingRequests,
+  assertNoShadowedProviders,
+  disableAngularDiagnostics,
+  enableAngularDiagnostics,
+} from './angular-diagnostics';
+import { overrideComponentProvider } from './angular-overrides';
 import { mockValueProp } from './prop-mock';
 
 @Injectable()
@@ -40,6 +47,34 @@ class DeclaringModule {}
 
 /** An `imports` entry that looks like a component and has no class name — a minified bundle's version of one. */
 const NAMELESS_COMPONENT = { ɵcmp: {} };
+
+/**
+ * The shape `shadowedProviders` exists for: a component that declares its own provider, so the
+ * module-level double is never consulted and the component talks to the real service.
+ */
+@Component({ selector: 'vas-own-providers', standalone: true, template: '', providers: [RealService] })
+class OwnProvidersComponent {
+  readonly service = inject(RealService);
+}
+
+/** A token double loses the same way a class double does, and reads differently in the failure. */
+const GREETER = new InjectionToken<{ hello(): string }>('GREETER');
+
+@Component({
+  selector: 'vas-own-token',
+  standalone: true,
+  template: '',
+  providers: [{ provide: GREETER, useValue: { hello: (): string => 'real' } }],
+})
+class OwnTokenComponent {
+  readonly greeter = inject(GREETER);
+}
+
+/** The same component without the declaration — the module-level double reaches this one. */
+@Component({ selector: 'vas-module-providers', standalone: true, template: '' })
+class ModuleProvidersComponent {
+  readonly service = inject(RealService);
+}
 
 describe('enableAngularDiagnostics', () => {
   enableAngularDiagnostics();
@@ -155,6 +190,75 @@ describe('enableAngularDiagnostics', () => {
     expect(assertNoPendingRequests).not.toThrow();
 
     enableAngularDiagnostics();
+  });
+
+  /**
+   * Measured shape: of 71 component specs whose subject declares its own `providers`, 43 registered
+   * the same token on the module and 7 did nothing else — the double records nothing, the component
+   * uses the real service, and an assertion that the double was not called passes for the wrong
+   * reason.
+   */
+  describe('shadowedProviders', () => {
+    it('fails when the component resolves the real service instead of the module-level double', () => {
+      TestBed.configureTestingModule({ imports: [OwnProvidersComponent], providers: [provideAutoSpy(RealService)] });
+
+      expect(() => TestBed.createComponent(OwnProvidersComponent)).toThrow(
+        /OwnProvidersComponent declares its own providers[\s\S]*RealService → a RealService instance[\s\S]*overrideComponentProvider/,
+      );
+    });
+
+    it('says nothing when the double does reach the component', () => {
+      TestBed.resetTestingModule();
+      TestBed.configureTestingModule({ imports: [ModuleProvidersComponent], providers: [provideAutoSpy(RealService)] });
+
+      expect(() => TestBed.createComponent(ModuleProvidersComponent)).not.toThrow();
+    });
+
+    it('says nothing when the spec put a double where the component looks', () => {
+      // The 36 specs of that suite that had already handled it: whatever the component resolves is
+      // itself a double, so the question has been decided and the answer is deliberate.
+      TestBed.resetTestingModule();
+      overrideComponentProvider(OwnProvidersComponent, RealService);
+
+      expect(() => TestBed.createComponent(OwnProvidersComponent)).not.toThrow();
+    });
+
+    it('names an InjectionToken by what it calls itself, since it has no class name', () => {
+      TestBed.resetTestingModule();
+      TestBed.configureTestingModule({ imports: [OwnTokenComponent], providers: [provideAutoSpyForToken(GREETER)] });
+
+      expect(() => TestBed.createComponent(OwnTokenComponent)).toThrow(/InjectionToken GREETER →/);
+    });
+
+    it('checks nothing when the member is switched off', () => {
+      enableAngularDiagnostics({ shadowedProviders: false });
+      TestBed.resetTestingModule();
+      TestBed.configureTestingModule({ imports: [OwnProvidersComponent], providers: [provideAutoSpy(RealService)] });
+
+      expect(() => TestBed.createComponent(OwnProvidersComponent)).not.toThrow();
+
+      enableAngularDiagnostics();
+    });
+
+    it('says nothing when the fixture never rendered that component', () => {
+      // Reached directly because `TestBed.createComponent` cannot produce it: the class it is handed
+      // is always the fixture's root. A spec's own render helper can, which is why the check is
+      // callable on its own.
+      expect(() =>
+        assertNoShadowedProviders(class Absent {}, { debugElement: { componentInstance: {}, query: () => null } }),
+      ).not.toThrow();
+      expect(() => assertNoShadowedProviders('not a class', {})).not.toThrow();
+    });
+
+    it('says nothing about a token the component never asks for, or a plain provider', () => {
+      TestBed.resetTestingModule();
+      TestBed.configureTestingModule({
+        imports: [OwnProvidersComponent],
+        providers: [{ provide: 'PLAIN', useValue: 'not a double' }],
+      });
+
+      expect(() => TestBed.createComponent(OwnProvidersComponent)).not.toThrow();
+    });
   });
 
   // Last on purpose: it leaves the group off, so the per-test hook registered above runs once with
