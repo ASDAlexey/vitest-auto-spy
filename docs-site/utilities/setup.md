@@ -685,6 +685,7 @@ each test: a stub installed for the previous test is exactly what must not still
 | --------------------- | --------- | ------------------------------------------------------------------------------- |
 | `duplicateCopies`     | `'throw'` | `'warn'` to report without failing, `'off'` to skip the check                   |
 | `restoreProps`        | `true`    | `restoreMockedProps()` in a global `afterEach`                                  |
+| `propsOutsideHooks`   | `'warn'`  | Report a `mock*Prop` patch made outside a per-test hook — see below             |
 | `restoreMocks`        | `false`   | `vi.restoreAllMocks()` in a global `afterEach` — turn on for `isolate: false`   |
 | `strayTimers`         | `false`   | Track and cancel timeouts, intervals and frames that outlive their file         |
 | `onStrayTimers`       | —         | Takes the per-file count the sweep cancelled, instead of the stderr warning     |
@@ -707,6 +708,50 @@ each test: a stub installed for the previous test is exactly what must not still
 ```ts
 setupAutoSpy({ restoreMocks: true, duplicateCopies: 'warn' });
 ```
+
+## A patch put in the wrong hook stops applying
+
+```ts
+describe('modal', () => {
+  const modal = new Modal();
+
+  mockValueProp(modal, 'onClose', () => 'patched'); // ← runs once, at collection
+
+  it('one', () => expect(modal.onClose()).toBe('patched')); // ✅
+  it('two', () => expect(modal.onClose()).toBe('patched')); // ❌ 'real'
+});
+```
+
+`restoreProps` undoes a `mock*Prop` patch after the test **during which it was applied**, whenever
+it was created. A patch written in a `describe` body — or in `beforeAll` — therefore survives exactly
+one test, and nothing puts it back. The first test passes, every test after it reads the real member,
+and the failure lands as `… is not a function` nowhere near the line that caused it. Found in six
+files of one suite at once, during a bulk move onto `mockValueProp`.
+
+The repair is one line: move the call into `beforeEach`, where a patch every test needs belongs.
+
+`setupAutoSpy` now says so rather than leaving it to be found by debugging. `propsOutsideHooks`
+grades the report — `'warn'` by default, `'throw'` for a suite that would rather fail on the first
+test, `'off'` to decide that its `beforeAll` patches are its own business:
+
+```ts
+setupAutoSpy({ propsOutsideHooks: 'throw' });
+```
+
+It fires once per object and property, so a `describe`-body patch is named once rather than once per
+test, and it is keyed by the object rather than by the name — under `isolate: false` two files of one
+worker routinely patch a member of the same name on different objects, and a name-keyed report would
+name the first and silence the second.
+
+**Why the patch is not simply re-applied**, which is the fix this looks like it should have.
+`restoreMockedProps()` exists so a patch does not outlive its file; a patch that put itself back on
+every test would defeat exactly that under `isolate: false`, where "the file this patch belongs to"
+is not something the journal can observe. The silence is what gets removed here, not the rule.
+
+This is the second helper of the pair — the first was `restoreMocks: true` taking accessor spies off
+a double built anywhere but a `beforeEach`. That one was fixed rather than reported, because there
+was nothing legitimate a spec could have meant by it; this one has a legitimate reading and a
+one-line repair, so it is reported.
 
 ## Fake timers for the whole run
 
