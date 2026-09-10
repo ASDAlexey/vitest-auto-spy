@@ -212,6 +212,7 @@
     "**/svelte.js",
     "**/rxjs.js",
     "**/console.js",
+    "**/dom-stubs.js",
     "**/jasmine.js",
     "**/jasmine-compat.js",
     "**/observer-spy.js",
