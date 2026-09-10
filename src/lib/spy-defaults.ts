@@ -70,20 +70,92 @@ function registry(): Map<object, Registration> {
   return (sharedRegistry ??= globalThis.__vitestAutoSpyDefaults__ ??= new Map());
 }
 
+/** One row of {@link registerAutoSpyDefaults}' many-at-once form: a class and the configuration to register for it. */
+export type AutoSpyDefaultEntry<Class> = [ClassType<Class>, ClassSpyConfiguration<Class>];
+
+/**
+ * The many-at-once form's row as a call site writes it: `const` inference makes every list it
+ * carries `readonly`, and requiring the mutable shape would reject every literal row outright.
+ * Functions and classes pass through untouched.
+ */
+type DeepReadonly<Value> = Value extends (...arguments_: never[]) => unknown
+  ? Value
+  : Value extends readonly unknown[]
+    ? readonly DeepReadonly<Value[number]>[]
+    : Value extends object
+      ? { readonly [Key in keyof Value]: DeepReadonly<Value[Key]> }
+      : Value;
+
+/**
+ * The many-at-once form's constraint: `Entries` with every row checked against its **own** class.
+ *
+ * The obvious spelling — `rows: Array<[ClassType<unknown>, ClassSpyConfiguration<unknown>]>` —
+ * checks nothing: `ClassSpyConfiguration<T>` names keys *of `T`*, and none of its instantiations
+ * unify across classes, so widening to one common row type gives up the checking the form exists
+ * for.
+ *
+ * Two placements were tried before this one, and both silently checked nothing:
+ *
+ * - As the **parameter** (`entries: Entries & AutoSpyDefaultEntries<Entries>`) the conditional is
+ *   deferred during overload resolution, and the relation TS uses to *choose* between overloads
+ *   accepts it — a wrong key in a row then compiles. A single-signature function catches the same
+ *   call, so the miss is the overloads', not the types'.
+ * - Without the `const` modifier the rows infer as arrays of the union of a row's members, and the
+ *   conditional answers `never` for every row.
+ *
+ * In the **constraint** the conditional is instantiated with the final `Entries` after the overload
+ * has been chosen, and a violation fails the call with the plain key error:
+ * `Type '"isGuest"' is not assignable to type '"reload" | "navigate"'`.
+ */
+type AutoSpyDefaultEntries<Entries extends readonly unknown[]> = {
+  [Key in keyof Entries]: Entries[Key] extends readonly [infer Class, unknown]
+    ? Class extends ClassType<infer Instance>
+      ? readonly [ClassType<Instance>, DeepReadonly<ClassSpyConfiguration<Instance>>]
+      : never
+    : never;
+};
+
 /**
  * Register the configuration every double of `ObjectClass` should start from.
  *
- * Call it once, from a setup file. A second call for the same class **replaces** the registration
+ * Call it once, from a setup file. A second registration for the same class **replaces** the first
  * rather than merging into it: two registrations for one class in one suite is the drift this is
- * built to remove, and quietly combining them would hide it.
+ * built to remove, and quietly combining them would hide it. The many-at-once form is the same
+ * calls said once — rows apply in order, and a later row for a class already named replaces its
+ * earlier row exactly as a second call would.
  *
  * @example
  * ```ts
  * registerAutoSpyDefaults(Router, { observablePropsToSpyOn: ['events'], gettersToSpyOn: ['url'] });
  * registerAutoSpyDefaults(AccountService, { gettersToSpyOn: ['isGuest'] });
  * ```
+ *
+ * @example
+ * ```ts
+ * // the same two registrations, said once
+ * registerAutoSpyDefaults([
+ *   [Router, { observablePropsToSpyOn: ['events'], gettersToSpyOn: ['url'] }],
+ *   [AccountService, { gettersToSpyOn: ['isGuest'] }],
+ * ]);
+ * ```
  */
-export function registerAutoSpyDefaults<T>(ObjectClass: ClassType<T>, config: ClassSpyConfiguration<T>): void {
+export function registerAutoSpyDefaults<T>(ObjectClass: ClassType<T>, config: ClassSpyConfiguration<T>): void;
+export function registerAutoSpyDefaults<const Entries extends AutoSpyDefaultEntries<Entries> & readonly (readonly [unknown, unknown])[]>(
+  entries: Entries,
+): void;
+export function registerAutoSpyDefaults(...args: unknown[]): void {
+  if (Array.isArray(args[0])) {
+    // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- the many-at-once overload above guarantees the argument is an array of rows; `unknown` is the seam the implementation signature takes to stay compatible with both overloads.
+    for (const [ObjectClass, rowConfig] of args[0] as AutoSpyDefaultEntry<unknown>[]) {
+      registry().set(ObjectClass, { ...rowConfig });
+    }
+
+    return;
+  }
+
+  // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- the per-class overload above guarantees both arguments carry the types asserted here.
+  const [ObjectClass, config] = args as [ClassType<unknown>, ClassSpyConfiguration<unknown>];
+
   registry().set(ObjectClass, { ...config });
 }
 

@@ -33,6 +33,18 @@ deliberately left out is here.
       looking at. Not shipped: merging two registrations of the same class — the second replaces, so
       the drift the API removes cannot reappear inside it.
 
+- [~] **Two simpler typings for the table form of `registerAutoSpyDefaults`.** Both compile every
+      table, which is the one thing the form must not do. `Array<[ClassType<unknown>,
+      ClassSpyConfiguration<unknown>]>` checks nothing — a configuration names keys *of its class*,
+      and no two instantiations unify, so widening the row to a common type gives up the checking the
+      form exists for. Putting the row check on the **parameter**
+      (`entries: Entries & AutoSpyDefaultEntries<Entries>`) fails for a subtler reason: the relation
+      TS uses to *choose* an overload defers the conditional and accepts a wrong key, though a
+      single-signature function catches the same call. The check therefore lives in the **constraint**,
+      where it is instantiated after the overload has been chosen. Both were written and both silently
+      accepted a key the row class does not have; `src/type-tests/spy-defaults.test-d.ts` is what
+      keeps a third one from landing.
+
 - [~] **Warning when a registration names a member no prototype carries.** Nothing does, for the same
       reason the call-site lists do not: the option exists to name instance fields, and telling a typo
       from one is not decidable.

@@ -151,7 +151,7 @@ export { captureArg, type ArgCaptor } from './lib/capture-arg';
 export { clearAutoSpy, resetAutoSpy } from './lib/reset-auto-spy';
 
 // What a double of one class always needs, registered once instead of in every spec
-export { clearAutoSpyDefaults, registerAutoSpyDefaults } from './lib/spy-defaults';
+export { clearAutoSpyDefaults, registerAutoSpyDefaults, type AutoSpyDefaultEntry } from './lib/spy-defaults';
 
 // mustBeCalledWith error reporting
 export { errorHandler } from './lib/error-handler';

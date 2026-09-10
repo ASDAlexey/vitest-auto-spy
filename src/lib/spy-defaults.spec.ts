@@ -32,6 +32,16 @@ class RouterLike {
   }
 }
 
+class AccountLike {
+  ping(): void {
+    /* real */
+  }
+
+  get isGuest(): boolean {
+    return true;
+  }
+}
+
 afterEach(() => {
   clearAutoSpyDefaults();
 });
@@ -82,6 +92,57 @@ describe('registerAutoSpyDefaults', () => {
     registerAutoSpyDefaults(RouterLike, { instanceMethodsToSpyOn: ['reload'] });
 
     expect(mergeAutoSpyDefaults(RouterLike, undefined)).toEqual({ instanceMethodsToSpyOn: ['reload'] });
+  });
+
+  it('composes a double from the table form alone', () => {
+    registerAutoSpyDefaults([
+      [RouterLike, { observablePropsToSpyOn: ['events'], gettersToSpyOn: ['url'] }],
+      [AccountLike, { instanceMethodsToSpyOn: ['ping'] }],
+    ]);
+
+    const router = createSpyFromClass(RouterLike);
+    const account = createSpyFromClass(AccountLike);
+
+    router.events.nextWith('navigated');
+    router.accessorSpies.getters.url.mockReturnValue('/profile');
+    account.ping.mockReturnValue(undefined);
+
+    expect(router.url).toBe('/profile');
+    expect(typeof router.events.nextWith).toBe('function');
+    expect(typeof account.ping.mockReturnValue).toBe('function');
+  });
+
+  it('registers every row of the table form against its own class', () => {
+    registerAutoSpyDefaults([
+      [RouterLike, { observablePropsToSpyOn: ['events'], gettersToSpyOn: ['url'] }],
+      [AccountLike, { instanceMethodsToSpyOn: ['ping'] }],
+    ]);
+
+    expect(mergeAutoSpyDefaults(RouterLike, undefined)).toEqual({ observablePropsToSpyOn: ['events'], gettersToSpyOn: ['url'] });
+    expect(mergeAutoSpyDefaults(AccountLike, undefined)).toEqual({ instanceMethodsToSpyOn: ['ping'] });
+  });
+
+  it('lets a later row replace an earlier one for the same class, as a second call would', () => {
+    registerAutoSpyDefaults([
+      [RouterLike, { gettersToSpyOn: ['url'] }],
+      [RouterLike, { instanceMethodsToSpyOn: ['reload'] }],
+    ]);
+
+    expect(mergeAutoSpyDefaults(RouterLike, undefined)).toEqual({ instanceMethodsToSpyOn: ['reload'] });
+  });
+
+  it('leaves an empty table a no-op', () => {
+    registerAutoSpyDefaults([]);
+
+    expect(mergeAutoSpyDefaults(RouterLike, undefined)).toBeUndefined();
+  });
+
+  it('mixes the table form and the per-class form over one registry', () => {
+    registerAutoSpyDefaults([[AccountLike, { instanceMethodsToSpyOn: ['ping'] }]]);
+    registerAutoSpyDefaults(RouterLike, { gettersToSpyOn: ['url'] });
+
+    expect(mergeAutoSpyDefaults(AccountLike, undefined)).toEqual({ instanceMethodsToSpyOn: ['ping'] });
+    expect(mergeAutoSpyDefaults(RouterLike, undefined)).toEqual({ gettersToSpyOn: ['url'] });
   });
 });
 

@@ -48,6 +48,7 @@ export const EXPORTED_BY: Readonly<Record<string, string>> = {
   AutoMockConfiguration: '0 1 2 3 4 15 16 17',
   autoMocked: '0 1 2 3 4 15 16 17',
   AutoSpiedInstance: '2 12',
+  AutoSpyDefaultEntry: '0 1 2 3 4 15 16 17',
   AutoSpyEslintPlugin: '20',
   AutoSpyFixture: '12',
   AutoSpyOverride: '12',
