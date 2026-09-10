@@ -239,3 +239,33 @@ describe('Spy<T> is Disposable', () => {
     expectTypeOf(fromType[Symbol.dispose]()).toEqualTypeOf<void>();
   });
 });
+
+/** The generic-with-a-default shape, at module scope: `declare class` is not legal inside a block. */
+interface RemoteConfigDefaults {
+  theme: string;
+}
+
+declare class RemoteConfigService<T = RemoteConfigDefaults> {
+  read(): T;
+}
+
+/**
+ * A declared default type argument reaches the double.
+ *
+ * `class RemoteConfigService<T = RemoteConfigDefaults>` handed to a parameter typed as a *union*
+ * infers `T` as `unknown`, and every member typed against it then reads as `unknown` — a double
+ * that types nothing, on a class that declared exactly what it should be. Two shapes caused it and
+ * both are fixed: the index-signature intersection that `ClassType<T>` used to carry, and the union
+ * in `injectSpy`'s token parameter.
+ */
+describe('a generic class with a default type argument', () => {
+  it('keeps the declared default through createSpyFromClass', () => {
+    expectTypeOf(createSpyFromClass(RemoteConfigService).read).returns.toEqualTypeOf<RemoteConfigDefaults>();
+  });
+
+  it('still takes an explicit instantiation', () => {
+    expectTypeOf(createSpyFromClass<RemoteConfigService<{ id: number }>>(RemoteConfigService).read).returns.toEqualTypeOf<{
+      id: number;
+    }>();
+  });
+});

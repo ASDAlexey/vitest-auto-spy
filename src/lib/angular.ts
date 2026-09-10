@@ -126,6 +126,19 @@ export function provideAutoSpyForToken<T>(
  * the real method. It is a `console.warn`, once per token; raise it to a thrown failure with
  * `enableAngularDiagnostics({ unspiedProviders: true })` from `vitest-auto-spy/angular`.
  */
+/**
+ * A class, read through a bare construct signature — the overload that keeps a **declared default**
+ * type argument.
+ *
+ * Inference gives up on a default the moment the parameter is a union: `class Config<T = Defaults>`
+ * handed to a `ClassType<T> | InjectionToken<T> | …` parameter infers `T` as `unknown`, and every
+ * member typed against it then reads as `unknown` — `injectSpy(RemoteConfigService)` came back with
+ * `read(): unknown` where the class says `read(): RemoteConfigDefaults`. Splitting the class case
+ * into its own overload is the whole fix; the union survives underneath it for tokens.
+ */
+export function injectSpy<T, Options extends SpyOptions = SpyOptions>(token: abstract new (...args: never[]) => T): Spy<T, Options>;
+/** A token, or a class whose statics the call site names — the shape the union was written for. */
+export function injectSpy<T, Options extends SpyOptions = SpyOptions>(token: ClassType<T> | InjectionToken<T>): Spy<T, Options>;
 export function injectSpy<T, Options extends SpyOptions = SpyOptions>(
   token: ClassType<T> | InjectionToken<T> | (abstract new (...args: never[]) => T),
 ): Spy<T, Options> {

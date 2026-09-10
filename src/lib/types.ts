@@ -110,8 +110,8 @@ export type Func = (...args: any[]) => any;
  * {@link ClassType}'s only consumer that cares — see the empty-prototype fallback in
  * `createSpyFromClass`.
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- a class may be invoked with arbitrary constructor args and expose arbitrary static members; both `any`s model that open shape for `createSpyFromClass`.
-export type ClassType<T> = (abstract new (...args: any[]) => T) & { [key: string]: any };
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- a class may be invoked with arbitrary constructor args; the `any` models that open shape for `createSpyFromClass`.
+export type ClassType<T> = abstract new (...args: any[]) => T;
 
 // ---------------------------------------------------------------------------
 // Key filters — pick keys of `T` whose value matches a given type
