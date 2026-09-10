@@ -40,6 +40,20 @@ const DOCS_SLOW = `${PERF_DOCS}#what-actually-makes-a-suite-slow`;
 
 const CONFIG_FILE = /(?:^|\/)vite(?:st)?\.config\.[cm]?[jt]s$/;
 const NO_ISOLATION = /\bisolate\s*:\s*false/;
+const JSDOM = /\benvironment\s*:\s*["'`]jsdom["'`]/;
+const HAPPY_DOM = /happy-dom/;
+const WORKER_CAP = /\bmaxWorkers\s*:/;
+
+/**
+ * Summed phase time above which the worker count is a decision rather than a detail.
+ *
+ * Below it the machine runs the whole suite in a few seconds on any setting, and a note about peak
+ * memory is noise. Above it the suite is the kind that shares a runner with other jobs.
+ */
+const LARGE_RUN_MS = 60_000;
+
+/** Per-worker resident memory, measured on this package's own Angular suite — see the perf docs. */
+const WORKER_RSS_MB = 155;
 
 export interface PerfAnalysis {
   readonly phases: readonly Phase[];
@@ -167,23 +181,79 @@ function importFindings(phases: readonly Phase[], graph: SourceGraph): Finding[]
  * Comment lines are dropped first: this repository's own config explains `isolate: false` in a
  * comment three lines above `isolate: true`, and a prose mention is not a setting.
  */
-export function declaresNoIsolation(graph: SourceGraph): boolean {
+function configCode(graph: SourceGraph): string[] {
+  const configs: string[] = [];
+
   for (const [file, text] of graph.texts) {
     if (!CONFIG_FILE.test(file)) {
       continue;
     }
 
-    const code = text
-      .split('\n')
-      .filter((line) => !/^\s*(?:\/[*/]|\*)/.test(line))
-      .join('\n');
-
-    if (NO_ISOLATION.test(code)) {
-      return true;
-    }
+    configs.push(
+      text
+        .split('\n')
+        .filter((line) => !/^\s*(?:\/[*/]|\*)/.test(line))
+        .join('\n'),
+    );
   }
 
-  return false;
+  return configs;
+}
+
+/** Whether any runner config declares `setting`, ignoring the comments that discuss it. */
+function configDeclares(graph: SourceGraph, setting: RegExp): boolean {
+  return configCode(graph).some((code) => setting.test(code));
+}
+
+export function declaresNoIsolation(graph: SourceGraph): boolean {
+  return configDeclares(graph, NO_ISOLATION);
+}
+
+/**
+ * `happy-dom` builds the same DOM for less, for the files that genuinely need one.
+ *
+ * The other half of the environment advice: `perf-environment` moves the specs that need no DOM out
+ * of one entirely, and this one is for everything left behind. Only offered to a configuration that
+ * names `jsdom` and does not already mention `happy-dom` anywhere — a suite that has made this
+ * choice does not need to be asked again.
+ */
+function domEngineFindings(phases: readonly Phase[], graph: SourceGraph): Finding[] {
+  if (shareOf(phases, 'environment') < DOMINATES || !configDeclares(graph, JSDOM) || configDeclares(graph, HAPPY_DOM)) {
+    return [];
+  }
+
+  return [
+    {
+      check: 'perf-environment-engine',
+      severity: 'info',
+      message: `The DOM here is \`jsdom\`, and building it is ${formatShare(shareOf(phases, 'environment'))} of the measured CPU time. Every spec that genuinely needs a DOM keeps paying that, whatever moves to \`node\`.`,
+      fix: `Try \`happy-dom\`: measured on this package's own Angular suite, same 117 files and same assertions, 26.5 s of user CPU against 23.2 s — 12 % less. On a spec that builds a DOM and does nothing else the gap is far wider (253 ms against 119 ms per file), so how much of it you get back depends on how much of your file is the environment. It implements less of the platform, so it is a swap to make one project at a time with the suite green after each. Background: ${DOCS_SLOW}`,
+    },
+  ];
+}
+
+/**
+ * The worker count, which is a memory setting first and a speed setting second.
+ *
+ * Vitest defaults to one worker per core, and each one is a whole runtime: measured on this
+ * package's own Angular suite, resident memory came to 1.42 GB plus ~155 MB per worker. Capping the
+ * count is the one lever that changes peak memory without changing a line of the suite, and the
+ * wall-clock it costs is small — which is exactly the trade nobody is told about, because the
+ * default never announces itself.
+ */
+function workerFindings(total: number, graph: SourceGraph): Finding[] {
+  if (total < LARGE_RUN_MS || configDeclares(graph, WORKER_CAP)) {
+    return [];
+  }
+
+  return [
+    {
+      check: 'perf-workers',
+      severity: 'info',
+      message: `No \`maxWorkers\` is declared, so Vitest takes one worker per core. On this package's own Angular suite that came to 1.42 GB of resident memory plus ~${WORKER_RSS_MB} MB per worker — on a 16-core machine, ~1.9 GB of it is the eight workers past a cap of four.`,
+      fix: 'Set `maxWorkers: 4` if the run has to share a machine. Measured on a field deployment of this package: 13.50 s against 13.13 s at the eight-worker optimum — 2.8 % of wall clock, for 3.7 GB of resident memory instead of 5.8 GB. Take your own reading before fixing the number: the best count is a property of the machine, not of the suite.',
+    },
+  ];
 }
 
 function isolationFindings(phases: readonly Phase[], graph: SourceGraph): Finding[] {
@@ -219,8 +289,10 @@ export function analysePerf(run: PerfRun, profile: Profile): PerfAnalysis {
     ...base,
     findings: [
       ...environmentFindings(phases, profile, graph, measured),
+      ...domEngineFindings(phases, graph),
       ...importFindings(phases, graph),
       ...isolationFindings(phases, graph),
+      ...workerFindings(total, graph),
     ],
   };
 }

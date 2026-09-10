@@ -564,6 +564,44 @@ describe('analysePerf', () => {
     expect(analysis.findings).toEqual([]);
   });
 
+  it('offers happy-dom to a jsdom suite whose environment time dominates, and not to one already on it', () => {
+    const jsdom = cleanRepo(1, { 'vitest.config.ts': "export default { test: { environment: 'jsdom' } };\n" });
+    const happy = cleanRepo(1, { 'vitest.config.ts': "export default { test: { environment: 'happy-dom' } };\n" });
+    const dominates = (root: string): string[] =>
+      checks(analysePerf(heavyRun(root, ['src/case-0.spec.ts'], 9_000), readProfile(root)).findings);
+
+    expect(dominates(jsdom)).toContain('perf-environment-engine');
+    expect(dominates(happy)).not.toContain('perf-environment-engine');
+  });
+
+  it('reads the environment setting and not the comment that mentions the other one', () => {
+    const discussed = cleanRepo(1, {
+      'vitest.config.ts': "// happy-dom was tried here once\nexport default { test: { environment: 'jsdom' } };\n",
+    });
+    const analysis = analysePerf(heavyRun(discussed, ['src/case-0.spec.ts'], 9_000), readProfile(discussed));
+
+    expect(checks(analysis.findings)).toContain('perf-environment-engine');
+  });
+
+  it('names the worker count on a run large enough for it to be a decision, once', () => {
+    const root = cleanRepo(1);
+    const capped = cleanRepo(1, { 'vitest.config.ts': 'export default { test: { maxWorkers: 4 } };\n' });
+    const large = (target: string): PerfRun => run({ root: target, files: [file(join(target, 'src/case-0.spec.ts'), { tests: 90_000 })] });
+    const analysis = analysePerf(large(root), readProfile(root));
+
+    expect(checks(analysis.findings)).toEqual(['perf-workers']);
+    expect(analysis.findings[0]?.message).toContain('155 MB per worker');
+    expect(analysis.findings[0]?.fix).toContain('2.8 %');
+    expect(checks(analysePerf(large(capped), readProfile(capped)).findings)).toEqual([]);
+  });
+
+  it('says nothing about workers on a run that finishes in seconds', () => {
+    const root = cleanRepo(1);
+    const analysis = analysePerf(run({ root, files: [file(join(root, 'src/case-0.spec.ts'), { tests: 6_000 })] }), readProfile(root));
+
+    expect(checks(analysis.findings)).not.toContain('perf-workers');
+  });
+
   it('offers the isolation trade, with what it costs, and not to a suite that already took it', () => {
     const root = cleanRepo(1);
     const measured = run({ root, files: [file(join(root, 'src/case-0.spec.ts'), { setup: 4_000, prepare: 4_000, tests: 100 })] });
