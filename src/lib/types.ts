@@ -382,21 +382,42 @@ export type Overloads<F> = F extends {
 /** One call signature of an overloaded function, by index — `Overload<Client['get'], 0>`. */
 export type Overload<F, N extends 0 | 1 | 2 | 3> = Overloads<F>[N];
 
+/** Which call signature to read, for one method or for the whole double. */
+export type OverloadChoice = 'first' | 'last';
+
 /** How {@link Spy} should read a method that has more than one call signature. */
 export interface SpyOptions {
   /**
    * Which overload the spy's helpers are typed against. Default `'last'`, which is what
    * `Parameters` / `ReturnType` do on their own and therefore what every existing `Spy<T>` means.
+   *
+   * **A map picks per method**, which is what a real type usually needs: `'first'` applied to the
+   * whole double moves *every* overloaded member at once, and on a type as wide as `Response` or
+   * `Performance` that breaks the members nobody was complaining about — five `TS2769`s on
+   * `download` in the file where `getEntriesByType` was the one being fixed.
+   *
+   * ```ts
+   * let perf: Spy<Performance, { overload: { getEntriesByType: 'first' } }>;
+   * ```
+   *
+   * A name the type does not have is not an error — it simply never matches, so a rename leaves a
+   * dead entry rather than a red build. That is the same trade `instanceMethodsToSpyOn` makes, and
+   * for the same reason: the map is keyed by `string` so that a member reached through an
+   * augmentation, or one only present under some `lib`, can still be named.
    */
-  overload?: 'first' | 'last';
+  overload?: OverloadChoice | Record<string, OverloadChoice>;
 }
 
+/** The choice that applies to one member: the map's entry, the flat value, or the default. */
+type OverloadFor<Options extends SpyOptions, Key extends PropertyKey> = Options['overload'] extends OverloadChoice
+  ? Options['overload']
+  : Key extends keyof Options['overload']
+    ? Options['overload'][Key]
+    : 'last';
+
 /** Apply {@link SpyOptions.overload} to one method type. */
-type SelectOverload<Method extends Func, Options extends SpyOptions> = Options extends { overload: 'first' }
-  ? Overload<Method, 0> extends Func
-    ? Overload<Method, 0>
-    : Method
-  : Method;
+type SelectOverload<Method extends Func, Options extends SpyOptions, Key extends PropertyKey> =
+  OverloadFor<Options, Key> extends 'first' ? (Overload<Method, 0> extends Func ? Overload<Method, 0> : Method) : Method;
 
 // ---------------------------------------------------------------------------
 // Accessor spies + the assembled `Spy<T>`
@@ -496,7 +517,7 @@ export type DeepMockProxy<T> = SpyDisposable & {
 export type Spy<T, Options extends SpyOptions = SpyOptions> = AddAccessorsSpies<T> &
   SpyDisposable & {
     [K in keyof T]: T[K] extends Func
-      ? AddSpyMethodsByReturnTypes<SelectOverload<T[K], Options>>
+      ? AddSpyMethodsByReturnTypes<SelectOverload<T[K], Options, K>>
       : T[K] extends ObservableLike<infer O>
         ? AddObservableSpyMethods<O> & T[K]
         : T[K];

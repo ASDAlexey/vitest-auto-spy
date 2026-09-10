@@ -220,6 +220,7 @@ export const EXPORTED_BY: Readonly<Record<string, string>> = {
   OnlyObservablePropsOf: '0 1 2 3 4 9 15 16 17',
   OnlyPropsOf: '0 1 2 3 4 9 15 16 17',
   Overload: '0 1 2 3 4 15 16 17',
+  OverloadChoice: '0 1 2 3 4 15 16 17',
   Overloads: '0 1 2 3 4 15 16 17',
   overrideAutoSpy: '12',
   overrideComponentProvider: '12',

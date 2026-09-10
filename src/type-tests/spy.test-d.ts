@@ -240,6 +240,69 @@ describe('Spy<T> is Disposable', () => {
   });
 });
 
+/**
+ * Which call signature the helpers are typed against.
+ *
+ * The default is the **last** one, because that is what `Parameters` / `ReturnType` do, and it is
+ * the wrong one for a generated `observe` client — where the last overload returns `HttpEvent<T>`
+ * and `nextWith(body)` therefore stops compiling with no hint that overload order is the cause. It
+ * is also not a stable default: `declare global` in a third-party package can append an overload to
+ * a global interface, so which signature is "last" depends on which packages are in the program.
+ */
+describe('Spy<T, { overload }>', () => {
+  interface EventOf<T> {
+    kind: 'event';
+    body: T;
+  }
+
+  interface Page {
+    items: string[];
+  }
+
+  class VenuesService {
+    getVenues(id: string, observe?: 'body'): Page;
+    getVenues(id: string, observe: 'events'): EventOf<Page>;
+    getVenues(id: string, _observe?: string): unknown {
+      return id;
+    }
+
+    download(id: string): Blob;
+    download(id: string, observe: 'events'): EventOf<Blob>;
+    download(id: string, _observe?: string): unknown {
+      return id;
+    }
+  }
+
+  // `ReturnType<…>` rather than `.returns`: a decorated member is an intersection carrying every
+  // helper's own call signature, and the matcher reads the last of those rather than the method's.
+  it('reads the last signature by default', () => {
+    expectTypeOf<ReturnType<Spy<VenuesService>['getVenues']>>().toEqualTypeOf<EventOf<Page>>();
+  });
+
+  it("moves every overloaded member with the flat 'first'", () => {
+    expectTypeOf<ReturnType<Spy<VenuesService, { overload: 'first' }>['getVenues']>>().toEqualTypeOf<Page>();
+    expectTypeOf<ReturnType<Spy<VenuesService, { overload: 'first' }>['download']>>().toEqualTypeOf<Blob>();
+  });
+
+  /**
+   * The map is what a wide type needs. Applying `'first'` to the whole double moves members nobody
+   * was fixing — the case this came from put it on `Spy<Response>` for one method and collected five
+   * `TS2769`s on `download` — so the choice has to be nameable per member.
+   */
+  it('moves only the named member with a map, leaving its siblings on the default', () => {
+    type Scoped = Spy<VenuesService, { overload: { getVenues: 'first' } }>;
+
+    expectTypeOf<ReturnType<Scoped['getVenues']>>().toEqualTypeOf<Page>();
+    expectTypeOf<ReturnType<Scoped['download']>>().toEqualTypeOf<EventOf<Blob>>();
+  });
+
+  it('leaves a member the map does not name alone, and a name the type does not have is inert', () => {
+    type Absent = Spy<VenuesService, { overload: { noSuchMethod: 'first' } }>;
+
+    expectTypeOf<ReturnType<Absent['getVenues']>>().toEqualTypeOf<EventOf<Page>>();
+  });
+});
+
 /** The generic-with-a-default shape, at module scope: `declare class` is not legal inside a block. */
 interface RemoteConfigDefaults {
   theme: string;
