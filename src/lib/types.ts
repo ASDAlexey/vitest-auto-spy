@@ -391,6 +391,14 @@ export interface SpyOptions {
    * Which overload the spy's helpers are typed against. Default `'last'`, which is what
    * `Parameters` / `ReturnType` do on their own and therefore what every existing `Spy<T>` means.
    *
+   * **The symptom that leads here** is a stub of the real response shape being rejected, with
+   * nothing in the message about overloads —
+   * `TS2345: Argument of type 'Page' is not assignable to parameter of type 'HttpEvent<Page>'` on a
+   * `nextWith(body)` / `resolveWith(body)` / `mockReturnValue(of(body))` against a generated
+   * `observe` client. Neither the double nor the stub is wrong; both are being checked against the
+   * signature nobody calls. `@ts-expect-error` on that line is the wrong answer twice over — it
+   * stops checking the response shape, which is the thing the line exists to describe.
+   *
    * **A map picks per method**, which is what a real type usually needs: `'first'` applied to the
    * whole double moves *every* overloaded member at once, and on a type as wide as `Response` or
    * `Performance` that breaks the members nobody was complaining about — five `TS2769`s on

@@ -117,6 +117,32 @@ overload of a method. On a generated API client (`ng-openapi-gen`, `openapi-gene
 `{ overload: 'first' }` types the spy against the first signature instead. For a single method there
 is also `Overload<Client['get'], 0>`, which is what to put in a `MockInstance<…>` or a `vi.fn<…>()`.
 
+### The stub stops fitting the real response
+
+```
+TS2345: Argument of type 'Page' is not assignable to parameter of type 'HttpEvent<Page>'.
+```
+
+That message is this section, and nothing in it says so — which is why the option is hard to find
+from the error alone. It shows up wherever a helper reads the method's return type: `nextWith(body)`,
+`resolveWith(body)`, `calledWith(…).returnValue(body)` and the bare `mockReturnValue(of(body))`
+alike. Neither the double nor the stub is wrong; the two are being checked against the signature
+nobody calls.
+
+The fix is a type argument on the **declaration**, not a cast and not a suppression:
+
+```ts
+let venues: Spy<VenuesService, { overload: { getVenues: 'first' } }>;
+
+venues = createSpyFromClass(VenuesService); // no second type argument here
+venues.getVenues.nextWith(page); // `Page` again
+```
+
+`@ts-expect-error` on the failing line is the workaround this reliably attracts — one migration
+reached sixty of them across twenty-five files before anyone found the option — and it costs more
+than the stub: the line stops being checked at all, so a later change to `Page` goes unnoticed
+exactly where the response shape is being described.
+
 ### Name the method, not the whole double
 
 `'first'` applied to the type moves **every** overloaded member at once, and on a wide type that
@@ -152,6 +178,19 @@ declare global {
 
 — so which signature `ReturnType` reads depends on which packages are in the program, and can change
 on a dependency bump with nothing in the diff to say so.
+
+And the message cannot be made to carry the hint, which was tried before this section was written.
+Naming the payload so the compiler prints the name does work — `nextWith(value?:
+OverloadCollapsed_UseSpyOverloadOption<HttpEvent<Page>>)`, because a type alias whose body builds a
+union keeps its name in a `TS2345` where a pass-through alias is erased. It was dropped for three
+measured reasons. It costs the entire type budget: the flag has to be decided per member, a
+per-member flag stops the payload bundles being shared between members, and a flag whose body is the
+constant `false` already takes `types:budget` from a delta of 9 665 to 11 769 against a ceiling of
+11 000 — before any overload detection, which adds ~840 more. It misfires: on a four-overload
+`api-mgw` client, where `'last'` is already the right signature, an honestly wrong stub then reads
+`OverloadCollapsed_UseSpyOverloadOption<Movie[]>` and points at an option that would change nothing.
+And it misses the path that needs it most — `mockReturnValue` is typed by `MockInstance<Method>`,
+the runner's own surface, which nothing this package wraps can reach.
 
 ## The only call signature is the method's own
 

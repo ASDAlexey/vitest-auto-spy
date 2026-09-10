@@ -16,7 +16,7 @@
 import { describe, expectTypeOf, it } from 'vitest';
 
 import { asInstance, createAutoMock, createSpyFromClass, mockValueProp } from '../auto-spy';
-import type { Mutable, RestoreProp, Spy, SpyDisposable } from '../auto-spy';
+import type { Mutable, ObservableLike, RestoreProp, Spy, SpyDisposable } from '../auto-spy';
 
 class Storage {
   readonly name: string = 'storage';
@@ -300,6 +300,29 @@ describe('Spy<T, { overload }>', () => {
     type Absent = Spy<VenuesService, { overload: { noSuchMethod: 'first' } }>;
 
     expectTypeOf<ReturnType<Absent['getVenues']>>().toEqualTypeOf<EventOf<Page>>();
+  });
+
+  /**
+   * The half a `ReturnType` assertion does not see, and the one the symptom is reported from: the
+   * *helper* is typed against the selected signature too. `nextWith(body)` on the default double
+   * demands the `observe: 'events'` payload — `TS2345: Argument of type 'Page' is not assignable to
+   * parameter of type 'EventOf<Page>'`, with nothing about overloads in it — and the map is what
+   * puts the real response shape back.
+   */
+  it('types the observable helper against the selected signature', () => {
+    class VenuesApi {
+      getVenues(id: string, observe?: 'body'): ObservableLike<Page>;
+      getVenues(id: string, observe: 'events'): ObservableLike<EventOf<Page>>;
+      getVenues(id: string, _observe?: string): unknown {
+        return id;
+      }
+    }
+
+    type Collapsed = Spy<VenuesApi>;
+    type Scoped = Spy<VenuesApi, { overload: { getVenues: 'first' } }>;
+
+    expectTypeOf<Parameters<Collapsed['getVenues']['nextWith']>[0]>().toEqualTypeOf<EventOf<Page> | undefined>();
+    expectTypeOf<Parameters<Scoped['getVenues']['nextWith']>[0]>().toEqualTypeOf<Page | undefined>();
   });
 });
 
