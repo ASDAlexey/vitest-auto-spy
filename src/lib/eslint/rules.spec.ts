@@ -1806,7 +1806,7 @@ describe('the plugin', () => {
     // itself wherever it cannot read a file's registrations in full, and `prefer-native-spy-api`
     // flags a bridge that is still needed. Documented overrides, not severities.
     //
-    // Three rules are graded, and the reason differs between them.
+    // Four rules are graded, and the reason differs between them.
     //
     // `prefer-render-shallow` is graded on the *kind* of thing it says: the others name something
     // wrong or dead, while this one names a file that could render more cheaply. Moving onto
@@ -1824,13 +1824,17 @@ describe('the plugin', () => {
     // count-based rule, which is why they are rules of their own rather than arms of it — and a
     // hundred-odd new errors on the first upgrade is the wrong way to introduce a heuristic.
     //
-    // `off` would be the wrong end of the same mistake in all three cases, so the assertions pin the
+    // `no-instance-lifecycle-spy` is graded on the evidence too: a spec that calls the hook itself
+    // does reach the instance spy, and the syntax cannot tell that spec from one that relies on Angular.
+    //
+    // `off` would be the wrong end of the same mistake in all four cases, so the assertions pin the
     // values rather than allowing "not error".
     expect(new Set(levels)).toEqual(new Set(['error', 'warn']));
     expect(plugin.configs.recommended.rules['vitest-auto-spy/prefer-render-shallow']).toBe('warn');
     expect(plugin.configs.recommended.rules['vitest-auto-spy/no-stub-class-double']).toBe('warn');
     expect(plugin.configs.recommended.rules['vitest-auto-spy/no-structural-double']).toBe('warn');
-    expect(levels.filter((level) => level !== 'error')).toHaveLength(3);
+    expect(plugin.configs.recommended.rules['vitest-auto-spy/no-instance-lifecycle-spy']).toBe('warn');
+    expect(levels.filter((level) => level !== 'error')).toHaveLength(4);
     expect(levels).toHaveLength(Object.keys(rules).length);
   });
 

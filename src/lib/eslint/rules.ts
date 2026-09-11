@@ -59,6 +59,8 @@ import {
 import { lazyValueSuggestion, runsAtImportTime, spreadOfImport } from './import-time-spread';
 import { type EsSpyCast, asSpyFixes, assertedValue, injectSpySuggestion, injectedFromVariable, isTestBedInject } from './injected-spy';
 import { jasmineRules } from './jasmine-rules';
+import { noInstanceLifecycleSpy } from './lifecycle-spy';
+import { noMistypedUseValue } from './mistyped-use-value';
 import { type EsMockedTypeName, namesOneType, rewritesTheWholeDeclaration, spyTypeFixes } from './mocked-declaration';
 import { preferObserverStub } from './observer-stub';
 import { noOverriddenProvider } from './overridden-provider';
@@ -689,5 +691,7 @@ export const rules: Record<string, RuleModule> = {
   'no-passthrough-console-spy': noPassthroughConsoleSpy,
   'no-console-in-spec': noConsoleInSpec,
   'no-import-time-console-spies': noImportTimeConsoleSpies,
+  'no-mistyped-use-value': noMistypedUseValue,
+  'no-instance-lifecycle-spy': noInstanceLifecycleSpy,
   ...jasmineRules,
 };

@@ -40,7 +40,7 @@ export interface AutoSpyEslintPlugin {
 const PLUGIN_NAME = 'vitest-auto-spy';
 
 /**
- * Every rule, and all but three of them an **error** (4.0.0). Before that the config was a graded
+ * Every rule, and all but four of them an **error** (4.0.0). Before that the config was a graded
  * mix of `error` / `warn` / `off`, which meant the plugin decided how much each project cared.
  *
  * A `warn` is a finding a build does not stop for, so in a repository that does not read lint
@@ -85,6 +85,10 @@ const PLUGIN_NAME = 'vitest-auto-spy';
  *
  * **The three console rules decide on facts, not on a reading of the code**, so they are `error`: on the
  * 1759-file consumer they report 0, 6 in 2 files, and 32 of the 39 files that import `/console`.
+ *
+ * **`no-mistyped-use-value` decides on the checker's answer**, so it is `error` — and not in `typeErrors`,
+ * because `useValue` is `any` and the finding compiles. **`no-instance-lifecycle-spy` is `warn`**: the
+ * rule cannot see whether a spec reaches the instance spy itself, so it decides on a heuristic.
  *
  * **Three of these can report on code that is correct, and each one is listed there with what to do
  * about it.** They are not mistakes in the rules; they are the limit of what one file can know, and
@@ -131,6 +135,8 @@ const recommendedRules: Record<string, RuleSeverity> = {
   [`${PLUGIN_NAME}/no-passthrough-console-spy`]: 'error',
   [`${PLUGIN_NAME}/no-console-in-spec`]: 'error',
   [`${PLUGIN_NAME}/no-import-time-console-spies`]: 'error',
+  [`${PLUGIN_NAME}/no-mistyped-use-value`]: 'error',
+  [`${PLUGIN_NAME}/no-instance-lifecycle-spy`]: 'warn',
   [`${PLUGIN_NAME}/jasmine-namespace-without-entry`]: 'error',
   [`${PLUGIN_NAME}/no-jasmine-globals`]: 'error',
   [`${PLUGIN_NAME}/no-save-arguments-by-value`]: 'error',
