@@ -117,13 +117,15 @@ export type ClassType<T> = abstract new (...args: any[]) => T;
 // Key filters — pick keys of `T` whose value matches a given type
 // ---------------------------------------------------------------------------
 
+// Wrapped in a tuple: a member whose type failed to resolve is the error type, and a bare conditional
+// on it answers `any` for the whole union — one broken global augmentation erased every key of `Window`.
 type StringKeysForPropertyType<ObjectType, PropType> = Extract<
-  { [Key in keyof ObjectType]: ObjectType[Key] extends PropType ? Key : never }[keyof ObjectType],
+  { [Key in keyof ObjectType]: [ObjectType[Key]] extends [PropType] ? Key : never }[keyof ObjectType],
   string
 >;
 
 /** Keys of `T` that are methods. */
-export type OnlyMethodKeysOf<T> = StringKeysForPropertyType<T, Func>;
+export type OnlyMethodKeysOf<T> = StringKeysForPropertyType<Required<T>, Func>;
 
 /** Keys of `T` that are `Observable` properties. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- `ObservableLike<any>` matches an observable property of *any* element type; `ObservableLike<unknown>` would not structurally match e.g. `Observable<number>` here.
@@ -524,8 +526,8 @@ export type DeepMockProxy<T> = SpyDisposable & {
  */
 export type Spy<T, Options extends SpyOptions = SpyOptions> = AddAccessorsSpies<T> &
   SpyDisposable & {
-    [K in keyof T]: T[K] extends Func
-      ? AddSpyMethodsByReturnTypes<SelectOverload<T[K], Options, K>>
+    [K in keyof T]: Required<T>[K] extends Func
+      ? AddSpyMethodsByReturnTypes<SelectOverload<Required<T>[K], Options, K>>
       : T[K] extends ObservableLike<infer O>
         ? AddObservableSpyMethods<O> & T[K]
         : T[K];
@@ -642,8 +644,22 @@ type BuiltIn = Date | Error | Func | Promise<unknown> | ReadonlyMap<unknown, unk
  * Written as part of the configuration so that a provider needs no second statement — which is what
  * pushes a shared double into module scope in the first place, where under `isolate: false` every
  * importing file then shares its spies.
+ *
+ * A method `Object.prototype` also has (`toString`) accepts the inherited member too: every literal
+ * carries it, so `{ returns: { reload: undefined } }` was rejected on a type declaring `toString()`.
  */
-export type MethodReturns<T> = { [K in OnlyMethodKeysOf<T>]?: T[K] extends Func ? ReturnType<T[K]> : never };
+export type MethodReturns<T> = {
+  [K in Exclude<OnlyMethodKeysOf<T>, ObjectPrototypeKey>]?: Required<T>[K] extends Func ? ReturnType<Required<T>[K]> : never;
+} & {
+  [K in Extract<OnlyMethodKeysOf<T>, ObjectPrototypeKey>]?: Required<T>[K] extends Func
+    ? ObjectPrototypeMembers[K] | ReturnType<Required<T>[K]>
+    : never;
+};
+
+// Split so that only the few keys `Object.prototype` has pay for the extra union: a conditional on every
+// key made a generic method over a large event map excessively deep (TS2589).
+type ObjectPrototypeMembers = typeof Object.prototype;
+type ObjectPrototypeKey = keyof ObjectPrototypeMembers;
 
 /** Everything the strict-mode handler is told about a call nobody configured. */
 export interface UnstubbedCall {
@@ -804,9 +820,8 @@ export interface ClassSpyConfiguration<T> extends StrictSpyConfiguration {
    * — and the shortcut people take instead is an exported `const` provider carrying the values,
    * which under `isolate: false` is one set of spies shared by every file that imports it.
    *
-   * This installs an implementation, exactly as `mockReturnValue` does, so a `calledWith(…)` chain
-   * configured **afterwards** on the same method no longer decides the value. Configure one or the
-   * other per method, not both.
+   * It is the method's default: a `calledWith(…)` chain configured afterwards still decides the value
+   * for its arguments, and a later `resolveWith` / `failWith` replaces it.
    */
   returns?: MethodReturns<T>;
   /**

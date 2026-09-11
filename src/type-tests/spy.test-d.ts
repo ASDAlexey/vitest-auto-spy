@@ -16,7 +16,7 @@
 import { describe, expectTypeOf, it } from 'vitest';
 
 import { asInstance, createAutoMock, createSpyFromClass, mockValueProp } from '../auto-spy';
-import type { Mutable, ObservableLike, RestoreProp, Spy, SpyDisposable } from '../auto-spy';
+import type { Mutable, ObservableLike, OnlyMethodKeysOf, RestoreProp, Spy, SpyDisposable } from '../auto-spy';
 
 class Storage {
   readonly name: string = 'storage';
@@ -353,5 +353,71 @@ describe('a generic class with a default type argument', () => {
     expectTypeOf(createSpyFromClass<RemoteConfigService<{ id: number }>>(RemoteConfigService).read).returns.toEqualTypeOf<{
       id: number;
     }>();
+  });
+});
+
+describe('returns on a type that declares toString()', () => {
+  interface Named {
+    reload(): void;
+    toString(): string;
+  }
+
+  class NamedService {
+    reload(): void {}
+
+    toString(): string {
+      return 'named';
+    }
+  }
+
+  it('accepts a literal that configures another member', () => {
+    createAutoMock<Named>(undefined, { returns: { reload: undefined } });
+    createSpyFromClass(NamedService, { returns: { reload: undefined } });
+  });
+
+  it('still types the declared toString', () => {
+    createAutoMock<Named>(undefined, { returns: { toString: 'custom' } });
+    // @ts-expect-error -- toString answers a string, not a number
+    createAutoMock<Named>(undefined, { returns: { toString: 1 } });
+  });
+});
+
+describe('optional methods are methods', () => {
+  interface Provider {
+    announce?(message: string): void;
+    load(): number;
+  }
+
+  it('can be configured through returns and read as a spy', () => {
+    const provider = createAutoMock<Provider>(undefined, { returns: { announce: undefined, load: 1 } });
+
+    provider.announce?.mockReturnValue(undefined);
+  });
+});
+
+describe('returns on a type with an index signature', () => {
+  interface Host {
+    [key: string]: unknown;
+    open(url: string): Host | null;
+    scrollTo(x: number, y: number): void;
+  }
+
+  it('accepts what each method returns', () => {
+    createAutoMock<Host>(undefined, { returns: { open: null, scrollTo: undefined } });
+  });
+});
+
+describe('a member whose type failed to resolve does not erase the other keys', () => {
+  interface Host {
+    // @ts-expect-error -- an undeclared value, so this member's type is the error type
+    broken: typeof undeclaredLogger;
+    open(url: string): Host | null;
+  }
+
+  it('keeps every key a method, and every returns entry typed', () => {
+    expectTypeOf<OnlyMethodKeysOf<Host>>().toEqualTypeOf<'broken' | 'open'>();
+    createAutoMock<Host>(undefined, { returns: { open: null } });
+    // @ts-expect-error -- open answers Host | null, not a number
+    createAutoMock<Host>(undefined, { returns: { open: 1 } });
   });
 });
