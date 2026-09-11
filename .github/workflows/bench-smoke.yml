@@ -14,8 +14,12 @@ name: Benchmark harness
 # fed to `bench-check.mjs` — in about two seconds after the install. It measures nothing anybody
 # should quote; it only proves the pipeline still works. The ten-minute measurement stays in
 # `bench.yml`, on its schedule and its paths.
+#
+# `push` is limited to the default branch: a branch with an open pull request would otherwise run
+# this twice per commit, once for each event. Every pull request still runs it, with no path filter.
 on:
   push:
+    branches: [master, main]
   pull_request:
 
 permissions:
@@ -33,12 +37,8 @@ jobs:
           node-version: 24
           cache: npm
 
-      # The lockfile is generated with npm 11; pin it so `npm ci` interprets the dependency tree the
-      # same way and stays in sync.
-      - name: Pin npm
-        run: npm i -g npm@11
-
-      - run: npm ci
+      # Node 24 bundles npm 11, the version the lockfile is generated with.
+      - run: npm ci --no-audit --no-fund
 
       # No competitor install and no Angular: the smoke file imports this repository's own source
       # only, so this lane needs nothing `npm ci` did not already provide.
