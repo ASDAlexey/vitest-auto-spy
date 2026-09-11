@@ -13,14 +13,24 @@
  */
 export type SpyEngine = 'auto-spy' | 'runner';
 
-let engine: SpyEngine = 'auto-spy';
+// On `globalThis`: `setSpyEngine` from `/setup` has to reach the adapter another bundle registered.
+declare global {
+  // A `globalThis` augmentation has to be declared with `var`.
+  var __vitestAutoSpyEngine__: { engine: SpyEngine } | undefined;
+}
+
+let sharedEngine: { engine: SpyEngine } | undefined;
+
+function engineHolder(): { engine: SpyEngine } {
+  return (sharedEngine ??= globalThis.__vitestAutoSpyEngine__ ??= { engine: 'auto-spy' });
+}
 
 /** Build every method spy from `engine` from here on. Doubles already built keep the engine they were built with. */
 export function setSpyEngine(next: SpyEngine): void {
-  engine = next;
+  engineHolder().engine = next;
 }
 
 /** The engine every double built from here on will use. */
 export function getSpyEngine(): SpyEngine {
-  return engine;
+  return engineHolder().engine;
 }

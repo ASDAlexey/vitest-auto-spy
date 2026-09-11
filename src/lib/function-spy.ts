@@ -101,27 +101,52 @@ function describeTarget(call: UnstubbedCall): string {
  * renders the array bracketed, so the brackets come off to leave a bare argument list that reads as
  * the call that was made — the same shape `errorHandler` prints for `mustBeCalledWith`.
  */
+const RENDERED_ARGUMENT_LENGTH = 200;
+
+/** Data a reader recognises when it is printed, as opposed to an instance that can reach a whole component tree. */
+function isPrintableData(value: object): boolean {
+  const prototype: unknown = Object.getPrototypeOf(value);
+
+  return prototype === Object.prototype || prototype === null || Array.isArray(value) || value instanceof Date || value instanceof RegExp;
+}
+
+// Bounded: a run where hundreds of strict calls received DOM nodes and services rendered each one in
+// full, and the message strings alone could take a worker's heap.
+function renderArgument(value: unknown): string {
+  if (typeof value === 'object' && value !== null && !isPrintableData(value)) {
+    const constructor: unknown = Reflect.get(Object(Object.getPrototypeOf(value)), 'constructor');
+
+    return `[${typeof constructor === 'function' && constructor.name !== '' ? constructor.name : 'object'}]`;
+  }
+
+  const text = serializeValue(value);
+
+  return text.length > RENDERED_ARGUMENT_LENGTH ? `${text.slice(0, RENDERED_ARGUMENT_LENGTH)}…` : text;
+}
+
 function throwUnstubbedCall(call: UnstubbedCall): never {
   const target = describeTarget(call);
-  const serialized = serializeValue(call.args);
   const message =
     `[vitest-auto-spy] Nothing configured ${target}, and strict mode is on.\n` +
-    `Called as: ${target}(${serialized.substring(1, serialized.length - 1)})\n` +
+    `Called as: ${target}(${call.args.map(renderArgument).join(',')})\n` +
     `Configure it — .mockReturnValue(…), .mockImplementation(…), .resolveWith(…), .nextWith(…) or .calledWith(…), ` +
     `or seed it through the 'returns' option — or drop 'strict' from this double.`;
 
   throw new Error(withDocs(message, DOCS_LINKS.strictMode));
 }
 
-/**
- * Strict-mode defaults for every double built afterwards, for a setup file to install once.
- *
- * Kept in a module-level binding rather than threaded through each factory because the point of a
- * global switch is that no call site mentions it. A double's own configuration always wins — an
- * explicit `strict: false` included, which is the only way to exempt one collaborator from a
- * suite-wide default.
- */
-let defaultStrictConfig: StrictResolution | undefined = undefined;
+// On `globalThis`: `/setup`, `dist/index.js` and `dist/angular.js` each carry a copy of this module,
+// and a module-level default written by `setupAutoSpy` was read by no factory a spec called.
+declare global {
+  // A `globalThis` augmentation has to be declared with `var`.
+  var __vitestAutoSpyStrictDefault__: { config: StrictResolution | undefined } | undefined;
+}
+
+let sharedStrictDefault: { config: StrictResolution | undefined } | undefined;
+
+function strictDefault(): { config: StrictResolution | undefined } {
+  return (sharedStrictDefault ??= globalThis.__vitestAutoSpyStrictDefault__ ??= { config: undefined });
+}
 
 /** The two strict fields, required-but-nullable, as every resolved configuration carries them. */
 export interface StrictResolution {
@@ -131,7 +156,7 @@ export interface StrictResolution {
 
 /** Install (or, with `undefined`, remove) the strict-mode default applied to doubles built afterwards. */
 export function setDefaultStrictMode(config: StrictResolution | undefined): void {
-  defaultStrictConfig = config;
+  strictDefault().config = config;
 }
 
 /**
@@ -142,13 +167,14 @@ export function setDefaultStrictMode(config: StrictResolution | undefined): void
  * by the default), then the global `strict`.
  */
 export function resolveUnstubbedGuard(className: string | undefined, config: StrictResolution): UnstubbedGuard | undefined {
-  const handler = config.onUnstubbedCall ?? defaultStrictConfig?.onUnstubbedCall;
+  const defaults = strictDefault().config;
+  const handler = config.onUnstubbedCall ?? defaults?.onUnstubbedCall;
 
   if (handler) {
     return { className, handle: handler };
   }
 
-  if (config.strict ?? defaultStrictConfig?.strict) {
+  if (config.strict ?? defaults?.strict) {
     return { className, handle: throwUnstubbedCall };
   }
 
@@ -194,8 +220,21 @@ function lookupConfigured(calledWithObject: CalledWithObject, actualArgs: unknow
  * exists, so no configured lookup is skipped by putting it here. A non-strict spy pays one
  * `undefined` check, which is what it paid before.
  */
+// Angular calls these itself — `ngOnDestroy` on every provided value at teardown — so no spec asked for
+// the call; throwing there broke the teardown and every test after it.
+const FRAMEWORK_HOOKS: ReadonlySet<string> = new Set([
+  'ngAfterContentChecked',
+  'ngAfterContentInit',
+  'ngAfterViewChecked',
+  'ngAfterViewInit',
+  'ngDoCheck',
+  'ngOnChanges',
+  'ngOnDestroy',
+  'ngOnInit',
+]);
+
 function returnTheCorrectFakeValue(state: SpyState, actualArgs: unknown[], functionName: string, unstubbed?: UnstubbedGuard): unknown {
-  if (unstubbed && isUnconfigured(state)) {
+  if (unstubbed && isUnconfigured(state) && !FRAMEWORK_HOOKS.has(functionName)) {
     return unstubbed.handle({ className: unstubbed.className, method: functionName, args: actualArgs });
   }
 
