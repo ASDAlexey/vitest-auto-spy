@@ -629,18 +629,18 @@ prune reaches only one and the run dies out of memory.
 
 ## Bundle size
 
-The badge says 16.8 kB min+gzip, and that is the whole core entry bundled together. It is also the
+The badge says 17.1 kB min+gzip, and that is the whole core entry bundled together. It is also the
 largest number a consumer can pay for the core, because entries are separate subpaths and a project
 only pays for the ones it imports:
 
 | Imported                                      |    min+gzip |
 | --------------------------------------------- | ----------: |
-| `.` — the core entry, what the badge measures | **16.8 kB** |
-| `vitest-auto-spy/angular`                     |     21.2 kB |
-| `vitest-auto-spy/react` / `/vue` / `/svelte`  |     17.0 kB |
-| `vitest-auto-spy/node`                        |     15.8 kB |
+| `.` — the core entry, what the badge measures | **17.1 kB** |
+| `vitest-auto-spy/angular`                     |     21.5 kB |
+| `vitest-auto-spy/react` / `/vue` / `/svelte`  |     17.3 kB |
+| `vitest-auto-spy/node`                        |     16.1 kB |
 | `vitest-auto-spy/dom-stubs`                   |      5.4 kB |
-| `vitest-auto-spy/rxjs`                        |      2.2 kB |
+| `vitest-auto-spy/rxjs`                        |      2.3 kB |
 | `vitest-auto-spy/zone`                        |      1.1 kB |
 
 **The framework rows are not a framework tax.** `react`, `vue` and `svelte` weigh what the core
@@ -656,7 +656,9 @@ the shadowed-provider check. `/dom-stubs` last moved for the
 record that keeps helpers on a spy when two copies of the package share a process, +0.12…0.27 kB,
 and then for the suite-wide settings every bundle now reads off `globalThis` and the misconfiguration
 grade, the bounded strict report and the lifecycle-hook exemption, +0.34…0.43 kB, and now for the
-recorder behind `takeStrictViolations` and the swallowed-strict guard, +0.16…0.41 kB.
+recorder behind `takeStrictViolations` and the swallowed-strict guard, +0.16…0.41 kB, and then for the read-side report — the getter and stream
+trackers and the `unconfiguredReads` ledger — +0.28…0.32 kB on the core rows and +0.60 kB on `/setup`, which
+also carries the report.
 
 `npm run size:entries` prints all twenty-one and compares them against a committed baseline, so an entry
 that quietly gains a second copy of the core fails a check instead of being noticed a release later.

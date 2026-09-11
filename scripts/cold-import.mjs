@@ -45,6 +45,7 @@ const EXTERNAL = [
   '@angular/core/testing',
   '@angular/platform-browser',
   '@angular/platform-browser/testing',
+  '@angular/router',
   '@happy-dom/global-registrator',
   '@rstest/core',
   'bun',
