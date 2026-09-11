@@ -18,6 +18,8 @@ import { useVitestAdapter } from './lib/use-vitest-adapter';
 useVitestAdapter();
 
 export { injectSpy, provideAutoSpy, provideAutoSpyForToken, type AngularTokenProvider, type AngularValueProvider } from './lib/angular';
+// The core's registration with one more key, an `InjectionToken`, over the same registry.
+export { clearAutoSpyDefaults, registerAutoSpyDefaults, type AutoSpyTokenDefaults } from './lib/angular-spy-defaults';
 export { extendWithAutoSpies, type AutoSpyFixture, type ExtendWithAutoSpiesOptions, type SpiedFixtures } from './lib/angular-fixtures';
 export {
   assertComponentDefIntact,
@@ -36,6 +38,7 @@ export {
 export { trackInjections, type InjectionLog, type TrackInjectionsOptions, type TrackedProvider } from './lib/track-injections';
 export { setupAngularTestEnv, type AngularTestEnvMode, type AngularTestEnvOptions } from './lib/angular-test-env';
 export { createDirectiveHost, type DirectiveHostOptions } from './lib/directive-host';
+export { createComponentStub, type ComponentStubOptions } from './lib/component-stub';
 export { registerDirectiveMatchers } from './lib/directive-matchers';
 
 export {
