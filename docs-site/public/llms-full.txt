@@ -1661,14 +1661,16 @@ once per call before any argument matching happens:
 | `calledWith(…)` / `mustBeCalledWith(…)` — **any** chain, any arguments | no                |
 | `resolveWith` / `rejectWith` / `resolveWithPerCall`                    | no                |
 | `nextWith` / `throwWith` / `complete` / `returnSubject`                | no                |
+| the `returns:` option — a default in the spy's own container           | no                |
 | `mockReturnValue` / `mockImplementation` — the host runner's own       | never — see below |
-| the `returns:` option, and `overrides` on `createAutoMock`             | never — see below |
+| `overrides` on `createAutoMock` — a seed, no longer a spy              | never — see below |
 | nothing                                                                | **yes**           |
 
-The non-obvious half is the third and fourth rows. `mockReturnValue`, `mockImplementation` and
-`returns:` do not _register_ configuration — they **replace the library's dispatch** on the host
-mock. A spy configured that way never runs the code the guard lives in, so it is not that strict
-mode makes an exception for them; there is nothing to make an exception in.
+The non-obvious half is the fifth and sixth rows. `mockReturnValue` and `mockImplementation` do
+not _register_ configuration — they **replace the library's dispatch** on the host mock. A spy
+configured that way never runs the code the guard lives in, so it is not that strict mode makes an
+exception for them; there is nothing to make an exception in. It also means a `calledWith` added
+after them is never consulted.
 
 That has one visible edge. `mockReturnValueOnce` installs a one-shot implementation that is
 _shifted off a queue_, and Vitest falls back to the standing implementation — the library dispatch —
@@ -1685,6 +1687,10 @@ cart.total(); // throws: Nothing configured Cart.total
 
 Seed the standing value too (`cart.total.mockReturnValue(0)`) when a `Once` sequence is meant to run
 out.
+
+`returns:` is different since it stopped doing the same: the value is the spy's default, so a
+`calledWith` configured later wins for its arguments, a later `resolveWith` or `failWith` replaces
+it, and `returns: { save: undefined }` is how a `void` call is declared expected.
 
 A reset puts the method back to unconfigured, so the guard fires again after `resetAutoSpy(users)`
 or at the end of a [`using` block](https://asdalexey.github.io/vitest-auto-spy/core/create-spy-from-class#using) —
@@ -1762,15 +1768,33 @@ file that armed it — under `isolate: false` the module holding it is shared by
 worker, and a default left armed would fail a spec that never opted in. See
 [Test-run hygiene → strict doubles](https://asdalexey.github.io/vitest-auto-spy/utilities/setup#_10-strict-doubles-for-the-whole-suite).
 
+### A throw that never reached the test
+
+A strict throw is only as loud as the code between it and the test. A `try`/`catch` in the code
+under test turns it into that code's error branch; an RxJS operator with no error handler rethrows
+it through a `setTimeout` that a fake clock never runs. Either way the test goes on without the
+answer it depended on, and may well pass.
+
+So `setupAutoSpy({ strict: true })` also records every strict throw and, after each test, fails the
+test with the ones the runner was never told about (`swallowedStrictCalls`: `'throw'` by default
+with `strict: true` and the strict preset, `'warn'`, `'off'`). A test that provokes one on purpose
+takes it, which doubles as the assertion:
+
+```ts
+expect(() => cart.total()).toThrow('Nothing configured Cart.total');
+expect(takeStrictViolations()).toHaveLength(1); // from 'vitest-auto-spy/setup'
+```
+
 ### Precedence
 
 Most specific first, and the resolution stops at the first one that is set:
 
 1. the double's own `onUnstubbedCall`
-2. the global `onUnstubbedCall` from `setupAutoSpy`
-3. the double's own `strict` — including an explicit **`strict: false`**, which is the only way to
-   exempt one collaborator from a suite-wide default
-4. the global `strict`
+2. the double's explicit **`strict: false`** — the only way to exempt one collaborator from a
+   suite-wide default, whether that default is `strict: true` or a handler
+3. the global `onUnstubbedCall` from `setupAutoSpy`
+4. the double's own `strict: true`
+5. the global `strict`
 
 ```ts
 setupAutoSpy({ strict: true });
@@ -1779,8 +1803,8 @@ createSpyFromClass(Cart).total(); // throws
 createSpyFromClass(Cart, { strict: false }).total(); // undefined — opted out
 ```
 
-A handler beats a `strict` at every level, so `{ strict: true, onUnstubbedCall: record }` on one
-double records and does not throw.
+A handler beats `strict: true` at every level, so `{ strict: true, onUnstubbedCall: record }` on one
+double records and does not throw; `strict: false` beats every handler but the double's own.
 
 ## Where it does not reach
 
@@ -7638,7 +7662,7 @@ which a subpath export of this package can never be.
 
 **How this page is laid out.** [Adding it](#adding-it-to-your-project) is the four things a first
 config needs. [Which apply to you](#which-of-the-twenty-apply-to-you) answers the question a
-Vitest-only project asks — four of the twenty-eight are about a dialect you may not speak.
+Vitest-only project asks — four of the thirty are about a dialect you may not speak.
 [Rules](#rules) is the reference table, in seven groups. [Tuning](#tuning-it-for-your-project) is
 every dial, including the three rules that can report on correct code. Everything after that is
 _why_ — one section per rule, for when a report has arrived and you want to know what it saved you
@@ -7694,9 +7718,9 @@ In a monorepo, one block at the root covers every package as long as the glob is
 `'**/*.spec.ts'` matches `packages/*/src/**` fine. Add a second block only where one package's specs
 need different severities.
 
-### 3. Type information is optional, and one rule wants it
+### 3. Type information is optional, and two rules want it
 
-Twenty-seven of the twenty-eight are syntactic: they read the file's own AST and never ask the type checker.
+Twenty-eight of the thirty are syntactic: they read the file's own AST and never ask the type checker.
 So the plugin works with `parserOptions.project` unset, adds nothing measurable to lint time, and
 does not need your specs to be in a `tsconfig` — which matters in the repositories where they are
 not.
@@ -7705,10 +7729,11 @@ The cost of that is the honest limit of [the three rules that can report on corr
 code](#the-three-rules-that-can-report-on-correct-code): what a rule cannot see in one file, it
 cannot know.
 
-[`no-private-member-access`](#no-private-member-access-%E2%80%94-the-one-rule-that-reads-types) is
-the exception, and it **needs** a program: without one it reports nothing at all rather than falling
-back to the syntax. Half of it — the `Object.getPrototypeOf` escape — keeps working either way. Turn
-it on where your specs are already in a project:
+[`no-private-member-access`](#no-private-member-access-%E2%80%94-the-one-rule-that-reads-types) and
+[`no-mistyped-use-value`](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-rules#no-mistyped-use-value) are the exceptions, and both
+**need** a program: without one they report nothing at all rather than falling back to the syntax.
+Half of the first — the `Object.getPrototypeOf` escape — keeps working either way. Turn them on where
+your specs are already in a project:
 
 ```js
 languageOptions: {
@@ -7718,12 +7743,13 @@ languageOptions: {
 
 ### 4. What the first run looks like
 
-Every rule but three is an `error`, so on an existing suite the first run is likely to be red — that
+Every rule but four is an `error`, so on an existing suite the first run is likely to be red — that
 is the point of the default, not a misconfiguration. The exceptions are
 [`prefer-render-shallow`](#the-render-nobody-reads), which reports a cost rather than a defect, and
-[`no-stub-class-double`](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-rules#no-stub-class-double) and
-[`no-structural-double`](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-rules#no-structural-double), which report a defect on
-heuristic evidence; all three show up in the output without holding the build. Two things make the
+[`no-stub-class-double`](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-rules#no-stub-class-double),
+[`no-structural-double`](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-rules#no-structural-double) and
+[`no-instance-lifecycle-spy`](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-rules#no-instance-lifecycle-spy), which report a
+defect on heuristic evidence; all four show up in the output without holding the build. Two things make the
 first pass short:
 
 ```bash
@@ -7734,7 +7760,7 @@ npx eslint . --format stylish | tail -30   # the summary tells you which rule do
 Whatever is left is either a real finding or a rule you would rather not enforce yet. Both are
 answered below.
 
-## Which of the twenty-eight apply to you
+## Which of the thirty apply to you
 
 Reasonable question if you came straight to Vitest and have never written a line of Jasmine: **four
 of these rules are about a dialect you do not speak.** They are still on, and the reason is not
@@ -7742,9 +7768,9 @@ principle — it is that they cannot fire on your code.
 
 | You are                                    | What the plugin does for you                                                                         |
 | ------------------------------------------ | ---------------------------------------------------------------------------------------------------- |
-| writing Vitest, never used Jasmine or Jest | the twenty-four core rules work; **the four jasmine rules are inert** — leave them on and never see them |
+| writing Vitest, never used Jasmine or Jest | the twenty-six core rules work; **the four jasmine rules are inert** — leave them on and never see them |
 | migrating off `jest-auto-spies` / Jest     | the core rules do the work, `no-done-callback` and `prefer-as-spy` most of it                        |
-| migrating off `jasmine-auto-spies`         | all twenty-eight, with `prefer-native-spy-api` set to `'off'` until the bridge is gone                  |
+| migrating off `jasmine-auto-spies`         | all thirty, with `prefer-native-spy-api` set to `'off'` until the bridge is gone                        |
 
 ### If you never used Jasmine
 
@@ -7790,7 +7816,7 @@ never jasmine's.
 ### If you are coming from Jest
 
 There is no separate Jest rule set, because most of what a Jest suite has to unlearn is already in
-the core twenty-four — these are the ones that carry a migration:
+the core twenty-six — these are the ones that carry a migration:
 
 | Rule                           | What it catches in a Jest suite                                                                                                                                                                                                                               |
 | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -7813,7 +7839,7 @@ that file needs). See [Migrating from jest-auto-spies](https://asdalexey.github.
 
 ### If you are coming from Jasmine
 
-All twenty-eight apply, and the four in the last group are the ones written for you. Two are pure
+All thirty apply, and the four in the last group are the ones written for you. Two are pure
 diagnosis — `no-jasmine-globals` and `no-save-arguments-by-value` name silent behaviour changes that
 survive a rename — and `jasmine-namespace-without-entry` catches the spy built before the layer was
 installed. The fourth, `prefer-native-spy-api`, reports the bridge itself, so it is the one line of
@@ -7828,12 +7854,12 @@ autofix. See [Migrating from jasmine-auto-spies](https://asdalexey.github.io/vit
 
 ## Rules
 
-Every rule is an `error` bar one. Until 4.0.0 this table was a graded mix of `error` / `warn` / `off`,
+Every rule is an `error` bar four. Until 4.0.0 this table was a graded mix of `error` / `warn` / `off`,
 which meant the plugin decided how much each project cared; a `warn` that nothing reads is `off` with
 extra output, and which findings block a merge is a project's call, not a library's. Turning one down
 is [one line](#turn-one-rule-down).
 
-One of the three exceptions is [`prefer-render-shallow`](#the-render-nobody-reads), which ships as a
+One of the four exceptions is [`prefer-render-shallow`](#the-render-nobody-reads), which ships as a
 **`warn`**, and its reason is the kind of thing it says rather than how much it matters. Every other rule in these
 tables names something wrong or dead — a double that drifts from its class, an assertion that never
 runs, a provider the container already dropped, a schema guarding nothing. That one names a file that
@@ -7859,6 +7885,11 @@ Angular DI one name away, where a `provide:` settles the question and the answer
 files** on the same suite, all of it at `error` and all of it `provide:`-backed. It is also why these
 are rules of their own rather than arms of the count-based one: a project that disagrees with either
 reading switches it off without losing the rule that reads a count.
+
+The fourth, [`no-instance-lifecycle-spy`](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-rules#no-instance-lifecycle-spy), is graded
+on the evidence too. Angular never calls a spy put on an instance's `ngOnInit`, but a spec that calls
+`component.ngOnInit()` itself does, and so does the injector for a service's `ngOnDestroy` — and one
+file's syntax cannot tell those apart.
 
 The **Without it** column is what the run does when the rule is not there, and it is the reason the
 list is worth reading rather than skimming: over half of these guard against a test that is _green
@@ -7894,7 +7925,7 @@ Not about a single test but about what one file leaves behind for the next.
 
 ### Angular DI and the TestBed
 
-Five ways a provider ends up not being the double the spec thinks it registered.
+The ways a provider — or a spy on the component itself — ends up not being what the spec thinks it registered.
 
 | Rule                                                                                               | Flags                                                                                                                    | Fix     |       Without it        |
 | -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ | ------- | :---------------------: |
@@ -7905,10 +7936,12 @@ Five ways a provider ends up not being the double the spec thinks it registered.
 | [`no-overridden-provider`](#two-providers-one-token)                                               | two providers for one token in one array, or one a `TestBed.overrideProvider` replaces → the earlier one never runs; the exact duplicate can be deleted | suggest |          green          |
 | [`no-inject-before-override`](#the-trap-this-plugin-s-own-advice-sets)                             | `TestBed.inject()` / `injectSpy()` / `renderShallow()` in a hook, in a suite that still calls `override*`                | —       |           red           |
 | [`no-dead-schemas`](#no-dead-schemas-%E2%80%94-the-charm-that-protects-nobody)                        | `schemas` on a testing module that declares nothing → the schema applies to nothing                                      | —       | green _(by construction)_ |
+| [`no-mistyped-use-value`](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-rules#no-mistyped-use-value)                           | `{ provide: TOKEN, useValue }` whose value does not fit the primitive `TOKEN` declares — `useValue` is `any`; **type-aware** | —       | green _(by construction)_ |
+| [`no-instance-lifecycle-spy`](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-rules#no-instance-lifecycle-spy)                   | `vi.spyOn(component, 'ngOnInit')` — Angular calls the hook it read off the prototype, never the instance spy; `warn`     | —       | green _(the stub)_        |
 
 ### Reaching past the public surface
 
-The one rule here that reads types, and the only group with a single member.
+One of the two rules that read types, and the only group with a single member.
 
 | Rule                                                                                            | Flags                                                                                                                | Fix |       Without it        |
 | ----------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- | --- | :---------------------: |
@@ -8661,7 +8694,7 @@ double in a `jest-auto-spies` suite, and every one of them fails with `TS2352` u
 
 ## The four jasmine rules
 
-They steer in the opposite direction from the rest of the plugin. The other twenty-four push a Vitest
+They steer in the opposite direction from the rest of the plugin. The other twenty-six push a Vitest
 suite towards this library's API; these four are about a suite that has not arrived yet — one
 running on [`vitest-auto-spy/jasmine`](https://asdalexey.github.io/vitest-auto-spy/migrating-jasmine), or one that thinks it is.
 
@@ -8761,7 +8794,7 @@ this rule declines. See [Migrating from jasmine-auto-spies](https://asdalexey.gi
 
 ## Which rules fix, and why so few
 
-Three of the twenty-eight rewrite the source on their own, nine offer the rewrite as a suggestion, and
+Three of the thirty rewrite the source on their own, nine offer the rewrite as a suggestion, and
 the split is about what a wrong guess costs rather than about how hard the rewrite is.
 
 `no-mocked-for-spy` touches nothing but a **declaration**. Get it wrong and the file stops
@@ -9126,7 +9159,7 @@ deleted along with the reported one because the two lines read identically, and 
 compiler nor ESLint had anything to say about it. Drop the `NO_ERRORS_SCHEMA` import only when
 nothing else in the file still uses it, and run the file.
 
-### `no-private-member-access` — the one rule that reads types
+### `no-private-member-access` — the first rule to read types {#no-private-member-access-—-the-one-rule-that-reads-types}
 
 `instance['privateMember']` is not a loophole TypeScript forgot to close. Bracket access is how an
 index signature is read, so the visibility check is spelled only on the dotted form — and a spec
@@ -9288,10 +9321,10 @@ Every section answers the same six questions:
 - **Limits** — where it reports working code, and what quiets it.
 - **Severity** — and why that one.
 
-## The twenty-eight rules
+## The thirty rules
 
 Grouped by subject, the same grouping the [setup page](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-plugin) uses. Every rule is
-an `error` except three.
+an `error` except four.
 
 | Rule                                                              | In `recommended` | Reports                                                                                |
 | ----------------------------------------------------------------- | ---------------- | -------------------------------------------------------------------------------------- |
@@ -9316,6 +9349,8 @@ an `error` except three.
 | [`no-overridden-provider`](#no-overridden-provider)               | `error`          | a provider a later one, or a `TestBed.overrideProvider`, replaces                      |
 | [`no-inject-before-override`](#no-inject-before-override)         | `error`          | an injection in a hook, in a suite that still calls `TestBed.override*`                |
 | [`no-dead-schemas`](#no-dead-schemas)                             | `error`          | `schemas` on a testing module that declares nothing                                    |
+| [`no-mistyped-use-value`](#no-mistyped-use-value)                 | `error`          | a `useValue` that does not fit the primitive type its `InjectionToken` declares        |
+| [`no-instance-lifecycle-spy`](#no-instance-lifecycle-spy)         | `warn`           | `vi.spyOn(component, 'ngOnInit')` — a hook spy Angular never calls                     |
 | [`no-private-member-access`](#no-private-member-access)           | `error`          | a `private` / `protected` member reached through brackets, a cast, or the prototype     |
 | [`no-mocked-for-spy`](#no-mocked-for-spy)                         | `error`          | `Mocked<T>` in a type position where the value is a spy                                |
 | [`prefer-as-spy`](#prefer-as-spy)                                 | `error`          | `TestBed.inject(X) as Spy<X>` — a cast that no longer compiles                          |
@@ -9328,8 +9363,9 @@ Five of them have options: [`prefer-create-spy-from-class`](#prefer-create-spy-f
 [`no-stub-class-double`](#no-stub-class-double) and
 [`no-structural-double`](#no-structural-double) (`minRunnerFns`),
 [`prefer-render-shallow`](#prefer-render-shallow) (`templates`) and
-[`jasmine-namespace-without-entry`](#jasmine-namespace-without-entry) (`setupModules`). One of them
-reads types: [`no-private-member-access`](#no-private-member-access). Two are also shipped as
+[`jasmine-namespace-without-entry`](#jasmine-namespace-without-entry) (`setupModules`). Two of them
+read types: [`no-private-member-access`](#no-private-member-access) and
+[`no-mistyped-use-value`](#no-mistyped-use-value). Two are also shipped as
 `configs.typeErrors`, because their findings do not compile:
 [`prefer-as-spy`](#prefer-as-spy) and [`no-mocked-for-spy`](#no-mocked-for-spy).
 
@@ -10688,6 +10724,90 @@ still uses it, and verify with a run rather than with a green lint.
 **Severity.** `error`. The finding is a dead line, so nothing breaks today; what it earns is the
 cleanup being planned once instead of discovered a template typo at a time.
 
+## no-mistyped-use-value
+
+**`error`** · no fix · **needs `parserOptions.project`**
+
+**Reports.** An object literal with a `provide` and a `useValue`, where `provide` is an
+`InjectionToken<T>`, `T` is primitive-like, and the value is not assignable to `T`.
+
+**Decides on.** The type checker, and nothing else. The token's type has to be named
+`InjectionToken`; its first type argument is primitive-like when every member of the union is a
+string, number, boolean, bigint, an enum, a literal of one of those, `null` or `undefined`. Then the
+checker is asked whether the value's type is assignable to it. Without a program — no
+`parserOptions.project` / `projectService` — or on a TypeScript whose checker does not expose
+`isTypeAssignableTo`, the rule says nothing rather than guessing.
+
+**Finding, and the repair.**
+
+```ts
+export const IS_PLATFORM_BROWSER = new InjectionToken<boolean>('IS_PLATFORM_BROWSER');
+
+providers: [{ provide: IS_PLATFORM_BROWSER, useValue: {} }]; // ❌ compiles, and {} is truthy
+providers: [{ provide: IS_PLATFORM_BROWSER, useValue: false }]; // ✅ the value the token declares
+```
+
+The message names the token and both types — `IS_PLATFORM_BROWSER expects boolean, but useValue is
+{}` — because the repair is a value of the declared type, and which one is the spec's decision.
+
+**Why it is recommended.** Angular types `useValue` as `any`, so nothing compares it with the
+token, and whatever injects the token gets the value unchanged. An object where a `boolean` is read
+is truthy: the spec runs down the branch it meant to switch off and still passes. Measured on an
+Angular monorepo: 259 providers of primitive-typed tokens across 179 spec files, 2 of them mistyped —
+both this `{}` for a `boolean` token.
+
+**Limits.** Object-typed tokens are out of scope on purpose: their `useValue` is usually a partial
+fixture, and `createMock<T>()` is the typed tool for that — reporting every one would be hundreds of
+findings nobody should have to rewrite. A class token (`provide: SomeService`) is left to
+[`prefer-provide-auto-spy`](#prefer-provide-auto-spy). Only an object literal is read, so
+`TestBed.overrideProvider(TOKEN, { useValue })` is not.
+
+**Severity.** `error`. It decides on a fact — the checker's answer that the value does not fit the
+declared type. It is not in `configs.typeErrors`: `useValue` is `any`, so the finding compiles.
+
+## no-instance-lifecycle-spy
+
+**`warn`** · no fix · syntax only
+
+**Reports.** `vi.spyOn(target, hook)` or `jest.spyOn(target, hook)`, where `hook` is a string literal
+naming `ngOnInit`, `ngOnDestroy`, `ngDoCheck`, `ngAfterContentInit`, `ngAfterContentChecked`,
+`ngAfterViewInit` or `ngAfterViewChecked`, and `target` is not a prototype.
+
+**Decides on.** The call alone. `X.prototype` and `Object.getPrototypeOf(x)` as the target are
+prototypes and are left alone. `ngOnChanges` is not in the list: Angular invokes it as
+`this.ngOnChanges(changes)`, which does reach a spy on the instance.
+
+**Finding, and the repair.**
+
+```ts
+const fixture = TestBed.createComponent(CardComponent);
+vi.spyOn(fixture.componentInstance, 'ngOnInit').mockImplementation(() => undefined); // ❌ never runs
+fixture.detectChanges();
+```
+
+```ts
+const init = vi.spyOn(CardComponent.prototype, 'ngOnInit').mockImplementation(() => undefined); // ✅
+const fixture = TestBed.createComponent(CardComponent);
+fixture.detectChanges();
+
+expect(init).toHaveBeenCalledTimes(1);
+```
+
+Better still, assert what the hook does rather than that it ran.
+
+**Why it is recommended.** A view calls the hook it read off the component class's prototype when
+the component was created, never the property a spy installs on the instance afterwards. So
+`expect(component.ngOnInit).toHaveBeenCalled()` after `fixture.detectChanges()` can never pass, and a
+`.mockImplementation` stub never runs: in a consuming suite the real `ngOnInit` kept running under a
+hook the spec believed it had stubbed.
+
+**Limits.** An instance spy is reached when the spec calls the hook itself — `component.ngOnInit()`
+followed by an assertion on the spy — and when the injector destroys a **service**, whose
+`ngOnDestroy` it calls on the instance. One file's syntax cannot tell those from a component spy
+Angular never calls.
+
+**Severity.** `warn`, because of those limits: the rule decides on a heuristic, not a fact.
+
 ## no-private-member-access
 
 **`error`** · no fix · **needs `parserOptions.project`** for two of its three forms
@@ -11890,7 +12010,7 @@ cheap to fix while the cursor is still on the line and expensive to find afterwa
 one of them **passes**.
 
 There is one channel, and it is already in the package:
-[`vitest-auto-spy/eslint-plugin`](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-plugin). Twenty-eight rules over a real syntax tree,
+[`vitest-auto-spy/eslint-plugin`](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-plugin). Thirty rules over a real syntax tree,
 with a fix or a suggestion where the rewrite is decidable — the same rules in the editor and in CI,
 so nothing passes locally and fails on the build. No editor needs a plugin of this package's own;
 it needs its ESLint integration switched on, which every IDE below has.
@@ -11898,7 +12018,7 @@ it needs its ESLint integration switched on, which every IDE below has.
 ## WebStorm and the other JetBrains IDEs
 
 WebStorm, IntelliJ IDEA Ultimate, PhpStorm, PyCharm Professional and RubyMine all run ESLint
-natively, so the rules light up **inline, with no plugin to install** — the same twenty-eight checks, in
+natively, so the rules light up **inline, with no plugin to install** — the same thirty checks, in
 the editor, in the Problems tool window, and under **Code → Inspect Code** for the whole project.
 
 Install and configure once:
@@ -11942,14 +12062,14 @@ still hand-rolls its doubles" question actually needs.
 
 **A native JetBrains plugin is not planned**
 A plugin in the JetBrains Marketplace would duplicate an integration the IDE already has, and would
-then have to keep a second copy of twenty-eight rules — in Kotlin — in step with the TypeScript ones.
+then have to keep a second copy of thirty rules — in Kotlin — in step with the TypeScript ones.
 Where the ESLint route genuinely cannot reach (a repository with no ESLint at all), the honest fix
 is four lines of `eslint.config.js`, not a second implementation.
 
 ## VS Code, Cursor, Windsurf, VSCodium
 
 Install the [ESLint extension](https://marketplace.visualstudio.com/items?itemName=dbaeumer.vscode-eslint)
-and the flat config above is enough: the same twenty-eight rules, inline and in the Problems panel.
+and the flat config above is enough: the same thirty rules, inline and in the Problems panel.
 
 ```jsonc
 // .vscode/settings.json
@@ -15363,7 +15483,7 @@ Beyond the runner swap, everything the old API did not have:
 [`renderShallow` and `createWithAutoSpies`](https://asdalexey.github.io/vitest-auto-spy/adapters/angular),
 [observable assertions](https://asdalexey.github.io/vitest-auto-spy/core/observable-assertions),
 [fake timers that settle](https://asdalexey.github.io/vitest-auto-spy/utilities/fake-timers),
-[console spies](https://asdalexey.github.io/vitest-auto-spy/utilities/console), [twenty-eight ESLint rules](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-plugin),
+[console spies](https://asdalexey.github.io/vitest-auto-spy/utilities/console), [thirty ESLint rules](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-plugin),
 Bun and `node:test` support — and [Angular's `TestBed` under `bun test`](https://asdalexey.github.io/vitest-auto-spy/runtimes/bun-angular).
 
 ## Did the migration lose a test?
@@ -16456,7 +16576,7 @@ Short and factual.
   ways an AOT test bundle fails half an hour later in someone else's spec.
 - **Beyond Vitest**, the same API runs on `bun:test` and `node:test`, and Angular's `TestBed` runs
   [under `bun test`](https://asdalexey.github.io/vitest-auto-spy/runtimes/bun-angular).
-- **[Twenty-eight lint rules](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-plugin)** versioned with the API they recommend.
+- **[Thirty lint rules](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-plugin)** versioned with the API they recommend.
 
 ## Did the migration lose a test?
 
@@ -17098,7 +17218,7 @@ Nothing in this package's spy path touches `NgZone` either, so the two coexist w
   rather than typing the real service as a double.
 - **The same API off Angular** — [`bun:test`](https://asdalexey.github.io/vitest-auto-spy/runtimes/bun), [`node:test`](https://asdalexey.github.io/vitest-auto-spy/runtimes/node), NestJS,
   React, Vue, Svelte, and Angular's `TestBed` [under `bun test`](https://asdalexey.github.io/vitest-auto-spy/runtimes/bun-angular).
-- **[Twenty-eight lint rules](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-plugin)** versioned with the API they recommend.
+- **[Thirty lint rules](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-plugin)** versioned with the API they recommend.
 
 ## Versions this was written against
 
@@ -17476,7 +17596,7 @@ The exported surface of `vitest-auto-spy` and its subpaths.
 | `consoleDebugSpy` … `consoleWarnSpy`                                                                         | Silent typed spies replacing the global `console` methods on import (`/console`)                                                                                    |
 | `installConsoleSpies()` / `resetConsoleSpies()` / `restoreConsole()`                                         | Install / clear / undo the console spies (`/console`)                                                                                                               |
 | `errorHandler`                                                                                               | The `mustBeCalledWith` argument-mismatch error helper                                                                                                               |
-| `vitest-auto-spy/eslint-plugin`                                                                              | Twenty-eight flat-config lint rules that steer a suite onto these helpers                                                                                            |
+| `vitest-auto-spy/eslint-plugin`                                                                              | Thirty flat-config lint rules that steer a suite onto these helpers                                                                                            |
 
 ## Helper surface by return type
 
@@ -18133,7 +18253,7 @@ alongside it:
   of, kept to the mocks that outlive a file. On `isolate: false` it is what makes `clearMocks` cost
   more with every test already run, and what keeps a whole run's recorded arguments — and the
   component trees behind them — alive in one worker.
-- [Twenty-eight ESLint rules](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-plugin) versioned together with the API they recommend, and
+- [Thirty ESLint rules](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-plugin) versioned together with the API they recommend, and
   [`setupAutoSpy()`](https://asdalexey.github.io/vitest-auto-spy/utilities/setup) for the test-run hygiene a shared environment needs.
 - [Per-file `TestBed` diagnostics](https://asdalexey.github.io/vitest-auto-spy/adapters/angular#where-a-spec-spends-its-time) — which specs
   actually pay for `TestBed`, and by how much.

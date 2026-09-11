@@ -1,6 +1,6 @@
 ---
 title: ESLint plugin
-description: Twenty-eight flat-config lint rules that steer a suite onto the auto-spy helpers, grouped by subject, every one an error by default bar the three that report a cost or a heuristic, with the dial documented and the false-positive cases named.
+description: Thirty flat-config lint rules that steer a suite onto the auto-spy helpers, grouped by subject, every one an error by default bar the four that report a cost or a heuristic, with the dial documented and the false-positive cases named.
 ---
 
 # ESLint plugin
@@ -22,7 +22,7 @@ which a subpath export of this package can never be.
 
 **How this page is laid out.** [Adding it](#adding-it-to-your-project) is the four things a first
 config needs. [Which apply to you](#which-of-the-twenty-apply-to-you) answers the question a
-Vitest-only project asks — four of the twenty-eight are about a dialect you may not speak.
+Vitest-only project asks — four of the thirty are about a dialect you may not speak.
 [Rules](#rules) is the reference table, in seven groups. [Tuning](#tuning-it-for-your-project) is
 every dial, including the three rules that can report on correct code. Everything after that is
 _why_ — one section per rule, for when a report has arrived and you want to know what it saved you
@@ -78,9 +78,9 @@ In a monorepo, one block at the root covers every package as long as the glob is
 `'**/*.spec.ts'` matches `packages/*/src/**` fine. Add a second block only where one package's specs
 need different severities.
 
-### 3. Type information is optional, and one rule wants it
+### 3. Type information is optional, and two rules want it {#_3-type-information-is-optional-and-one-rule-wants-it}
 
-Twenty-seven of the twenty-eight are syntactic: they read the file's own AST and never ask the type checker.
+Twenty-eight of the thirty are syntactic: they read the file's own AST and never ask the type checker.
 So the plugin works with `parserOptions.project` unset, adds nothing measurable to lint time, and
 does not need your specs to be in a `tsconfig` — which matters in the repositories where they are
 not.
@@ -89,10 +89,11 @@ The cost of that is the honest limit of [the three rules that can report on corr
 code](#the-three-rules-that-can-report-on-correct-code): what a rule cannot see in one file, it
 cannot know.
 
-[`no-private-member-access`](#no-private-member-access-%E2%80%94-the-one-rule-that-reads-types) is
-the exception, and it **needs** a program: without one it reports nothing at all rather than falling
-back to the syntax. Half of it — the `Object.getPrototypeOf` escape — keeps working either way. Turn
-it on where your specs are already in a project:
+[`no-private-member-access`](#no-private-member-access-%E2%80%94-the-one-rule-that-reads-types) and
+[`no-mistyped-use-value`](/utilities/eslint-rules#no-mistyped-use-value) are the exceptions, and both
+**need** a program: without one they report nothing at all rather than falling back to the syntax.
+Half of the first — the `Object.getPrototypeOf` escape — keeps working either way. Turn them on where
+your specs are already in a project:
 
 ```js
 languageOptions: {
@@ -102,12 +103,13 @@ languageOptions: {
 
 ### 4. What the first run looks like
 
-Every rule but three is an `error`, so on an existing suite the first run is likely to be red — that
+Every rule but four is an `error`, so on an existing suite the first run is likely to be red — that
 is the point of the default, not a misconfiguration. The exceptions are
 [`prefer-render-shallow`](#the-render-nobody-reads), which reports a cost rather than a defect, and
-[`no-stub-class-double`](/utilities/eslint-rules#no-stub-class-double) and
-[`no-structural-double`](/utilities/eslint-rules#no-structural-double), which report a defect on
-heuristic evidence; all three show up in the output without holding the build. Two things make the
+[`no-stub-class-double`](/utilities/eslint-rules#no-stub-class-double),
+[`no-structural-double`](/utilities/eslint-rules#no-structural-double) and
+[`no-instance-lifecycle-spy`](/utilities/eslint-rules#no-instance-lifecycle-spy), which report a
+defect on heuristic evidence; all four show up in the output without holding the build. Two things make the
 first pass short:
 
 ```bash
@@ -118,7 +120,7 @@ npx eslint . --format stylish | tail -30   # the summary tells you which rule do
 Whatever is left is either a real finding or a rule you would rather not enforce yet. Both are
 answered below.
 
-## Which of the twenty-eight apply to you {#which-of-the-twenty-apply-to-you}
+## Which of the thirty apply to you {#which-of-the-twenty-apply-to-you}
 
 Reasonable question if you came straight to Vitest and have never written a line of Jasmine: **four
 of these rules are about a dialect you do not speak.** They are still on, and the reason is not
@@ -126,9 +128,9 @@ principle — it is that they cannot fire on your code.
 
 | You are                                    | What the plugin does for you                                                                         |
 | ------------------------------------------ | ---------------------------------------------------------------------------------------------------- |
-| writing Vitest, never used Jasmine or Jest | the twenty-four core rules work; **the four jasmine rules are inert** — leave them on and never see them |
+| writing Vitest, never used Jasmine or Jest | the twenty-six core rules work; **the four jasmine rules are inert** — leave them on and never see them |
 | migrating off `jest-auto-spies` / Jest     | the core rules do the work, `no-done-callback` and `prefer-as-spy` most of it                        |
-| migrating off `jasmine-auto-spies`         | all twenty-eight, with `prefer-native-spy-api` set to `'off'` until the bridge is gone                  |
+| migrating off `jasmine-auto-spies`         | all thirty, with `prefer-native-spy-api` set to `'off'` until the bridge is gone                        |
 
 ### If you never used Jasmine
 
@@ -175,7 +177,7 @@ never jasmine's.
 ### If you are coming from Jest
 
 There is no separate Jest rule set, because most of what a Jest suite has to unlearn is already in
-the core twenty-four — these are the ones that carry a migration:
+the core twenty-six — these are the ones that carry a migration:
 
 | Rule                           | What it catches in a Jest suite                                                                                                                                                                                                                               |
 | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -198,7 +200,7 @@ that file needs). See [Migrating from jest-auto-spies](/migrating).
 
 ### If you are coming from Jasmine
 
-All twenty-eight apply, and the four in the last group are the ones written for you. Two are pure
+All thirty apply, and the four in the last group are the ones written for you. Two are pure
 diagnosis — `no-jasmine-globals` and `no-save-arguments-by-value` name silent behaviour changes that
 survive a rename — and `jasmine-namespace-without-entry` catches the spy built before the layer was
 installed. The fourth, `prefer-native-spy-api`, reports the bridge itself, so it is the one line of
@@ -213,12 +215,12 @@ autofix. See [Migrating from jasmine-auto-spies](/migrating-jasmine).
 
 ## Rules
 
-Every rule is an `error` bar one. Until 4.0.0 this table was a graded mix of `error` / `warn` / `off`,
+Every rule is an `error` bar four. Until 4.0.0 this table was a graded mix of `error` / `warn` / `off`,
 which meant the plugin decided how much each project cared; a `warn` that nothing reads is `off` with
 extra output, and which findings block a merge is a project's call, not a library's. Turning one down
 is [one line](#turn-one-rule-down).
 
-One of the three exceptions is [`prefer-render-shallow`](#the-render-nobody-reads), which ships as a
+One of the four exceptions is [`prefer-render-shallow`](#the-render-nobody-reads), which ships as a
 **`warn`**, and its reason is the kind of thing it says rather than how much it matters. Every other rule in these
 tables names something wrong or dead — a double that drifts from its class, an assertion that never
 runs, a provider the container already dropped, a schema guarding nothing. That one names a file that
@@ -244,6 +246,11 @@ Angular DI one name away, where a `provide:` settles the question and the answer
 files** on the same suite, all of it at `error` and all of it `provide:`-backed. It is also why these
 are rules of their own rather than arms of the count-based one: a project that disagrees with either
 reading switches it off without losing the rule that reads a count.
+
+The fourth, [`no-instance-lifecycle-spy`](/utilities/eslint-rules#no-instance-lifecycle-spy), is graded
+on the evidence too. Angular never calls a spy put on an instance's `ngOnInit`, but a spec that calls
+`component.ngOnInit()` itself does, and so does the injector for a service's `ngOnDestroy` — and one
+file's syntax cannot tell those apart.
 
 The **Without it** column is what the run does when the rule is not there, and it is the reason the
 list is worth reading rather than skimming: over half of these guard against a test that is _green
@@ -279,7 +286,7 @@ Not about a single test but about what one file leaves behind for the next.
 
 ### Angular DI and the TestBed
 
-Five ways a provider ends up not being the double the spec thinks it registered.
+The ways a provider — or a spy on the component itself — ends up not being what the spec thinks it registered.
 
 | Rule                                                                                               | Flags                                                                                                                    | Fix     |       Without it        |
 | -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ | ------- | :---------------------: |
@@ -290,10 +297,12 @@ Five ways a provider ends up not being the double the spec thinks it registered.
 | [`no-overridden-provider`](#two-providers-one-token)                                               | two providers for one token in one array, or one a `TestBed.overrideProvider` replaces → the earlier one never runs; the exact duplicate can be deleted | suggest |          green          |
 | [`no-inject-before-override`](#the-trap-this-plugin-s-own-advice-sets)                             | `TestBed.inject()` / `injectSpy()` / `renderShallow()` in a hook, in a suite that still calls `override*`                | —       |           red           |
 | [`no-dead-schemas`](#no-dead-schemas-%E2%80%94-the-charm-that-protects-nobody)                        | `schemas` on a testing module that declares nothing → the schema applies to nothing                                      | —       | green _(by construction)_ |
+| [`no-mistyped-use-value`](/utilities/eslint-rules#no-mistyped-use-value)                           | `{ provide: TOKEN, useValue }` whose value does not fit the primitive `TOKEN` declares — `useValue` is `any`; **type-aware** | —       | green _(by construction)_ |
+| [`no-instance-lifecycle-spy`](/utilities/eslint-rules#no-instance-lifecycle-spy)                   | `vi.spyOn(component, 'ngOnInit')` — Angular calls the hook it read off the prototype, never the instance spy; `warn`     | —       | green _(the stub)_        |
 
 ### Reaching past the public surface
 
-The one rule here that reads types, and the only group with a single member.
+One of the two rules that read types, and the only group with a single member.
 
 | Rule                                                                                            | Flags                                                                                                                | Fix |       Without it        |
 | ----------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- | --- | :---------------------: |
@@ -1047,7 +1056,7 @@ double in a `jest-auto-spies` suite, and every one of them fails with `TS2352` u
 
 ## The four jasmine rules
 
-They steer in the opposite direction from the rest of the plugin. The other twenty-four push a Vitest
+They steer in the opposite direction from the rest of the plugin. The other twenty-six push a Vitest
 suite towards this library's API; these four are about a suite that has not arrived yet — one
 running on [`vitest-auto-spy/jasmine`](/migrating-jasmine), or one that thinks it is.
 
@@ -1147,7 +1156,7 @@ this rule declines. See [Migrating from jasmine-auto-spies](/migrating-jasmine).
 
 ## Which rules fix, and why so few
 
-Three of the twenty-eight rewrite the source on their own, nine offer the rewrite as a suggestion, and
+Three of the thirty rewrite the source on their own, nine offer the rewrite as a suggestion, and
 the split is about what a wrong guess costs rather than about how hard the rewrite is.
 
 `no-mocked-for-spy` touches nothing but a **declaration**. Get it wrong and the file stops
@@ -1514,7 +1523,7 @@ compiler nor ESLint had anything to say about it. Drop the `NO_ERRORS_SCHEMA` im
 nothing else in the file still uses it, and run the file.
 :::
 
-### `no-private-member-access` — the one rule that reads types
+### `no-private-member-access` — the first rule to read types {#no-private-member-access-—-the-one-rule-that-reads-types}
 
 `instance['privateMember']` is not a loophole TypeScript forgot to close. Bracket access is how an
 index signature is read, so the visibility check is spelled only on the dotted form — and a spec

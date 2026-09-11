@@ -121,7 +121,8 @@ and is only ever asserted on — `createAutoMock`. Handed to the function under 
 (`detectVpnClient(url, logger)`, `applyPreferredTracks(target, …)`, `setLocalConfigEnabled(storage, …)`),
 it has to satisfy `T` at the call site _and_ expose the spy helpers at the assertion, and
 `autoMocked<T>()` is that intersection — otherwise every call site needs an `asInstance()` and the
-noise scales with the number of them.
+noise scales with the number of them. Both take the same second argument (`returns`, `name`, `strict`,
+`observablePropsToSpyOn`).
 
 `createMock<T>()` is the one to reach for on data shapes — it returns a plain `T`, so it satisfies a
 `no-type-assertion` lint rule without an `eslint-disable` on every fixture.
@@ -723,16 +724,24 @@ Called as: Cart.checkout(1,'now')
 Also on `createAutoMock`, `provideAutoSpy`, and suite-wide as `setupAutoSpy({ strict: true })` — which
 reaches a double whichever bundle of the package built it: the default lives on `globalThis`. Before
 this release it lived in module scope, and a setup file's `strict: true` reached no double a spec built.
-Precedence, first one set wins: the double's `onUnstubbedCall` → the global `onUnstubbedCall` → the
-double's `strict` (**including `strict: false`**, the only way to exempt one double from a suite-wide
-default) → the global `strict`.
+Precedence, first one set wins: the double's `onUnstubbedCall` → the double's explicit **`strict: false`**
+(the only way to exempt one double from a suite-wide default, a global handler included) → the global
+`onUnstubbedCall` → the double's `strict: true` → the global `strict`.
 
 - **It is not argument-level.** A `calledWith(1, 'now')` chain says the method is stubbed, so
   `checkout(9, 'later')` still answers `undefined`. Use `mustBeCalledWith` for that.
-- **`mockReturnValue` / `mockImplementation` / the `returns:` option replace the dispatch**, so they
-  never reach the guard. Consequence: after the last `mockReturnValueOnce` the queue empties back
-  onto the library dispatch and the next call **is** reported as unstubbed — seed
-  `mockReturnValue(...)` too when a `Once` sequence is meant to run out.
+- **`returns:` is a default in the spy's own container**: a `calledWith` / `resolveWith` / `failWith`
+  configured later wins for its arguments or supersedes it, every other call still gets it, and
+  `undefined` counts as configured. `returns: { save: undefined }` is how a `void` call is expected.
+- **`mockReturnValue` / `mockImplementation` replace the dispatch**, so they never reach the guard —
+  and a `calledWith` configured after them is never consulted. After the last `mockReturnValueOnce`
+  the queue empties back onto the library dispatch and the next call **is** reported as unstubbed —
+  seed `mockReturnValue(...)` too when a `Once` sequence is meant to run out.
+- **A throw something swallowed still fails the test.** Under `setupAutoSpy({ strict: true })` every
+  strict throw is recorded, and one that a `try`/`catch` in the code under test or an RxJS error with
+  no handler (its rethrow waits on a fake clock) kept from the test fails it after the test
+  (`swallowedStrictCalls`, `'throw'` by default with `strict: true`). Provoking one on purpose:
+  `expect(() => cart.total()).toThrow(…)` then `expect(takeStrictViolations()).toHaveLength(1)`.
 - **It does not reach** accessor spies, observable-property spies, `mockDeep` nodes, `console-spy`,
   `mockResourceProp`'s `reload` or a standalone `createFunctionSpy`. A strict double still answers
   `undefined` for an unconfigured getter or `items$`. `fillMissing` members **are** covered.
@@ -2635,17 +2644,19 @@ blanket downgrade so those keep their severity; do not copy the two names into a
 | `no-passthrough-console-spy`      | `error` | suggest           | `vi.spyOn(console, m)` nothing gives an implementation — it calls through and prints → `installConsoleSpies()` + `consoleXSpy`, or `.mockImplementation(() => undefined)` |
 | `no-console-in-spec`              | `error` | —                 | a spec calling `console.x(…)` itself, or `console.x = …`, which nothing restores → absorb the code's output through `vitest-auto-spy/console` |
 | `no-import-time-console-spies`    | `error` | —                 | an import of `vitest-auto-spy/console` in a file that never calls `installConsoleSpies()` — the import installs once per worker and silences every later file → `installConsoleSpies()` in `beforeEach`, `restoreConsole()` in `afterEach` |
+| `no-mistyped-use-value`           | `error` | —                 | `{ provide: TOKEN, useValue }` whose value is not assignable to the primitive `T` of `InjectionToken<T>` (string, number, boolean, bigint, enum, their literals, `null`, `undefined`) — `useValue` is `any`, so `{}` for a `boolean` token compiles and is truthy. **Type-aware**: silent without `parserOptions.project`; object-typed tokens are out of scope |
+| `no-instance-lifecycle-spy`       | `warn`  | —                 | `vi.spyOn(instance, 'ngOnInit')` (and `ngOnDestroy`, `ngDoCheck`, `ngAfterContent*`, `ngAfterView*`) — a view calls the hook read off the prototype, so the instance spy is never called and its stub never runs → `vi.spyOn(Cls.prototype, …)` before `createComponent`, or assert the effect. `ngOnChanges` is exempt: Angular calls it through the instance |
 | `jasmine-namespace-without-entry` | `error` | —                 | `.and` / `.calls` / `.withArgs` on a library spy in a file that installs the compat layer nowhere — option: `{ setupModules: […] }`                                                                                                                                                                                                 |
 | `no-jasmine-globals`              | `error` | —                 | `jasmine.*`, bare `spyOn(` / `spyOnProperty(` / `spyOnAllFunctions(` / `fail(` / `pending(`, `.withContext(`                                                                                                                                                                                                                        |
 | `no-save-arguments-by-value`      | `error` | —                 | `spy.calls.saveArgumentsByValue()` — a no-op here, so the spec silently asserts on post-mutation state                                                                                                                                                                                                                              |
 | `prefer-native-spy-api`           | `error` | `--fix` / suggest | `.and` / `.calls` where the spy's own API says the same thing — turn it on for the last mile off the jasmine shim                                                                                                                                                                                                                   |
 
-Twenty-eight rules, **every one an `error` since 4.0.0 except `prefer-render-shallow`,
-`no-stub-class-double` and `no-structural-double`**; three fix on their own, nine offer suggestions. Twenty-seven are syntactic; `no-private-member-access` is the one
-that reads types, and it reports nothing at all without `parserOptions.project` / `projectService`
+Thirty rules, **every one an `error` since 4.0.0 except `prefer-render-shallow`,
+`no-stub-class-double`, `no-structural-double` and `no-instance-lifecycle-spy`**; three fix on their own, nine offer suggestions. Twenty-eight are syntactic; `no-private-member-access` and `no-mistyped-use-value`
+read types, and both report nothing at all without `parserOptions.project` / `projectService`
 rather than guessing. The config used to be a graded mix of `error` / `warn` / `off`, which decided for the
 consumer how much each finding mattered — a `warn` nothing reads is `off` with extra output. The
-three `warn`s left are not judgements about how much a finding matters. `prefer-render-shallow` is
+four `warn`s left are not judgements about how much a finding matters. `prefer-render-shallow` is
 about the _kind_ of finding: every other rule names something wrong or dead, while this one names a
 file that could render more cheaply, and `renderShallow` is a migration a suite either takes or does
 not. At `error` the plugin would gate that migration — 491 findings across 398 of one consumer's
@@ -2658,7 +2669,9 @@ and moved a long way inside the release: measured on the same 1759 files, the tw
 reports in 8 files and 115 in 74, and are 10 in 7 and 5 in 4 once `prefer-provide-auto-spy` learnt to
 follow a name into a `useValue` — 112 of those doubles are handed to Angular DI one name away, where
 a `provide:` settles it. That rule reports **154 times across 87 files** on the same suite, all at
-`error`. Set any of the three `warn`s to `'error'` once the batch is done. Three of
+`error`. `no-instance-lifecycle-spy` is on the evidence too: Angular never calls an instance spy on a
+hook it read off the prototype, but a spec that calls `component.ngOnInit()` itself does, and so does
+the injector for a service's `ngOnDestroy`. Set any of the four `warn`s to `'error'` once the batch is done. Three of
 them can report on a _correct_ project, and only one has an option:
 `jasmine-namespace-without-entry` takes `['error', { setupModules: ['./test-setup'] }]`, naming the
 file where `enableJasmineCompat()` is called; `prefer-native-spy-api` goes `'off'` for as long as a
@@ -2878,6 +2891,8 @@ packages, which a subpath export can never be.
 | `createNestUnit(X): A -> B -> A is a cycle among the classes built for real`                                  | two exposed / `useClass` classes depend on each other; the helper does not resolve `forwardRef` cycles                                                                                                                                                                     | expose one side less, or provide it                                                                                                                                                                                                                                                                       |
 | `createNestUnit(X).spies.get(Y): the unit never asked for that token`                                         | same guard as `createWithAutoSpies` — the spy would not be the one the unit uses                                                                                                                                                                                           | stub the token the unit actually injects (the message lists the auto-spied ones)                                                                                                                                                                                                                          |
 | `createNestUnit(X).spies.get(Y): Y is in \`expose\`, so the unit got a real instance`                         | an exposed class is real, not a spy                                                                                                                                                                                                                                        | read the spies of its own collaborators, or drop it from `expose`                                                                                                                                                                                                                                         |
+| `expect(component.ngOnInit).toHaveBeenCalled()` fails after `fixture.detectChanges()`, or a hook's `.mockImplementation` never runs | the spy was put on the **instance**; a view calls the hook it read off the class prototype when the component was created | `vi.spyOn(Cls.prototype, 'ngOnInit')` before `TestBed.createComponent`, or assert what the hook does — `no-instance-lifecycle-spy` (§16) |
+| a spec runs down the "browser" (or any flag-on) branch whatever its `useValue` says                           | `{ provide: IS_BROWSER, useValue: {} }` for an `InjectionToken<boolean>` — `useValue` is `any`, and an object is truthy | a value of the token's type (`useValue: false`) — `no-mistyped-use-value` (§16), with type information |
 | `no request matched …` (with the requests that were made listed)                                              | the URL, verb or predicate does not describe anything the code under test sent, or nothing subscribed                                                                                                                                                                      | read the list in the message — it is the requests that were actually made; then fix the URL, add `{ method }`, or subscribe (§13)                                                                                                                                                                         |
 | `this TestBed has no HttpTestingController`                                                                   | `expectRequest` / `expectNoRequest` on a module that never got the testing backend                                                                                                                                                                                         | `TestBed.configureTestingModule({ providers: [...provideHttpTesting()] })` from `vitest-auto-spy/angular-http` (§13)                                                                                                                                                                                      |
 | `the test ended with N unanswered request(s)`                                                                 | `provideHttpTesting({ verifyOnTeardown })` found a request the spec never flushed                                                                                                                                                                                          | answer it (`await expectRequest(url).flush(body)`), assert its absence (`expectNoRequest(url)`), or `{ verifyOnTeardown: false }` (§13)                                                                                                                                                                   |
@@ -2913,6 +2928,8 @@ diagnostic and is free to change: print it, never assert on it.
 | `createSpyFromClass(X) as unknown as X`                                     | `asInstance(createSpyFromClass(X))`                                     |
 | `{ provide: X, useValue: { a: vi.fn(), b: vi.fn() } }`                      | `provideAutoSpy(X)`                                                     |
 | `vi.spyOn(TestBed.inject(X), 'method')`                                     | `injectSpy(X).method`                                                   |
+| `vi.spyOn(component, 'ngOnInit')` after `createComponent`                   | `vi.spyOn(Cls.prototype, 'ngOnInit')` before it, or assert the effect   |
+| `{ provide: IS_BROWSER, useValue: {} }` for an `InjectionToken<boolean>`   | `useValue: false` — a value of the type the token declares             |
 | `Object.defineProperty(service, 'ready', { value: true })`                  | `mockReadonlyProp(service, 'ready', true)`                              |
 | `source$.subscribe(v => expect(v).toBe(1))`                                 | `await expect(expectEmission(source$)).resolves.toBe(1)`                |
 | `await lastValueFrom(done$, { defaultValue: undefined })`                   | `await expectCompletion(done$)`                                         |

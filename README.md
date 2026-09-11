@@ -23,7 +23,7 @@ faster at suite scale ([benchmarks](#benchmarks)) — and for
 [![downloads per month](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fapi.npmjs.org%2Fdownloads%2Fpoint%2Flast-month%2Fvitest-auto-spy&query=%24.downloads&color=brightgreen&logo=npm&label=downloads%2Fmonth)](https://www.npmjs.com/package/vitest-auto-spy)
 [![downloads over 18 months](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fapi.npmjs.org%2Fdownloads%2Fpoint%2F2026-06-21%3A2030-01-01%2Fvitest-auto-spy&query=%24.downloads&color=brightgreen&logo=npm&label=downloads%2F18mo)](https://www.npmjs.com/package/vitest-auto-spy)
 [![CI](https://github.com/ASDAlexey/vitest-auto-spy/actions/workflows/ci.yml/badge.svg)](https://github.com/ASDAlexey/vitest-auto-spy/actions/workflows/ci.yml)
-[![minzipped size](https://img.shields.io/badge/minzip-16.6%20kB-brightgreen)](#install)
+[![minzipped size](https://img.shields.io/badge/minzip-16.8%20kB-brightgreen)](#install)
 [![types](https://img.shields.io/npm/types/vitest-auto-spy?logo=typescript&logoColor=white)](https://www.npmjs.com/package/vitest-auto-spy)
 [![coverage](https://img.shields.io/badge/coverage-100%25-brightgreen)](https://github.com/ASDAlexey/vitest-auto-spy/actions/workflows/ci.yml)
 [![license](https://img.shields.io/npm/l/vitest-auto-spy?color=blue)](./LICENSE)
@@ -76,7 +76,7 @@ faster at suite scale ([benchmarks](#benchmarks)) — and for
 - 🧩 Module mocks that prove they applied — `assertMocked`, `moduleNamespace`, for a `vi.mock()` a bundler quietly ignored
 - 🧾 Fixtures without casts — deep-partial `createMock`, `createFixture` / `createFixtureFactory`, `narrow()`, `withOverrides()`, `asInstances()`, `captureArg()`
 - 🚚 A migration you can verify — `vitest-auto-spy/diagnostics`: `compareTestRuns` on the two JSON reports, `summarizeTestRun` / `formatTestRunComparison` to read the answer, `diffByField` for the assertion the reporter collapses, `explainSpy` for a double that answered something you did not configure
-- 📏 Lint rules and one-line test-run hygiene — twenty-eight rules in `vitest-auto-spy/eslint-plugin` (three `--fix`, nine suggestions, four of them for a suite mid-migration off jasmine), `setupAutoSpy()` — with `preset: 'strict'` for every guard at its strictest grade
+- 📏 Lint rules and one-line test-run hygiene — thirty rules in `vitest-auto-spy/eslint-plugin` (three `--fix`, nine suggestions, four of them for a suite mid-migration off jasmine), `setupAutoSpy()` — with `preset: 'strict'` for every guard at its strictest grade
 - 🩺 [Editor diagnostics](#editor-diagnostics--webstorm--vs-code) — the same anti-patterns underlined while you type: native ESLint inspections in **WebStorm** and the other JetBrains IDEs, the ESLint extension in **VS Code**, no extra plugin either way
 - 🔎 [`npx vitest-auto-spy doctor`](#the-cli--doctor-perf-codemod-and-init) — suite-level defects **that never fail a run**: a `tsconfig` `include` matching no file, a production module importing a spec, a `@jest-environment` pragma the runner never reads, config left behind for a runner that is gone. Read-only, no config, exits 1 in CI
 - ⏱️ [`npx vitest-auto-spy perf`](#perf--where-the-cpu-time-actually-goes) — where a suite's CPU time actually goes, phase by phase, and which spec files to act on: the ones that reach no DOM and could run under `node`, the ones that import a barrel. Runs Vitest once with a reporter this package ships, reads `TestModule.diagnostic()`, names files, states the rule behind each finding
@@ -799,6 +799,11 @@ cart.total.mockReturnValue(42);
 `CartService` and the spy has it. A hand-written `{ provide: CartService, useValue: { total:
 vi.fn() } }` silently keeps mocking yesterday's class.
 
+A token with a primitive value is the one place a `useValue` stays right: `{ provide: IS_BROWSER,
+useValue: false }`. Angular types `useValue` as `any`, though, so nothing compares it with the
+`InjectionToken<boolean>` it is for — `useValue: {}` compiles and is truthy. `no-mistyped-use-value`
+reports that, given type information.
+
 On **Vitest 4.1+**, the same thing as fixtures — one statement, types inferred, and a test that
 never names a dependency never builds it:
 
@@ -983,6 +988,22 @@ One call for `configureTestingModule` + `NO_ERRORS_SCHEMA` + `overrideComponent`
 `imports` and a blank template. `fixture` is a real `ComponentFixture`, so everything in
 `@angular/core/testing` still applies. See [shallow rendering](#shallow-component-rendering) for
 `keepTemplate`, `keepChildren` and what it actually saves.
+
+### How to mock: a lifecycle hook
+
+```ts
+const init = vi.spyOn(CardComponent.prototype, 'ngOnInit').mockImplementation(() => undefined);
+const fixture = TestBed.createComponent(CardComponent);
+
+fixture.detectChanges();
+expect(init).toHaveBeenCalledTimes(1);
+```
+
+On the prototype, and before the component is created. A view calls the hook it read off the class
+when the component was created, so `vi.spyOn(component, 'ngOnInit')` on the instance is never
+called by Angular and its `.mockImplementation` never runs — the real hook does, under a spec that
+reads as though it stubbed it. Better still, assert what the hook does rather than that it ran.
+`no-instance-lifecycle-spy` reports the instance form.
 
 ### How to mock: a class the code under test builds with `new`
 
@@ -3135,7 +3156,7 @@ import autoSpy from 'vitest-auto-spy/eslint-plugin';
 export default [{ files: ['**/*.spec.ts'], ...autoSpy.configs.recommended }];
 ```
 
-**Every rule is an `error` since 4.0.0, bar one.** The config used to grade them `error` / `warn` /
+**Every rule is an `error` since 4.0.0, bar four.** The config used to grade them `error` / `warn` /
 `off`, which chose for you how much each finding mattered; a `warn` in a repository that does not read
 lint output is `off` with extra noise, and which findings block a merge is one line of config either
 way. To turn one down, spread the rule map as well — a bare `rules` key beside the spread config
@@ -3151,7 +3172,7 @@ export default [
 ];
 ```
 
-One of the three exceptions is `prefer-render-shallow`, which ships as a **`warn`**, and its reason is the kind
+One of the four exceptions is `prefer-render-shallow`, which ships as a **`warn`**, and its reason is the kind
 of thing it says rather than how much it matters. Every other rule here names something wrong or dead
 — a double that drifts from its class, an assertion that never runs, a provider the container already
 dropped, a schema guarding nothing. That one names a file that could render more cheaply, which is a
@@ -3172,6 +3193,10 @@ same release, whose evidence is a `provide:`. A hundred-odd new errors is the wr
 a heuristic — and it is also why they are rules of their own rather than arms of the count-based one:
 a project that disagrees with either reading switches it off without losing the rule that reads a
 count.
+
+The fourth, `no-instance-lifecycle-spy`, is graded on the evidence too. A spy on an instance hook is
+never called by Angular, but it is by a spec that calls `component.ngOnInit()` itself, and by the
+injector for a service's `ngOnDestroy` — and one file's syntax cannot tell those apart.
 
 A second config, `autoSpy.configs.typeErrors`, holds the subset whose findings are compile errors
 (`prefer-as-spy` is `TS2352`, `no-mocked-for-spy` is `TS2322`). Spread it **after** a blanket
@@ -3213,6 +3238,8 @@ export can never be.
 | `no-passthrough-console-spy`      |   `error`   | suggest           | `vi.spyOn(console, m)` nothing gives an implementation — it calls through and still prints → `installConsoleSpies()` from `vitest-auto-spy/console`, or `.mockImplementation(() => undefined)` |
 | `no-console-in-spec`              |   `error`   | —                 | a spec that calls `console.x(…)` itself, or replaces a method with `console.x = …`, which nothing puts back — under `isolate: false` every later file inherits it |
 | `no-import-time-console-spies`    |   `error`   | —                 | an import of `vitest-auto-spy/console` in a file that never calls `installConsoleSpies()` — the import installs once per worker and, under `isolate: false`, silences every later file |
+| `no-mistyped-use-value`           |   `error`   | —                 | `{ provide: TOKEN, useValue }` whose value is not assignable to the primitive `TOKEN` declares — `useValue` is `any`, so `{}` for an `InjectionToken<boolean>` compiles and is truthy; **type-aware**, and silent without `parserOptions.project` |
+| `no-instance-lifecycle-spy`       |   `warn`    | —                 | `vi.spyOn(component, 'ngOnInit')` and the other hooks a view reads off the prototype — Angular never calls the instance spy → spy on `Cls.prototype` before the component is created, or assert the hook's effect |
 | `jasmine-namespace-without-entry` |   `error`   | —                 | `.and` / `.calls` / `.withArgs` on a library spy in a file that installs the compatibility layer nowhere                                                                                                               |
 | `no-jasmine-globals`              |   `error`   | —                 | `jasmine.*`, `spyOn(` / `spyOnProperty(` / `spyOnAllFunctions(` / `fail(` / `pending(`, `.withContext(` — none of them exist under Vitest                                                                              |
 | `no-save-arguments-by-value`      |   `error`   | —                 | `spy.calls.saveArgumentsByValue()`, which is a no-op here → take the copy at call time                                                                                                                                 |
@@ -3222,7 +3249,7 @@ Every message ends with a link to the matching [recipe](#how-to-mock): a rule th
 "don't" moves the problem rather than solving it. Rules travel with the API they recommend, so they
 are versioned together and stop being re-written in every project that installs the package.
 
-**Three of the twenty-eight fix on their own, nine offer suggestions**, and the split is not about how hard
+**Three of the thirty fix on their own, nine offer suggestions**, and the split is not about how hard
 the rewrite is. `no-mocked-for-spy` touches a _declaration_: get it wrong and the file stops
 compiling, which is the loudest, cheapest failure there is — so `--fix` rewrites the type, adds
 `import type { Spy } from 'vitest-auto-spy'` and drops the `Mocked` import once nothing else uses
@@ -3326,7 +3353,7 @@ package's own — it needs its ESLint integration switched on.
 ### WebStorm and the other JetBrains IDEs
 
 No plugin to install: WebStorm, IntelliJ IDEA Ultimate, PhpStorm, PyCharm Professional and RubyMine
-all run ESLint natively, so the twenty-eight rules appear inline, in the **Problems** tool window, and
+all run ESLint natively, so the thirty rules appear inline, in the **Problems** tool window, and
 under **Code → Inspect Code** for the whole project.
 
 ```js
@@ -3343,7 +3370,7 @@ has supported flat config since 2023.3); scope the block to spec files yourself;
 the fixes and suggestions live.
 
 A native JetBrains plugin is **not** planned — it would duplicate an integration the IDE already has
-and then keep a second copy of twenty-eight rules, in Kotlin, in step with the TypeScript ones.
+and then keep a second copy of thirty rules, in Kotlin, in step with the TypeScript ones.
 
 ### VS Code, Cursor, Windsurf, VSCodium
 

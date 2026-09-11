@@ -69,14 +69,16 @@ once per call before any argument matching happens:
 | `calledWith(…)` / `mustBeCalledWith(…)` — **any** chain, any arguments | no                |
 | `resolveWith` / `rejectWith` / `resolveWithPerCall`                    | no                |
 | `nextWith` / `throwWith` / `complete` / `returnSubject`                | no                |
+| the `returns:` option — a default in the spy's own container           | no                |
 | `mockReturnValue` / `mockImplementation` — the host runner's own       | never — see below |
-| the `returns:` option, and `overrides` on `createAutoMock`             | never — see below |
+| `overrides` on `createAutoMock` — a seed, no longer a spy              | never — see below |
 | nothing                                                                | **yes**           |
 
-The non-obvious half is the third and fourth rows. `mockReturnValue`, `mockImplementation` and
-`returns:` do not _register_ configuration — they **replace the library's dispatch** on the host
-mock. A spy configured that way never runs the code the guard lives in, so it is not that strict
-mode makes an exception for them; there is nothing to make an exception in.
+The non-obvious half is the fifth and sixth rows. `mockReturnValue` and `mockImplementation` do
+not _register_ configuration — they **replace the library's dispatch** on the host mock. A spy
+configured that way never runs the code the guard lives in, so it is not that strict mode makes an
+exception for them; there is nothing to make an exception in. It also means a `calledWith` added
+after them is never consulted.
 
 That has one visible edge. `mockReturnValueOnce` installs a one-shot implementation that is
 _shifted off a queue_, and Vitest falls back to the standing implementation — the library dispatch —
@@ -93,6 +95,10 @@ cart.total(); // throws: Nothing configured Cart.total
 
 Seed the standing value too (`cart.total.mockReturnValue(0)`) when a `Once` sequence is meant to run
 out.
+
+`returns:` is different since it stopped doing the same: the value is the spy's default, so a
+`calledWith` configured later wins for its arguments, a later `resolveWith` or `failWith` replaces
+it, and `returns: { save: undefined }` is how a `void` call is declared expected.
 
 A reset puts the method back to unconfigured, so the guard fires again after `resetAutoSpy(users)`
 or at the end of a [`using` block](./create-spy-from-class#using) —
@@ -170,15 +176,33 @@ file that armed it — under `isolate: false` the module holding it is shared by
 worker, and a default left armed would fail a spec that never opted in. See
 [Test-run hygiene → strict doubles](/utilities/setup#_10-strict-doubles-for-the-whole-suite).
 
+### A throw that never reached the test
+
+A strict throw is only as loud as the code between it and the test. A `try`/`catch` in the code
+under test turns it into that code's error branch; an RxJS operator with no error handler rethrows
+it through a `setTimeout` that a fake clock never runs. Either way the test goes on without the
+answer it depended on, and may well pass.
+
+So `setupAutoSpy({ strict: true })` also records every strict throw and, after each test, fails the
+test with the ones the runner was never told about (`swallowedStrictCalls`: `'throw'` by default
+with `strict: true` and the strict preset, `'warn'`, `'off'`). A test that provokes one on purpose
+takes it, which doubles as the assertion:
+
+```ts
+expect(() => cart.total()).toThrow('Nothing configured Cart.total');
+expect(takeStrictViolations()).toHaveLength(1); // from 'vitest-auto-spy/setup'
+```
+
 ### Precedence
 
 Most specific first, and the resolution stops at the first one that is set:
 
 1. the double's own `onUnstubbedCall`
-2. the global `onUnstubbedCall` from `setupAutoSpy`
-3. the double's own `strict` — including an explicit **`strict: false`**, which is the only way to
-   exempt one collaborator from a suite-wide default
-4. the global `strict`
+2. the double's explicit **`strict: false`** — the only way to exempt one collaborator from a
+   suite-wide default, whether that default is `strict: true` or a handler
+3. the global `onUnstubbedCall` from `setupAutoSpy`
+4. the double's own `strict: true`
+5. the global `strict`
 
 ```ts
 setupAutoSpy({ strict: true });
@@ -187,8 +211,8 @@ createSpyFromClass(Cart).total(); // throws
 createSpyFromClass(Cart, { strict: false }).total(); // undefined — opted out
 ```
 
-A handler beats a `strict` at every level, so `{ strict: true, onUnstubbedCall: record }` on one
-double records and does not throw.
+A handler beats `strict: true` at every level, so `{ strict: true, onUnstubbedCall: record }` on one
+double records and does not throw; `strict: false` beats every handler but the double's own.
 
 ## Where it does not reach
 

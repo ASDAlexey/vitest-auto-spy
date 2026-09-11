@@ -460,7 +460,7 @@ row.triggerEventHandler('click', {});
   способа, которыми AOT-бандл тестов падает через полчаса в чужой спеке.
 - **За пределами Vitest** тот же API работает на `bun:test` и `node:test`, а `TestBed` из Angular
   работает [под `bun test`](/ru/runtimes/bun-angular).
-- **[Двадцать восемь правил линтера](/ru/utilities/eslint-plugin)**, версионируемые вместе с API, который
+- **[Тридцать правил линтера](/ru/utilities/eslint-plugin)**, версионируемые вместе с API, который
   они рекомендуют.
 
 ## Не потеряла ли миграция тест? {#did-the-migration-lose-a-test}

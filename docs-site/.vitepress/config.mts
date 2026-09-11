@@ -365,7 +365,9 @@ export default defineConfig({
           'strayConsole, guardStrayConsole, console spy calls through, vi.spyOn console still prints, ' +
           'no-passthrough-console-spy, no-console-in-spec, no-import-time-console-spies, ' +
           'strict preset, fail on every warning, misconfiguration throw, onlyMethodsToSpyOn typo warning, ' +
-          'where was this setTimeout scheduled, stray timer origin, describeStrayTimers, withoutStrayTimerTracking, ',
+          'where was this setTimeout scheduled, stray timer origin, describeStrayTimers, withoutStrayTimerTracking, ' +
+          'no-mistyped-use-value, useValue is any, InjectionToken boolean useValue object, ' +
+          'no-instance-lifecycle-spy, spyOn ngOnInit not called, mockImplementation ngOnInit still runs, ',
       },
     ],
     // max-image-preview:large is what lets Google and Yandex use the OG image in a result card.

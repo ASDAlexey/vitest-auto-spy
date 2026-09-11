@@ -341,14 +341,15 @@ npx vitest-auto-spy codemod --verify  # after a migration: anything the transfor
 Most of this library's guarantees are type-level, so a green run that does not type-check is not
 done. Report failures with their output rather than describing them as passing.
 
-**After any `eslint --fix` over specs, run `npx tsc --noEmit`.** The twenty-eight rules in
+**After any `eslint --fix` over specs, run `npx tsc --noEmit`.** The thirty rules in
 `vitest-auto-spy/eslint-plugin` are lint, not typecheck: `no-mocked-for-spy` rewrites a declaration
 to `Spy<T>` and cannot see what the name is assigned two lines below, so a clean lint pass is not
 evidence that the types still hold. Where it cannot prove the rename it downgrades to a suggestion —
 accept those together with the repair at the creation site, usually `createAutoMock<T>()` in place of
 an object literal.
 
-**`no-private-member-access` is the only rule here that needs type information.** It reports
+**`no-private-member-access` and `no-mistyped-use-value` are the two rules here that need type
+information.** The first reports
 `instance['privateMember']` (bracket access, which TypeScript does not visibility-check),
 `(instance as any).privateMember` and its `as unknown as { … }` / decoy-interface variants (the
 access is checked — against a type the spec substituted), and
@@ -356,7 +357,13 @@ access is checked — against a type the spec substituted), and
 reports nothing rather than falling back to the syntax, because the same brackets are how an index
 signature is read (`process.env['KEY']`, `queryParams['id']`). The repair is never a helper: drive
 the member through the public API, or — on a component — through the rendered template, where a
-`protected` member really is reachable.
+`protected` member really is reachable. The second reports `{ provide: TOKEN, useValue }` whose value
+does not fit a primitive `InjectionToken<T>` — `useValue` is `any`, so `{}` for a `boolean` token
+compiles and is truthy; write a value of the declared type.
+
+**`no-instance-lifecycle-spy` (`warn`) reports `vi.spyOn(component, 'ngOnInit')`** and the other
+hooks a view reads off the prototype: Angular never calls the instance spy, so its stub never runs.
+Spy on `Cls.prototype` before `TestBed.createComponent`, or assert what the hook does.
 
 **`prefer-observer-stub` reports an observer global replaced by hand** — `globalThis.IntersectionObserver = class { … }`, `vi.stubGlobal('ResizeObserver', …)`, `vi.spyOn(globalThis, 'MutationObserver')` — and names `stubIntersectionObserver()` / `stubResizeObserver()` / `stubMutationObserver()` instead. Take the `let original = globalThis.X` and the `afterEach` that assigns it back out with the block: the helper installs through `mockValueProp`, so `restoreMockedProps()` already owns the undo, and a restore written inside an `it` never runs once a test above it goes red.
 

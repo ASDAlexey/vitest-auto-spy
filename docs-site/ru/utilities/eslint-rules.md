@@ -1,6 +1,6 @@
 ---
 title: Правила ESLint
-description: По разделу на каждое из двадцати восьми правил — что оно сообщает, на чём принимает решение, зачем оно в recommended, где сообщает о работающем коде и почему у него именно такая severity.
+description: По разделу на каждое из тридцати правил — что оно сообщает, на чём принимает решение, зачем оно в recommended, где сообщает о работающем коде и почему у него именно такая severity.
 ---
 
 # Правила ESLint
@@ -33,10 +33,10 @@ description: По разделу на каждое из двадцати вос�
 - **Границы** — где правило сообщает о работающем коде и чем это гасится.
 - **Severity** — и почему именно такая.
 
-## Двадцать восемь правил {#the-twenty-five-rules}
+## Тридцать правил {#the-twenty-five-rules}
 
 Сгруппированы по темам — так же, как на [странице настройки](/ru/utilities/eslint-plugin). Все
-правила — `error`, кроме трёх.
+правила — `error`, кроме четырёх.
 
 | Правило                                                           | В `recommended`  | Что сообщает                                                                            |
 | ----------------------------------------------------------------- | ---------------- | --------------------------------------------------------------------------------------- |
@@ -61,6 +61,8 @@ description: По разделу на каждое из двадцати вос�
 | [`no-overridden-provider`](#no-overridden-provider)               | `error`          | провайдер, которого заменяет более поздний или `TestBed.overrideProvider`                |
 | [`no-inject-before-override`](#no-inject-before-override)         | `error`          | инъекция в хуке в сюите, которая ещё зовёт `TestBed.override*`                           |
 | [`no-dead-schemas`](#no-dead-schemas)                             | `error`          | `schemas` в тестовом модуле, который ничего не объявляет                                 |
+| [`no-mistyped-use-value`](#no-mistyped-use-value)                 | `error`          | `useValue`, который не подходит под примитивный тип, объявленный его `InjectionToken`    |
+| [`no-instance-lifecycle-spy`](#no-instance-lifecycle-spy)         | `warn`           | `vi.spyOn(component, 'ngOnInit')` — спай на хуке, который Angular не вызывает            |
 | [`no-private-member-access`](#no-private-member-access)           | `error`          | `private` / `protected`-член, добытый через скобки, каст или прототип                    |
 | [`no-mocked-for-spy`](#no-mocked-for-spy)                         | `error`          | `Mocked<T>` в типовой позиции, где значение — спай                                       |
 | [`prefer-as-spy`](#prefer-as-spy)                                 | `error`          | `TestBed.inject(X) as Spy<X>` — каст, который больше не компилируется                    |
@@ -72,8 +74,9 @@ description: По разделу на каждое из двадцати вос�
 У пяти есть опции: [`prefer-create-spy-from-class`](#prefer-create-spy-from-class),
 [`no-stub-class-double`](#no-stub-class-double) и [`no-structural-double`](#no-structural-double)
 (`minRunnerFns`), [`prefer-render-shallow`](#prefer-render-shallow) (`templates`) и
-[`jasmine-namespace-without-entry`](#jasmine-namespace-without-entry) (`setupModules`). Одно читает
-типы: [`no-private-member-access`](#no-private-member-access). Два дополнительно поставляются как
+[`jasmine-namespace-without-entry`](#jasmine-namespace-without-entry) (`setupModules`). Два читают
+типы: [`no-private-member-access`](#no-private-member-access) и
+[`no-mistyped-use-value`](#no-mistyped-use-value). Два дополнительно поставляются как
 `configs.typeErrors`, потому что их находки не компилируются:
 [`prefer-as-spy`](#prefer-as-spy) и [`no-mocked-for-spy`](#no-mocked-for-spy).
 
@@ -1428,6 +1431,89 @@ await TestBed.configureTestingModule({
 
 **Severity.** `error`. Находка — мёртвая строка, поэтому сегодня ничего не ломается; что она даёт —
 это уборка, спланированная один раз, а не обнаруживаемая по одной опечатке в шаблоне.
+
+## no-mistyped-use-value {#no-mistyped-use-value}
+
+**`error`** · без правки · **нужен `parserOptions.project`**
+
+**Сообщает.** Объектный литерал с `provide` и `useValue`, где `provide` — это `InjectionToken<T>`,
+`T` примитивный, а значение не присваивается в `T`.
+
+**На чём решает.** На тайпчекере, и больше ни на чём. Тип токена должен называться
+`InjectionToken`; его первый аргумент типа считается примитивным, когда каждый член объединения —
+строка, число, boolean, bigint, enum, литерал одного из них, `null` или `undefined`. Дальше
+тайпчекер отвечает, присваивается ли в него тип значения. Без программы — нет
+`parserOptions.project` / `projectService` — или на TypeScript, чей тайпчекер не отдаёт
+`isTypeAssignableTo`, правило молчит, а не догадывается.
+
+**Находка и исправление.**
+
+```ts
+export const IS_PLATFORM_BROWSER = new InjectionToken<boolean>('IS_PLATFORM_BROWSER');
+
+providers: [{ provide: IS_PLATFORM_BROWSER, useValue: {} }]; // ❌ компилируется, и {} истинно
+providers: [{ provide: IS_PLATFORM_BROWSER, useValue: false }]; // ✅ значение того типа, что объявил токен
+```
+
+Сообщение называет токен и оба типа — `IS_PLATFORM_BROWSER expects boolean, but useValue is {}`, —
+потому что исправление — это значение объявленного типа, а какое именно, решает спека.
+
+**Зачем оно в recommended.** Angular типизирует `useValue` как `any`, так что его никто не сверяет с
+токеном, и всё, что инжектит токен, получает значение как есть. Объект там, где читается `boolean`,
+истинен: спека идёт по ветке, которую собиралась выключить, и всё равно проходит. Замер на
+Angular-монорепозитории: 259 провайдеров токенов примитивного типа в 179 файлах спек, 2 из них с
+неверным типом — оба этот самый `{}` для `boolean`-токена.
+
+**Границы.** Токены объектного типа не рассматриваются намеренно: их `useValue` обычно частичная
+фикстура, и типизированный инструмент для неё — `createMock<T>()`; отчёт на каждый такой был бы
+сотнями находок, которые никто не обязан переписывать. Токен-класс (`provide: SomeService`) остаётся
+за [`prefer-provide-auto-spy`](#prefer-provide-auto-spy). Читается только объектный литерал, так что
+`TestBed.overrideProvider(TOKEN, { useValue })` не читается.
+
+**Severity.** `error`. Решает по факту — по ответу тайпчекера, что значение не подходит под
+объявленный тип. В `configs.typeErrors` его нет: `useValue` — это `any`, и находка компилируется.
+
+## no-instance-lifecycle-spy {#no-instance-lifecycle-spy}
+
+**`warn`** · без правки · только синтаксис
+
+**Сообщает.** `vi.spyOn(target, hook)` или `jest.spyOn(target, hook)`, где `hook` — строковый литерал
+`ngOnInit`, `ngOnDestroy`, `ngDoCheck`, `ngAfterContentInit`, `ngAfterContentChecked`,
+`ngAfterViewInit` или `ngAfterViewChecked`, а `target` — не прототип.
+
+**На чём решает.** Только на вызове. `X.prototype` и `Object.getPrototypeOf(x)` в роли цели — это
+прототипы, их правило не трогает. `ngOnChanges` в списке нет: Angular вызывает его как
+`this.ngOnChanges(changes)`, и спай на инстансе до него доходит.
+
+**Находка и исправление.**
+
+```ts
+const fixture = TestBed.createComponent(CardComponent);
+vi.spyOn(fixture.componentInstance, 'ngOnInit').mockImplementation(() => undefined); // ❌ не выполнится
+fixture.detectChanges();
+```
+
+```ts
+const init = vi.spyOn(CardComponent.prototype, 'ngOnInit').mockImplementation(() => undefined); // ✅
+const fixture = TestBed.createComponent(CardComponent);
+fixture.detectChanges();
+
+expect(init).toHaveBeenCalledTimes(1);
+```
+
+А лучше проверять, что хук делает, а не то, что он вызвался.
+
+**Зачем оно в recommended.** Вью вызывает хук, который прочитала с прототипа класса компонента, когда
+компонент создавался, и никогда — свойство, которое спай ставит на инстанс потом. Поэтому
+`expect(component.ngOnInit).toHaveBeenCalled()` после `fixture.detectChanges()` не пройдёт никогда, а
+заглушка через `.mockImplementation` не выполнится: в одной сюите-потребителе настоящий `ngOnInit`
+продолжал работать под хуком, который спека считала заглушённым.
+
+**Границы.** Спай на инстансе срабатывает, когда спека сама вызывает хук — `component.ngOnInit()`, а
+потом проверка спая, — и когда инжектор уничтожает **сервис**: его `ngOnDestroy` он зовёт на
+инстансе. По синтаксису одного файла их не отличить от спая на компоненте, который Angular не вызывает.
+
+**Severity.** `warn` — из-за этих границ: правило решает по эвристике, а не по факту.
 
 ## no-private-member-access {#no-private-member-access}
 

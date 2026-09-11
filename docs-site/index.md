@@ -41,7 +41,7 @@ features:
   - title: Strict mode instead of undefined
     details: 'The method nobody stubbed throws with the class, the method and the arguments in the message, rather than returning undefined that fails three frames later.'
     link: /core/strict-mode
-  - title: Twenty-eight lint rules and a codemod
+  - title: Thirty lint rules and a codemod
     details: 'The ESLint plugin underlines the old patterns as you type — a private member reached through a cast, an observer global stubbed by hand, a stub class of vi.fn() fields registered with useClass, schemas that can never apply — and the CLI codemod rewrites a jest-auto-spies suite into a diff you can read before you keep it.'
     link: /utilities/eslint-plugin
   - title: Failures nothing else reports
@@ -190,7 +190,7 @@ from a type or an interface.
 <div class="vas-fact"><b>0</b><span>runtime dependencies</span></div>
 <div class="vas-fact"><b>4</b><span>runtimes, one core</span></div>
 <div class="vas-fact"><b>5</b><span>framework adapters</span></div>
-<div class="vas-fact"><b>28</b><span>lint rules</span></div>
+<div class="vas-fact"><b>30</b><span>lint rules</span></div>
 <div class="vas-fact"><b>100%</b><span>covered core</span></div>
 
 </div>

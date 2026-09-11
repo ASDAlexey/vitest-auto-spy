@@ -41,7 +41,7 @@ features:
   - title: Строгий режим вместо undefined
     details: 'Метод, который никто не настроил, бросает с именем класса, метода и аргументами в сообщении, а не возвращает undefined, падающий тремя кадрами позже.'
     link: /ru/core/strict-mode
-  - title: Двадцать восемь правил линтера и кодмод
+  - title: Тридцать правил линтера и кодмод
     details: 'ESLint-плагин подчёркивает старые паттерны прямо в редакторе — приватный член через каст, глобал наблюдателя, заглушённый руками, класс-заглушка из полей vi.fn(), подключённый через useClass, schemas, которые не могут сработать, — а кодмод из CLI переписывает сюиту на jest-auto-spies в диф, который можно прочитать до того, как оставить.'
     link: /ru/utilities/eslint-plugin
   - title: Провалы, о которых больше никто не сообщает
@@ -189,7 +189,7 @@ users.save.rejectWith(new HttpError(409));
 <div class="vas-fact"><b>0</b><span>runtime-зависимостей</span></div>
 <div class="vas-fact"><b>4</b><span>среды, одно ядро</span></div>
 <div class="vas-fact"><b>5</b><span>адаптеров фреймворков</span></div>
-<div class="vas-fact"><b>28</b><span>правил линтера</span></div>
+<div class="vas-fact"><b>30</b><span>правил линтера</span></div>
 <div class="vas-fact"><b>100%</b><span>покрытие ядра</span></div>
 
 </div>

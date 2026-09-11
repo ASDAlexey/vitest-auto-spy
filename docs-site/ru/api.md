@@ -84,7 +84,7 @@ description: Все экспорты vitest-auto-spy и его подпутей,
 | `consoleDebugSpy` … `consoleWarnSpy`                                                                         | Молчаливые типизированные спаи, заменяющие методы глобальной `console` при импорте (`/console`)                                                                                                    |
 | `installConsoleSpies()` / `resetConsoleSpies()` / `restoreConsole()`                                         | Поставить / очистить / откатить консольные спаи (`/console`)                                                                                                                                       |
 | `errorHandler`                                                                                               | Хелпер ошибки о несовпадении аргументов для `mustBeCalledWith`                                                                                                                                     |
-| `vitest-auto-spy/eslint-plugin`                                                                              | Двадцать восемь правил линтера для flat-конфига, которые направляют сюиту на эти хелперы                                                                                                             |
+| `vitest-auto-spy/eslint-plugin`                                                                              | Тридцать правил линтера для flat-конфига, которые направляют сюиту на эти хелперы                                                                                                             |
 
 ## Набор хелперов по типу возврата {#helper-surface-by-return-type}
 

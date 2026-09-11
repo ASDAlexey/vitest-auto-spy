@@ -1,6 +1,6 @@
 ---
 title: ESLint rules
-description: A reference section for each of the twenty-eight rules — what it reports, what it decides on, why it is in recommended, where it reports working code, and why its severity is what it is.
+description: A reference section for each of the thirty rules — what it reports, what it decides on, why it is in recommended, where it reports working code, and why its severity is what it is.
 ---
 
 # ESLint rules
@@ -31,10 +31,10 @@ Every section answers the same six questions:
 - **Limits** — where it reports working code, and what quiets it.
 - **Severity** — and why that one.
 
-## The twenty-eight rules {#the-twenty-five-rules}
+## The thirty rules {#the-twenty-five-rules}
 
 Grouped by subject, the same grouping the [setup page](/utilities/eslint-plugin) uses. Every rule is
-an `error` except three.
+an `error` except four.
 
 | Rule                                                              | In `recommended` | Reports                                                                                |
 | ----------------------------------------------------------------- | ---------------- | -------------------------------------------------------------------------------------- |
@@ -59,6 +59,8 @@ an `error` except three.
 | [`no-overridden-provider`](#no-overridden-provider)               | `error`          | a provider a later one, or a `TestBed.overrideProvider`, replaces                      |
 | [`no-inject-before-override`](#no-inject-before-override)         | `error`          | an injection in a hook, in a suite that still calls `TestBed.override*`                |
 | [`no-dead-schemas`](#no-dead-schemas)                             | `error`          | `schemas` on a testing module that declares nothing                                    |
+| [`no-mistyped-use-value`](#no-mistyped-use-value)                 | `error`          | a `useValue` that does not fit the primitive type its `InjectionToken` declares        |
+| [`no-instance-lifecycle-spy`](#no-instance-lifecycle-spy)         | `warn`           | `vi.spyOn(component, 'ngOnInit')` — a hook spy Angular never calls                     |
 | [`no-private-member-access`](#no-private-member-access)           | `error`          | a `private` / `protected` member reached through brackets, a cast, or the prototype     |
 | [`no-mocked-for-spy`](#no-mocked-for-spy)                         | `error`          | `Mocked<T>` in a type position where the value is a spy                                |
 | [`prefer-as-spy`](#prefer-as-spy)                                 | `error`          | `TestBed.inject(X) as Spy<X>` — a cast that no longer compiles                          |
@@ -71,8 +73,9 @@ Five of them have options: [`prefer-create-spy-from-class`](#prefer-create-spy-f
 [`no-stub-class-double`](#no-stub-class-double) and
 [`no-structural-double`](#no-structural-double) (`minRunnerFns`),
 [`prefer-render-shallow`](#prefer-render-shallow) (`templates`) and
-[`jasmine-namespace-without-entry`](#jasmine-namespace-without-entry) (`setupModules`). One of them
-reads types: [`no-private-member-access`](#no-private-member-access). Two are also shipped as
+[`jasmine-namespace-without-entry`](#jasmine-namespace-without-entry) (`setupModules`). Two of them
+read types: [`no-private-member-access`](#no-private-member-access) and
+[`no-mistyped-use-value`](#no-mistyped-use-value). Two are also shipped as
 `configs.typeErrors`, because their findings do not compile:
 [`prefer-as-spy`](#prefer-as-spy) and [`no-mocked-for-spy`](#no-mocked-for-spy).
 
@@ -1430,6 +1433,90 @@ still uses it, and verify with a run rather than with a green lint.
 
 **Severity.** `error`. The finding is a dead line, so nothing breaks today; what it earns is the
 cleanup being planned once instead of discovered a template typo at a time.
+
+## no-mistyped-use-value
+
+**`error`** · no fix · **needs `parserOptions.project`**
+
+**Reports.** An object literal with a `provide` and a `useValue`, where `provide` is an
+`InjectionToken<T>`, `T` is primitive-like, and the value is not assignable to `T`.
+
+**Decides on.** The type checker, and nothing else. The token's type has to be named
+`InjectionToken`; its first type argument is primitive-like when every member of the union is a
+string, number, boolean, bigint, an enum, a literal of one of those, `null` or `undefined`. Then the
+checker is asked whether the value's type is assignable to it. Without a program — no
+`parserOptions.project` / `projectService` — or on a TypeScript whose checker does not expose
+`isTypeAssignableTo`, the rule says nothing rather than guessing.
+
+**Finding, and the repair.**
+
+```ts
+export const IS_PLATFORM_BROWSER = new InjectionToken<boolean>('IS_PLATFORM_BROWSER');
+
+providers: [{ provide: IS_PLATFORM_BROWSER, useValue: {} }]; // ❌ compiles, and {} is truthy
+providers: [{ provide: IS_PLATFORM_BROWSER, useValue: false }]; // ✅ the value the token declares
+```
+
+The message names the token and both types — `IS_PLATFORM_BROWSER expects boolean, but useValue is
+{}` — because the repair is a value of the declared type, and which one is the spec's decision.
+
+**Why it is recommended.** Angular types `useValue` as `any`, so nothing compares it with the
+token, and whatever injects the token gets the value unchanged. An object where a `boolean` is read
+is truthy: the spec runs down the branch it meant to switch off and still passes. Measured on an
+Angular monorepo: 259 providers of primitive-typed tokens across 179 spec files, 2 of them mistyped —
+both this `{}` for a `boolean` token.
+
+**Limits.** Object-typed tokens are out of scope on purpose: their `useValue` is usually a partial
+fixture, and `createMock<T>()` is the typed tool for that — reporting every one would be hundreds of
+findings nobody should have to rewrite. A class token (`provide: SomeService`) is left to
+[`prefer-provide-auto-spy`](#prefer-provide-auto-spy). Only an object literal is read, so
+`TestBed.overrideProvider(TOKEN, { useValue })` is not.
+
+**Severity.** `error`. It decides on a fact — the checker's answer that the value does not fit the
+declared type. It is not in `configs.typeErrors`: `useValue` is `any`, so the finding compiles.
+
+## no-instance-lifecycle-spy
+
+**`warn`** · no fix · syntax only
+
+**Reports.** `vi.spyOn(target, hook)` or `jest.spyOn(target, hook)`, where `hook` is a string literal
+naming `ngOnInit`, `ngOnDestroy`, `ngDoCheck`, `ngAfterContentInit`, `ngAfterContentChecked`,
+`ngAfterViewInit` or `ngAfterViewChecked`, and `target` is not a prototype.
+
+**Decides on.** The call alone. `X.prototype` and `Object.getPrototypeOf(x)` as the target are
+prototypes and are left alone. `ngOnChanges` is not in the list: Angular invokes it as
+`this.ngOnChanges(changes)`, which does reach a spy on the instance.
+
+**Finding, and the repair.**
+
+```ts
+const fixture = TestBed.createComponent(CardComponent);
+vi.spyOn(fixture.componentInstance, 'ngOnInit').mockImplementation(() => undefined); // ❌ never runs
+fixture.detectChanges();
+```
+
+```ts
+const init = vi.spyOn(CardComponent.prototype, 'ngOnInit').mockImplementation(() => undefined); // ✅
+const fixture = TestBed.createComponent(CardComponent);
+fixture.detectChanges();
+
+expect(init).toHaveBeenCalledTimes(1);
+```
+
+Better still, assert what the hook does rather than that it ran.
+
+**Why it is recommended.** A view calls the hook it read off the component class's prototype when
+the component was created, never the property a spy installs on the instance afterwards. So
+`expect(component.ngOnInit).toHaveBeenCalled()` after `fixture.detectChanges()` can never pass, and a
+`.mockImplementation` stub never runs: in a consuming suite the real `ngOnInit` kept running under a
+hook the spec believed it had stubbed.
+
+**Limits.** An instance spy is reached when the spec calls the hook itself — `component.ngOnInit()`
+followed by an assertion on the spy — and when the injector destroys a **service**, whose
+`ngOnDestroy` it calls on the instance. One file's syntax cannot tell those from a component spy
+Angular never calls.
+
+**Severity.** `warn`, because of those limits: the rule decides on a heuristic, not a fact.
 
 ## no-private-member-access
 
