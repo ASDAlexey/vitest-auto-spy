@@ -359,7 +359,13 @@ export default defineConfig({
           'nestjs mock all dependencies, nestjs auto mock providers, nest service unit test vitest, ' +
           'nestjs testing module too slow, nest constructor changed test broke, mock nestjs injected service, ' +
           '@Inject token test, nestjs optional dependency test, nest property injection test, ' +
-          'reflect-metadata emitDecoratorMetadata test, suites alternative, migrate off suites, ',
+          'reflect-metadata emitDecoratorMetadata test, suites alternative, migrate off suites, ' +
+          'fail test on console output, vitest fail on console.error, jest-fail-on-console vitest, ' +
+          'console.error in test not failing, silence console in tests isolate false, onConsoleLog fail test, ' +
+          'strayConsole, guardStrayConsole, console spy calls through, vi.spyOn console still prints, ' +
+          'no-passthrough-console-spy, no-console-in-spec, no-import-time-console-spies, ' +
+          'strict preset, fail on every warning, misconfiguration throw, onlyMethodsToSpyOn typo warning, ' +
+          'where was this setTimeout scheduled, stray timer origin, describeStrayTimers, withoutStrayTimerTracking, ',
       },
     ],
     // max-image-preview:large is what lets Google and Yandex use the OG image in a result card.

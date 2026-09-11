@@ -45,7 +45,7 @@ features:
     details: 'The ESLint plugin underlines the old patterns as you type — a private member reached through a cast, an observer global stubbed by hand, a stub class of vi.fn() fields registered with useClass, schemas that can never apply — and the CLI codemod rewrites a jest-auto-spies suite into a diff you can read before you keep it.'
     link: /utilities/eslint-plugin
   - title: Failures nothing else reports
-    details: 'A mock*Prop patch left in a describe body stops applying after the first test, a component whose own providers shadow the spy quietly runs the real service, and one key left on Object.prototype stops every later file in the worker from collecting while Vitest 5.0 still prints zero failing tests and no stack — silent under every runner, named here by the property, the token or the file.'
+    details: 'A mock*Prop patch left in a describe body stops applying after the first test, a component whose own providers shadow the spy quietly runs the real service, and one key left on Object.prototype stops every later file in the worker from collecting while Vitest 5.0 still prints zero failing tests and no stack — silent under every runner, named here by the property, the token or the file. Console output nothing absorbed fails the test that wrote it, with a code frame at the line; the onConsoleLog hook of Vitest 5.0 can only drop a line, never fail a test. One strict preset turns every guard to its failing grade.'
     link: /utilities/setup
 ---
 
@@ -190,7 +190,7 @@ from a type or an interface.
 <div class="vas-fact"><b>0</b><span>runtime dependencies</span></div>
 <div class="vas-fact"><b>4</b><span>runtimes, one core</span></div>
 <div class="vas-fact"><b>5</b><span>framework adapters</span></div>
-<div class="vas-fact"><b>25</b><span>lint rules</span></div>
+<div class="vas-fact"><b>28</b><span>lint rules</span></div>
 <div class="vas-fact"><b>100%</b><span>covered core</span></div>
 
 </div>
