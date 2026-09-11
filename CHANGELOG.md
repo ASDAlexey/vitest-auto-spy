@@ -10,6 +10,128 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+### Added
+
+- **A strict throw something swallowed fails the test anyway.** A call to an unconfigured method of
+  a strict double throws where it happens — and on the consumer that throw was caught before it
+  reached the test more often than anyone guessed: by a `try`/`catch` in the code under test, which
+  took its error branch and reported the strict message as a business error, or by an RxJS operator
+  with no error handler, whose rethrow goes through a `setTimeout` a fake clock never runs. The test
+  stayed green without the answer it depended on. After a suite-wide `strict: true` went on, four
+  of the ten areas its specs were split into counted 34 such tests and the other six reported the
+  same shape, among them an init flow that simulated a server logout in every test and a payment
+  spec that passed through the error branch instead of the purchase it named. Those were the ones
+  people noticed by hand: run over the same suite once they had been fixed — 1758 files green under
+  strict — the guard failed 65 more tests in 26 files, 47 of the calls in one player service spec.
+  `setupAutoSpy({ swallowedStrictCalls })` — `'throw'` by default with
+  `strict: true` and under the strict preset, `'off'` otherwise, `'warn'` to print — records every
+  strict throw and, after each test, fails the test with the ones the runner never reported, each
+  with its first frames. A test that provokes one on purpose takes it with
+  `takeStrictViolations()` from `vitest-auto-spy/setup`, which is also the assertion: after
+  `expect(() => cart.total()).toThrow(…)`, `expect(takeStrictViolations()).toHaveLength(1)`.
+
+- **`autoMocked<T>(overrides, config)`** takes the configuration `createAutoMock` takes — `returns`,
+  `name`, `strict`, `observablePropsToSpyOn`. It accepted seeds only, so under a suite-wide
+  `strict: true` a double handed to the function under test as an argument could not say what its
+  `void` members answer, and each one needed a `mockReturnValue(undefined)` of its own after the
+  factory — two doubles on the consumer.
+
+- **`no-mistyped-use-value`: a primitive token's `useValue` is checked against the token.** Angular
+  types `useValue` as `any`, so `{ provide: IS_PLATFORM_BROWSER, useValue: {} }` compiles for an
+  `InjectionToken<boolean>` — and an object is truthy, so on the consumer that spec ran in "browser"
+  mode whatever its author meant. The rule asks the type checker: when `provide` is an
+  `InjectionToken<T>` whose `T` is primitive-like — every member a string, number, boolean, bigint,
+  enum, a literal of those, `null` or `undefined` — and the value is not assignable to `T`, it reports
+  the token, the declared type and the value's type. Measured on the consumer: 259 providers of
+  primitive-typed tokens in 179 spec files, 2 of them mistyped, both that `{}`. Object-typed tokens
+  are out of scope on purpose — their `useValue` is usually a partial fixture, `createMock<T>()` is the
+  typed tool there, and reporting them would be hundreds of findings nobody should have to rewrite.
+  It is the plugin's second type-aware rule and, like the first, says nothing without
+  `parserOptions.project` / `projectService` or on a checker without `isTypeAssignableTo`. `error`,
+  because it decides on the checker's answer; not in `configs.typeErrors`, because the finding
+  compiles.
+
+- **`no-instance-lifecycle-spy`: a spy on an instance's lifecycle hook is reported.**
+  `vi.spyOn(component, 'ngOnInit')` — or `jest.spyOn`, and `ngOnDestroy`, `ngDoCheck`,
+  `ngAfterContentInit`, `ngAfterContentChecked`, `ngAfterViewInit`, `ngAfterViewChecked` — installs
+  a spy Angular never calls: a view runs the hook it read off the class prototype when the component
+  was created. So `expect(component.ngOnInit).toHaveBeenCalled()` after `fixture.detectChanges()`
+  cannot pass, and a `.mockImplementation` never runs; on the consumer the real `ngOnInit` kept
+  running under a hook a spec believed it had stubbed. The message names the repair — spy on
+  `Cls.prototype` before the component is created, or assert what the hook does. `X.prototype` and
+  `Object.getPrototypeOf(x)` are left alone, and so is `ngOnChanges`, which Angular calls as
+  `this.ngOnChanges(…)` and therefore does reach an instance spy. `warn`, because it decides on a
+  heuristic: a spec that calls `component.ngOnInit()` itself, or an injector destroying a service,
+  reaches the instance spy, and one file's syntax cannot tell those apart. The plugin ships thirty
+  rules.
+
+### Fixed
+
+- **`returns` is a default the spec can still build on.** It was installed as the host mock's
+  implementation, which replaces the library's dispatch — so a `calledWith`, `mustBeCalledWith`,
+  `resolveWith`, `nextWith` or `failWith` configured on the same method afterwards was written into
+  state nothing read any more, and the call kept answering the `returns` value with no report,
+  `misconfiguration: 'throw'` included. It is exactly what a spec reaches for once strict mode names
+  a method: seed a harmless default where the double is built, then give one test its own answer —
+  on the consumer that pattern silently lost its override in at least four specs, and it made a
+  suite-wide default such as `Router.navigate` resolving `true` unsafe to register at all. The value
+  now sits in the spy's own container: a later argument-matched configuration wins for its
+  arguments and every other call still gets the default, a later `resolveWith`/`failWith`
+  supersedes it like any other configuration, `undefined` counts as configured under `strict`, and
+  `resetAutoSpy` clears it. A callable the library did not build — a host mock seeded through
+  `overrides` — is still configured through its implementation. One consequence to know: a
+  `returns` value now survives `vi.resetAllMocks()`, as `calledWith` always did.
+
+- **`strict: false` on a double now keeps it away from a global `onUnstubbedCall` too.** The
+  precedence put the suite-wide handler ahead of the double's own `strict`, so the opt-out the docs
+  call "the only way to exempt one double from a suite-wide default" exempted it only from a
+  suite-wide `strict: true`. A suite whose policy is a handler — a survey that records every gap
+  before the throw goes on, or a throw with exceptions of its own — kept charging the doubles that
+  had opted out, a `registerAutoSpyDefaults(Class, { strict: false })` included. On a 1759-file
+  Angular consumer that registered its fire-and-forget metrics service that way, a recording handler
+  still logged 1182 calls in 440 tests from that one class. The order is now: the double's
+  `onUnstubbedCall`, the double's explicit `strict: false`, the global `onUnstubbedCall`, the
+  double's `strict: true`, the global `strict`. A double with `strict: true` still reports through
+  the global handler rather than throwing.
+
+- **One unresolved member no longer erases every key of a type.** `OnlyMethodKeysOf`, and through it
+  `returns` and `onlyMethodsToSpyOn`, asked `T[K] extends Func` of each member — and a conditional whose
+  checked type is the error type, a member whose type failed to resolve, answers `any` for the whole
+  union. A global augmentation is exactly where that hides, because `skipLibCheck` never reports the
+  `.d.ts` it sits in: on the consumer one line, `Logger: typeof AppLogger` on `Window` with
+  `AppLogger` an interface, turned `MethodReturns<Window>` into an index signature, so
+  `returns: { open: null }` failed with "incompatible with index signature" under `strict` and
+  `returns: { removeEventListener: undefined }` with "not assignable to never" without it — in five
+  specs, one of them failing the suite's type gate. The check is now written `[T[K]] extends [Func]`,
+  which does not distribute, so the broken member is one key among the rest. A member typed `any` is
+  treated exactly as before.
+
+- **A strict error carries the stack of the call that made it.** The error was built with the default
+  ten frames, and a call through a `createAutoMock` Proxy, an RxJS operator and the library's dispatch
+  used them all up — the swallowed-call report then showed library frames and never the production
+  line. It now records up to thirty frames, on a strict throw only.
+
+- **An optional method is a method.** `announce?(message: string): void` is `Func | undefined` under
+  `strictNullChecks`, and every type that asked `T[K] extends Func` answered no: `returns` rejected
+  the key (`'announce' does not exist in type 'MethodReturns<Provider>'`), and `Spy<T>` typed the
+  member as the bare function, so `.mockReturnValue` did not exist on it — while at runtime a
+  type-driven double builds a spy for it like any other key, and a strict one throws for it. On the
+  consumer that forced `createAutoMock<Required<T>>` and a hand-built `createFunctionSpy` in the
+  specs of three interfaces. `OnlyMethodKeysOf`, `MethodReturns` and `Spy<T>` now read the member
+  through `Required<T>`, which removes only the optionality — a required property typed
+  `(() => void) | null` is still not a method.
+
+- **`returns` works on a type that declares `toString()`.** `MethodReturns<T>` typed a declared
+  `toString` as its return value, `string`, and every object literal inherits `toString` from
+  `Object.prototype` as a function — so `{ returns: { reload: undefined } }` on a `Location` double,
+  or on any class with its own `toString()`, failed with `Types of property 'toString' are
+  incompatible`, whichever member it actually configured. Under a suite-wide `strict: true` that is
+  exactly where `returns` is needed, and on the consumer it forced a `Location` double back to a
+  `mockReturnValue` per method. A member `Object.prototype` also has now accepts the inherited
+  member's type alongside its declared return; `returns: { toString: 1 }` is still rejected.
+
+## [5.6.0] - 2026-09-11
+
 **Why upgrade.** Console output a test did not ask for now fails that test, by name, with the line
 that wrote it — and output made while a file loads fails the file. One line, `preset: 'strict'`,
 turns every guard `setupAutoSpy()` has to its failing grade. A suite-wide `strict: true` finally
@@ -4514,7 +4636,8 @@ by hand there, in more than one place, by more than one person.
   `mockAccessorsProp`.
 - Dual ESM + CJS build with type declarations; 100% test coverage.
 
-[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.5.0...HEAD
+[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.6.0...HEAD
+[5.6.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.5.0...v5.6.0
 [5.5.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.4.0...v5.5.0
 [5.4.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.3.0...v5.4.0
 [5.3.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.2.0...v5.3.0
