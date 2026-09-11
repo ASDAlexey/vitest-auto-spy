@@ -29,9 +29,13 @@ is taken once, in a setup file — and because four of the five hang off the sam
 | `shadowedProviders` | `true` | a double on the testing module loses to the component's own `providers`            |
 
 Every member defaults to `true`; pass `false` to leave one out. Calling `enableAngularDiagnostics`
-again **replaces** the previous selection rather than adding to it, and the per-test hooks are
-registered once per module — so a second call is safe from anywhere, including from inside a test,
-where registering a hook would be an error.
+again **replaces** the previous selection rather than adding to it. The per-test hooks are
+registered by every call made outside a test, on the file — or `describe` — being collected, which
+is what a setup file needs: under `isolate: false` Vitest re-runs the setup file for every spec file
+while `vitest-auto-spy/angular` stays loaded for the whole worker, and until this release the hooks
+were registered once per module, so only the **first** spec file of each worker was checked. A
+second call in the same file does not run anything twice, and a call from inside a test only
+re-configures the group.
 
 `disableAngularDiagnostics()` turns the group off: no more configuration inspection, and `injectSpy`
 warns again instead of failing. It leaves the `TestBed` timing instrumentation in place —
@@ -39,9 +43,8 @@ warns again instead of failing. It leaves the `TestBed` timing instrumentation i
 
 ## Call it _after_ the Angular test environment is set up
 
-Vitest runs `afterEach` hooks in **reverse registration order**. The `pendingRequests` hook
-registered here has to run _before_ the TestBed teardown it inspects, which means being registered
-_after_ it:
+The group reads the `TestBed` the environment built, so it belongs after `initTestEnvironment` —
+and in the setup file, so that every spec file registers its hooks:
 
 ```ts
 // vitest.setup.ts
@@ -50,12 +53,10 @@ import { enableAngularDiagnostics } from 'vitest-auto-spy/angular';
 
 getTestBed().initTestEnvironment(BrowserTestingModule, platformBrowserTesting());
 
-enableAngularDiagnostics(); // ← last, so its afterEach runs first
+enableAngularDiagnostics();
 ```
 
-The wrong order does not silently disable the check — `resetTestingModule` is wrapped to snapshot
-the open requests before teardown, so the failure still arrives, just from the snapshot rather than
-from a live injector. The right order is two lines and one less indirection in the stack trace.
+The `afterEach` order does not matter — see [the hook-ordering hazard](#the-hook-ordering-hazard-and-how-it-is-handled).
 
 ## `ngModuleScopes`
 
@@ -132,7 +133,7 @@ without the group that report is a `console.warn`. This member raises it to a th
 Docs: https://asdalexey.github.io/vitest-auto-spy/adapters/angular
 ```
 
-The warning form de-duplicates per token, so a `beforeEach` does not print the same line once per
+The warning form de-duplicates per token and spec file, so a `beforeEach` does not print the same line once per
 test. **That de-duplication is skipped in fail mode**: a throw is seen once per test by definition,
 and suppressing the second occurrence would only hide the failure from the test that came after.
 
@@ -160,7 +161,8 @@ The hook flattens `providers` (nested arrays, and the `ɵproviders` of any `Envi
 wrapper), then looks for a provider whose `provide` is a function named `HttpTestingController`; if
 `providers` yields nothing it walks `imports` and reads each entry's `ɵinj.providers` the same way.
 The token is therefore read out of **the caller's own configuration**, and the instance comes back
-through `TestBed.inject(token, null)`.
+through `TestBed.inject(token, null)` — only while the testing module exists. Asking a reset
+`TestBed` would build a fresh module, and the next `configureTestingModule` would then refuse to run.
 
 A project that configures neither form is silently inert — no token is found, the check reports
 nothing, and nothing had to be installed for that to be true. That is exactly the shape an optional
@@ -168,18 +170,25 @@ integration should have.
 
 ### The hook-ordering hazard, and how it is handled
 
-Vitest runs `afterEach` in reverse registration order, so a suite whose TestBed teardown was
-registered later would destroy the injector before this group's `afterEach` could ask it anything —
-and the diagnostic would quietly report nothing, which is the failure mode it exists to remove.
+Whichever order the `afterEach` hooks run in — `sequence: { hooks: 'stack' }` or `'list'` — a
+suite's own `afterEach(() => getTestBed().resetTestingModule())` or Angular's cleanup hook may
+destroy the testing module before this group's `afterEach` asks it anything. Until this release the
+check then read an empty module and reported nothing — and, worse, `TestBed.inject` on the reset
+`TestBed` rebuilt the module, so under `'list'` every spec using HTTP testing failed from its second
+test on with _Cannot configure the test module when the test module has already been instantiated_.
 
-`resetTestingModule` is therefore wrapped to snapshot the open requests while the testing module
-still exists, and the `afterEach` reports from that snapshot when there is one. Reading is
+The `TestBed` **instance's** `resetTestingModule` is therefore wrapped to snapshot the open requests
+while the testing module still exists — the instance, because the static
+`TestBed.resetTestingModule()` delegates to it while `getTestBed().resetTestingModule()` and
+Angular's cleanup hook call it directly — and the `afterEach` reports from that snapshot when there
+is one. The same wrapper forgets the doubles `shadowedProviders` remembered for the module. Reading is
 **one-shot** in both directions: the requests are read with `match(() => true)`, which both lists
 and takes them, and the snapshot is cleared as it is read. Two hooks that both looked cannot report
 the same request twice.
 
 If the running `TestBed` has no `resetTestingModule` at all, no wrapper is installed and the check
-falls back to reading a live injector.
+falls back to reading a live injector. The wrapper is installed once per `TestBed` instance and does
+nothing while the group is off, so it never has to be unlinked from under a wrapper installed after it.
 
 ### `assertNoPendingRequests()`
 
@@ -223,8 +232,12 @@ through the component's injector — and **7 do nothing at all**, which is this 
 The repair is one line:
 
 ```ts
-overrideComponentProvider(PromoComponent, PromoService, provideAutoSpy(PromoService));
+overrideComponentProvider(PromoComponent, PromoService); // → Spy<PromoService>; an optional spy config is the third argument
 ```
+
+Behind an `InjectionToken`, which `overrideComponentProvider` cannot take,
+`TestBed.overrideProvider(TOKEN, provideAutoSpyForToken(TOKEN))` reaches the component's own
+providers too.
 
 [`overrideComponentProvider`](/adapters/angular-overrides) has existed since 3.1.0 and had **zero**
 uses in that repository, which is the argument for the check rather than against the helper: it
@@ -234,7 +247,14 @@ spec reads exactly like one that works.
 **Silent when the component's answer is itself a double.** A spec that reached for
 `TestBed.overrideProvider`, `overrideComponentProvider` or a `viewProviders` double has already
 decided this question and its answer wins on purpose — only a **real** instance is reported. That is
-also what keeps the check off the 40 specs of that suite that had handled it one way or another.
+also what keeps the check off the 40 specs of that suite that had handled it one way or another. So
+does a double the module itself no longer answers with, because a later provider or an override
+replaced it: that double lost to the override, not to the component.
+
+**It asks the component's node alone.** The comparison reads the node injector with `{ self: true }`,
+so a token the component does not declare is never resolved further up — the check cannot build a
+real root service the test never asked for, and cannot fail on that service's missing dependencies
+(`NG0201`). The doubles it compares against are forgotten before every test and at every reset.
 
 ### `assertNoShadowedProviders(component, fixture)`
 

@@ -438,6 +438,26 @@ landed on the no-op setter the spy scaffolding installs, so the write vanished _
 nothing to assert on — `accessorSpies.setters.manualSwitchKidMode` was `undefined`, and the failure
 read `Cannot read properties of undefined` several steps from the configuration that caused it.
 
+### Seeding a spied getter
+
+`overrides` on a member that is a **spied getter** — named in `gettersToSpyOn`, found by
+`autoSpyAccessors`, or spied by a [`registerAutoSpyDefaults`](#registerautospydefaults-—-the-composition-lives-with-the-class)
+registration the call site never mentions — seeds the getter spy:
+
+```ts
+registerAutoSpyDefaults([[RemoteConfigService, { gettersToSpyOn: ['remoteConfig'] }]]); // setup file
+
+providers: [provideAutoSpy(RemoteConfigService, { overrides: { remoteConfig: { theme: 'dark' } } })];
+
+injectSpy(RemoteConfigService).remoteConfig; // { theme: 'dark' }, and the read is recorded
+```
+
+Before this release the seed was assigned, the assignment landed in the spied accessor's setter, and
+the getter kept answering `undefined` — while the docs said seeded members win, and nothing warned.
+The getter stays a spy, so a later `accessorSpies.getters.remoteConfig.mockReturnValue(…)` still
+overrides the seed. A seed on a member whose spy has only a setter becomes a plain value instead of a
+write the getter never reads back.
+
 ## A single function — `createFunctionSpy`
 
 When there is no class at all, `createFunctionSpy<Fn>(name)` builds one spy with the same

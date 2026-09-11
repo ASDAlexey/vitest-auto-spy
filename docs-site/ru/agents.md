@@ -312,7 +312,7 @@ _симптом_: текст ошибки или форма падения, по
 | `vitest-auto-spy/node`                       | сюиты на `node --test`, ESM или CJS                                                       |
 | `vitest-auto-spy/rstest`                     | любой спеки, которую гоняет [Rstest](/ru/runtimes/rstest), — `npx rstest run`             |
 | `vitest-auto-spy/angular`                    | `provideAutoSpy`, `injectSpy`, `renderShallow`, хелперов переопределения                  |
-| `vitest-auto-spy/setup`                      | `setupAutoSpy`, хелперов часов, `installPerTest`, матчеров фокуса                         |
+| `vitest-auto-spy/setup`                      | `setupAutoSpy` (со `strayConsole` и `preset: 'strict'`), хелперов часов, `installPerTest`, матчеров фокуса |
 | [`vitest-auto-spy/zone`](/ru/utilities/zone) | `fakeAsync` / `waitForAsync` на Vitest — zone.js не попадает ни в одну другую точку входа |
 
 ## Ошибки, которые называют, чем чинить {#errors-that-name-their-own-fix}
@@ -328,7 +328,10 @@ Docs: https://asdalexey.github.io/vitest-auto-spy/runtimes/rxjs
 
 То же самое — для отсутствующего mock-адаптера, метода, которого нет на прототипе, `advanceTimers()`
 без фейковых таймеров, преднастройки `bun-angular` без DOM-пакета, неразрешимого `templateUrl`,
-нарушения `mustBeCalledWith` и отчёта о дублирующейся установке.
+нарушения `mustBeCalledWith` и отчёта о дублирующейся установке. Под
+[`setupAutoSpy({ strayConsole: 'throw' })`](/ru/utilities/setup) вывод в консоль, который никто не
+поглотил, роняет тест с методом, первыми строками вывода и кадром стека, который их написал, — туда
+агенту и стоит смотреть первым делом, когда после включения охраны покраснела спека, которую он не трогал.
 
 ## В чём агенты чаще всего ошибаются {#what-agents-get-wrong-most-often}
 
@@ -367,3 +370,7 @@ Docs: https://asdalexey.github.io/vitest-auto-spy/runtimes/rxjs
     файлу каждого воркера и больше никому. Никто об этом не сообщает; симптом — утёкший глобал или
     настоящие таймеры в спеке, которая сама по себе проходит. Гоняйте покрытие с `--isolate` или
     вызывайте [`setupAutoSpy()`](/ru/utilities/setup) из чего-то, что вычисляется на каждый файл.
+11. **`vi.spyOn(console, 'error')`, чтобы спека молчала.** Без реализации он вызывает оригинал, так
+    что строка всё равно печатается — а под `strayConsole` тест на ней падает. Ставьте тихие спаи
+    через `installConsoleSpies()` из [`vitest-auto-spy/console`](/ru/utilities/console) в
+    `beforeEach` и проверяйте `consoleErrorSpy`; голую форму ловит правило `no-passthrough-console-spy`.

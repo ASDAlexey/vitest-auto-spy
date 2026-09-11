@@ -41,10 +41,11 @@ TestBed.configureTestingModule({
 });
 ```
 
-It is `provideHttpClient()` + `provideHttpClientTesting()` in one spread, and deliberately nothing
-more. A suite whose interceptors are the thing under test keeps its own
-`provideHttpClient(withInterceptors([...]))` and adds `provideHttpClientTesting()` after it — this
-helper is for the case that is every other spec.
+It is `provideHttpClient()` + `provideHttpClientTesting()` in one spread, plus — unless
+`verifyOnTeardown` is `false` — the environment initializer that arms the end-of-test check. A suite
+whose interceptors are the thing under test keeps its own `provideHttpClient(withInterceptors([...]))`
+and adds `provideHttpClientTesting()` after it — this helper is for the case that is every other
+spec, and a module built without it is not checked on teardown.
 
 ### `verifyOnTeardown`
 
@@ -66,17 +67,22 @@ Turn it off for a suite that asserts requests some other way:
 TestBed.configureTestingModule({ providers: [...provideHttpTesting({ verifyOnTeardown: false })] });
 ```
 
-::: tip It is a hook, and it is registered by the import
-`provideHttpTesting()` cannot register the hook itself, and this is worth knowing because it is the
-kind of thing a library normally pretends about. Measured on Vitest 4.1: `afterEach()` called from
-inside a running `beforeEach` — which is where `configureTestingModule` lives — is accepted and then
-never runs, because the suite it would join has finished collecting. `onTestFinished()` _is_ legal
-there, but it runs after every `afterEach`, by which point Angular's teardown has destroyed the
-injector and there is no controller left to ask.
+::: tip The module arms the check, not the import
+Every module built from these providers arms the check for the test that built it, through an
+environment initializer — so it reaches every spec file of a worker under `isolate: false`, a
+provider list hoisted to a constant, and a spread made twice (which arms it once). It used to be an
+`afterEach` registered when the entry was imported, and under `isolate: false` the entry is imported
+once per worker: only the first spec file that imported it was ever checked.
 
-So the hook is registered once, while your spec file is being imported, and does nothing at all
-unless a test in that file called `provideHttpTesting()`. That is also why importing this entry has
-a side effect, and why it is listed in `sideEffects`.
+The check runs in `onTestFinished`, after every `afterEach` — so after Angular's teardown and
+after a suite's own `getTestBed().resetTestingModule()`, whatever `sequence.hooks` says. It still
+sees what was open, because a reset of the `TestBed` instance during that test takes the open
+requests first,
+and it never asks a reset `TestBed` for its controller: that would build a fresh module, and the
+next test's `configureTestingModule` would refuse to run.
+
+A module built in `beforeAll` has no test to fail, so it arms nothing — take its requests with
+`verifyNoPendingRequests()` if they matter.
 :::
 
 ## `expectRequest(matcher, options?)`
@@ -134,7 +140,8 @@ await expectRequest('/api/products').flush([]);
 verifyNoPendingRequests(); // nothing else went out
 ```
 
-A no-op when the test configured no HTTP testing at all.
+A no-op when the test configured no HTTP testing at all, and when the testing module has already
+been reset — except for the requests that reset took, which it reports.
 
 ## What each failure says
 
@@ -167,7 +174,7 @@ Two consequences worth stating plainly:
 - Unlike every other subpath, this one does **not** re-export the core. It is a companion to
   `vitest-auto-spy/angular`, which stays the import for spies, `TestBed` helpers and
   `settleResource`.
-- The entry weighs **2.2 kB min+gzip** (2198 B, measured the way the README badge is: esbuild
+- The entry weighs **2.5 kB min+gzip** (2459 B, measured the way the README badge is: esbuild
   bundle, minified, gzipped, peers external).
 
 ## How it relates to what was already here

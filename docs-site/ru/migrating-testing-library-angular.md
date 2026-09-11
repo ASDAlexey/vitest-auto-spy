@@ -294,7 +294,7 @@ _удерживает_ нетронутый дубль, а не сколько �
   а не типизирует настоящий сервис как дубль.
 - **То же API вне Angular** — [`bun:test`](/ru/runtimes/bun), [`node:test`](/ru/runtimes/node),
   NestJS, React, Vue, Svelte, а `TestBed` из Angular — [под `bun test`](/ru/runtimes/bun-angular).
-- **[Двадцать пять правил линтера](/ru/utilities/eslint-plugin)**, версионируемые вместе с тем API,
+- **[Двадцать восемь правил линтера](/ru/utilities/eslint-plugin)**, версионируемые вместе с тем API,
   который они советуют.
 
 ## Версии, по которым это писалось {#versions-this-was-written-against}

@@ -1,6 +1,6 @@
 ---
 title: ESLint rules
-description: A reference section for each of the twenty-five rules — what it reports, what it decides on, why it is in recommended, where it reports working code, and why its severity is what it is.
+description: A reference section for each of the twenty-eight rules — what it reports, what it decides on, why it is in recommended, where it reports working code, and why its severity is what it is.
 ---
 
 # ESLint rules
@@ -31,7 +31,7 @@ Every section answers the same six questions:
 - **Limits** — where it reports working code, and what quiets it.
 - **Severity** — and why that one.
 
-## The twenty-five rules
+## The twenty-eight rules {#the-twenty-five-rules}
 
 Grouped by subject, the same grouping the [setup page](/utilities/eslint-plugin) uses. Every rule is
 an `error` except three.
@@ -49,6 +49,9 @@ an `error` except three.
 | [`no-object-define-property`](#no-object-define-property)         | `error`          | `Object.defineProperty` / `defineProperties` in a spec                                 |
 | [`no-import-time-spread`](#no-import-time-spread)                 | `error`          | a spread of an imported binding evaluated at module scope                              |
 | [`prefer-observer-stub`](#prefer-observer-stub)                   | `error`          | an observer global replaced by hand or through the runner                               |
+| [`no-passthrough-console-spy`](#no-passthrough-console-spy)       | `error`          | `vi.spyOn(console, m)` nothing gives an implementation — it calls through and prints    |
+| [`no-console-in-spec`](#no-console-in-spec)                       | `error`          | a spec that calls a console method, or replaces one by assignment                      |
+| [`no-import-time-console-spies`](#no-import-time-console-spies)   | `error`          | an import of `vitest-auto-spy/console` in a file that never calls `installConsoleSpies()` |
 | [`prefer-provide-auto-spy`](#prefer-provide-auto-spy)             | `error`          | a provider — or a `TestBed.overrideProvider` — that hand-rolls a service double        |
 | [`prefer-inject-spy`](#prefer-inject-spy)                         | `error`          | `vi.spyOn` over the instance `TestBed.inject` handed back                              |
 | [`no-unregistered-inject-spy`](#no-unregistered-inject-spy)       | `error`          | `injectSpy(X)` for a token this file never registered as an auto-spy                   |
@@ -736,6 +739,160 @@ observer that records geometry the helper does not model — is reporting workin
 is a per-line disable. The three-name list is closed: a fourth observer global gets no report.
 
 **Severity.** `error`. Green and wrong, and the damage crosses files.
+
+## no-passthrough-console-spy
+
+**`error`** · suggestion · syntax only
+
+**Reports.** `vi.spyOn(console, m)` — or `jest.spyOn`, or `globalThis.console` / `window.console` as
+the object — for a method that writes, whose spy nothing in the file gives an implementation.
+
+**Decides on.** The chain and the name, both read without types. A call chained straight onto the
+spy (`.mockImplementation(…)`, `.mockImplementationOnce(…)`, `.mockReturnValue(…)`,
+`.mockReturnValueOnce(…)`, after any number of `.mockName(…)`-style links) settles it. When the spy
+lands in a name — a `const`, or a `let` a hook assigns — every other mention of that name is read
+through the scope manager: one of those four calls settles it, `expect(spy)`, `spy.mock.calls`,
+`spy.mockRestore()` and a direct call only read it, and anything else — the spy passed to a helper,
+returned, aliased, put in an array — is somewhere the rule cannot follow, so it stays silent. The
+method has to be a literal the console writes through: `time`, `groupEnd` and `countReset` write
+nothing, and a computed name is not knowable. A `console` the file declares itself is not the global
+one and is left alone; a `console` the config lists under `globals` is.
+
+**Finding, and the repair.**
+
+```ts
+beforeEach(() => {
+  errorSpy = vi.spyOn(console, 'error'); // ❌ records the call, then prints it anyway
+});
+```
+
+```ts
+import { consoleErrorSpy, installConsoleSpies } from 'vitest-auto-spy/console';
+
+beforeEach(() => {
+  installConsoleSpies(); // ✅ silent, typed, taken off after the test under strayConsole
+});
+
+it('reports the failure', () => {
+  service.load();
+
+  expect(consoleErrorSpy).toHaveBeenCalledWith('load failed', expect.any(Error));
+});
+```
+
+The suggestion is the smaller edit — `.mockImplementation(() => undefined)` appended to the
+`spyOn` call — and it is a suggestion rather than a fix because an implementation changes what the
+spy does, which is a decision about the test.
+
+**Why it is recommended.** A spy with no implementation calls through: the line is recorded **and**
+printed. Under [`setupAutoSpy({ strayConsole })`](/utilities/setup) that fails the test as stray
+output, and without the guard it is the noise that buries the next real failure in the run log. The
+spec reads as though it silenced the console, which is why nobody goes looking.
+
+**Limits.** A spec that spies on the console to watch what it prints *and* wants the output in the
+log is reporting working code; a per-line disable says so. Measured on an Angular monorepo of 1 759
+spec files: **0** reports — the one `vi.spyOn(console, …)` it has already carries an implementation.
+
+**Severity.** `error`. It decides on a fact, not a heuristic: nothing in the file gives the spy an
+implementation, so the output is there.
+
+## no-console-in-spec
+
+**`error`** · no fix · syntax only
+
+**Reports.** A call of a console method that writes — `log`, `info`, `warn`, `error`, `debug`,
+`trace`, `table`, `dir`, `dirxml`, `group`, `groupCollapsed`, `timeLog`, `timeEnd`, `count`,
+`assert` — on the global `console` (also through `globalThis.console` / `window.console`), and any
+assignment to a member of it.
+
+**Decides on.** The callee and the scope manager. The object has to be the global console — a
+`console` the file declares is somebody's fake and is left alone — and a call has to name a method
+that writes; a computed member is not knowable and is skipped. A mention that is not a call —
+`expect(console.error).toHaveBeenCalled()`, `register(console.warn)` — is a read, and reads are never
+reported. An assignment is reported whatever the member, `console.time = …` included.
+
+**Finding, and the repair.**
+
+```ts
+httpClient.get(url).subscribe({
+  error: (error) => console.error(error), // ❌ the spec prints
+});
+```
+
+```ts
+httpClient.get(url).subscribe({ error: () => undefined }); // ✅ the failure is what the test arranged
+```
+
+A spec that prints either left a debugging line behind — delete it — or is exercising code whose
+logging it should absorb through `installConsoleSpies()` and assert on. And for an assignment:
+
+```ts
+console.warn = vi.fn(); // ❌ never put back
+vi.spyOn(console, 'warn').mockImplementation(() => undefined); // ✅ restored after the test
+```
+
+**Why it is recommended.** The call prints by definition, so under
+[`setupAutoSpy({ strayConsole })`](/utilities/setup) it fails the test; the rule moves that failure
+to the editor. The assignment is the worse of the two: nothing restores it, so under `isolate: false`
+every later file of the worker inherits a console that prints nothing, and what that hides depends on
+which file ran first.
+
+**Limits.** Scope it to spec files — a CLI's own `console.log` is its output. Measured on an Angular
+monorepo of 1 759 spec files: **6 reports in 2 files**, every one a `console.error` inside a
+`subscribe` error callback, and no assignment anywhere.
+
+**Severity.** `error`. It decides on a fact: a call on the global console writes, and an assignment
+to it is never undone.
+
+## no-import-time-console-spies
+
+**`error`** · no fix · syntax only
+
+**Reports.** An import of `vitest-auto-spy/console` — a bare side-effect import, a namespace import,
+or a named import of any `console*Spy` constant — in a file that never calls `installConsoleSpies()`.
+
+**Decides on.** The import declarations and every call in the file. A call to `installConsoleSpies`
+anywhere — bare or as a member — means the file installs the spies itself and the import is only
+where the names come from, so nothing is reported. An import of `installConsoleSpies`, the types or
+`restoreConsole` alone does not lean on the import-time install and is left alone.
+
+**Finding, and the repair.**
+
+```ts
+import { consoleErrorSpy } from 'vitest-auto-spy/console'; // ❌ installed by whichever file imported it first
+```
+
+```ts
+import { type ConsoleSpies, installConsoleSpies, restoreConsole } from 'vitest-auto-spy/console';
+
+let consoleSpies: ConsoleSpies;
+
+beforeEach(() => {
+  consoleSpies = installConsoleSpies(); // ✅ this file's tests, and nobody else's
+});
+
+afterEach(() => restoreConsole());
+```
+
+`installConsoleSpies()` once at the top of the file is the smaller repair when every test of the
+file expects output. The exported constants and the bag are the same objects, so an existing
+`expect(consoleErrorSpy)` keeps working.
+
+**Why it is recommended.** The import installs the spies on the first evaluation of the module, and
+under `isolate: false` that happens once per worker: the spies go on in whichever file imported
+them first and silence every later file of the worker, and nothing in any of those files takes them
+off. What that hides depends on file order. Measured on an Angular monorepo of 1 759 spec files: 39
+files import the entry and **32** of them never call `installConsoleSpies()` (6 of the 32 are bare
+side-effect imports). The moment three files started calling `restoreConsole()` in an `afterEach`,
+12 tests in 5 other files failed and output the global silence had hidden surfaced in 7 files. Under
+[`setupAutoSpy({ strayConsole })`](/utilities/setup) the import installs nothing at all, so the rule
+and the guard agree about where the install belongs.
+
+**Limits.** A setup file that imports the entry to silence the console for the whole run on purpose
+is reporting working code; it is not a spec, so scope the rule to spec files.
+
+**Severity.** `error`. It decides on a fact: the import installs once per worker, and nothing in
+the file installs or removes the spies.
 
 ## prefer-provide-auto-spy
 

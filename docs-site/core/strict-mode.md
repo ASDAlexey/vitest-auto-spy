@@ -43,10 +43,15 @@ Docs: https://asdalexey.github.io/vitest-auto-spy/core/strict-mode
 
 It prints the call, not just the name, because on a wide service the same method is called several
 times with different arguments and _which_ call is half the diagnosis. A no-argument call renders as
-`Called as: Cart.total()`.
+`Called as: Cart.total()`. Plain data prints in full up to 200 characters per argument; a class
+instance or a DOM node prints as its class — `[HTMLDivElement]`, `[Session]` — because rendering
+one in full walks everything it can reach, and a run with hundreds of strict failures could take a
+worker's heap through the message strings alone.
 
 **Two doubles have no class name to print**, and their message is one word shorter — `Nothing
-configured read, and strict mode is on. / Called as: read('k')`:
+configured read, and strict mode is on. / Called as: read('k')` — unless they are given one:
+`createAutoMock<T>(undefined, { strict: true, name: 'USERS' })`, and `provideAutoSpyForToken` passes
+the token's description on its own (`Nothing configured InjectionToken CAROUSEL_RESIZE_OBSERVER.observe`):
 
 - [`createAutoMock<T>()`](./auto-mock-by-type), which is built from a type and never read a class;
 - the **fully abstract class** fallback in `createSpyFromClass`, which hands back that same proxy
@@ -111,6 +116,14 @@ throws printing wanted next to actual. Making `strict` throw on an argument miss
 reclassify every existing `calledWith` in a suite into `mustBeCalledWith`, and print a worse message
 than the tool that already does that job. Strict mode answers _"nobody configured this method"_,
 never _"nobody configured this call"_.
+
+**Angular's lifecycle hooks never trip it.** `ngOnDestroy`, `ngOnInit`, `ngOnChanges`, `ngDoCheck` and
+the four `ngAfter…` hooks answer `undefined` on a strict double, configured or not. Angular calls
+`ngOnDestroy` itself on every provided value that has one when the testing module is torn down — a
+`createAutoMock` proxy has every member, so a token double always does — and no spec asked for that
+call. Throwing there broke the teardown, which skipped every `afterEach` after it and failed the tests
+that followed; under a suite-wide `strict: true` that was hundreds of failures from one source. The
+calls are still recorded: `expect(double.ngOnDestroy).toHaveBeenCalled()` works.
 
 ## `onUnstubbedCall` — the general form
 

@@ -8,6 +8,48 @@ reason.
 
 Shipped work is not here either — it is in `CHANGELOG.md` and in git history.
 
+## Failing on everything — the stray-console guard and `preset: 'strict'`, 2026-09-11
+
+Asked for as "any console output in a test is an error, every warning an error, as strict as it
+goes". What shipped is in `CHANGELOG.md`; what was weighed and left out is here.
+
+- [~] **Auto-installing the `/console` spies per test under the guard.** Not done. The only signal
+      that a file wants the spies is its import, and under `isolate: false` the entry is evaluated
+      once per worker: every file after the first imports a cached module and runs no code, so there
+      is nothing at run time to scope an install to. Installing for every test once the entry has
+      loaded would silence every later file — the failure the guard exists to catch. Counting a call
+      as absorbed when the test later *reads* the spy was also rejected: it hangs correctness on
+      intercepting `mock` reads, which every matcher, `vi.clearAllMocks()` and the registry pruner
+      also perform. So under the guard the import installs nothing, and `installConsoleSpies()` in a
+      `beforeEach` (or at the top of the file) is the one explicit, deterministic place.
+
+- [~] **Buffering stray output and replaying it at teardown.** Not done. The guard forwards every
+      call as it happens, so Vitest's `stdout | file > test` attribution, `onConsoleLog` and the
+      output of a failing test stay exactly what they were; the failure message quotes what matters.
+
+- [~] **`strict: true` as the preset's name.** Taken: `strict` already means strict doubles, which
+      change what an unconfigured call *returns*. That is a decision about how a suite writes its
+      doubles, not a report grade, so it is not in the preset either — `preset: 'strict'` is.
+
+- [~] **`blockNetwork` and `restoreMocks` in the preset.** The first changes what the code under
+      test sees; the second also drops `vi.spyOn` stubs a suite installed in `beforeAll`. Neither is
+      a grade.
+
+- [~] **Failing a file on stray timers under the preset.** The sweep knows how many timers outlived
+      a file, not where they were scheduled — a failure with no location is not one anybody can act
+      on, and recording a stack per `setTimeout` would tax every Angular render. One line opts in:
+      `onStrayTimers: ({ cancelled }) => expect(cancelled).toBe(0)`.
+
+- [~] **`enableAngularDiagnostics()` inside the preset.** `/setup` imports no Angular, and the group
+      needs the TestBed environment initialised first. Documented as the Angular half of strict, to
+      call in the same setup file — on a 1759-file Angular consumer it found real defects in 25 files
+      and 324 tests at no measurable cost (12.5 s against 13.4 s).
+
+- [~] **Grading `process.stdout` / `process.stderr` writes and jsdom's virtual console.** Not
+      watched: neither goes through the console Vitest intercepts, so neither is attributed to a test
+      the guard could fail. A suite that wants jsdom's errors graded routes `jsdomError` to
+      `console.error`.
+
 ## Field findings — repository reconnaissance, 2026-09-10
 
 A static pass over the same consumer's 1759 spec files, asking "what is written here and does

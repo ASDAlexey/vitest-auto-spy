@@ -186,6 +186,10 @@ it('loads', async () => {
 | a library failing every other run after a `defineProperty` on DOM                         | `setupAutoSpy({ guardGlobals: 'throw' })` names the file                                                    |
 | a block of files failing to collect, with no stack and zero failing tests                 | `setupAutoSpy()` names the file that left a key on `Object.prototype` (`prototypePollution`, on by default) |
 | the same check in a suite that does not call `setupAutoSpy()`                             | `guardPrototypePollution('throw')` from `/setup`                                                            |
+| console output a test never asserted on, or a warning from this library                   | `setupAutoSpy({ strayConsole: 'throw' })` fails that test; absorb with `installConsoleSpies()` in `beforeEach` |
+| every guard at its strictest grade in one line                                            | `setupAutoSpy({ preset: 'strict' })` — plus `enableAngularDiagnostics()` for Angular                      |
+| an `onlyMethodsToSpyOn` typo or `injectSpy` on a real instance that only warned            | `setupAutoSpy({ misconfiguration: 'throw' })` throws at the call                                          |
+| `import { consoleErrorSpy }` silencing other files under `isolate: false`                | `installConsoleSpies()` in `beforeEach`, `restoreConsole()` in `afterEach` — the import installs once per worker |
 | `Cannot set base providers because it has already been called`                            | `setupAngularTestEnv({ zoneless, initZone, initZoneless })`                                                 |
 | a dependency behind an `InjectionToken`, with no class to spy                             | `provideAutoSpyForToken(TOKEN)` + `injectSpy(TOKEN)`                                                        |
 | `Expected to be running in 'ProxyZone', but it was not found`                             | `import 'vitest-auto-spy/zone'` (needs `globals: true`)                                                     |
@@ -335,7 +339,7 @@ npx vitest-auto-spy codemod --verify  # after a migration: anything the transfor
 Most of this library's guarantees are type-level, so a green run that does not type-check is not
 done. Report failures with their output rather than describing them as passing.
 
-**After any `eslint --fix` over specs, run `npx tsc --noEmit`.** The twenty-five rules in
+**After any `eslint --fix` over specs, run `npx tsc --noEmit`.** The twenty-eight rules in
 `vitest-auto-spy/eslint-plugin` are lint, not typecheck: `no-mocked-for-spy` rewrites a declaration
 to `Spy<T>` and cannot see what the name is assigned two lines below, so a clean lint pass is not
 evidence that the types still hold. Where it cannot prove the rename it downgrades to a suggestion —

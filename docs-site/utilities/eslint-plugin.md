@@ -1,6 +1,6 @@
 ---
 title: ESLint plugin
-description: Twenty-five flat-config lint rules that steer a suite onto the auto-spy helpers, grouped by subject, every one an error by default bar the three that report a cost or a heuristic, with the dial documented and the false-positive cases named.
+description: Twenty-eight flat-config lint rules that steer a suite onto the auto-spy helpers, grouped by subject, every one an error by default bar the three that report a cost or a heuristic, with the dial documented and the false-positive cases named.
 ---
 
 # ESLint plugin
@@ -22,8 +22,8 @@ which a subpath export of this package can never be.
 
 **How this page is laid out.** [Adding it](#adding-it-to-your-project) is the four things a first
 config needs. [Which apply to you](#which-of-the-twenty-apply-to-you) answers the question a
-Vitest-only project asks — four of the twenty-five are about a dialect you may not speak.
-[Rules](#rules) is the reference table, in five groups. [Tuning](#tuning-it-for-your-project) is
+Vitest-only project asks — four of the twenty-eight are about a dialect you may not speak.
+[Rules](#rules) is the reference table, in seven groups. [Tuning](#tuning-it-for-your-project) is
 every dial, including the three rules that can report on correct code. Everything after that is
 _why_ — one section per rule, for when a report has arrived and you want to know what it saved you
 from.
@@ -80,7 +80,7 @@ need different severities.
 
 ### 3. Type information is optional, and one rule wants it
 
-Twenty-four of the twenty-five are syntactic: they read the file's own AST and never ask the type checker.
+Twenty-seven of the twenty-eight are syntactic: they read the file's own AST and never ask the type checker.
 So the plugin works with `parserOptions.project` unset, adds nothing measurable to lint time, and
 does not need your specs to be in a `tsconfig` — which matters in the repositories where they are
 not.
@@ -118,7 +118,7 @@ npx eslint . --format stylish | tail -30   # the summary tells you which rule do
 Whatever is left is either a real finding or a rule you would rather not enforce yet. Both are
 answered below.
 
-## Which of the twenty-five apply to you {#which-of-the-twenty-apply-to-you}
+## Which of the twenty-eight apply to you {#which-of-the-twenty-apply-to-you}
 
 Reasonable question if you came straight to Vitest and have never written a line of Jasmine: **four
 of these rules are about a dialect you do not speak.** They are still on, and the reason is not
@@ -126,9 +126,9 @@ principle — it is that they cannot fire on your code.
 
 | You are                                    | What the plugin does for you                                                                         |
 | ------------------------------------------ | ---------------------------------------------------------------------------------------------------- |
-| writing Vitest, never used Jasmine or Jest | the nineteen core rules work; **the four jasmine rules are inert** — leave them on and never see them |
+| writing Vitest, never used Jasmine or Jest | the twenty-four core rules work; **the four jasmine rules are inert** — leave them on and never see them |
 | migrating off `jest-auto-spies` / Jest     | the core rules do the work, `no-done-callback` and `prefer-as-spy` most of it                        |
-| migrating off `jasmine-auto-spies`         | all twenty-five, with `prefer-native-spy-api` set to `'off'` until the bridge is gone                   |
+| migrating off `jasmine-auto-spies`         | all twenty-eight, with `prefer-native-spy-api` set to `'off'` until the bridge is gone                  |
 
 ### If you never used Jasmine
 
@@ -175,7 +175,7 @@ never jasmine's.
 ### If you are coming from Jest
 
 There is no separate Jest rule set, because most of what a Jest suite has to unlearn is already in
-the core nineteen — these are the ones that carry a migration:
+the core twenty-four — these are the ones that carry a migration:
 
 | Rule                           | What it catches in a Jest suite                                                                                                                                                                                                                               |
 | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -198,7 +198,7 @@ that file needs). See [Migrating from jest-auto-spies](/migrating).
 
 ### If you are coming from Jasmine
 
-All twenty-five apply, and the four in the last group are the ones written for you. Two are pure
+All twenty-eight apply, and the four in the last group are the ones written for you. Two are pure
 diagnosis — `no-jasmine-globals` and `no-save-arguments-by-value` name silent behaviour changes that
 survive a rename — and `jasmine-namespace-without-entry` catches the spy built before the layer was
 installed. The fourth, `prefer-native-spy-api`, reports the bridge itself, so it is the one line of
@@ -308,6 +308,17 @@ of the mistake.
 | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------ | ----------------- | :-------------------------: |
 | [`no-mocked-for-spy`](#the-two-type-rules) | `Mocked<T>` in any type position → `Spy<T>`, import and all — a suggestion where the value assigned is not one of this library's factories | `--fix` / suggest |           compile           |
 | [`prefer-as-spy`](#the-two-type-rules)     | `TestBed.inject(X) as Spy<X>` → `asSpy(TestBed.inject(X))`, import and all                                                                 | `--fix`           | compile _(by construction)_ |
+
+### The console
+
+Output a spec leaves behind that no absorbing spy will see — the pair [`setupAutoSpy({ strayConsole })`](/utilities/setup)
+fails at run time, reported where it is written.
+
+| Rule                                                                                  | Flags                                                                                                                | Fix     |       Without it        |
+| ------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- | ------- | :---------------------: |
+| [`no-passthrough-console-spy`](/utilities/eslint-rules#no-passthrough-console-spy) | `vi.spyOn(console, 'error')` nothing gives an implementation — it calls through and prints → `installConsoleSpies()` | suggest | green _(by construction)_ |
+| [`no-console-in-spec`](/utilities/eslint-rules#no-console-in-spec)                 | a spec that calls `console.x(…)`, or replaces a method with `console.x = …`, which nothing puts back                  | —       | green _(by construction)_ |
+| [`no-import-time-console-spies`](/utilities/eslint-rules#no-import-time-console-spies) | an import of `vitest-auto-spy/console` in a file that never calls `installConsoleSpies()` — the import installs once per worker | — | green _(by construction)_ |
 
 ### Coming off jasmine
 
@@ -1036,7 +1047,7 @@ double in a `jest-auto-spies` suite, and every one of them fails with `TS2352` u
 
 ## The four jasmine rules
 
-They steer in the opposite direction from the rest of the plugin. The other nineteen push a Vitest
+They steer in the opposite direction from the rest of the plugin. The other twenty-four push a Vitest
 suite towards this library's API; these four are about a suite that has not arrived yet — one
 running on [`vitest-auto-spy/jasmine`](/migrating-jasmine), or one that thinks it is.
 
@@ -1136,7 +1147,7 @@ this rule declines. See [Migrating from jasmine-auto-spies](/migrating-jasmine).
 
 ## Which rules fix, and why so few
 
-Three of the twenty-five rewrite the source on their own, eight offer the rewrite as a suggestion, and
+Three of the twenty-eight rewrite the source on their own, nine offer the rewrite as a suggestion, and
 the split is about what a wrong guess costs rather than about how hard the rewrite is.
 
 `no-mocked-for-spy` touches nothing but a **declaration**. Get it wrong and the file stops

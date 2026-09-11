@@ -187,6 +187,12 @@ That is the trade: without a seed the member is absent and the failure is an imm
 only with an observed mechanic behind it, never because the name sounds protocol-ish — each entry
 costs somebody the ability to mock a member of that name without seeding it.
 
+`constructor` is answered with `Object` — what every other double of this library and every plain
+object answers — rather than with a spy or `undefined`. Production code that names what it was handed
+in an error path (`${value.constructor.name}`) used to throw `Cannot read properties of undefined`
+there; it now reads `Object`. A seed under `constructor` still wins, and `returns` cannot configure
+it, since it is not a spy.
+
 ### `undefined` in `overrides` is a seed, not an omission
 
 `createAutoMock` reads its seed with `Reflect.ownKeys`, so a key written out with an explicit

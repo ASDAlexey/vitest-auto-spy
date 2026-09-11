@@ -4,6 +4,14 @@ Only work that is still to be taken. Shipped work lives in `CHANGELOG.md` and in
 questions that were asked, measured and closed with a "no" live in [`DECISIONS.md`](./DECISIONS.md),
 which is where this file's `[~]` entries went on 2026-09-10 — a decision is not a task.
 
+## Angular diagnostics
+
+- [ ] **`enableAngularDiagnostics` sees only the static `TestBed.configureTestingModule`.** Its
+      configure inspectors (`deadSchemas`, `ngModuleScopes`, the `pendingRequests` token read,
+      `shadowedProviders` collection) are reached through the wrapped static method, so a spec that
+      calls `getTestBed().configureTestingModule(…)` bypasses all four. Wrap the instance, as the
+      reset snapshot now does.
+
 ## Lint rules
 
 - [ ] **Two forms `no-private-member-access` cannot see.** A member reached through a variable

@@ -306,7 +306,7 @@ agent that knows only the bare specifier writes a spec that throws at the first 
 | `vitest-auto-spy/node`                    | a `node --test` suite, ESM or CJS                                               |
 | `vitest-auto-spy/rstest`                  | any spec run by [Rstest](/runtimes/rstest) — `npx rstest run`                   |
 | `vitest-auto-spy/angular`                 | `provideAutoSpy`, `injectSpy`, `renderShallow`, the override helpers            |
-| `vitest-auto-spy/setup`                   | `setupAutoSpy`, the clock helpers, `installPerTest`, focus matchers             |
+| `vitest-auto-spy/setup`                   | `setupAutoSpy` (with `strayConsole`, `preset: 'strict'`), the clock helpers, `installPerTest`, focus matchers |
 | [`vitest-auto-spy/zone`](/utilities/zone) | `fakeAsync` / `waitForAsync` on Vitest — zone.js stays out of every other entry |
 
 ## Errors that name their own fix
@@ -322,7 +322,10 @@ Docs: https://asdalexey.github.io/vitest-auto-spy/runtimes/rxjs
 
 The same applies to a missing mock adapter, a method that is not on the prototype, `advanceTimers()`
 without fake timers, a `bun-angular` preload with no DOM package, an unresolvable `templateUrl`, a
-`mustBeCalledWith` violation and the duplicate-install report.
+`mustBeCalledWith` violation and the duplicate-install report. Under
+[`setupAutoSpy({ strayConsole: 'throw' })`](/utilities/setup) console output nothing absorbed fails
+the test with the method, the first lines written and the frame that wrote them — which is where an
+agent should look first when a spec it did not touch goes red after the guard is turned on.
 
 ## What agents get wrong most often
 
@@ -361,3 +364,8 @@ These account for the large majority of broken specs, and every one of them is c
     first file of each worker and to no other. Nothing reports it; the symptom is a leaked global or
     real timers in a spec that passes on its own. Run coverage with `--isolate`, or call
     [`setupAutoSpy()`](/utilities/setup) from something evaluated per file.
+11. **`vi.spyOn(console, 'error')` to keep a spec quiet.** With no implementation it calls through,
+    so the line still prints — and under `strayConsole` the test fails on it. Install the silent
+    spies with `installConsoleSpies()` from [`vitest-auto-spy/console`](/utilities/console) in a
+    `beforeEach` and assert on `consoleErrorSpy`; the `no-passthrough-console-spy` rule reports the
+    bare form.

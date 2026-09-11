@@ -443,6 +443,27 @@ expect(settings.accessorSpies.setters.theme).toHaveBeenCalledWith('light');
 `accessorSpies.setters.manualSwitchKidMode` был `undefined`, а падение читалось как
 `Cannot read properties of undefined` в нескольких шагах от вызвавшей его настройки.
 
+### Как задать значение шпионимому геттеру {#seeding-a-spied-getter}
+
+`overrides` на члене, который является **шпионимым геттером** — назван в `gettersToSpyOn`, найден
+`autoSpyAccessors` или взят под спай регистрацией `registerAutoSpyDefaults`, о которой место вызова не
+упоминает, — задаёт значение спаю геттера:
+
+```ts
+registerAutoSpyDefaults([[RemoteConfigService, { gettersToSpyOn: ['remoteConfig'] }]]); // setup-файл
+
+providers: [provideAutoSpy(RemoteConfigService, { overrides: { remoteConfig: { theme: 'dark' } } })];
+
+injectSpy(RemoteConfigService).remoteConfig; // { theme: 'dark' }, и чтение записано
+```
+
+До этого релиза значение присваивалось, присваивание попадало в сеттер шпионимого аксессора, а геттер
+продолжал отвечать `undefined` — при том что документация обещала, что заданные члены побеждают, и
+ничто не предупреждало. Геттер остаётся спаем, так что более поздний
+`accessorSpies.getters.remoteConfig.mockReturnValue(…)` по-прежнему перекрывает заданное значение.
+Значение для члена, у спая которого есть только сеттер, становится обычным значением, а не записью,
+которую геттер никогда не прочитает.
+
 ## Одна функция — `createFunctionSpy` {#a-single-function-—-createfunctionspy}
 
 Когда класса нет вовсе, `createFunctionSpy<Fn>(name)` строит один спай с тем же набором хелперов,
