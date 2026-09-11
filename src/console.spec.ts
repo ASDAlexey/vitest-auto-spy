@@ -18,6 +18,7 @@ import {
   resetConsoleSpies,
   restoreConsole,
 } from './console';
+import { consoleSpiesForImport } from './lib/console-spy';
 
 describe('vitest-auto-spy/console', () => {
   it('replaces every console method with a silent typed spy on import', () => {
@@ -53,16 +54,52 @@ describe('vitest-auto-spy/console', () => {
     expect(consoleWarnSpy).not.toHaveBeenCalled();
   });
 
-  it('restoreConsole puts the original methods back and allows a fresh install', () => {
+  it('restoreConsole puts the original methods back, and a later install puts the same spies back, emptied', () => {
+    console.info('before the restore');
     restoreConsole();
     expect(vi.isMockFunction(console.info)).toBe(false);
 
     const reinstalled = installConsoleSpies();
-    expect(reinstalled.consoleInfoSpy).not.toBe(consoleInfoSpy);
-    expect(console.info).toBe(reinstalled.consoleInfoSpy);
+    // The same spy, so the exported constant another file imported is not left detached.
+    expect(reinstalled.consoleInfoSpy).toBe(consoleInfoSpy);
+    expect(console.info).toBe(consoleInfoSpy);
+    expect(consoleInfoSpy).not.toHaveBeenCalled();
 
     restoreConsole();
     expect(vi.isMockFunction(console.info)).toBe(false);
-    expect(globalThis.__vitestAutoSpyResetConsoleSpies__).toBeUndefined();
+    expect(globalThis.__vitestAutoSpyResetConsoleSpies__).toBe(resetConsoleSpies);
+  });
+
+  it('takes the spies off through the detach seam and puts the same ones back on the next install', () => {
+    const spies = installConsoleSpies();
+
+    globalThis.__vitestAutoSpyDetachConsoleSpies__?.();
+    expect(vi.isMockFunction(console.warn)).toBe(false);
+
+    // Detaching twice finds nothing of its own on the console and leaves it alone.
+    globalThis.__vitestAutoSpyDetachConsoleSpies__?.();
+    expect(vi.isMockFunction(console.warn)).toBe(false);
+
+    expect(installConsoleSpies()).toBe(spies);
+    expect(console.warn).toBe(spies.consoleWarnSpy);
+
+    restoreConsole();
+    expect(vi.isMockFunction(console.warn)).toBe(false);
+  });
+
+  it('builds the spies without installing them when the stray-console guard owns the console', () => {
+    Reflect.set(globalThis, '__vitestAutoSpyStrayConsole__', { host: console });
+
+    const spies = consoleSpiesForImport();
+
+    Reflect.set(globalThis, '__vitestAutoSpyStrayConsole__', undefined);
+    // Never installed, so there is nothing recorded to put back.
+    globalThis.__vitestAutoSpyDetachConsoleSpies__?.();
+
+    expect(vi.isMockFunction(console.error)).toBe(false);
+    expect(installConsoleSpies()).toBe(spies);
+    expect(console.error).toBe(spies.consoleErrorSpy);
+
+    restoreConsole();
   });
 });

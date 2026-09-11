@@ -1,23 +1,26 @@
 /**
- * `vitest-auto-spy/console` — opt-in console spies.
- *
- * Importing this entry (in a test file or your Vitest setup file) replaces
- * `console.debug` / `error` / `info` / `log` / `time` / `timeEnd` / `trace` /
- * `warn` with silent, fully-typed spies and exports each one ready to assert:
+ * `vitest-auto-spy/console` — silent, fully-typed spies over the global `console`.
  *
  * ```ts
- * import { consoleInfoSpy, consoleWarnSpy } from 'vitest-auto-spy/console';
+ * import { type ConsoleSpies, installConsoleSpies, restoreConsole } from 'vitest-auto-spy/console';
  *
- * service.doWork();
+ * let consoleSpies: ConsoleSpies;
  *
- * expect(consoleInfoSpy).toHaveBeenCalledWith('done');
- * expect(consoleWarnSpy).not.toHaveBeenCalled();
+ * beforeEach(() => {
+ *   consoleSpies = installConsoleSpies();
+ * });
+ * afterEach(() => restoreConsole());
+ *
+ * it('reports the failure', () => {
+ *   service.doWork();
+ *   expect(consoleSpies.consoleErrorSpy).toHaveBeenCalledWith('boom');
+ * });
  * ```
  *
- * `restoreConsole()` undoes the patching; `resetConsoleSpies()` clears the
- * recorded calls between tests (or let Vitest's `clearMocks: true` do it).
+ * The exported `consoleErrorSpy` & co. are the same objects. Importing the entry also installs them,
+ * once per worker — unless `setupAutoSpy({ strayConsole })` owns the console, where it installs nothing.
  */
-import { installConsoleSpies } from './lib/console-spy';
+import { consoleSpiesForImport } from './lib/console-spy';
 import { hasMockAdapter, registerMockAdapter } from './lib/mock-adapter';
 import { vitestMockAdapter } from './lib/vitest-adapter';
 
@@ -37,7 +40,7 @@ export const {
   consoleTimeSpy,
   consoleTraceSpy,
   consoleWarnSpy,
-} = installConsoleSpies();
+} = consoleSpiesForImport();
 
 export { installConsoleSpies, resetConsoleSpies, restoreConsole } from './lib/console-spy';
 export type { ConsoleMethodSpy, ConsoleSpies } from './lib/console-spy';

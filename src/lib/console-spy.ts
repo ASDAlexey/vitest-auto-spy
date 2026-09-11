@@ -13,10 +13,8 @@
  * expect(consoleInfoSpy).toHaveBeenCalledWith('done');
  * ```
  *
- * The `vitest-auto-spy/console` entry calls `installConsoleSpies()` on import,
- * so importing any spy is enough. `restoreConsole()` puts the original methods
- * back; `resetConsoleSpies()` clears recorded calls between tests — which
- * `setupAutoSpy()` does for you, and Vitest's `clearMocks: true` also would.
+ * Call `installConsoleSpies()` in a `beforeEach` and `restoreConsole()` in an `afterEach`; the entry
+ * also installs them on import, unless the stray-console guard owns the console.
  */
 import { createFunctionSpy } from './function-spy';
 import { getMockAdapter } from './mock-adapter';
@@ -43,16 +41,13 @@ export interface ConsoleSpies {
 type SpiedConsoleMethod = 'debug' | 'error' | 'info' | 'log' | 'time' | 'timeEnd' | 'trace' | 'warn';
 
 /**
- * The seam `setupAutoSpy()` clears these spies through.
- *
- * A slot on `globalThis` rather than an import, because the direction matters: `setupAutoSpy()` is
- * loaded by every project and this entry by very few, so the rare side pays for the wiring. It also
- * survives a `vi.resetModules()`, which would otherwise hand the setup file a fresh copy of this
- * module whose `activeSpies` is empty while `console` still holds the spies from the old one.
+ * The seam `setupAutoSpy()` clears these spies through, and the one the stray-console guard takes
+ * them off by: slots on `globalThis`, so `/setup` never imports this entry.
  */
 declare global {
   // A `globalThis` augmentation has to be declared with `var`.
   var __vitestAutoSpyResetConsoleSpies__: (() => void) | undefined;
+  var __vitestAutoSpyDetachConsoleSpies__: (() => void) | undefined;
 }
 
 // The originals are kept as the loose `Func`: the global `console` methods are
@@ -71,19 +66,61 @@ function setConsoleMethod(method: SpiedConsoleMethod, implementation: Func): voi
   console[method] = implementation;
 }
 
-function installMethodSpy(method: SpiedConsoleMethod): ConsoleMethodSpy {
-  originalMethods.set(method, getConsoleMethod(method));
-
+function createMethodSpy(method: SpiedConsoleMethod): ConsoleMethodSpy {
   const spy = createFunctionSpy<ConsoleMethodFn>(`console.${method}`);
-  setConsoleMethod(method, spy);
+
   activeSpies.set(method, spy);
 
   return spy;
 }
 
+function createConsoleSpies(): ConsoleSpies {
+  if (installedSpies) {
+    return installedSpies;
+  }
+
+  globalThis.__vitestAutoSpyResetConsoleSpies__ = resetConsoleSpies;
+  globalThis.__vitestAutoSpyDetachConsoleSpies__ = detachConsoleSpies;
+
+  installedSpies = {
+    consoleDebugSpy: createMethodSpy('debug'),
+    consoleErrorSpy: createMethodSpy('error'),
+    consoleInfoSpy: createMethodSpy('info'),
+    consoleLogSpy: createMethodSpy('log'),
+    consoleTimeEndSpy: createMethodSpy('timeEnd'),
+    consoleTimeSpy: createMethodSpy('time'),
+    consoleTraceSpy: createMethodSpy('trace'),
+    consoleWarnSpy: createMethodSpy('warn'),
+  };
+
+  return installedSpies;
+}
+
+/** Put every spy on `console`, remembering what it replaced; a spy already in place is left alone. */
+function mountConsoleSpies(): void {
+  for (const [method, spy] of activeSpies) {
+    if (getConsoleMethod(method) !== spy) {
+      originalMethods.set(method, getConsoleMethod(method));
+      setConsoleMethod(method, spy);
+    }
+  }
+}
+
+/** Take the spies off `console` but keep them, so the exported bindings stay valid for a later install. */
+function detachConsoleSpies(): void {
+  for (const [method, spy] of activeSpies) {
+    const original = originalMethods.get(method);
+
+    if (original && getConsoleMethod(method) === spy) {
+      setConsoleMethod(method, original);
+    }
+  }
+}
+
 /**
  * Replace the spied console methods with silent typed spies. Idempotent:
- * repeated calls return the already-installed bag.
+ * repeated calls return the already-installed bag, putting its spies back on
+ * `console` if something took them off.
  *
  * @example
  * ```ts
@@ -94,24 +131,25 @@ function installMethodSpy(method: SpiedConsoleMethod): ConsoleMethodSpy {
  * ```
  */
 export function installConsoleSpies(): ConsoleSpies {
-  if (installedSpies) {
-    return installedSpies;
+  const spies = createConsoleSpies();
+
+  mountConsoleSpies();
+
+  return spies;
+}
+
+/**
+ * The `/console` entry's import: installed unless the stray-console guard owns the console, since under
+ * `isolate: false` an import runs once per worker and cannot scope itself to a file.
+ */
+export function consoleSpiesForImport(): ConsoleSpies {
+  const spies = createConsoleSpies();
+
+  if (Reflect.get(globalThis, '__vitestAutoSpyStrayConsole__') === undefined) {
+    mountConsoleSpies();
   }
 
-  globalThis.__vitestAutoSpyResetConsoleSpies__ = resetConsoleSpies;
-
-  installedSpies = {
-    consoleDebugSpy: installMethodSpy('debug'),
-    consoleErrorSpy: installMethodSpy('error'),
-    consoleInfoSpy: installMethodSpy('info'),
-    consoleLogSpy: installMethodSpy('log'),
-    consoleTimeEndSpy: installMethodSpy('timeEnd'),
-    consoleTimeSpy: installMethodSpy('time'),
-    consoleTraceSpy: installMethodSpy('trace'),
-    consoleWarnSpy: installMethodSpy('warn'),
-  };
-
-  return installedSpies;
+  return spies;
 }
 
 /**
@@ -131,11 +169,12 @@ export function resetConsoleSpies(): void {
 }
 
 /**
- * Put the original console methods back and forget the installed spies.
+ * Put the original console methods back and clear what the spies recorded. The spies are kept, so the
+ * exported `consoleErrorSpy` & co. stay live in every file of the worker for the next install.
  *
  * @example
  * ```ts
- * restoreConsole(); // the real console methods are back
+ * afterEach(() => restoreConsole()); // the real console methods are back
  * ```
  */
 export function restoreConsole(): void {
@@ -144,7 +183,5 @@ export function restoreConsole(): void {
   }
 
   originalMethods.clear();
-  activeSpies.clear();
-  installedSpies = undefined;
-  globalThis.__vitestAutoSpyResetConsoleSpies__ = undefined;
+  resetConsoleSpies();
 }
