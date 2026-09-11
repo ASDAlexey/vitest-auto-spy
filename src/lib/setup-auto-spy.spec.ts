@@ -638,6 +638,7 @@ describe('every step opted out', () => {
     duplicateCopies: 'off',
     frozenClockHint: false,
     hookTimeoutHint: false,
+    prototypePollution: 'off',
     resetConsoleSpies: false,
     restoreProps: false,
     restoreTimerGlobals: false,
