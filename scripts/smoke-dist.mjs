@@ -194,6 +194,36 @@ const CROSS_ENTRY = [
       assert(globalThis.__vitestAutoSpyOutsideHookReaction__ === 'off', 'the reaction was set on a bundle-private variable');
     `,
   },
+  // `dist/index.js` carries its own `fast-spy`, the framework entries share another, and 5.4.0 put
+  // the helper bundle on the wrong copy's prototype: whichever entry loaded first built spies with no
+  // `calledWith`. Both load orders, because the claim record has to hold in either.
+  ...[
+    ['INDEX', 'VUE'],
+    ['VUE', 'INDEX'],
+  ].map(([first, second]) => ({
+    name: `spies from ${first.toLowerCase()} and ${second.toLowerCase()} in one process both keep their helpers`,
+    entries: ['.', './vue'],
+    body: `
+      const loaded = [await import(${first}), await import(${second})];
+
+      class Cart {
+        total(_id) { return 0; }
+        load() { return Promise.resolve(0); }
+      }
+
+      for (const [index, { createSpyFromClass }] of loaded.entries()) {
+        const cart = createSpyFromClass(Cart);
+        const label = index === 0 ? '${first.toLowerCase()}' : '${second.toLowerCase()}';
+
+        assert(typeof cart.total.calledWith === 'function', 'calledWith is missing from a spy built by ' + label);
+        assert(typeof cart.total.mustBeCalledWith === 'function', 'mustBeCalledWith is missing from a spy built by ' + label);
+        assert(typeof cart.load.resolveWith === 'function', 'resolveWith is missing from a spy built by ' + label);
+
+        cart.total.calledWith(1).mockReturnValue(7);
+        assert(cart.total(1) === 7 && cart.total(2) !== 7, 'calledWith on a spy built by ' + label + ' did not match by argument');
+      }
+    `,
+  })),
 ];
 
 function fail(message) {
@@ -255,13 +285,18 @@ function checkEntriesLoad(entries) {
   return failures;
 }
 
+/** `./angular-http` → `ANGULAR_HTTP`; the package root, which has no name of its own, is `INDEX`. */
+function constantName(subpath) {
+  return subpath === '.' ? 'INDEX' : subpath.replace('./', '').toUpperCase().replaceAll('-', '_');
+}
+
 function checkCrossEntry(entries) {
   const bySubpath = new Map(entries.map(({ subpath, file }) => [subpath, new URL(file.replace('./dist/', ''), DIST).href]));
   const failures = [];
 
   for (const testCase of CROSS_ENTRY) {
     const constants = testCase.entries
-      .map((subpath) => `const ${subpath.replace('./', '').toUpperCase().replaceAll('-', '_')} = ${JSON.stringify(bySubpath.get(subpath))};`)
+      .map((subpath) => `const ${constantName(subpath)} = ${JSON.stringify(bySubpath.get(subpath))};`)
       .join('\n');
 
     const result = runInChild(`${PRELUDE}\n${constants}\n${testCase.body}`);
