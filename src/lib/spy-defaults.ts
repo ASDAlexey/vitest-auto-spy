@@ -78,7 +78,7 @@ export type AutoSpyDefaultEntry<Class> = [ClassType<Class>, ClassSpyConfiguratio
  * carries `readonly`, and requiring the mutable shape would reject every literal row outright.
  * Functions and classes pass through untouched.
  */
-type DeepReadonly<Value> = Value extends (...arguments_: never[]) => unknown
+export type DeepReadonly<Value> = Value extends (...arguments_: never[]) => unknown
   ? Value
   : Value extends readonly unknown[]
     ? readonly DeepReadonly<Value[number]>[]
@@ -144,19 +144,28 @@ export function registerAutoSpyDefaults<const Entries extends AutoSpyDefaultEntr
   entries: Entries,
 ): void;
 export function registerAutoSpyDefaults(...args: unknown[]): void {
+  registerFrom(args);
+}
+
+/**
+ * What every `registerAutoSpyDefaults` does at run time — this one, and the `vitest-auto-spy/angular`
+ * one whose overloads also take an `InjectionToken`. The registry is keyed by object identity, so a
+ * token is a key exactly as a class is; only the types differ, and those live with each overload set.
+ */
+export function registerFrom(args: readonly unknown[]): void {
   if (Array.isArray(args[0])) {
-    // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- the many-at-once overload above guarantees the argument is an array of rows; `unknown` is the seam the implementation signature takes to stay compatible with both overloads.
-    for (const [ObjectClass, rowConfig] of args[0] as AutoSpyDefaultEntry<unknown>[]) {
-      registry().set(ObjectClass, { ...rowConfig });
+    // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- the many-at-once overloads guarantee an array of rows; `unknown` is the seam the implementation signatures take to stay compatible with every overload.
+    for (const [key, rowConfig] of args[0] as [object, object][]) {
+      registry().set(key, { ...rowConfig });
     }
 
     return;
   }
 
-  // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- the per-class overload above guarantees both arguments carry the types asserted here.
-  const [ObjectClass, config] = args as [ClassType<unknown>, ClassSpyConfiguration<unknown>];
+  // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- the per-key overloads guarantee both arguments carry the types asserted here.
+  const [key, config] = args as [object, object];
 
-  registry().set(ObjectClass, { ...config });
+  registry().set(key, { ...config });
 }
 
 /**
@@ -172,8 +181,13 @@ export function registerAutoSpyDefaults(...args: unknown[]): void {
  * ```
  */
 export function clearAutoSpyDefaults(ObjectClass?: ClassType<unknown>): void {
-  if (ObjectClass) {
-    registry().delete(ObjectClass);
+  dropAutoSpyDefaults(ObjectClass);
+}
+
+/** {@link clearAutoSpyDefaults} for any key the registry holds — a class, or a token from `/angular`. */
+export function dropAutoSpyDefaults(key?: object): void {
+  if (key) {
+    registry().delete(key);
 
     return;
   }
@@ -216,6 +230,22 @@ export function mergeAutoSpyDefaults<T>(
   // The bare-array form is `methodsToSpyOn` spelled short; normalising it here keeps the merge one
   // shape rather than two, and hands the result back in the form the caller could have written.
   const written: Record<string, unknown> = Array.isArray(local) ? { methodsToSpyOn: local } : { ...local };
+
+  // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- assembled from two values of this very type; the merge is keyed by the call site's own keys and cannot introduce a key neither side had.
+  return mergeInto(defaults, written) as ClassSpyConfiguration<T>;
+}
+
+/**
+ * The same merge for a key the class-typed signature cannot name — the `InjectionToken` behind
+ * `provideAutoSpyForToken`. Hands `written` back untouched when nothing is registered under `key`.
+ */
+export function mergeRegisteredDefaults(key: object, written: Record<string, unknown>): Record<string, unknown> {
+  const defaults = registry().get(key);
+
+  return defaults ? mergeInto(defaults, written) : written;
+}
+
+function mergeInto(defaults: Registration, written: Record<string, unknown>): Record<string, unknown> {
   const merged: Record<string, unknown> = { ...defaults };
 
   // The call site's own value decides the shape: both sides of a key carry the same declared type,
@@ -233,6 +263,5 @@ export function mergeAutoSpyDefaults<T>(
     }
   }
 
-  // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- assembled from two values of this very type; the loop above is keyed by `keyof` and cannot introduce a key neither side had.
-  return merged as ClassSpyConfiguration<T>;
+  return merged;
 }

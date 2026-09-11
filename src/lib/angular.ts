@@ -8,6 +8,7 @@
 import type { InjectionToken } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 
+import { mergeTokenDefaults } from './angular-spy-defaults';
 import { type AutoMockConfiguration, createAutoMock } from './auto-mock';
 import { createSpyFromClass } from './create-spy-from-class';
 import { DOCS_LINKS, withDocs } from './docs-links';
@@ -52,10 +53,20 @@ export type AngularValueProvider<T> = { provide: ClassType<T>; useValue: Spy<T> 
  *   }),
  * ];
  * ```
+ *
+ * **A generic class keeps its declared default, whatever the configuration names.** TypeScript
+ * checks a generic class argument after the configuration, so the core factory reads `T` back from
+ * `gettersToSpyOn` or `overrides` first: `createSpyFromClass(RemoteConfigService, { gettersToSpyOn:
+ * ['remoteConfig'], returns: { isKeyEnabled: false } })` fails with `'isKeyEnabled' does not exist in
+ * type 'MethodReturns<{ remoteConfig: any; }>'`. Here `T` comes from the class alone (`NoInfer`:
+ * TypeScript 5.4, which every Angular this entry supports already requires), so the same
+ * configuration compiles. The core factories still need the argument spelled out:
+ * `createSpyFromClass<RemoteConfigService>(…)`.
  */
-export function provideAutoSpy<T>(
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- read only while the generic class argument is deferred, so the configuration passes that first check; the class then decides `T`.
+export function provideAutoSpy<T = any>(
   ObjectClass: ClassType<T>,
-  methodsToSpyOnOrConfig?: ClassSpyConfiguration<T> | OnlyMethodKeysOf<T>[],
+  methodsToSpyOnOrConfig?: NoInfer<ClassSpyConfiguration<T> | OnlyMethodKeysOf<T>[]>,
 ): AngularValueProvider<T> {
   return {
     provide: ObjectClass,
@@ -86,13 +97,19 @@ export type AngularTokenProvider<T> = { provide: InjectionToken<T>; useValue: Sp
  * @param config Method configuration the seeds cannot express: `{ returns: { getProducts: of([]) } }`
  *   keeps the method a spy *and* says what it answers, which `overrides` cannot do at once. Pass
  *   `undefined` for `overrides` when only this is needed.
+ *
+ * A token registered with `registerAutoSpyDefaults(TOKEN, …)` from this entry starts from that
+ * registration, exactly as `provideAutoSpy(Class)` starts from a class's: both arguments are merged
+ * over it — lists unioned, `returns` and `overrides` key by key with the call site winning.
  */
 export function provideAutoSpyForToken<T>(
   token: InjectionToken<T>,
   overrides?: DeepPartial<T>,
   config?: AutoMockConfiguration<T>,
 ): AngularTokenProvider<T> {
-  return { provide: token, useValue: createAutoMock<T>(overrides, { ...config, name: config?.name ?? String(token) }) };
+  const { overrides: seeds, ...merged } = mergeTokenDefaults(token, overrides, config);
+
+  return { provide: token, useValue: createAutoMock<T>(seeds, { ...merged, name: merged.name ?? String(token) }) };
 }
 
 /**
