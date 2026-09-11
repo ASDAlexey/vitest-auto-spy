@@ -9,9 +9,10 @@
  */
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
-import { createSpyFromClass } from './create-spy-from-class';
+import { applyReturns, createSpyFromClass } from './create-spy-from-class';
 import { setDefaultStrictMode } from './function-spy';
 import { registerMockAdapter } from './mock-adapter';
+import { clearAutoSpyDefaults, registerAutoSpyDefaults } from './spy-defaults';
 import { vitestMockAdapter } from './vitest-adapter';
 
 beforeAll(() => {
@@ -189,5 +190,48 @@ describe('createSpyFromClass — strict mode', () => {
 
     expect(createSpyFromClass(Cart).total()).toBe('global');
     expect(handler).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps a double that opted out with strict: false away from a global handler', () => {
+    const handler = vi.fn(() => 'global');
+    setDefaultStrictMode({ strict: undefined, onUnstubbedCall: handler });
+
+    expect(createSpyFromClass(Cart, { strict: false }).total()).toBeUndefined();
+    expect(createSpyFromClass(Cart, { strict: true }).total()).toBe('global');
+    expect(handler).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps a class registered with strict: false away from a global handler', () => {
+    const handler = vi.fn(() => 'global');
+    registerAutoSpyDefaults(Cart, { strict: false });
+    setDefaultStrictMode({ strict: true, onUnstubbedCall: handler });
+
+    try {
+      expect(createSpyFromClass(Cart).total()).toBeUndefined();
+      expect(handler).not.toHaveBeenCalled();
+    } finally {
+      clearAutoSpyDefaults(Cart);
+    }
+  });
+});
+
+describe('createSpyFromClass — returns is a default, not a wall', () => {
+  it('leaves room for calledWith and resolveWith configured after it', async () => {
+    const cart = createSpyFromClass(Cart, { returns: { checkout: 'default', load: Promise.resolve(0) } });
+
+    cart.checkout.calledWith(1, 'now').mockReturnValue('now');
+    cart.load.resolveWith(7);
+
+    expect(cart.checkout(1, 'now')).toBe('now');
+    expect(cart.checkout(2, 'later')).toBe('default');
+    await expect(cart.load()).resolves.toBe(7);
+  });
+
+  it('configures a callable the library did not build through its implementation instead', () => {
+    const host = { total: vi.fn(() => 1) };
+
+    applyReturns(host, 'test', { total: 2 });
+
+    expect(host.total()).toBe(2);
   });
 });

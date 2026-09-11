@@ -18,8 +18,9 @@ import { noticeAngularBuildSplitting } from './angular-build-notice';
 import { DOCS_LINKS, withDocs } from './docs-links';
 import { type FakeTimersConfig, setupFakeTimers } from './fake-timers';
 import { annotateFrozenClockTimeout, readFrozenClock } from './frozen-clock';
-import { setDefaultStrictMode } from './function-spy';
+import { setDefaultStrictMode, takeStrictViolations } from './function-spy';
 import { type GlobalPatchReaction, type GlobalSnapshot, checkSealedAdditions, snapshotWatchedGlobals } from './global-patch-guard';
+import { type GuardReaction, reactToFindings } from './guard-reaction';
 import { annotateHookTimeout, readRunnerTimeouts } from './hook-timeout';
 import { type MisconfigurationReaction, setMisconfigurationReaction } from './misconfiguration';
 import { trackMockRegistry } from './mock-registry';
@@ -27,6 +28,7 @@ import { type BlockNetworkOptions, blockNetwork } from './network-stub';
 import { describeDuplicateCopies } from './package-identity';
 import { type OutsideHookReaction, beginPropEpoch, countMockedProps, reportPropsOutsideHooks, restoreMockedProps } from './prop-mock';
 import { type PrototypePollutionReaction, type PrototypeSnapshot, checkPrototypePollution, snapshotPrototypes } from './prototype-guard';
+import { ownFrames, stackFrames } from './stack-frames';
 import { type StrayConsoleOptions, type StrayConsoleReaction, watchStrayConsole } from './stray-console';
 import { type StrayRejection, flushStrayRejections, trackStrayRejections } from './stray-rejections';
 import {
@@ -52,6 +54,9 @@ export interface StrayTimerReport {
   /** Each of them, with the spec file that was running when it was scheduled and where the call came from. */
   timers: readonly StrayTimer[];
 }
+
+/** How `setupAutoSpy` reacts to a strict double's throw that something caught before the test saw it. */
+export type SwallowedStrictCallsReaction = GuardReaction;
 
 /** A named grade for every guard at once. `'strict'` is the only one: see {@link SetupAutoSpyOptions.preset}. */
 export type SetupAutoSpyPreset = 'strict';
@@ -284,9 +289,16 @@ export interface SetupAutoSpyOptions {
    * setupAutoSpy({ onUnstubbedCall: ({ className, method }) => console.warn(`unstubbed ${className}.${method}`) });
    * ```
    *
-   * A double's own `onUnstubbedCall` wins over this one.
+   * A double's own `onUnstubbedCall` wins over this one, and a double built with `strict: false` never
+   * reaches it.
    */
   onUnstubbedCall?: UnstubbedCallHandler;
+  /**
+   * Fail a test in which a strict double threw and the error never reached the test — caught by a
+   * `try`/`catch` in the code under test, or an RxJS error with no handler, whose rethrow a fake clock
+   * never runs. Default `'throw'` with `strict: true` or the strict preset, `'off'` otherwise.
+   */
+  swallowedStrictCalls?: SwallowedStrictCallsReaction;
 }
 
 /**
@@ -505,6 +517,37 @@ export function reportStrayRejections(context?: unknown): void {
   }
 }
 
+const SWALLOWED_STRICT_ADVICE =
+  'Something kept each error from failing the test: a try/catch in the code under test, an RxJS error with no handler ' +
+  '(its rethrow waits on a setTimeout the fake clock never runs), or a catchError that threw it in place of the error the ' +
+  'test expected. The test ran on without the answer it depended on. Configure each call; a test that provokes one on ' +
+  'purpose takes it with takeStrictViolations().';
+
+function describeSwallowedStrictCall(error: Error): string {
+  const headline = error.message.replace(/\n[\S\s]*$/, '');
+  const frames = ownFrames(stackFrames(error.stack), 2);
+
+  return [`  - ${headline.replace('[vitest-auto-spy] ', '')}`, ...frames.map((frame) => `      ${frame}`)].join('\n');
+}
+
+/**
+ * Fail the test whose strict throws something swallowed — minus the ones the runner already reported.
+ * Exported for this module's own spec: a real swallowed throw fails the test doing the asserting.
+ */
+export function reportSwallowedStrictCalls(context: unknown, reaction: GuardReaction): void {
+  const reported = reportedErrors(context);
+  const swallowed = takeStrictViolations().filter((error) => !alreadyReported(error, reported));
+  const findings =
+    swallowed.length > 0
+      ? [
+          `[vitest-auto-spy] ${swallowed.length} call(s) to a strict double threw during this test without failing it:\n` +
+            `${swallowed.map(describeSwallowedStrictCall).join('\n')}\n${SWALLOWED_STRICT_ADVICE}`,
+        ]
+      : [];
+
+  reactToFindings(findings, reaction);
+}
+
 /**
  * Extend a hook timeout the runner has already blamed this test for with the reason it happened.
  *
@@ -662,6 +705,19 @@ function watchFrozenClock(enabled: boolean): TeardownStep[] {
  * first: every await point before it is one more chance for zone's microtask drain to have handed
  * the rejection over.
  */
+function watchSwallowedStrictCalls(reaction: GuardReaction): TeardownStep[] {
+  if (reaction === 'off') {
+    return [];
+  }
+
+  // Drained per test, so a throw from an earlier test's teardown is not charged to this one.
+  beforeEach(() => {
+    takeStrictViolations();
+  });
+
+  return [(context): void => reportSwallowedStrictCalls(context, reaction)];
+}
+
 function watchStrayRejections(enabled: boolean): TeardownStep[] {
   if (!enabled) {
     return [];
@@ -703,6 +759,7 @@ function buildDiagnostics(options: SetupAutoSpyOptions): TeardownStep[] {
     ...watchFrozenClock(options.frozenClockHint ?? true),
     ...watchGlobalPatches(options.guardGlobals ?? 'off'),
     ...watchPrototypePollution(options.prototypePollution ?? 'throw'),
+    ...watchSwallowedStrictCalls(options.swallowedStrictCalls ?? (options.strict === true ? 'throw' : 'off')),
     ...watchStrayRejections(options.strayRejections ?? false),
   ];
 }
@@ -736,6 +793,7 @@ export function applyPreset(options: SetupAutoSpyOptions): SetupAutoSpyOptions {
     prototypePollution: options.prototypePollution ?? 'throw',
     strayConsole: options.strayConsole ?? 'throw',
     misconfiguration: options.misconfiguration ?? 'throw',
+    swallowedStrictCalls: options.swallowedStrictCalls ?? 'throw',
     strayTimers: options.strayTimers ?? true,
     strayRejections: options.strayRejections ?? zoneIsLoaded(),
   };

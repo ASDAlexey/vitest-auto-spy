@@ -28,8 +28,10 @@ export {
   type SetupAutoSpyOptions,
   type SetupAutoSpyPreset,
   type StrayTimerReport,
+  type SwallowedStrictCallsReaction,
 } from './lib/setup-auto-spy';
 export type { MisconfigurationReaction } from './lib/misconfiguration';
+export { takeStrictViolations } from './lib/function-spy';
 export { guardStrayConsole, type StrayConsoleOptions, type StrayConsoleReaction } from './lib/stray-console';
 export { getSpyEngine, setSpyEngine, type SpyEngine } from './lib/vitest-adapter';
 export { guardGlobalPatches, type GlobalPatchReaction } from './lib/global-patch-guard';

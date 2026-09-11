@@ -23,6 +23,8 @@ export interface ReturnValueContainer {
   _isRejectedPromise?: boolean;
   /** Set by `failWith`: the call throws {@link ReturnValueContainer.value} instead of returning it. */
   _isThrown?: boolean;
+  /** Set by the `returns` option: {@link ReturnValueContainer.value} is configured, even when it is `undefined`. */
+  _isSeeded?: boolean;
   valuesPerCalls?: PerCallValue[];
 }
 

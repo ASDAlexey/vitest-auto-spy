@@ -8,8 +8,10 @@
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { autoMocked, createAutoMock } from './auto-mock';
+import { takeStrictViolations } from './function-spy';
 import { registerMockAdapter } from './mock-adapter';
 import { mockValueProp, restoreMockedProps } from './prop-mock';
+import { resetAutoSpy } from './reset-auto-spy';
 import { vitestMockAdapter } from './vitest-adapter';
 
 // Self-contained: register the default Vitest adapter so the runtime-agnostic
@@ -160,6 +162,15 @@ describe('autoMocked', () => {
 
     expect(logger.debug('x')).toBeUndefined();
   });
+
+  it('takes the configuration createAutoMock takes, so a strict double can say what it answers', () => {
+    const logger = autoMocked<LogMethods>(undefined, { strict: true, name: 'LogMethods', returns: { err: undefined } });
+
+    detect(logger);
+
+    expect(logger.err).toHaveBeenCalledTimes(1);
+    expect(() => logger.debug('x')).toThrow('Nothing configured LogMethods.debug');
+  });
 });
 
 describe('the auto-spy brand', () => {
@@ -188,6 +199,44 @@ describe('createAutoMock returns configuration', () => {
     expect(products.getProducts()).toEqual(['a']);
     // Still a spy — a seeded `{ getProducts: () => ['a'] }` would have thrown the assertion away.
     expect(products.getProducts).toHaveBeenCalledTimes(1);
+  });
+
+  it('is a default that calledWith, resolveWith and failWith configured later build on, not a wall', () => {
+    interface Store {
+      get(key: string): string | null;
+      load(): Promise<number>;
+      save(value: string): void;
+    }
+
+    const store = createAutoMock<Store>(undefined, { returns: { get: 'default', load: Promise.resolve(0), save: undefined } });
+
+    store.get.calledWith('k').mockReturnValue('v');
+    store.load.resolveWith(5);
+    store.save.failWith(new Error('disk full'));
+
+    expect(store.get('k')).toBe('v');
+    expect(store.get('other')).toBe('default');
+    return expect(store.load())
+      .resolves.toBe(5)
+      .then(() => expect(() => store.save('x')).toThrow('disk full'));
+  });
+
+  it('counts as configured under strict, undefined included, until the double is reset', () => {
+    const store = createAutoMock<{ save(value: string): void }>(undefined, { strict: true, returns: { save: undefined } });
+
+    expect(store.save('x')).toBeUndefined();
+
+    resetAutoSpy(store);
+
+    expect(() => store.save('x')).toThrow('Nothing configured save');
+    takeStrictViolations();
+  });
+
+  it('falls back to the host implementation for a callable the library did not build', () => {
+    const save = vi.fn(() => 'seeded');
+    const store = createAutoMock<{ save(): string }>({ save }, { returns: { save: 'configured' } });
+
+    expect(store.save()).toBe('configured');
   });
 
   it('says so when `returns` names a member the double never spies', () => {

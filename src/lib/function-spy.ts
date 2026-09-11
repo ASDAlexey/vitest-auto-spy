@@ -131,8 +131,17 @@ function throwUnstubbedCall(call: UnstubbedCall): never {
     `Called as: ${target}(${call.args.map(renderArgument).join(',')})\n` +
     `Configure it — .mockReturnValue(…), .mockImplementation(…), .resolveWith(…), .nextWith(…) or .calledWith(…), ` +
     `or seed it through the 'returns' option — or drop 'strict' from this double.`;
+  const limit = Error.stackTraceLimit;
 
-  throw new Error(withDocs(message, DOCS_LINKS.strictMode));
+  // Deep enough to reach the calling code past a Proxy double, an RxJS operator and the dispatch.
+  Error.stackTraceLimit = 30;
+
+  const error = new Error(withDocs(message, DOCS_LINKS.strictMode));
+
+  Error.stackTraceLimit = limit;
+  recordStrictViolation(error);
+
+  throw error;
 }
 
 // On `globalThis`: `/setup`, `dist/index.js` and `dist/angular.js` each carry a copy of this module,
@@ -140,6 +149,42 @@ function throwUnstubbedCall(call: UnstubbedCall): never {
 declare global {
   // A `globalThis` augmentation has to be declared with `var`.
   var __vitestAutoSpyStrictDefault__: { config: StrictResolution | undefined } | undefined;
+  var __vitestAutoSpyStrictViolations__: StrictViolations | undefined;
+}
+
+/** Every strict throw since the last {@link takeStrictViolations}, capped so an undrained run stays bounded. */
+interface StrictViolations {
+  readonly errors: Error[];
+}
+
+const MAX_RECORDED_VIOLATIONS = 50;
+
+let sharedViolations: StrictViolations | undefined;
+
+function strictViolations(): StrictViolations {
+  return (sharedViolations ??= globalThis.__vitestAutoSpyStrictViolations__ ??= { errors: [] });
+}
+
+function recordStrictViolation(error: Error): void {
+  const { errors } = strictViolations();
+
+  if (errors.length < MAX_RECORDED_VIOLATIONS) {
+    errors.push(error);
+  }
+}
+
+/**
+ * Hand back, and forget, every error a strict double threw since the last call. A test that provokes
+ * one on purpose takes it here, or `setupAutoSpy` reports it as swallowed after the test.
+ *
+ * @example
+ * ```ts
+ * expect(() => cart.total()).toThrow('Nothing configured Cart.total');
+ * expect(takeStrictViolations()).toHaveLength(1);
+ * ```
+ */
+export function takeStrictViolations(): Error[] {
+  return strictViolations().errors.splice(0);
 }
 
 let sharedStrictDefault: { config: StrictResolution | undefined } | undefined;
@@ -162,13 +207,13 @@ export function setDefaultStrictMode(config: StrictResolution | undefined): void
 /**
  * The guard a double should hand to each of its spies, or nothing when strict mode is off.
  *
- * Precedence, most specific first: the double's own `onUnstubbedCall`, the global one, the double's
- * own `strict` (`false` included — `false ?? x` is `false`, so an explicit opt-out is not overridden
- * by the default), then the global `strict`.
+ * Precedence, most specific first: the double's own `onUnstubbedCall`, the double's explicit
+ * `strict: false`, the global handler, the double's `strict: true`, then the global `strict`. The
+ * opt-out outranks the global handler because a suite-wide policy can be a handler as well as a flag.
  */
 export function resolveUnstubbedGuard(className: string | undefined, config: StrictResolution): UnstubbedGuard | undefined {
   const defaults = strictDefault().config;
-  const handler = config.onUnstubbedCall ?? defaults?.onUnstubbedCall;
+  const handler = config.onUnstubbedCall ?? (config.strict === false ? undefined : defaults?.onUnstubbedCall);
 
   if (handler) {
     return { className, handle: handler };
@@ -199,6 +244,7 @@ function isUnconfigured(state: SpyState): boolean {
     container.value === undefined &&
     !container._isRejectedPromise &&
     !container._isThrown &&
+    !container._isSeeded &&
     !container.valuesPerCalls?.length
   );
 }
@@ -353,6 +399,7 @@ class FunctionSpyInternals implements MarkHooks {
     valueContainer.value = undefined;
     delete valueContainer._isRejectedPromise;
     delete valueContainer._isThrown;
+    delete valueContainer._isSeeded;
     delete valueContainer.valuesPerCalls;
     // The observable layer keeps its `ReplaySubject` in a closure the container cannot reach, and
     // its buffer is configuration in exactly the sense `calledWith` is: without this, a value from
@@ -367,6 +414,29 @@ class FunctionSpyInternals implements MarkHooks {
   clear(): void {
     this.recorder.clear();
   }
+}
+
+/**
+ * Make `value` what the spy answers by default, in the library's own container rather than as a host
+ * implementation: a host implementation replaces the dispatch, so every `calledWith` or `resolveWith`
+ * configured after it was silently ignored. `false` for a callable this module did not build.
+ */
+export function seedReturnValue(spy: Func, value: unknown): boolean {
+  const mark: unknown = Reflect.get(spy, AUTO_SPY_MARK);
+
+  if (!(mark instanceof FunctionSpyInternals)) {
+    return false;
+  }
+
+  const { valueContainer } = mark;
+
+  valueContainer.value = value;
+  valueContainer._isSeeded = true;
+  delete valueContainer._isRejectedPromise;
+  delete valueContainer._isThrown;
+  delete valueContainer.valuesPerCalls;
+
+  return true;
 }
 
 /**

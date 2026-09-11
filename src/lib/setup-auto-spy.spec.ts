@@ -8,6 +8,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest
 import '../index';
 import { resetAngularBuildNotice } from './angular-build-notice';
 import { createSpyFromClass } from './create-spy-from-class';
+import { takeStrictViolations } from './function-spy';
 import { captureMockRegistry, getMockRegistrySize, resetMockRegistryTracking } from './mock-registry';
 import { getPackageCopies, registerPackageCopy, resetPackageCopies } from './package-identity';
 import { countMockedProps, mockValueProp, restoreMockedProps } from './prop-mock';
@@ -18,6 +19,7 @@ import {
   describeStrayRejections,
   reportStrayRejections,
   reportStrayTimers,
+  reportSwallowedStrictCalls,
   reportedErrors,
   runTeardown,
   setupAutoSpy,
@@ -61,6 +63,8 @@ describe('suite-wide strict mode (opted in)', () => {
 
   it('reaches a double built afterwards, without that call site mentioning it', () => {
     expect(() => createSpyFromClass(Cart).total()).toThrow(/Nothing configured Cart\.total, and strict mode is on/);
+    // Caught by the assertion, so it is taken here rather than reported as swallowed after the test.
+    expect(takeStrictViolations()).toHaveLength(1);
   });
 
   it('is still overridden by a double that opted out explicitly', () => {
@@ -912,6 +916,66 @@ function withZone(present: boolean, run: () => void): void {
   }
 }
 
+describe('swallowedStrictCalls', () => {
+  function swallow(run: () => unknown): void {
+    try {
+      run();
+    } catch {
+      // What a production try/catch, or an RxJS error parked on a fake clock, does to the throw.
+    }
+  }
+
+  afterEach(() => {
+    takeStrictViolations();
+  });
+
+  it('fails the test whose strict throw never reached it, naming the call and where it was made', () => {
+    swallow(() => createSpyFromClass(Cart, { strict: true }).total());
+
+    expect(() => reportSwallowedStrictCalls(undefined, 'throw')).toThrow(
+      /1 call\(s\) to a strict double[\s\S]*Nothing configured Cart\.total[\s\S]*at /,
+    );
+  });
+
+  it('leaves a throw the runner already reported to the runner', () => {
+    let thrown: unknown;
+
+    try {
+      createSpyFromClass(Cart, { strict: true }).total();
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(() => reportSwallowedStrictCalls({ task: { result: { errors: [thrown] } } }, 'throw')).not.toThrow();
+  });
+
+  it('prints instead of failing under warn', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    swallow(() => createSpyFromClass(Cart, { strict: true }).total());
+    reportSwallowedStrictCalls(undefined, 'warn');
+
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('Nothing configured Cart.total'));
+    warn.mockRestore();
+  });
+
+  it('lets a test that provokes the throw on purpose take it, and says nothing afterwards', () => {
+    expect(() => createSpyFromClass(Cart, { strict: true }).total()).toThrow('Nothing configured Cart.total');
+    expect(takeStrictViolations()).toHaveLength(1);
+    expect(() => reportSwallowedStrictCalls(undefined, 'throw')).not.toThrow();
+  });
+
+  it('keeps at most fifty throws when nothing drains them', () => {
+    const cart = createSpyFromClass(Cart, { strict: true });
+
+    for (let call = 0; call < 60; call++) {
+      swallow(() => cart.total());
+    }
+
+    expect(takeStrictViolations()).toHaveLength(50);
+  });
+});
+
 describe('applyPreset', () => {
   it('leaves options without a preset exactly as they were', () => {
     const options = { restoreProps: false };
@@ -929,6 +993,7 @@ describe('applyPreset', () => {
         prototypePollution: 'throw',
         strayConsole: 'throw',
         misconfiguration: 'throw',
+        swallowedStrictCalls: 'throw',
         strayTimers: false,
         strayRejections: false,
       });

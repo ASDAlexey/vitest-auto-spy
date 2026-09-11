@@ -23,7 +23,7 @@
  */
 import { DISPOSE } from './dispose-symbol';
 import { DOCS_LINKS, withDocs } from './docs-links';
-import { type UnstubbedGuard, createFunctionSpy, resolveUnstubbedGuard } from './function-spy';
+import { type UnstubbedGuard, createFunctionSpy, resolveUnstubbedGuard, seedReturnValue } from './function-spy';
 import { reportMisconfiguration } from './misconfiguration';
 import { getMockAdapter } from './mock-adapter';
 import { requireObservableSupport } from './observable-support';
@@ -193,7 +193,9 @@ function applyMockReturns(mock: object, returns: MethodReturns<never> | undefine
       continue;
     }
 
-    adapter.restoreImplementation(spy, () => value);
+    if (!seedReturnValue(spy, value)) {
+      adapter.restoreImplementation(spy, () => value);
+    }
   }
 }
 
@@ -321,10 +323,11 @@ function readKey(store: ProxyPropStore, key: string | symbol, receiver: unknown,
  * ```
  *
  * Use {@link createAutoMock} when the double only ever travels as a spy; the intersection is
- * strictly wider, and a wider type is worth asking for only when both halves are used.
+ * strictly wider, and a wider type is worth asking for only when both halves are used. `config` is
+ * {@link createAutoMock}'s: `returns`, `name`, `strict`, `observablePropsToSpyOn`.
  */
-export function autoMocked<T>(overrides?: DeepPartial<T>): Spy<T> & T {
-  const mock = createAutoMock<T>(overrides);
+export function autoMocked<T>(overrides?: DeepPartial<T>, config?: AutoMockConfiguration<T>): Spy<T> & T {
+  const mock = createAutoMock<T>(overrides, config);
 
   // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- one object, two views, exactly as in `asInstance` / `asSpy`: the proxy answers every key of `T` and every key `Spy<T>` adds, and the intersection is what lets a spec pass it as `T` and assert on it as a spy without a bridge call at each site.
   return mock as Spy<T> & T;

@@ -7,7 +7,7 @@ import { createAccessorsSpies } from './accessor-spy';
 import { createAutoMock } from './auto-mock';
 import { DOCS_LINKS, withDocs } from './docs-links';
 import { fillMissingMembers } from './fill-missing';
-import { type UnstubbedGuard, createFunctionSpy, resolveUnstubbedGuard } from './function-spy';
+import { type UnstubbedGuard, createFunctionSpy, resolveUnstubbedGuard, seedReturnValue } from './function-spy';
 import { createLazySpyProxy } from './lazy-spy-proxy';
 import { reportMisconfiguration } from './misconfiguration';
 import { getMockAdapter } from './mock-adapter';
@@ -350,7 +350,9 @@ export function applyReturns(autoSpy: object, factory: string, returns: Record<s
       return;
     }
 
-    adapter.restoreImplementation(spy, () => value);
+    if (!seedReturnValue(spy, value)) {
+      adapter.restoreImplementation(spy, () => value);
+    }
   });
 }
 
