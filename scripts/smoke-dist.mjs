@@ -194,6 +194,94 @@ const CROSS_ENTRY = [
       assert(globalThis.__vitestAutoSpyOutsideHookReaction__ === 'off', 'the reaction was set on a bundle-private variable');
     `,
   },
+  // Every suite-wide switch is written by one bundle and read by another: `setupAutoSpy` ships in
+  // `./setup`, while `dist/index.js` and `dist/angular.js` each carry their own copy of the factories.
+  {
+    name: 'a suite-wide strict default reaches doubles built by the root, a framework entry and angular',
+    entries: ['.', './vue', './angular'],
+    body: `
+      const { createSpyFromClass } = await import(INDEX);
+      const vue = await import(VUE);
+      const { provideAutoSpy } = await import(ANGULAR);
+
+      class Cart {
+        total() { return 0; }
+      }
+
+      // What \`setupAutoSpy({ strict: true })\` writes; the holder is shared by every bundle that reads it.
+      (globalThis.__vitestAutoSpyStrictDefault__ ??= { config: undefined }).config = { strict: true, onUnstubbedCall: undefined };
+
+      for (const [label, cart] of [['index', createSpyFromClass(Cart)], ['vue', vue.createSpyFromClass(Cart)], ['angular', provideAutoSpy(Cart).useValue]]) {
+        let message = '';
+        try {
+          cart.total();
+        } catch (error) {
+          message = error.message;
+        }
+        assert(message.includes('Nothing configured Cart.total'), 'the strict default did not reach a double built by ' + label);
+      }
+    `,
+  },
+  {
+    name: 'setSpyEngine from ./setup reaches the adapter the root entry registered',
+    entries: ['.', './setup'],
+    body: `
+      const { createSpyFromClass } = await import(INDEX);
+      const { setSpyEngine } = await import(SETUP);
+
+      class Cart {
+        total() { return 0; }
+      }
+
+      const fast = Object.getPrototypeOf(createSpyFromClass(Cart).total);
+
+      setSpyEngine('runner');
+      const runner = Object.getPrototypeOf(createSpyFromClass(Cart).total);
+      setSpyEngine('auto-spy');
+
+      assert(fast !== runner, 'the engine set through ./setup was not the one the root adapter read');
+    `,
+  },
+  {
+    name: 'misconfiguration: throw reaches the root, a framework entry and angular',
+    entries: ['.', './vue', './angular'],
+    body: `
+      const { createSpyFromClass } = await import(INDEX);
+      const vue = await import(VUE);
+      const { provideAutoSpy } = await import(ANGULAR);
+
+      class Basket {
+        total() { return 0; }
+        clear() {}
+      }
+
+      const config = { onlyMethodsToSpyOn: ['total'], returns: { clear: undefined } };
+      globalThis.__vitestAutoSpyMisconfiguration__ = 'throw';
+
+      for (const [label, build] of [['index', () => createSpyFromClass(Basket, config)], ['vue', () => vue.createSpyFromClass(Basket, config)], ['angular', () => provideAutoSpy(Basket, config)]]) {
+        let message = '';
+        try {
+          build();
+        } catch (error) {
+          message = error.message;
+        }
+        assert(message.includes("returns names 'clear'"), 'the misconfiguration grade did not reach ' + label);
+      }
+    `,
+  },
+  {
+    // Under the stray-console guard an import cannot scope a spy to a file, so it must install nothing.
+    name: 'the console entry installs nothing on import while the stray-console guard owns the console',
+    entries: ['./console'],
+    body: `
+      globalThis.__vitestAutoSpyStrayConsole__ = { host: console };
+      const { consoleErrorSpy, installConsoleSpies } = await import(CONSOLE);
+
+      assert(console.error !== consoleErrorSpy, 'the import installed a spy the guard would have seen nothing through');
+      installConsoleSpies();
+      assert(console.error === consoleErrorSpy, 'installConsoleSpies() did not put the same spy on the console');
+    `,
+  },
   // `dist/index.js` carries its own `fast-spy`, the framework entries share another, and 5.4.0 put
   // the helper bundle on the wrong copy's prototype: whichever entry loaded first built spies with no
   // `calledWith`. Both load orders, because the claim record has to hold in either.
