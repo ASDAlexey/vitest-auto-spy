@@ -223,6 +223,31 @@ const CROSS_ENTRY = [
     `,
   },
   {
+    name: 'takeStrictViolations from ./setup sees a strict throw of a double the root and angular built',
+    entries: ['.', './angular', './setup'],
+    body: `
+      const { createSpyFromClass } = await import(INDEX);
+      const { provideAutoSpy } = await import(ANGULAR);
+      const { takeStrictViolations } = await import(SETUP);
+
+      class Cart {
+        total() { return 0; }
+      }
+
+      takeStrictViolations();
+
+      for (const cart of [createSpyFromClass(Cart, { strict: true }), provideAutoSpy(Cart, { strict: true }).useValue]) {
+        try {
+          cart.total();
+        } catch {
+          // swallowed on purpose: the recorder is what is under test
+        }
+      }
+
+      assert(takeStrictViolations().length === 2, 'a strict throw from another bundle was not recorded where ./setup reads it');
+    `,
+  },
+  {
     name: 'setSpyEngine from ./setup reaches the adapter the root entry registered',
     entries: ['.', './setup'],
     body: `
