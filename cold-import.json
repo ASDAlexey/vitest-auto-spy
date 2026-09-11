@@ -8,27 +8,27 @@
   "entries": {
     ".": {
       "modules": 2,
-      "bytes": 107605
+      "bytes": 110303
     },
     "./angular": {
       "modules": 2,
-      "bytes": 132093
+      "bytes": 135983
     },
     "./angular-http": {
       "modules": 3,
-      "bytes": 10066
+      "bytes": 11272
     },
     "./bun": {
-      "modules": 10,
-      "bytes": 99195
+      "modules": 11,
+      "bytes": 101719
     },
     "./bun-angular": {
-      "modules": 12,
-      "bytes": 118563
+      "modules": 13,
+      "bytes": 121583
     },
     "./console": {
       "modules": 9,
-      "bytes": 56065
+      "bytes": 57932
     },
     "./diagnostics": {
       "modules": 2,
@@ -36,55 +36,55 @@
     },
     "./dom-stubs": {
       "modules": 2,
-      "bytes": 33400
+      "bytes": 33883
     },
     "./eslint-plugin": {
       "modules": 2,
-      "bytes": 117441
+      "bytes": 126103
     },
     "./jasmine": {
-      "modules": 12,
-      "bytes": 93709
+      "modules": 13,
+      "bytes": 96137
     },
     "./jasmine-compat": {
       "modules": 3,
       "bytes": 10014
     },
     "./nestjs": {
-      "modules": 11,
-      "bytes": 88470
+      "modules": 12,
+      "bytes": 90793
     },
     "./node": {
-      "modules": 9,
-      "bytes": 102164
+      "modules": 10,
+      "bytes": 104688
     },
     "./observer-spy": {
       "modules": 2,
       "bytes": 6264
     },
     "./react": {
-      "modules": 12,
-      "bytes": 113727
+      "modules": 13,
+      "bytes": 116391
     },
     "./rstest": {
-      "modules": 10,
-      "bytes": 112190
+      "modules": 11,
+      "bytes": 114854
     },
     "./rxjs": {
       "modules": 5,
       "bytes": 17515
     },
     "./setup": {
-      "modules": 11,
-      "bytes": 99534
+      "modules": 12,
+      "bytes": 113248
     },
     "./svelte": {
-      "modules": 12,
-      "bytes": 113727
+      "modules": 13,
+      "bytes": 116391
     },
     "./vue": {
-      "modules": 12,
-      "bytes": 113997
+      "modules": 13,
+      "bytes": 116661
     },
     "./zone": {
       "modules": 1,
