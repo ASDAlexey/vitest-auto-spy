@@ -185,6 +185,26 @@ describe('a patch applied outside a per-test hook', () => {
     warn.mockRestore();
   });
 
+  it('names a shared object again in the next spec file, so which file shows it does not depend on run order', () => {
+    const shared = { value: 'real' };
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const worker: unknown = Reflect.get(globalThis, '__vitest_worker__');
+    const ownFile: unknown = Reflect.get(Object(worker), 'filepath');
+
+    sweepAfterANewTest(() => mockValueProp(shared, 'value', 'first file'));
+    Reflect.set(Object(worker), 'filepath', '/a/later.spec.ts');
+
+    try {
+      sweepAfterANewTest(() => mockValueProp(shared, 'value', 'second file'));
+    } finally {
+      Reflect.set(Object(worker), 'filepath', ownFile);
+    }
+
+    expect(warn).toHaveBeenCalledTimes(2);
+
+    warn.mockRestore();
+  });
+
   it('reports the same property name on a second object, which a name-keyed set would not', () => {
     // Under `isolate: false` two files of one worker patch a member of the same name on different
     // objects; silencing the second would be the blind spot this dedup is keyed to avoid.

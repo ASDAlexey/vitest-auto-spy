@@ -9,6 +9,7 @@
 import { DOCS_LINKS, withDocs } from './docs-links';
 import { getMockAdapter } from './mock-adapter';
 import { isCannotRedefine, redefineFailure } from './redefine-failure';
+import { currentSpecFile } from './spec-file';
 import type { PropStubValue } from './types';
 
 /** Undoes a single `mock*Prop` patch; calling it more than once is a no-op. */
@@ -236,10 +237,17 @@ export function reportPropsOutsideHooks(reaction: OutsideHookReaction): void {
  * of one worker routinely patch a member of the same name on different objects, and a name-keyed set
  * would report the first and silence the second.
  */
-const reportedOutsideHooks = new WeakMap<object, Set<PropertyKey>>();
+let reportedOutsideHooks = new WeakMap<object, Set<PropertyKey>>();
+let reportedIn: unknown;
 
 /** Whether this object/property pair is worth reporting, remembering it if so. */
 function firstReportOf({ object, property }: PatchedProp): boolean {
+  // Per spec file: a worker-wide record reported a shared object's patch in whichever file came first.
+  if (currentSpecFile() !== reportedIn) {
+    reportedIn = currentSpecFile();
+    reportedOutsideHooks = new WeakMap();
+  }
+
   const seen = reportedOutsideHooks.get(object) ?? new Set<PropertyKey>();
 
   reportedOutsideHooks.set(object, seen);
