@@ -1543,6 +1543,8 @@ files never ran. The guard compares `Object.prototype` / `Array.prototype` / `Fu
 around every test, takes the key back off and names the file. The write is nearly always accidental:
 `Object.getPrototypeOf(instance)` **is** `Object.prototype` when `instance` is an object literal from
 a `useValue` provider or a test double — patch the prototype of the class the object came from.
+`guardPrototypePollution(reaction)` from `/setup` registers the same check on its own, for a suite
+that does not call `setupAutoSpy()`.
 
 ### Hook order differs from Jest
 

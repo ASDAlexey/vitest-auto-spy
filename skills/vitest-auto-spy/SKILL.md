@@ -184,7 +184,7 @@ it('loads', async () => {
 | `expected [ { at: 1, …(5) }, …(8) ] to deeply equal …`                                    | `expect(diffByField(actual, expected)).toBeUndefined()`                                                     |
 | a stub that works only in the first test of the file                                      | `installPerTest(() => stub…())` — or install it in `beforeEach`                                             |
 | a library failing every other run after a `defineProperty` on DOM                         | `setupAutoSpy({ guardGlobals: 'throw' })` names the file                                                    |
-| a block of files failing to collect, with no stack and zero failing tests                 | `setupAutoSpy()` names the file that left a key on `Object.prototype`                                       |
+| a block of files failing to collect, with no stack and zero failing tests                 | `setupAutoSpy()` names the file that left a key on `Object.prototype` (`prototypePollution`, on by default) |
 | `Cannot set base providers because it has already been called`                            | `setupAngularTestEnv({ zoneless, initZone, initZoneless })`                                                 |
 | a dependency behind an `InjectionToken`, with no class to spy                             | `provideAutoSpyForToken(TOKEN)` + `injectSpy(TOKEN)`                                                        |
 | `Expected to be running in 'ProxyZone', but it was not found`                             | `import 'vitest-auto-spy/zone'` (needs `globals: true`)                                                     |
@@ -376,10 +376,14 @@ Four of those rules are for a suite mid-migration off `jasmine-auto-spies`:
 to **`'off'`** yourself while the migration lasts, because it reports working bridge code. Turn it
 back on for the last mile, once the suite is green, and not before.
 
-**`prefer-render-shallow` is the only `warn` in `recommended`**, and the reason is what it reports:
-every other rule names something wrong or dead, while this one names a spec that could render more
-cheaply. Moving onto `renderShallow` is a suite's decision, not a repair, so it shows up in the output
-without holding a build — set it to `'error'` once the project has taken that decision.
+**Three rules in `recommended` are `warn`, each for a reason of its own.** `prefer-render-shallow`
+names a spec that could render more cheaply rather than something wrong or dead: moving onto
+`renderShallow` is a suite's decision, not a repair, so it shows up in the output without holding a
+build — set it to `'error'` once the project has taken that decision. `no-stub-class-double` (a
+class whose fields are `vi.fn()`s) and `no-structural-double` (an object of `vi.fn()`s bound to a
+name typed `{ m: Mock }`) decide on a heuristic with no `provide:` beside them to settle it, so a
+project that reads the shape differently can switch either off; a double behind DI is
+`prefer-provide-auto-spy`'s, at `error`.
 
 `doctor` is read-only. It reports what neither the runner nor the compiler can: a `tsconfig`
 `include` pattern that matches no file, a production module importing a spec, a spec importing

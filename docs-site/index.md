@@ -41,11 +41,11 @@ features:
   - title: Strict mode instead of undefined
     details: 'The method nobody stubbed throws with the class, the method and the arguments in the message, rather than returning undefined that fails three frames later.'
     link: /core/strict-mode
-  - title: Twenty-three lint rules and a codemod
-    details: 'The ESLint plugin underlines the old patterns as you type — a private member reached through a cast, an observer global stubbed by hand, schemas that can never apply — and the CLI codemod rewrites a jest-auto-spies suite into a diff you can read before you keep it.'
+  - title: Twenty-five lint rules and a codemod
+    details: 'The ESLint plugin underlines the old patterns as you type — a private member reached through a cast, an observer global stubbed by hand, a stub class of vi.fn() fields registered with useClass, schemas that can never apply — and the CLI codemod rewrites a jest-auto-spies suite into a diff you can read before you keep it.'
     link: /utilities/eslint-plugin
   - title: Failures nothing else reports
-    details: 'A mock*Prop patch left in a describe body stops applying after the first test, and a component whose own providers shadow the spy quietly runs the real service — silent under every runner, named here by the property or the token.'
+    details: 'A mock*Prop patch left in a describe body stops applying after the first test, a component whose own providers shadow the spy quietly runs the real service, and one key left on Object.prototype stops every later file in the worker from collecting while Vitest 5.0 still prints zero failing tests and no stack — silent under every runner, named here by the property, the token or the file.'
     link: /utilities/setup
 ---
 
@@ -190,7 +190,7 @@ from a type or an interface.
 <div class="vas-fact"><b>0</b><span>runtime dependencies</span></div>
 <div class="vas-fact"><b>4</b><span>runtimes, one core</span></div>
 <div class="vas-fact"><b>5</b><span>framework adapters</span></div>
-<div class="vas-fact"><b>23</b><span>lint rules</span></div>
+<div class="vas-fact"><b>25</b><span>lint rules</span></div>
 <div class="vas-fact"><b>100%</b><span>covered core</span></div>
 
 </div>

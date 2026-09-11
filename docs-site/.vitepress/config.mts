@@ -338,6 +338,9 @@ export default defineConfig({
           'register spy defaults for many classes, AutoSpyDefaultEntry, bulk register spy defaults, ' +
           'component providers shadow TestBed provider, provideAutoSpy ignored by component, assertNoShadowedProviders, ' +
           'spy provided but real service used, no-private-member-access, no-dead-schemas, ' +
+          'Spread syntax requires ...iterable[Symbol.iterator] to be a function, failed suites with no stack, ' +
+          'test files failed but 0 tests failed, files fail to collect isolate false, Object.prototype pollution vitest, ' +
+          'guardPrototypePollution, prototypePollution, hand written class double, no-stub-class-double, no-structural-double, ' +
           'not assignable to parameter of type HttpEvent, overloaded method mock wrong signature, ' +
           'prefer-render-shallow, TestBed.createComponent slow, angular component test slow, ' +
           'shallow render angular test, renderShallow, NO_ERRORS_SCHEMA vitest, ' +

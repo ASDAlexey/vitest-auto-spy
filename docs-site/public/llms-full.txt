@@ -2581,14 +2581,14 @@ first use, which is nearly always never — and it costs nothing when a spec doe
 because the chain is then built exactly as before. `resetAutoSpy()` drops the chains rather than
 replacing them with empty maps, so a reset spy is back to a fresh spy's footprint.
 
-**The three numbers worth carrying around**, per *method*, on Node v24.19.0 and Vitest 5.0.0, the
+**The three numbers worth carrying around**, per _method_, on Node v24.19.0 and Vitest 5.0.0, the
 same machine as everything else on this page:
 
-|                          |         retained |              time |
-| ------------------------ | ---------------: | ----------------: |
-| lazy placeholder, never touched | **294 B** |      **191 ns** |
+|                                 |    retained |              time |
+| ------------------------------- | ----------: | ----------------: |
+| lazy placeholder, never touched |   **294 B** |        **191 ns** |
 | materialised on first read      | **1 923 B** | **454 ns** on top |
-| a bare `vi.fn()`                | **5 783 B** |    **3 380 ns** |
+| a bare `vi.fn()`                | **5 783 B** |      **3 380 ns** |
 
 So a method a spec never touches is 20× lighter than a `vi.fn()` that stands in for it, and one it
 does touch is **3.0× lighter and 5.2× faster** to build (191 + 454 ns against 3 380). The retained
@@ -3024,32 +3024,33 @@ prune reaches only one and the run dies out of memory.
 
 ## Bundle size
 
-The badge says 16.1 kB min+gzip, and that is the whole core entry bundled together. It is also the
+The badge says 16.2 kB min+gzip, and that is the whole core entry bundled together. It is also the
 largest number a consumer can pay for the core, because entries are separate subpaths and a project
 only pays for the ones it imports:
 
-| Imported                                        |    min+gzip |
-| ----------------------------------------------- | ----------: |
-| `.` — the core entry, what the badge measures   | **16.1 kB** |
-| `vitest-auto-spy/angular`                       |     20.1 kB |
-| `vitest-auto-spy/react` / `/vue` / `/svelte`    |     16.2 kB |
-| `vitest-auto-spy/node`                          |     15.3 kB |
-| `vitest-auto-spy/dom-stubs`                     |      5.3 kB |
-| `vitest-auto-spy/rxjs`                          |      2.3 kB |
-| `vitest-auto-spy/zone`                          |      1.1 kB |
+| Imported                                      |    min+gzip |
+| --------------------------------------------- | ----------: |
+| `.` — the core entry, what the badge measures | **16.2 kB** |
+| `vitest-auto-spy/angular`                     |     20.2 kB |
+| `vitest-auto-spy/react` / `/vue` / `/svelte`  |     16.4 kB |
+| `vitest-auto-spy/node`                        |     15.3 kB |
+| `vitest-auto-spy/dom-stubs`                   |      5.3 kB |
+| `vitest-auto-spy/rxjs`                        |      2.2 kB |
+| `vitest-auto-spy/zone`                        |      1.1 kB |
 
 **The framework rows are not a framework tax.** `react`, `vue` and `svelte` weigh what the core
 weighs, within a rounding error of each other, because that is what they are: `src/react.ts` is a
 barrel — a `registerMockAdapter` call and `export * from './auto-spy'` — and its own code is seven
 bytes in the bundle. Nobody should go looking for weight in it.
 
-Every figure here is the committed baseline in `size-entries.json` as of 2026-09-10, which is what
+Every figure here is the committed baseline in `size-entries.json` as of 2026-09-11, which is what
 `size:entries:check` and the badge both read; an earlier edition of this table quoted 15.1, 18.7 and
 14.5 kB for the first three rows, taken before the defaults registry, the outside-a-hook report and
 the shadowed-provider check. `/dom-stubs` last moved for the
-`AbortSignal` statics and the `currentTime` setter, +219 B.
+`AbortSignal` statics and the `currentTime` setter, +219 B; the core rows last moved for the claim
+record that keeps helpers on a spy when two copies of the package share a process, +0.12…0.27 kB.
 
-`npm run size:entries` prints all twenty and compares them against a committed baseline, so an entry
+`npm run size:entries` prints all twenty-one and compares them against a committed baseline, so an entry
 that quietly gains a second copy of the core fails a check instead of being noticed a release later.
 
 None of this reaches a production bundle in any case: the package is a devDependency, and the
@@ -3057,16 +3058,17 @@ framework adapters, rxjs layer, console spies and setup helpers each live behind
 
 ### What is in the download
 
-`dist/` is **1 035 kB**, the published tarball **431 kB**, and the package ships **75 files**. An
-earlier edition of this page reported 241 kB, 108 kB and 54 files, and presented the change as a
-reduction. Those figures were correct when they were taken — they reproduce to the byte at v2.0.0 —
-but that package had thirteen subpaths, no command-line tool, and an ESLint entry a sixth of its
-current size. Comparing them to today's is comparing two different packages.
+`dist/` is **1 230 kB**, the published tarball **508 kB**, and the package ships **77 files**
+(measured 2026-09-11, after 5.4.0; the previous edition said 1 035 kB, 431 kB and 75 files). An
+earlier edition reported 241 kB, 108 kB and 54 files, and presented the change as a reduction.
+Those figures were correct when they were taken — they reproduce to the byte at v2.0.0 — but that
+package had thirteen subpaths, no command-line tool, and an ESLint entry a sixth of its current
+size. Comparing them to today's is comparing two different packages.
 
 Where the bytes are is more useful than the total. The two largest JavaScript files in the package,
-`dist/cli.js` at 133 kB and `dist/eslint-plugin.cjs` at 81 kB, are **never loaded by a spec file** —
+`dist/cli.js` at 159 kB and `dist/eslint-plugin.cjs` at 117 kB, are **never loaded by a spec file** —
 they are the `vitest-auto-spy` executable and the lint rules, together a fifth of `dist/`. The next
-two, `dist/index.js` at 79 kB and `dist/angular.js` at 101 kB, are large on purpose: both are built
+two, `dist/index.js` at 103 kB and `dist/angular.js` at 127 kB, are large on purpose: both are built
 unsplit, so each carries its own copy of what it needs rather than reaching a shared chunk through
 the loader. `tsup.config.ts` records the measurement behind that decision — the root entry goes
 3.2 → 2.4 ms and root plus `angular` 4.7 → 3.7 ms under Node's native loader, so 0.8 and 1.0 ms per
@@ -3085,7 +3087,7 @@ disconnected registries. CommonJS now ships only where a `require()` actually wo
 second entry: `vitest-auto-spy/node` and `vitest-auto-spy/eslint-plugin`.
 
 One last thing the total does not say: the two biggest files in the download are not code at all.
-`README.md` is 230 kB and `AGENTS.md` 199 kB, and both ship deliberately — the second is what makes
+`README.md` is 271 kB and `AGENTS.md` 261 kB, and both ship deliberately — the second is what makes
 the package legible to a coding agent that has only the installed copy to read.
 
 ## Which Node version
@@ -3287,7 +3289,7 @@ files where that bound is worth chasing.
 A spec that needs a `viewChild`, content projection or a host binding needs the component's own
 template, and it is easy to read that as paying for the whole tree again. It is not. `buildOverride`
 (`lib/render-shallow.ts`) rewrites the component's `imports` to its own scope minus the child
-*components*, so with `keepTemplate: true` the template renders — with its own pipes and directives
+_components_, so with `keepTemplate: true` the template renders — with its own pipes and directives
 working — while every child component in it resolves to nothing under `NO_ERRORS_SCHEMA`.
 
 **Before 5.4.0 this dropped the whole scope**
@@ -5671,11 +5673,11 @@ Storage made the key exist, so the filter now asks `KEYS`, `KEYS` says no, and t
 storage never arrives. The filter runs before any environment-specific code, so jsdom and happy-dom
 break identically:
 
-| Node   | `localStorage` under Vitest       |
-| ------ | --------------------------------- |
-| 24.19  | works                             |
-| 25.9   | `setItem is not a function`       |
-| 26.7   | `undefined`                       |
+| Node  | `localStorage` under Vitest |
+| ----- | --------------------------- |
+| 24.19 | works                       |
+| 25.9  | `setItem is not a function` |
+| 26.7  | `undefined`                 |
 
 A suite stays green with this broken, because only the specs that touch storage fail — which is why
 it usually arrives as "CI moved to a new Node and eleven unrelated specs died".
@@ -5697,6 +5699,57 @@ Two things it deliberately does not do. It installs nothing in a `node` environm
 supposed to have no Web Storage at all: handing the code under test an API the real runtime lacks
 is a larger change than the one it was there to make. And it leaves a working storage exactly as it
 is, so a spec's own stub survives it.
+
+## 15. The key on `Object.prototype` that stops the run collecting
+
+On by default, and the only check here whose absence makes a run report success over code it never
+executed.
+
+Vitest assembles a file's hooks in `mergeHooks`, which walks its hooks object with `for…in`. One own
+enumerable key on `Object.prototype` therefore adds a key that is spread as if it were an array, and
+it happens during **collect**:
+
+```text
+TypeError: Spread syntax requires ...iterable[Symbol.iterator] to be a function
+```
+
+with no stack — `parseErrorStacktrace` filters frames through `stackIgnorePatterns`, which covers
+`"/vitest/dist/"` and `/\/@vitest\/\w+\/dist\//`, and every frame of that error lives there. Under
+`isolate: false` the key outlives the file that wrote it, so the casualties are that worker's whole
+tail. In a 1759-file suite the report read `145 failed | 1613 passed` over `11880 passed | 0 failed`
+— zero failing tests because those 145 files never ran — and the count wandered across 0, 75, 83,
+122, 135, 145 and 155 on an unchanged tree, because a run whose writer happened to go last came out
+green. Anything else that walks a plain object breaks the same way; `superagent`'s mime table
+(`typeMap[type].map is not a function`) was the second place the same key surfaced.
+
+```ts
+setupAutoSpy(); // prototypePollution: 'throw' — pass 'warn' to sweep and report without failing
+```
+
+```text
+[vitest-auto-spy] /src/app/purchase/purchase-open.service.spec.ts left "ngOnDestroy" on
+Object.prototype as an own enumerable property. … **every spec file after this one in the same
+worker fails to collect** … The key has been taken back off so the rest of the run survives.
+```
+
+The write is nearly always accidental. Code that decorates a class by patching
+`Object.getPrototypeOf(instance)` is handed `Object.prototype` itself the moment `instance` is an
+object literal from a `useValue` provider — or a test double:
+
+```ts
+const proto = Object.getPrototypeOf(instance); // Object.prototype, for a plain object
+proto['ngOnDestroy'] = function () { … };      // now every object in the realm has it
+```
+
+Patch the prototype of the class the object came from, never the prototype of a plain object or of a
+double. `Object.prototype`, `Array.prototype` and `Function.prototype` are compared before and after
+every test; a key the environment already carried is left alone, so a project's own prototype
+polyfill is not swept. `guardPrototypePollution(reaction)` is exported for a suite that wants the
+check somewhere narrower.
+
+A key added while the spec file is being _imported_ takes that file's own collect down before any
+hook can run, and nothing inside the runner can report it — what the guard still does there is take
+the key back off, so the report names one file instead of a hundred.
 
 ## The two buffers teardown drains
 
@@ -5757,6 +5810,7 @@ each test: a stub installed for the previous test is exactly what must not still
 | `strayRejections`     | `false`   | Fail the test a rejection zone.js swallowed surfaced in — needs zone.js         |
 | `blockNetwork`        | `false`   | Close every network channel the environment has — `true`, or a narrowing object |
 | `guardGlobals`        | `'off'`   | Report a test that redefines a global property as non-configurable              |
+| `prototypePollution`  | `'throw'` | Sweep and report an enumerable key a test left on a built-in prototype          |
 | `globalFakeTimers`    | `false`   | Fake timers for every test **and between them** — see below                     |
 | `restoreTimerGlobals` | `true`    | Put back timer globals that uninstalling the fakes deleted                      |
 | `restoreWebStorage`   | `true`    | Give the run a `localStorage` / `sessionStorage` that work — see section 14     |
@@ -10654,7 +10708,7 @@ error  tsconfig-glob-matches-nothing libs/users/tsconfig.spec.json
 
 | Check                            | What it finds                                                                                                                                                              | Why nothing catches it                                                                                                                                                                                                                                                                                                                                  |
 | -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `tsconfig-glob-matches-nothing`  | An `include` pattern that matches no file                                                                                                                                  | A glob that matches nothing type-checks nothing, and `tsc` reports success                                                                                                                                                                                                                                                                              |
+| `tsconfig-glob-matches-nothing`  | An `include` pattern that matches no file — an error when files it was meant for sit beside the config, `info` for a library that has none yet                             | A glob that matches nothing type-checks nothing, and `tsc` reports success                                                                                                                                                                                                                                                                              |
 | `tsconfig-file-missing`          | A `files` entry naming a file that is gone                                                                                                                                 | Same — the config is only read by editors once the runner stopped using it                                                                                                                                                                                                                                                                              |
 | `spec-imported-by-non-spec`      | A production module importing a `*.spec.ts`                                                                                                                                | Under a shared environment the import is a cycle, and the spec loses its own suite                                                                                                                                                                                                                                                                      |
 | `spec-exports-fixture`           | A spec importing another spec                                                                                                                                              | The imported file's suites are collected twice and its hooks run in a foreign file's context                                                                                                                                                                                                                                                            |
@@ -10666,8 +10720,8 @@ error  tsconfig-glob-matches-nothing libs/users/tsconfig.spec.json
 | `coverage-include-misses-bundle` | A source-only `coverage.include` in the runner config of an `@angular/build:unit-test` target                                                                              | Coverage is matched twice — first against the executed bundle chunks, then against the remapped sources. A list of `.ts` globs loses every counter on the first pass, and the run stays green — see [coverage under the unit-test builder](https://asdalexey.github.io/vitest-auto-spy/adapters/angular#coverage-under-the-unit-test-builder)                                                      |
 | `jasmine-era-project`            | `jasmine-core`, `@types/jasmine`, `jasmine-auto-spies`, `@hirez_io/observer-spy`, a `karma*` package or a `karma.conf.*` on disk — or `"types": ["jasmine"]` in a tsconfig | **Info**, never an error: a repository is free to still be a jasmine repository. The fix names the order that works — point the specs at [`vitest-auto-spy/jasmine`](https://asdalexey.github.io/vitest-auto-spy/migrating-jasmine) and land the suite green, _then_ `codemod --from jasmine` and drop the import. Doing it the other way round means rewriting a suite that was never green       |
 | `no-agent-instructions`          | No `AGENTS.md` / `CLAUDE.md` / `GEMINI.md` names the package                                                                                                               | A note, not an error. It is the one moment where saying so costs nothing                                                                                                                                                                                                                                                                                |
-| `helper-from-wrong-entry`        | A helper imported from an entry that does not export it — `provideAutoSpy` from the root, `flushEventLoop` from `/angular`                                                  | Resolving a name to the entry that owns it needs a table generated from the installed version's own export map, which no per-file linter has. And the files it fires in are usually the ones no `tsc` program covers — the check above says which                                                                                                        |
-| `no-unawaited-helper`            | `expectEmission`, `expectError`, `stable`, `flushEventLoop` and their siblings called as a statement and dropped                                                            | The promise settles after the test has already ended, so the assertion inside it reports into a later test, or nowhere. The run stays green and the spec looks like it asserted something                                                                                                                                                               |
+| `helper-from-wrong-entry`        | A helper imported from an entry that does not export it — `provideAutoSpy` from the root, `flushEventLoop` from `/angular`                                                 | Resolving a name to the entry that owns it needs a table generated from the installed version's own export map, which no per-file linter has. And the files it fires in are usually the ones no `tsc` program covers — the check above says which                                                                                                       |
+| `no-unawaited-helper`            | `expectEmission`, `expectError`, `stable`, `flushEventLoop` and their siblings called as a statement and dropped                                                           | The promise settles after the test has already ended, so the assertion inside it reports into a later test, or nowhere. The run stays green and the spec looks like it asserted something                                                                                                                                                               |
 
 The check that motivated the tool: a spec showing `Cannot find name 'vi'` in the editor while
 `tsc --noEmit` reported zero errors. A migration codemod editing `include` had eaten a `/**`,
@@ -10777,21 +10831,21 @@ below is why a real repository can get an honest "cannot tell" instead of a gues
 on the clock and 17.30s of CPU because the work was spread across several workers. A phase total
 larger than the wall clock is not a bug.
 
-| Phase         | What Vitest measures (its own `ModuleDiagnostic` wording)                                     |
-| ------------- | ----------------------------------------------------------------------------------------------- |
-| `environment` | The time to import and initiate an environment (`jsdom`, `happy-dom`, `node`) for the file       |
-| `prepare`     | The time Vitest spends setting up the test harness — runner, mocks — for the file               |
-| `import`      | The time to import the test module: everything it imports, plus running its suite callbacks     |
-| `setup`       | The time to import the configured setup file(s) for the file                                    |
-| `tests`       | Accumulated duration of the test bodies and hooks themselves                                     |
-| `transform`   | Whole-run transform time (esbuild/Vite), not tracked per file so it has no per-file finding      |
+| Phase         | What Vitest measures (its own `ModuleDiagnostic` wording)                                   |
+| ------------- | ------------------------------------------------------------------------------------------- |
+| `environment` | The time to import and initiate an environment (`jsdom`, `happy-dom`, `node`) for the file  |
+| `prepare`     | The time Vitest spends setting up the test harness — runner, mocks — for the file           |
+| `import`      | The time to import the test module: everything it imports, plus running its suite callbacks |
+| `setup`       | The time to import the configured setup file(s) for the file                                |
+| `tests`       | Accumulated duration of the test bodies and hooks themselves                                |
+| `transform`   | Whole-run transform time (esbuild/Vite), not tracked per file so it has no per-file finding |
 
 A phase only produces findings once it is worth a reader's afternoon: below 30 % of the total, or
 below 5 s of total CPU time across the whole run, `perf` says so and stops rather than naming files
 over noise.
 
 **`perf-environment`** fires when `environment` dominates. It ranks every spec file that is
-*DOM-free* — provably so, not probably — by the environment time it cost, and suggests
+_DOM-free_ — provably so, not probably — by the environment time it cost, and suggests
 `// @vitest-environment node` (or a `node`-environment project) for each. The rule is deliberately
 one-sided: a spec is a candidate only when it, the configured setup files, and every repository
 module any of them imports were read, none of them mentions a DOM name, and every package they
@@ -10843,10 +10897,10 @@ producing no report, or a `--json` file that does not parse as one. If the suite
 
 ### Flags
 
-| Flag           | Effect                                                                                  |
-| -------------- | ---------------------------------------------------------------------------------------- |
-| `--cwd <dir>`  | Run against another directory instead of the current one (shared with the other commands) |
-| `--json <path>` | Read a report an earlier `--out` run wrote, instead of running Vitest again              |
+| Flag            | Effect                                                                                                                 |
+| --------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `--cwd <dir>`   | Run against another directory instead of the current one (shared with the other commands)                              |
+| `--json <path>` | Read a report an earlier `--out` run wrote, instead of running Vitest again                                            |
 | `--out <path>`  | Keep the JSON report at this path. Without it, the report is written under `node_modules/.cache` and deleted once read |
 
 A positional path (`npx vitest-auto-spy perf src/cli`) is passed through to Vitest as its file
@@ -15894,7 +15948,7 @@ Short and factual.
   ways an AOT test bundle fails half an hour later in someone else's spec.
 - **Beyond Vitest**, the same API runs on `bun:test` and `node:test`, and Angular's `TestBed` runs
   [under `bun test`](https://asdalexey.github.io/vitest-auto-spy/runtimes/bun-angular).
-- **[Twenty-three lint rules](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-plugin)** versioned with the API they recommend.
+- **[Twenty-five lint rules](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-plugin)** versioned with the API they recommend.
 
 ## Did the migration lose a test?
 
@@ -16536,7 +16590,7 @@ Nothing in this package's spy path touches `NgZone` either, so the two coexist w
   rather than typing the real service as a double.
 - **The same API off Angular** — [`bun:test`](https://asdalexey.github.io/vitest-auto-spy/runtimes/bun), [`node:test`](https://asdalexey.github.io/vitest-auto-spy/runtimes/node), NestJS,
   React, Vue, Svelte, and Angular's `TestBed` [under `bun test`](https://asdalexey.github.io/vitest-auto-spy/runtimes/bun-angular).
-- **[Twenty-three lint rules](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-plugin)** versioned with the API they recommend.
+- **[Twenty-five lint rules](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-plugin)** versioned with the API they recommend.
 
 ## Versions this was written against
 
@@ -16872,6 +16926,7 @@ The exported surface of `vitest-auto-spy` and its subpaths.
 | `trackNodeMocks()` / `pruneNodeMocks()` / `countNodeMocks()`                                                 | Give this library its own `node:test` `MockTracker`, so a dropped spy is actually freed (`/node`)                                                                   |
 | `restoreLongLivedImplementations()`                                                                          | Put back the implementation a cross-file `vi.resetAllMocks()` took off a shared double (`/setup`)                                                                   |
 | `guardGlobalPatches(reaction)`                                                                               | Name the test that redefined a global property as non-configurable (`/setup`)                                                                                       |
+| `guardPrototypePollution(reaction)`                                                                          | Name the test that left a key on `Object.prototype`, and take it back off (`/setup`)                                                                                |
 | `restoreWebStorage(options?)`                                                                                | Give `globalThis` a `localStorage` / `sessionStorage` that work when the runner's copy never arrived; on by default inside `setupAutoSpy()` (`/setup`)              |
 | `installPerTest(install)`                                                                                    | Re-install a stub before every test of the block, and read back the current handle (`/setup`)                                                                       |
 | `stubMediaElement(opts?)`                                                                                    | A `<video>` / `<audio>` that plays, reports a duration and fires the media events                                                                                   |
@@ -16910,7 +16965,7 @@ The exported surface of `vitest-auto-spy` and its subpaths.
 | `consoleDebugSpy` … `consoleWarnSpy`                                                                         | Silent typed spies replacing the global `console` methods on import (`/console`)                                                                                    |
 | `installConsoleSpies()` / `resetConsoleSpies()` / `restoreConsole()`                                         | Install / clear / undo the console spies (`/console`)                                                                                                               |
 | `errorHandler`                                                                                               | The `mustBeCalledWith` argument-mismatch error helper                                                                                                               |
-| `vitest-auto-spy/eslint-plugin`                                                                              | Twenty-three flat-config lint rules that steer a suite onto these helpers                                                                                           |
+| `vitest-auto-spy/eslint-plugin`                                                                              | Twenty-five flat-config lint rules that steer a suite onto these helpers                                                                                            |
 
 ## Helper surface by return type
 
@@ -17074,7 +17129,7 @@ report does not evaluate them — see [Upgrading to 4.0](https://asdalexey.githu
 | `/react`, `/svelte` | — (the core, under a name that reads right in those suites)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | `/console`          | `consoleDebugSpy` … `consoleWarnSpy`, `installConsoleSpies`, `resetConsoleSpies`, `restoreConsole`                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | `/zone`             | `installProxyZonePatch` — and installs it on import. The only entry that touches zones; zone.js is a **devDependency of this package and nothing else**, and no other entry reaches this module                                                                                                                                                                                                                                                                                                                                                                               |
-| `/setup`            | `setupAutoSpy`, `setupFakeTimers`, `advanceTimers`, `mockSystemTime`, `withSystemTime`, `mockNow`, `useCountingClock`, `registerFocusMatchers`, `blockNetwork`, `guardGlobalPatches`, `installPerTest`, `restoreTimerGlobals`, `restoreWebStorage`, `setSpyEngine` / `getSpyEngine` / `SpyEngine`, the stray-timer and stray-rejection trackers, the mock-registry trackers, `describeDuplicateCopies`, `getPackageCopies`                                                                                                                                                    |
+| `/setup`            | `setupAutoSpy`, `setupFakeTimers`, `advanceTimers`, `mockSystemTime`, `withSystemTime`, `mockNow`, `useCountingClock`, `registerFocusMatchers`, `blockNetwork`, `guardGlobalPatches`, `guardPrototypePollution`, `installPerTest`, `restoreTimerGlobals`, `restoreWebStorage`, `setSpyEngine` / `getSpyEngine` / `SpyEngine`, the stray-timer and stray-rejection trackers, the mock-registry trackers, `describeDuplicateCopies`, `getPackageCopies`                                                                                                                         |
 | `/eslint-plugin`    | the flat-config plugin object                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 
 The core itself also carries, beyond the factories: `captureArg`, `asInstances`, `narrow`, `withOverrides`,
@@ -17566,7 +17621,7 @@ alongside it:
   of, kept to the mocks that outlive a file. On `isolate: false` it is what makes `clearMocks` cost
   more with every test already run, and what keeps a whole run's recorded arguments — and the
   component trees behind them — alive in one worker.
-- [Twenty-three ESLint rules](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-plugin) versioned together with the API they recommend, and
+- [Twenty-five ESLint rules](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-plugin) versioned together with the API they recommend, and
   [`setupAutoSpy()`](https://asdalexey.github.io/vitest-auto-spy/utilities/setup) for the test-run hygiene a shared environment needs.
 - [Per-file `TestBed` diagnostics](https://asdalexey.github.io/vitest-auto-spy/adapters/angular#where-a-spec-spends-its-time) — which specs
   actually pay for `TestBed`, and by how much.
