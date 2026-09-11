@@ -113,8 +113,9 @@ The latest released version here must always match the one published on
   than as the plugin's first `off`. A suggestion drops the call (the whole statement when only
   `TestBed` is left) and the `async` of a hook or test that awaits nothing else; a `.then()` chain, a
   returned or stored promise and a concise arrow body are reported without one. On the consumer: 449
-  calls in 411 files, 435 with the edit. The plugin ships thirty-four rules, and the three add
-  2.02 kB min+gzip to `/eslint-plugin` (27.50 → 29.52 kB) — a dev-time entry no test bundle imports.
+  calls in 411 files, 435 with the edit. The plugin ships thirty-four rules; the three, landing in one
+  commit with `no-unknown-use-value-key`, add 2.57 kB min+gzip together to `/eslint-plugin` (26.95 →
+  29.52 kB) — a dev-time entry no test bundle imports.
 
 - **A strict double's getter nobody configured, and its stream nobody fed, are reported after the
   test.** Strict mode throws on a method nobody configured, but a spied getter still answered
@@ -135,9 +136,10 @@ The latest released version here must always match the one published on
   instead of the report, from every double not built with `strict: false`, for a survey before the
   report goes on. Not part of `preset: 'strict'`. Covers `createSpyFromClass`, `provideAutoSpy`,
   `createSpyFromInstance`, and the observable properties of `createAutoMock` /
-  `provideAutoSpyForToken`; `mockDeep` nodes stay out. The trackers ride every factory — +0.28…0.33 kB
-  min+gzip on the core rows (16.91 → 17.18 kB) and +0.30 kB on `/angular` — and `/setup`, which also
-  carries the report, takes 0.61 kB (16.40 → 17.01 kB).
+  `provideAutoSpyForToken`; `mockDeep` nodes stay out. The trackers ride every factory — with
+  `selfReturning`, which landed in the same commit, +0.37…0.41 kB min+gzip on the core rows (16.80 →
+  17.17 kB on `.`) and +0.41 kB on `/angular` — and `/setup`, which also carries the report, takes
+  0.61 kB (16.36 → 16.98 kB).
 
 - **`createComponentStub(Real, overrides?, { template }?)` in `/angular`: a child's stand-in that
   cannot drift from the child.** A hand-written stub restates the selector, the inputs and the
@@ -152,8 +154,8 @@ The latest released version here must always match the one published on
   imports: [Stub] } })` and next to `renderShallow(Parent, { keepTemplate: true, keepChildren: [Stub] })`.
   Not copied, on purpose: host bindings, providers, lifecycle hooks, queries. Each stub gets a
   component ID of its own, so stubbing the same child in every test prints no `NG0912`.
-  `renderShallow` does not do this — it drops children instead of standing in for them. +0.93 kB
-  min+gzip on `/angular` (21.72 → 22.65 kB).
+  `renderShallow` does not do this — it drops children instead of standing in for them. +1.02 kB
+  min+gzip on `/angular` (21.64 → 22.65 kB).
 
 - **`stubWebStorage('localStorage' | 'sessionStorage', { items, view }?)` in `/dom-stubs`.** An
   in-memory `Storage` a spec installs for itself — `getItem` / `setItem` / `removeItem` / `clear` /
@@ -192,9 +194,13 @@ The latest released version here must always match the one published on
   `String()` as the platform's do, and `key()` converts its index as an `unsigned long` (`key(-1)` is
   `null`, `key(NaN)` is the first key). +37 B min+gzip on `/setup`.
 
-Token registrations, `selfReturning` and `no-unknown-use-value-key` add +0.11 kB min+gzip to the core
-rows (16.80 → 16.91 kB), +0.26 kB to `/angular` (21.17 → 21.42 kB), and +0.55 kB to `/eslint-plugin`
-(26.95 → 27.50 kB), a dev-time entry no test bundle imports.
+Size, min+gzip, measured commit by commit. Token registrations add 18 B to the core entry and 64 B to
+`/angular` (21.57 → 21.64 kB). `/jasmine` and `/nestjs` carry the same core and changed no line of
+their own: +415 B (12.45 → 12.87 kB) and +409 B (12.14 → 12.55 kB), past 3 % only because the base is
+smaller — 406 B and 392 B from the trackers and `selfReturning`, the rest from token registrations.
+`/setup` takes another 34 B from the `angular-router` link added to the shared documentation-link
+table. The four new lint rules add 2.57 kB to `/eslint-plugin` (26.95 → 29.52 kB), a dev-time entry
+no test bundle imports.
 
 ## [5.7.0] - 2026-09-11
 
