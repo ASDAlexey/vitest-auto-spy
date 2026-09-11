@@ -27,7 +27,7 @@ import {
 
 import { REPLAY_BUFFER_SIZE } from './constants';
 import type { CalledWithObject, ReturnValueContainer } from './internal-types';
-import { type ObservableStream } from './observable-support';
+import { type ObservableStream, type UnfedSubscriptionListener } from './observable-support';
 import { attachHelpers, decorate, detachedHelperError } from './spy-decoration';
 import { hooksOf } from './spy-mark';
 import type { AddObservableSpyMethods, ValueConfig, ValueConfigPerCall } from './types';
@@ -362,18 +362,26 @@ export function createObservableWithValues<T>(
  */
 class PropObservableTarget<T> extends ObservableTarget<T> {
   published$: Observable<T> = defer(() => this.get());
+  fed = false;
 
   publish(stream: Observable<T>): void {
     this.published$ = stream;
+    this.fed = true;
   }
 }
 
-export function createObservablePropSpy<T>(): AddObservableSpyMethods<T> & Observable<T> {
+export function createObservablePropSpy<T>(onUnfedSubscription?: UnfedSubscriptionListener): AddObservableSpyMethods<T> & Observable<T> {
   const target = new PropObservableTarget<T>();
   // Read back as the plain `Observable<T>` it is at the type level: a prop spy carries the six
   // stream helpers but not `nextWithPerCall`, and the public type below claims the full set.
   const observableSpy: Observable<T> = decorate(
-    defer(() => target.published$),
+    defer(() => {
+      if (onUnfedSubscription && !target.fed) {
+        onUnfedSubscription(() => !target.fed);
+      }
+
+      return target.published$;
+    }),
     observableHelpers<Observable<T>, T>(() => target),
   );
 

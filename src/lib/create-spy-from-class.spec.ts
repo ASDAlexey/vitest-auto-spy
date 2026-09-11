@@ -10,7 +10,7 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { applyReturns, createSpyFromClass } from './create-spy-from-class';
-import { setDefaultStrictMode } from './function-spy';
+import { setDefaultStrictMode, takeStrictViolations } from './function-spy';
 import { registerMockAdapter } from './mock-adapter';
 import { clearAutoSpyDefaults, registerAutoSpyDefaults } from './spy-defaults';
 import { vitestMockAdapter } from './vitest-adapter';
@@ -233,5 +233,68 @@ describe('createSpyFromClass — returns is a default, not a wall', () => {
     applyReturns(host, 'test', { total: 2 });
 
     expect(host.total()).toBe(2);
+  });
+});
+
+describe('createSpyFromClass — selfReturning', () => {
+  class QueryBuilder {
+    where(_field: string): QueryBuilder {
+      return this;
+    }
+
+    orderBy(_field: string): QueryBuilder {
+      return this;
+    }
+
+    run(): number[] {
+      return [];
+    }
+  }
+
+  it.each([true, false, 'proxy'] as const)('answers the double itself from each named method (lazySpies: %s)', (lazySpies) => {
+    const query = createSpyFromClass(QueryBuilder, { lazySpies, selfReturning: ['where', 'orderBy'], returns: { run: [1] } });
+
+    expect(query.where('a').orderBy('b').run()).toEqual([1]);
+    expect(query.where).toHaveBeenCalledWith('a');
+    expect(query.orderBy).toHaveBeenCalledWith('b');
+  });
+
+  it('counts as configured under strict', () => {
+    takeStrictViolations(); // earlier tests in this file leave theirs behind
+    const query = createSpyFromClass(QueryBuilder, { strict: true, selfReturning: ['where'] });
+
+    expect(query.where('a')).toBe(query);
+    expect(() => query.run()).toThrow('Nothing configured QueryBuilder.run');
+    expect(takeStrictViolations()).toHaveLength(1);
+  });
+
+  it('answers the fallback proxy for a class whose prototype names nothing', () => {
+    const storage = createSpyFromClass(Storage, { selfReturning: ['read'] });
+
+    expect(storage.read('key')).toBe(storage);
+  });
+
+  it('unions a registered chain with the call site, and lets the call site take a link out through returns', () => {
+    const fixed = createSpyFromClass(QueryBuilder);
+
+    registerAutoSpyDefaults(QueryBuilder, { selfReturning: ['where'] });
+
+    try {
+      const query = createSpyFromClass(QueryBuilder, { selfReturning: ['orderBy'], returns: { where: fixed } });
+
+      expect(query.orderBy('b')).toBe(query);
+      expect(query.where('a')).toBe(fixed);
+    } finally {
+      clearAutoSpyDefaults(QueryBuilder);
+    }
+  });
+
+  it('says so, naming the option, when a name is not a spied method', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    createSpyFromClass(QueryBuilder, { onlyMethodsToSpyOn: ['run'], selfReturning: ['where'] });
+
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("createSpyFromClass(QueryBuilder): selfReturning names 'where'"));
+    warn.mockRestore();
   });
 });

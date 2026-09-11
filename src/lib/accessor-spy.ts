@@ -8,6 +8,7 @@
 import { getJasmineSupport } from './jasmine-support';
 import { type MockFn, getMockAdapter } from './mock-adapter';
 import { markAsMock } from './spy-mark';
+import { type ReadGuard, unconfiguredGetter } from './unconfigured-reads';
 
 type AccessorType = 'getter' | 'setter';
 
@@ -29,8 +30,8 @@ const NOOP_SETTER = function noopSetter(_value: unknown): void {
 };
 
 /** Install no-op `get`/`set` accessors so the adapter has something to wrap. */
-function defineWithEmptyAccessors(obj: Record<string, unknown>, prop: string): void {
-  Object.defineProperty(obj, prop, { get: NOOP_GETTER, set: NOOP_SETTER, configurable: true });
+function defineWithEmptyAccessors(obj: Record<string, unknown>, prop: string, getter: () => undefined = NOOP_GETTER): void {
+  Object.defineProperty(obj, prop, { get: getter, set: NOOP_SETTER, configurable: true });
 }
 
 function spyOnAccessor(autoSpy: Record<string, unknown>, accessorName: string, accessorType: AccessorType): MockFn {
@@ -44,12 +45,18 @@ function spyOnAccessor(autoSpy: Record<string, unknown>, accessorName: string, a
   return mock;
 }
 
-export function createAccessorsSpies(autoSpy: Record<string, unknown>, gettersToSpyOn: string[], settersToSpyOn: string[]): void {
+/** `reads` makes each getter's scaffold note a read nothing configured — see `unconfigured-reads.ts`. */
+export function createAccessorsSpies(
+  autoSpy: Record<string, unknown>,
+  gettersToSpyOn: string[],
+  settersToSpyOn: string[],
+  reads?: ReadGuard,
+): void {
   const accessorSpies: AccessorSpies = { getters: {}, setters: {} };
   autoSpy['accessorSpies'] = accessorSpies;
 
   gettersToSpyOn.forEach((getterName) => {
-    defineWithEmptyAccessors(autoSpy, getterName);
+    defineWithEmptyAccessors(autoSpy, getterName, reads && unconfiguredGetter(reads, getterName));
     accessorSpies.getters[getterName] = spyOnAccessor(autoSpy, getterName, 'getter');
   });
 

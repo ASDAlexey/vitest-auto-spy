@@ -680,6 +680,24 @@ export interface UnstubbedCall {
  */
 export type UnstubbedCallHandler = (call: UnstubbedCall) => unknown;
 
+/** What the read hook is told about a member of a double that was read — or subscribed to — with nothing configured. */
+export interface UnstubbedRead {
+  /** The class the double was built from — `undefined` for a type-driven `createAutoMock` given no `name`. */
+  className: string | undefined;
+  /** The spied getter that was read, or the observable property that was subscribed to. */
+  member: string;
+  /** `'getter'` for a spied accessor, `'observable'` for an `observablePropsToSpyOn` stream. */
+  kind: 'getter' | 'observable';
+  /** How many times the test read the getter, or subscribed to the stream. */
+  count: number;
+}
+
+/**
+ * What to do about a member a test read with nothing configured — see
+ * {@link StrictSpyConfiguration.onUnstubbedRead}. Called after the test, once per member.
+ */
+export type UnstubbedReadHandler = (read: UnstubbedRead) => void;
+
 /**
  * Strict-mode configuration, shared by every factory that builds a double.
  *
@@ -733,6 +751,25 @@ export interface StrictSpyConfiguration {
    * Wins over {@link strict} when both are given, and over anything installed globally.
    */
   onUnstubbedCall?: UnstubbedCallHandler | undefined;
+  /**
+   * Take this double's unconfigured reads instead of the report `setupAutoSpy({ unconfiguredReads })`
+   * makes of them: a spied getter the test read that nothing configured, and an observable property
+   * the test subscribed to that nothing fed by the time it ended.
+   *
+   * ```ts
+   * createSpyFromClass(Router, {
+   *   gettersToSpyOn: ['url'],
+   *   onUnstubbedRead: ({ className, member, count }) => {
+   *     unread.push(`${className}.${member} ×${count}`); // survey, don't fail
+   *   },
+   * });
+   * ```
+   *
+   * Called after each test, once per member, and only under `setupAutoSpy` — a test is what it marks
+   * out. Wins over {@link strict} and over a suite-wide handler; the read itself still answers
+   * `undefined`.
+   */
+  onUnstubbedRead?: UnstubbedReadHandler | undefined;
 }
 
 /** Restricts/extends what `createSpyFromClass` spies on. */
@@ -824,6 +861,21 @@ export interface ClassSpyConfiguration<T> extends StrictSpyConfiguration {
    * for its arguments, and a later `resolveWith` / `failWith` replaces it.
    */
   returns?: MethodReturns<T>;
+  /**
+   * Methods that answer **the double itself** — the `returns` entry a literal cannot spell, because
+   * the double does not exist yet when the configuration is written.
+   *
+   * ```ts
+   * provideAutoSpy(QueryBuilder, { selfReturning: ['where', 'orderBy'] });
+   * ```
+   *
+   * For a fluent call the code under test chains off, where an unconfigured link answers `undefined`
+   * and the next hop throws. It is a default in the same container as {@link returns}: it counts as
+   * configured under `strict`, a later `calledWith` / `mockReturnValue` still wins, and a method also
+   * named in `returns` answers that value — which is how a spec overrides a registered chain.
+   * `mockDeep`'s boolean `selfReturning` is the same idea for every node of a deep double.
+   */
+  selfReturning?: OnlyMethodKeysOf<T>[];
   /**
    * Values for members that are **not** method results — an Observable property the code under test
    * subscribes to, a plain field, a signal.

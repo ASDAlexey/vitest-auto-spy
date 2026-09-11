@@ -204,6 +204,11 @@ export function setDefaultStrictMode(config: StrictResolution | undefined): void
   strictDefault().config = config;
 }
 
+/** The suite-wide `strict`, for the read guard that resolves its own precedence. */
+export function defaultStrict(): boolean | undefined {
+  return strictDefault().config?.strict;
+}
+
 /**
  * The guard a double should hand to each of its spies, or nothing when strict mode is off.
  *

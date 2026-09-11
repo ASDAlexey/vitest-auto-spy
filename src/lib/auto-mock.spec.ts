@@ -344,3 +344,71 @@ describe('createAutoMock — strict mode', () => {
     expect(seen).toEqual([undefined, 'getUser']);
   });
 });
+
+describe('createAutoMock — selfReturning', () => {
+  interface ChannelLogger {
+    info(message: string): void;
+  }
+
+  interface AppLogger {
+    info(message: string): void;
+    err(message: string): void;
+    channel(name: string): ChannelLogger;
+  }
+
+  it('answers the double itself from a named method, so a chained call reaches the same spies', () => {
+    const logger = createAutoMock<AppLogger>(undefined, { selfReturning: ['channel'] });
+
+    logger.channel('auth').info('signed in');
+
+    expect(logger.channel('auth')).toBe(logger);
+    expect(logger.info).toHaveBeenCalledWith('signed in');
+  });
+
+  it('counts as configured under strict, while every other member still throws', () => {
+    takeStrictViolations(); // earlier tests in this file leave theirs behind
+    const logger = createAutoMock<AppLogger>(undefined, { strict: true, selfReturning: ['channel'] });
+
+    expect(logger.channel('auth')).toBe(logger);
+    expect(() => logger.err('boom')).toThrow('Nothing configured err, and strict mode is on.');
+    expect(takeStrictViolations()).toHaveLength(1);
+  });
+
+  it('stays a default that a later calledWith or mockReturnValue wins over', () => {
+    const other = createAutoMock<ChannelLogger>();
+    const logger = createAutoMock<AppLogger>(undefined, { selfReturning: ['channel'] });
+
+    logger.channel.calledWith('player').mockReturnValue(other);
+
+    expect(logger.channel('player')).toBe(other);
+    expect(logger.channel('auth')).toBe(logger);
+
+    logger.channel.mockReturnValue(other);
+
+    expect(logger.channel('auth')).toBe(other);
+  });
+
+  it('gives way to returns for a method named in both', () => {
+    const other = createAutoMock<ChannelLogger>();
+    const logger = createAutoMock<AppLogger>(undefined, { selfReturning: ['channel'], returns: { channel: other } });
+
+    expect(logger.channel('auth')).toBe(other);
+  });
+
+  it('is cleared by resetAutoSpy, as returns is', () => {
+    const logger = createAutoMock<AppLogger>(undefined, { selfReturning: ['channel'] });
+
+    resetAutoSpy(logger);
+
+    expect(logger.channel('auth')).toBeUndefined();
+  });
+
+  it('says so, naming the option, when it names a member the double never spies', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    createAutoMock<{ then(): void }>(undefined, { selfReturning: ['then'] });
+
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("createAutoMock: selfReturning names 'then'"));
+    warn.mockRestore();
+  });
+});

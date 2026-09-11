@@ -26,7 +26,6 @@ import { DOCS_LINKS, withDocs } from './docs-links';
 import { type UnstubbedGuard, createFunctionSpy, resolveUnstubbedGuard, seedReturnValue } from './function-spy';
 import { reportMisconfiguration } from './misconfiguration';
 import { getMockAdapter } from './mock-adapter';
-import { requireObservableSupport } from './observable-support';
 import {
   NOT_STORED,
   type ProxyPropStore,
@@ -43,7 +42,17 @@ import {
 } from './proxy-props';
 import { disposeAutoSpy } from './reset-auto-spy';
 import { AUTO_SPY_MARK } from './spy-mark';
-import type { DeepPartial, Func, MethodReturns, OnlyObservablePropsOf, Spy, SpyOptions, StrictSpyConfiguration } from './types';
+import type {
+  DeepPartial,
+  Func,
+  MethodReturns,
+  OnlyMethodKeysOf,
+  OnlyObservablePropsOf,
+  Spy,
+  SpyOptions,
+  StrictSpyConfiguration,
+} from './types';
+import { type ReadGuard, createTrackedPropSpy, resolveReadGuard } from './unconfigured-reads';
 
 /**
  * Create a fully-typed auto-mock of `T` from its type alone (no class).
@@ -79,7 +88,13 @@ export function createAutoMock<T, Options extends SpyOptions = SpyOptions>(
   // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- the auto-mock is built dynamically from runtime-accessed keys; its `Spy<T>` shape cannot be expressed before access.
   const mock = new Proxy<Record<PropertyKey, unknown>>(target, AUTO_MOCK_HANDLER) as Spy<T, Options>;
 
-  applyObservableProps(mock, config?.observablePropsToSpyOn);
+  applyObservableProps(
+    mock,
+    config?.observablePropsToSpyOn,
+    config?.observablePropsToSpyOn?.length ? resolveReadGuard(config.name, config) : undefined,
+  );
+  // Before `returns`, which overwrites it: a method named in both answers the `returns` value.
+  applyMockReturns(mock, config?.selfReturning && Object.fromEntries(config.selfReturning.map((name) => [name, mock])), 'selfReturning');
   applyMockReturns(mock, config?.returns);
 
   return mock;
@@ -92,14 +107,12 @@ export function createAutoMock<T, Options extends SpyOptions = SpyOptions>(
  * type at runtime a method key and a property key are indistinguishable — so the code under test
  * subscribes to a function and the failure lands somewhere else entirely.
  */
-function applyObservableProps(mock: object, names: readonly string[] | undefined): void {
+function applyObservableProps(mock: object, names: readonly string[] | undefined, reads: ReadGuard | undefined): void {
   if (!names?.length) {
     // Nothing to do, and nothing to ask the registry for: a double with no observable members must
     // stay buildable in a suite that never imports `vitest-auto-spy/rxjs`.
     return;
   }
-
-  const support = requireObservableSupport();
 
   for (const name of names) {
     // A seeded key wins, exactly as it does on the class-based factory: `overrides` is the more
@@ -109,7 +122,7 @@ function applyObservableProps(mock: object, names: readonly string[] | undefined
       continue;
     }
 
-    Reflect.set(mock, name, support.createPropSpy());
+    Reflect.set(mock, name, createTrackedPropSpy(name, reads));
   }
 }
 
@@ -156,6 +169,19 @@ export interface AutoMockConfiguration<T> extends StrictSpyConfiguration {
    * argument `ClassSpyConfiguration.returns` was added for.
    */
   returns?: MethodReturns<T>;
+  /**
+   * Methods that answer the double itself — the link a chained call needs, which `returns` cannot
+   * name because the double does not exist yet when the literal is written.
+   *
+   * ```ts
+   * provideAutoSpyForToken(LOGGER, undefined, { selfReturning: ['channel'] });
+   * // inject(LOGGER).channel('auth').debug('…') reaches the same double
+   * ```
+   *
+   * The same default `returns` installs, so it counts as configured under `strict` and a later
+   * `calledWith` / `mockReturnValue` still wins; a method also named in `returns` answers that value.
+   */
+  selfReturning?: OnlyMethodKeysOf<T>[];
 }
 
 /** Narrow an unknown member to the callable the adapter needs, without an assertion. */
@@ -164,7 +190,7 @@ function isCallable(value: unknown): value is Func {
 }
 
 /** Install the configured return values on a type-driven mock. */
-function applyMockReturns(mock: object, returns: MethodReturns<never> | undefined): void {
+function applyMockReturns(mock: object, returns: Record<string, unknown> | undefined, option = 'returns'): void {
   if (!returns) {
     return;
   }
@@ -183,7 +209,7 @@ function applyMockReturns(mock: object, returns: MethodReturns<never> | undefine
       // the configuration is the one thing not to do: the value would simply never be returned.
       reportMisconfiguration(
         withDocs(
-          `[vitest-auto-spy] createAutoMock: returns names '${name}', which this double never turns into a spy — ` +
+          `[vitest-auto-spy] createAutoMock: ${option} names '${name}', which this double never turns into a spy — ` +
             "'then' and 'constructor' are held back so the mock is not treated as a Promise. Rename the member, or " +
             'seed it through the overrides argument instead.',
           DOCS_LINKS.createSpyFromClass,
@@ -324,7 +350,7 @@ function readKey(store: ProxyPropStore, key: string | symbol, receiver: unknown,
  *
  * Use {@link createAutoMock} when the double only ever travels as a spy; the intersection is
  * strictly wider, and a wider type is worth asking for only when both halves are used. `config` is
- * {@link createAutoMock}'s: `returns`, `name`, `strict`, `observablePropsToSpyOn`.
+ * {@link createAutoMock}'s: `returns`, `selfReturning`, `name`, `strict`, `observablePropsToSpyOn`.
  */
 export function autoMocked<T>(overrides?: DeepPartial<T>, config?: AutoMockConfiguration<T>): Spy<T> & T {
   const mock = createAutoMock<T>(overrides, config);

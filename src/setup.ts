@@ -29,6 +29,7 @@ export {
   type SetupAutoSpyPreset,
   type StrayTimerReport,
   type SwallowedStrictCallsReaction,
+  type UnconfiguredReadsReaction,
 } from './lib/setup-auto-spy';
 export type { MisconfigurationReaction } from './lib/misconfiguration';
 export { takeStrictViolations } from './lib/function-spy';

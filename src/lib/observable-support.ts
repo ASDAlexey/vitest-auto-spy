@@ -30,8 +30,11 @@ export interface ObservableSupport {
    */
   streamForFunctionSpy(valueContainer: ReturnValueContainer): ObservableStream;
   addToCalledWithObject(calledWithObject: CalledWithObject, calledWithArgs: unknown[]): void;
-  createPropSpy(): object;
+  createPropSpy(onUnfedSubscription?: UnfedSubscriptionListener): object;
 }
+
+/** Told about a subscription to a prop spy nothing had fed yet, with a way to ask again once the test is over. */
+export type UnfedSubscriptionListener = (stillUnfed: () => boolean) => void;
 
 let registeredSupport: ObservableSupport | undefined;
 

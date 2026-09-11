@@ -15,7 +15,7 @@
 import { createAccessorsSpies } from './accessor-spy';
 import {
   type ResolvedSpyConfiguration,
-  applyReturns,
+  applyConfiguredReturns,
   getCallableMemberNames,
   mergeMethodNames,
   resolveAccessors,
@@ -23,10 +23,10 @@ import {
 } from './create-spy-from-class';
 import { DISPOSE } from './dispose-symbol';
 import { createFunctionSpy, resolveUnstubbedGuard } from './function-spy';
-import { requireObservableSupport } from './observable-support';
 import { type RestoreProp, mockAccessorsProp, mockValueProp } from './prop-mock';
 import { redefineFailure } from './redefine-failure';
 import type { ClassSpyConfiguration, OnlyMethodKeysOf, Spy, SpyOptions } from './types';
+import { type ReadGuard, createTrackedPropSpy, resolveReadGuard } from './unconfigured-reads';
 
 /**
  * The undos of every member this factory replaced, per instance.
@@ -64,14 +64,19 @@ function installMember(instance: object, name: PropertyKey, value: unknown, rest
  * step that records the original descriptor and that turns a non-configurable member into this
  * library's diagnostic. `createAccessorsSpies` then redefines what is by now a configurable pair.
  */
-function installAccessorSpies(instance: object, config: ResolvedSpyConfiguration, restores: RestoreProp[]): void {
+function installAccessorSpies(
+  instance: object,
+  config: ResolvedSpyConfiguration,
+  restores: RestoreProp[],
+  reads: ReadGuard | undefined,
+): void {
   const { getters, setters } = resolveAccessors(instance, config);
 
   [...new Set([...getters, ...setters])].forEach((name) => restores.push(mockAccessorsProp(instance, name)));
   restores.push(mockValueProp(instance, 'accessorSpies', undefined));
 
   // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- the shared accessor factory writes string keys onto whatever object it is given; the instance's own type says nothing about the keys being installed.
-  createAccessorsSpies(instance as Record<string, unknown>, getters, setters);
+  createAccessorsSpies(instance as Record<string, unknown>, getters, setters, reads);
 }
 
 /** Put the instance back the way it was, dropping every spy this factory installed on it. */
@@ -147,6 +152,7 @@ export function createSpyFromInstance<T extends object, Options extends SpyOptio
   const config = resolveConfiguration(methodsToSpyOnOrConfig);
   const className = constructorName(instance);
   const unstubbed = resolveUnstubbedGuard(className, config);
+  const reads = resolveReadGuard(className, config);
   const restores = installedSpies.get(instance) ?? [];
   installedSpies.set(instance, restores);
 
@@ -156,10 +162,10 @@ export function createSpyFromInstance<T extends object, Options extends SpyOptio
   );
 
   methodNames.forEach((name) => installMember(instance, name, createFunctionSpy(name, unstubbed), restores));
-  config.observablePropsToSpyOn.forEach((name) => installMember(instance, name, requireObservableSupport().createPropSpy(), restores));
+  config.observablePropsToSpyOn.forEach((name) => installMember(instance, name, createTrackedPropSpy(name, reads), restores));
 
-  installAccessorSpies(instance, config, restores);
-  applyReturns(instance, `createSpyFromInstance(${className ?? 'object'})`, config.returns);
+  installAccessorSpies(instance, config, restores, reads);
+  applyConfiguredReturns(instance, `createSpyFromInstance(${className ?? 'object'})`, config);
 
   for (const key of Reflect.ownKeys(config.overrides)) {
     installMember(instance, key, Reflect.get(config.overrides, key), restores);

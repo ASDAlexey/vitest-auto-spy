@@ -20,6 +20,7 @@ export const DOCS_LINKS = {
   angularDiagnostics: `${DOCS}/adapters/angular-diagnostics`,
   angularHttp: `${DOCS}/adapters/angular-http`,
   angularOverrides: `${DOCS}/adapters/angular-overrides`,
+  angularRouter: `${DOCS}/adapters/angular-router`,
   autoMockByType: `${DOCS}/core/auto-mock-by-type`,
   bunAngular: `${DOCS}/runtimes/bun-angular`,
   createSpyFromClass: `${DOCS}/core/create-spy-from-class`,
@@ -42,6 +43,7 @@ export const DOCS_LINKS = {
   // double they configured somewhere else entirely, and the question they have is what counts as
   // configured — which is the whole page, not a paragraph of another one.
   strictMode: `${DOCS}/core/strict-mode`,
+  unconfiguredReads: `${DOCS}/core/strict-mode#reads-nobody-configured`,
   trackInjections: `${DOCS}/utilities/track-injections`,
 } as const;
 

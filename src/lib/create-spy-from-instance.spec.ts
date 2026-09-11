@@ -176,6 +176,14 @@ describe('createSpyFromInstance — configuration', () => {
     expect(client.amount).toBe(42);
   });
 
+  it('answers the instance itself from a selfReturning method, the reference the caller holds', () => {
+    const client = new PaymentsClient();
+    const spy = spyOn(client, { selfReturning: ['charge'] });
+
+    expect(client.charge(1)).toBe(client);
+    expect(spy.charge).toHaveBeenCalledWith(1);
+  });
+
   it('names the class in a strict-mode failure', () => {
     const spy = spyOn(new PaymentsClient(), { strict: true });
 

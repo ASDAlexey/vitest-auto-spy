@@ -40,7 +40,8 @@ import {
   withoutStrayTimerTracking,
 } from './stray-timers';
 import { restoreTimerGlobals } from './timer-globals';
-import type { UnstubbedCallHandler } from './types';
+import type { UnstubbedCallHandler, UnstubbedReadHandler } from './types';
+import { openReadWindow, reportUnconfiguredReads, setUnconfiguredReadsDefault } from './unconfigured-reads';
 import { restoreWebStorage } from './web-storage';
 import { writeWarning } from './write-warning';
 
@@ -299,7 +300,27 @@ export interface SetupAutoSpyOptions {
    * never runs. Default `'throw'` with `strict: true` or the strict preset, `'off'` otherwise.
    */
   swallowedStrictCalls?: SwallowedStrictCallsReaction;
+  /**
+   * Report, after each test, what a strict double answered without anyone configuring it: a spied
+   * getter the test read (it answered `undefined`) and an observable property it subscribed to that
+   * nothing fed by the end of the test (it never emitted). Default `'off'`; not part of
+   * `preset: 'strict'`. Reads are counted from the first `beforeEach` of a test to its last `afterEach`.
+   *
+   * ```
+   * [vitest-auto-spy] Router.url was read 3 times and nothing configured it, and strict mode is on.
+   * ```
+   */
+  unconfiguredReads?: UnconfiguredReadsReaction;
+  /**
+   * The suite-wide form of `onUnstubbedRead`: receives every finding {@link unconfiguredReads} would
+   * report — from every double not built with `strict: false`, strict or not — instead of the report.
+   * For surveying a suite before turning the report on.
+   */
+  onUnstubbedRead?: UnstubbedReadHandler;
 }
+
+/** How `setupAutoSpy` reacts to a strict double's getter or stream that a test used with nothing configured. */
+export type UnconfiguredReadsReaction = GuardReaction;
 
 /**
  * The one sentence that keeps `strayTimers` from quietly emptying somebody else's leak report.
@@ -399,6 +420,19 @@ function armStrictMode(options: SetupAutoSpyOptions): void {
 
   afterAll(() => {
     setDefaultStrictMode(undefined);
+  });
+}
+
+/** The read-side half of {@link armStrictMode}: armed only when asked, released after the file for the same reason. */
+function armUnconfiguredReads(options: SetupAutoSpyOptions): void {
+  if (options.unconfiguredReads === undefined && options.onUnstubbedRead === undefined) {
+    return;
+  }
+
+  setUnconfiguredReadsDefault((options.unconfiguredReads ?? 'off') !== 'off', options.onUnstubbedRead);
+
+  afterAll(() => {
+    setUnconfiguredReadsDefault(false, undefined);
   });
 }
 
@@ -718,6 +752,18 @@ function watchSwallowedStrictCalls(reaction: GuardReaction): TeardownStep[] {
   return [(context): void => reportSwallowedStrictCalls(context, reaction)];
 }
 
+/**
+ * Mark every test out for the read counter, whatever the grade: a double's own `onUnstubbedRead` is
+ * judged by the same step, and it has no other way to learn where a test starts and ends.
+ */
+function watchUnconfiguredReads(reaction: UnconfiguredReadsReaction): TeardownStep[] {
+  beforeEach(() => {
+    openReadWindow();
+  });
+
+  return [(): void => reportUnconfiguredReads(reaction)];
+}
+
 function watchStrayRejections(enabled: boolean): TeardownStep[] {
   if (!enabled) {
     return [];
@@ -760,6 +806,7 @@ function buildDiagnostics(options: SetupAutoSpyOptions): TeardownStep[] {
     ...watchGlobalPatches(options.guardGlobals ?? 'off'),
     ...watchPrototypePollution(options.prototypePollution ?? 'throw'),
     ...watchSwallowedStrictCalls(options.swallowedStrictCalls ?? (options.strict === true ? 'throw' : 'off')),
+    ...watchUnconfiguredReads(options.unconfiguredReads ?? 'off'),
     ...watchStrayRejections(options.strayRejections ?? false),
   ];
 }
@@ -876,6 +923,7 @@ export function setupAutoSpy(input: SetupAutoSpyOptions = {}): void {
   }
 
   armStrictMode(options);
+  armUnconfiguredReads(options);
   armMisconfiguration(options.misconfiguration);
 
   if (options.globalFakeTimers) {
@@ -900,11 +948,8 @@ export function setupAutoSpy(input: SetupAutoSpyOptions = {}): void {
   const restores = buildRestores(options);
   const consoleRestore = consoleGuard ? [consoleGuard.restore] : [];
   const consoleReport = consoleGuard ? [consoleGuard.report] : [];
-  const steps = [...consoleRestore, ...diagnostics, ...restores, ...consoleReport];
-
-  if (steps.length > 0) {
-    installTeardown(steps, [...consoleRestore, ...restores]);
-  }
+  // Never empty: the read report's step is always there, since a double's own `onUnstubbedRead` needs it.
+  installTeardown([...consoleRestore, ...diagnostics, ...restores, ...consoleReport], [...consoleRestore, ...restores]);
 }
 
 /**

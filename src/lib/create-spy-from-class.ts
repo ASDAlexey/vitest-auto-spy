@@ -11,10 +11,19 @@ import { type UnstubbedGuard, createFunctionSpy, resolveUnstubbedGuard, seedRetu
 import { createLazySpyProxy } from './lazy-spy-proxy';
 import { reportMisconfiguration } from './misconfiguration';
 import { getMockAdapter } from './mock-adapter';
-import { requireObservableSupport } from './observable-support';
 import { attachDispose } from './reset-auto-spy';
 import { mergeAutoSpyDefaults } from './spy-defaults';
-import type { ClassSpyConfiguration, ClassType, Func, OnlyMethodKeysOf, Spy, SpyOptions, UnstubbedCallHandler } from './types';
+import type {
+  ClassSpyConfiguration,
+  ClassType,
+  Func,
+  OnlyMethodKeysOf,
+  Spy,
+  SpyOptions,
+  UnstubbedCallHandler,
+  UnstubbedReadHandler,
+} from './types';
+import { createTrackedPropSpy, resolveReadGuard } from './unconfigured-reads';
 
 /** All names to spy on, flattened from either form of the config argument. */
 export interface ResolvedSpyConfiguration {
@@ -28,9 +37,11 @@ export interface ResolvedSpyConfiguration {
   fillMissing: boolean;
   lazySpies: boolean | 'proxy';
   returns: Record<string, unknown>;
+  selfReturning: string[];
   overrides: object;
   strict: boolean | undefined;
   onUnstubbedCall: UnstubbedCallHandler | undefined;
+  onUnstubbedRead: UnstubbedReadHandler | undefined;
 }
 
 /** Getter/setter accessor names discovered along a prototype chain. */
@@ -50,9 +61,11 @@ const EMPTY_CONFIGURATION: ResolvedSpyConfiguration = {
   fillMissing: false,
   lazySpies: true,
   returns: {},
+  selfReturning: [],
   overrides: {},
   strict: undefined,
   onUnstubbedCall: undefined,
+  onUnstubbedRead: undefined,
 };
 
 /**
@@ -320,7 +333,7 @@ function isCallable(value: unknown): value is Func {
  * not part of every runner's surface — `node:test`'s `mock.fn()` has no such thing — and the
  * adapter is the seam that already hides those differences from the core.
  */
-export function applyReturns(autoSpy: object, factory: string, returns: Record<string, unknown>): void {
+export function applyReturns(autoSpy: object, factory: string, returns: Record<string, unknown>, option = 'returns'): void {
   const entries = Object.entries(returns);
 
   if (entries.length === 0) {
@@ -340,7 +353,7 @@ export function applyReturns(autoSpy: object, factory: string, returns: Record<s
     if (!isCallable(spy)) {
       reportMisconfiguration(
         withDocs(
-          `[vitest-auto-spy] ${factory}: returns names '${name}', which is not a spied ` +
+          `[vitest-auto-spy] ${factory}: ${option} names '${name}', which is not a spied ` +
             `method of the spy. Check the spelling, and check that a restricting onlyMethodsToSpyOn list did not leave ` +
             `it out — a value configured for a method that is not there is silently never returned.`,
           DOCS_LINKS.createSpyFromClass,
@@ -354,6 +367,20 @@ export function applyReturns(autoSpy: object, factory: string, returns: Record<s
       adapter.restoreImplementation(spy, () => value);
     }
   });
+}
+
+/**
+ * `selfReturning`, then `returns`: both are defaults in the spy's own container, and the second pass
+ * overwrites the first, so a method named in both answers its `returns` value — the only way a spec
+ * can take one link out of a registered chain, since lists merge by union.
+ */
+export function applyConfiguredReturns(
+  double: object,
+  factory: string,
+  config: Pick<ResolvedSpyConfiguration, 'returns' | 'selfReturning'>,
+): void {
+  applyReturns(double, factory, Object.fromEntries(config.selfReturning.map((name) => [name, double])), 'selfReturning');
+  applyReturns(double, factory, config.returns);
 }
 
 /** Replace the accessor placeholder with the plain, writable data property the spy ends up as. */
@@ -409,9 +436,11 @@ export function resolveConfiguration<T>(
     fillMissing: methodsToSpyOnOrConfig.fillMissing ?? false,
     lazySpies: methodsToSpyOnOrConfig.lazySpies ?? true,
     returns: methodsToSpyOnOrConfig.returns ?? {},
+    selfReturning: methodsToSpyOnOrConfig.selfReturning ?? [],
     overrides: methodsToSpyOnOrConfig.overrides ?? {},
     strict: methodsToSpyOnOrConfig.strict,
     onUnstubbedCall: methodsToSpyOnOrConfig.onUnstubbedCall,
+    onUnstubbedRead: methodsToSpyOnOrConfig.onUnstubbedRead,
   };
 }
 
@@ -447,7 +476,7 @@ export function createSpyFromClass<T, Options extends SpyOptions = SpyOptions>(
   const config = resolveConfiguration(mergeAutoSpyDefaults(ObjectClass, methodsToSpyOnOrConfig));
   const autoSpy = assembleSpy<T, Options>(ObjectClass, config);
 
-  applyReturns(autoSpy, `createSpyFromClass(${ObjectClass.name})`, config.returns);
+  applyConfiguredReturns(autoSpy, `createSpyFromClass(${ObjectClass.name})`, config);
   applyOverrides(autoSpy, config.overrides);
 
   return autoSpy;
@@ -527,15 +556,17 @@ function assembleSpy<T, Options extends SpyOptions>(ObjectClass: ClassType<T>, c
   }
 
   const autoSpy: Record<string, unknown> = {};
+  const reads =
+    accessors.getters.length > 0 || config.observablePropsToSpyOn.length > 0 ? resolveReadGuard(ObjectClass.name, config) : undefined;
 
   // Routed through the IoC registry so the core never statically imports rxjs;
   // requesting observable props without `vitest-auto-spy/rxjs` throws a clear hint.
   config.observablePropsToSpyOn.forEach((observablePropName) => {
-    autoSpy[observablePropName] = requireObservableSupport().createPropSpy();
+    autoSpy[observablePropName] = createTrackedPropSpy(observablePropName, reads);
   });
 
   warnOnAccessorNamingAMethod(ObjectClass, config);
-  createAccessorsSpies(autoSpy, accessors.getters, accessors.setters);
+  createAccessorsSpies(autoSpy, accessors.getters, accessors.setters, reads);
 
   // Lazy path materializes each method spy on first access (cheaper for large
   // classes where a test touches few methods); enumeration stays intact because
