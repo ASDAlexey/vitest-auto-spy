@@ -57,10 +57,13 @@ export interface AutoSpyOverride<T> {
  *
  * Use it — not `provideAutoSpy` — whenever the dependency is declared in a component's own
  * `providers`, because a module-level provider does not win there.
+ *
+ * `T` comes from the class alone, as in `provideAutoSpy` — a generic class keeps its default.
  */
-export function overrideAutoSpy<T>(
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- see `provideAutoSpy`: read only while the generic class argument is deferred.
+export function overrideAutoSpy<T = any>(
   ObjectClass: ClassType<T>,
-  methodsToSpyOnOrConfig?: ClassSpyConfiguration<T> | OnlyMethodKeysOf<T>[],
+  methodsToSpyOnOrConfig?: NoInfer<ClassSpyConfiguration<T> | OnlyMethodKeysOf<T>[]>,
 ): AutoSpyOverride<T> {
   return { useValue: createSpyFromClass(ObjectClass, methodsToSpyOnOrConfig) };
 }
@@ -84,10 +87,11 @@ export function overrideAutoSpy<T>(
  * component, and in an AOT test bundle that recompilation resolves its directives and pipes from a
  * runtime scope the bundler has stripped — leaving the component with none of them.
  */
-export function overrideComponentProvider<T>(
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- see `provideAutoSpy`: read only while the generic class argument is deferred.
+export function overrideComponentProvider<T = any>(
   component: Type<unknown>,
   ObjectClass: ClassType<T>,
-  methodsToSpyOnOrConfig?: ClassSpyConfiguration<T> | OnlyMethodKeysOf<T>[],
+  methodsToSpyOnOrConfig?: NoInfer<ClassSpyConfiguration<T> | OnlyMethodKeysOf<T>[]>,
 ): Spy<T> {
   const override = overrideAutoSpy(ObjectClass, methodsToSpyOnOrConfig);
 

@@ -356,6 +356,44 @@ describe('a generic class with a default type argument', () => {
   });
 });
 
+interface FlagDefaults {
+  beta: boolean;
+}
+
+declare class FlagService<T extends object = FlagDefaults> {
+  get flags(): Readonly<T>;
+  isEnabled(key: keyof T): boolean;
+}
+
+/**
+ * The one combination the core factory cannot infer: an accessor list plus `returns` on a generic
+ * class. TypeScript checks a generic class argument after the configuration, reads `T` back from the
+ * list as `{ flags: any }`, and rejects the `returns` key before the class is ever read. The
+ * `@ts-expect-error` is the ratchet — if a future signature infers this, the directive goes unused
+ * and the documentation that says to spell the argument out has to change with it.
+ */
+describe('a generic class, an accessor list and returns', () => {
+  it('is rejected inferred, which is what AGENTS.md §17 names', () => {
+    // @ts-expect-error -- 'isEnabled' does not exist in type 'MethodReturns<{ flags: any; }>'
+    createSpyFromClass(FlagService, { gettersToSpyOn: ['flags'], returns: { isEnabled: false } });
+  });
+
+  it('compiles with the type argument spelled out, and keeps the default', () => {
+    const flags = createSpyFromClass<FlagService>(FlagService, { gettersToSpyOn: ['flags'], returns: { isEnabled: false } });
+
+    expectTypeOf(flags.isEnabled).parameter(0).toEqualTypeOf<'beta'>();
+  });
+
+  it('infers the default from the class when only one of the two is given', () => {
+    expectTypeOf(createSpyFromClass(FlagService, { gettersToSpyOn: ['flags'] }).isEnabled)
+      .parameter(0)
+      .toEqualTypeOf<'beta'>();
+    expectTypeOf(createSpyFromClass(FlagService, { returns: { isEnabled: false } }).isEnabled)
+      .parameter(0)
+      .toEqualTypeOf<'beta'>();
+  });
+});
+
 describe('returns on a type that declares toString()', () => {
   interface Named {
     reload(): void;
