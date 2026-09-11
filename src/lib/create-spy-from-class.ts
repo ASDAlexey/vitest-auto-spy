@@ -9,6 +9,7 @@ import { DOCS_LINKS, withDocs } from './docs-links';
 import { fillMissingMembers } from './fill-missing';
 import { type UnstubbedGuard, createFunctionSpy, resolveUnstubbedGuard } from './function-spy';
 import { createLazySpyProxy } from './lazy-spy-proxy';
+import { reportMisconfiguration } from './misconfiguration';
 import { getMockAdapter } from './mock-adapter';
 import { requireObservableSupport } from './observable-support';
 import { attachDispose } from './reset-auto-spy';
@@ -246,7 +247,7 @@ export function mergeMethodNames(base: string[], config: ResolvedSpyConfiguratio
 }
 
 /**
- * Warn (without throwing) when a name in a *restricting* list is absent from the class prototype.
+ * Report (a warning, or a throw under `misconfiguration: 'throw'`) a name in a *restricting* list the class prototype lacks.
  * Under `onlyMethodsToSpyOn` a typo does not just add a useless spy — it leaves the real method
  * unspied, and the code under test then calls something that is not there.
  */
@@ -258,10 +259,7 @@ function warnOnUnknownMethods(ObjectClass: ClassType<unknown>, requested: string
     return;
   }
 
-  // `console.warn` is the project-sanctioned diagnostic channel (CLAUDE.md); the
-  // repo's `no-console` lint rule is stricter than that policy, so disable it here.
-  // eslint-disable-next-line no-console -- intentional dev-time misconfiguration warning; console.warn is allowed per CLAUDE.md.
-  console.warn(
+  reportMisconfiguration(
     withDocs(
       `[vitest-auto-spy] createSpyFromClass(${ObjectClass.name}): onlyMethodsToSpyOn names method(s) that are not on ` +
         `the class prototype: ${unknown.join(', ')}. A spy was created for each, but the real code will never call ` +
@@ -299,8 +297,7 @@ function warnOnAccessorNamingAMethod(ObjectClass: ClassType<unknown>, config: Re
     return;
   }
 
-  // eslint-disable-next-line no-console -- intentional dev-time misconfiguration warning; console.warn is allowed per CLAUDE.md.
-  console.warn(
+  reportMisconfiguration(
     withDocs(
       `[vitest-auto-spy] createSpyFromClass(${ObjectClass.name}): gettersToSpyOn/settersToSpyOn name(s) that are ` +
         `methods of the class: ${shadowed.join(', ')}. A spied accessor was installed over each, so the method is no ` +
@@ -341,8 +338,7 @@ export function applyReturns(autoSpy: object, factory: string, returns: Record<s
     const spy: unknown = Reflect.get(autoSpy, name);
 
     if (!isCallable(spy)) {
-      // eslint-disable-next-line no-console -- intentional dev-time misconfiguration warning; console.warn is allowed per CLAUDE.md.
-      console.warn(
+      reportMisconfiguration(
         withDocs(
           `[vitest-auto-spy] ${factory}: returns names '${name}', which is not a spied ` +
             `method of the spy. Check the spelling, and check that a restricting onlyMethodsToSpyOn list did not leave ` +
@@ -465,7 +461,16 @@ export function createSpyFromClass<T, Options extends SpyOptions = SpyOptions>(
  */
 function applyOverrides(autoSpy: object, overrides: object): void {
   for (const key of Reflect.ownKeys(overrides)) {
-    Reflect.set(autoSpy, key, Reflect.get(overrides, key));
+    const value: unknown = Reflect.get(overrides, key);
+    const getterSpy: unknown = Reflect.get(Object(Reflect.get(Object(Reflect.get(autoSpy, 'accessorSpies')), 'getters')), key);
+
+    // A spied getter (`gettersToSpyOn`, or a class default that names one) swallows an assignment
+    // into its setter and keeps answering `undefined`, so the seed becomes what the getter returns.
+    if (isCallable(getterSpy)) {
+      getMockAdapter().restoreImplementation(getterSpy, () => value);
+    } else if (!Reflect.set(autoSpy, key, value) || !Object.is(Reflect.get(autoSpy, key), value)) {
+      Object.defineProperty(autoSpy, key, { value, writable: true, configurable: true, enumerable: true });
+    }
   }
 }
 

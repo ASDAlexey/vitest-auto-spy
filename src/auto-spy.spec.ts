@@ -16,7 +16,15 @@ import {
   provideAutoSpyForToken,
   restoreMockedProps,
 } from './angular';
-import { type Spy, createAutoMock, createFunctionSpy, createSpyFromClass, errorHandler } from './index';
+import {
+  type Spy,
+  clearAutoSpyDefaults,
+  createAutoMock,
+  createFunctionSpy,
+  createSpyFromClass,
+  errorHandler,
+  registerAutoSpyDefaults,
+} from './index';
 import { createObservableWithValues } from './rxjs';
 
 // ---------------------------------------------------------------------------
@@ -1040,6 +1048,49 @@ describe('provideAutoSpy / injectSpy', () => {
     warn.mockRestore();
   });
 
+  it('warns again in the next spec file, so which file shows it does not depend on run order', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const worker: unknown = Reflect.get(globalThis, '__vitest_worker__');
+    const ownFile: unknown = Reflect.get(Object(worker), 'filepath');
+
+    class ReportedPerFile {
+      load(): string {
+        return 'real';
+      }
+    }
+
+    TestBed.configureTestingModule({ providers: [ReportedPerFile] });
+    injectSpy(ReportedPerFile);
+    Reflect.set(Object(worker), 'filepath', '/a/later.spec.ts');
+
+    try {
+      injectSpy(ReportedPerFile);
+    } finally {
+      Reflect.set(Object(worker), 'filepath', ownFile);
+    }
+
+    expect(warn).toHaveBeenCalledTimes(2);
+    warn.mockRestore();
+  });
+
+  it('fails every occurrence at the call site under misconfiguration: throw', () => {
+    class ThrownEveryTime {
+      load(): string {
+        return 'real';
+      }
+    }
+
+    TestBed.configureTestingModule({ providers: [ThrownEveryTime] });
+    globalThis.__vitestAutoSpyMisconfiguration__ = 'throw';
+
+    try {
+      expect(() => injectSpy(ThrownEveryTime)).toThrow(/plain instance, not an auto-spy/);
+      expect(() => injectSpy(ThrownEveryTime)).toThrow(/plain instance, not an auto-spy/);
+    } finally {
+      globalThis.__vitestAutoSpyMisconfiguration__ = undefined;
+    }
+  });
+
   it('names an InjectionToken in that warning too', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const CONFIG = new InjectionToken<{ url: string }>('CONFIG');
@@ -1116,6 +1167,132 @@ describe('provideAutoSpy / injectSpy', () => {
 
     expect(cards.focusStrategies).toEqual({ poster: 9, button: 8 });
     expect(cards.load).toHaveBeenCalledTimes(0);
+  });
+
+  describe('seeding a getter the double spies', () => {
+    class RemoteConfigService {
+      get remoteConfig(): { theme: string } {
+        return { theme: 'light' };
+      }
+
+      get retries(): number {
+        return 1;
+      }
+
+      set retries(_value: number) {
+        /* the class stores it */
+      }
+    }
+
+    it('answers the seed from a getter named in gettersToSpyOn, and keeps the getter a spy', () => {
+      TestBed.configureTestingModule({
+        providers: [
+          provideAutoSpy(RemoteConfigService, { gettersToSpyOn: ['remoteConfig'], overrides: { remoteConfig: { theme: 'dark' } } }),
+        ],
+      });
+
+      const config = injectSpy(RemoteConfigService);
+
+      expect(config.remoteConfig).toEqual({ theme: 'dark' });
+      expect(config.accessorSpies.getters['remoteConfig']).toHaveBeenCalledTimes(1);
+    });
+
+    it('answers the seed when a class default is what spies the getter', () => {
+      registerAutoSpyDefaults(RemoteConfigService, { gettersToSpyOn: ['remoteConfig'] });
+
+      try {
+        expect(createSpyFromClass(RemoteConfigService, { overrides: { remoteConfig: { theme: 'dark' } } }).remoteConfig).toEqual({
+          theme: 'dark',
+        });
+      } finally {
+        clearAutoSpyDefaults(RemoteConfigService);
+      }
+    });
+
+    it('answers the seed through provideAutoSpy when a registered table spies the getter', () => {
+      registerAutoSpyDefaults([[RemoteConfigService, { gettersToSpyOn: ['remoteConfig'] }]]);
+
+      try {
+        TestBed.configureTestingModule({
+          providers: [provideAutoSpy(RemoteConfigService, { overrides: { remoteConfig: { theme: 'dark' } } })],
+        });
+
+        expect(injectSpy(RemoteConfigService).remoteConfig).toEqual({ theme: 'dark' });
+      } finally {
+        clearAutoSpyDefaults(RemoteConfigService);
+      }
+    });
+
+    it('answers the seed from a spied accessor pair', () => {
+      expect(createSpyFromClass(RemoteConfigService, { autoSpyAccessors: true, overrides: { retries: 5 } }).retries).toBe(5);
+    });
+
+    it('lets a later mockReturnValue on the getter spy win over the seed', () => {
+      const config = createSpyFromClass(RemoteConfigService, {
+        gettersToSpyOn: ['remoteConfig'],
+        overrides: { remoteConfig: { theme: 'dark' } },
+      });
+
+      config.accessorSpies.getters['remoteConfig']?.mockReturnValue({ theme: 'contrast' });
+
+      expect(config.remoteConfig).toEqual({ theme: 'contrast' });
+    });
+
+    it('turns a seed on a setter-only spy into a plain value, instead of recording it and reading undefined', () => {
+      class Sink {
+        set level(_value: number) {
+          /* write-only */
+        }
+      }
+
+      expect(Reflect.get(createSpyFromClass(Sink, { settersToSpyOn: ['level'], overrides: { level: 7 } }), 'level')).toBe(7);
+    });
+  });
+
+  it('names the token in a strict report, where a type-driven double has no class to name', () => {
+    const OBSERVER = new InjectionToken<{ observe(target: Element): void }>('CAROUSEL_RESIZE_OBSERVER');
+
+    TestBed.configureTestingModule({ providers: [provideAutoSpyForToken(OBSERVER, undefined, { strict: true })] });
+
+    expect(() => injectSpy(OBSERVER).observe(document.body)).toThrow(
+      'Nothing configured InjectionToken CAROUSEL_RESIZE_OBSERVER.observe, and strict mode is on.',
+    );
+  });
+
+  it('lets Angular tear a strict double down, since no spec asked for ngOnDestroy', () => {
+    class Poller {
+      poll(): void {
+        /* polls */
+      }
+
+      ngOnDestroy(): void {
+        /* stops polling */
+      }
+    }
+
+    const TOKEN_DOUBLE = new InjectionToken<{ refresh(): void }>('TOKEN_DOUBLE');
+
+    TestBed.configureTestingModule({
+      providers: [provideAutoSpy(Poller, { strict: true }), provideAutoSpyForToken(TOKEN_DOUBLE, undefined, { strict: true })],
+    });
+
+    const poller = injectSpy(Poller);
+
+    injectSpy(TOKEN_DOUBLE);
+
+    expect(() => TestBed.resetTestingModule()).not.toThrow();
+    expect(poller.ngOnDestroy).toHaveBeenCalledTimes(1);
+    expect(() => poller.poll()).toThrow('Nothing configured Poller.poll');
+  });
+
+  it('keeps a name the caller gave the token double', () => {
+    const OBSERVER = new InjectionToken<{ observe(target: Element): void }>('CAROUSEL_RESIZE_OBSERVER');
+
+    TestBed.configureTestingModule({
+      providers: [provideAutoSpyForToken(OBSERVER, undefined, { strict: true, name: 'carousel observer' })],
+    });
+
+    expect(() => injectSpy(OBSERVER).observe(document.body)).toThrow('Nothing configured carousel observer.observe');
   });
 
   it('seeds method results behind an InjectionToken too', async () => {

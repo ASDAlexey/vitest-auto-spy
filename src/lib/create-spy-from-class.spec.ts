@@ -88,6 +88,34 @@ describe('createSpyFromClass — strict mode', () => {
     );
   });
 
+  it('renders data in full up to a bound, and an instance by its class alone', () => {
+    class Session {
+      readonly token = 'secret';
+    }
+
+    class Till {
+      ring(..._args: unknown[]): void {
+        /* rings */
+      }
+    }
+
+    const till = createSpyFromClass(Till, { strict: true });
+    const bare = Object.create(Object.create(null));
+    let message = '';
+
+    try {
+      till.ring(1, 'x'.repeat(300), new Session(), [1], new Date(0), document.createElement('div'), bare);
+    } catch (error) {
+      message = String(error);
+    }
+
+    const called = message.split('\n')[1] ?? '';
+
+    expect(called).toContain(`Till.ring(1,'${'x'.repeat(199)}…,[Session],[1]`);
+    expect(called).toContain('[HTMLDivElement],[object])');
+    expect(called).not.toContain('secret');
+  });
+
   it('renders a no-argument call as an empty argument list', () => {
     const cart = createSpyFromClass(Cart, { strict: true });
 

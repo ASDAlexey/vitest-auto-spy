@@ -11,6 +11,8 @@ import { TestBed } from '@angular/core/testing';
 import { type AutoMockConfiguration, createAutoMock } from './auto-mock';
 import { createSpyFromClass } from './create-spy-from-class';
 import { DOCS_LINKS, withDocs } from './docs-links';
+import { misconfigurationThrows, reportMisconfiguration } from './misconfiguration';
+import { currentSpecFile } from './spec-file';
 import { isAutoSpyLike } from './spy-mark';
 import type { ClassSpyConfiguration, ClassType, DeepPartial, OnlyMethodKeysOf, Spy, SpyOptions } from './types';
 
@@ -90,7 +92,7 @@ export function provideAutoSpyForToken<T>(
   overrides?: DeepPartial<T>,
   config?: AutoMockConfiguration<T>,
 ): AngularTokenProvider<T> {
-  return { provide: token, useValue: createAutoMock<T>(overrides, config) };
+  return { provide: token, useValue: createAutoMock<T>(overrides, { ...config, name: config?.name ?? String(token) }) };
 }
 
 /**
@@ -123,8 +125,9 @@ export function provideAutoSpyForToken<T>(
  *
  * When the injector hands back a real instance rather than a double, that is reported — a provider
  * the spec forgot to register is otherwise found much later, when `.mockReturnValue` is called on
- * the real method. It is a `console.warn`, once per token; raise it to a thrown failure with
- * `enableAngularDiagnostics({ unspiedProviders: true })` from `vitest-auto-spy/angular`.
+ * the real method. It is a `console.warn`, once per token and spec file; raise it to a thrown failure
+ * with `enableAngularDiagnostics({ unspiedProviders: true })` from `vitest-auto-spy/angular`, or for
+ * every misconfiguration report at once with `setupAutoSpy({ misconfiguration: 'throw' })`.
  */
 /**
  * A class, read through a bare construct signature — the overload that keeps a **declared default**
@@ -150,10 +153,31 @@ export function injectSpy<T, Options extends SpyOptions = SpyOptions>(
   return injected;
 }
 
-/** Tokens already reported, so a `beforeEach` does not print the same warning once per test. */
-const reportedTokens = new WeakSet<object>();
+// Per spec file, not per worker: under `isolate: false` a worker-wide set printed the warning in
+// whichever file got there first, so the file that showed it changed from run to run.
+let reportedTokens = new WeakSet<object>();
+let reportedIn: unknown;
 
-let unspiedProvidersFail = false;
+function reportedInThisFile(token: object): boolean {
+  const file = currentSpecFile();
+
+  if (file !== reportedIn) {
+    reportedIn = file;
+    reportedTokens = new WeakSet<object>();
+  }
+
+  const seen = reportedTokens.has(token);
+
+  reportedTokens.add(token);
+
+  return seen;
+}
+
+// On `globalThis`, so `enableAngularDiagnostics` reaches `injectSpy` even from another bundle's copy.
+declare global {
+  // A `globalThis` augmentation has to be declared with `var`.
+  var __vitestAutoSpyFailOnUnspiedProvider__: boolean | undefined;
+}
 
 /**
  * Raise {@link injectSpy}'s "not an auto-spy" report from a `console.warn` to a thrown failure.
@@ -163,7 +187,7 @@ let unspiedProvidersFail = false;
  * file, which is what the diagnostics group is.
  */
 export function failOnUnspiedProvider(fail: boolean): void {
-  unspiedProvidersFail = fail;
+  globalThis.__vitestAutoSpyFailOnUnspiedProvider__ = fail;
 }
 
 function reportWhenNotASpy(token: object, injected: unknown): void {
@@ -180,20 +204,14 @@ function reportWhenNotASpy(token: object, injected: unknown): void {
     DOCS_LINKS.angular,
   );
 
-  // Under `unspiedProviders` every occurrence fails, so the per-token de-duplication that keeps the
-  // warning readable is skipped: a throw is seen once per test by definition.
-  if (unspiedProvidersFail) {
+  // A throw is seen once per test by definition, so the de-duplication only applies to the printed grade.
+  if (globalThis.__vitestAutoSpyFailOnUnspiedProvider__ === true || misconfigurationThrows()) {
     throw new Error(message);
   }
 
-  if (reportedTokens.has(token)) {
-    return;
+  if (!reportedInThisFile(token)) {
+    reportMisconfiguration(message);
   }
-
-  reportedTokens.add(token);
-
-  // eslint-disable-next-line no-console -- a dev-time misconfiguration warning, the channel this library already uses for `onlyMethodsToSpyOn` typos.
-  console.warn(message);
 }
 
 export {

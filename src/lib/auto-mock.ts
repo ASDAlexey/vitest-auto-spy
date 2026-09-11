@@ -24,6 +24,7 @@
 import { DISPOSE } from './dispose-symbol';
 import { DOCS_LINKS, withDocs } from './docs-links';
 import { type UnstubbedGuard, createFunctionSpy, resolveUnstubbedGuard } from './function-spy';
+import { reportMisconfiguration } from './misconfiguration';
 import { getMockAdapter } from './mock-adapter';
 import { requireObservableSupport } from './observable-support';
 import {
@@ -69,7 +70,7 @@ export function createAutoMock<T, Options extends SpyOptions = SpyOptions>(
   // No class was read, so there is no name to put in a strict-mode message — hence `undefined`
   // rather than a placeholder: the failure says `load(1)`, which is all this factory truthfully
   // knows about the double.
-  const unstubbed = resolveUnstubbedGuard(undefined, { strict: config?.strict, onUnstubbedCall: config?.onUnstubbedCall });
+  const unstubbed = resolveUnstubbedGuard(config?.name, { strict: config?.strict, onUnstubbedCall: config?.onUnstubbedCall });
 
   const target: Record<PropertyKey, unknown> = { [INTERNALS]: { store: createProxyPropStore(overrides ?? {}), unstubbed } };
 
@@ -114,6 +115,8 @@ function applyObservableProps(mock: object, names: readonly string[] | undefined
 
 /** What a type-driven double can be configured with beyond its seeded values. */
 export interface AutoMockConfiguration<T> extends StrictSpyConfiguration {
+  /** What a strict-mode report calls the double; `provideAutoSpyForToken` passes the token's description. */
+  name?: string;
   /**
    * Members to build as **observable property spies** (`nextWith`, `throwWith`, `returnSubject`, …)
    * rather than as function spies.
@@ -174,12 +177,11 @@ function applyMockReturns(mock: object, returns: MethodReturns<never> | undefine
     // every runner's mock (`node:test` has no such method) — the adapter is that seam.
     const spy: unknown = Reflect.get(mock, name);
 
-    if (!isCallable(spy)) {
+    if (name === 'constructor' || !isCallable(spy)) {
       // Reachable for exactly the keys the proxy refuses to make a spy of — `then` and
       // `constructor`, held back so an auto-mock is not mistaken for a Promise. Silently dropping
       // the configuration is the one thing not to do: the value would simply never be returned.
-      // eslint-disable-next-line no-console -- intentional dev-time misconfiguration warning; console.warn is allowed per CLAUDE.md.
-      console.warn(
+      reportMisconfiguration(
         withDocs(
           `[vitest-auto-spy] createAutoMock: returns names '${name}', which this double never turns into a spy — ` +
             "'then' and 'constructor' are held back so the mock is not treated as a Promise. Rename the member, or " +
@@ -286,7 +288,12 @@ function readKey(store: ProxyPropStore, key: string | symbol, receiver: unknown,
   // where the reasoning for that list lives. A key a spec deleted is answered the same way: on a
   // double that makes members on demand, that tombstone is the only thing standing between
   // `delete mock.m` and a brand-new spy.
-  if (typeof key === 'symbol' || key === 'then' || key === 'constructor' || isProtocolKey(key) || isDeletedProp(store, key)) {
+  // What every other double of this library answers, and what `value.constructor.name` in an error path needs.
+  if (key === 'constructor' && !isDeletedProp(store, key)) {
+    return Object;
+  }
+
+  if (typeof key === 'symbol' || key === 'then' || isProtocolKey(key) || isDeletedProp(store, key)) {
     return undefined;
   }
 

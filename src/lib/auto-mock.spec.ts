@@ -200,6 +200,32 @@ describe('createAutoMock returns configuration', () => {
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('never turns into a spy'));
     warn.mockRestore();
   });
+
+  it('says so for constructor too, which answers Object rather than a spy', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    createAutoMock<{ constructor: () => void }>(undefined, { returns: { constructor: undefined } });
+
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("returns names 'constructor'"));
+    warn.mockRestore();
+  });
+
+  it('answers constructor with Object, so an error path reading constructor.name works', () => {
+    const users = createAutoMock<UserService>();
+
+    expect(Reflect.get(users, 'constructor')).toBe(Object);
+    expect(`${Reflect.get(Object(Reflect.get(users, 'constructor')), 'name')}`).toBe('Object');
+  });
+
+  it('still lets a seed or a delete decide constructor', () => {
+    const seeded = createAutoMock<{ constructor: string }>({ constructor: 'seeded' });
+    const deleted = createAutoMock<UserService>();
+
+    Reflect.deleteProperty(deleted, 'constructor');
+
+    expect(Reflect.get(seeded, 'constructor')).toBe('seeded');
+    expect(Reflect.get(deleted, 'constructor')).toBeUndefined();
+  });
 });
 
 describe('createAutoMock — Symbol.dispose', () => {
@@ -244,6 +270,12 @@ describe('createAutoMock — strict mode', () => {
     const users = createAutoMock<UserService>(undefined, { strict: true });
 
     expect(() => users.getName(1)).toThrow('[vitest-auto-spy] Nothing configured getName, and strict mode is on.\nCalled as: getName(1)');
+  });
+
+  it('names the double in the strict report when it is given a name', () => {
+    const users = createAutoMock<UserService>(undefined, { strict: true, name: 'USERS' });
+
+    expect(() => users.getName(1)).toThrow('Nothing configured USERS.getName, and strict mode is on.');
   });
 
   it('leaves a configured member alone and runs onUnstubbedCall for the rest', () => {
