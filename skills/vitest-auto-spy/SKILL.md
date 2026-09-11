@@ -185,6 +185,7 @@ it('loads', async () => {
 | a stub that works only in the first test of the file                                      | `installPerTest(() => stub…())` — or install it in `beforeEach`                                             |
 | a library failing every other run after a `defineProperty` on DOM                         | `setupAutoSpy({ guardGlobals: 'throw' })` names the file                                                    |
 | a block of files failing to collect, with no stack and zero failing tests                 | `setupAutoSpy()` names the file that left a key on `Object.prototype` (`prototypePollution`, on by default) |
+| the same check in a suite that does not call `setupAutoSpy()`                             | `guardPrototypePollution('throw')` from `/setup`                                                            |
 | `Cannot set base providers because it has already been called`                            | `setupAngularTestEnv({ zoneless, initZone, initZoneless })`                                                 |
 | a dependency behind an `InjectionToken`, with no class to spy                             | `provideAutoSpyForToken(TOKEN)` + `injectSpy(TOKEN)`                                                        |
 | `Expected to be running in 'ProxyZone', but it was not found`                             | `import 'vitest-auto-spy/zone'` (needs `globals: true`)                                                     |
