@@ -262,12 +262,13 @@ pairing to the fastest is 1473 ms → 1276 ms, **−13.4 %**.
 
 Node **≥ 22** is the library's own floor now — Node 18 and 20 are both past end of life, and every
 runner this library supports already needed more: Vitest 4 pulls in Vite 7 (`^20.19.0 ||
->=22.12.0`) and calls `crypto.hash` (added in Node 20.12), so Node 18 died with `TypeError:
-crypto.hash is not a function` before a spec loads. Vitest 5 raises its own floor to `^22.12.0 ||
-^24.0.0 || >=26.0.0`, and `@angular/build` 22 needs `^22.22.3 || ^24.15.0 || >=26.0.0`. CI tests
-Node 22, 24 and 26, so 22 is what is actually exercised. Which version to run is measured in
-[Performance → Which Node version](https://vitest-auto-spy.dev/core/performance#which-node-version):
-the break is between 22 and 24, where a cold import more than halves.
+
+> =22.12.0`) and calls `crypto.hash`(added in Node 20.12), so Node 18 died with`TypeError:
+> crypto.hash is not a function`before a spec loads. Vitest 5 raises its own floor to`^22.12.0 ||
+> ^24.0.0 || >=26.0.0`, and `@angular/build`22 needs`^22.22.3 || ^24.15.0 || >=26.0.0`. CI tests
+> Node 22, 24 and 26, so 22 is what is actually exercised. Which version to run is measured in
+> [Performance → Which Node version](https://vitest-auto-spy.dev/core/performance#which-node-version):
+> the break is between 22 and 24, where a cold import more than halves.
 
 Ships **ESM with bundled `.d.ts` types**. Two subpaths additionally ship a CommonJS build —
 `vitest-auto-spy/node` (a `node --test` suite written in CJS) and `vitest-auto-spy/eslint-plugin`
@@ -483,8 +484,8 @@ enough for `--from auto` to classify a file, for exactly the same reason — tha
 
 **Dry-run by default**, so the first thing a repository sees is a diff it can reject. `--write`
 applies it, `--only` / `--skip` select transforms by id, `--list` prints them together with the
-generated entry-point table. Past 50 000 files the scan truncates and says so, because *Nothing left
-to migrate* off a truncated list is a claim about a tree it never looked at;
+generated entry-point table. Past 50 000 files the scan truncates and says so, because _Nothing left
+to migrate_ off a truncated list is a claim about a tree it never looked at;
 `VITEST_AUTO_SPY_SCAN_CAP` raises the cap.
 
 What it deliberately does not do is guess. A `jest.*` member with no `vi` twin — `requireMock`,
@@ -2156,7 +2157,7 @@ of it: a file's wall clock pays for imports, the `TestBed` module and the assert
 which shallow rendering touches.
 
 `keepTemplate: true` is the middle rung — the component's own template with an empty subtree. The
-override keeps the component's own `imports` minus the child *components*, so the template renders
+override keeps the component's own `imports` minus the child _components_, so the template renders
 with its own pipes and directives working while every child component in it resolves to nothing
 under `NO_ERRORS_SCHEMA`. (Before 5.4.0 the whole scope was dropped, which made a pipe in a kept
 template throw `NG0302` and an attribute directive silently never apply.) A child re-exported by an
@@ -2874,24 +2875,25 @@ not a function` on Node 25, `undefined` on Node 26, under jsdom and happy-dom al
     repair decides by using the storage rather than looking at it, replaces only one that cannot
     keep a value, and installs nothing at all in a `node` environment.
 
-| Option                | Default   | Notes                                                                                 |
-| --------------------- | --------- | ------------------------------------------------------------------------------------- |
-| `duplicateCopies`     | `'throw'` | `'warn'` to report without failing, `'off'` to skip the check                         |
-| `restoreProps`        | `true`    | `restoreMockedProps()` in a global `afterEach`                                        |
+| Option                | Default   | Notes                                                                                                                                                                                         |
+| --------------------- | --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `duplicateCopies`     | `'throw'` | `'warn'` to report without failing, `'off'` to skip the check                                                                                                                                 |
+| `restoreProps`        | `true`    | `restoreMockedProps()` in a global `afterEach`                                                                                                                                                |
 | `propsOutsideHooks`   | `'warn'`  | Name a `mock*Prop` patch made in a `describe` body or `beforeAll` — it survives one test; `'throw'`, `'off'`. `reportPropsOutsideHooks(reaction)` sets the same dial without the setup helper |
-| `restoreMocks`        | `false`   | `vi.restoreAllMocks()` in a global `afterEach` — turn on for `isolate: false`         |
-| `strayTimers`         | `false`   | Cancel timeouts, intervals and frames that outlive their file                         |
-| `onStrayTimers`       | —         | Takes the per-file count the sweep cancelled — see the note on `--detect-async-leaks` |
-| `strayRejections`     | `false`   | Fail the test a rejection zone.js swallowed surfaced in — needs zone.js               |
-| `blockNetwork`        | `false`   | Close every network channel the environment has — `true`, or a narrowing object       |
-| `guardGlobals`        | `'off'`   | Report a test that redefines a global property as non-configurable                    |
-| `globalFakeTimers`    | `false`   | Fake timers for every test **and between them** — Jest's `enableGlobally`             |
-| `restoreTimerGlobals` | `true`    | Put back timer globals that uninstalling the fakes deleted                            |
-| `restoreWebStorage`   | `true`    | Give the run a `localStorage` / `sessionStorage` that work                            |
-| `pruneMockRegistry`   | `false`   | Keep @vitest/spy's ever-growing mock registry to the mocks that outlive a file        |
-| `hookTimeoutHint`     | `true`    | Explain a hook that ran out of `hookTimeout` while `testTimeout` is larger            |
-| `frozenClockHint`     | `true`    | Explain a timeout that happened because nothing advanced the fake clock               |
-| `angularBuildHint`    | `true`    | Say once per worker that `@angular/build` builds the test bundle unsplit              |
+| `restoreMocks`        | `false`   | `vi.restoreAllMocks()` in a global `afterEach` — turn on for `isolate: false`                                                                                                                 |
+| `strayTimers`         | `false`   | Cancel timeouts, intervals and frames that outlive their file                                                                                                                                 |
+| `onStrayTimers`       | —         | Takes the per-file count the sweep cancelled — see the note on `--detect-async-leaks`                                                                                                         |
+| `strayRejections`     | `false`   | Fail the test a rejection zone.js swallowed surfaced in — needs zone.js                                                                                                                       |
+| `blockNetwork`        | `false`   | Close every network channel the environment has — `true`, or a narrowing object                                                                                                               |
+| `guardGlobals`        | `'off'`   | Report a test that redefines a global property as non-configurable                                                                                                                            |
+| `prototypePollution`  | `'throw'` | Sweep and report an enumerable key a test left on a built-in prototype                                                                                                                        |
+| `globalFakeTimers`    | `false`   | Fake timers for every test **and between them** — Jest's `enableGlobally`                                                                                                                     |
+| `restoreTimerGlobals` | `true`    | Put back timer globals that uninstalling the fakes deleted                                                                                                                                    |
+| `restoreWebStorage`   | `true`    | Give the run a `localStorage` / `sessionStorage` that work                                                                                                                                    |
+| `pruneMockRegistry`   | `false`   | Keep @vitest/spy's ever-growing mock registry to the mocks that outlive a file                                                                                                                |
+| `hookTimeoutHint`     | `true`    | Explain a hook that ran out of `hookTimeout` while `testTimeout` is larger                                                                                                                    |
+| `frozenClockHint`     | `true`    | Explain a timeout that happened because nothing advanced the fake clock                                                                                                                       |
+| `angularBuildHint`    | `true`    | Say once per worker that `@angular/build` builds the test bundle unsplit                                                                                                                      |
 
 `restoreMocks` is off by default because it also drops `vi.spyOn` stubs a suite installed in
 `beforeAll`; it is the knob to reach for when the run shares one environment across files.
@@ -3076,10 +3078,10 @@ have to answer with a project-wide `warn` of its own. A project that has decided
 it to `'error'` in the same one line that turns the others down.
 
 The other two, `no-stub-class-double` and `no-structural-double` (5.5.0), are graded on the
-*evidence* rather than on the kind of finding. Both report the same drift
+_evidence_ rather than on the kind of finding. Both report the same drift
 `prefer-create-spy-from-class` reports at `error` — a double whose shape was written by hand and is
 free to fall behind the class — but neither has a `provide:` beside it to settle the question, so
-each decides on a heuristic: a class whose fields are `vi.fn()`s, an object whose *declared type* is
+each decides on a heuristic: a class whose fields are `vi.fn()`s, an object whose _declared type_ is
 an object of Vitest `Mock`s. On the same 1759-file suite they report 12 times across 8 files and 115
 across 74, against 18 at `error` for the `useClass:` reading `prefer-provide-auto-spy` gained in the
 same release, whose evidence is a `provide:`. A hundred-odd new errors is the wrong way to introduce
@@ -3101,33 +3103,33 @@ object of `vi.fn()`s is perfectly reasonable in application code. Flat config on
 `.eslintrc` `plugins: ['…']` form resolves names to `eslint-plugin-*` packages, which a subpath
 export can never be.
 
-| Rule                              | Recommended | Fix               | Flags                                                                                                                                      |
-| --------------------------------- | :---------: | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| `prefer-provide-auto-spy`         |   `error`   | —                 | a hand-rolled `useValue`, `useFactory` **or** `useClass` → `provideAutoSpy(Class)` / `provideAutoSpyForToken(TOKEN)`                       |
-| `prefer-create-spy-from-class`    |   `error`   | —                 | an object literal of two or more `vi.fn()`s → `createSpyFromClass` / `createAutoMock`, unless it is a factory's own seed                   |
-| `no-stub-class-double`            |   `warn`    | —                 | a class whose fields are `vi.fn()`s → `createSpyFromClass` / `provideAutoSpy`, the stub class deleted                                      |
-| `no-structural-double`            |   `warn`    | —                 | an object of `vi.fn()`s bound to a name declared `{ load: Mock }` → `createAutoMock<T>()`                                                  |
-| `prefer-inject-spy`               |   `error`   | suggest           | `vi.spyOn(TestBed.inject(X), 'm')`, in one step or two → `injectSpy(X).m`                                                                  |
-| `no-object-define-property`       |   `error`   | suggest           | `Object.defineProperty` in a spec → `mockReadonlyProp` / `mockValueProp`                                                                   |
-| `no-expect-in-subscribe`          |   `error`   | suggest           | `expect()` inside a `subscribe()` callback → `expectEmission` / `firstValueFrom`                                                           |
-| `no-shared-module-level-mock`     |   `error`   | —                 | an **exported** value holding `vi.fn()`s → export a factory that returns it                                                                |
-| `no-mocked-for-spy`               |   `error`   | `--fix` / suggest | `Mocked<T>` in any type position → `Spy<T>`, import and all — a suggestion where the value assigned is not one of this library's factories |
-| `prefer-as-spy`                   |   `error`   | `--fix`           | `TestBed.inject(X) as Spy<X>` → `asSpy<X>(TestBed.inject(X))`, import and all                                                              |
-| `no-done-callback`                |   `error`   | —                 | `it('x', (done) => …)` → `async` + an awaited assertion, and `done.fail(…)` at the call site                                               |
-| `no-floating-assertion`           |   `error`   | —                 | `expect()` in a `.then()` nobody awaits → `expect(await promise)`                                                                          |
-| `no-bare-called-with`             |   `error`   | —                 | `spy.m.calledWith(1);` as a statement of its own — a stub nobody continued, asserting nothing                                              |
-| `no-overridden-provider`          |   `error`   | suggest           | two providers for one token in one array → the earlier one never runs; the exact duplicate can be deleted                                  |
-| `no-inject-before-override`       |   `error`   | —                 | `TestBed.inject()` / `injectSpy()` / `renderShallow()` in a hook, in a suite that still calls `override*`                                                                      |
+| Rule                              | Recommended | Fix               | Flags                                                                                                                                                                                                                  |
+| --------------------------------- | :---------: | ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `prefer-provide-auto-spy`         |   `error`   | —                 | a hand-rolled `useValue`, `useFactory` **or** `useClass` → `provideAutoSpy(Class)` / `provideAutoSpyForToken(TOKEN)`                                                                                                   |
+| `prefer-create-spy-from-class`    |   `error`   | —                 | an object literal of two or more `vi.fn()`s → `createSpyFromClass` / `createAutoMock`, unless it is a factory's own seed                                                                                               |
+| `no-stub-class-double`            |   `warn`    | —                 | a class whose fields are `vi.fn()`s → `createSpyFromClass` / `provideAutoSpy`, the stub class deleted                                                                                                                  |
+| `no-structural-double`            |   `warn`    | —                 | an object of `vi.fn()`s bound to a name declared `{ load: Mock }` → `createAutoMock<T>()`                                                                                                                              |
+| `prefer-inject-spy`               |   `error`   | suggest           | `vi.spyOn(TestBed.inject(X), 'm')`, in one step or two → `injectSpy(X).m`                                                                                                                                              |
+| `no-object-define-property`       |   `error`   | suggest           | `Object.defineProperty` in a spec → `mockReadonlyProp` / `mockValueProp`                                                                                                                                               |
+| `no-expect-in-subscribe`          |   `error`   | suggest           | `expect()` inside a `subscribe()` callback → `expectEmission` / `firstValueFrom`                                                                                                                                       |
+| `no-shared-module-level-mock`     |   `error`   | —                 | an **exported** value holding `vi.fn()`s → export a factory that returns it                                                                                                                                            |
+| `no-mocked-for-spy`               |   `error`   | `--fix` / suggest | `Mocked<T>` in any type position → `Spy<T>`, import and all — a suggestion where the value assigned is not one of this library's factories                                                                             |
+| `prefer-as-spy`                   |   `error`   | `--fix`           | `TestBed.inject(X) as Spy<X>` → `asSpy<X>(TestBed.inject(X))`, import and all                                                                                                                                          |
+| `no-done-callback`                |   `error`   | —                 | `it('x', (done) => …)` → `async` + an awaited assertion, and `done.fail(…)` at the call site                                                                                                                           |
+| `no-floating-assertion`           |   `error`   | —                 | `expect()` in a `.then()` nobody awaits → `expect(await promise)`                                                                                                                                                      |
+| `no-bare-called-with`             |   `error`   | —                 | `spy.m.calledWith(1);` as a statement of its own — a stub nobody continued, asserting nothing                                                                                                                          |
+| `no-overridden-provider`          |   `error`   | suggest           | two providers for one token in one array → the earlier one never runs; the exact duplicate can be deleted                                                                                                              |
+| `no-inject-before-override`       |   `error`   | —                 | `TestBed.inject()` / `injectSpy()` / `renderShallow()` in a hook, in a suite that still calls `override*`                                                                                                              |
 | `no-private-member-access`        |   `error`   | —                 | `instance['privateMember']`, `(instance as any).privateMember` and `vi.spyOn(Object.getPrototypeOf(x), 'm')` — the three spellings that get past `private`; **type-aware**, and silent without `parserOptions.project` |
-| `no-dead-schemas`                 |   `error`   | —                 | `schemas` on a testing module that declares nothing — a charm protecting nobody, and one that starts working the day `declarations` arrive                                                                            |
-| `no-import-time-spread`           |   `error`   | suggest           | `export const x = [...Imported]` at module scope → a `TypeError` while the bundle loads                                                    |
-| `no-unregistered-inject-spy`      |   `error`   | —                 | `injectSpy(X)` for a token this file never registered → the real instance, whose spy helpers exist only for the compiler                   |
-| `prefer-render-shallow`           |   `warn`    | suggest           | `TestBed.createComponent` in a file that never reads the template → `renderShallow(X)`; 0.24× the per-test cycle at 100 children           |
-| `prefer-observer-stub`            |   `error`   | —                 | a hand-rolled `IntersectionObserver` / `ResizeObserver` / `MutationObserver` written into a global → `stubIntersectionObserver()` and friends, whose undo `restoreMockedProps()` already runs                        |
-| `jasmine-namespace-without-entry` |   `error`   | —                 | `.and` / `.calls` / `.withArgs` on a library spy in a file that installs the compatibility layer nowhere                                   |
-| `no-jasmine-globals`              |   `error`   | —                 | `jasmine.*`, `spyOn(` / `spyOnProperty(` / `spyOnAllFunctions(` / `fail(` / `pending(`, `.withContext(` — none of them exist under Vitest  |
-| `no-save-arguments-by-value`      |   `error`   | —                 | `spy.calls.saveArgumentsByValue()`, which is a no-op here → take the copy at call time                                                     |
-| `prefer-native-spy-api`           |   `error`   | `--fix` / suggest | `.and` / `.calls` where the spy's own API says the same thing — the last mile off the jasmine shim                                         |
+| `no-dead-schemas`                 |   `error`   | —                 | `schemas` on a testing module that declares nothing — a charm protecting nobody, and one that starts working the day `declarations` arrive                                                                             |
+| `no-import-time-spread`           |   `error`   | suggest           | `export const x = [...Imported]` at module scope → a `TypeError` while the bundle loads                                                                                                                                |
+| `no-unregistered-inject-spy`      |   `error`   | —                 | `injectSpy(X)` for a token this file never registered → the real instance, whose spy helpers exist only for the compiler                                                                                               |
+| `prefer-render-shallow`           |   `warn`    | suggest           | `TestBed.createComponent` in a file that never reads the template → `renderShallow(X)`; 0.24× the per-test cycle at 100 children                                                                                       |
+| `prefer-observer-stub`            |   `error`   | —                 | a hand-rolled `IntersectionObserver` / `ResizeObserver` / `MutationObserver` written into a global → `stubIntersectionObserver()` and friends, whose undo `restoreMockedProps()` already runs                          |
+| `jasmine-namespace-without-entry` |   `error`   | —                 | `.and` / `.calls` / `.withArgs` on a library spy in a file that installs the compatibility layer nowhere                                                                                                               |
+| `no-jasmine-globals`              |   `error`   | —                 | `jasmine.*`, `spyOn(` / `spyOnProperty(` / `spyOnAllFunctions(` / `fail(` / `pending(`, `.withContext(` — none of them exist under Vitest                                                                              |
+| `no-save-arguments-by-value`      |   `error`   | —                 | `spy.calls.saveArgumentsByValue()`, which is a no-op here → take the copy at call time                                                                                                                                 |
+| `prefer-native-spy-api`           |   `error`   | `--fix` / suggest | `.and` / `.calls` where the spy's own API says the same thing — the last mile off the jasmine shim                                                                                                                     |
 
 Every message ends with a link to the matching [recipe](#how-to-mock): a rule that only says
 "don't" moves the problem rather than solving it. Rules travel with the API they recommend, so they
@@ -3290,16 +3292,16 @@ Both are the same object at runtime; only the view changes.
 Keyed by what the compiler prints, because that is what you have when you get there. The helper
 names are unfindable from these messages otherwise — no `TS2739` text contains the word `asInstance`.
 
-| Message                                                                           | What actually happened                                                                                              | Cure                                               |
-| --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------- |
-| `TS2352 … 'Spy<X>' … Property 'accessorSpies' is missing in type 'X'`             | `x as Spy<X>`, written by hand                                                                                      | `asSpy(x)` — never a double assertion              |
-| `TS2739` / `TS2740`: `'Spy<X>' is missing … ` + a list of **private** fields      | a spy handed to an API typed against `X`                                                                            | `asInstance(spy)`                                  |
-| `TS2345: Argument of type 'Spy<X>' is not assignable to parameter of type 'X'`    | the same, in an argument                                                                                            | `asInstance(spy)`, or `asInstances(a, b, c)`       |
-| `TS2322: Type 'Spy<X>' is not assignable to type 'Mocked<X>' …`                   | the variable was declared `Mocked<T>`                                                                               | declare it `Spy<T>`                                |
-| `'AddPromiseSpyMethods<unknown>' is missing … from type 'WithMockReturnValue<…>'` | a generic class inferred as `Service<any>`                                                                          | `asSpy<Service>(…)` / `injectSpy<Service>(…)`      |
-| `TS2345` / `TS2554` **on a call to a spied method** (wrong arguments)             | the arguments the real method rejects — the double's call signature is the method's own; it used to accept anything | fix the call; don't re-widen the spy               |
-| `TS2345` **inside `mockReturnValue` / `mockImplementation` / `mockResolvedValue`** | the stub is not what the method returns — the mock surface is `MockInstance<Method>`, so it is checked                | fix the stub; a deliberate mismatch is a type bug  |
-| `TS2739 … 'Spy<X>' is missing …` **on a line with `injectSpy`**                   | the provider handed back the real object                                                                            | `provideAutoSpy(X)`, or an honest `TestBed.inject` |
+| Message                                                                            | What actually happened                                                                                              | Cure                                               |
+| ---------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------- |
+| `TS2352 … 'Spy<X>' … Property 'accessorSpies' is missing in type 'X'`              | `x as Spy<X>`, written by hand                                                                                      | `asSpy(x)` — never a double assertion              |
+| `TS2739` / `TS2740`: `'Spy<X>' is missing … ` + a list of **private** fields       | a spy handed to an API typed against `X`                                                                            | `asInstance(spy)`                                  |
+| `TS2345: Argument of type 'Spy<X>' is not assignable to parameter of type 'X'`     | the same, in an argument                                                                                            | `asInstance(spy)`, or `asInstances(a, b, c)`       |
+| `TS2322: Type 'Spy<X>' is not assignable to type 'Mocked<X>' …`                    | the variable was declared `Mocked<T>`                                                                               | declare it `Spy<T>`                                |
+| `'AddPromiseSpyMethods<unknown>' is missing … from type 'WithMockReturnValue<…>'`  | a generic class inferred as `Service<any>`                                                                          | `asSpy<Service>(…)` / `injectSpy<Service>(…)`      |
+| `TS2345` / `TS2554` **on a call to a spied method** (wrong arguments)              | the arguments the real method rejects — the double's call signature is the method's own; it used to accept anything | fix the call; don't re-widen the spy               |
+| `TS2345` **inside `mockReturnValue` / `mockImplementation` / `mockResolvedValue`** | the stub is not what the method returns — the mock surface is `MockInstance<Method>`, so it is checked              | fix the stub; a deliberate mismatch is a type bug  |
+| `TS2739 … 'Spy<X>' is missing …` **on a line with `injectSpy`**                    | the provider handed back the real object                                                                            | `provideAutoSpy(X)`, or an honest `TestBed.inject` |
 
 Two notes that cost real time when they are missing.
 

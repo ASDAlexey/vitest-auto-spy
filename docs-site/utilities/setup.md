@@ -606,11 +606,11 @@ Storage made the key exist, so the filter now asks `KEYS`, `KEYS` says no, and t
 storage never arrives. The filter runs before any environment-specific code, so jsdom and happy-dom
 break identically:
 
-| Node   | `localStorage` under Vitest       |
-| ------ | --------------------------------- |
-| 24.19  | works                             |
-| 25.9   | `setItem is not a function`       |
-| 26.7   | `undefined`                       |
+| Node  | `localStorage` under Vitest |
+| ----- | --------------------------- |
+| 24.19 | works                       |
+| 25.9  | `setItem is not a function` |
+| 26.7  | `undefined`                 |
 
 A suite stays green with this broken, because only the specs that touch storage fail — which is why
 it usually arrives as "CI moved to a new Node and eleven unrelated specs died".
@@ -632,6 +632,57 @@ Two things it deliberately does not do. It installs nothing in a `node` environm
 supposed to have no Web Storage at all: handing the code under test an API the real runtime lacks
 is a larger change than the one it was there to make. And it leaves a working storage exactly as it
 is, so a spec's own stub survives it.
+
+## 15. The key on `Object.prototype` that stops the run collecting
+
+On by default, and the only check here whose absence makes a run report success over code it never
+executed.
+
+Vitest assembles a file's hooks in `mergeHooks`, which walks its hooks object with `for…in`. One own
+enumerable key on `Object.prototype` therefore adds a key that is spread as if it were an array, and
+it happens during **collect**:
+
+```text
+TypeError: Spread syntax requires ...iterable[Symbol.iterator] to be a function
+```
+
+with no stack — `parseErrorStacktrace` filters frames through `stackIgnorePatterns`, which covers
+`"/vitest/dist/"` and `/\/@vitest\/\w+\/dist\//`, and every frame of that error lives there. Under
+`isolate: false` the key outlives the file that wrote it, so the casualties are that worker's whole
+tail. In a 1759-file suite the report read `145 failed | 1613 passed` over `11880 passed | 0 failed`
+— zero failing tests because those 145 files never ran — and the count wandered across 0, 75, 83,
+122, 135, 145 and 155 on an unchanged tree, because a run whose writer happened to go last came out
+green. Anything else that walks a plain object breaks the same way; `superagent`'s mime table
+(`typeMap[type].map is not a function`) was the second place the same key surfaced.
+
+```ts
+setupAutoSpy(); // prototypePollution: 'throw' — pass 'warn' to sweep and report without failing
+```
+
+```text
+[vitest-auto-spy] /src/app/purchase/purchase-open.service.spec.ts left "ngOnDestroy" on
+Object.prototype as an own enumerable property. … **every spec file after this one in the same
+worker fails to collect** … The key has been taken back off so the rest of the run survives.
+```
+
+The write is nearly always accidental. Code that decorates a class by patching
+`Object.getPrototypeOf(instance)` is handed `Object.prototype` itself the moment `instance` is an
+object literal from a `useValue` provider — or a test double:
+
+```ts
+const proto = Object.getPrototypeOf(instance); // Object.prototype, for a plain object
+proto['ngOnDestroy'] = function () { … };      // now every object in the realm has it
+```
+
+Patch the prototype of the class the object came from, never the prototype of a plain object or of a
+double. `Object.prototype`, `Array.prototype` and `Function.prototype` are compared before and after
+every test; a key the environment already carried is left alone, so a project's own prototype
+polyfill is not swept. `guardPrototypePollution(reaction)` is exported for a suite that wants the
+check somewhere narrower.
+
+A key added while the spec file is being _imported_ takes that file's own collect down before any
+hook can run, and nothing inside the runner can report it — what the guard still does there is take
+the key back off, so the report names one file instead of a hundred.
 
 ## The two buffers teardown drains
 
@@ -692,6 +743,7 @@ each test: a stub installed for the previous test is exactly what must not still
 | `strayRejections`     | `false`   | Fail the test a rejection zone.js swallowed surfaced in — needs zone.js         |
 | `blockNetwork`        | `false`   | Close every network channel the environment has — `true`, or a narrowing object |
 | `guardGlobals`        | `'off'`   | Report a test that redefines a global property as non-configurable              |
+| `prototypePollution`  | `'throw'` | Sweep and report an enumerable key a test left on a built-in prototype          |
 | `globalFakeTimers`    | `false`   | Fake timers for every test **and between them** — see below                     |
 | `restoreTimerGlobals` | `true`    | Put back timer globals that uninstalling the fakes deleted                      |
 | `restoreWebStorage`   | `true`    | Give the run a `localStorage` / `sessionStorage` that work — see section 14     |
