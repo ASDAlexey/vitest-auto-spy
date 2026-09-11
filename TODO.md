@@ -18,6 +18,10 @@ which is where this file's `[~]` entries went on 2026-09-10 — a decision is no
       holding a **union** of classes, and a `#private` field — the second is unreachable by bracket
       access, by a cast and by `Object.getPrototypeOf` alike, so there is nothing to report for it.
       The union case is the one worth building, and it is worth building when a suite produces it.
+- [ ] **`prefer-provide-auto-spy` still recommends `provideAutoSpy(ActivatedRoute)`.** For
+      `{ provide: ActivatedRoute, useValue: … }` the better replacement is `provideActivatedRoute()`
+      from `/angular-router`, whose double carries the streams and the snapshot the spy lacks. A
+      token-specific message is the change; the rule already reads the `provide` value.
 
 ## `doctor` — the catalogue is a fifth built
 

@@ -12,6 +12,194 @@ The latest released version here must always match the one published on
 
 ### Added
 
+- **`registerAutoSpyDefaults` takes an `InjectionToken` — from `vitest-auto-spy/angular`.** The
+  registry reached classes only, so a double behind a token was assembled again in every file that
+  provided it — the drift the registry had removed for classes. On a consumer suite of ~1 760 spec
+  files one logger token was provided in 63 files through 35 distinct provider lines, a navigation
+  token in 77 files through 39, and 197 `returns` entries of `undefined` for token doubles were
+  repeated across 117 files. The `/angular` export adds a token overload over the very same registry,
+  and `provideAutoSpyForToken(TOKEN)` reads it the way `provideAutoSpy(Class)` reads a class's: its
+  seeds and its configuration are merged over the registration — lists unioned, `returns` and
+  `overrides` key by key with the call site winning, scalars decided by the call site — and a
+  registered `returns` stays a default a later `calledWith` / `resolveWith` wins over. A token row is
+  an `AutoSpyTokenDefaults<T>`: what `createAutoMock` takes (`returns`, `selfReturning`,
+  `observablePropsToSpyOn`, `strict`, `name`) plus `overrides`, every key checked against the token's
+  `T`. The table form mixes class rows and token rows, each checked against its own key, and
+  `clearAutoSpyDefaults(TOKEN)` from the same entry drops one. The core export stays class-only — the
+  core entry may not name Angular's types — so a token handed to it is `TS2345 … not assignable to
+  parameter of type 'ClassType<unknown>'`, and the repair is the import.
+
+- **`selfReturning: ['channel']` — a method that answers the double itself.** The link a chained call
+  needs is the one `returns` cannot spell, because the double does not exist when the literal is
+  written: `inject(LOGGER).channel('auth').debug('…')` in a constructor died on `undefined` unless the
+  spec seeded `channel` with `vi.fn().mockReturnThis()` after the factory — 29 times in 27 files of
+  the same consumer, plus two near-identical hand-written logger factories, and neither form fits a
+  registration or a `providers: []` array. `selfReturning` is a list on every factory's configuration
+  (`createSpyFromClass`, `createSpyFromInstance` — where the answer is the instance —, `createAutoMock`,
+  `autoMocked`, `provideAutoSpy`, `provideAutoSpyForToken`, a registration). It installs the same
+  default `returns` does, so it counts as configured under `strict`, a later `calledWith` /
+  `mockReturnValue` still wins and `resetAutoSpy` clears it; a method also named in `returns` answers
+  that value, which is how a spec takes one link out of a registered chain, since lists only union. A
+  name that is not a spied method is reported as `selfReturning names 'x'`, like `returns`. The name
+  and the idea are `mockDeep`'s `{ selfReturning: true }`, narrowed to the methods that chain.
+
+- **`no-unknown-use-value-key`: each key of an object `useValue` literal is checked against the
+  provided type.** Angular types `useValue` as `any`, so `{ provide: ActivatedRoute, useValue: {
+  queryParams$: of({}) } }` compiles for a class with no `queryParams$`, the code under test reads the
+  real member, and the spec stays green over a fixture nothing reads. The consumer carries about 870
+  object `useValue` literals, 375 of them for class providers and 495 for tokens; a hand count over 434
+  class literals found two keys the class does not have, that `queryParams$` among them, under a spec
+  that passed. The rule asks the checker for the provided type — `T` of an `InjectionToken<T>`, or a
+  `provide:` class's instance type — and reports each literal key no member of it has. It checks
+  **keys only**: whether a value fits is the broad form `no-mistyped-use-value` keeps to primitive
+  tokens, because a `useValue` is normally a partial fixture. Silent on `any`, `unknown`, `object`,
+  `{}`, primitives, arrays and index signatures, on a spread's keys and computed keys, on `multi: true`,
+  and without `parserOptions.project` / `projectService`. A rule of its own rather than an option on
+  `no-mistyped-use-value`, so a project can take one reading without the other. `error`, because it
+  decides on the checker's answer; not in `configs.typeErrors`, because the finding compiles.
+
+- **`vitest-auto-spy/angular-router` — an `ActivatedRoute` whose streams and snapshot cannot
+  disagree.** `ActivatedRoute` keeps `snapshot`, `params`, `queryParams`, `data` and `fragment` in
+  instance fields, so `provideAutoSpy(ActivatedRoute)` has none of them and a hand-written `useValue`
+  has whichever half its author read first. In one consumer suite 99 spec files built the double by
+  hand: 31 bare `provideAutoSpy(ActivatedRoute)`, 68 `{ provide: ActivatedRoute, useValue }` lines
+  across 56 files — spelling out `snapshot` 37 times, `queryParams` 32, `params` 17, `paramMap` twice
+  — and 35 partial snapshots patched in through a repository wrapper that silenced the type with
+  `as never`, because the honest type asks for a whole `ActivatedRouteSnapshot`.
+  `provideActivatedRoute({ params, queryParams, data, fragment, url, outlet, component, routeConfig })`
+  provides **Angular's own `ActivatedRoute`**, built over one record: every stream is a
+  `BehaviorSubject` of one field, the snapshot is Angular's own `ActivatedRouteSnapshot` of the same
+  record, and both `ParamMap`s are Angular's. `injectActivatedRoute()` returns the handle —
+  `setParams`, `setQueryParams`, `setData`, `setFragment`, `setUrl` and `set({ … })` — and each change
+  replaces the snapshot first and then emits the streams that moved, in the router's order and with
+  its equality, so a spec cannot observe a state a navigation never produces. `createActivatedRoute()`
+  is the same double without a `TestBed`. The route is a one-node tree (`root` is itself, `parent`
+  is `null`) and a real route to the real `Router`: `relativeTo` resolves against its `url`. It is
+  built with the router's internal constructors, unchanged from Angular 20 through 22 and checked as
+  the double is built; the specs compare its keys with `new ActivatedRoute()`, and the Angular range
+  job now builds it on 20, 21 and 22. `@angular/router` joins the **optional** peers — this entry is
+  the only one that imports it — and the entry weighs 2.09 kB min+gzip. It registers no hooks and
+  imports no runner, so it works the same under `bun test`.
+
+- **`no-ts-expect-error-on-double`: a type suppression over a double's configuration is reported.**
+  A `@ts-expect-error` or `@ts-ignore` whose line configures a double — `nextWith`,
+  `nextOneTimeWith`, `resolveWith`, `returnValue`, `mockReturnValue`, `mockResolvedValue`,
+  `calledWith(…)` and the rest whose argument is checked against the method's signature — switches off
+  the one check a typed double gives. On the consumer the rule reports 34 such directives in 15 files,
+  every one with a reason written after it: four on overloaded clients, seven blaming "the collapsed
+  generic" for a fixture the real instantiation rejects as well, nineteen over a fixture or a
+  production type that disagrees with the declared one, and four deliberately outside the type to
+  reach a default branch. So a reason does not silence it. The message names
+  `Spy<X, { overload: { m: 'first' } }>` for an overloaded method and `ReturnType<X['m']>` for the
+  rest, and the deliberate case keeps its directive under an `eslint-disable-next-line … -- <why>`,
+  which reaches it because the report sits on the directive's line. `rejectWith` / `failWith` /
+  `throwWith` take `unknown` and are not read. `error`, syntax only.
+
+- **`no-constant-expect`: an assertion the spec already decided is reported.** `expect(true).toBe(true)`,
+  `expect({ … }).toBeDefined()` — a value spelled out in the spec, under a matcher whose answer that
+  value fixes: `toBe` / `toEqual` / `toStrictEqual` with constants on both sides, and `toBeTruthy` /
+  `toBeFalsy` / `toBeDefined` / `toBeUndefined` / `toBeNull` / `toBeNaN` for any literal, object and
+  function literals included. `vitest/expect-expect` sees the `expect` and is satisfied, and
+  `@vitest/eslint-plugin` 1.6 has no rule about the value; on the consumer it reports four — two tests
+  asserting nothing else, two importing a barrel for coverage. `.resolves` / `.rejects`, `toThrow` and
+  every other matcher are left alone. `error`.
+
+- **`no-compile-components`: `compileComponents()` under a builder that inlines resources.** The call
+  fetches `templateUrl` / `styleUrls` at run time, so under the Angular CLI's test builders,
+  `jest-preset-angular` or `bun-angular` it resolves at once and the `await` before it waits for
+  nothing; under a JIT setup that reads those files while the test runs it is needed. No spec shows
+  which, so the rule reports nothing until `['error', { builder: 'inline-resources' }]` says so — it
+  ships in `recommended` at `error` and inert, the way the type-aware rules wait for a program, rather
+  than as the plugin's first `off`. A suggestion drops the call (the whole statement when only
+  `TestBed` is left) and the `async` of a hook or test that awaits nothing else; a `.then()` chain, a
+  returned or stored promise and a concise arrow body are reported without one. On the consumer: 449
+  calls in 411 files, 435 with the edit. The plugin ships thirty-four rules, and the three add
+  2.02 kB min+gzip to `/eslint-plugin` (27.50 → 29.52 kB) — a dev-time entry no test bundle imports.
+
+- **A strict double's getter nobody configured, and its stream nobody fed, are reported after the
+  test.** Strict mode throws on a method nobody configured, but a spied getter still answered
+  `undefined` and an observable property spy stayed a silent stream — the same "no data" branch, and
+  nothing said so. A registration makes it common: on a consumer suite of ~1 760 spec files every
+  `Router` double carried `gettersToSpyOn: ['url']` and `observablePropsToSpyOn: ['events']` from one
+  `registerAutoSpyDefaults` row, and of the 119 files that doubled it 77 never configured `url` and
+  100 never fed `events`. A read cannot throw where it happens — a failure diff that prints the double
+  reads it, and a throw would break that message — so `setupAutoSpy({ unconfiguredReads })` (`'off'`
+  by default, `'warn'`, `'throw'`) counts the reads while the test runs, from its own `beforeEach` to
+  its `afterEach`, and reports them after it:
+  `[vitest-auto-spy] Router.url was read 3 times and nothing configured it, and strict mode is on.`
+  A getter read counts when it reached the scaffold nothing replaced — `mockReturnValue`,
+  `mockImplementation`, `overrides` (a registered one included) and `mockReadonlyProp` configure it;
+  a subscription counts when nothing fed the stream **by the end of the test**, so subscribing first
+  and calling `nextWith` later is not a finding. `onUnstubbedRead({ className, member, kind, count })`
+  — on `setupAutoSpy` or on one double, with `onUnstubbedCall`'s precedence — takes the findings
+  instead of the report, from every double not built with `strict: false`, for a survey before the
+  report goes on. Not part of `preset: 'strict'`. Covers `createSpyFromClass`, `provideAutoSpy`,
+  `createSpyFromInstance`, and the observable properties of `createAutoMock` /
+  `provideAutoSpyForToken`; `mockDeep` nodes stay out. The trackers ride every factory — +0.28…0.33 kB
+  min+gzip on the core rows (16.91 → 17.18 kB) and +0.30 kB on `/angular` — and `/setup`, which also
+  carries the report, takes 0.61 kB (16.40 → 17.01 kB).
+
+- **`createComponentStub(Real, overrides?, { template }?)` in `/angular`: a child's stand-in that
+  cannot drift from the child.** A hand-written stub restates the selector, the inputs and the
+  outputs, and nothing checks the copy — a renamed input leaves the parent binding a property nobody
+  declared while the spec stays green. On the consumer that shape was still 22 classes in 17 spec
+  files after two clean-ups. The helper reads the copy from the real class's compiled definition
+  (`ɵcmp`, `ɵdir`, `ɵpipe`): the selector, compiled back to the same selector list; every input
+  under its public name, with its alias and transform, `input()` as a signal input and `model()` as a
+  model; every output as an `EventEmitter`; `exportAs`; a pipe's name and purity, with the identity
+  as its default `transform`. The stub is standalone, renders one `<ng-content>` per slot the real
+  component projects, and works in `TestBed.overrideComponent(…, { remove: { imports: [Real] }, add: {
+  imports: [Stub] } })` and next to `renderShallow(Parent, { keepTemplate: true, keepChildren: [Stub] })`.
+  Not copied, on purpose: host bindings, providers, lifecycle hooks, queries. Each stub gets a
+  component ID of its own, so stubbing the same child in every test prints no `NG0912`.
+  `renderShallow` does not do this — it drops children instead of standing in for them. +0.93 kB
+  min+gzip on `/angular` (21.72 → 22.65 kB).
+
+- **`stubWebStorage('localStorage' | 'sessionStorage', { items, view }?)` in `/dom-stubs`.** An
+  in-memory `Storage` a spec installs for itself — `getItem` / `setItem` / `removeItem` / `clear` /
+  `key` / `length` with the platform's string coercion — and a handle whose `snapshot()` is the plain
+  record to assert on. It goes through `mockValueProp`, so `restoreMockedProps()` and `setupAutoSpy()`
+  put the previous storage back, and it lands on `document.defaultView` too when that is a separate
+  object. The consumer carried four copies of a `TestingStorage` class for this. It is not a second
+  `restoreWebStorage()`: that one repairs a broken environment once and leaves a working storage
+  alone; this one replaces whatever is there, for one test, and installs in a `node` environment as
+  well because the spec asked for it. +0.26 kB min+gzip on `/dom-stubs` (5.37 → 5.62 kB).
+
+### Changed
+
+- **`prefer-provide-auto-spy` names `selfReturning` for a chained call on a token.** Its token message
+  used to recommend `provideAutoSpyForToken(LOGGER, { channel: vi.fn().mockReturnThis() })`, a seed
+  that is stored verbatim and is no longer a spy; it now points at the third argument,
+  `{ selfReturning: ["channel"] }`, which keeps `channel` assertable and configured under `strict`.
+
+### Fixed
+
+- **`provideAutoSpy` keeps a generic class's declared default next to an accessor list and
+  `returns`.** `provideAutoSpy(RemoteConfigService, { gettersToSpyOn: ['remoteConfig'], returns: {
+  isKeyEnabled: false } })` failed with `'isKeyEnabled' does not exist in type 'MethodReturns<{
+  remoteConfig: any; }>'`: TypeScript checks a generic class argument after the configuration, reads
+  `T` back from the list as `{ remoteConfig: any }`, and rejects the call before the class is read —
+  either half alone inferred the default, and `overrides` with `returns` failed the same way. The
+  consumer spelled the type argument out at eight call sites. `provideAutoSpy`, `overrideAutoSpy`
+  and `overrideComponentProvider` now take `T` from the class alone (`NoInfer`, TypeScript 5.4 — every
+  Angular `/angular` supports already needs a newer one). The core `createSpyFromClass` keeps the
+  trap — `NoInfer` is above the TypeScript floor the core documents, and the older emulations were
+  measured and do not block this inference — so AGENTS.md §6 and §17 say to spell the argument out
+  there, and a type test pins both the rejection and the explicit form.
+
+- **The `Map`-backed stand-in coerces keys, not only values.** `restoreWebStorage()`'s replacement
+  stored `setItem(1, …)` under the number and `getItem('1')` missed it; keys now go through
+  `String()` as the platform's do, and `key()` converts its index as an `unsigned long` (`key(-1)` is
+  `null`, `key(NaN)` is the first key). +37 B min+gzip on `/setup`.
+
+Token registrations, `selfReturning` and `no-unknown-use-value-key` add +0.11 kB min+gzip to the core
+rows (16.80 → 16.91 kB), +0.26 kB to `/angular` (21.17 → 21.42 kB), and +0.55 kB to `/eslint-plugin`
+(26.95 → 27.50 kB), a dev-time entry no test bundle imports.
+
+## [5.7.0] - 2026-09-11
+
+### Added
+
 - **A strict throw something swallowed fails the test anyway.** A call to an unconfigured method of
   a strict double throws where it happens — and on the consumer that throw was caught before it
   reached the test more often than anyone guessed: by a `try`/`catch` in the code under test, which
@@ -4640,7 +4828,8 @@ by hand there, in more than one place, by more than one person.
   `mockAccessorsProp`.
 - Dual ESM + CJS build with type declarations; 100% test coverage.
 
-[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.6.0...HEAD
+[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.7.0...HEAD
+[5.7.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.6.0...v5.7.0
 [5.6.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.5.0...v5.6.0
 [5.5.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.4.0...v5.5.0
 [5.4.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.3.0...v5.4.0

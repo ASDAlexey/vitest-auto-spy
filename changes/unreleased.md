@@ -5,7 +5,7 @@
 > Conventional Commits only when a version has no section there yet), so nothing here is pasted
 > anywhere. See `CONTRIBUTING.md` → "Releasing".
 
-_Last released: **v5.5.0** — the git tag, `package.json` and `CHANGELOG.md` agree._
+_Last released: **v5.7.0** — the git tag, `package.json` and `CHANGELOG.md` agree._
 
 ## Staged for the next release
 
@@ -13,28 +13,32 @@ _Last released: **v5.5.0** — the git tag, `package.json` and `CHANGELOG.md` ag
 
 ### Added
 
-- `setupAutoSpy({ strayConsole })` and `guardStrayConsole`: console output nothing absorbed fails the test
-  that wrote it, and output outside any test fails the file.
-- `setupAutoSpy({ preset: 'strict' })`: every guard at its failing grade.
-- `setupAutoSpy({ misconfiguration: 'throw' })`: the library's own misuse reports throw at the call site.
-- `no-passthrough-console-spy`, `no-console-in-spec`, `no-import-time-console-spies` (all `error`).
-- `withoutStrayTimerTracking`; the Web Storage probe runs inside it.
-- `onStrayTimers` receives `timers` (kind, scheduling file, frames); `describeStrayTimers()`.
-- `createAutoMock(…, { name })`; `provideAutoSpyForToken` names the token in strict reports.
+- `registerAutoSpyDefaults(TOKEN, config)` from `vitest-auto-spy/angular`: an `InjectionToken` registers over the
+  class registry, and `provideAutoSpyForToken(TOKEN)` merges its arguments over it; `AutoSpyTokenDefaults<T>`,
+  token rows in the table form, `clearAutoSpyDefaults(TOKEN)`.
+- `selfReturning: ['m']` on every factory's configuration and in a registration: the named methods answer the
+  double itself, a default like `returns` that counts as configured under `strict`.
+- `no-unknown-use-value-key` (`error`, type-aware): a key of an object `useValue` literal the provided type does
+  not have — keys only, never the values.
+- `vitest-auto-spy/angular-router`: `provideActivatedRoute`, `injectActivatedRoute`, `createActivatedRoute` —
+  Angular's own `ActivatedRoute` over one record, streams and snapshot moved together; `@angular/router`
+  is a new optional peer.
+- `no-ts-expect-error-on-double` and `no-constant-expect` (both `error`); `no-compile-components`
+  (`error`, silent until `{ builder: 'inline-resources' }`, suggestion removes the call). Thirty-four rules.
+- `setupAutoSpy({ unconfiguredReads })`: a strict double's getter read, or stream subscribed to, that nothing
+  configured is reported after the test; `onUnstubbedRead` (suite-wide or per double) takes the findings instead.
+- `createComponentStub(Real, overrides?, { template }?)` (`/angular`): a standalone stand-in for a child component,
+  directive or pipe, its selector, inputs, outputs and `exportAs` read from the compiled definition.
+- `stubWebStorage(key?, { items, view }?)` (`/dom-stubs`): an in-memory `localStorage` / `sessionStorage` with a
+  `snapshot()` handle, undone by `restoreMockedProps()`.
 
 ### Changed
 
-- Under `strayConsole` the `/console` import installs nothing; `restoreConsole()` keeps the spies.
-- `injectSpy`'s not-a-spy warning de-duplicated per spec file; `createAutoMock().constructor` is `Object`.
-- `provideHttpTesting()` verifies only the modules built from its providers.
-- The strict report prints instances by class, data capped at 200 characters; the teardown net explains
-  itself once per file.
+- `prefer-provide-auto-spy`'s token message recommends `{ selfReturning: ["channel"] }` for a chained call
+  instead of a `vi.fn().mockReturnThis()` seed.
 
 ### Fixed
 
-- Strict doubles no longer throw from Angular's lifecycle hooks (`ngOnDestroy` at teardown).
-- Suite-wide `strict` / `onUnstubbedCall` / `setSpyEngine` reach doubles built by every bundle.
-- `overrides` on a spied getter seeds the getter spy.
-- `extendWithAutoSpies({ providers })` reads an overridden token with `TestBed.inject` — no not-a-spy report.
-- `enableAngularDiagnostics()` and `provideHttpTesting({ verifyOnTeardown })` check every spec file of a
-  worker, and work under `sequence: { hooks: 'list' }`; `shadowedProviders` false reports and `NG0201`.
+- `provideAutoSpy` / `overrideAutoSpy` / `overrideComponentProvider` keep a generic class's default next to an
+  accessor list (or `overrides`) and `returns`; the core `createSpyFromClass` still needs the type argument there.
+- The `restoreWebStorage()` stand-in coerces keys and `key()` indexes as the platform does.
