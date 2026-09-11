@@ -9,6 +9,7 @@
 import { createSpyFromClass as createCoreSpyFromClass } from './create-spy-from-class';
 import { createFunctionSpy as createCoreFunctionSpy } from './function-spy';
 import type { JasmineMethodSpy, JasmineSpy } from './jasmine-types';
+import { reportMisconfiguration } from './misconfiguration';
 import type { ClassSpyConfiguration, ClassType, Func, OnlyMethodKeysOf } from './types';
 
 /**
@@ -42,8 +43,8 @@ function normalizeConfiguration<T>(
     return config;
   }
 
-  // eslint-disable-next-line no-console -- the same warning, in the same place, that `jasmine-auto-spies` prints; a migrated suite should see no new silence and no new failure.
-  console.warn(
+  // The same warning, in the same place, that `jasmine-auto-spies` prints — unless the suite asked for misconfiguration to fail.
+  reportMisconfiguration(
     "[vitest-auto-spy] 'providedMethodNames' is deprecated, please use 'methodsToSpyOn' instead. " + 'Both were applied for this double.',
   );
 

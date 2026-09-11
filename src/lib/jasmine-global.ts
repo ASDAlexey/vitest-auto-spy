@@ -24,6 +24,7 @@ import { expect, vi } from 'vitest';
 
 import { createFunctionSpy, createSpyObj } from './jasmine-factories';
 import { registerJasmineMatchers } from './jasmine-matchers';
+import { misconfigurationThrows, reportMisconfiguration } from './misconfiguration';
 import { getMockAdapter } from './mock-adapter';
 import type { Func } from './types';
 
@@ -90,14 +91,14 @@ let warnedAboutTimeout = false;
  * once, naming the two settings.
  */
 function warnAboutTimeoutInterval(): void {
-  if (warnedAboutTimeout) {
+  // The latch hides every write after the first, so it only applies to the printed grade.
+  if (warnedAboutTimeout && !misconfigurationThrows()) {
     return;
   }
 
   warnedAboutTimeout = true;
 
-  // eslint-disable-next-line no-console -- a dev-time misconfiguration warning, the same class as the ones in `create-spy-from-class.ts`.
-  console.warn(
+  reportMisconfiguration(
     '[vitest-auto-spy] jasmine.DEFAULT_TIMEOUT_INTERVAL has no runtime equivalent under Vitest and was ignored. ' +
       'Set `test.testTimeout` in your Vitest config instead — and `test.hookTimeout` too, which is a separate ' +
       'setting with its own default, and is what a slow beforeEach actually trips.',

@@ -163,5 +163,23 @@ describe('the jasmine namespace', () => {
       // The write is ignored, which is exactly what the warning says.
       expect(jasmine.DEFAULT_TIMEOUT_INTERVAL).toBe(5000);
     });
+
+    it('fails every write under misconfiguration: throw, the latch notwithstanding', () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+      // The test above has already tripped the latch the printed grade stops at.
+      jasmine.DEFAULT_TIMEOUT_INTERVAL = 30000;
+      globalThis.__vitestAutoSpyMisconfiguration__ = 'throw';
+
+      try {
+        expect(() => {
+          jasmine.DEFAULT_TIMEOUT_INTERVAL = 40000;
+        }).toThrow(/has no runtime equivalent/);
+      } finally {
+        globalThis.__vitestAutoSpyMisconfiguration__ = undefined;
+      }
+
+      expect(warn).not.toHaveBeenCalled();
+    });
   });
 });
