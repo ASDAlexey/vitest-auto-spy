@@ -16,14 +16,18 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Three full passes of the suite ran back to back in one job per Node, and they were the whole
+  # critical path of the workflow. Each lane now runs one of them, on every Node of the matrix, so
+  # nothing is dropped — only the wait. Lanes are balanced by measured time, not by theme.
   test:
-    name: Test (Node ${{ matrix.node }})
+    name: Test (Node ${{ matrix.node }}, ${{ matrix.lane }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         # previous LTS (22), latest LTS (24), latest current release (26)
         node: [22, 24, 26]
+        lane: [coverage, shared-env, dom-and-runners]
     steps:
       - uses: actions/checkout@v4
 
@@ -32,35 +36,41 @@ jobs:
           node-version: ${{ matrix.node }}
           cache: npm
 
-      # The lockfile is generated with npm 11; pin it so `npm ci` interprets
-      # the dependency tree the same way and stays in sync.
+      # The lockfile is generated with npm 11; pin it so `npm ci` interprets the dependency tree the
+      # same way. Only Node 22 bundles npm 10 — 24 and 26 ship 11, and reinstalling it cost 4-7 s a job.
       - name: Pin npm
+        if: matrix.node == 22
         run: npm i -g npm@11
 
-      - run: npm ci
+      - run: npm ci --no-audit --no-fund
 
       - name: Test + coverage
+        if: matrix.lane == 'coverage'
         run: npm run test:coverage
 
       # One shared environment, one worker — the mode `setupAutoSpy()` exists for. A property patch
       # or a registry left behind by one file surfaces here and nowhere else.
       - name: Test (shared environment, isolate false)
+        if: matrix.lane == 'shared-env'
         run: npm run test:shared-env
 
       # `vitest-auto-spy/zone` is the only entry that touches zone.js, and the runs above deliberately
       # load none of it — so `fakeAsync` / `waitForAsync` are covered here or nowhere.
       - name: Test (fakeAsync under zone.js)
+        if: matrix.lane == 'dom-and-runners'
         run: npm run test:zone
 
       # The DOM stubs are written against jsdom's gaps, and the repairs in `timer-globals.ts`,
       # `clock.ts` and `abort-controller-stub.ts` are written against happy-dom's differences — which
       # were simulated by hand until this project ran the suite on the real thing.
       - name: Test (happy-dom)
+        if: matrix.lane == 'dom-and-runners'
         run: npm run test:happy-dom
 
       # Architecture invariants rather than behaviour: the heap has to reach a plateau across
       # create/teardown cycles, and teardown has to stay linear. Both assert shape, not milliseconds.
       - name: Test (engine invariants)
+        if: matrix.lane == 'dom-and-runners'
         run: npm run test:invariants
 
       # `node:test` is a built-in Vitest cannot bundle, so every suite above runs the Node adapter
@@ -70,15 +80,18 @@ jobs:
       # `sideEffects: false` from tree-shaking the adapter registration in `src/node.ts` out of the
       # harness. Free coverage of the whole `engines` range, since the matrix is Node's.
       - name: Test (node:test runner)
+        if: matrix.lane == 'dom-and-runners'
         run: npm run test:node
 
       # Rstest is the one runner in the gate that bundles the suite before running it, so the
       # source-level registration of the adapter — which no stubbed unit spec can prove — and the
       # `sideEffects` entry that keeps rspack from dropping it are covered here or nowhere.
       - name: Test (rstest runner)
+        if: matrix.lane == 'dom-and-runners'
         run: npm run test:rstest
 
       - name: Build
+        if: matrix.lane == 'coverage'
         run: npm run build
 
       # The suites above import `src/`; people import `dist/`, cut by tsup into a bundle per entry
@@ -88,23 +101,33 @@ jobs:
       # coverage at 100 %. This loads each built entry in its own process and runs the cross-entry
       # checks that can see it.
       - name: Smoke the built package
+        if: matrix.lane == 'coverage'
         run: npm run smoke:dist
 
       # Both read `dist/`, so they can only run after the build. Deterministic counts — bundled
       # bytes and module-graph size — so a shared runner cannot make them flap.
       - name: Per-entry size baseline
+        if: matrix.lane == 'coverage'
         run: npm run size:entries:check
 
       - name: Module-graph baseline
+        if: matrix.lane == 'coverage'
         run: npm run cold-import:check
 
   # Nothing below depends on which Node runs it — the same lint, the same formatter, the same
   # generated files, checked against the same lockfile. Running them once per Node major produced
   # three copies of one answer and put ~40 s on the critical path of every matrix job, so they live
   # here instead and finish while the suites are still starting.
+  #
+  # Two halves, because one job of all of them became the critical path once the suites were split:
+  # the compiler's checks, and everything that reads files — lint, formatter and generated outputs.
   static:
-    name: Static checks
+    name: Static checks (${{ matrix.half }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        half: [types, files]
     steps:
       - uses: actions/checkout@v4
 
@@ -113,39 +136,42 @@ jobs:
           node-version: 24
           cache: npm
 
-      # The lockfile is generated with npm 11; pin it so `npm ci` interprets
-      # the dependency tree the same way and stays in sync.
-      - name: Pin npm
-        run: npm i -g npm@11
-
-      - run: npm ci
+      # Node 24 bundles npm 11, the version the lockfile is generated with.
+      - run: npm ci --no-audit --no-fund
 
       - name: Type-check
+        if: matrix.half == 'types'
         run: npm run typecheck
 
       # The public type surface, and the cost of instantiating it. Both are in `npm run check` and
       # neither was here, so a pull request could widen `Spy<T>` or blow the instantiation budget —
       # the thing that decides how fast a consumer's template type-checking runs — with CI green.
       - name: Public API type tests
+        if: matrix.half == 'types'
         run: npm run test:types
 
       - name: Type-instantiation budget
+        if: matrix.half == 'types'
         run: npm run types:budget
 
       # The lockfile and the installed tree disagreeing is invisible until a measurement is taken
       # against the wrong versions.
       - name: Dependency drift
+        if: matrix.half == 'types'
         run: npm run deps:check
 
       # Neither was enforced anywhere, which is how `src/lib/observable-spy.ts` sat unformatted in
       # the repository. `format:check` covers the scope the `format` script owns (`src/**/*.ts`).
       - name: Lint
+        if: matrix.half == 'files'
         run: npm run lint
 
       - name: Format
+        if: matrix.half == 'files'
         run: npm run format:check
 
       - name: Copy-paste detector
+        if: matrix.half == 'files'
         run: npm run jscpd
 
       # `docs.yml` deploys on a push to `master`, so without these two a broken page is caught after
@@ -153,35 +179,42 @@ jobs:
       # card hides in; `ru:check` fails on a Russian page that is missing, half-done, or has drifted
       # off the English heading anchors.
       - name: Docs frontmatter
+        if: matrix.half == 'files'
         run: npm run docs:check
 
       - name: Russian docs are complete
+        if: matrix.half == 'files'
         run: npm run ru:check
 
       # The bundled Claude Code skill advertises this package's API to an agent; a stale one hands
       # out advice for a release that no longer exists.
       - name: Bundled skill is valid
+        if: matrix.half == 'files'
         run: npm run skill:check
 
       # The doctor's entry-point table is generated from this package's own `exports` map — a
       # hand-edited or stale copy would make `helper-from-wrong-entry` report the previous release.
       - name: Doctor export map is up to date
+        if: matrix.half == 'types'
         run: npm run export-map:check
 
       # `llms.txt` / `llms-full.txt` are generated from the docs sidebar and committed, so agents can
       # fetch them from the deployed site *and* from raw GitHub. A stale pair is invisible until an
       # agent reads the wrong thing — check it here rather than trusting the docs deploy to notice.
       - name: llms.txt is up to date
+        if: matrix.half == 'files'
         run: npm run llms:check
 
       # The Claude Code plugin manifests advertise the release the bundled skill describes.
       - name: Plugin manifests match package.json
+        if: matrix.half == 'files'
         run: npm run plugin:sync:check
 
       # `alias/` is generated from this package.json and published as a second npm package, so a new
       # subpath that never reached it — or a hand edit that bypassed the generator — ships two
       # packages that disagree about what they export.
       - name: Alias package matches package.json
+        if: matrix.half == 'files'
         run: npm run alias:sync:check
 
   # Bun is a second runtime, not a second lane of the same one: `bun:test` mocks behave differently
@@ -210,10 +243,8 @@ jobs:
           node-version: 24
           cache: npm
 
-      - name: Pin npm
-        run: npm i -g npm@11
-
-      - run: npm ci
+      # Node 24 bundles npm 11, the version the lockfile is generated with.
+      - run: npm ci --no-audit --no-fund
 
       - name: Test (bun:test — core + rxjs, no preload)
         run: npm run test:bun
@@ -259,10 +290,8 @@ jobs:
           node-version: 24
           cache: npm
 
-      - name: Pin npm
-        run: npm i -g npm@11
-
-      - run: npm ci
+      # Node 24 bundles npm 11, the version the lockfile is generated with.
+      - run: npm ci --no-audit --no-fund
 
       - name: Build
         run: npm run build
