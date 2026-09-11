@@ -31,12 +31,13 @@
  */
 import { type HttpRequest, provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, type TestRequest, provideHttpClientTesting } from '@angular/common/http/testing';
-import type { EnvironmentProviders, Provider } from '@angular/core';
-import { TestBed } from '@angular/core/testing';
-import { afterEach } from 'vitest';
+import { type EnvironmentProviders, type Provider, provideEnvironmentInitializer } from '@angular/core';
+import { TestBed, getTestBed } from '@angular/core/testing';
+import { onTestFinished } from 'vitest';
 
 import { DOCS_LINKS, withDocs } from './docs-links';
 import { verifyOnTeardown } from './testbed-diagnostics';
+import { beforeTestBedReset } from './testbed-reset';
 import { flushEffects } from './zoneless';
 
 /** How a request is named: a URL, a pattern, or a question asked of the request itself. */
@@ -92,15 +93,52 @@ export interface RequestExpectation {
  */
 const SETTLE_ROUNDS = 2;
 
+/** The test whose end already verifies its requests; cleared when it does, so a retry arms again. */
+let armedTest: unknown;
+
+/** Requests a reset took off a module the armed test had built — read by the check that runs after it. */
+const openAtReset: TestRequest[] = [];
+
+const snapshottingInstances = new WeakSet<object>();
+
+/** The live module's controller, or `null` once it is reset: `inject` would build a fresh module the next configure refuses. */
+function liveController(): HttpTestingController | null {
+  return Reflect.get(getTestBed(), '_testModuleRef') ? TestBed.inject(HttpTestingController, null) : null;
+}
+
+function takeLiveRequests(): TestRequest[] {
+  return liveController()?.match(() => true) ?? [];
+}
+
+// On the instance, which the static method, `getTestBed()` and Angular's cleanup hook all reset through,
+// so a check that runs after any of them still sees what was open.
+function snapshotOnReset(): void {
+  beforeTestBedReset(snapshottingInstances, () => {
+    if (armedTest !== undefined) {
+      openAtReset.push(...takeLiveRequests());
+    }
+  });
+}
+
 /**
- * The suite's verification policy, set once per `provideHttpTesting()` call and never cleared.
- *
- * Deliberately not a one-shot arm flag: hoisting the providers to a module constant — the ordinary
- * optimisation once a suite uses the helper in a dozen files — left the one-shot armed for the
- * first test of the file only. The `afterEach` decides per test from whether that test's TestBed
- * has an `HttpTestingController` at all, which `verifyNoPendingRequests()` already no-ops on.
+ * Arm the end-of-test check from the module's own initializer, so it reaches every test that builds one —
+ * in every spec file of a worker, and from a provider list hoisted to a constant.
  */
-let verifyPolicy = false;
+function armVerification(): void {
+  const current: unknown = Reflect.get(Object(Reflect.get(globalThis, '__vitest_worker__')), 'current');
+
+  // Only a running test can take an `onTestFinished`; a module built in `beforeAll` has no test to fail.
+  if (Reflect.get(Object(current), 'type') !== 'test' || current === armedTest) {
+    return;
+  }
+
+  armedTest = current;
+  snapshotOnReset();
+  onTestFinished(() => {
+    armedTest = undefined;
+    verifyOnTeardown(verifyNoPendingRequests);
+  });
+}
 
 /**
  * Everything `TestBed.configureTestingModule` needs for HTTP testing, in one spread.
@@ -109,14 +147,15 @@ let verifyPolicy = false;
  * TestBed.configureTestingModule({ providers: [...provideHttpTesting(), provideAutoSpy(Analytics)] });
  * ```
  *
- * It is `provideHttpClient()` + `provideHttpClientTesting()` and deliberately nothing more: a suite
- * whose interceptors are the thing under test keeps its own `provideHttpClient(withInterceptors([…]))`
- * and adds `provideHttpClientTesting()` after it.
+ * It is `provideHttpClient()` + `provideHttpClientTesting()`, plus — unless `verifyOnTeardown` is
+ * `false` — the environment initializer that arms the end-of-test check: a suite whose interceptors
+ * are the thing under test keeps its own `provideHttpClient(withInterceptors([…]))` and adds
+ * `provideHttpClientTesting()` after it.
  */
 export function provideHttpTesting(options: HttpTestingOptions = {}): (EnvironmentProviders | Provider)[] {
-  verifyPolicy = options.verifyOnTeardown ?? true;
+  const providers = [provideHttpClient(), provideHttpClientTesting()];
 
-  return [provideHttpClient(), provideHttpClientTesting()];
+  return options.verifyOnTeardown === false ? providers : [...providers, provideEnvironmentInitializer(armVerification)];
 }
 
 /**
@@ -336,13 +375,7 @@ export function expectNoRequest(matcher: RequestMatcher = () => true, options: E
  * A no-op when the test configured no HTTP testing at all.
  */
 export function verifyNoPendingRequests(): void {
-  const controller = TestBed.inject(HttpTestingController, null);
-
-  if (controller === null) {
-    return;
-  }
-
-  const open = controller.match(() => true);
+  const open = [...openAtReset.splice(0), ...takeLiveRequests()];
 
   if (open.length === 0) {
     return;
@@ -360,19 +393,3 @@ export function verifyNoPendingRequests(): void {
     ),
   );
 }
-
-// Registered here, while the spec file that imports this entry is being loaded, and deliberately
-// not from inside `provideHttpTesting()`. Measured on Vitest 4.1: `afterEach()` called from a
-// running `beforeEach` is accepted and then never runs — the suite it would join has finished
-// collecting — and `onTestFinished()`, which *is* legal there, runs after every `afterEach`, by
-// which point Angular's teardown has destroyed the injector and there is no controller left to ask.
-// A hook registered at import time is the one that runs while the testing module is still alive:
-// `afterEach` hooks run in reverse registration order, so this one goes before the framework
-// teardown registered by the setup file.
-afterEach(() => {
-  if (!verifyPolicy) {
-    return;
-  }
-
-  verifyOnTeardown(verifyNoPendingRequests);
-});
