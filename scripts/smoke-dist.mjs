@@ -329,6 +329,53 @@ const CROSS_ENTRY = [
       assert(console.error !== consoleErrorSpy, 'the guard left the import-time spy standing on the console');
     `,
   },
+  {
+    // `./setup` reports from the ledger the factory bundles note reads on; the window it opens from a
+    // `beforeEach` is set by hand, since plain Node has no runner.
+    name: 'a read nobody configured is noted on the one shared ledger by the root and angular bundles alike',
+    entries: ['.', './angular'],
+    body: `
+      const { createSpyFromClass } = await import(INDEX);
+      const { provideAutoSpy } = await import(ANGULAR);
+
+      const ledger = (globalThis.__vitestAutoSpyUnconfiguredReads__ ??= { reported: false, handler: undefined, open: false, entries: new Map() });
+      ledger.reported = true;
+      ledger.open = true;
+
+      class Router {
+        get url() { return '/'; }
+      }
+
+      const config = { strict: true, gettersToSpyOn: ['url'] };
+      void createSpyFromClass(Router, config).url;
+      void provideAutoSpy(Router, config).useValue.url;
+
+      const noted = [...ledger.entries.values()];
+      assert(noted.length === 2, 'a read went to a ledger private to one bundle: ' + noted.length + ' of 2 noted');
+      assert(noted.every((entry) => entry.guard.className === 'Router' && entry.member === 'url'), 'the ledger named the wrong member');
+    `,
+  },
+  {
+    name: 'restoreMockedProps from the root entry takes back a storage stubWebStorage installed',
+    entries: ['.', './dom-stubs'],
+    body: `
+      const { restoreMockedProps } = await import(INDEX);
+      const { stubWebStorage } = await import(DOM_STUBS);
+
+      const before = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+      const storage = stubWebStorage('localStorage', { items: { theme: 'dark' } });
+
+      globalThis.localStorage.setItem(1, 'one');
+      assert(globalThis.localStorage.getItem('theme') === 'dark', 'the seeded item did not reach the installed storage');
+      const snapshot = storage.snapshot();
+      assert(snapshot.theme === 'dark' && snapshot['1'] === 'one', 'snapshot() missed a write: ' + JSON.stringify(snapshot));
+
+      restoreMockedProps();
+
+      const after = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+      assert(after?.value === before?.value && after?.get === before?.get, 'the root entry did not undo the patch the dom-stubs entry made');
+    `,
+  },
   // `dist/index.js` carries its own `fast-spy`, the framework entries share another, and 5.4.0 put
   // the helper bundle on the wrong copy's prototype: whichever entry loaded first built spies with no
   // `calledWith`. Both load orders, because the claim record has to hold in either.
