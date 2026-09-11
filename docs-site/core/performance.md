@@ -186,14 +186,14 @@ first use, which is nearly always never — and it costs nothing when a spec doe
 because the chain is then built exactly as before. `resetAutoSpy()` drops the chains rather than
 replacing them with empty maps, so a reset spy is back to a fresh spy's footprint.
 
-**The three numbers worth carrying around**, per *method*, on Node v24.19.0 and Vitest 5.0.0, the
+**The three numbers worth carrying around**, per _method_, on Node v24.19.0 and Vitest 5.0.0, the
 same machine as everything else on this page:
 
-|                          |         retained |              time |
-| ------------------------ | ---------------: | ----------------: |
-| lazy placeholder, never touched | **294 B** |      **191 ns** |
+|                                 |    retained |              time |
+| ------------------------------- | ----------: | ----------------: |
+| lazy placeholder, never touched |   **294 B** |        **191 ns** |
 | materialised on first read      | **1 923 B** | **454 ns** on top |
-| a bare `vi.fn()`                | **5 783 B** |    **3 380 ns** |
+| a bare `vi.fn()`                | **5 783 B** |      **3 380 ns** |
 
 So a method a spec never touches is 20× lighter than a `vi.fn()` that stands in for it, and one it
 does touch is **3.0× lighter and 5.2× faster** to build (191 + 454 ns against 3 380). The retained
@@ -629,32 +629,33 @@ prune reaches only one and the run dies out of memory.
 
 ## Bundle size
 
-The badge says 16.1 kB min+gzip, and that is the whole core entry bundled together. It is also the
+The badge says 16.2 kB min+gzip, and that is the whole core entry bundled together. It is also the
 largest number a consumer can pay for the core, because entries are separate subpaths and a project
 only pays for the ones it imports:
 
-| Imported                                        |    min+gzip |
-| ----------------------------------------------- | ----------: |
-| `.` — the core entry, what the badge measures   | **16.1 kB** |
-| `vitest-auto-spy/angular`                       |     20.1 kB |
-| `vitest-auto-spy/react` / `/vue` / `/svelte`    |     16.2 kB |
-| `vitest-auto-spy/node`                          |     15.3 kB |
-| `vitest-auto-spy/dom-stubs`                     |      5.3 kB |
-| `vitest-auto-spy/rxjs`                          |      2.3 kB |
-| `vitest-auto-spy/zone`                          |      1.1 kB |
+| Imported                                      |    min+gzip |
+| --------------------------------------------- | ----------: |
+| `.` — the core entry, what the badge measures | **16.2 kB** |
+| `vitest-auto-spy/angular`                     |     20.2 kB |
+| `vitest-auto-spy/react` / `/vue` / `/svelte`  |     16.4 kB |
+| `vitest-auto-spy/node`                        |     15.3 kB |
+| `vitest-auto-spy/dom-stubs`                   |      5.3 kB |
+| `vitest-auto-spy/rxjs`                        |      2.2 kB |
+| `vitest-auto-spy/zone`                        |      1.1 kB |
 
 **The framework rows are not a framework tax.** `react`, `vue` and `svelte` weigh what the core
 weighs, within a rounding error of each other, because that is what they are: `src/react.ts` is a
 barrel — a `registerMockAdapter` call and `export * from './auto-spy'` — and its own code is seven
 bytes in the bundle. Nobody should go looking for weight in it.
 
-Every figure here is the committed baseline in `size-entries.json` as of 2026-09-10, which is what
+Every figure here is the committed baseline in `size-entries.json` as of 2026-09-11, which is what
 `size:entries:check` and the badge both read; an earlier edition of this table quoted 15.1, 18.7 and
 14.5 kB for the first three rows, taken before the defaults registry, the outside-a-hook report and
 the shadowed-provider check. `/dom-stubs` last moved for the
-`AbortSignal` statics and the `currentTime` setter, +219 B.
+`AbortSignal` statics and the `currentTime` setter, +219 B; the core rows last moved for the claim
+record that keeps helpers on a spy when two copies of the package share a process, +0.12…0.27 kB.
 
-`npm run size:entries` prints all twenty and compares them against a committed baseline, so an entry
+`npm run size:entries` prints all twenty-one and compares them against a committed baseline, so an entry
 that quietly gains a second copy of the core fails a check instead of being noticed a release later.
 
 None of this reaches a production bundle in any case: the package is a devDependency, and the
@@ -662,16 +663,17 @@ framework adapters, rxjs layer, console spies and setup helpers each live behind
 
 ### What is in the download
 
-`dist/` is **1 035 kB**, the published tarball **431 kB**, and the package ships **75 files**. An
-earlier edition of this page reported 241 kB, 108 kB and 54 files, and presented the change as a
-reduction. Those figures were correct when they were taken — they reproduce to the byte at v2.0.0 —
-but that package had thirteen subpaths, no command-line tool, and an ESLint entry a sixth of its
-current size. Comparing them to today's is comparing two different packages.
+`dist/` is **1 230 kB**, the published tarball **508 kB**, and the package ships **77 files**
+(measured 2026-09-11, after 5.4.0; the previous edition said 1 035 kB, 431 kB and 75 files). An
+earlier edition reported 241 kB, 108 kB and 54 files, and presented the change as a reduction.
+Those figures were correct when they were taken — they reproduce to the byte at v2.0.0 — but that
+package had thirteen subpaths, no command-line tool, and an ESLint entry a sixth of its current
+size. Comparing them to today's is comparing two different packages.
 
 Where the bytes are is more useful than the total. The two largest JavaScript files in the package,
-`dist/cli.js` at 133 kB and `dist/eslint-plugin.cjs` at 81 kB, are **never loaded by a spec file** —
+`dist/cli.js` at 159 kB and `dist/eslint-plugin.cjs` at 117 kB, are **never loaded by a spec file** —
 they are the `vitest-auto-spy` executable and the lint rules, together a fifth of `dist/`. The next
-two, `dist/index.js` at 79 kB and `dist/angular.js` at 101 kB, are large on purpose: both are built
+two, `dist/index.js` at 103 kB and `dist/angular.js` at 127 kB, are large on purpose: both are built
 unsplit, so each carries its own copy of what it needs rather than reaching a shared chunk through
 the loader. `tsup.config.ts` records the measurement behind that decision — the root entry goes
 3.2 → 2.4 ms and root plus `angular` 4.7 → 3.7 ms under Node's native loader, so 0.8 and 1.0 ms per
@@ -690,7 +692,7 @@ disconnected registries. CommonJS now ships only where a `require()` actually wo
 second entry: `vitest-auto-spy/node` and `vitest-auto-spy/eslint-plugin`.
 
 One last thing the total does not say: the two biggest files in the download are not code at all.
-`README.md` is 230 kB and `AGENTS.md` 199 kB, and both ship deliberately — the second is what makes
+`README.md` is 271 kB and `AGENTS.md` 261 kB, and both ship deliberately — the second is what makes
 the package legible to a coding agent that has only the installed copy to read.
 
 ## Which Node version
@@ -893,7 +895,7 @@ files where that bound is worth chasing.
 A spec that needs a `viewChild`, content projection or a host binding needs the component's own
 template, and it is easy to read that as paying for the whole tree again. It is not. `buildOverride`
 (`lib/render-shallow.ts`) rewrites the component's `imports` to its own scope minus the child
-*components*, so with `keepTemplate: true` the template renders — with its own pipes and directives
+_components_, so with `keepTemplate: true` the template renders — with its own pipes and directives
 working — while every child component in it resolves to nothing under `NO_ERRORS_SCHEMA`.
 
 ::: warning Before 5.4.0 this dropped the whole scope
