@@ -282,6 +282,28 @@ const CROSS_ENTRY = [
       assert(console.error === consoleErrorSpy, 'installConsoleSpies() did not put the same spy on the console');
     `,
   },
+  {
+    // The other direction: spies an import installed before the guard armed are taken off by `./setup`,
+    // which never imports `./console` and reaches them only through the slots the two bundles share.
+    name: 'guardStrayConsole from ./setup takes off the spies the console entry installed on import',
+    entries: ['./console', './setup'],
+    body: `
+      const { consoleErrorSpy } = await import(CONSOLE);
+      const installed = console.error === consoleErrorSpy;
+      const { guardStrayConsole } = await import(SETUP);
+
+      // The guard arms before it registers its afterEach, and plain Node has no runner to register on.
+      try {
+        guardStrayConsole('throw');
+      } catch (error) {
+        assert(/failed to find the runner/.test(error.message), 'arming the guard failed: ' + error.message);
+      }
+
+      assert(installed, 'the console entry installed nothing on import with no guard armed');
+      assert(globalThis.__vitestAutoSpyStrayConsole__ !== undefined, 'guardStrayConsole did not arm the shared guard');
+      assert(console.error !== consoleErrorSpy, 'the guard left the import-time spy standing on the console');
+    `,
+  },
   // `dist/index.js` carries its own `fast-spy`, the framework entries share another, and 5.4.0 put
   // the helper bundle on the wrong copy's prototype: whichever entry loaded first built spies with no
   // `calledWith`. Both load orders, because the claim record has to hold in either.
