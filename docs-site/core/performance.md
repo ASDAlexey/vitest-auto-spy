@@ -629,18 +629,19 @@ prune reaches only one and the run dies out of memory.
 
 ## Bundle size
 
-The badge says 17.1 kB min+gzip, and that is the whole core entry bundled together. It is also the
+The badge says 17.2 kB min+gzip, and that is the whole core entry bundled together. It is also the
 largest number a consumer can pay for the core, because entries are separate subpaths and a project
 only pays for the ones it imports:
 
 | Imported                                      |    min+gzip |
 | --------------------------------------------- | ----------: |
-| `.` — the core entry, what the badge measures | **17.1 kB** |
-| `vitest-auto-spy/angular`                     |     21.5 kB |
-| `vitest-auto-spy/react` / `/vue` / `/svelte`  |     17.3 kB |
-| `vitest-auto-spy/node`                        |     16.1 kB |
-| `vitest-auto-spy/dom-stubs`                   |      5.4 kB |
+| `.` — the core entry, what the badge measures | **17.2 kB** |
+| `vitest-auto-spy/angular`                     |     22.7 kB |
+| `vitest-auto-spy/react` / `/vue` / `/svelte`  |     17.4 kB |
+| `vitest-auto-spy/node`                        |     16.2 kB |
+| `vitest-auto-spy/dom-stubs`                   |      5.6 kB |
 | `vitest-auto-spy/rxjs`                        |      2.3 kB |
+| `vitest-auto-spy/angular-router`              |      2.1 kB |
 | `vitest-auto-spy/zone`                        |      1.1 kB |
 
 **The framework rows are not a framework tax.** `react`, `vue` and `svelte` weigh what the core
@@ -651,16 +652,16 @@ bytes in the bundle. Nobody should go looking for weight in it.
 Every figure here is the committed baseline in `size-entries.json` as of 2026-09-11, which is what
 `size:entries:check` and the badge both read; an earlier edition of this table quoted 15.1, 18.7 and
 14.5 kB for the first three rows, taken before the defaults registry, the outside-a-hook report and
-the shadowed-provider check. `/dom-stubs` last moved for the
-`AbortSignal` statics and the `currentTime` setter, +219 B; the core rows last moved for the claim
+the shadowed-provider check. `/dom-stubs` last moved for `stubWebStorage`, +256 B, and `/angular` for
+`createComponentStub`, +1.02 kB; the core rows last moved for the claim
 record that keeps helpers on a spy when two copies of the package share a process, +0.12…0.27 kB,
 and then for the suite-wide settings every bundle now reads off `globalThis` and the misconfiguration
 grade, the bounded strict report and the lifecycle-hook exemption, +0.34…0.43 kB, and now for the
 recorder behind `takeStrictViolations` and the swallowed-strict guard, +0.16…0.41 kB, and then for the read-side report — the getter and stream
-trackers and the `unconfiguredReads` ledger — +0.28…0.32 kB on the core rows and +0.60 kB on `/setup`, which
-also carries the report.
+trackers and the `unconfiguredReads` ledger, with `selfReturning` in the same commit — +0.37…0.41 kB on the core rows and +0.61 kB on `/setup`, which
+also carries the report, and last for token registrations, +18 B.
 
-`npm run size:entries` prints all twenty-one and compares them against a committed baseline, so an entry
+`npm run size:entries` prints all twenty-two and compares them against a committed baseline, so an entry
 that quietly gains a second copy of the core fails a check instead of being noticed a release later.
 
 None of this reaches a production bundle in any case: the package is a devDependency, and the
