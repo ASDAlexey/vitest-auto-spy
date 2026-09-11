@@ -83,6 +83,9 @@ const PLUGIN_NAME = 'vitest-auto-spy';
  * `no-overridden-provider`'s new override arm is 9 reports in 5 files, at `error` for the same
  * reason plus a stronger one: it reports a spec that configured a double nobody uses.
  *
+ * **The three console rules decide on facts, not on a reading of the code**, so they are `error`: on the
+ * 1759-file consumer they report 0, 6 in 2 files, and 32 of the 39 files that import `/console`.
+ *
  * **Three of these can report on code that is correct, and each one is listed there with what to do
  * about it.** They are not mistakes in the rules; they are the limit of what one file can know, and
  * only one of the three has an option, which is worth knowing before reaching for a severity:
@@ -125,6 +128,9 @@ const recommendedRules: Record<string, RuleSeverity> = {
   [`${PLUGIN_NAME}/no-stub-class-double`]: 'warn',
   [`${PLUGIN_NAME}/no-structural-double`]: 'warn',
   [`${PLUGIN_NAME}/prefer-observer-stub`]: 'error',
+  [`${PLUGIN_NAME}/no-passthrough-console-spy`]: 'error',
+  [`${PLUGIN_NAME}/no-console-in-spec`]: 'error',
+  [`${PLUGIN_NAME}/no-import-time-console-spies`]: 'error',
   [`${PLUGIN_NAME}/jasmine-namespace-without-entry`]: 'error',
   [`${PLUGIN_NAME}/no-jasmine-globals`]: 'error',
   [`${PLUGIN_NAME}/no-save-arguments-by-value`]: 'error',

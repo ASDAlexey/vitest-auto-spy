@@ -42,6 +42,7 @@
  */
 import { type EsPromiseExecutor, type EsSubscribeCall, awaitedRewriteFor } from './await-emission';
 import { bindingState, findBinding } from './bindings';
+import { noConsoleInSpec, noImportTimeConsoleSpies, noPassthroughConsoleSpy } from './console-rules';
 import { noDeadSchemas } from './dead-schemas';
 import { noStructuralDouble } from './declared-double';
 import { defineRule } from './define-rule';
@@ -685,5 +686,8 @@ export const rules: Record<string, RuleModule> = {
   'prefer-observer-stub': preferObserverStub,
   'no-stub-class-double': noStubClassDouble,
   'no-structural-double': noStructuralDouble,
+  'no-passthrough-console-spy': noPassthroughConsoleSpy,
+  'no-console-in-spec': noConsoleInSpec,
+  'no-import-time-console-spies': noImportTimeConsoleSpies,
   ...jasmineRules,
 };

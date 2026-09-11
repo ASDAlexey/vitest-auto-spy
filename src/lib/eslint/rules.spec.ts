@@ -1787,6 +1787,7 @@ describe('the plugin', () => {
       'no-mocked-for-spy',
       'no-object-define-property',
       'no-overridden-provider',
+      'no-passthrough-console-spy',
       'prefer-inject-spy',
       'prefer-native-spy-api',
       'prefer-render-shallow',
