@@ -22,7 +22,15 @@ import { useVitestAdapter } from './lib/use-vitest-adapter';
 
 useVitestAdapter();
 
-export { setupAutoSpy, type DuplicateCopiesReaction, type SetupAutoSpyOptions } from './lib/setup-auto-spy';
+export {
+  setupAutoSpy,
+  type DuplicateCopiesReaction,
+  type SetupAutoSpyOptions,
+  type SetupAutoSpyPreset,
+  type StrayTimerReport,
+} from './lib/setup-auto-spy';
+export type { MisconfigurationReaction } from './lib/misconfiguration';
+export { guardStrayConsole, type StrayConsoleOptions, type StrayConsoleReaction } from './lib/stray-console';
 export { getSpyEngine, setSpyEngine, type SpyEngine } from './lib/vitest-adapter';
 export { guardGlobalPatches, type GlobalPatchReaction } from './lib/global-patch-guard';
 export { guardPrototypePollution, type PrototypePollutionReaction } from './lib/prototype-guard';
@@ -57,7 +65,16 @@ export {
   type StopTrackingRejections,
   type StrayRejection,
 } from './lib/stray-rejections';
-export { cancelStrayTimers, countStrayTimers, trackStrayTimers, type SchedulerHost, type StopTrackingTimers } from './lib/stray-timers';
+export {
+  cancelStrayTimers,
+  countStrayTimers,
+  describeStrayTimers,
+  trackStrayTimers,
+  withoutStrayTimerTracking,
+  type SchedulerHost,
+  type StrayTimer,
+  type StopTrackingTimers,
+} from './lib/stray-timers';
 export { getWatchedTimerGlobals, restoreTimerGlobals } from './lib/timer-globals';
 export { BLOCKED_FETCH_MESSAGE, BLOCKED_XHR_MESSAGE, blockNetwork, type BlockNetworkOptions, type XhrBlockMode } from './lib/network-stub';
 export { restoreWebStorage, type RestoreWebStorageOptions } from './lib/web-storage';

@@ -14,6 +14,7 @@ import { countMockedProps, mockValueProp, restoreMockedProps } from './prop-mock
 import {
   annotateFrozenClockTimeouts,
   annotateTimedOutHooks,
+  applyPreset,
   describeStrayRejections,
   reportStrayRejections,
   reportStrayTimers,
@@ -194,6 +195,23 @@ describe('the teardown net, for the run where the hook never happened', () => {
     expect(warnings.join('\n')).toMatch(/afterEach did not run for this test, so 1 mock\*Prop patch/);
     expect(warnings.join('\n')).toContain('reverse registration order');
   });
+
+  it.fails('leaves a patch behind a second time in the same file', () => {
+    vi.spyOn(console, 'warn').mockImplementation((message: unknown) => {
+      warnings.push(String(message));
+    });
+    mockValueProp(target, 'cookie', 'patched');
+
+    expect(countMockedProps()).toBe(1);
+  });
+
+  it('explains it in full once per file, and in one line after that', () => {
+    vi.restoreAllMocks();
+
+    expect(target.cookie).toBe('real');
+    expect(warnings.at(-1)).toMatch(/did not run for this test either \(2 in this file\); 1 mock\*Prop patch\(es\) put back/);
+    expect(warnings.at(-1)).not.toContain('reverse registration order');
+  });
 });
 
 describe('network blocking (opted in)', () => {
@@ -326,17 +344,18 @@ describe('reporting what the stray-timer sweep cancelled', () => {
     expect(written).toEqual([]);
   });
 
-  it('hands the count to a handler instead of printing anything', () => {
+  it('hands the count and the origins to a handler instead of printing anything', () => {
     const { written, restore } = captureStderr();
     const handler = vi.fn();
+    const timers = [{ kind: 'timeout' as const, file: '/a/cart.spec.ts', frames: ['at load (src/cart.ts:12:5)'] }];
 
     try {
-      withLeakDetection(() => reportStrayTimers(3, handler));
+      withLeakDetection(() => reportStrayTimers(3, handler, timers));
     } finally {
       restore();
     }
 
-    expect(handler).toHaveBeenCalledWith({ cancelled: 3 });
+    expect(handler).toHaveBeenCalledWith({ cancelled: 3, timers });
     expect(written).toEqual([]);
   });
 
@@ -365,15 +384,32 @@ describe('reporting what the stray-timer sweep cancelled', () => {
     expect(written[0]).toContain('cancelled 2 scheduled callback(s)');
   });
 
-  it('names the count, the reason the leak report is empty, and both ways out', () => {
+  it('names the count, the reason the leak report is empty, and the way to take it quietly', () => {
     const printed: string[] = [];
 
     warnAboutSuppressedLeaks(4, (message) => printed.push(message));
 
     expect(printed[0]).toContain('cancelled 4 scheduled callback(s)');
     expect(printed[0]).toContain('before Vitest collected async leaks');
-    expect(printed[0]).toContain('`strayTimers` off');
     expect(printed[0]).toContain('onStrayTimers');
+    expect(printed[0]).not.toContain('Scheduled at:');
+  });
+
+  it('says where the first three were scheduled, and from which file', () => {
+    const printed: string[] = [];
+    const stray = (file: string | undefined, frames: string[]) => ({ kind: 'interval' as const, file, frames });
+
+    warnAboutSuppressedLeaks(4, (message) => printed.push(message), [
+      stray('/a/one.spec.ts', ['at poll (src/poller.ts:3:1)']),
+      stray(undefined, []),
+      stray('/a/two.spec.ts', []),
+      stray('/a/four.spec.ts', []),
+    ]);
+
+    expect(printed[0]).toContain(
+      'Scheduled at:\n  - interval from /a/one.spec.ts at poll (src/poller.ts:3:1)\n  - interval from no spec file',
+    );
+    expect(printed[0]).not.toContain('four.spec.ts');
   });
 
   it('falls back to the console where the environment has no process', () => {
@@ -847,5 +883,101 @@ describe('frozen clock hint', () => {
     annotateFrozenClockTimeouts({ task: { result: { errors: [error] } } });
 
     expect(error.message).toBe('Test timed out in 5000ms.');
+  });
+});
+
+/** A double whose `returns` can name a method a whitelist left out: a misconfiguration that type-checks. */
+class Basket {
+  total(): number {
+    return 0;
+  }
+
+  clear(): void {
+    /* empties the basket */
+  }
+}
+
+const misconfigured = (): unknown => createSpyFromClass(Basket, { onlyMethodsToSpyOn: ['total'], returns: { clear: undefined } });
+
+/** Run with zone.js present or absent, whatever an earlier block of this file loaded. */
+function withZone(present: boolean, run: () => void): void {
+  const loaded: unknown = Reflect.get(globalThis, 'Zone');
+
+  Reflect.set(globalThis, 'Zone', present ? { __symbol__: (name: string): string => name } : undefined);
+
+  try {
+    run();
+  } finally {
+    Reflect.set(globalThis, 'Zone', loaded);
+  }
+}
+
+describe('applyPreset', () => {
+  it('leaves options without a preset exactly as they were', () => {
+    const options = { restoreProps: false };
+
+    expect(applyPreset(options)).toBe(options);
+  });
+
+  it('fills every grade the caller left out under strict, and keeps every one the caller passed', () => {
+    withZone(false, () => {
+      expect(applyPreset({ preset: 'strict', guardGlobals: 'warn', strayTimers: false })).toEqual({
+        preset: 'strict',
+        duplicateCopies: 'throw',
+        propsOutsideHooks: 'throw',
+        guardGlobals: 'warn',
+        prototypePollution: 'throw',
+        strayConsole: 'throw',
+        misconfiguration: 'throw',
+        strayTimers: false,
+        strayRejections: false,
+      });
+    });
+  });
+
+  it('turns strayRejections on under strict only where zone.js is loaded', () => {
+    withZone(true, () => {
+      expect(applyPreset({ preset: 'strict' }).strayRejections).toBe(true);
+    });
+  });
+});
+
+describe('misconfiguration: "throw" (opted in)', () => {
+  setupAutoSpy({ duplicateCopies: 'off', restoreProps: false, misconfiguration: 'throw' });
+
+  it('fails a misconfigured double at the call site', () => {
+    expect(misconfigured).toThrow(/returns names 'clear'/);
+  });
+});
+
+describe('misconfiguration, after the block that armed it', () => {
+  it('prints again, so the grade cannot travel into the next file', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    misconfigured();
+
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("returns names 'clear'"));
+    warn.mockRestore();
+  });
+});
+
+describe('preset: "strict", wired', () => {
+  const silent = { log: console.log };
+
+  // Silenced before the guard wraps it, so the output the first test makes stays out of the run log.
+  console.log = (): void => undefined;
+
+  setupAutoSpy({ duplicateCopies: 'off', preset: 'strict', strayTimers: false });
+
+  afterAll(() => {
+    console.log = silent.log;
+  });
+
+  it.fails('fails a test that prints', () => {
+    console.log('unexpected output');
+  });
+
+  it('fails a misconfigured double at the call site', () => {
+    expect(misconfigured).toThrow(/returns names 'clear'/);
   });
 });

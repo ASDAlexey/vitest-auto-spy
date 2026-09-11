@@ -12,7 +12,7 @@
  *  3. **Draining the runner's restore registry.** Every `vi.spyOn` adds an entry that only
  *     `vi.restoreAllMocks()` removes; with a shared environment that list grows for the whole run.
  */
-import { afterAll, afterEach, beforeEach, onTestFinished, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, onTestFinished, vi } from 'vitest';
 
 import { noticeAngularBuildSplitting } from './angular-build-notice';
 import { DOCS_LINKS, withDocs } from './docs-links';
@@ -21,13 +21,22 @@ import { annotateFrozenClockTimeout, readFrozenClock } from './frozen-clock';
 import { setDefaultStrictMode } from './function-spy';
 import { type GlobalPatchReaction, type GlobalSnapshot, checkSealedAdditions, snapshotWatchedGlobals } from './global-patch-guard';
 import { annotateHookTimeout, readRunnerTimeouts } from './hook-timeout';
+import { type MisconfigurationReaction, setMisconfigurationReaction } from './misconfiguration';
 import { trackMockRegistry } from './mock-registry';
 import { type BlockNetworkOptions, blockNetwork } from './network-stub';
 import { describeDuplicateCopies } from './package-identity';
 import { type OutsideHookReaction, beginPropEpoch, countMockedProps, reportPropsOutsideHooks, restoreMockedProps } from './prop-mock';
 import { type PrototypePollutionReaction, type PrototypeSnapshot, checkPrototypePollution, snapshotPrototypes } from './prototype-guard';
+import { type StrayConsoleOptions, type StrayConsoleReaction, watchStrayConsole } from './stray-console';
 import { type StrayRejection, flushStrayRejections, trackStrayRejections } from './stray-rejections';
-import { cancelStrayTimers, detectsAsyncLeaks, trackStrayTimers } from './stray-timers';
+import {
+  type StrayTimer,
+  cancelStrayTimers,
+  describeStrayTimers,
+  detectsAsyncLeaks,
+  trackStrayTimers,
+  withoutStrayTimerTracking,
+} from './stray-timers';
 import { restoreTimerGlobals } from './timer-globals';
 import type { UnstubbedCallHandler } from './types';
 import { restoreWebStorage } from './web-storage';
@@ -40,10 +49,21 @@ export type DuplicateCopiesReaction = 'off' | 'throw' | 'warn';
 export interface StrayTimerReport {
   /** Timeouts, intervals and animation frames that were still outstanding when the file ended. */
   cancelled: number;
+  /** Each of them, with the spec file that was running when it was scheduled and where the call came from. */
+  timers: readonly StrayTimer[];
 }
+
+/** A named grade for every guard at once. `'strict'` is the only one: see {@link SetupAutoSpyOptions.preset}. */
+export type SetupAutoSpyPreset = 'strict';
 
 /** Options for {@link setupAutoSpy}. */
 export interface SetupAutoSpyOptions {
+  /** Every guard at its failing grade — see {@link applyPreset} for the list; an option passed alongside wins. */
+  preset?: SetupAutoSpyPreset;
+  /** Fail a test that writes to the console unabsorbed, and a file that does so outside a test. Default `'off'`. */
+  strayConsole?: StrayConsoleOptions | StrayConsoleReaction;
+  /** The library's own misuse reports (a `returns` key no spy answers to, …): `'warn'` (default) or `'throw'` at the call. */
+  misconfiguration?: MisconfigurationReaction;
   /** React to a duplicated install. Default `'throw'` — the failure it prevents is far worse than a loud start. */
   duplicateCopies?: DuplicateCopiesReaction;
   /** Undo `mock*Prop` patches after every test. Default `true`. */
@@ -288,16 +308,29 @@ export interface SetupAutoSpyOptions {
  * `disableConsoleIntercept`). `process.stderr` is the channel that survives — see
  * {@link writeWarning}, console-last for an environment with no `process`.
  */
-export function warnAboutSuppressedLeaks(cancelled: number, write: (message: string) => void = writeWarning): void {
+export function warnAboutSuppressedLeaks(
+  cancelled: number,
+  write: (message: string) => void = writeWarning,
+  timers: readonly StrayTimer[] = [],
+): void {
   write(
     withDocs(
       `[vitest-auto-spy] setupAutoSpy({ strayTimers: true }) cancelled ${cancelled} scheduled callback(s) at the end of this ` +
         'file, and it did so before Vitest collected async leaks — so none of them appear under "Async Leaks" and this ' +
-        "run's leak report is not the whole story. To see where each one was scheduled, re-run the file with " +
-        '`strayTimers` off; to take the count yourself and say nothing, pass `onStrayTimers`.',
+        "run's leak report is not the whole story. To take the count and the origins yourself and say nothing, pass " +
+        `\`onStrayTimers\`.${describeTimerOrigins(timers)}`,
       DOCS_LINKS.setup,
     ),
   );
+}
+
+/** The first few strays, each with the file that scheduled it and its first frame. */
+function describeTimerOrigins(timers: readonly StrayTimer[]): string {
+  const lines = timers
+    .slice(0, 3)
+    .map(({ kind, file, frames }) => `\n  - ${kind} from ${file ?? 'no spec file'} ${frames[0] ?? ''}`.trimEnd());
+
+  return lines.length > 0 ? `\nScheduled at:${lines.join('')}` : '';
 }
 
 /**
@@ -306,19 +339,23 @@ export function warnAboutSuppressedLeaks(cancelled: number, write: (message: str
  * Exported for its spec: the sweep it belongs to runs in an `afterAll` at the very end of a file,
  * where a test can neither choose the count nor observe what was printed.
  */
-export function reportStrayTimers(cancelled: number, handler: SetupAutoSpyOptions['onStrayTimers']): void {
+export function reportStrayTimers(
+  cancelled: number,
+  handler: SetupAutoSpyOptions['onStrayTimers'],
+  timers: readonly StrayTimer[] = [],
+): void {
   if (cancelled === 0) {
     return;
   }
 
   if (handler) {
-    handler({ cancelled });
+    handler({ cancelled, timers });
 
     return;
   }
 
   if (detectsAsyncLeaks()) {
-    warnAboutSuppressedLeaks(cancelled);
+    warnAboutSuppressedLeaks(cancelled, writeWarning, timers);
   }
 }
 
@@ -676,57 +713,52 @@ function prepareEnvironment(options: SetupAutoSpyOptions): void {
   }
 
   if (options.restoreWebStorage ?? true) {
-    restoreWebStorage();
+    withoutStrayTimerTracking(() => restoreWebStorage());
   }
 }
 
-export function setupAutoSpy(options: SetupAutoSpyOptions = {}): void {
-  reportDuplicateCopies(options.duplicateCopies ?? 'throw');
+/** Whether zone.js is loaded, which is what `strayRejections` needs and the strict preset checks for. */
+function zoneIsLoaded(): boolean {
+  return typeof Reflect.get(Object(Reflect.get(globalThis, 'Zone')), '__symbol__') === 'function';
+}
 
-  prepareEnvironment(options);
-
-  // The per-test epoch opens before any hook this call registers. `blockNetwork` below installs its
-  // stubs through the mock*Prop journal, and a patch stamped with the previous test's epoch is graded
-  // as written outside a hook — until this registration moved ahead of it, the sweep reported the
-  // library's own stubs (`open`, `send`, `fetch`) under `propsOutsideHooks`. Guarded by the same
-  // option as the sweep that reads the epoch: with `restoreProps` off nothing grades patches, so no
-  // epoch is ever needed.
-  if (options.restoreProps ?? true) {
-    beforeEach(beginPropEpoch);
+/** Fill in what the preset grades, leaving every option the caller passed as it was. Exported for its spec. */
+export function applyPreset(options: SetupAutoSpyOptions): SetupAutoSpyOptions {
+  if (options.preset !== 'strict') {
+    return options;
   }
 
-  if (options.strayTimers ?? false) {
-    // Wrapping happens now, once per worker; the sweep is per file, because "still wanted?" only
-    // becomes an unambiguous no once the file is over.
-    trackStrayTimers();
-    afterAll(() => {
-      reportStrayTimers(cancelStrayTimers(), options.onStrayTimers);
-    });
+  return {
+    ...options,
+    duplicateCopies: options.duplicateCopies ?? 'throw',
+    propsOutsideHooks: options.propsOutsideHooks ?? 'throw',
+    guardGlobals: options.guardGlobals ?? 'throw',
+    prototypePollution: options.prototypePollution ?? 'throw',
+    strayConsole: options.strayConsole ?? 'throw',
+    misconfiguration: options.misconfiguration ?? 'throw',
+    strayTimers: options.strayTimers ?? true,
+    strayRejections: options.strayRejections ?? zoneIsLoaded(),
+  };
+}
+
+// Armed now for doubles built during collection, and again before the tests, because an earlier block
+// of the same file may already have released it.
+function armMisconfiguration(reaction: MisconfigurationReaction | undefined): void {
+  if (reaction === undefined) {
+    return;
   }
 
-  if (options.pruneMockRegistry ?? false) {
-    trackMockRegistry();
-  }
+  const arm = (): void => setMisconfigurationReaction(reaction);
 
-  armStrictMode(options);
+  arm();
+  beforeAll(arm);
+  afterAll(() => {
+    setMisconfigurationReaction(undefined);
+  });
+}
 
-  if (options.globalFakeTimers) {
-    setupFakeTimers(options.globalFakeTimers === true ? undefined : options.globalFakeTimers, { betweenTests: true });
-  }
-
-  if (options.blockNetwork) {
-    // Per test rather than once: the stubs are registered as property patches, so `restoreProps`
-    // takes them off again after every test, and re-installing is what keeps them in place. The
-    // options are read once here rather than per test — `beforeEach` hands its callback a
-    // `TestContext`, which a bare `beforeEach(blockNetwork)` would pass on as the options object.
-    const blockOptions = options.blockNetwork === true ? {} : options.blockNetwork;
-
-    beforeEach(() => {
-      blockNetwork(blockOptions);
-    });
-  }
-
-  const diagnostics = buildDiagnostics(options);
+/** The steps of the shared `afterEach` that put the environment back, in the order they have to run. */
+function buildRestores(options: SetupAutoSpyOptions): TeardownStep[] {
   const restores: TeardownStep[] = [];
 
   if (options.restoreProps ?? true) {
@@ -748,10 +780,72 @@ export function setupAutoSpy(options: SetupAutoSpyOptions = {}): void {
     restores.push(restoreTimerGlobals);
   }
 
-  const steps = [...diagnostics, ...restores];
+  return restores;
+}
+
+export function setupAutoSpy(input: SetupAutoSpyOptions = {}): void {
+  const options = applyPreset(input);
+
+  reportDuplicateCopies(options.duplicateCopies ?? 'throw');
+
+  prepareEnvironment(options);
+
+  // The per-test epoch opens before any hook this call registers. `blockNetwork` below installs its
+  // stubs through the mock*Prop journal, and a patch stamped with the previous test's epoch is graded
+  // as written outside a hook — until this registration moved ahead of it, the sweep reported the
+  // library's own stubs (`open`, `send`, `fetch`) under `propsOutsideHooks`. Guarded by the same
+  // option as the sweep that reads the epoch: with `restoreProps` off nothing grades patches, so no
+  // epoch is ever needed.
+  if (options.restoreProps ?? true) {
+    beforeEach(beginPropEpoch);
+  }
+
+  const consoleGuard = watchStrayConsole(options.strayConsole);
+
+  if (options.strayTimers ?? false) {
+    // Wrapping happens now, once per worker; the sweep is per file, because "still wanted?" only
+    // becomes an unambiguous no once the file is over.
+    trackStrayTimers();
+    afterAll(() => {
+      const timers = describeStrayTimers();
+
+      reportStrayTimers(cancelStrayTimers(), options.onStrayTimers, timers);
+    });
+  }
+
+  if (options.pruneMockRegistry ?? false) {
+    trackMockRegistry();
+  }
+
+  armStrictMode(options);
+  armMisconfiguration(options.misconfiguration);
+
+  if (options.globalFakeTimers) {
+    setupFakeTimers(options.globalFakeTimers === true ? undefined : options.globalFakeTimers, { betweenTests: true });
+  }
+
+  if (options.blockNetwork) {
+    // Per test rather than once: the stubs are registered as property patches, so `restoreProps`
+    // takes them off again after every test, and re-installing is what keeps them in place. The
+    // options are read once here rather than per test — `beforeEach` hands its callback a
+    // `TestContext`, which a bare `beforeEach(blockNetwork)` would pass on as the options object.
+    const blockOptions = options.blockNetwork === true ? {} : options.blockNetwork;
+
+    beforeEach(() => {
+      blockNetwork(blockOptions);
+    });
+  }
+
+  // The console goes back first, so a spy the test installed cannot absorb what the steps after it
+  // print, and the report goes last, so it can quote them.
+  const diagnostics = buildDiagnostics(options);
+  const restores = buildRestores(options);
+  const consoleRestore = consoleGuard ? [consoleGuard.restore] : [];
+  const consoleReport = consoleGuard ? [consoleGuard.report] : [];
+  const steps = [...consoleRestore, ...diagnostics, ...restores, ...consoleReport];
 
   if (steps.length > 0) {
-    installTeardown(steps, restores);
+    installTeardown(steps, [...consoleRestore, ...restores]);
   }
 }
 
@@ -778,6 +872,8 @@ export function setupAutoSpy(options: SetupAutoSpyOptions = {}): void {
  */
 function installTeardown(steps: readonly TeardownStep[], restores: readonly TeardownStep[]): void {
   let teardownRan = false;
+  // One full explanation per file: a run where every test's hooks throw repeated it hundreds of times.
+  let skippedInFile = 0;
 
   beforeEach(() => {
     teardownRan = false;
@@ -791,8 +887,9 @@ function installTeardown(steps: readonly TeardownStep[], restores: readonly Tear
 
       runTeardown(restores);
 
+      skippedInFile += 1;
       // eslint-disable-next-line no-console -- the test has already failed on whatever threw, and a second thrown error would bury the first; this is the sentence that explains it.
-      console.warn(describeSkippedTeardown(leaked));
+      console.warn(skippedInFile === 1 ? describeSkippedTeardown(leaked) : describeSkippedAgain(leaked, skippedInFile));
     });
   });
 
@@ -805,6 +902,11 @@ function installTeardown(steps: readonly TeardownStep[], restores: readonly Tear
       teardownRan = true;
     }
   });
+}
+
+/** The short form, for every skipped teardown after the first in a file. */
+function describeSkippedAgain(leaked: number, count: number): string {
+  return `[vitest-auto-spy] setupAutoSpy()'s afterEach did not run for this test either (${count} in this file); ${leaked} mock*Prop patch(es) put back — see the first report in this file for why.`;
 }
 
 /** What the net says when it finds a teardown that never ran. */
