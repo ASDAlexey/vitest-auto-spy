@@ -15,13 +15,17 @@
  *
  * A suite stays green with this broken — only the specs that touch storage fail — so it usually
  * arrives as "CI moved to a new Node and eleven unrelated specs died".
+ *
+ * {@link stubWebStorage} is the other direction: not a repair of the environment but a storage a
+ * spec installs for itself, empty or seeded, and takes back with `restoreMockedProps()`.
  */
+import { mockValueProp } from './prop-mock';
 
 /** The two globals this module repairs. */
 const STORAGE_KEYS = ['localStorage', 'sessionStorage'] as const;
 
 /** One of the two. */
-type StorageKey = (typeof STORAGE_KEYS)[number];
+export type WebStorageKey = (typeof STORAGE_KEYS)[number];
 
 /** Namespaced: the probe also runs against a working storage, and must leave no trace in one. */
 const PROBE_KEY = '__vitest_auto_spy_probe__';
@@ -30,13 +34,20 @@ const PROBE_KEY = '__vitest_auto_spy_probe__';
 const PROBE_METHODS = ['setItem', 'getItem', 'removeItem'] as const;
 
 /**
- * Web Storage backed by a `Map`, for an environment that offers none that works.
+ * Web Storage backed by a `Map`, for an environment that offers none that works, and for
+ * {@link stubWebStorage}.
  *
  * Not `new Storage()`: jsdom and happy-dom both declare `Storage` globally and refuse to construct
- * it, while a `Map` behaves the same on every runtime.
+ * it, while a `Map` behaves the same on every runtime. Keys and values are coerced to strings the way
+ * the platform coerces them, and `key()` converts its index as an `unsigned long` does.
  */
 class MapBackedStorage implements Storage {
   readonly #items = new Map<string, string>();
+
+  /** Static, so the installed object carries no member the platform's storage lacks. */
+  static snapshot(storage: MapBackedStorage): Record<string, string> {
+    return Object.fromEntries(storage.#items);
+  }
 
   get length(): number {
     return this.#items.size;
@@ -47,19 +58,19 @@ class MapBackedStorage implements Storage {
   }
 
   getItem(key: string): string | null {
-    return this.#items.get(key) ?? null;
+    return this.#items.get(String(key)) ?? null;
   }
 
   key(index: number): string | null {
-    return [...this.#items.keys()][index] ?? null;
+    return [...this.#items.keys()][Number(index) >>> 0] ?? null;
   }
 
   removeItem(key: string): void {
-    this.#items.delete(key);
+    this.#items.delete(String(key));
   }
 
   setItem(key: string, value: string): void {
-    this.#items.set(key, String(value));
+    this.#items.set(String(key), String(value));
   }
 }
 
@@ -96,14 +107,14 @@ export interface RestoreWebStorageOptions {
  *
  * @returns The keys it had to repair — `[]` when the environment was already sound.
  */
-export function restoreWebStorage(options: RestoreWebStorageOptions = {}): StorageKey[] {
+export function restoreWebStorage(options: RestoreWebStorageOptions = {}): WebStorageKey[] {
   const view = options.view === undefined ? currentView() : options.view;
 
   if (!view) {
     return [];
   }
 
-  const repaired: StorageKey[] = [];
+  const repaired: WebStorageKey[] = [];
 
   for (const key of STORAGE_KEYS) {
     if (works(read(globalThis, key))) {
@@ -119,6 +130,65 @@ export function restoreWebStorage(options: RestoreWebStorageOptions = {}): Stora
   return repaired;
 }
 
+/** Options for {@link stubWebStorage}. */
+export interface WebStorageStubOptions {
+  /** What the storage holds when it is installed. Values go through `setItem`, so they are coerced. */
+  items?: Readonly<Record<string, string>>;
+  /**
+   * The window to install it on as well, when that is a different object from `globalThis` — code
+   * reads `window.localStorage` as often as the bare global. Defaults to `document.defaultView`;
+   * `null` installs on `globalThis` alone.
+   */
+  view?: object | null;
+}
+
+/** What {@link stubWebStorage} hands back. */
+export interface WebStorageStub {
+  /** The storage now installed — the same object the global answers until it is restored. */
+  readonly storage: Storage;
+  /** A copy of what it holds, as a plain record: `expect(local.snapshot()).toEqual({ token: 'abc' })`. */
+  snapshot(): Record<string, string>;
+}
+
+/**
+ * Replace `localStorage` or `sessionStorage` with an in-memory `Storage` for this test, empty or seeded.
+ *
+ * ```ts
+ * import { stubWebStorage, type WebStorageStub } from 'vitest-auto-spy/dom-stubs';
+ *
+ * let local: WebStorageStub;
+ *
+ * beforeEach(() => {
+ *   local = stubWebStorage('localStorage', { items: { token: 'abc' } });
+ * });
+ *
+ * it('forgets the token on logout', () => {
+ *   session.logout();
+ *   expect(local.snapshot()).toEqual({});
+ * });
+ * ```
+ *
+ * `getItem`, `setItem`, `removeItem`, `clear`, `key` and `length` behave as the platform's do,
+ * string coercion included. Installed through `mockValueProp`, so `restoreMockedProps()` — and
+ * therefore `setupAutoSpy()` between tests — puts back whatever the global held before. Install it
+ * in `beforeEach`, like every other stub on this entry.
+ *
+ * Unlike {@link restoreWebStorage} it installs in a `node` environment too: the spec asked for it.
+ */
+export function stubWebStorage(key: WebStorageKey = 'localStorage', options: WebStorageStubOptions = {}): WebStorageStub {
+  const storage = new MapBackedStorage();
+  const view = options.view === undefined ? currentView() : options.view;
+
+  Object.entries(options.items ?? {}).forEach(([name, value]) => storage.setItem(name, value));
+  mockValueProp(globalThis, key, storage);
+
+  if (view && view !== globalThis) {
+    mockValueProp(view, key, storage);
+  }
+
+  return { storage, snapshot: () => MapBackedStorage.snapshot(storage) };
+}
+
 /**
  * The window the environment is running, or nothing in a DOM-less one.
  *
@@ -129,7 +199,7 @@ function currentView(): object | null {
   return typeof document === 'undefined' ? null : document.defaultView;
 }
 
-function read(host: object, key: StorageKey): unknown {
+function read(host: object, key: WebStorageKey): unknown {
   return Reflect.get(host, key);
 }
 
@@ -165,7 +235,7 @@ function works(candidate: unknown): candidate is Storage {
 }
 
 /** Writable and configurable, so a spec can still replace it and `guardGlobalPatches()` stays quiet. */
-function install(view: object, key: StorageKey, storage: Storage): void {
+function install(view: object, key: WebStorageKey, storage: Storage): void {
   const descriptor: PropertyDescriptor = { value: storage, writable: true, configurable: true };
 
   Object.defineProperty(globalThis, key, descriptor);

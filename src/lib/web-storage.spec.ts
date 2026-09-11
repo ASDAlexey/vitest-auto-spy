@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { restoreWebStorage } from './web-storage';
+import { countMockedProps, restoreMockedProps } from './prop-mock';
+import { restoreWebStorage, stubWebStorage } from './web-storage';
 
 /**
  * Under Vitest's DOM environments `document.defaultView`, `window` and `globalThis` are the *same
@@ -167,6 +168,99 @@ describe('restoreWebStorage', () => {
 
       expect(storage.getItem('n')).toBe('42');
     });
+  });
+});
+
+describe('stubWebStorage', () => {
+  afterEach(() => {
+    restoreMockedProps();
+  });
+
+  it('installs an empty storage the global then answers with', () => {
+    const local = stubWebStorage('localStorage');
+
+    expect(globalThis.localStorage).toBe(local.storage);
+    expect(local.storage.length).toBe(0);
+    expect(local.snapshot()).toEqual({});
+  });
+
+  it('defaults to localStorage', () => {
+    const { storage } = stubWebStorage();
+
+    expect(globalThis.localStorage).toBe(storage);
+  });
+
+  it('seeds the items it is given, through setItem', () => {
+    const session = stubWebStorage('sessionStorage', { items: { token: 'abc', count: 3 as unknown as string } });
+
+    expect(globalThis.sessionStorage.getItem('token')).toBe('abc');
+    expect(session.snapshot()).toEqual({ token: 'abc', count: '3' });
+  });
+
+  it('coerces keys, values and indexes the way the platform does', () => {
+    const { storage } = stubWebStorage('localStorage');
+
+    storage.setItem(1 as unknown as string, null as unknown as string);
+    storage.setItem('flag', true as unknown as string);
+
+    expect(storage.getItem('1')).toBe('null');
+    expect(storage.getItem(1 as unknown as string)).toBe('null');
+    expect(storage.key('1' as unknown as number)).toBe('flag');
+    expect(storage.key(Number.NaN)).toBe('1');
+    expect(storage.key(-1)).toBeNull();
+
+    storage.removeItem(1 as unknown as string);
+
+    expect(storage.length).toBe(1);
+  });
+
+  it('hands out a snapshot that is a copy, not a view', () => {
+    const local = stubWebStorage('localStorage', { items: { a: '1' } });
+    const before = local.snapshot();
+
+    local.storage.setItem('b', '2');
+    local.storage.clear();
+
+    expect(before).toEqual({ a: '1' });
+    expect(local.snapshot()).toEqual({});
+  });
+
+  it('keeps the two storages apart', () => {
+    const local = stubWebStorage('localStorage');
+    const session = stubWebStorage('sessionStorage');
+
+    local.storage.setItem('where', 'local');
+
+    expect(session.snapshot()).toEqual({});
+  });
+
+  it('puts back whatever the global held when the props are restored', () => {
+    const before = globalThis.localStorage;
+
+    stubWebStorage('localStorage', { items: { token: 'abc' } });
+    restoreMockedProps();
+
+    expect(globalThis.localStorage).toBe(before);
+    expect(before.getItem('token')).toBeNull();
+  });
+
+  it('installs on a separate window as well, and takes it back from there too', () => {
+    const view: Record<string, unknown> = {};
+    const local = stubWebStorage('localStorage', { view });
+
+    expect(view['localStorage']).toBe(local.storage);
+
+    restoreMockedProps();
+
+    expect('localStorage' in view).toBe(false);
+  });
+
+  it('installs on the global alone when told there is no window', () => {
+    expect(countMockedProps()).toBe(0);
+
+    stubWebStorage('localStorage', { view: null });
+
+    expect(countMockedProps()).toBe(1);
   });
 });
 

@@ -34,6 +34,9 @@ export { stubMediaElement, type MediaElementState, type MediaElementStub, type M
 // A realm-consistent AbortController, for `addEventListener(..., { signal })` under zone.js
 export { stubAbortController } from './lib/abort-controller-stub';
 
+// An in-memory localStorage / sessionStorage a spec installs for itself, with a snapshot to assert on
+export { stubWebStorage, type WebStorageKey, type WebStorageStub, type WebStorageStubOptions } from './lib/web-storage';
+
 // Observer globals a component constructs itself, replaced by ones a spec can drive
 export {
   intersectionEntry,
