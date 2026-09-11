@@ -5,7 +5,7 @@
 > Conventional Commits only when a version has no section there yet), so nothing here is pasted
 > anywhere. See `CONTRIBUTING.md` → "Releasing".
 
-_Last released: **v5.1.0** — the git tag, `package.json` and `CHANGELOG.md` agree._
+_Last released: **v5.4.0** — the git tag, `package.json` and `CHANGELOG.md` agree._
 
 ## Staged for the next release
 

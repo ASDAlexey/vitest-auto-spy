@@ -10,16 +10,13 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
-### Added
+**Why upgrade.** 5.4.0 lost `calledWith`, `mustBeCalledWith` and `resolveWith` on every spy in a
+suite that loads more than one copy of the package, and this puts them back. A key a test leaves on
+`Object.prototype`, which stops every later file in the worker from collecting while the run reads
+zero failures, is now named by file. And the ESLint plugin reports the hand-rolled doubles it could
+not see — stub classes, doubles typed `{ m: Mock }`, and a `let` a `beforeEach` fills in.
 
-- **`registerAutoSpyDefaults` also takes a table.** A setup file that registers a dozen classes
-  wrote a dozen near-identical calls; `registerAutoSpyDefaults([[Router, { … }], [AccountService, { … }]])`
-  is the same registrations said once. Rows apply in order — a later row for a class an earlier row
-  named replaces it, exactly as a second call does — and both forms share one registry, so a table and
-  a per-class call in the same file mix freely. The row is checked against **its own** class rather
-  than against a widened common type: a key the row's class does not carry fails on that row's line,
-  and the diagnostic names that class's members and nothing else. `AutoSpyDefaultEntry<T>` is exported
-  for a row built outside the literal.
+### Added
 
 - **The ESLint plugin sees the stub-class double and the declared structural double** — two shapes it
   was blind to, both found by auditing a consumer of 1759 spec files that runs every rule of
@@ -163,6 +160,98 @@ The latest released version here must always match the one published on
   gives each call its own inference, and `asInstances(a, b, c)` keeps tuple types for a fixed set. In
   the error → fix table.
 
+### Fixed
+
+- **`doctor` reported a freshly generated library as a broken tsconfig.** `tsconfig-glob-matches-nothing`
+  exists for the codemod that turned `src/**/*.spec.ts` into `src*.spec.ts` over specs that were
+  there, and it also fired — as an `error`, failing the command — on a correct `src/**/*.spec.ts` in
+  a library nobody had written a spec for yet: six of seven errors on a 14 751-file consumer were one
+  scaffolded library, one `index.ts` per project. The only fix the message offered was deleting the
+  tsconfig, i.e. taking away the one file the first spec will need. The check now asks whether files
+  with the pattern's ending exist in **the config's own directory tree** — its directory, not the
+  pattern's prefix, which is exactly what a broken glob gets wrong. If they do, the glob is missing
+  them and it stays an `error`; if there are none, it is an `info` that says nothing is unchecked
+  yet. A pattern whose last segment names one file keeps the `error` whatever the tree holds.
+
+- **`calledWith`, `mustBeCalledWith` and `resolveWith` went missing from every spy in a consumer that
+  loads more than one copy of the package.** 5.4.0 started sharing the helper bundles on the
+  prototype every fast spy inherits, and recorded "already shared" against the *bundle* alone. That
+  record is only correct while there is one prototype in the process, and there routinely is not:
+  `dist/index.js` and `dist/angular.js` are each built unsplit, so each carries its own `fast-spy`
+  and its own `spy-decoration`, while the mock adapter every spy is built through is pinned to the
+  single `dist/shared-state.js`. A spy therefore reaches the `attachHelpers` of a copy that does not
+  own its prototype, the bundle was written onto that copy's prototype instead, and the spy inherited
+  nothing — `spy.method.calledWith is not a function`, on 175 tests of one Angular suite, while the
+  observable bundle stayed because the copy that recorded it did own the prototype. The bundle now
+  goes on the prototype the **target** has, read off the target rather than off the sharing copy's
+  own module scope, and the record of what is already on it **lives on that prototype** under a
+  `Symbol.for` key: it is the one object every copy holds, so any number of copies in any load order
+  read the same answer, and which copy's sink is registered stops mattering. Keeping that record per
+  copy is not enough — two copies then both believe they own the prototype and the second overwrites
+  the first, which trades a missing helper for one that rejects the spy it was called on
+  (`calledWith was called off its spy`, since each copy's `calledWith` reads the spy through that
+  copy's own internals class). So the first bundle to claim a key keeps it and every later bundle
+  falls back to own properties on the spy, which is what every spy had before the bundles were
+  shared at all. The sharing moved from `spy-decoration` into `fast-spy`, where the prototypes and
+  their descriptors already live: `/rxjs`, `/bun` and `/node`, which reach the first module and not
+  the second, each came out slightly smaller than in 5.4.0.
+
+- **`propsOutsideHooks` graded the library's own `blockNetwork` stubs as written outside a hook.**
+  The epoch-opening `beforeEach` was registered after the hook `blockNetwork` installs its stubs
+  through, so `open`, `send` and `fetch` were stamped with the previous test's epoch and the sweep
+  reported its own patches — once per worker, behind whichever spec file went first: 13 stderr
+  blocks on one full run of a 1759-file suite over 13 workers, every one naming a spec that patches
+  no property at all. The same ordering is what made the strict grade unusable —
+  `propsOutsideHooks: 'throw'` failed a run of a single spec file on the stubs, which is why the
+  consumer kept `'warn'`. The opener now registers ahead of every stub-installing hook
+  `setupAutoSpy()` installs, and `setup-hook-order.spec.ts` holds the pairing: its first test fails
+  on exactly that throw if the order regresses. The spec lives in a file of its own because the
+  grader reports each patched property once per worker — next to the other `blockNetwork` suites the
+  first report is spent before it runs, and the regression sits behind the dedup, silent.
+
+### Size and memory
+
+**`/eslint-plugin` +2.78 kB (21.59 → 24.37 kB, +12.9 %), and it is the rules.** `stub-class` (the
+new `no-stub-class-double`), `declared-double` (`no-structural-double`) and `provider-override`
+(the `TestBed.overrideProvider` reading shared by `prefer-provide-auto-spy`, `no-overridden-provider`
+and `no-stub-class-double`) are new modules, and `bindings` now follows a name to the hook that fills it in. The entry is loaded
+by ESLint in the editor and the lint job, never by a test run, so no spec pays for it; its cold import
+is 101.6 → 117.4 kB of module graph.
+
+**`/setup` +0.64 kB (12.97 → 13.61 kB, +4.9 %): the prototype-pollution guard, most of it the
+message.** The report has to say why a key on `Object.prototype` kills collection and what to patch
+instead, because the runner shows no stack to start from. `/setup` is imported once per worker by the
+setup file, and the check it adds runs `Object.keys` over three prototypes after each test.
+
+**The core entries** — `.` +0.12 kB (+0.7 %), `/rstest` / `/react` / `/vue` / `/svelte`
++0.26…0.27 kB (+1.7 %), `/angular` / `/nestjs` / `/console` / `/jasmine` +0.14…0.16 kB — carry the
+multi-copy fix above: the claim record under a `Symbol.for` key on the shared prototype. `/rxjs`,
+`/bun`, `/bun-angular` and `/node` went down 0.02…0.05 kB. Total across all twenty-one: 230.1 →
+235.2 kB. No entry gained a runtime import of a peer.
+
+**Memory is flat and creation is not slower.** Against the published 5.4.0, on the `/node` entry
+over 100 000 spied methods, median of seven: **2.89 kB per spied method either side**, 25.75 kB per
+lazy spy either side, spy creation 21.7 → 19.7 µs and the first call of every method 4 357 → 4 227 ns.
+
+## [5.4.0] - 2026-09-10
+
+**Why upgrade.** A setup file registers spy defaults for a dozen classes in one table instead of a
+dozen calls, a `renderShallow({ keepTemplate: true })` template keeps its own pipes and directives,
+and doubles got lighter — an untouched `createAutoMock<T>()` retains 705 B where it retained 1 249.
+
+### Added
+
+- **`registerAutoSpyDefaults` also takes a table.** A setup file that registers a dozen classes
+  wrote a dozen near-identical calls; `registerAutoSpyDefaults([[Router, { … }], [AccountService, { … }]])`
+  is the same registrations said once. Rows apply in order — a later row for a class an earlier row
+  named replaces it, exactly as a second call does — and both forms share one registry, so a table and
+  a per-class call in the same file mix freely. The row is checked against **its own** class rather
+  than against a widened common type: a key the row's class does not carry fails on that row's line,
+  and the diagnostic names that class's members and nothing else. `AutoSpyDefaultEntry<T>` is exported
+  for a row built outside the literal.
+
+### Documentation
+
 - **What jsdom actually costs, measured once instead of argued twice.** Two earlier measurements
   disagreed by a factor of forty about the per-file price of a DOM, and the reason turns out to be
   the isolation mode rather than the DOM: on 40 trivial spec files, one worker, `isolate: true`,
@@ -198,29 +287,6 @@ The latest released version here must always match the one published on
 
 ### Fixed
 
-- **`calledWith`, `mustBeCalledWith` and `resolveWith` went missing from every spy in a consumer that
-  loads more than one copy of the package.** 5.4.0 started sharing the helper bundles on the
-  prototype every fast spy inherits, and recorded "already shared" against the *bundle* alone. That
-  record is only correct while there is one prototype in the process, and there routinely is not:
-  `dist/index.js` and `dist/angular.js` are each built unsplit, so each carries its own `fast-spy`
-  and its own `spy-decoration`, while the mock adapter every spy is built through is pinned to the
-  single `dist/shared-state.js`. A spy therefore reaches the `attachHelpers` of a copy that does not
-  own its prototype, the bundle was written onto that copy's prototype instead, and the spy inherited
-  nothing — `spy.method.calledWith is not a function`, on 175 tests of one Angular suite, while the
-  observable bundle stayed because the copy that recorded it did own the prototype. The bundle now
-  goes on the prototype the **target** has, read off the target rather than off the sharing copy's
-  own module scope, and the record of what is already on it **lives on that prototype** under a
-  `Symbol.for` key: it is the one object every copy holds, so any number of copies in any load order
-  read the same answer, and which copy's sink is registered stops mattering. Keeping that record per
-  copy is not enough — two copies then both believe they own the prototype and the second overwrites
-  the first, which trades a missing helper for one that rejects the spy it was called on
-  (`calledWith was called off its spy`, since each copy's `calledWith` reads the spy through that
-  copy's own internals class). So the first bundle to claim a key keeps it and every later bundle
-  falls back to own properties on the spy, which is what every spy had before the bundles were
-  shared at all. The sharing moved from `spy-decoration` into `fast-spy`, where the prototypes and
-  their descriptors already live: `/rxjs`, `/bun` and `/node`, which reach the first module and not
-  the second, each came out slightly smaller than in 5.4.0.
-
 - **`renderShallow({ keepTemplate: true })` kept the template and dropped the vocabulary it is
   written in.** The override replaced the component's `imports` with `keepChildren ?? []` whether or
   not the template survived, so a kept template lost its own pipes and directives with it: a
@@ -244,19 +310,6 @@ The latest released version here must always match the one published on
   in `BaseCoverageProvider.getGlobMatchers()`. The measurement behind it stands and still applies to
   the versions the package supports (peer `>=2.1.0`), so the check is gated on the installed major
   instead of being removed, and its message names the mechanism correctly.
-
-- **`propsOutsideHooks` graded the library's own `blockNetwork` stubs as written outside a hook.**
-  The epoch-opening `beforeEach` was registered after the hook `blockNetwork` installs its stubs
-  through, so `open`, `send` and `fetch` were stamped with the previous test's epoch and the sweep
-  reported its own patches — once per worker, behind whichever spec file went first: 13 stderr
-  blocks on one full run of a 1759-file suite over 13 workers, every one naming a spec that patches
-  no property at all. The same ordering is what made the strict grade unusable —
-  `propsOutsideHooks: 'throw'` failed a run of a single spec file on the stubs, which is why the
-  consumer kept `'warn'`. The opener now registers ahead of every stub-installing hook
-  `setupAutoSpy()` installs, and `setup-hook-order.spec.ts` holds the pairing: its first test fails
-  on exactly that throw if the order regresses. The spec lives in a file of its own because the
-  grader reports each patched property once per worker — next to the other `blockNetwork` suites the
-  first report is spent before it runs, and the regression sits behind the dedup, silent.
 
 ### Internal
 
@@ -4225,7 +4278,8 @@ by hand there, in more than one place, by more than one person.
   `mockAccessorsProp`.
 - Dual ESM + CJS build with type declarations; 100% test coverage.
 
-[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.3.0...HEAD
+[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.4.0...HEAD
+[5.4.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.3.0...v5.4.0
 [5.3.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.2.0...v5.3.0
 [5.2.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.1.0...v5.2.0
 [5.1.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.0.1...v5.1.0
