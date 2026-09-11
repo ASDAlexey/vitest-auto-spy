@@ -37,9 +37,10 @@
 import { afterEach, beforeEach, expect } from 'vitest';
 
 import { DOCS_LINKS, withDocs } from './docs-links';
+import { type GuardReaction, reactToFindings } from './guard-reaction';
 
 /** How {@link guardPrototypePollution} reacts to a property left on a built-in prototype. */
-export type PrototypePollutionReaction = 'off' | 'throw' | 'warn';
+export type PrototypePollutionReaction = GuardReaction;
 
 /** One watched prototype and the own enumerable keys it carried before the run touched it. */
 export interface PrototypeSnapshot {
@@ -138,16 +139,7 @@ export function checkPrototypePollution(before: readonly PrototypeSnapshot[], re
     return added.length > 0 ? [report(snapshot, added)] : [];
   });
 
-  if (found.length === 0) {
-    return;
-  }
-
-  if (reaction === 'throw') {
-    throw new Error(found.join('\n'));
-  }
-
-  // eslint-disable-next-line no-console -- `'warn'` exists precisely to surface this without failing the run.
-  console.warn(found.join('\n'));
+  reactToFindings(found, reaction);
 }
 
 /**

@@ -16,9 +16,10 @@
 import { afterEach, beforeEach, expect } from 'vitest';
 
 import { DOCS_LINKS, withDocs } from './docs-links';
+import { type GuardReaction, reactToFindings } from './guard-reaction';
 
 /** How {@link guardGlobalPatches} reacts to a patch that cannot be undone. */
-export type GlobalPatchReaction = 'off' | 'throw' | 'warn';
+export type GlobalPatchReaction = GuardReaction;
 
 /** One watched object and the own properties it had before the test ran. */
 export interface GlobalSnapshot {
@@ -120,16 +121,7 @@ export function checkSealedAdditions(before: readonly GlobalSnapshot[], reaction
     return added.length > 0 ? [report(snapshot, added)] : [];
   });
 
-  if (found.length === 0) {
-    return;
-  }
-
-  if (reaction === 'throw') {
-    throw new Error(found.join('\n'));
-  }
-
-  // eslint-disable-next-line no-console -- `'warn'` exists precisely to surface this without failing the run.
-  console.warn(found.join('\n'));
+  reactToFindings(found, reaction);
 }
 
 /**
