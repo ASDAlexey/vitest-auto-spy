@@ -19,27 +19,18 @@
  * including ones written long before the group existed, and turning a passing suite red is a
  * decision that belongs to the project rather than to a library import.
  *
- * **Call it after the Angular test environment is set up.** Vitest runs `afterEach` hooks in
- * reverse registration order, so the `pendingRequests` hook registered here has to be registered
- * *later* than the TestBed teardown it wants to run before. It also reads a snapshot taken during
- * `resetTestingModule`, so the wrong order costs a slightly later failure rather than the whole
- * diagnostic — but the right order is two lines.
+ * Call it where the per-file hooks belong — the setup file, or a `describe` — after the Angular test
+ * environment is set up. The `afterEach` order does not matter: every reset snapshots the open requests.
  */
-import { TestBed } from '@angular/core/testing';
+import { getTestBed } from '@angular/core/testing';
 import { afterEach, beforeEach } from 'vitest';
 
 import { failOnUnspiedProvider } from './angular';
 import { assertNgModuleScopes, componentInjector, describeResolved, isDeadNgModuleImport, readProperty } from './angular-overrides';
 import { DOCS_LINKS, withDocs } from './docs-links';
 import { isAutoSpyLike } from './spy-mark';
-import {
-  type LooseTestBedMethod,
-  instrumentTestBed,
-  onComponentCreated,
-  onTestingModuleConfigured,
-  readTestBedMethod,
-  verifyOnTeardown,
-} from './testbed-diagnostics';
+import { instrumentTestBed, onComponentCreated, onTestingModuleConfigured, verifyOnTeardown } from './testbed-diagnostics';
+import { beforeTestBedReset } from './testbed-reset';
 
 /** Which checks {@link enableAngularDiagnostics} installs. Every member defaults to `true`. */
 export interface AngularDiagnosticsOptions {
@@ -207,53 +198,23 @@ function takeOpenRequests(controller: unknown): string[] {
 let controllerToken: unknown;
 let openAtReset: string[] | undefined;
 
-function readOpenRequests(): string[] {
-  if (controllerToken === undefined) {
-    return [];
-  }
-
-  // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- the token was read out of a provider list, so its type argument is unknowable here; `TestBed.inject` is called for the instance, which is then read structurally.
-  return takeOpenRequests(TestBed.inject(controllerToken as never, null));
+/** The one `TestBed` member read with a token of unknown type, declared structurally so it needs no assertion. */
+interface InjectingTestBed {
+  inject(token: unknown, notFoundValue: null): unknown;
 }
-
-let resetWrapper: LooseTestBedMethod | undefined;
-let wrappedReset: LooseTestBedMethod | undefined;
 
 /**
- * Snapshot the open requests while the testing module still exists.
- *
- * A suite whose TestBed teardown runs before this group's `afterEach` would otherwise be asking an
- * injector that is already gone, and the diagnostic would quietly report nothing — the failure
- * mode it exists to remove.
+ * What the testing module answers for `token`, or `null` once it has been reset: `inject` on a reset
+ * `TestBed` builds a fresh module, and the next `configureTestingModule` then refuses to run.
  */
-function wrapResetTestingModule(): void {
-  const original = readTestBedMethod('resetTestingModule');
+function injectFromModule(token: unknown): unknown {
+  const testBed: InjectingTestBed = getTestBed();
 
-  if (!original) {
-    return;
-  }
-
-  wrappedReset = original;
-  resetWrapper = function snapshotting(this: unknown, ...args: unknown[]): unknown {
-    const open = readOpenRequests();
-
-    if (open.length > 0) {
-      openAtReset = open;
-    }
-
-    return original.apply(this, args);
-  };
-
-  Reflect.set(TestBed, 'resetTestingModule', resetWrapper);
+  return readProperty(testBed, '_testModuleRef') ? testBed.inject(token, null) : null;
 }
 
-function unwrapResetTestingModule(): void {
-  if (wrappedReset) {
-    Reflect.set(TestBed, 'resetTestingModule', wrappedReset);
-  }
-
-  resetWrapper = undefined;
-  wrappedReset = undefined;
+function readOpenRequests(): string[] {
+  return controllerToken === undefined ? [] : takeOpenRequests(injectFromModule(controllerToken));
 }
 
 /**
@@ -319,6 +280,8 @@ export function assertNoPendingRequests(): void {
  */
 const moduleDoubles = new Map<unknown, unknown>();
 
+const SELF_ONLY = { self: true };
+
 /**
  * Remember one provider, if it registers a double under a token.
  *
@@ -374,9 +337,13 @@ export function assertNoShadowedProviders(component: unknown, fixture: unknown):
     return;
   }
 
+  // `self` asks the component's node alone: walking on to the root would build — and possibly fail to build — a
+  // real service the test never asked for, for a token the component does not even declare.
   const shadowed = [...moduleDoubles]
-    .map(([token, spy]) => ({ token, spy, resolved: injector.get(token, null) }))
-    .filter(({ spy, resolved }) => resolved !== null && resolved !== spy && !isAutoSpyLike(resolved));
+    .map(([token, spy]) => ({ token, spy, resolved: Reflect.apply(injector.get, injector, [token, null, SELF_ONLY]) }))
+    .filter(({ spy, resolved }) => resolved !== null && resolved !== spy && !isAutoSpyLike(resolved))
+    // A double the module no longer answers with lost to a later provider or an override, not to the component.
+    .filter(({ token, spy }) => injectFromModule(token) === spy);
 
   if (shadowed.length === 0) {
     return;
@@ -391,8 +358,10 @@ export function assertNoShadowedProviders(component: unknown, fixture: unknown):
         "A component-level provider is resolved by the component's node injector, which is consulted before the module " +
         'injector — so the component is running against the real service while the spec asserts on a double that records ' +
         'nothing. An assertion that the double was *not* called passes here for the wrong reason.\n' +
-        `Replace the module-level registration with \`overrideComponentProvider(${className(component)}, Token, provideAutoSpy(Token))\`, ` +
-        'which puts the double where the component looks and checks that it applied.',
+        `Replace the module-level registration with \`overrideComponentProvider(${className(component)}, ServiceClass)\` — the class, ` +
+        'with an optional spy configuration as the third argument — which puts the double where the component looks and checks ' +
+        'that it applied. Behind an `InjectionToken`, which it cannot take, `TestBed.overrideProvider(TOKEN, provideAutoSpyForToken(TOKEN))` ' +
+        "reaches the component's own providers too.",
       DOCS_LINKS.angularDiagnostics,
     ),
   );
@@ -402,7 +371,61 @@ export function assertNoShadowedProviders(component: unknown, fixture: unknown):
 let active: Required<AngularDiagnosticsOptions> | undefined;
 let removeInspector: (() => void) | undefined;
 let removeComponentInspector: (() => void) | undefined;
-let hooksRegistered = false;
+
+// On the instance, which the static method, `getTestBed()` and Angular's cleanup hook all reset through; inert while the
+// group is off, so it never has to be unlinked from under a wrapper installed after it.
+const snapshottingInstances = new WeakSet<object>();
+
+/** Snapshot the open requests and forget the module's doubles at every reset, whichever `afterEach` runs first. */
+function wrapResetTestingModule(): void {
+  beforeTestBedReset(snapshottingInstances, () => {
+    if (active) {
+      const open = readOpenRequests();
+
+      if (open.length > 0) {
+        openAtReset = open;
+      }
+
+      moduleDoubles.clear();
+    }
+  });
+}
+
+/** The test the per-test state was last reset for, so a second pair of hooks in one file does nothing twice. */
+let preparedTest: object | undefined;
+
+/** A call made while a test or one of its hooks runs cannot register hooks of its own. */
+function insideTest(): boolean {
+  return readProperty(readProperty(Reflect.get(globalThis, '__vitest_worker__'), 'current'), 'type') === 'test';
+}
+
+/**
+ * Per call rather than per module: under `isolate: false` this module is evaluated once per worker
+ * while the setup file calling it runs per spec file, so a once-only pair belonged to the first file.
+ */
+function registerPerTestHooks(): void {
+  beforeEach(({ task }) => {
+    if (preparedTest !== task) {
+      preparedTest = task;
+      controllerToken = undefined;
+      openAtReset = undefined;
+      moduleDoubles.clear();
+    }
+  });
+
+  afterEach(({ task }) => {
+    if (preparedTest !== task) {
+      return;
+    }
+
+    // Cleared rather than kept, so a retry of the same test is prepared and verified again.
+    preparedTest = undefined;
+
+    if (active?.pendingRequests) {
+      verifyOnTeardown(assertNoPendingRequests);
+    }
+  });
+}
 
 /**
  * Turn the group on. Every member defaults to `true`; pass `false` to leave one out.
@@ -454,34 +477,12 @@ export function enableAngularDiagnostics(options: AngularDiagnosticsOptions = {}
     removeComponentInspector = onComponentCreated(assertNoShadowedProviders);
   }
 
-  if (active.pendingRequests) {
-    wrapResetTestingModule();
+  wrapResetTestingModule();
+
+  // The hooks read `active`, so a call from inside a test only re-configures the group.
+  if (!insideTest()) {
+    registerPerTestHooks();
   }
-
-  // Once per module, not once per call: the hooks read `active`, so a later call re-configures the
-  // group rather than stacking a second pair — and a second call can then happen anywhere, including
-  // from inside a test, where registering a hook is an error.
-  if (hooksRegistered) {
-    return;
-  }
-
-  hooksRegistered = true;
-
-  beforeEach(() => {
-    controllerToken = undefined;
-    openAtReset = undefined;
-    // Per test, not per file: the doubles of the previous test are gone with its testing module, and
-    // comparing this test's component against them would report a token nobody registered here.
-    moduleDoubles.clear();
-  });
-
-  afterEach(() => {
-    if (!active?.pendingRequests) {
-      return;
-    }
-
-    verifyOnTeardown(assertNoPendingRequests);
-  });
 }
 
 /**
@@ -501,5 +502,4 @@ export function disableAngularDiagnostics(): void {
   controllerToken = undefined;
   openAtReset = undefined;
   failOnUnspiedProvider(false);
-  unwrapResetTestingModule();
 }

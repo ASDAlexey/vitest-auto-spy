@@ -21,7 +21,6 @@ import {
   enableAngularDiagnostics,
 } from './angular-diagnostics';
 import { overrideComponentProvider } from './angular-overrides';
-import { mockValueProp } from './prop-mock';
 
 @Injectable()
 class RealService {
@@ -154,19 +153,7 @@ describe('enableAngularDiagnostics', () => {
     expect(assertNoPendingRequests).not.toThrow();
   });
 
-  it('installs no snapshot hook when the running TestBed has no resetTestingModule', () => {
-    const resetTestingModule: PropertyKey = 'resetTestingModule';
-
-    disableAngularDiagnostics();
-
-    const restore = mockValueProp(TestBed, resetTestingModule, undefined);
-
-    enableAngularDiagnostics();
-    restore();
-
-    expect(TestBed.resetTestingModule).toBeTypeOf('function');
-
-    // Disabling twice is a no-op, including the un-wrapping that has nothing to put back.
+  it('can be switched off twice and on again from inside a test', () => {
     disableAngularDiagnostics();
     disableAngularDiagnostics();
     enableAngularDiagnostics();
