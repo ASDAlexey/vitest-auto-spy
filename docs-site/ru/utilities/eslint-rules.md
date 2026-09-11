@@ -1,6 +1,6 @@
 ---
 title: Правила ESLint
-description: По разделу на каждое из тридцати правил — что оно сообщает, на чём принимает решение, зачем оно в recommended, где сообщает о работающем коде и почему у него именно такая severity.
+description: По разделу на каждое из тридцати четырёх правил — что оно сообщает, на чём принимает решение, зачем оно в recommended, где сообщает о работающем коде и почему у него именно такая severity.
 ---
 
 # Правила ESLint
@@ -33,7 +33,7 @@ description: По разделу на каждое из тридцати пра�
 - **Границы** — где правило сообщает о работающем коде и чем это гасится.
 - **Severity** — и почему именно такая.
 
-## Тридцать правил {#the-twenty-five-rules}
+## Тридцать четыре правила {#the-twenty-five-rules}
 
 Сгруппированы по темам — так же, как на [странице настройки](/ru/utilities/eslint-plugin). Все
 правила — `error`, кроме четырёх.
@@ -44,6 +44,7 @@ description: По разделу на каждое из тридцати пра�
 | [`no-floating-assertion`](#no-floating-assertion)                 | `error`          | `expect()` в цепочке `.then()`, которую никто не ждёт                                   |
 | [`no-done-callback`](#no-done-callback)                           | `error`          | именованный первый параметр теста или хука и `done.fail(…)` под ним                     |
 | [`no-bare-called-with`](#no-bare-called-with)                     | `error`          | `calledWith(…)` / `mustBeCalledWith(…)` отдельным выражением-инструкцией                |
+| [`no-constant-expect`](#no-constant-expect)                       | `error`          | `expect(true).toBe(true)` — значение из спеки под матчером, чей ответ оно предрешает     |
 | [`prefer-create-spy-from-class`](#prefer-create-spy-from-class)   | `error`          | объектный литерал из двух и более `vi.fn()`                                              |
 | [`no-stub-class-double`](#no-stub-class-double)                   | `warn`           | класс, чьи поля — `vi.fn()`: тот же дубль, только с `new` впереди                        |
 | [`no-structural-double`](#no-structural-double)                   | `warn`           | объект из `vi.fn()` у имени, объявленного как объект из `Mock` Vitest                    |
@@ -62,21 +63,26 @@ description: По разделу на каждое из тридцати пра�
 | [`no-inject-before-override`](#no-inject-before-override)         | `error`          | инъекция в хуке в сюите, которая ещё зовёт `TestBed.override*`                           |
 | [`no-dead-schemas`](#no-dead-schemas)                             | `error`          | `schemas` в тестовом модуле, который ничего не объявляет                                 |
 | [`no-mistyped-use-value`](#no-mistyped-use-value)                 | `error`          | `useValue`, который не подходит под примитивный тип, объявленный его `InjectionToken`    |
+| [`no-unknown-use-value-key`](#no-unknown-use-value-key)           | `error`          | ключ объектного `useValue`, которого нет у предоставляемого типа, — только ключи         |
 | [`no-instance-lifecycle-spy`](#no-instance-lifecycle-spy)         | `warn`           | `vi.spyOn(component, 'ngOnInit')` — спай на хуке, который Angular не вызывает            |
+| [`no-compile-components`](#no-compile-components)                 | `error`          | `compileComponents()` под билдером, встраивающим ресурсы, — молчит, пока ему не скажут  |
 | [`no-private-member-access`](#no-private-member-access)           | `error`          | `private` / `protected`-член, добытый через скобки, каст или прототип                    |
 | [`no-mocked-for-spy`](#no-mocked-for-spy)                         | `error`          | `Mocked<T>` в типовой позиции, где значение — спай                                       |
 | [`prefer-as-spy`](#prefer-as-spy)                                 | `error`          | `TestBed.inject(X) as Spy<X>` — каст, который больше не компилируется                    |
+| [`no-ts-expect-error-on-double`](#no-ts-expect-error-on-double)   | `error`          | `@ts-expect-error` / `@ts-ignore` над `nextWith`, `mockReturnValue`, … дубля              |
 | [`no-jasmine-globals`](#no-jasmine-globals)                       | `error`          | `jasmine.*`, голые `spyOn(` / `fail(` / `pending(` и `.withContext(`                    |
 | [`jasmine-namespace-without-entry`](#jasmine-namespace-without-entry) | `error`      | `.and` / `.calls` / `.withArgs` в файле, который нигде не ставит слой совместимости       |
 | [`no-save-arguments-by-value`](#no-save-arguments-by-value)       | `error`          | `spy.calls.saveArgumentsByValue()` — здесь это no-op                                     |
 | [`prefer-native-spy-api`](#prefer-native-spy-api)                 | `error`          | `.and` / `.calls` там, где то же самое умеет собственный API спая                        |
 
-У пяти есть опции: [`prefer-create-spy-from-class`](#prefer-create-spy-from-class),
+У шести есть опции: [`prefer-create-spy-from-class`](#prefer-create-spy-from-class),
 [`no-stub-class-double`](#no-stub-class-double) и [`no-structural-double`](#no-structural-double)
-(`minRunnerFns`), [`prefer-render-shallow`](#prefer-render-shallow) (`templates`) и
-[`jasmine-namespace-without-entry`](#jasmine-namespace-without-entry) (`setupModules`). Два читают
-типы: [`no-private-member-access`](#no-private-member-access) и
-[`no-mistyped-use-value`](#no-mistyped-use-value). Два дополнительно поставляются как
+(`minRunnerFns`), [`prefer-render-shallow`](#prefer-render-shallow) (`templates`),
+[`no-compile-components`](#no-compile-components) (`builder`, без которой оно ничего не сообщает) и
+[`jasmine-namespace-without-entry`](#jasmine-namespace-without-entry) (`setupModules`). Три читают
+типы: [`no-private-member-access`](#no-private-member-access),
+[`no-mistyped-use-value`](#no-mistyped-use-value) и
+[`no-unknown-use-value-key`](#no-unknown-use-value-key). Два дополнительно поставляются как
 `configs.typeErrors`, потому что их находки не компилируются:
 [`prefer-as-spy`](#prefer-as-spy) и [`no-mocked-for-spy`](#no-mocked-for-spy).
 
@@ -276,6 +282,64 @@ expect(cart.checkout).toHaveBeenCalledWith(1); // либо проверка, е�
 отчёт не попадает.
 
 **Severity.** `error`. Зелёный и неверный, а починка — в одно слово.
+
+## no-constant-expect {#no-constant-expect}
+
+**`error`** · без правки · только синтаксис
+
+**Сообщает.** `expect(value)`, где значение выписано прямо в спеке, а за ним — через сколько угодно
+`.not` — матчер, чей ответ это значение уже предрешило.
+
+**На чём решает.** На двух прочтениях значения, по одному на вид матчера:
+
+- `toBe`, `toEqual` и `toStrictEqual` предрешены, когда постоянны **обе** стороны: литерал, шаблонная
+  строка без `${…}`, `undefined`, унарный оператор над постоянным, функция, стрелка или выражение
+  класса, либо массив или объектный литерал, каждый элемент которого — одно из перечисленного. Спред,
+  вычисляемый ключ, геттер или любое имя делают значение живым.
+- `toBeTruthy`, `toBeFalsy`, `toBeDefined`, `toBeUndefined`, `toBeNull` и `toBeNaN` предрешены для
+  тех же постоянных **и** для любого литерала объекта, массива, функции или класса, что бы в нём ни
+  лежало, — объект не бывает ложным, пустым (`null` / `undefined`) или `NaN`.
+
+Цепочку через `.resolves` / `.rejects` правило не трогает, как и все прочие матчеры:
+`expect(() => load()).toThrow()` передаёт в `expect` стрелку намеренно. Касты читаются насквозь.
+Арифметика не вычисляется: `expect(1 + 1).toBe(2)` не сообщается.
+
+**Находка и исправление.**
+
+```ts
+it('emits after the timeout', () => {
+  cache.waitUntilReady().subscribe();
+  vi.runOnlyPendingTimers();
+
+  expect(true).toBe(true); // ❌ проходит, что бы ни сделал поток
+});
+```
+
+```ts
+it('emits after the timeout', async () => {
+  const emitted = expectEmission(cache.waitUntilReady(), { advance: () => vi.runOnlyPendingTimers() });
+
+  await expect(emitted).resolves.toBeUndefined();
+});
+```
+
+Строка, помечающая ветку, до которой тест дойти не должен, — `expect(true).toBe(false)` в колбэке
+`error`, — тоже сообщается; `expect.fail('запрос не должен падать')` говорит то же самое и называет
+ветку.
+
+**Зачем оно в recommended.** [`vitest/expect-expect`](/ru/utilities/eslint-plugin#alongside-vitest-expect-expect)
+видит `expect` и доволен, так что тест, чья единственная проверка постоянна, зелёный при любом
+состоянии кода. Замер на Angular-сюите из 1759 файлов спек: четыре находки в четырёх файлах — тест,
+названный по потоку, на который он так и не посмотрел, тест, оставленный после того, как его фичу
+убрали, и два, которые импортируют barrel только ради того, чтобы его строки считались покрытыми. В
+`@vitest/eslint-plugin` (1.6) такого правила нет: его `valid-expect` проверяет форму вызова, а не то,
+что в него передано.
+
+**Границы.** Правило читает только выписанное, так что постоянное значение, пришедшее через имя, —
+`const ok = true; expect(ok).toBe(true)` — не сообщается. `expect.soft(…)` и chai-шный
+`expect(x).to.be.true` не читаются.
+
+**Severity.** `error`. Находка — факт о строке: ничто из того, что делает код, её ответ не изменит.
 
 ## prefer-create-spy-from-class {#prefer-create-spy-from-class}
 
@@ -967,7 +1031,7 @@ providers: [provideAutoSpy(CartService)];
 // член, которым дубль должен *быть*, а не спаить, идёт в опции:
 providers: [provideAutoSpy(ConfigService, { overrides: { remoteConfig: { theme: 'dark' } } })];
 // а для токена, у которого нет класса:
-providers: [provideAutoSpyForToken(LOGGER, { channel: vi.fn().mockReturnThis() })];
+providers: [provideAutoSpyForToken(LOGGER, undefined, { selfReturning: ['channel'] })];
 ```
 
 **Зачем это в `recommended`.** Тот же дрейф, что у
@@ -1466,12 +1530,58 @@ Angular-монорепозитории: 259 провайдеров токено�
 
 **Границы.** Токены объектного типа не рассматриваются намеренно: их `useValue` обычно частичная
 фикстура, и типизированный инструмент для неё — `createMock<T>()`; отчёт на каждый такой был бы
-сотнями находок, которые никто не обязан переписывать. Токен-класс (`provide: SomeService`) остаётся
+сотнями находок, которые никто не обязан переписывать. Их **ключи** проверяет
+[`no-unknown-use-value-key`](#no-unknown-use-value-key), который значения не сравнивает никогда. Токен-класс (`provide: SomeService`) остаётся
 за [`prefer-provide-auto-spy`](#prefer-provide-auto-spy). Читается только объектный литерал, так что
 `TestBed.overrideProvider(TOKEN, { useValue })` не читается.
 
 **Severity.** `error`. Решает по факту — по ответу тайпчекера, что значение не подходит под
 объявленный тип. В `configs.typeErrors` его нет: `useValue` — это `any`, и находка компилируется.
+
+## no-unknown-use-value-key {#no-unknown-use-value-key}
+
+**`error`** · без правки · **нужен `parserOptions.project`**
+
+**Сообщает.** Каждый ключ объектного литерала в `useValue`, которого нет у предоставляемого типа, —
+у `T`, когда `provide` — это `InjectionToken<T>`, и у типа экземпляра, когда это класс.
+
+**На чём решает.** На тайпчекере, и только по ключам. Предоставляемый тип раскладывается на члены
+объединения; `null`, `undefined` и прочие примитивные члены отбрасываются, а ключ считается известным,
+если свойство с таким именем есть хотя бы у одного оставшегося члена (`getPropertyOfType` —
+приватные члены и члены `Object.prototype` считаются). **Значения не сравниваются никогда**: подходит
+ли `apiUrl: 42` под `string` — это широкая форма проверки, и её нет намеренно, потому что `useValue`
+обычно частичная фикстура.
+
+**Находка и исправление.**
+
+```ts
+providers: [{ provide: ActivatedRoute, useValue: { queryParams$: of({ id: '1' }) } }]; // ❌ такого члена нет
+providers: [{ provide: ActivatedRoute, useValue: { queryParams: of({ id: '1' }) } }]; // ✅ член, который читает код
+```
+
+Сообщение называет ключ, предоставляемый тип и токен. Исправление — настоящее имя члена или удаление
+ключа; а там, где двойник с самого начала должен проверяться компилятором, это делают
+`provideAutoSpy(X, { overrides })`, `provideAutoSpyForToken(TOKEN, { … })` и `createMock<T>({ … })`.
+
+**Зачем оно в recommended.** Angular типизирует `useValue` как `any`, так что ключи литерала ни с чем
+не сверяются: ключ, переименованный в продакшене или опечатанный в спеке, остаётся в фикстуре, код под
+тестом читает настоящий член, которого у двойника нет, и спека зелёная над фикстурой, которую никто не
+читает. В потребительской сюите на ~1 760 файлов спек около 870 объектных литералов `useValue` — 375 у
+провайдеров-классов и 495 у токенов. Ручной пересчёт 434 литералов для классов нашёл два ключа,
+которых у класса нет, один из них — `queryParams$` у `ActivatedRoute` под проходящей спекой. Проверка
+только ключей и держит правило на таком порядке находок, а не на сотнях, которые подняла бы проверка
+значений.
+
+**Границы.** Молчит там, где тип ничего не говорит о ключах: `any`, `unknown`, `object`, `{}`,
+примитивный токен (это забота [`no-mistyped-use-value`](#no-mistyped-use-value)), массив и любой член
+с индексной сигнатурой, в том числе с шаблонной. Спред не добавляет ключей в проверку, вычисляемый ключ
+пропускается, а провайдер с `multi: true` не трогается: значение тогда — один элемент того, что отдаёт
+токен. Читается только литерал, записанный прямо в `useValue`, — не литерал за именем, за `as` или в
+дескрипторе `TestBed.overrideProvider(X, { useValue })`. Без программы или на тайпчекере без
+`getPropertyOfType` / `getIndexInfosOfType` правило молчит.
+
+**Severity.** `error`. Решает по факту — по ответу тайпчекера, что такого члена у типа нет. В
+`configs.typeErrors` его нет: `useValue` — это `any`, и находка компилируется.
 
 ## no-instance-lifecycle-spy {#no-instance-lifecycle-spy}
 
@@ -1514,6 +1624,60 @@ expect(init).toHaveBeenCalledTimes(1);
 инстансе. По синтаксису одного файла их не отличить от спая на компоненте, который Angular не вызывает.
 
 **Severity.** `warn` — из-за этих границ: правило решает по эвристике, а не по факту.
+
+## no-compile-components {#no-compile-components}
+
+**`error`** · подсказка · только синтаксис · **молчит, пока нет `{ builder: 'inline-resources' }`**
+
+**Сообщает.** Каждый вызов `….compileComponents()` — на `TestBed`, на цепочке
+`configureTestingModule(…)`, на имени — как только опция говорит, что билдер проекта встраивает
+ресурсы компонентов.
+
+**На чём решает.** На опции, а дальше — только на вызове. Делает ли вызов что-нибудь — факт о
+**сборке**, а его не видно ни в одном файле спеки: `compileComponents()` существует, чтобы подтянуть
+`templateUrl` / `styleUrls` компонента во время прогона, так что под JIT-сборкой, которая читает эти
+файлы, когда тест уже идёт, он несущий, а под любым билдером, который встроил их заранее, — промис,
+который уже разрешён: тестовые билдеры Angular CLI, `jest-preset-angular`, прелоад
+[`bun-angular`](/ru/runtimes/bun-angular) этого пакета. Поэтому правило молчит, пока проект не скажет,
+какой билдер у него:
+
+```js
+'vitest-auto-spy/no-compile-components': ['error', { builder: 'inline-resources' }],
+```
+
+**Находка и исправление.**
+
+```ts
+beforeEach(async () => {
+  await TestBed.configureTestingModule({ imports: [CardComponent] }).compileComponents(); // ❌ ждёт ничего
+});
+```
+
+```ts
+beforeEach(() => {
+  TestBed.configureTestingModule({ imports: [CardComponent] });
+});
+```
+
+Подсказка пишет ровно это: убирает вызов — всю инструкцию, когда перед ним остаётся только `TestBed`, —
+и `async` колбэка `beforeEach` / `beforeAll` / `afterEach` / `afterAll` / `it` / `test`, который больше
+ничего не ждёт. Предлагается она только там, где вызов стоит отдельной инструкцией; цепочка
+`.then(…)`, возвращённый или сохранённый промис и стрелка с телом-выражением сообщаются без правки,
+потому что каждый из них промисом пользуется.
+
+**Зачем оно в recommended.** Не ради скорости: на standalone AOT-стенде вызов стоит 0.005 мс. Ради
+того, что строка говорит следующему читателю: каждый хук, который её ждёт, читается как «эта спека
+грузит шаблоны во время прогона», а каждый `async`, который она вынуждает, делает синхронную
+настройку похожей на асинхронную. На Angular-сюите из 1759 файлов спек правило сообщает 449 вызовов
+в 411 файлах, для 435 из них — с правкой.
+
+**Границы.** Сюиту со смешанными билдерами — один проект встраивает, другой грузит во время прогона —
+правило не различает, так что опцию стоит ограничить файлами, которые собирает встраивающий билдер.
+Без `await` следующая инструкция выполняется на микрозадачу раньше — поэтому правка подсказка, а не
+`--fix`.
+
+**Severity.** `error`, и по умолчанию бездействует: как три правила с типами ждут программу, так это
+ждёт билдер.
 
 ## no-private-member-access {#no-private-member-access}
 
@@ -1741,6 +1905,64 @@ const devices = injectSpy(DeviceListService); // то же самое, с вло
 
 **Severity.** `error`, и второе правило в `configs.typeErrors` по той же причине, что и
 [`no-mocked-for-spy`](#no-mocked-for-spy): находка — это `TS2352`, поэтому сборка уже красная.
+
+## no-ts-expect-error-on-double {#no-ts-expect-error-on-double}
+
+**`error`** · без правки · только синтаксис
+
+**Сообщает.** `@ts-expect-error` или `@ts-ignore`, чья подавленная строка принадлежит настройке
+дубля: `nextWith`, `nextOneTimeWith`, `nextWithValues`, `nextWithPerCall`, `resolveWith`,
+`resolveWithPerCall`, `returnValue`, `mockReturnValue(Once)`, `mockResolvedValue(Once)`, `calledWith`
+и `mustBeCalledWith`, вызванным на именованном методе (`double.method.nextWith(…)`, или то же через
+цепочку `calledWith(…)`). Сообщение стоит на директиве.
+
+**На чём решает.** На комментариях и номерах строк — так, как их читает компилятор: директива
+действует на строку после комментария, а блочный комментарий читается по последней строке. Эта строка
+должна попасть внутрь вызова настройки — в сам вызов или в фикстуру, растянутую на несколько строк, —
+но не внутрь колбэка, переданного в него: там подавление про что-то другое. `rejectWith`, `failWith`
+и `throwWith` не читаются: их параметр — `unknown`, так что ошибиться с формой заглушки там нельзя, и
+директива над ними глушит что-то помимо дубля.
+
+Какая бы причина ни стояла после директивы, правило её сообщает. На этом решении правило и держится:
+причина — это место, где записан неверный диагноз, а в кодовой базе, которая её требует (как
+`@typescript-eslint/ban-ts-comment` по умолчанию), она есть на каждой строке.
+
+**Находка и исправление.**
+
+```ts
+// @ts-expect-error the spy picks the events overload, not the body the code reads
+shelves.getShelf.nextWith(page); // ❌
+```
+
+```ts
+let shelves: Spy<ShelvesClient, { overload: { getShelf: 'first' } }>; // ✅ та сигнатура, которую зовёт код
+shelves.getShelf.nextWith(page);
+```
+
+Где перегрузки нет, фикстура не той формы: сверьте её с `ReturnType<X['method']>` — аргумент
+`calledWith` с `Parameters<X['method']>`, — а частичную соберите через `createMock<…>()`.
+
+**Зачем оно в recommended.** Единственная проверка типизированного дубля — что заглушка совпадает с
+тем, что объявляет метод, и директива выключает её для всего на строке. Замер на Angular-сюите из
+1759 файлов спек: 34 директивы в 15 файлах, **у каждой есть причина**. Четыре стояли на
+перегруженных клиентах, которые чинит [`overload`](/ru/core/spy-typing#overloads-parameters-reads-the-last-signature);
+семь винили «схлопнутый дженерик» за фикстуру, которую настоящая инстанциация тоже отвергает;
+девятнадцать прятали фикстуру или прод-тип, расходящиеся с объявленным. Четыре были намеренными.
+
+**Границы.** Значение вне объявленного типа намеренно — объект ошибки в `nextWith`, чтобы дойти до
+ветки по умолчанию, — это правильный код, и сказать это можно построчным отключением над директивой:
+
+```ts
+// eslint-disable-next-line vitest-auto-spy/no-ts-expect-error-on-double -- an error outside the union reaches the fallback
+// @ts-expect-error
+reference.load.nextOneTimeWith(new HttpErrorResponse({ status: 500 }));
+```
+
+Дубль, до которого добираются через вычисляемый член или голый мок (`vi.fn().mockReturnValue(…)`),
+метода не называет и не читается.
+
+**Severity.** `error`. Решает по факту — подавлению над настройкой дубля, — а у единственного случая,
+где подавление уместно, есть выход в одну строку, который записывает, почему.
 
 ## no-jasmine-globals {#no-jasmine-globals}
 

@@ -1,6 +1,6 @@
 ---
 title: ESLint plugin
-description: Thirty flat-config lint rules that steer a suite onto the auto-spy helpers, grouped by subject, every one an error by default bar the four that report a cost or a heuristic, with the dial documented and the false-positive cases named.
+description: Thirty-four flat-config lint rules that steer a suite onto the auto-spy helpers, grouped by subject, every one an error by default bar the four that report a cost or a heuristic, with the dial documented and the false-positive cases named.
 ---
 
 # ESLint plugin
@@ -22,7 +22,7 @@ which a subpath export of this package can never be.
 
 **How this page is laid out.** [Adding it](#adding-it-to-your-project) is the four things a first
 config needs. [Which apply to you](#which-of-the-twenty-apply-to-you) answers the question a
-Vitest-only project asks — four of the thirty are about a dialect you may not speak.
+Vitest-only project asks — four of the thirty-four are about a dialect you may not speak.
 [Rules](#rules) is the reference table, in seven groups. [Tuning](#tuning-it-for-your-project) is
 every dial, including the three rules that can report on correct code. Everything after that is
 _why_ — one section per rule, for when a report has arrived and you want to know what it saved you
@@ -78,9 +78,9 @@ In a monorepo, one block at the root covers every package as long as the glob is
 `'**/*.spec.ts'` matches `packages/*/src/**` fine. Add a second block only where one package's specs
 need different severities.
 
-### 3. Type information is optional, and two rules want it {#_3-type-information-is-optional-and-one-rule-wants-it}
+### 3. Type information is optional, and three rules want it {#_3-type-information-is-optional-and-one-rule-wants-it}
 
-Twenty-eight of the thirty are syntactic: they read the file's own AST and never ask the type checker.
+Thirty-one of the thirty-four are syntactic: they read the file's own AST and never ask the type checker.
 So the plugin works with `parserOptions.project` unset, adds nothing measurable to lint time, and
 does not need your specs to be in a `tsconfig` — which matters in the repositories where they are
 not.
@@ -89,11 +89,14 @@ The cost of that is the honest limit of [the three rules that can report on corr
 code](#the-three-rules-that-can-report-on-correct-code): what a rule cannot see in one file, it
 cannot know.
 
-[`no-private-member-access`](#no-private-member-access-%E2%80%94-the-one-rule-that-reads-types) and
-[`no-mistyped-use-value`](/utilities/eslint-rules#no-mistyped-use-value) are the exceptions, and both
-**need** a program: without one they report nothing at all rather than falling back to the syntax.
-Half of the first — the `Object.getPrototypeOf` escape — keeps working either way. Turn them on where
-your specs are already in a project:
+[`no-private-member-access`](#no-private-member-access-%E2%80%94-the-one-rule-that-reads-types),
+[`no-mistyped-use-value`](/utilities/eslint-rules#no-mistyped-use-value) and
+[`no-unknown-use-value-key`](/utilities/eslint-rules#no-unknown-use-value-key) are the exceptions, and
+all three **need** a program: without one they report nothing at all rather than falling back to the
+syntax. Half of the first — the `Object.getPrototypeOf` escape — keeps working either way.
+[`no-compile-components`](/utilities/eslint-rules#no-compile-components) is syntactic, and waits the
+same way for a fact no file holds — which builder the project has — until `{ builder:
+'inline-resources' }` states it. Turn the type-aware three on where your specs are already in a project:
 
 ```js
 languageOptions: {
@@ -120,7 +123,7 @@ npx eslint . --format stylish | tail -30   # the summary tells you which rule do
 Whatever is left is either a real finding or a rule you would rather not enforce yet. Both are
 answered below.
 
-## Which of the thirty apply to you {#which-of-the-twenty-apply-to-you}
+## Which of the thirty-four apply to you {#which-of-the-twenty-apply-to-you}
 
 Reasonable question if you came straight to Vitest and have never written a line of Jasmine: **four
 of these rules are about a dialect you do not speak.** They are still on, and the reason is not
@@ -128,9 +131,9 @@ principle — it is that they cannot fire on your code.
 
 | You are                                    | What the plugin does for you                                                                         |
 | ------------------------------------------ | ---------------------------------------------------------------------------------------------------- |
-| writing Vitest, never used Jasmine or Jest | the twenty-six core rules work; **the four jasmine rules are inert** — leave them on and never see them |
+| writing Vitest, never used Jasmine or Jest | the thirty core rules work; **the four jasmine rules are inert** — leave them on and never see them |
 | migrating off `jest-auto-spies` / Jest     | the core rules do the work, `no-done-callback` and `prefer-as-spy` most of it                        |
-| migrating off `jasmine-auto-spies`         | all thirty, with `prefer-native-spy-api` set to `'off'` until the bridge is gone                        |
+| migrating off `jasmine-auto-spies`         | all thirty-four, with `prefer-native-spy-api` set to `'off'` until the bridge is gone                        |
 
 ### If you never used Jasmine
 
@@ -177,7 +180,7 @@ never jasmine's.
 ### If you are coming from Jest
 
 There is no separate Jest rule set, because most of what a Jest suite has to unlearn is already in
-the core twenty-six — these are the ones that carry a migration:
+the core thirty — these are the ones that carry a migration:
 
 | Rule                           | What it catches in a Jest suite                                                                                                                                                                                                                               |
 | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -200,7 +203,7 @@ that file needs). See [Migrating from jest-auto-spies](/migrating).
 
 ### If you are coming from Jasmine
 
-All thirty apply, and the four in the last group are the ones written for you. Two are pure
+All thirty-four apply, and the four in the last group are the ones written for you. Two are pure
 diagnosis — `no-jasmine-globals` and `no-save-arguments-by-value` name silent behaviour changes that
 survive a rename — and `jasmine-namespace-without-entry` catches the spy built before the layer was
 installed. The fourth, `prefer-native-spy-api`, reports the bridge itself, so it is the one line of
@@ -261,7 +264,7 @@ construction)_.
 ### Assertions that never run
 
 The test passes because the assertion was never reached — the stream stayed silent, the promise was
-never awaited, the callback returned first.
+never awaited, the callback returned first — or was reached and could not fail.
 
 | Rule                                                                                            | Flags                                                                                         | Fix     | Without it |
 | ----------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- | ------- | :--------: |
@@ -269,6 +272,7 @@ never awaited, the callback returned first.
 | [`no-floating-assertion`](#an-assertion-in-a-then-nobody-awaits)                                | `expect()` in a `.then()` nobody awaits → `expect(await promise)`                             | —       |   green    |
 | [`no-done-callback`](#a-done-parameter-is-not-a-style-question)                                 | `it('x', (done) => …)` → `async` + an awaited assertion, and `done.fail(…)` at the call site  | —       |   green    |
 | [`no-bare-called-with`](#no-bare-called-with-%E2%80%94-one-word-two-opposite-meanings)          | `spy.m.calledWith(1);` as a statement of its own — a stub nobody continued, asserting nothing | —       |   green    |
+| [`no-constant-expect`](/utilities/eslint-rules#no-constant-expect)                              | `expect(true).toBe(true)` — a value the spec spelled out, under a matcher that value decides   | —       |   green    |
 
 ### Doubles, and the modules that hold them
 
@@ -298,11 +302,13 @@ The ways a provider — or a spy on the component itself — ends up not being w
 | [`no-inject-before-override`](#the-trap-this-plugin-s-own-advice-sets)                             | `TestBed.inject()` / `injectSpy()` / `renderShallow()` in a hook, in a suite that still calls `override*`                | —       |           red           |
 | [`no-dead-schemas`](#no-dead-schemas-%E2%80%94-the-charm-that-protects-nobody)                        | `schemas` on a testing module that declares nothing → the schema applies to nothing                                      | —       | green _(by construction)_ |
 | [`no-mistyped-use-value`](/utilities/eslint-rules#no-mistyped-use-value)                           | `{ provide: TOKEN, useValue }` whose value does not fit the primitive `TOKEN` declares — `useValue` is `any`; **type-aware** | —       | green _(by construction)_ |
+| [`no-unknown-use-value-key`](/utilities/eslint-rules#no-unknown-use-value-key)                     | a key of an object `useValue` the provided type (`InjectionToken<T>`'s `T`, a class's instance) does not have — keys only; **type-aware** | —       | green _(by construction)_ |
 | [`no-instance-lifecycle-spy`](/utilities/eslint-rules#no-instance-lifecycle-spy)                   | `vi.spyOn(component, 'ngOnInit')` — Angular calls the hook it read off the prototype, never the instance spy; `warn`     | —       | green _(the stub)_        |
+| [`no-compile-components`](/utilities/eslint-rules#no-compile-components)                           | `compileComponents()` under a builder that inlines `templateUrl` / `styleUrls`; silent until `{ builder: 'inline-resources' }` | suggest | — _(a dead line)_         |
 
 ### Reaching past the public surface
 
-One of the two rules that read types, and the only group with a single member.
+One of the three rules that read types, and the only group with a single member.
 
 | Rule                                                                                            | Flags                                                                                                                | Fix |       Without it        |
 | ----------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- | --- | :---------------------: |
@@ -310,13 +316,14 @@ One of the two rules that read types, and the only group with a single member.
 
 ### Types
 
-The two whose absence the compiler reports — loudly, but in the vocabulary of the class rather than
-of the mistake.
+Two whose absence the compiler reports — loudly, but in the vocabulary of the class rather than of
+the mistake — and one that switches the compiler off.
 
 | Rule                                       | Flags                                                                                                                                      | Fix               |         Without it          |
 | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------ | ----------------- | :-------------------------: |
 | [`no-mocked-for-spy`](#the-two-type-rules) | `Mocked<T>` in any type position → `Spy<T>`, import and all — a suggestion where the value assigned is not one of this library's factories | `--fix` / suggest |           compile           |
 | [`prefer-as-spy`](#the-two-type-rules)     | `TestBed.inject(X) as Spy<X>` → `asSpy(TestBed.inject(X))`, import and all                                                                 | `--fix`           | compile _(by construction)_ |
+| [`no-ts-expect-error-on-double`](/utilities/eslint-rules#no-ts-expect-error-on-double) | `@ts-expect-error` / `@ts-ignore` above a double's `nextWith`, `mockReturnValue`, `calledWith(…)` → `Spy<X, { overload: { m: 'first' } }>`, or a fixture of the declared shape | — | green |
 
 ### The console
 
@@ -501,6 +508,18 @@ Note the `'error'` in that line: the array form carries the severity as well as 
 raises the rule off the `warn` it ships with. That is the right way round — a project spelling out
 `{ templates: 'never' }` has taken the decision the default declines to take for it — but write
 `['warn', { templates: 'never' }]` if you want the policy reported without blocking a merge.
+
+`no-compile-components` takes one, and says nothing without it:
+
+```js
+'vitest-auto-spy/no-compile-components': ['error', { builder: 'inline-resources' }],
+```
+
+`compileComponents()` fetches `templateUrl` / `styleUrls` at run time, so whether it does anything
+depends on the build rather than on the spec: under a builder that inlines them — the Angular CLI's
+test builders, `jest-preset-angular` — it is a promise already settled; under a JIT setup reading
+those files when the test runs it is load-bearing. The option is the project saying which it has.
+On one 1759-file suite it reports 449 calls in 411 files, and offers the edit for 435 of them.
 
 `prefer-create-spy-from-class` takes one:
 
@@ -1056,7 +1075,7 @@ double in a `jest-auto-spies` suite, and every one of them fails with `TS2352` u
 
 ## The four jasmine rules
 
-They steer in the opposite direction from the rest of the plugin. The other twenty-six push a Vitest
+They steer in the opposite direction from the rest of the plugin. The other thirty push a Vitest
 suite towards this library's API; these four are about a suite that has not arrived yet — one
 running on [`vitest-auto-spy/jasmine`](/migrating-jasmine), or one that thinks it is.
 
@@ -1156,7 +1175,7 @@ this rule declines. See [Migrating from jasmine-auto-spies](/migrating-jasmine).
 
 ## Which rules fix, and why so few
 
-Three of the thirty rewrite the source on their own, nine offer the rewrite as a suggestion, and
+Three of the thirty-four rewrite the source on their own, ten offer the rewrite as a suggestion, and
 the split is about what a wrong guess costs rather than about how hard the rewrite is.
 
 `no-mocked-for-spy` touches nothing but a **declaration**. Get it wrong and the file stops

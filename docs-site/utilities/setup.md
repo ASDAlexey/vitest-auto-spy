@@ -511,8 +511,16 @@ every spec read another. A 1759-file Angular consumer ran its full suite of 12 7
 `strict: true` and every one stayed green. The default, `onUnstubbedCall` with it, and
 `setSpyEngine()` now live on `globalThis`, where every bundle reads the same answer.
 
-Where the guard reaches, what counts as configured, and the full precedence chain are on
-[Strict mode](/core/strict-mode).
+A strict double's getter nobody configured still answers `undefined`, and its observable property
+nobody fed never emits — a read cannot throw without breaking a failure diff that prints the double.
+`unconfiguredReads` reports them after the test instead, and `onUnstubbedRead` surveys them first:
+
+```ts
+setupAutoSpy({ strict: true, unconfiguredReads: 'warn' }); // 'off' by default; 'throw' to fail the test
+```
+
+Where the guard reaches, what counts as configured, the full precedence chain and what the read report
+counts are on [Strict mode](/core/strict-mode#reads-nobody-configured).
 
 ## 11. The hook budget Jest had only one of
 
@@ -671,6 +679,40 @@ Two things it deliberately does not do. It installs nothing in a `node` environm
 supposed to have no Web Storage at all: handing the code under test an API the real runtime lacks
 is a larger change than the one it was there to make. And it leaves a working storage exactly as it
 is, so a spec's own stub survives it.
+
+### A storage the spec installs itself — `stubWebStorage` {#stub-web-storage}
+
+The other direction, and not part of `setupAutoSpy()`: a spec that wants a storage of its own — empty,
+or seeded, and readable back as a plain record — installs one from `vitest-auto-spy/dom-stubs`
+instead of writing a `TestingStorage` class per project.
+
+```ts
+import { stubWebStorage, type WebStorageStub } from 'vitest-auto-spy/dom-stubs';
+
+let local: WebStorageStub;
+
+beforeEach(() => {
+  local = stubWebStorage('localStorage', { items: { token: 'abc' } }); // or 'sessionStorage'
+});
+
+it('forgets the token on logout', () => {
+  session.logout();
+
+  expect(local.snapshot()).toEqual({});
+});
+```
+
+`getItem`, `setItem`, `removeItem`, `clear`, `key` and `length` behave as the platform's do,
+keys and values coerced to strings and `key()`'s index converted the way an `unsigned long` is.
+`snapshot()` is a copy, not a view. The storage goes on `globalThis` — and on `document.defaultView`
+when that is a separate object — through `mockValueProp`, so `restoreMockedProps()` puts back whatever
+was there, the repaired storage included; install it in `beforeEach`, like every other stub.
+
+Where the two differ on purpose: the repair leaves a working storage alone and installs nothing in a
+`node` environment, because it is guessing what the environment should have been; the stub replaces
+whatever is there and installs in a `node` environment too, because the spec asked for it. What it
+does not do: named-property access (`localStorage.token`, `Object.keys(localStorage)`) does not see
+the items, no `storage` event fires, and there is no quota.
 
 ## 15. The key on `Object.prototype` that stops the run collecting
 
@@ -848,6 +890,9 @@ Deliberately **not** in it, each for a reason:
 - **`strict`** — strict doubles change what an unconfigured call _returns_; that is a decision about
   how a suite writes its doubles, not a grade for a report. The option name was already taken by it,
   which is why this one is `preset`.
+- **`unconfiguredReads`** — the read side of `strict`, so the same decision: it asks every getter and
+  stream a test touches to be configured, and on an existing suite it starts with a survey
+  (`onUnstubbedRead`), not with a red run.
 - **`blockNetwork`** — it changes what the code under test sees.
 - **`restoreMocks`** — it also drops `vi.spyOn` stubs a suite installed in `beforeAll`.
 - **Failing on stray timers** — the sweep runs in `afterAll`, so the failure lands on the file rather
@@ -952,6 +997,8 @@ each test: a stub installed for the previous test is exactly what must not still
 | `angularBuildHint`    | `true`    | Say once per worker that `@angular/build` builds the test bundle unsplit        |
 | `strict`              | `false`   | Every double built afterwards throws on a method nobody configured              |
 | `onUnstubbedCall`     | —         | The general form of `strict` — its return value becomes the call's result       |
+| `unconfiguredReads`   | `'off'`   | Report a strict double's getter read, or stream subscribed to, that nothing configured |
+| `onUnstubbedRead`     | —         | Takes those findings instead of the report, from every double — for a survey    |
 
 `restoreMocks` is off by default because it also drops `vi.spyOn` stubs a suite installed in
 `beforeAll`; it is the knob to reach for when the run shares one environment across files.

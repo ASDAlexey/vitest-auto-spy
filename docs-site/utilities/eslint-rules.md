@@ -1,6 +1,6 @@
 ---
 title: ESLint rules
-description: A reference section for each of the thirty rules — what it reports, what it decides on, why it is in recommended, where it reports working code, and why its severity is what it is.
+description: A reference section for each of the thirty-four rules — what it reports, what it decides on, why it is in recommended, where it reports working code, and why its severity is what it is.
 ---
 
 # ESLint rules
@@ -31,7 +31,7 @@ Every section answers the same six questions:
 - **Limits** — where it reports working code, and what quiets it.
 - **Severity** — and why that one.
 
-## The thirty rules {#the-twenty-five-rules}
+## The thirty-four rules {#the-twenty-five-rules}
 
 Grouped by subject, the same grouping the [setup page](/utilities/eslint-plugin) uses. Every rule is
 an `error` except four.
@@ -42,6 +42,7 @@ an `error` except four.
 | [`no-floating-assertion`](#no-floating-assertion)                 | `error`          | `expect()` in a `.then()` chain nothing awaits                                         |
 | [`no-done-callback`](#no-done-callback)                           | `error`          | a named first parameter on a test or hook, and `done.fail(…)` beneath it                |
 | [`no-bare-called-with`](#no-bare-called-with)                     | `error`          | `calledWith(…)` / `mustBeCalledWith(…)` as a statement of its own                      |
+| [`no-constant-expect`](#no-constant-expect)                       | `error`          | `expect(true).toBe(true)` — a value spelled out in the spec, under a matcher it decides |
 | [`prefer-create-spy-from-class`](#prefer-create-spy-from-class)   | `error`          | an object literal of two or more `vi.fn()`s                                            |
 | [`no-stub-class-double`](#no-stub-class-double)                   | `warn`           | a class whose fields are `vi.fn()`s — the same double with a `new` in front of it       |
 | [`no-structural-double`](#no-structural-double)                   | `warn`           | an object of `vi.fn()`s bound to a name declared as an object of Vitest `Mock`s        |
@@ -60,22 +61,27 @@ an `error` except four.
 | [`no-inject-before-override`](#no-inject-before-override)         | `error`          | an injection in a hook, in a suite that still calls `TestBed.override*`                |
 | [`no-dead-schemas`](#no-dead-schemas)                             | `error`          | `schemas` on a testing module that declares nothing                                    |
 | [`no-mistyped-use-value`](#no-mistyped-use-value)                 | `error`          | a `useValue` that does not fit the primitive type its `InjectionToken` declares        |
+| [`no-unknown-use-value-key`](#no-unknown-use-value-key)           | `error`          | a key of an object `useValue` the provided type does not have — keys only              |
 | [`no-instance-lifecycle-spy`](#no-instance-lifecycle-spy)         | `warn`           | `vi.spyOn(component, 'ngOnInit')` — a hook spy Angular never calls                     |
+| [`no-compile-components`](#no-compile-components)                 | `error`          | `compileComponents()` under a builder that inlines resources — silent until told so    |
 | [`no-private-member-access`](#no-private-member-access)           | `error`          | a `private` / `protected` member reached through brackets, a cast, or the prototype     |
 | [`no-mocked-for-spy`](#no-mocked-for-spy)                         | `error`          | `Mocked<T>` in a type position where the value is a spy                                |
 | [`prefer-as-spy`](#prefer-as-spy)                                 | `error`          | `TestBed.inject(X) as Spy<X>` — a cast that no longer compiles                          |
+| [`no-ts-expect-error-on-double`](#no-ts-expect-error-on-double)   | `error`          | `@ts-expect-error` / `@ts-ignore` above a double's `nextWith`, `mockReturnValue`, …     |
 | [`no-jasmine-globals`](#no-jasmine-globals)                       | `error`          | `jasmine.*`, bare `spyOn(` / `fail(` / `pending(`, and `.withContext(`                 |
 | [`jasmine-namespace-without-entry`](#jasmine-namespace-without-entry) | `error`      | `.and` / `.calls` / `.withArgs` in a file that installs the compatibility layer nowhere |
 | [`no-save-arguments-by-value`](#no-save-arguments-by-value)       | `error`          | `spy.calls.saveArgumentsByValue()` — a no-op here                                      |
 | [`prefer-native-spy-api`](#prefer-native-spy-api)                 | `error`          | `.and` / `.calls` where the spy's own API says the same thing                          |
 
-Five of them have options: [`prefer-create-spy-from-class`](#prefer-create-spy-from-class),
+Six of them have options: [`prefer-create-spy-from-class`](#prefer-create-spy-from-class),
 [`no-stub-class-double`](#no-stub-class-double) and
 [`no-structural-double`](#no-structural-double) (`minRunnerFns`),
-[`prefer-render-shallow`](#prefer-render-shallow) (`templates`) and
-[`jasmine-namespace-without-entry`](#jasmine-namespace-without-entry) (`setupModules`). Two of them
-read types: [`no-private-member-access`](#no-private-member-access) and
-[`no-mistyped-use-value`](#no-mistyped-use-value). Two are also shipped as
+[`prefer-render-shallow`](#prefer-render-shallow) (`templates`),
+[`no-compile-components`](#no-compile-components) (`builder`, without which it reports nothing) and
+[`jasmine-namespace-without-entry`](#jasmine-namespace-without-entry) (`setupModules`). Three of them
+read types: [`no-private-member-access`](#no-private-member-access),
+[`no-mistyped-use-value`](#no-mistyped-use-value) and
+[`no-unknown-use-value-key`](#no-unknown-use-value-key). Two are also shipped as
 `configs.typeErrors`, because their findings do not compile:
 [`prefer-as-spy`](#prefer-as-spy) and [`no-mocked-for-spy`](#no-mocked-for-spy).
 
@@ -276,6 +282,64 @@ meant to finish from an assertion written in the wrong vocabulary, so it names b
 reported.
 
 **Severity.** `error`. Green and wrong, and a one-word repair.
+
+## no-constant-expect
+
+**`error`** · no fix · syntax only
+
+**Reports.** `expect(value)` where the value is spelled out in the spec, followed — through any number
+of `.not` — by a matcher whose answer that value already fixes.
+
+**Decides on.** Two readings of the value, one per kind of matcher:
+
+- `toBe`, `toEqual` and `toStrictEqual` are decided when **both** sides are constant: a literal, a
+  template literal with no `${…}`, `undefined`, a unary operator over a constant, a function, arrow or
+  class expression, or an array or object literal whose every element is one of those. A spread, a
+  computed key, a getter or any name makes it live.
+- `toBeTruthy`, `toBeFalsy`, `toBeDefined`, `toBeUndefined`, `toBeNull` and `toBeNaN` are decided for
+  those constants **and** for any object, array, function or class literal whatever it holds — an
+  object is never falsy, nullish or `NaN`.
+
+A chain through `.resolves` / `.rejects` is left alone, and so is every other matcher —
+`expect(() => load()).toThrow()` hands `expect` an arrow on purpose. Casts are read through. Arithmetic
+is not evaluated: `expect(1 + 1).toBe(2)` is not reported.
+
+**Finding, and the repair.**
+
+```ts
+it('emits after the timeout', () => {
+  cache.waitUntilReady().subscribe();
+  vi.runOnlyPendingTimers();
+
+  expect(true).toBe(true); // ❌ passes whatever the stream did
+});
+```
+
+```ts
+it('emits after the timeout', async () => {
+  const emitted = expectEmission(cache.waitUntilReady(), { advance: () => vi.runOnlyPendingTimers() });
+
+  await expect(emitted).resolves.toBeUndefined();
+});
+```
+
+A line that marks a branch the test must never reach — `expect(true).toBe(false)` in an `error`
+callback — is reported too; `expect.fail('the request should not fail')` says the same thing and names
+the branch.
+
+**Why it is recommended.** [`vitest/expect-expect`](/utilities/eslint-plugin#alongside-vitest-expect-expect)
+sees an `expect` and is satisfied, so a test whose only assertion is a constant is green in every
+possible state of the code. Measured on one Angular suite of 1759 spec files: four reports in four
+files — a test named after a stream that never looked at it, one kept after its feature was removed,
+and two that import a barrel only so its lines count as covered. `@vitest/eslint-plugin` (1.6)
+has no rule for this; its `valid-expect` checks the shape of the call, not what it is handed.
+
+**Limits.** It reads only what is spelled out, so a constant reached through a name —
+`const ok = true; expect(ok).toBe(true)` — is not reported. `expect.soft(…)` and chai's
+`expect(x).to.be.true` are not read.
+
+**Severity.** `error`. The finding is a fact about the line: nothing the code does can change its
+answer.
 
 ## prefer-create-spy-from-class
 
@@ -971,7 +1035,7 @@ providers: [provideAutoSpy(CartService)];
 // a member the double must *be* rather than spy on goes in the options:
 providers: [provideAutoSpy(ConfigService, { overrides: { remoteConfig: { theme: 'dark' } } })];
 // and for a token, which has no class to read:
-providers: [provideAutoSpyForToken(LOGGER, { channel: vi.fn().mockReturnThis() })];
+providers: [provideAutoSpyForToken(LOGGER, undefined, { selfReturning: ['channel'] })];
 ```
 
 **Why it is recommended.** The same drift as
@@ -1468,12 +1532,58 @@ both this `{}` for a `boolean` token.
 
 **Limits.** Object-typed tokens are out of scope on purpose: their `useValue` is usually a partial
 fixture, and `createMock<T>()` is the typed tool for that — reporting every one would be hundreds of
-findings nobody should have to rewrite. A class token (`provide: SomeService`) is left to
+findings nobody should have to rewrite. Their **keys** are checked, by
+[`no-unknown-use-value-key`](#no-unknown-use-value-key), which never compares values. A class token (`provide: SomeService`) is left to
 [`prefer-provide-auto-spy`](#prefer-provide-auto-spy). Only an object literal is read, so
 `TestBed.overrideProvider(TOKEN, { useValue })` is not.
 
 **Severity.** `error`. It decides on a fact — the checker's answer that the value does not fit the
 declared type. It is not in `configs.typeErrors`: `useValue` is `any`, so the finding compiles.
+
+## no-unknown-use-value-key
+
+**`error`** · no fix · **needs `parserOptions.project`**
+
+**Reports.** Each key of an object literal handed to `useValue` that the provided type does not have
+— `T` when `provide` is an `InjectionToken<T>`, the instance type when it is a class.
+
+**Decides on.** The type checker, and keys only. The provided type is split into the members of a
+union; `null`, `undefined` and other primitive members are dropped, and a key is known when any
+remaining member has a property of that name (`getPropertyOfType` — private members and
+`Object.prototype`'s count). The **values are never compared**: whether `apiUrl: 42` fits a `string`
+is the broad form of the check, left out on purpose because a `useValue` is normally a partial
+fixture.
+
+**Finding, and the repair.**
+
+```ts
+providers: [{ provide: ActivatedRoute, useValue: { queryParams$: of({ id: '1' }) } }]; // ❌ no such member
+providers: [{ provide: ActivatedRoute, useValue: { queryParams: of({ id: '1' }) } }]; // ✅ the member the code reads
+```
+
+The message names the key, the provided type and the token. The repair is the member's real name, or
+dropping the key; where the double should be checked by the compiler in the first place,
+`provideAutoSpy(X, { overrides })`, `provideAutoSpyForToken(TOKEN, { … })` and `createMock<T>({ … })`
+all are.
+
+**Why it is recommended.** Angular types `useValue` as `any`, so a literal's keys are compared with
+nothing: a key renamed in production, or misspelled in the spec, stays in the fixture, the code under
+test reads the real member, which the double does not have, and the spec is green over a fixture
+nothing reads. A consumer suite of ~1 760 spec files carries about 870 object `useValue` literals —
+375 for class providers, 495 for tokens. A hand count over 434 class literals found two keys the class
+does not have, one of them `queryParams$` on `ActivatedRoute` under a spec that passed. Keys-only is
+what keeps the rule at that order of findings rather than at the hundreds a value check would raise.
+
+**Limits.** Silent where the type says nothing about keys: `any`, `unknown`, `object`, `{}`, a
+primitive token (that is [`no-mistyped-use-value`](#no-mistyped-use-value)'s), an array, and any
+member with an index signature — a template-literal one included. A spread contributes no keys to the
+check, a computed key is skipped, and a `multi: true` provider is left alone, because the value is
+then one element of what the token hands out. Only a literal written directly in `useValue` is read —
+not one behind a name, an `as`, or a `TestBed.overrideProvider(X, { useValue })` descriptor. Without
+a program, or on a checker that lacks `getPropertyOfType` / `getIndexInfosOfType`, it says nothing.
+
+**Severity.** `error`. It decides on a fact — the checker's answer that the type has no such member.
+Not in `configs.typeErrors`: `useValue` is `any`, so the finding compiles.
 
 ## no-instance-lifecycle-spy
 
@@ -1517,6 +1627,57 @@ followed by an assertion on the spy — and when the injector destroys a **servi
 Angular never calls.
 
 **Severity.** `warn`, because of those limits: the rule decides on a heuristic, not a fact.
+
+## no-compile-components
+
+**`error`** · suggestion · syntax only · **silent until `{ builder: 'inline-resources' }`**
+
+**Reports.** Every `….compileComponents()` call — on `TestBed`, on a `configureTestingModule(…)`
+chain, on a name — once the option says the project's builder inlines component resources.
+
+**Decides on.** The option, and then the call alone. Whether the call does anything is a fact about
+the **build**, which no spec file shows: `compileComponents()` exists to fetch a component's
+`templateUrl` / `styleUrls` at run time, so it is load-bearing under a JIT setup that reads those
+files when the test runs, and a promise that is already settled under every builder that inlines
+them first — the Angular CLI's test builders, `jest-preset-angular`, this package's
+[`bun-angular`](/runtimes/bun-angular) preload. So the rule reports nothing until
+the project says which it has:
+
+```js
+'vitest-auto-spy/no-compile-components': ['error', { builder: 'inline-resources' }],
+```
+
+**Finding, and the repair.**
+
+```ts
+beforeEach(async () => {
+  await TestBed.configureTestingModule({ imports: [CardComponent] }).compileComponents(); // ❌ waits for nothing
+});
+```
+
+```ts
+beforeEach(() => {
+  TestBed.configureTestingModule({ imports: [CardComponent] });
+});
+```
+
+The suggestion writes exactly that: it drops the call — the whole statement when only `TestBed` is
+left in front of it — and the `async` of a `beforeEach` / `beforeAll` / `afterEach` / `afterAll` /
+`it` / `test` callback that awaits nothing else. It is offered only where the call is a statement of
+its own; a `.then(…)` chain, a returned or stored promise and a concise arrow body are reported with
+no edit, because each one uses the promise.
+
+**Why it is recommended.** Not for speed — measured on a standalone AOT bed the call costs 0.005 ms.
+For what the line tells the next reader: every hook that awaits it reads as "this spec loads
+templates at run time", and every `async` it forces makes a synchronous setup look asynchronous. On
+one Angular suite of 1759 spec files it reports 449 calls in 411 files, 435 of them with the edit.
+
+**Limits.** It cannot tell a suite that mixes builders — one project inlining, another on a runtime
+loader — so scope the option to the files the inlining builder compiles. Dropping the `await` moves
+the next statement one microtask earlier, which is why the edit is a suggestion, not a `--fix`.
+
+**Severity.** `error`, and inert by default — the way the three type-aware rules wait for a program,
+this one waits for the builder.
 
 ## no-private-member-access
 
@@ -1744,6 +1905,66 @@ arrives without an edit.
 
 **Severity.** `error`, and the second rule in `configs.typeErrors` for the same reason as
 [`no-mocked-for-spy`](#no-mocked-for-spy): the finding is `TS2352`, so the build is already red.
+
+## no-ts-expect-error-on-double
+
+**`error`** · no fix · syntax only
+
+**Reports.** A `@ts-expect-error` or `@ts-ignore` whose suppressed line belongs to a double's
+configuration — `nextWith`, `nextOneTimeWith`, `nextWithValues`, `nextWithPerCall`, `resolveWith`,
+`resolveWithPerCall`, `returnValue`, `mockReturnValue(Once)`, `mockResolvedValue(Once)`, `calledWith`
+and `mustBeCalledWith`, called on a named method (`double.method.nextWith(…)`, or the same through a
+`calledWith(…)` chain). The report sits on the directive.
+
+**Decides on.** Comments and line numbers, the way the compiler reads them: the directive applies to
+the line after the comment, and a block comment is read off its last line. That line has to fall
+inside the configuration call — the callee or a fixture spread over several lines — but not inside a
+callback handed to it, where the suppression is about something else. `rejectWith`, `failWith` and
+`throwWith` are not read: their parameter is `unknown`, so there is no stub shape to get wrong and a
+directive there silences something other than the double.
+
+Whatever reason follows the directive, the rule reports it. That is the decision the rule turns on:
+a reason is where the wrong diagnosis gets written down, and a codebase that requires one (as
+`@typescript-eslint/ban-ts-comment` does by default) has one on every line.
+
+**Finding, and the repair.**
+
+```ts
+// @ts-expect-error the spy picks the events overload, not the body the code reads
+shelves.getShelf.nextWith(page); // ❌
+```
+
+```ts
+let shelves: Spy<ShelvesClient, { overload: { getShelf: 'first' } }>; // ✅ the signature the code calls
+shelves.getShelf.nextWith(page);
+```
+
+Where no overload is involved the fixture is the wrong shape: check it against
+`ReturnType<X['method']>` — a `calledWith` argument against `Parameters<X['method']>` — and build a
+partial one with `createMock<…>()`.
+
+**Why it is recommended.** A typed double's one check is that the stub matches what the method
+declares, and the directive switches it off for everything on the line. Measured on one Angular
+suite of 1759 spec files: 34 directives in 15 files, **every one with a reason**. Four sat on
+overloaded clients, which [`overload`](/core/spy-typing#overloads-parameters-reads-the-last-signature) repairs; seven blamed "the
+collapsed generic" for a fixture the real generic instantiation rejects as well; nineteen hid a
+fixture or a production type that disagrees with the declared one. Four were deliberate.
+
+**Limits.** A value outside the declared type on purpose — an error object handed to `nextWith` to
+reach a default branch — is correct code, and a per-line disable above the directive is where that
+is said:
+
+```ts
+// eslint-disable-next-line vitest-auto-spy/no-ts-expect-error-on-double -- an error outside the union reaches the fallback
+// @ts-expect-error
+reference.load.nextOneTimeWith(new HttpErrorResponse({ status: 500 }));
+```
+
+A double reached through a computed member or a bare mock (`vi.fn().mockReturnValue(…)`) names no
+method, and is not read.
+
+**Severity.** `error`. It decides on a fact — a suppression over a double's configuration — and the
+one case where the suppression is right has a one-line escape that records why.
 
 ## no-jasmine-globals
 

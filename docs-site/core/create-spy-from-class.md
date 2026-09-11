@@ -38,8 +38,8 @@ cannot see. To spy on _nothing but_ a list, use `onlyMethodsToSpyOn`, which skip
 
 The `ClassSpyConfiguration` keys are `methodsToSpyOn`, `onlyMethodsToSpyOn`,
 `instanceMethodsToSpyOn`, `observablePropsToSpyOn`, `gettersToSpyOn`, `settersToSpyOn`,
-`autoSpyAccessors`, `fillMissing`, `lazySpies`, `returns`, `overrides`, `strict` and
-`onUnstubbedCall`.
+`autoSpyAccessors`, `fillMissing`, `lazySpies`, `returns`, `selfReturning`, `overrides`, `strict`
+and `onUnstubbedCall`.
 
 ### `strict` — a method nobody configured {#strict}
 
@@ -243,6 +243,34 @@ and a per-class call in the same setup file are the same registrations, whicheve
 
 `AutoSpyDefaultEntry<T>` is the row type, exported for a row that has to be built outside the
 literal — a helper that returns one, or a list assembled per project.
+
+### A dependency behind an `InjectionToken` {#token-defaults}
+
+A token's double is assembled in every file that provides it just as a class's was, and the same
+registry takes it — through the `registerAutoSpyDefaults` that `vitest-auto-spy/angular` exports. The
+core entry cannot name Angular's `InjectionToken`, so its signature takes a class only; the `/angular`
+one adds the token overload over the very same registry.
+
+```ts
+// vitest-setup.ts, once
+import { registerAutoSpyDefaults } from 'vitest-auto-spy/angular';
+
+registerAutoSpyDefaults(LOGGER, { returns: { info: undefined, err: undefined }, selfReturning: ['channel'] });
+registerAutoSpyDefaults(NAVIGATION, { overrides: { activeRow$: of({}) }, returns: { setFocus: undefined } });
+
+// every spec, from then on
+providers: [provideAutoSpyForToken(LOGGER), provideAutoSpyForToken(NAVIGATION, { activeRow$: rows$ })];
+```
+
+`provideAutoSpyForToken` reads the registration exactly as `provideAutoSpy` reads a class's: its
+seeds (the second argument) and its configuration (the third) are merged over it by the rules above,
+and a registered `returns` stays a default a later `calledWith` or `resolveWith` wins over. What a
+token row may say is `AutoSpyTokenDefaults<T>` — what [`createAutoMock`](./auto-mock-by-type) takes
+(`returns`, `selfReturning`, `observablePropsToSpyOn`, `strict`, `name`) plus `overrides`. Every key is
+checked against the token's `T`, and a table may mix class rows and token rows.
+
+Handing a token to the **core** export fails with `TS2345 … 'InjectionToken<AppLogger>' is not
+assignable to parameter of type 'ClassType<unknown>'`. The repair is the import.
 
 ## Lazy spies — `lazySpies`
 
@@ -511,9 +539,29 @@ The alternative is a second statement in every `beforeEach` (`injectSpy(X).m.moc
 and the shortcut people take instead is an exported `const` provider carrying the values — which,
 under `isolate: false`, is one set of spies shared by every file that imports it.
 
-It installs an implementation, exactly as `mockReturnValue` does, so a `calledWith(…)` chain
-configured **afterwards** on the same method no longer decides the value. Use one or the other per
-method.
+It is the method's **default**, kept in the spy's own container: a `calledWith(…)` chain configured
+afterwards still decides the value for its arguments, a later `resolveWith` / `failWith` replaces
+it, `undefined` counts as configured under `strict`, and `resetAutoSpy` clears it.
+
+## `selfReturning` — a method that answers the double itself {#self-returning}
+
+```ts
+provideAutoSpy(QueryBuilder, { selfReturning: ['where', 'orderBy'], returns: { run: [] } });
+provideAutoSpyForToken(LOGGER, undefined, { selfReturning: ['channel'] });
+```
+
+The `returns` entry a literal cannot spell: the double does not exist yet when the configuration is
+written. It is for a call the code under test chains off — `query.where('a').orderBy('b').run()`,
+`inject(LOGGER).channel('auth').debug('…')` — where an unconfigured link answers `undefined` and the
+next hop throws, often inside a constructor before the spec's first line.
+
+It is the same default `returns` installs, so it counts as configured under `strict` and a later
+`calledWith` / `mockReturnValue` still wins. A method named in both answers its `returns` value —
+which is how a spec takes one link out of a chain a [registration](#registerautospydefaults-—-the-composition-lives-with-the-class)
+set up, since lists only ever union. Every factory takes it: `createSpyFromClass`,
+`createSpyFromInstance` (where the answer is the instance itself), `createAutoMock`, `provideAutoSpy`,
+`provideAutoSpyForToken`. `mockDeep`'s boolean `selfReturning` is the same idea for every node of a
+deep double.
 
 ## `gettersToSpyOn` accepts a signal-valued getter
 

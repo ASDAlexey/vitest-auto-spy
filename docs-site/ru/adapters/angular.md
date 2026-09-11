@@ -1314,6 +1314,58 @@ expect(fixture).toHaveDirectiveApplied(TruncateDirective, 'div');
 тестового модуля и никогда — на standalone-компонент, так что рядом со standalone-компонентом это
 мёртвая запись, которая читается так, будто что-то намеренно приглушили.
 
+## Заглушка вместо дочернего компонента — `createComponentStub` {#a-stand-in-for-a-child-createcomponentstub}
+
+Рукописная заглушка — это класс в спеке, повторяющий селектор, входы и выходы дочернего компонента, и
+копию никто не проверяет: переименуйте вход у настоящего ребёнка — и биндинг родителя уйдёт в свойство,
+которого никто не объявлял, а спека останется зелёной или упадёт с `NG0303`, указывающим на заглушку.
+`createComponentStub` берёт копию из скомпилированного определения настоящего класса — `ɵcmp`, `ɵdir`
+или `ɵpipe`, — поэтому разойтись им не с чего:
+
+```ts
+import { createComponentStub } from 'vitest-auto-spy/angular';
+
+const ChartStub = createComponentStub(ChartComponent); // директива или пайп — точно так же
+
+TestBed.configureTestingModule({ imports: [DashboardComponent] });
+TestBed.overrideComponent(DashboardComponent, {
+  remove: { imports: [ChartComponent] },
+  add: { imports: [ChartStub] },
+});
+
+const fixture = TestBed.createComponent(DashboardComponent);
+fixture.detectChanges();
+
+const chart = fixture.debugElement.query(By.directive(ChartStub)).componentInstance;
+expect(chart.series()).toEqual([1, 2, 3]); // сигнальный вход остаётся сигнальным входом
+chart.pointSelected.emit(2); // выход, который слушает родитель
+```
+
+| Копируется из определения                                             | Не копируется                                                             |
+| --------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| селектор — компилируется обратно в тот же список селекторов           | шаблон: заглушка рендерит по одному `<ng-content>` на слот проекции      |
+| каждый вход под публичным именем, с алиасом и трансформом             | хост-биндинги и хост-директивы                                            |
+| `input()` как сигнальный вход, `model()` как модель, вход-декоратор как свойство | провайдеры, так что ничего из предоставляемого ребёнком до его контента не доходит |
+| каждый выход, как `EventEmitter`                                      | хуки жизненного цикла и запросы                                           |
+| `exportAs`; у пайпа — имя и чистота                                   | всё, что не засеяно вторым аргументом                                     |
+
+Второй аргумент засевает члены каждого экземпляра, копируя их на каждый экземпляр отдельно, — метод,
+который родитель зовёт через `viewChild`, или `transform` пайпа, по умолчанию тождественный:
+`createComponentStub(TranslatePipe, { transform: (key) => key })`. Третий принимает `{ template }`, чтобы
+рендерить что-то кроме спроецированного контента.
+
+Это не замена [`renderShallow`](#shallow-component-rendering): тот выбрасывает детей, и это правильно,
+когда шаблон никто не читает. Заглушка — для спеки, которая шаблон читает и хочет видеть в нём место
+ребёнка без самого ребёнка, и эти двое сочетаются — оставьте шаблон и назовите заглушку единственным
+ребёнком, которого надо сохранить:
+
+```ts
+const { fixture } = renderShallow(DashboardComponent, { keepTemplate: true, keepChildren: [ChartStub] });
+```
+
+Настоящий `ChartComponent` выбрасывается вместе с остальными дочерними компонентами, а заглушка с тем же
+селектором встаёт на его место.
+
 ## Заплата на свойство спая {#patching-a-property-of-a-spy}
 
 ```ts
@@ -1351,11 +1403,17 @@ const passcode = injectSpy(PASSCODE_SERVICE_TOKEN); // Spy<PasscodeService>
 Второй аргумент нужен чаще, чем кажется. Спай отвечает `undefined`, пока ему не сказали иначе, и это
 смертельно в тот момент, когда код под тестом строит от него **цепочку**: конструктор с
 `inject(LOGGER).channel('auth').debug('…')` умирает на `.debug` от `undefined` ещё до первой строки
-спеки, потому что в продакшене никто не писал там `?.`. Засейте то звено, которое возвращает объект:
+спеки, потому что в продакшене никто не писал там `?.`. Назовите то звено, которое возвращает объект:
 
 ```ts
-provideAutoSpyForToken(LOGGER, { channel: vi.fn().mockReturnThis() });
+provideAutoSpyForToken(LOGGER, undefined, { selfReturning: ['channel'] });
 ```
+
+[`selfReturning`](/ru/core/create-spy-from-class#self-returning) оставляет `channel` спаем — на нём
+можно проверять вызовы, и для `strict` он настроен, — а отвечает он самим двойником. Когда один и тот
+же двойник нужен каждому файлу, скажите это один раз в сетап-файле: `registerAutoSpyDefaults(LOGGER,
+{ … })` из `vitest-auto-spy/angular` читает каждый следующий `provideAutoSpyForToken(LOGGER)`
+([зависимость за `InjectionToken`](/ru/core/create-spy-from-class#token-defaults)).
 
 Для цепочки длиннее одного звена дубль, который отвечает на каждом уровне, —
 [`mockDeep<T>()`](/ru/core/auto-mock-by-type#recursive-deep-mocks-%E2%80%94-mockdeep).

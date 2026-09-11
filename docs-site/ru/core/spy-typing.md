@@ -93,6 +93,25 @@ const config = asSpy<FeatureFlagService>(TestBed.inject(FeatureFlagService));
 const config = injectSpy<FeatureFlagService>(FeatureFlagService); // то же самое, в Angular
 ```
 
+То же касается `createSpyFromClass` с конфигурацией, в одном сочетании: список аксессоров (или
+`overrides`) рядом с `returns` у обобщённого класса. TypeScript проверяет обобщённый класс-аргумент
+**после** конфигурации, выводит `T` обратно из `gettersToSpyOn: ['remoteConfig']` как
+`{ remoteConfig: any }` и отвергает ключ `returns`, так и не посмотрев на класс:
+
+```text
+'isKeyEnabled' does not exist in type 'MethodReturns<{ remoteConfig: any; }>'
+```
+
+```ts
+createSpyFromClass(RemoteConfigService, { gettersToSpyOn: ['remoteConfig'], returns: { isKeyEnabled: false } }); // ❌
+createSpyFromClass<RemoteConfigService>(RemoteConfigService, { gettersToSpyOn: ['remoteConfig'], returns: { isKeyEnabled: false } }); // ✅
+```
+
+Любая половина по отдельности выводит объявленное умолчание. `provideAutoSpy`, `overrideAutoSpy` и
+`overrideComponentProvider` из `/angular` берут `T` только из класса (`NoInfer`), поэтому там первая
+строка компилируется как есть. Фабрики ядра его не используют: `NoInfer` требует TypeScript 5.4 —
+выше границы, которую документирует ядро, а любой Angular, поддерживаемый `/angular`, её уже прошёл.
+
 ## `asInstances(...)` — весь список аргументов разом {#asinstances-—-a-whole-argument-list-at-once}
 
 ```ts

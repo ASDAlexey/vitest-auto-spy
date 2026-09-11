@@ -50,6 +50,7 @@ const RU_LABEL: Record<string, string> = {
   'Editor diagnostics': 'Диагностика в редакторе',
 
   'Angular diagnostics': 'Диагностика Angular',
+  'Angular router': 'Роутер Angular',
   'Component provider overrides': 'Переопределение провайдеров компонента',
 
   'To 4.0 — rxjs out of your program': 'На 4.0 — rxjs вне вашей программы',
@@ -130,6 +131,7 @@ const SIDEBAR = [
     items: [
       { text: 'Angular', link: '/adapters/angular' },
       { text: 'Angular HTTP', link: '/adapters/angular-http' },
+      { text: 'Angular router', link: '/adapters/angular-router' },
       { text: 'Angular diagnostics', link: '/adapters/angular-diagnostics' },
       { text: 'Component provider overrides', link: '/adapters/angular-overrides' },
       { text: 'NestJS', link: '/adapters/nestjs' },
@@ -367,7 +369,13 @@ export default defineConfig({
           'strict preset, fail on every warning, misconfiguration throw, onlyMethodsToSpyOn typo warning, ' +
           'where was this setTimeout scheduled, stray timer origin, describeStrayTimers, withoutStrayTimerTracking, ' +
           'no-mistyped-use-value, useValue is any, InjectionToken boolean useValue object, ' +
-          'no-instance-lifecycle-spy, spyOn ngOnInit not called, mockImplementation ngOnInit still runs, ',
+          'no-unknown-use-value-key, useValue key does not exist, useValue fixture unknown property, ' +
+          'registerAutoSpyDefaults InjectionToken, spy defaults for a token, AutoSpyTokenDefaults, ' +
+          'selfReturning, mockReturnThis on auto mock, chained call returns undefined, logger channel mock, ' +
+          'no-instance-lifecycle-spy, spyOn ngOnInit not called, mockImplementation ngOnInit still runs, ' +
+          'no-ts-expect-error-on-double, ts-expect-error nextWith, HttpEvent overload ts-ignore, ' +
+          'no-constant-expect, expect(true).toBe(true), assertion that cannot fail, ' +
+          'no-compile-components, compileComponents no-op, inline templateUrl, ',
       },
     ],
     // max-image-preview:large is what lets Google and Yandex use the OG image in a result card.

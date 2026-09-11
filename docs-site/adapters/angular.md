@@ -1304,6 +1304,58 @@ looks like a fix and is not: `schemas: [NO_ERRORS_SCHEMA]` applies to a testing 
 `declarations` and never to a standalone component, so next to a standalone component it is a dead
 entry that reads as if something were deliberately silenced.
 
+## A stand-in for a child — `createComponentStub` {#a-stand-in-for-a-child-createcomponentstub}
+
+The hand-written stub is a class in the spec that restates the child's selector, inputs and
+outputs, and nothing checks the copy: rename an input on the real child and the parent's binding goes
+to a property nobody declared, while the spec stays green or fails with `NG0303` pointing at the
+stub. `createComponentStub` reads the copy from the real class's compiled definition instead —
+`ɵcmp`, `ɵdir` or `ɵpipe` — so the two cannot drift apart:
+
+```ts
+import { createComponentStub } from 'vitest-auto-spy/angular';
+
+const ChartStub = createComponentStub(ChartComponent); // a directive or a pipe works the same way
+
+TestBed.configureTestingModule({ imports: [DashboardComponent] });
+TestBed.overrideComponent(DashboardComponent, {
+  remove: { imports: [ChartComponent] },
+  add: { imports: [ChartStub] },
+});
+
+const fixture = TestBed.createComponent(DashboardComponent);
+fixture.detectChanges();
+
+const chart = fixture.debugElement.query(By.directive(ChartStub)).componentInstance;
+expect(chart.series()).toEqual([1, 2, 3]); // a signal input stays a signal input
+chart.pointSelected.emit(2); // an output the parent listens to
+```
+
+| Copied from the definition                                             | Not copied                                                              |
+| ---------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| the selector — compiled back to the same selector list                 | the template: the stub renders one `<ng-content>` per projection slot  |
+| every input under its public name, alias and transform included        | host bindings and host directives                                       |
+| `input()` as a signal input, `model()` as a model, a decorator input as a property | providers, so nothing the real child provides reaches its content |
+| every output, as an `EventEmitter`                                     | lifecycle hooks and queries                                             |
+| `exportAs`; for a pipe, its name and purity                            | anything the second argument does not seed                              |
+
+The second argument seeds members on every instance, copied per instance — a method the parent calls
+through a `viewChild`, or a pipe's `transform`, which is the identity by default:
+`createComponentStub(TranslatePipe, { transform: (key) => key })`. The third takes `{ template }` to
+render something other than the projected content.
+
+It is not a replacement for [`renderShallow`](#shallow-component-rendering): that one drops the
+children, which is right when nothing reads the template. A stub is for the spec that does read the
+template and wants the child's slot there without the child, and the two combine — keep the
+template, and name the stub as the one child to keep:
+
+```ts
+const { fixture } = renderShallow(DashboardComponent, { keepTemplate: true, keepChildren: [ChartStub] });
+```
+
+The real `ChartComponent` is dropped with the other child components, and the stub, matching the same
+selector, takes its place.
+
 ## Patching a property of a spy
 
 ```ts
@@ -1341,12 +1393,18 @@ that works here.
 The second argument is needed more often than it looks. A spy answers `undefined` until it is told
 otherwise, which is fatal the moment the code under test **chains** off it: a constructor doing
 `inject(LOGGER).channel('auth').debug('…')` dies on the `.debug` of `undefined` before the spec's
-first line runs, because nothing in production wrote `?.` there. Seed the link that returns the
+first line runs, because nothing in production wrote `?.` there. Name the link that returns the
 object:
 
 ```ts
-provideAutoSpyForToken(LOGGER, { channel: vi.fn().mockReturnThis() });
+provideAutoSpyForToken(LOGGER, undefined, { selfReturning: ['channel'] });
 ```
+
+[`selfReturning`](/core/create-spy-from-class#self-returning) keeps `channel` a spy — assertable, and
+configured as far as `strict` is concerned — while it answers the double itself. When every file
+needs the same double, say it once in the setup file: `registerAutoSpyDefaults(LOGGER, { … })`,
+imported from `vitest-auto-spy/angular`, is read by every `provideAutoSpyForToken(LOGGER)` after it
+([a dependency behind an `InjectionToken`](/core/create-spy-from-class#token-defaults)).
 
 For a chain more than one link long, [`mockDeep<T>()`](/core/auto-mock-by-type#recursive-deep-mocks-%E2%80%94-mockdeep) is the double that answers
 at every level.

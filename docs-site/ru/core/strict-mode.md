@@ -215,6 +215,73 @@ createSpyFromClass(Cart, { strict: false }).total(); // undefined — отклю
 Обработчик побеждает `strict: true` на любом уровне, поэтому `{ strict: true, onUnstubbedCall: record }`
 на одном дубле записывает и не бросает; `strict: false` побеждает любой обработчик, кроме собственного.
 
+## Чтения, которые никто не настроил {#reads-nobody-configured}
+
+Охранник выше срабатывает на **вызове**. Шпионский геттер строгого дубля, который никто не настроил,
+по-прежнему отвечает `undefined`, а observable-свойство, которое никто не накормил, — поток, который
+ничего не присылает. Класс ошибки тот же, ради которого строгий режим и существует: код под тестом
+уходит в ветку «данных нет», а тест остаётся зелёным. Регистрация делает это массовым:
+`registerAutoSpyDefaults(Router, { gettersToSpyOn: ['url'], observablePropsToSpyOn: ['events'] })`
+кладёт оба члена на каждый дубль `Router` в сюите, и в сюите одного потребителя (~1 760 спек-файлов) из
+119 файлов с дублем `Router` 77 ни разу не настроили `url`, а 100 ни разу не накормили `events`.
+
+Бросать на чтении нельзя: когда дубль попадает в дифф упавшей проверки, его читает форматтер, и бросок
+сломал бы то самое сообщение, частью которого он стал. Поэтому чтения считаются, пока идёт тест, а
+отчёт выходит после него:
+
+```ts
+setupAutoSpy({ strict: true, unconfiguredReads: 'throw' }); // 'off' (по умолчанию) | 'warn' | 'throw'
+```
+
+```
+[vitest-auto-spy] Router.url was read 3 times and nothing configured it, and strict mode is on.
+[vitest-auto-spy] Router.events was subscribed to 1 time and nothing fed it, and strict mode is on.
+```
+
+- **Что считается.** Чтение геттера из `gettersToSpyOn` / `settersToSpyOn` / `autoSpyAccessors`,
+  дошедшее до заглушки, которую никто не заменил, и подписка на поток из `observablePropsToSpyOn`,
+  который никто не накормил **к концу теста**: подписаться в `beforeEach` и вызвать `nextWith` в тесте —
+  обычный способ вести поток, и находкой это не считается. Чтение геттера судится в момент чтения:
+  настроить геттер после того, как код под тестом его прочитал, чтение не отменяет.
+- **Когда.** От `beforeEach` из `setupAutoSpy`, который идёт раньше любого хука спек-файла, до его
+  `afterEach`, который идёт после них. Собственный `beforeEach` спеки внутри намеренно — именно там
+  большинство сюит запускает код под тестом; сбор, `beforeAll` и `afterAll` — снаружи.
+- **Настраивают** `accessorSpies.getters.x.mockReturnValue(…)` / `mockImplementation(…)`
+  (`mockReturnValueOnce` считается, пока не кончится его очередь, как у метода), `overrides: { x: … }` —
+  на месте вызова или в строке `registerAutoSpyDefaults` — и `mockReadonlyProp(double, 'x', …)`; поток —
+  `nextWith`, `nextOneTimeWith`, `nextWithValues` хотя бы с одной записью, `throwWith`, `complete`,
+  `returnSubject` или настоящий поток, засеянный через `overrides`. Один только зарегистрированный
+  _список_ ничего не настраивает. Если `undefined` и есть задуманный ответ, это говорится вслух, как
+  `returns: { save: undefined }` у метода: `accessorSpies.getters.x.mockReturnValue(undefined)`.
+- **Какие дубли.** Строгие — `strict: true` на дубле или на всю сюиту — от `createSpyFromClass`,
+  `provideAutoSpy`, `createSpyFromInstance`, а также `createAutoMock` / `provideAutoSpyForToken` для их
+  observable-свойств. `strict: false` на дубле выводит его из-под отчёта. Узлы `mockDeep` не
+  охвачены — по причине, описанной [ниже](#where-it-does-not-reach).
+- **Не входит в `preset: 'strict'`.** Это продолжение `strict` — решения о том, как сюита пишет дубли, —
+  а не степень реакции на то, что уже сломано; включение на существующей сюите начинается с обследования.
+
+### Сначала обследовать — `onUnstubbedRead` {#surveying-first-—-onunstubbedread}
+
+```ts
+const unread = new Map<string, number>();
+
+setupAutoSpy({
+  onUnstubbedRead: ({ className, member, kind, count }) => {
+    const key = `${className}.${member} (${kind})`;
+
+    unread.set(key, (unread.get(key) ?? 0) + count);
+  },
+});
+```
+
+Обработчик получает ровно то, что напечатал бы отчёт, от **каждого** дубля, собранного не со
+`strict: false`, — строгого или нет, — поэтому его числа предсказывают, что уронит включённый отчёт. Он
+вызывается после каждого теста, по разу на член, и забирает эти находки вместо отчёта. У дубля может
+быть свой: `createSpyFromClass(X, { onUnstubbedRead })`. Приоритет повторяет `onUnstubbedCall`:
+собственный обработчик дубля, его `strict: false`, общесюитный обработчик, затем `strict`. Обоим
+обработчикам нужен `setupAutoSpy` в setup-файле — границы теста размечает именно он, — а само чтение
+по-прежнему отвечает `undefined`.
+
 ## Куда он не дотягивается {#where-it-does-not-reach}
 
 Охранника несут на себе спаи-функции, которые строят две фабрики — от класса и от типа, — и получают
@@ -223,8 +290,8 @@ createSpyFromClass(Cart, { strict: false }).total(); // undefined — отклю
 
 | Дубль                                                 | Почему                                                                               |
 | ----------------------------------------------------- | ------------------------------------------------------------------------------------ |
-| **спаи на аксессорах** (`gettersToSpyOn`, …)        | собираются как моки раннера на дескрипторе, а не через фабрику спаев               |
-| **спаи на observable-свойствах**                    | собираются через `createPropSpy` из rxjs-слоя                                        |
+| **спаи на аксессорах** (`gettersToSpyOn`, …)        | чтение не может бросать — вместо этого отчёт после теста, [выше](#reads-nobody-configured) |
+| **спаи на observable-свойствах**                    | то же — подписка, которую никто не накормил, попадает в отчёт после теста           |
 | **узлы `mockDeep<T>()`**                              | `mockDeep` вообще не принимает настройки строгого режима                             |
 | **`console-spy`** и **`reload` у `mockResourceProp`** | внутренние спаи, а не дубли вашего коллаборатора                                   |
 | **отдельный `createFunctionSpy(name)`**               | охранник — его необязательный второй аргумент, и никто из вызывающих его не передаёт |
@@ -238,7 +305,7 @@ createSpyFromClass(Cart, { strict: false }).total(); // undefined — отклю
 Первые две строки стоит сказать дважды, потому что они сидят на дубле, который _и есть_ строгий:
 `createSpyFromClass(X, { strict: true, gettersToSpyOn: ['theme'], observablePropsToSpyOn: ['items$'] })`
 бросает на ненастроенном **методе** и по-прежнему отвечает `undefined` на ненастроенные `theme` или
-`items$`.
+`items$` — о чём `setupAutoSpy({ unconfiguredReads })` сообщает, когда тест закончится.
 
 ## Как это сделано у других {#prior-art}
 

@@ -248,6 +248,7 @@ workaround described above, that goes as well.
 | `spectator.click(el)`, `typeInElement`, `dispatchMouseEvent` | `@testing-library/angular` + `@testing-library/user-event`                   | **not provided here**                                                            |
 | `toHaveClass`, `toHaveText`, `toBeVisible`, …                | `@testing-library/jest-dom`                                                  | **not provided here**                                                            |
 | `SpectatorHttp` / `createHttpFactory`                        | [`provideHttpTesting()` / `expectRequest()`](/adapters/angular-http)         | and it fails a test that leaks an unanswered request                             |
+| `SpectatorRouting` / `createRoutingFactory`, `setRouteParam` | [`provideActivatedRoute()` / `injectActivatedRoute().setParams()`](/adapters/angular-router) | Angular's own `ActivatedRoute`; a setter replaces the whole set, not one key     |
 | `flushEffects()`                                             | [`flushEffects()`](/adapters/angular)                                        | same name, same job                                                              |
 | `runInInjectionContext(fn)`                                  | `TestBed.runInInjectionContext(fn)`                                          | Angular's own                                                                    |
 
@@ -462,7 +463,7 @@ Short and factual.
   ways an AOT test bundle fails half an hour later in someone else's spec.
 - **Beyond Vitest**, the same API runs on `bun:test` and `node:test`, and Angular's `TestBed` runs
   [under `bun test`](/runtimes/bun-angular).
-- **[Thirty lint rules](/utilities/eslint-plugin)** versioned with the API they recommend.
+- **[Thirty-four lint rules](/utilities/eslint-plugin)** versioned with the API they recommend.
 
 ## Did the migration lose a test?
 

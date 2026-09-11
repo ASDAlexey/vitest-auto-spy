@@ -91,6 +91,25 @@ const config = asSpy<FeatureFlagService>(TestBed.inject(FeatureFlagService));
 const config = injectSpy<FeatureFlagService>(FeatureFlagService); // same, in Angular
 ```
 
+The same applies to `createSpyFromClass` with a configuration, in one combination: an accessor list
+(or `overrides`) next to `returns` on a generic class. TypeScript checks a generic class argument
+**after** the configuration, reads `T` back from `gettersToSpyOn: ['remoteConfig']` as
+`{ remoteConfig: any }`, and rejects the `returns` key before it ever looks at the class:
+
+```text
+'isKeyEnabled' does not exist in type 'MethodReturns<{ remoteConfig: any; }>'
+```
+
+```ts
+createSpyFromClass(RemoteConfigService, { gettersToSpyOn: ['remoteConfig'], returns: { isKeyEnabled: false } }); // ❌
+createSpyFromClass<RemoteConfigService>(RemoteConfigService, { gettersToSpyOn: ['remoteConfig'], returns: { isKeyEnabled: false } }); // ✅
+```
+
+Either half alone infers the declared default. `provideAutoSpy`, `overrideAutoSpy` and
+`overrideComponentProvider` from `/angular` take `T` from the class alone (`NoInfer`), so there the
+first line compiles as written. The core factories do not use it: `NoInfer` needs TypeScript 5.4,
+above the floor the core documents, while every Angular that `/angular` supports is past it.
+
 ## `asInstances(...)` — a whole argument list at once
 
 ```ts

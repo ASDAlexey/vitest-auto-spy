@@ -56,7 +56,7 @@ hand.
 ## Skeleton — Angular
 
 The `/angular` and `/bun-angular` entries need **Angular >= 20** — `@angular/core`,
-`@angular/common` and `@angular/platform-browser` are optional peers on that one range. Below it the
+`@angular/common`, `@angular/platform-browser` and `@angular/router` are optional peers on that one range. Below it the
 entry does not link (`ɵSIGNAL` is Angular 18+, `provideZonelessChangeDetection` Angular 20+), so the
 error arrives at import, not at a helper call.
 
@@ -136,6 +136,7 @@ it('loads', async () => {
 | a `signal()` / `computed()` field on the class under test                                 | `mockSignalProp(obj, prop, initial)` — returns the writable                                                      |
 | a resource field, when the HTTP round trip is not the point                               | `mockResourceProp(obj, prop, initial)` — `set` / `fail` / `loading`                                              |
 | the HTTP round trip _is_ the point                                                        | `expectRequest(url).flush(body)` — `/angular-http`, settling included                                            |
+| a component or service that reads `ActivatedRoute`                                        | `provideActivatedRoute({ params })`, then `injectActivatedRoute().setParams(…)` — `/angular-router`              |
 | a node:test suite whose heap grows all run                                                | `trackNodeMocks()` — `/node`, a private MockTracker                                                              |
 | a Nest provider whose constructor keeps changing                                          | `createNestUnit(Target, { expose })` — built from its DI metadata                                                |
 | asserting a resource's value _and_ status together                                        | `registerResourceMatchers()` → `toHaveResourceValue` / `toBeLoading`                                             |
@@ -170,6 +171,7 @@ it('loads', async () => {
 | a dependency declared in the component's own `providers`                                  | `overrideComponentProvider(Cmp, Token)` — it verifies on the first fixture that the override applied             |
 | a double answering `undefined` for a method nobody configured                             | `{ strict: true }`, or `setupAutoSpy({ strict: true })` suite-wide                                               |
 | a strict throw caught by a `try`/`catch` or an operator, the test still green             | `setupAutoSpy({ swallowedStrictCalls: 'throw' })`; provoked on purpose — `takeStrictViolations()` from `/setup`  |
+| a strict double's getter answering `undefined`, or its `items$` never emitting            | `setupAutoSpy({ unconfiguredReads: 'throw' })` reports it after the test; survey first with `onUnstubbedRead`    |
 | an `afterEach` that exists only to reset one spy                                          | `using spy = createSpyFromClass(X)` — `[Symbol.dispose]` resets it                                               |
 | a dead NgModule import, dead `schemas`, an unflushed HTTP request                         | `enableAngularDiagnostics()` in the setup file, after `initTestEnvironment`                                      |
 | the spy is provided but the component resolves its own, so the test runs the real service | `enableAngularDiagnostics({ shadowedProviders })`, or `assertNoShadowedProviders(Component, fixture)`            |
@@ -194,7 +196,7 @@ it('loads', async () => {
 | stray timers charged to a file that only writes `localStorage` (jsdom)                    | `withoutStrayTimerTracking(() => seed())` from `/setup` — its timers are neither counted nor cancelled           |
 | `import { consoleErrorSpy }` silencing other files under `isolate: false`                 | `installConsoleSpies()` in `beforeEach`, `restoreConsole()` in `afterEach` — the import installs once per worker |
 | `Cannot set base providers because it has already been called`                            | `setupAngularTestEnv({ zoneless, initZone, initZoneless })`                                                      |
-| a dependency behind an `InjectionToken`, with no class to spy                             | `provideAutoSpyForToken(TOKEN)` + `injectSpy(TOKEN)`                                                             |
+| a dependency behind an `InjectionToken`, with no class to spy                             | `provideAutoSpyForToken(TOKEN)` + `injectSpy(TOKEN)`; a chained call → `{ selfReturning: ['channel'] }` as the third argument |
 | `Expected to be running in 'ProxyZone', but it was not found`                             | `import 'vitest-auto-spy/zone'` (needs `globals: true`)                                                          |
 | `Property 'mockReturnValue' does not exist on type 'never'`                               | upgrade — the spy no longer collapses on an unreadable return type                                               |
 | `TS2345` inside `mockReturnValue` / `mockImplementation` / `mockResolvedValue`            | the stub is checked against the method's return type now — fix the stub, not the spy                             |
@@ -208,6 +210,9 @@ it('loads', async () => {
 | `'params' in link` ladders, or a cast, to pick a union branch                             | `narrow.byKey(link, 'params')` / `narrow.observable(x)`                                                          |
 | `{ ...modelInstance, flag: true }` losing every getter                                    | `withOverrides(modelInstance, { flag: true })`                                                                   |
 | `NG0303` / `NG0304` / silence from a directive spec                                       | `createDirectiveHost({ template, scope: [Module] })`                                                             |
+| a hand-written `class MockChartComponent` restating a child's selector                    | `createComponentStub(ChartComponent)` (`/angular`) — selector, inputs, outputs read from `ɵcmp` |
+| a `TestingStorage` class for `localStorage` / `sessionStorage`                            | `stubWebStorage('localStorage', { items })` from `/dom-stubs` — `snapshot()` to assert |
+| `'x' does not exist in type 'MethodReturns<{ y: any; }>'` on a generic class              | spell out the type argument — `createSpyFromClass<Config>(Config, …)`; `provideAutoSpy` infers it |
 | "did the migration lose a test?" with matching counters                                   | `compareTestRuns(before, after)`                                                                                 |
 
 ## Rules that prevent most of the mistakes
@@ -343,15 +348,15 @@ npx vitest-auto-spy codemod --verify  # after a migration: anything the transfor
 Most of this library's guarantees are type-level, so a green run that does not type-check is not
 done. Report failures with their output rather than describing them as passing.
 
-**After any `eslint --fix` over specs, run `npx tsc --noEmit`.** The thirty rules in
+**After any `eslint --fix` over specs, run `npx tsc --noEmit`.** The thirty-four rules in
 `vitest-auto-spy/eslint-plugin` are lint, not typecheck: `no-mocked-for-spy` rewrites a declaration
 to `Spy<T>` and cannot see what the name is assigned two lines below, so a clean lint pass is not
 evidence that the types still hold. Where it cannot prove the rename it downgrades to a suggestion —
 accept those together with the repair at the creation site, usually `createAutoMock<T>()` in place of
 an object literal.
 
-**`no-private-member-access` and `no-mistyped-use-value` are the two rules here that need type
-information.** The first reports
+**`no-private-member-access`, `no-mistyped-use-value` and `no-unknown-use-value-key` are the three
+rules here that need type information.** The first reports
 `instance['privateMember']` (bracket access, which TypeScript does not visibility-check),
 `(instance as any).privateMember` and its `as unknown as { … }` / decoy-interface variants (the
 access is checked — against a type the spec substituted), and
@@ -361,11 +366,24 @@ signature is read (`process.env['KEY']`, `queryParams['id']`). The repair is nev
 the member through the public API, or — on a component — through the rendered template, where a
 `protected` member really is reachable. The second reports `{ provide: TOKEN, useValue }` whose value
 does not fit a primitive `InjectionToken<T>` — `useValue` is `any`, so `{}` for a `boolean` token
-compiles and is truthy; write a value of the declared type.
+compiles and is truthy; write a value of the declared type. The third reports each key of an object
+`useValue` literal the provided type does not have (`queryParams$` on `ActivatedRoute`) — keys only,
+never the values, so a partial fixture passes; rename the key to the real member or drop it.
 
 **`no-instance-lifecycle-spy` (`warn`) reports `vi.spyOn(component, 'ngOnInit')`** and the other
 hooks a view reads off the prototype: Angular never calls the instance spy, so its stub never runs.
 Spy on `Cls.prototype` before `TestBed.createComponent`, or assert what the hook does.
+
+**Never put `@ts-expect-error` / `@ts-ignore` above a double's `nextWith`, `resolveWith`,
+`mockReturnValue`, `returnValue` or `calledWith(…)`** — `no-ts-expect-error-on-double` reports it,
+whatever reason follows. An overloaded client takes `Spy<X, { overload: { m: 'first' } }>`; anything
+else is a fixture of the wrong shape — check it against `ReturnType<X['m']>` and build a partial one
+with `createMock<…>()`. A value outside the declared type on purpose keeps the directive under
+`// eslint-disable-next-line vitest-auto-spy/no-ts-expect-error-on-double -- <why>`.
+`no-constant-expect` reports `expect(true).toBe(true)` and its relatives — assert on what the code
+produced, or `expect.fail(…)` for a branch the test must not reach. `no-compile-components` is silent
+until `['error', { builder: 'inline-resources' }]`; with it, drop `compileComponents()` and the
+`async` it forced.
 
 **`prefer-observer-stub` reports an observer global replaced by hand** — `globalThis.IntersectionObserver = class { … }`, `vi.stubGlobal('ResizeObserver', …)`, `vi.spyOn(globalThis, 'MutationObserver')` — and names `stubIntersectionObserver()` / `stubResizeObserver()` / `stubMutationObserver()` instead. Take the `let original = globalThis.X` and the `afterEach` that assigns it back out with the block: the helper installs through `mockValueProp`, so `restoreMockedProps()` already owns the undo, and a restore written inside an `it` never runs once a test above it goes red.
 
@@ -376,6 +394,12 @@ and `createSpyFromClass(X)` then merge it under whatever the call site adds — 
 and `overrides` merged per key, scalars won by the call site. It is by class identity, not by
 inheritance, and `clearAutoSpyDefaults(Class)` — or `clearAutoSpyDefaults()` for the lot — drops a
 registration again. Several classes at once are one table — `registerAutoSpyDefaults([[Router, { … }], [AccountService, { … }]])` — rows applying in order, each checked against its own class (`AutoSpyDefaultEntry<T>` is that row's type).
+An `InjectionToken` registers the same way through the `registerAutoSpyDefaults` of
+`vitest-auto-spy/angular` (the core one takes a class only — a token there is `TS2345 … not assignable
+to 'ClassType<unknown>'`), and `provideAutoSpyForToken(TOKEN)` merges its arguments over it:
+`registerAutoSpyDefaults(LOGGER, { returns: { info: undefined }, selfReturning: ['channel'] })`.
+`selfReturning` names methods that answer the double itself — a default like `returns`, configured
+under `strict`, on every factory.
 Reach for it when the same class carries different configurations in different specs:
 the list options are additive and never complain about a name they cannot find, so the file that
 forgot one is silent about it.
@@ -392,14 +416,15 @@ Four of those rules are for a suite mid-migration off `jasmine-auto-spies`:
 to **`'off'`** yourself while the migration lasts, because it reports working bridge code. Turn it
 back on for the last mile, once the suite is green, and not before.
 
-**Three rules in `recommended` are `warn`, each for a reason of its own.** `prefer-render-shallow`
+**Four rules in `recommended` are `warn`, each for a reason of its own.** `prefer-render-shallow`
 names a spec that could render more cheaply rather than something wrong or dead: moving onto
 `renderShallow` is a suite's decision, not a repair, so it shows up in the output without holding a
 build — set it to `'error'` once the project has taken that decision. `no-stub-class-double` (a
 class whose fields are `vi.fn()`s) and `no-structural-double` (an object of `vi.fn()`s bound to a
 name typed `{ m: Mock }`) decide on a heuristic with no `provide:` beside them to settle it, so a
 project that reads the shape differently can switch either off; a double behind DI is
-`prefer-provide-auto-spy`'s, at `error`.
+`prefer-provide-auto-spy`'s, at `error`. `no-instance-lifecycle-spy` (`vi.spyOn(component, 'ngOnInit')`)
+decides on a heuristic too: a spec that calls the hook itself does reach the instance spy.
 
 `doctor` is read-only. It reports what neither the runner nor the compiler can: a `tsconfig`
 `include` pattern that matches no file, a production module importing a spec, a spec importing

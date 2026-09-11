@@ -47,6 +47,7 @@ The exported surface of `vitest-auto-spy` and its subpaths.
 | `withoutStrayTimerTracking(work, host?)`                                                                     | Run setup work whose timers the stray-timer tracker must neither count nor cancel (`/setup`)                                                                        |
 | `describeStrayTimers(host?)`                                                                                 | Each timer still pending, with its kind, the spec file that scheduled it and up to five frames — the list `onStrayTimers` gets (`/setup`)                          |
 | `restoreWebStorage(options?)`                                                                                | Give `globalThis` a `localStorage` / `sessionStorage` that work when the runner's copy never arrived; on by default inside `setupAutoSpy()` (`/setup`)              |
+| `stubWebStorage(key?, opts?)`                                                                                | An in-memory `localStorage` / `sessionStorage` a spec installs for itself, seeded or empty, with `snapshot()` to assert on; restored by `restoreMockedProps()` (`/dom-stubs`) |
 | `installPerTest(install)`                                                                                    | Re-install a stub before every test of the block, and read back the current handle (`/setup`)                                                                       |
 | `stubMediaElement(opts?)`                                                                                    | A `<video>` / `<audio>` that plays, reports a duration and fires the media events                                                                                   |
 | `assertMocked(namespace, opts?)`                                                                             | Fail when the `vi.mock()` this spec relies on silently did not apply                                                                                                |
@@ -54,8 +55,9 @@ The exported surface of `vitest-auto-spy` and its subpaths.
 | `flushEventLoopUntil(isDone, opts?)`                                                                         | Real event-loop turns until a condition holds, with a budget instead of a hang                                                                                      |
 | `diffByField(actual, expected)`                                                                              | Which field of an array of records moved, in how many elements — the diff the reporter collapses                                                                    |
 | `setupAngularTestEnv(opts?)`                                                                                 | Zone and zoneless spec files in one worker, switching platforms per file (`/angular`)                                                                               |
-| `provideAutoSpyForToken(token, overrides?)`                                                                  | `{ provide, useValue }` for an `InjectionToken`, with the spy built from the token's type (`/angular`)                                                              |
+| `provideAutoSpyForToken(token, overrides?)`                                                                  | `{ provide, useValue }` for an `InjectionToken`, with the spy built from the token's type and a token registration merged under it (`/angular`)                    |
 | `createDirectiveHost(opts)`                                                                                  | A standalone host for a directive under test, with its scope where the compiler reads it (`/angular`)                                                               |
+| `createComponentStub(Class, overrides?, opts?)`                                                              | A standalone stand-in for a child component, directive or pipe, its selector, inputs, outputs and `exportAs` read from the compiled definition (`/angular`)        |
 | `registerDirectiveMatchers()`                                                                                | Adds `expect(fixture).toHaveDirectiveApplied(Directive, selector?)` (`/angular`)                                                                                    |
 | `asInstances(...spies)`                                                                                      | `asInstance` for a whole argument list, in one edit against one compiler error                                                                                      |
 | `captureArg<T>()`                                                                                            | Take hold of an argument the code under test built, rather than describing it — for assertions, not `calledWith`                                                    |
@@ -74,6 +76,8 @@ The exported surface of `vitest-auto-spy` and its subpaths.
 | `provideHttpTesting(options?)`                                                                               | `provideHttpClient()` and `provideHttpClientTesting()` in one spread, plus a teardown check for unanswered requests (`/angular-http`)                               |
 | `expectRequest(matcher, opts?)`                                                                              | Tick, find the one matching request, then `flush` / `error` it **with the settling included** — `httpResource()` and `HttpClient` (`/angular-http`)                 |
 | `expectNoRequest(matcher?, opts?)` / `verifyNoPendingRequests()`                                             | Assert that nothing was requested / that nothing was left unanswered (`/angular-http`)                                                                              |
+| `provideActivatedRoute(init?)`                                                                               | An `ActivatedRoute` whose streams, `paramMap`s and snapshot are built from one record, as Angular's own class (`/angular-router`)                                   |
+| `injectActivatedRoute(injector?)` / `createActivatedRoute(init?)`                                            | The handle whose setters move the streams and the snapshot together — from the `TestBed`, or built without one (`/angular-router`)                                  |
 | `registerResourceMatchers()`                                                                                 | Adds `toBeLoading` / `toHaveResourceValue` / `toHaveResourceError`; the value matcher fails an unresolved resource (`/angular`)                                     |
 | `registerSignalMatchers()`                                                                                   | Adds `expect(sig).toHaveSignalValue(value)` (`/angular`)                                                                                                            |
 | `enableTestBedDiagnostics(opts?)`                                                                            | Per-file report of how much of a spec's time went into `TestBed` (`/angular`)                                                                                       |
@@ -84,7 +88,7 @@ The exported surface of `vitest-auto-spy` and its subpaths.
 | `consoleDebugSpy` … `consoleWarnSpy`                                                                         | Silent typed spies replacing the global `console` methods on import (`/console`)                                                                                    |
 | `installConsoleSpies()` / `resetConsoleSpies()` / `restoreConsole()`                                         | Install / clear / undo the console spies (`/console`)                                                                                                               |
 | `errorHandler`                                                                                               | The `mustBeCalledWith` argument-mismatch error helper                                                                                                               |
-| `vitest-auto-spy/eslint-plugin`                                                                              | Thirty flat-config lint rules that steer a suite onto these helpers                                                                                            |
+| `vitest-auto-spy/eslint-plugin`                                                                              | Thirty-four flat-config lint rules that steer a suite onto these helpers                                                                                       |
 
 ## Helper surface by return type
 
@@ -109,7 +113,8 @@ behaviour as `methodsToSpyOn`, named for callables that live on the instance —
 arrow props, `signalStore()` methods), `observablePropsToSpyOn`,
 `gettersToSpyOn`, `settersToSpyOn` (any string key — "is an accessor" is a fact about the
 descriptor, not about the value's type, so a signal-valued getter is nameable), `returns` (return
-values installed as the spy is built), `autoSpyAccessors` (auto-discover getters/setters),
+values installed as the spy is built), `selfReturning` (methods that answer the double itself, for a
+chained call), `autoSpyAccessors` (auto-discover getters/setters),
 `fillMissing` (answer a name the prototype never carried with a spy — for a **partially** abstract
 class, where the erased members leave the empty-prototype fallback unable to fire),
 `lazySpies` (build each method spy on first access — the `provideAutoSpy` default on Angular; `'proxy'` swaps the per-method placeholder for one trap object, which is what keeps a 400-method double from retaining 100 kB), plus
@@ -120,8 +125,9 @@ patched: the members already exist, and an instance is not an erased `abstract` 
 **`AutoMockConfiguration`** (the third argument of `createAutoMock` / `provideAutoSpyForToken`):
 `observablePropsToSpyOn` (a type does not say which members are Observables, so an unseeded one
 would otherwise be a function spy), `returns` (return values installed as the double is built,
-where a seeded `override` would have put a plain function in place of a spy), plus the same two
-strict-mode fields.
+where a seeded `override` would have put a plain function in place of a spy), `selfReturning`
+(methods that answer the double itself), `name` (what a strict report calls the double), plus the
+same two strict-mode fields.
 
 **`StrictSpyConfiguration`** — the pair every factory that builds a double accepts, and which
 `setupAutoSpy(opts?)` takes as a suite-wide default:
@@ -149,7 +155,9 @@ site **merges** into: lists unioned, `returns` and `overrides` merged key by key
 call site. `registerAutoSpyDefaults([[Class, config], …])` registers several at once, each row
 checked against its own class; `AutoSpyDefaultEntry<T>` is that row's type, for a row built outside
 the literal. `clearAutoSpyDefaults(Class)` drops one registration, `clearAutoSpyDefaults()` all of
-them. See [the composition lives with the class](/core/create-spy-from-class#registerautospydefaults-—-the-composition-lives-with-the-class).
+them. The same pair exported from `/angular` also takes an `InjectionToken`: its registration is an
+`AutoSpyTokenDefaults<T>` (`AutoMockConfiguration<T>` plus `overrides`), read by
+`provideAutoSpyForToken(TOKEN)` with the same merge. See [the composition lives with the class](/core/create-spy-from-class#registerautospydefaults-—-the-composition-lives-with-the-class).
 
 ## Public types
 
@@ -215,10 +223,12 @@ a `NodeList` stays assignable to the mapping of itself.
 `AccessorKeysOf<T>`, `MethodReturns<T>`, `PropStubValue<V>`, `SpyOptions`, `Overloads<F>`,
 `AutoSpyDefaultEntry<T>`,
 `AddThrowHelper` (the `failWith` every method spy carries) are exported from the core as well;
-`/angular` adds `AutoSpyFixture`, `SpiedFixtures<Spec>` and `ExtendWithAutoSpiesOptions` for
-`extendWithAutoSpies`; `/angular-http` adds `RequestMatcher`, `RequestExpectation`, `ResponseBody`,
+`/angular` adds `AutoSpyTokenDefaults<T>` (a token's registration), `AutoSpyFixture`, `SpiedFixtures<Spec>` and `ExtendWithAutoSpiesOptions` for
+`extendWithAutoSpies`, and `ComponentStubOptions` for `createComponentStub`; `/dom-stubs` adds
+`WebStorageKey`, `WebStorageStub` and `WebStorageStubOptions` for `stubWebStorage`; `/angular-http` adds `RequestMatcher`, `RequestExpectation`, `ResponseBody`,
 `FlushOptions`, `RequestErrorOptions`, `ExpectRequestOptions` and `HttpTestingOptions` for
-`expectRequest` and `provideHttpTesting`; `/nestjs` adds `NestUnit<T>`, `NestUnitSpies`,
+`expectRequest` and `provideHttpTesting`; `/angular-router` adds `ActivatedRouteInit`,
+`ActivatedRouteChange` and `ActivatedRouteDouble` for its three helpers; `/nestjs` adds `NestUnit<T>`, `NestUnitSpies`,
 `NestUnitClass<T>`, `NestUnitProvider` and `CreateNestUnitOptions` for `createNestUnit`;
 `/node` adds `StopTrackingNodeMocks`, the disarm handle `trackNodeMocks()` hands back;
 `/setup` adds `RestoreWebStorageOptions`, whose one field `view` names the window
@@ -227,9 +237,10 @@ a `NodeList` stays assignable to the mapping of itself.
 ## Exports by subpath
 
 Every runtime and framework subpath re-exports the **whole core** on top of what it adds, so a spec
-never needs two imports from this package. Three subpaths are deliberately narrow instead:
-`/angular-http` is a companion to `/angular` rather than a replacement for it, and staying narrow is
-what keeps `@angular/common` confined to the suites that ask for it; `/dom-stubs` and `/diagnostics`
+never needs two imports from this package. Four subpaths are deliberately narrow instead:
+`/angular-http` and `/angular-router` are companions to `/angular` rather than replacements for it, and
+staying narrow is what keeps `@angular/common` and `@angular/router` confined to the suites that ask
+for them; `/dom-stubs` and `/diagnostics`
 hold what **moved off** the core in 4.0.0, so that a spec which never touches a DOM global or a run
 report does not evaluate them — see [Upgrading to 4.0](/upgrading-4#_2-dom-stubs-and-run-diagnostics-moved-to-their-own-subpaths).
 
@@ -240,10 +251,11 @@ report does not evaluate them — see [Upgrading to 4.0](/upgrading-4#_2-dom-stu
 | `/node`             | `trackNodeMocks`, `pruneNodeMocks`, `countNodeMocks` — the private-`MockTracker` opt-in that keeps `node:test` from retaining every spy for the life of the process; registers the `node:test` adapter                                                                                                                                                                                                                                                                                                                                                                        |
 | `/bun-angular`      | `provideAutoSpy`, `injectSpy`, `renderShallow`, `createWithAutoSpies`, `stable`, `flushEffects`, `settleResource`, the DOM/inliner building blocks; registers the Bun adapter and boots a zoneless `TestBed`                                                                                                                                                                                                                                                                                                                                                                  |
 | `/rxjs`             | `createObservableWithValues` + the observable type surface; registers the observable layer, and is the one module that names an rxjs type — its augmentation of `AutoSpyRxjsTypes` is what makes `returnSubject()` an rxjs `Subject<T>`                                                                                                                                                                                                                                                                                                                                       |
-| `/dom-stubs`        | `stubIntersectionObserver`, `stubResizeObserver`, `stubMutationObserver`, `stubObserver`, `stubMediaElement`, `stubAbortController`, `intersectionEntry`, `resizeEntry`, `mutationRecord` — **moved off the root entry in 4.0.0**, because ESM re-export is eager and every spec in every project was evaluating them. Registers the default adapter only if no runtime entry did, like `/console`                                                                                                                                                                            |
+| `/dom-stubs`        | `stubIntersectionObserver`, `stubResizeObserver`, `stubMutationObserver`, `stubObserver`, `stubMediaElement`, `stubAbortController`, `intersectionEntry`, `resizeEntry`, `mutationRecord` — **moved off the root entry in 4.0.0**, because ESM re-export is eager and every spec in every project was evaluating them. Registers the default adapter only if no runtime entry did, like `/console`. `stubWebStorage` was never on the root: it was added here |
 | `/diagnostics`      | `compareTestRuns`, `summarizeTestRun`, `formatTestRunComparison`, `diffByField`, `explainSpy` — the first four **moved off the root entry in 4.0.0** for the same reason. Pure functions that register nothing, so this entry also works from a plain Node script that reads two JSON reports                                                                                                                                                                                                                                                                                 |
-| `/angular`          | `provideAutoSpy`, `provideAutoSpyForToken`, `injectSpy`, `extendWithAutoSpies`, `overrideAutoSpy`, `overrideComponentProvider`, `assertNgModuleScopes`, `assertComponentDefIntact`, `setupAngularTestEnv`, `createDirectiveHost`, `registerDirectiveMatchers`, `renderShallow`, `createWithAutoSpies`, `stable`, `flushEffects`, `settleResource`, `mockResourceProp`, `mockSignalProp`, `registerSignalMatchers`, `registerResourceMatchers`, `enableAngularDiagnostics`, `disableAngularDiagnostics`, `assertNoPendingRequests`, `trackInjections`, the TestBed diagnostics |
-| `/angular-http`     | `provideHttpTesting`, `expectRequest`, `expectNoRequest`, `verifyNoPendingRequests` — the `httpResource()` / `HttpClient` recipe in two lines. The **only** entry that imports `@angular/common`, which is an optional peer; the one subpath that does not re-export the core                                                                                                                                                                                                                                                                                                 |
+| `/angular`          | `provideAutoSpy`, `provideAutoSpyForToken`, `registerAutoSpyDefaults` / `clearAutoSpyDefaults` (a token as well as a class), `injectSpy`, `extendWithAutoSpies`, `overrideAutoSpy`, `overrideComponentProvider`, `assertNgModuleScopes`, `assertComponentDefIntact`, `setupAngularTestEnv`, `createDirectiveHost`, `createComponentStub`, `registerDirectiveMatchers`, `renderShallow`, `createWithAutoSpies`, `stable`, `flushEffects`, `settleResource`, `mockResourceProp`, `mockSignalProp`, `registerSignalMatchers`, `registerResourceMatchers`, `enableAngularDiagnostics`, `disableAngularDiagnostics`, `assertNoPendingRequests`, `trackInjections`, the TestBed diagnostics |
+| `/angular-http`     | `provideHttpTesting`, `expectRequest`, `expectNoRequest`, `verifyNoPendingRequests` — the `httpResource()` / `HttpClient` recipe in two lines. The **only** entry that imports `@angular/common`, which is an optional peer; like `/angular-router`, it does not re-export the core                                                                                                                                                                                                                                                                                                 |
+| `/angular-router`   | `provideActivatedRoute`, `injectActivatedRoute`, `createActivatedRoute` — Angular's own `ActivatedRoute` over one record, so its streams and snapshot cannot disagree. The **only** entry that imports `@angular/router`, an optional peer; like `/angular-http`, it does not re-export the core                                                                                                                                                                                                                                                                              |
 | `/nestjs`           | `provideAutoSpy`, `injectSpy(moduleRef, token)`, `createNestUnit`, `trackInjections`, `NestModuleRef`, `NestValueProvider`, `NestUnit`, `NestUnitSpies`, `CreateNestUnitOptions`, `NestUnitProvider`, `NestUnitClass`                                                                                                                                                                                                                                                                                                                                                         |
 | `/vue`              | `provideAutoSpy`, `VueInjectionToken`, `VueProvideSpy`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | `/react`, `/svelte` | — (the core, under a name that reads right in those suites)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |

@@ -214,6 +214,75 @@ createSpyFromClass(Cart, { strict: false }).total(); // undefined — opted out
 A handler beats `strict: true` at every level, so `{ strict: true, onUnstubbedCall: record }` on one
 double records and does not throw; `strict: false` beats every handler but the double's own.
 
+## Reads nobody configured
+
+The guard above fires on a **call**. A strict double's spied getter nobody configured still answers
+`undefined`, and its observable property nobody fed is a stream that never emits — the same class of
+failure strict mode exists for, since the code under test goes down its "no data" branch and the test
+stays green. A registration makes it common: `registerAutoSpyDefaults(Router, { gettersToSpyOn: ['url'],
+observablePropsToSpyOn: ['events'] })` puts both members on every `Router` double in the suite, and on
+a consumer suite of ~1 760 spec files 77 of the 119 files doubling `Router` never configured `url` and
+100 never fed `events`.
+
+A read cannot throw where it happens: when a double lands in a failure diff the formatter reads it, and
+a throw there would break the message it belongs to. So reads are counted while the test runs and
+reported after it:
+
+```ts
+setupAutoSpy({ strict: true, unconfiguredReads: 'throw' }); // 'off' (default) | 'warn' | 'throw'
+```
+
+```
+[vitest-auto-spy] Router.url was read 3 times and nothing configured it, and strict mode is on.
+[vitest-auto-spy] Router.events was subscribed to 1 time and nothing fed it, and strict mode is on.
+```
+
+- **What counts.** A read of a getter from `gettersToSpyOn` / `settersToSpyOn` / `autoSpyAccessors`
+  that reached the scaffold nothing replaced, and a subscription to an `observablePropsToSpyOn` stream
+  that nothing had fed **by the end of the test** — subscribing in `beforeEach` and calling `nextWith`
+  in the test is the ordinary way to drive a stream and is not a finding. A getter read is judged
+  when it happens: configuring the getter after the code under test read it does not take the read
+  back.
+- **When.** From `setupAutoSpy`'s `beforeEach`, which runs before any hook of the spec file, to its
+  `afterEach`, which runs after them. The spec's own `beforeEach` is inside on purpose — that is where
+  most suites run the code under test — and collection, `beforeAll` and `afterAll` are outside.
+- **Configured by** `accessorSpies.getters.x.mockReturnValue(…)` / `mockImplementation(…)` (a
+  `mockReturnValueOnce` counts until its queue runs out, as for a method), `overrides: { x: … }` — on
+  the call site or in a `registerAutoSpyDefaults` row — and `mockReadonlyProp(double, 'x', …)`; a
+  stream by `nextWith`, `nextOneTimeWith`, `nextWithValues` with at least one entry, `throwWith`,
+  `complete`, `returnSubject`, or a real stream seeded through `overrides`. A registered _list_ alone
+  configures nothing. `undefined` meant as the answer is said out loud, like `returns: { save:
+  undefined }` for a method: `accessorSpies.getters.x.mockReturnValue(undefined)`.
+- **Which doubles.** Strict ones — `strict: true` on the double or suite-wide — built by
+  `createSpyFromClass`, `provideAutoSpy`, `createSpyFromInstance`, and `createAutoMock` /
+  `provideAutoSpyForToken` for their observable properties. `strict: false` on a double exempts it.
+  `mockDeep` nodes are not covered, for the reason [below](#where-it-does-not-reach).
+- **Not in `preset: 'strict'`.** It extends `strict` — a decision about how a suite writes its
+  doubles — rather than grading a report of something already broken, and turning it on across an
+  existing suite is a survey first.
+
+### Surveying first — `onUnstubbedRead`
+
+```ts
+const unread = new Map<string, number>();
+
+setupAutoSpy({
+  onUnstubbedRead: ({ className, member, kind, count }) => {
+    const key = `${className}.${member} (${kind})`;
+
+    unread.set(key, (unread.get(key) ?? 0) + count);
+  },
+});
+```
+
+The handler receives exactly what the report would print, from **every** double not built with
+`strict: false`, strict or not — so the numbers predict what turning the report on will fail. It is
+called after each test, once per member, and takes those findings instead of the report. A double
+can carry its own: `createSpyFromClass(X, { onUnstubbedRead })`. Precedence mirrors
+`onUnstubbedCall`: the double's own handler, the double's `strict: false`, the suite-wide handler,
+then `strict`. Both handlers need `setupAutoSpy` in the setup file — a test is what it marks out —
+and the read itself still answers `undefined`.
+
 ## Where it does not reach
 
 The guard is carried by the function spies the two class/type factories build, and handed to them at
@@ -222,8 +291,8 @@ configured:
 
 | Double                                                  | Why                                                                 |
 | ------------------------------------------------------- | ------------------------------------------------------------------- |
-| **accessor spies** (`gettersToSpyOn`, …)                | built as host mocks on a descriptor, not through the spy factory    |
-| **observable property spies**                           | built by the rxjs layer's `createPropSpy`                           |
+| **accessor spies** (`gettersToSpyOn`, …)                | a read cannot throw — reported after the test instead, [above](#reads-nobody-configured) |
+| **observable property spies**                           | the same — a subscription nothing fed is reported after the test    |
 | **`mockDeep<T>()` nodes**                               | `mockDeep` takes no strict configuration at all                     |
 | **`console-spy`** and **`mockResourceProp`'s `reload`** | internal spies, not doubles of your collaborator                    |
 | **standalone `createFunctionSpy(name)`**                | the guard is its optional second argument, and no caller passes one |
@@ -237,7 +306,7 @@ way it throws for a declared one.
 The first two are worth stating twice, because they sit on a double that _is_ strict:
 `createSpyFromClass(X, { strict: true, gettersToSpyOn: ['theme'], observablePropsToSpyOn: ['items$'] })`
 throws for an unconfigured **method** and still answers `undefined` for an unconfigured `theme` or
-`items$`.
+`items$` — which `setupAutoSpy({ unconfiguredReads })` reports once the test is over.
 
 ## Prior art
 

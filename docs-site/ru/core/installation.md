@@ -23,6 +23,7 @@ npm i -D vitest-auto-spy
 | `vitest`        | раннер по умолчанию                                                              | нет         |
 | `rxjs`          | спаев за observable в `vitest-auto-spy/rxjs` — `>=7`, без верхней границы (rxjs 8 тоже) | да  |
 | `@angular/core` | хелперов `vitest-auto-spy/angular` и `vitest-auto-spy/bun-angular`               | да          |
+| `@angular/router` | только `vitest-auto-spy/angular-router` — `>=20`                                 | да          |
 
 | Инструмент | Минимум                                                              |
 | ---------- | -------------------------------------------------------------------- |

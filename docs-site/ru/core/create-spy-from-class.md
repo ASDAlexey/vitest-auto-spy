@@ -39,8 +39,8 @@ createSpyFromClass(MyService, {
 
 Ключи `ClassSpyConfiguration` — это `methodsToSpyOn`, `onlyMethodsToSpyOn`,
 `instanceMethodsToSpyOn`, `observablePropsToSpyOn`, `gettersToSpyOn`, `settersToSpyOn`,
-`autoSpyAccessors`, `fillMissing`, `lazySpies`, `returns`, `overrides`, `strict` и
-`onUnstubbedCall`.
+`autoSpyAccessors`, `fillMissing`, `lazySpies`, `returns`, `selfReturning`, `overrides`, `strict`
+и `onUnstubbedCall`.
 
 ### `strict` — метод, который никто не настроил {#strict}
 
@@ -246,6 +246,36 @@ registerAutoSpyDefaults([
 
 `AutoSpyDefaultEntry<T>` — тип строки, экспортированный для случая, когда строку собирают вне
 литерала: хелпер, который её возвращает, или список, составленный по проектам.
+
+### Зависимость за `InjectionToken` {#token-defaults}
+
+Двойник токена собирают заново в каждом файле, который его регистрирует, — ровно как раньше класс, и
+принимает его тот же реестр: через `registerAutoSpyDefaults`, который экспортирует
+`vitest-auto-spy/angular`. Основная точка входа не может назвать ангуляровский `InjectionToken`,
+поэтому её сигнатура принимает только класс; версия из `/angular` добавляет перегрузку для токена
+над тем же самым реестром.
+
+```ts
+// vitest-setup.ts, один раз
+import { registerAutoSpyDefaults } from 'vitest-auto-spy/angular';
+
+registerAutoSpyDefaults(LOGGER, { returns: { info: undefined, err: undefined }, selfReturning: ['channel'] });
+registerAutoSpyDefaults(NAVIGATION, { overrides: { activeRow$: of({}) }, returns: { setFocus: undefined } });
+
+// в каждой спеке дальше
+providers: [provideAutoSpyForToken(LOGGER), provideAutoSpyForToken(NAVIGATION, { activeRow$: rows$ })];
+```
+
+`provideAutoSpyForToken` читает регистрацию ровно так же, как `provideAutoSpy` читает регистрацию
+класса: его сиды (второй аргумент) и настройка (третий) сливаются поверх неё по правилам выше, а
+зарегистрированный `returns` остаётся умолчанием, которое более поздний `calledWith` или
+`resolveWith` перекрывает. Что может сказать строка токена — это `AutoSpyTokenDefaults<T>`: то, что
+принимает [`createAutoMock`](./auto-mock-by-type) (`returns`, `selfReturning`,
+`observablePropsToSpyOn`, `strict`, `name`), плюс `overrides`. Каждый ключ проверяется по `T`
+токена, а в одной таблице можно смешивать строки классов и строки токенов.
+
+Токен, переданный в экспорт **основной** точки входа, падает с `TS2345 … 'InjectionToken<AppLogger>'
+is not assignable to parameter of type 'ClassType<unknown>'`. Лечится импортом.
 
 ## Ленивые спаи — `lazySpies` {#lazy-spies-—-lazyspies}
 
@@ -518,8 +548,30 @@ providers: [provideAutoSpy(ProductsService, { returns: { getProducts: of([]) } }
 срезают путь обычно через экспортированный `const`-провайдер со значениями, что при `isolate: false`
 даёт один набор спаев на все импортирующие его файлы.
 
-`returns` ставит реализацию, ровно как `mockReturnValue`, поэтому цепочка `calledWith(…)`,
-настроенная **после** на том же методе, значение уже не определяет. На каждый метод — что-то одно.
+Это **умолчание** метода, и хранится оно в собственном контейнере спая: цепочка `calledWith(…)`,
+настроенная после, по-прежнему решает значение для своих аргументов, более поздний `resolveWith` /
+`failWith` его заменяет, `undefined` под `strict` считается настройкой, а `resetAutoSpy` его
+сбрасывает.
+
+## `selfReturning` — метод, который отвечает самим двойником {#self-returning}
+
+```ts
+provideAutoSpy(QueryBuilder, { selfReturning: ['where', 'orderBy'], returns: { run: [] } });
+provideAutoSpyForToken(LOGGER, undefined, { selfReturning: ['channel'] });
+```
+
+Та запись `returns`, которую литералом не написать: когда пишется настройка, двойника ещё нет. Она
+нужна для вызова, от которого код под тестом строит цепочку, — `query.where('a').orderBy('b').run()`,
+`inject(LOGGER).channel('auth').debug('…')`, — где ненастроенное звено отвечает `undefined`, и
+следующий шаг падает, часто прямо в конструкторе, до первой строки спеки.
+
+Это то же умолчание, что ставит `returns`, поэтому под `strict` оно считается настройкой, а более
+поздние `calledWith` / `mockReturnValue` его перекрывают. Метод, названный и там и там, отвечает
+значением из `returns` — так спека вынимает одно звено из цепочки, заданной
+[регистрацией](#registerautospydefaults-—-the-composition-lives-with-the-class), ведь списки только
+объединяются. Принимают его все фабрики: `createSpyFromClass`, `createSpyFromInstance` (там ответ —
+сам экземпляр), `createAutoMock`, `provideAutoSpy`, `provideAutoSpyForToken`. Булев `selfReturning` у
+`mockDeep` — та же идея для каждого узла глубокого двойника.
 
 ## `gettersToSpyOn` принимает геттер, возвращающий сигнал {#getterstospyon-accepts-a-signal-valued-getter}
 

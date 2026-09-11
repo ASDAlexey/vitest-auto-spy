@@ -171,9 +171,9 @@ that import this entry and on nobody else.
 
 Two consequences worth stating plainly:
 
-- Unlike every other subpath, this one does **not** re-export the core. It is a companion to
-  `vitest-auto-spy/angular`, which stays the import for spies, `TestBed` helpers and
-  `settleResource`.
+- Like [`/angular-router`](/adapters/angular-router) and unlike every other subpath, this one does
+  **not** re-export the core. It is a companion to `vitest-auto-spy/angular`, which stays the import
+  for spies, `TestBed` helpers and `settleResource`.
 - The entry weighs **2.5 kB min+gzip** (2459 B, measured the way the README badge is: esbuild
   bundle, minified, gzipped, peers external).
 

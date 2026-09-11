@@ -15,7 +15,7 @@ re-exports this one, entry point for entry point — a typo installs the same co
 singular name; the alias is generated from it and only ever follows it.
 :::
 
-Peer dependencies are all **provided by your project**; `rxjs` and the three `@angular/*` packages
+Peer dependencies are all **provided by your project**; `rxjs` and the four `@angular/*` packages
 are **optional** — install them only for the matching entry point. The package itself has **zero
 runtime dependencies**.
 
@@ -25,6 +25,7 @@ runtime dependencies**.
 | `rxjs`                      | `vitest-auto-spy/rxjs` observable spies — `>=7.2`, no upper bound (rxjs 8 too)                    | yes       |
 | `@angular/core`             | `vitest-auto-spy/angular` and `vitest-auto-spy/bun-angular` helpers — `>=20`                      | yes       |
 | `@angular/common`           | `vitest-auto-spy/angular-http` — `>=20`, this entry only                                          | yes       |
+| `@angular/router`           | `vitest-auto-spy/angular-router` — `>=20`, this entry only                                        | yes       |
 | `@angular/platform-browser` | `By` and the directive matchers on `vitest-auto-spy/angular`, the Bun preload's platform — `>=20` | yes       |
 
 | Tool       | Minimum                                                                  |

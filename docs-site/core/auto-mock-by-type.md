@@ -249,5 +249,6 @@ boot(asInstance(mockDeep<AppLogger>({}, { selfReturning: true })));
 `asInstance` did not accept a deep mock before 3.5.0, which left one with nowhere to go: the factory
 tree recommends `mockDeep` when the calls chain, and the result then fitted nothing expecting `T`.
 
-When only one method chains, `createAutoMock<T>()` with `channel.mockReturnThis()` is the smaller
-answer.
+When only one method chains, `createAutoMock<T>(undefined, { selfReturning: ['channel'] })` is the
+smaller answer: that one method answers the double itself, stays a spy, and counts as configured
+under `strict`.

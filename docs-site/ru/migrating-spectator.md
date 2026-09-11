@@ -246,6 +246,7 @@ npm un @ngneat/spectator
 | `spectator.click(el)`, `typeInElement`, `dispatchMouseEvent` | `@testing-library/angular` + `@testing-library/user-event`                      | **здесь не предоставляется**                                                           |
 | `toHaveClass`, `toHaveText`, `toBeVisible`, …                | `@testing-library/jest-dom`                                                     | **здесь не предоставляется**                                                           |
 | `SpectatorHttp` / `createHttpFactory`                        | [`provideHttpTesting()` / `expectRequest()`](/ru/adapters/angular-http)         | и он валит тест, который оставил запрос без ответа                                     |
+| `SpectatorRouting` / `createRoutingFactory`, `setRouteParam` | [`provideActivatedRoute()` / `injectActivatedRoute().setParams()`](/ru/adapters/angular-router) | собственный `ActivatedRoute` Angular; сеттер заменяет весь набор, а не один ключ       |
 | `flushEffects()`                                             | [`flushEffects()`](/ru/adapters/angular)                                        | то же имя, та же работа                                                                |
 | `runInInjectionContext(fn)`                                  | `TestBed.runInInjectionContext(fn)`                                             | собственный API Angular                                                                |
 
@@ -460,7 +461,7 @@ row.triggerEventHandler('click', {});
   способа, которыми AOT-бандл тестов падает через полчаса в чужой спеке.
 - **За пределами Vitest** тот же API работает на `bun:test` и `node:test`, а `TestBed` из Angular
   работает [под `bun test`](/ru/runtimes/bun-angular).
-- **[Тридцать правил линтера](/ru/utilities/eslint-plugin)**, версионируемые вместе с API, который
+- **[Тридцать четыре правила линтера](/ru/utilities/eslint-plugin)**, версионируемые вместе с API, который
   они рекомендуют.
 
 ## Не потеряла ли миграция тест? {#did-the-migration-lose-a-test}
