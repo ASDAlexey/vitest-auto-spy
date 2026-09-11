@@ -241,6 +241,11 @@ describe('prefer-provide-auto-spy', () => {
     expect(firstMessage('const p = { provide: REQUEST, useValue: { headers: { get: vi.fn() } } };', 'prefer-provide-auto-spy')).toContain(
       '{ headers: { get: vi.fn() } }',
     );
+
+    // A chained call is the third argument's, and stays a spy — a `mockReturnThis()` seed did not.
+    expect(firstMessage('const p = { provide: LOGGER, useValue: { channel: vi.fn() } };', 'prefer-provide-auto-spy')).toContain(
+      '{ selfReturning: ["channel"] }',
+    );
   });
 
   it('reads a class out of every initialiser that is not a token', () => {
@@ -1782,6 +1787,7 @@ describe('the plugin', () => {
     // `no-mocked-for-spy` and `prefer-native-spy-api` declare both: the same edit is applied where
     // the file settles it and offered where something outside the file has to agree.
     expect(named((rule) => rule.meta.hasSuggestions !== undefined)).toEqual([
+      'no-compile-components',
       'no-expect-in-subscribe',
       'no-import-time-spread',
       'no-mocked-for-spy',

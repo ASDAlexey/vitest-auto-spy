@@ -6,9 +6,16 @@
  * actually read, and the guards narrow to them at runtime — the same check ESLint itself performs.
  */
 
-/** Where a node begins, in the coordinates a message quotes back to a reader. */
+/** Where a node begins and ends, in the coordinates a message quotes back to a reader. */
 export interface EsSourceLocation {
   start: { line: number };
+  end: { line: number };
+}
+
+/** A comment, as `SourceCode#getAllComments()` returns it — `value` without its `//` or `/* … *\/`. */
+export interface EsComment {
+  value: string;
+  loc: { start: { line: number; column: number }; end: { line: number; column: number } };
 }
 
 /** Any ESTree node, as ESLint hands it to a rule. */
@@ -223,6 +230,8 @@ export interface SuggestionDescriptor {
 /** What a rule passes to `context.report`. */
 export interface ReportDescriptor {
   node: EsNode;
+  /** Where to report instead of `node` — a comment, which an `eslint-disable-next-line` above it can then reach. */
+  loc?: EsComment['loc'];
   messageId: string;
   /** Values for the `{{placeholders}}` of the message. */
   data?: Record<string, string>;
@@ -234,6 +243,8 @@ export interface ReportDescriptor {
 export interface EsSourceCode {
   /** The scope a node sits in. Available since ESLint 8.37 — flat config is well past that. */
   getScope(node: EsNode): EsScope;
+  /** Every comment of the file, in source order. */
+  getAllComments(): EsComment[];
   /** The source of one node, or — with no argument — of the whole file. */
   getText(node?: EsNode): string;
   /**

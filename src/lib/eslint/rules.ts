@@ -42,7 +42,9 @@
  */
 import { type EsPromiseExecutor, type EsSubscribeCall, awaitedRewriteFor } from './await-emission';
 import { bindingState, findBinding } from './bindings';
+import { noCompileComponents } from './compile-components';
 import { noConsoleInSpec, noImportTimeConsoleSpies, noPassthroughConsoleSpy } from './console-rules';
+import { noConstantExpect } from './constant-expect';
 import { noDeadSchemas } from './dead-schemas';
 import { noStructuralDouble } from './declared-double';
 import { defineRule } from './define-rule';
@@ -94,6 +96,8 @@ import {
 import { noStubClassDouble, stubClassProvider } from './stub-class';
 import { type EsNamedCall, type SubscribeRepair, enclosingSubscribe, helperAssertions, repairFor } from './subscribe-repair';
 import { INSTANTIATES_THE_MODULE, breaksAnOverride } from './testbed-order';
+import { noTsExpectErrorOnDouble } from './ts-expect-error-on-double';
+import { noUnknownUseValueKey } from './unknown-use-value-key';
 import { emptyRegistrations, readCall, readProviders, unregisteredInjections } from './unregistered-spy';
 
 /** `{ provide: X, useValue: { a: vi.fn() } }`, `{ provide: X, useClass: XMock }` and `TestBed.overrideProvider(X, …)` → `provideAutoSpy(X)`. */
@@ -104,7 +108,7 @@ const preferProvideAutoSpy = defineRule({
     preferProvideAutoSpy:
       'This `useValue` object hand-rolls a service mock. `provideAutoSpy(Class)` spies every method of the real class, so the stub cannot drift from it. A member the double must **be** rather than spy on — a config object, a plain field, a stream the spec drives — goes in `{ overrides: … }`, which the class factory takes as well as the token one: `provideAutoSpy(ConfigService, { overrides: { remoteConfig: { theme: "dark" } } })`, seeded last and stored verbatim. For a dependency behind an `InjectionToken` — which has no class to read, and which `provideAutoSpy` therefore cannot take — it is `provideAutoSpyForToken(TOKEN)`, built from the type the token carries.',
     preferProvideAutoSpyForToken:
-      'This `useValue` object hand-rolls a mock for an `InjectionToken`. `provideAutoSpy` cannot take one: it reads a class prototype and a token has none. `provideAutoSpyForToken(TOKEN)` builds the double from the type the token carries instead. Members the double must *answer* with rather than spy on go in its second argument — including a call the code under test chains off: `provideAutoSpyForToken(LOGGER, { channel: vi.fn().mockReturnThis() })`, without which `inject(LOGGER).channel("x").debug()` dies on `undefined` inside the constructor. The same second argument is the answer for a **nested** shape — a request, a response, a DOM-ish object — because the bare double is one level deep: every key it is asked for becomes a function spy, so `req.headers` is a spy and `req.headers.get(…)` reads a property off it. Seed the level: `provideAutoSpyForToken(REQUEST, { headers: { get: vi.fn() } })`.',
+      'This `useValue` object hand-rolls a mock for an `InjectionToken`. `provideAutoSpy` cannot take one: it reads a class prototype and a token has none. `provideAutoSpyForToken(TOKEN)` builds the double from the type the token carries instead. Members the double must *answer* with rather than spy on go in its second argument. A call the code under test chains off is named in the third, and stays a spy: `provideAutoSpyForToken(LOGGER, undefined, { selfReturning: ["channel"] })`, without which `inject(LOGGER).channel("x").debug()` dies on `undefined` inside the constructor. The same second argument is the answer for a **nested** shape — a request, a response, a DOM-ish object — because the bare double is one level deep: every key it is asked for becomes a function spy, so `req.headers` is a spy and `req.headers.get(…)` reads a property off it. Seed the level: `provideAutoSpyForToken(REQUEST, { headers: { get: vi.fn() } })`.',
     preferProvideAutoSpyOverStubClass:
       'This provider hands DI a stub class whose fields are `vi.fn()`s — an object of `vi.fn()`s with a `new` in front of it, and the same drift: it only mocks the methods somebody remembered, and the class it stands in for is free to grow one. `provideAutoSpy(Class)` spies every method of the real class instead, so the whole registration becomes `providers: [provideAutoSpy(Class)]` and the stub class can be deleted. The returns the stub was tuned with move to the second argument — a value the double must **be** rather than spy on goes in `{ overrides: … }`, a call the code under test chains off goes in the seed: `provideAutoSpy(CardService, { overrides: { config: { theme: "dark" } } })`. Behind an `InjectionToken`, which has no class prototype to read, it is `provideAutoSpyForToken(TOKEN)`. `useExisting:` reaches this message too: it aliases the token instead of constructing the stub per injector, which changes nothing about the stub being hand-written.',
     preferProvideAutoSpyInOverride:
@@ -692,6 +696,10 @@ export const rules: Record<string, RuleModule> = {
   'no-console-in-spec': noConsoleInSpec,
   'no-import-time-console-spies': noImportTimeConsoleSpies,
   'no-mistyped-use-value': noMistypedUseValue,
+  'no-unknown-use-value-key': noUnknownUseValueKey,
   'no-instance-lifecycle-spy': noInstanceLifecycleSpy,
+  'no-ts-expect-error-on-double': noTsExpectErrorOnDouble,
+  'no-constant-expect': noConstantExpect,
+  'no-compile-components': noCompileComponents,
   ...jasmineRules,
 };
