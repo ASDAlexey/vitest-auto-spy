@@ -143,6 +143,12 @@ scheduled it. The stack is captured when the callback is scheduled — twelve fr
 only for the ones that turn out to be strays — and `describeStrayTimers()` returns the same list for
 a suite that sweeps by hand.
 
+That capture is what `strayTimers` costs. A `setTimeout` + `clearTimeout` pair on Node's real timers
+takes 70 ns untracked, 116 ns tracked in 5.5.0 and about 1.75 µs tracked now, and a pending timer
+holds about 0.9 kB more until it fires or is swept (Node v24.19.0, Apple M4 Max). The cap is not the
+lever: V8 pays about 0.9 µs for any stack at all, twelve frames or five. A file that schedules 10 000
+timers pays about 16 ms for knowing where each came from.
+
 ### With Vitest 4.1's `--detect-async-leaks`
 
 ::: warning The two cancel each other out, and the quiet one wins
@@ -844,9 +850,10 @@ Deliberately **not** in it, each for a reason:
   which is why this one is `preset`.
 - **`blockNetwork`** — it changes what the code under test sees.
 - **`restoreMocks`** — it also drops `vi.spyOn` stubs a suite installed in `beforeAll`.
-- **Failing on stray timers** — the sweep knows how many timers outlived a file, not where they were
-  scheduled, and a failure with no location is not one anybody can act on. It is one line to opt in:
-  `onStrayTimers: ({ cancelled }) => expect(cancelled).toBe(0)`.
+- **Failing on stray timers** — the sweep runs in `afterAll`, so the failure lands on the file rather
+  than a test, and a callback scheduled after the previous file's sweep is charged to the next one:
+  the count can fail a file that scheduled nothing. `timers` names who really scheduled each, so it is
+  one line to opt in once a suite has read them: `onStrayTimers: ({ timers }) => expect(timers).toEqual([])`.
 - **`enableAngularDiagnostics()`** — it lives in `vitest-auto-spy/angular` and needs the TestBed
   environment first. Call it in the same setup file as the Angular half of strict: on a 1759-file
   Angular consumer it found real defects in 25 files and 324 tests, and cost nothing measurable

@@ -636,7 +636,7 @@ only pays for the ones it imports:
 | Imported                                      |    min+gzip |
 | --------------------------------------------- | ----------: |
 | `.` — the core entry, what the badge measures | **16.6 kB** |
-| `vitest-auto-spy/angular`                     |     20.9 kB |
+| `vitest-auto-spy/angular`                     |     21.0 kB |
 | `vitest-auto-spy/react` / `/vue` / `/svelte`  |     16.8 kB |
 | `vitest-auto-spy/node`                        |     15.6 kB |
 | `vitest-auto-spy/dom-stubs`                   |      5.4 kB |
@@ -791,6 +791,13 @@ config args are serialized once when the config is registered rather than on eve
 a large bite out of it. Reach for an exact `calledWith` when you have one: that path is a map
 lookup rather than a walk, and it is the **0.17 µs** row in the micro-benchmark above — two
 configured shapes plus a miss.
+
+One run-level switch has a per-call price of its own:
+[`setupAutoSpy({ strayTimers: true })`](/utilities/setup#_4-cancelling-timers-that-outlive-their-file),
+which `preset: 'strict'` turns on. Every `setTimeout`, `setInterval` and `requestAnimationFrame`
+captures a stack so a stray can name the call that scheduled it, and a scheduled-and-cleared timeout
+goes from 70 ns to about **1.75 µs** — 116 ns before 5.6 recorded origins (Node v24.19.0, Apple M4 Max,
+2026-09-11). Nearly all of it is V8 building the stack, which costs about 0.9 µs at any depth.
 
 ## What actually makes a suite slow
 

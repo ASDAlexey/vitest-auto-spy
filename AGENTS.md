@@ -1145,23 +1145,28 @@ setupAutoSpy({ strayTimers: true }); // wrap the schedulers, sweep the survivors
 ```
 
 The pieces are exported too — `trackStrayTimers()` (idempotent, returns the undo),
-`cancelStrayTimers()` (returns how many it cancelled) and `countStrayTimers()`, all from
-`vitest-auto-spy/setup`. Use `expect(countStrayTimers()).toBe(0)` in an `afterEach` to make a leak
-fail rather than be tidied away, or take the per-file count from the sweep itself:
+`cancelStrayTimers()` (returns how many it cancelled), `countStrayTimers()` and
+`describeStrayTimers()` (each pending timer's kind, the spec file that scheduled it and up to five
+frames), all from `vitest-auto-spy/setup`. Use `expect(countStrayTimers()).toBe(0)` in an `afterEach`
+to make a leak fail rather than be tidied away, or take the per-file report from the sweep itself —
+`timers` carries the same origins, so the failure diff names the file and the scheduling call:
 
 ```ts
-setupAutoSpy({ strayTimers: true, onStrayTimers: ({ cancelled }) => expect(cancelled).toBe(0) });
+setupAutoSpy({ strayTimers: true, onStrayTimers: ({ timers }) => expect(timers).toEqual([]) });
 ```
+
+A stray whose `file` is not the file that failed was scheduled after the previous file's sweep —
+the previous file is the one to fix.
 
 **With Vitest 4.1's `--detect-async-leaks`, run one or the other — not both silently.** The two
 arrive at the same timer from opposite ends and the quiet one wins: the sweep cancels in `afterAll`,
 Vitest collects its leaks afterwards, and a cancelled timeout is no longer referenced, so the run
 reports **no leaks** for a file that leaks. Cancelling is still the right default — a callback firing
 during a later file is the more expensive failure — so when both are on and no `onStrayTimers` is
-given, the sweep prints one line to stderr saying how many it took away. To see _where_ each one was
-scheduled, re-run that file with `strayTimers` off and read Vitest's report; the code frame points
-at the `setTimeout` in the spec, because the library's own scheduler wrappers go through
-`vi.defineHelper` and are dropped from the stack.
+given, the sweep prints one line to stderr saying how many it took away and where the first three
+were scheduled; `onStrayTimers` gets all of them. Vitest's own report, with `strayTimers` off, points
+its code frame at the `setTimeout` in the spec, because the library's own scheduler wrappers go
+through `vi.defineHelper` and are dropped from the stack.
 
 **The one that keeps a suite green while it is wrong:** zone.js replaces the global `Promise`, and a
 rejection nobody handled is drained into `console.error` and no further — it never reaches
@@ -1598,9 +1603,10 @@ Sets `duplicateCopies`, `propsOutsideHooks`, `guardGlobals`, `prototypePollution
 loaded. An option passed alongside still wins. **Not** included: `strict` (strict doubles change what
 an unconfigured call returns — a semantic switch, not a grade; the name was taken, hence `preset`),
 `blockNetwork` (changes the code under test), `restoreMocks` (drops `beforeAll` spies), failing on
-stray-timer counts (no location to act on — opt in with
-`onStrayTimers: ({ cancelled }) => expect(cancelled).toBe(0)`), and `enableAngularDiagnostics()`,
-which lives in `/angular` — call it in the same setup file as the Angular half of strict.
+stray-timer counts (the sweep fails the file from `afterAll`, and a callback scheduled after the
+previous file's sweep is charged to the next — opt in with
+`onStrayTimers: ({ timers }) => expect(timers).toEqual([])`, whose diff names each one's file), and
+`enableAngularDiagnostics()`, which lives in `/angular` — call it in the same setup file as the Angular half of strict.
 
 `misconfiguration: 'throw'` on its own makes the library's misuse reports — an `onlyMethodsToSpyOn`
 typo, `gettersToSpyOn` naming a method, a `returns` key no spy answers to, `injectSpy` handed a real
@@ -2866,7 +2872,7 @@ packages, which a subpath export can never be.
 | a 30 s timeout, in a different file each run                                                                  | module-level `vi.fn()` in a fixture shared by files                                                                                                                                                                                                                        | make the fixture a factory (§10)                                                                                                                                                                                                                                                                          |
 | a component's `afterNextRender` state is empty                                                                | `detectChanges()` does not run the after-render phase                                                                                                                                                                                                                      | `await stable(fixture)` (§11)                                                                                                                                                                                                                                                                             |
 | a green test whose only line about a call is `spy.m.calledWith(1);`                                           | that is a **stub**, not an assertion — chai's `expect(fn).to.have.been.calledWith(x)` is the one that checks                                                                                                                                                               | continue the chain, or `expect(spy.m).toHaveBeenCalledWith(1)` — `no-bare-called-with` (§16)                                                                                                                                                                                                              |
-| `--detect-async-leaks` reporting no leaks in a suite that visibly leaks timers                                | `setupAutoSpy({ strayTimers: true })` cancelled them before Vitest collected                                                                                                                                                                                               | re-run that file with `strayTimers` off; the warning on stderr says how many were taken (§10)                                                                                                                                                                                                             |
+| `--detect-async-leaks` reporting no leaks in a suite that visibly leaks timers                                | `setupAutoSpy({ strayTimers: true })` cancelled them before Vitest collected                                                                                                                                                                                               | the warning on stderr says how many were taken and where the first three were scheduled; `onStrayTimers` gets every one in `timers` (§10)                                                                                                                                                              |
 | `createNestUnit(X): parameter #n of Y is typed as \`Object\``(or`undefined — usually a circular import`)      | the compiler emitted no runtime class for that parameter — interface, union, primitive, or a circular import                                                                                                                                                               | `@Inject(TOKEN)` plus a `providers` entry, or `@Optional()` to receive `undefined`; `@Inject(forwardRef(() => X))` for the import cycle                                                                                                                                                                   |
 | `createNestUnit(X): Y declares n constructor parameter(s) but carries no design:paramtypes metadata`          | no `emitDecoratorMetadata` (esbuild / Vite), or `reflect-metadata` loaded after the class                                                                                                                                                                                  | tsc or SWC with `decoratorMetadata`, `@Injectable()`, `reflect-metadata` first; or `@Inject(X)` on every parameter                                                                                                                                                                                        |
 | `createNestUnit(X): A -> B -> A is a cycle among the classes built for real`                                  | two exposed / `useClass` classes depend on each other; the helper does not resolve `forwardRef` cycles                                                                                                                                                                     | expose one side less, or provide it                                                                                                                                                                                                                                                                       |

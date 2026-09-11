@@ -3070,7 +3070,7 @@ only pays for the ones it imports:
 | Imported                                      |    min+gzip |
 | --------------------------------------------- | ----------: |
 | `.` — the core entry, what the badge measures | **16.6 kB** |
-| `vitest-auto-spy/angular`                     |     20.9 kB |
+| `vitest-auto-spy/angular`                     |     21.0 kB |
 | `vitest-auto-spy/react` / `/vue` / `/svelte`  |     16.8 kB |
 | `vitest-auto-spy/node`                        |     15.6 kB |
 | `vitest-auto-spy/dom-stubs`                   |      5.4 kB |
@@ -3224,6 +3224,13 @@ config args are serialized once when the config is registered rather than on eve
 a large bite out of it. Reach for an exact `calledWith` when you have one: that path is a map
 lookup rather than a walk, and it is the **0.17 µs** row in the micro-benchmark above — two
 configured shapes plus a miss.
+
+One run-level switch has a per-call price of its own:
+[`setupAutoSpy({ strayTimers: true })`](https://asdalexey.github.io/vitest-auto-spy/utilities/setup#_4-cancelling-timers-that-outlive-their-file),
+which `preset: 'strict'` turns on. Every `setTimeout`, `setInterval` and `requestAnimationFrame`
+captures a stack so a stray can name the call that scheduled it, and a scheduled-and-cleared timeout
+goes from 70 ns to about **1.75 µs** — 116 ns before 5.6 recorded origins (Node v24.19.0, Apple M4 Max,
+2026-09-11). Nearly all of it is V8 building the stack, which costs about 0.9 µs at any depth.
 
 ## What actually makes a suite slow
 
@@ -5312,6 +5319,12 @@ scheduled it. The stack is captured when the callback is scheduled — twelve fr
 only for the ones that turn out to be strays — and `describeStrayTimers()` returns the same list for
 a suite that sweeps by hand.
 
+That capture is what `strayTimers` costs. A `setTimeout` + `clearTimeout` pair on Node's real timers
+takes 70 ns untracked, 116 ns tracked in 5.5.0 and about 1.75 µs tracked now, and a pending timer
+holds about 0.9 kB more until it fires or is swept (Node v24.19.0, Apple M4 Max). The cap is not the
+lever: V8 pays about 0.9 µs for any stack at all, twelve frames or five. A file that schedules 10 000
+timers pays about 16 ms for knowing where each came from.
+
 ### With Vitest 4.1's `--detect-async-leaks`
 
 **The two cancel each other out, and the quiet one wins**
@@ -6012,9 +6025,10 @@ Deliberately **not** in it, each for a reason:
   which is why this one is `preset`.
 - **`blockNetwork`** — it changes what the code under test sees.
 - **`restoreMocks`** — it also drops `vi.spyOn` stubs a suite installed in `beforeAll`.
-- **Failing on stray timers** — the sweep knows how many timers outlived a file, not where they were
-  scheduled, and a failure with no location is not one anybody can act on. It is one line to opt in:
-  `onStrayTimers: ({ cancelled }) => expect(cancelled).toBe(0)`.
+- **Failing on stray timers** — the sweep runs in `afterAll`, so the failure lands on the file rather
+  than a test, and a callback scheduled after the previous file's sweep is charged to the next one:
+  the count can fail a file that scheduled nothing. `timers` names who really scheduled each, so it is
+  one line to opt in once a suite has read them: `onStrayTimers: ({ timers }) => expect(timers).toEqual([])`.
 - **`enableAngularDiagnostics()`** — it lives in `vitest-auto-spy/angular` and needs the TestBed
   environment first. Call it in the same setup file as the Angular half of strict: on a 1759-file
   Angular consumer it found real defects in 25 files and 324 tests, and cost nothing measurable
@@ -12055,12 +12069,17 @@ test('does not build what it does not name', ({ api }) => {
 
 Each entry is a class, a `[Class, config]` pair taking whatever `provideAutoSpy` takes, or an
 `InjectionToken` — built from the token's own type, exactly as `provideAutoSpyForToken` does.
-Anything else the module needs goes in the third argument and is registered in the same call, ahead
-of the generated providers, so a token named there wins:
+Anything else the module needs goes in the third argument and is registered in the same call, after
+the generated providers, so a token named there wins:
 
 ```ts
 const test = extendWithAutoSpies(base, { cart: CartService }, { providers: [provideHttpClient(), CartComponent] });
 ```
+
+A fixture whose token that list names — `{ provide: CartService, useValue: real }` or a bare class —
+resolves to what the list provides, read with `TestBed.inject` rather than `injectSpy`: keeping a real
+service is a decision, not a misconfiguration, so it stays quiet under `misconfiguration: 'throw'` and
+`preset: 'strict'` too.
 
 **Why the whole map at once, rather than a chain of `.extend`s**
 This is a `TestBed` rule, not a typing limitation. Fixtures resolve lazily and independently, so in
@@ -17418,6 +17437,7 @@ The exported surface of `vitest-auto-spy` and its subpaths.
 | `guardPrototypePollution(reaction)`                                                                          | Name the test that left a key on `Object.prototype`, and take it back off (`/setup`)                                                                                |
 | `guardStrayConsole(reaction \| { reaction, allow })`                                                         | Fail a test that wrote to the console without absorbing it, and a file that wrote outside any test (`/setup`)                                                      |
 | `withoutStrayTimerTracking(work, host?)`                                                                     | Run setup work whose timers the stray-timer tracker must neither count nor cancel (`/setup`)                                                                        |
+| `describeStrayTimers(host?)`                                                                                 | Each timer still pending, with its kind, the spec file that scheduled it and up to five frames — the list `onStrayTimers` gets (`/setup`)                          |
 | `restoreWebStorage(options?)`                                                                                | Give `globalThis` a `localStorage` / `sessionStorage` that work when the runner's copy never arrived; on by default inside `setupAutoSpy()` (`/setup`)              |
 | `installPerTest(install)`                                                                                    | Re-install a stub before every test of the block, and read back the current handle (`/setup`)                                                                       |
 | `stubMediaElement(opts?)`                                                                                    | A `<video>` / `<audio>` that plays, reports a duration and fires the media events                                                                                   |
@@ -17621,7 +17641,7 @@ report does not evaluate them — see [Upgrading to 4.0](https://asdalexey.githu
 | `/react`, `/svelte` | — (the core, under a name that reads right in those suites)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | `/console`          | `consoleDebugSpy` … `consoleWarnSpy`, `installConsoleSpies`, `resetConsoleSpies`, `restoreConsole`                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | `/zone`             | `installProxyZonePatch` — and installs it on import. The only entry that touches zones; zone.js is a **devDependency of this package and nothing else**, and no other entry reaches this module                                                                                                                                                                                                                                                                                                                                                                               |
-| `/setup`            | `setupAutoSpy`, `setupFakeTimers`, `advanceTimers`, `mockSystemTime`, `withSystemTime`, `mockNow`, `useCountingClock`, `registerFocusMatchers`, `blockNetwork`, `guardGlobalPatches`, `guardPrototypePollution`, `guardStrayConsole`, `installPerTest`, `restoreTimerGlobals`, `restoreWebStorage`, `setSpyEngine` / `getSpyEngine` / `SpyEngine`, the stray-timer (with `withoutStrayTimerTracking`) and stray-rejection trackers, the mock-registry trackers, `describeDuplicateCopies`, `getPackageCopies`                                                                                                                         |
+| `/setup`            | `setupAutoSpy`, `setupFakeTimers`, `advanceTimers`, `mockSystemTime`, `withSystemTime`, `mockNow`, `useCountingClock`, `registerFocusMatchers`, `blockNetwork`, `guardGlobalPatches`, `guardPrototypePollution`, `guardStrayConsole`, `installPerTest`, `restoreTimerGlobals`, `restoreWebStorage`, `setSpyEngine` / `getSpyEngine` / `SpyEngine`, the stray-timer (with `withoutStrayTimerTracking` and `describeStrayTimers`) and stray-rejection trackers, the mock-registry trackers, `describeDuplicateCopies`, `getPackageCopies`                                                                                                                         |
 | `/eslint-plugin`    | the flat-config plugin object                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 
 The core itself also carries, beyond the factories: `captureArg`, `asInstances`, `narrow`, `withOverrides`,

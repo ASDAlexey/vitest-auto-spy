@@ -35,10 +35,12 @@ goes". What shipped is in `CHANGELOG.md`; what was weighed and left out is here.
       test sees; the second also drops `vi.spyOn` stubs a suite installed in `beforeAll`. Neither is
       a grade.
 
-- [~] **Failing a file on stray timers under the preset.** The sweep knows how many timers outlived
-      a file, not where they were scheduled — a failure with no location is not one anybody can act
-      on, and recording a stack per `setTimeout` would tax every Angular render. One line opts in:
-      `onStrayTimers: ({ cancelled }) => expect(cancelled).toBe(0)`.
+- [~] **Failing a file on stray timers under the preset.** The sweep runs in `afterAll`, so the
+      failure lands on a file rather than a test, and a callback scheduled after the previous file's
+      sweep is charged to the next one — the count can fail a file that scheduled nothing. Each stray
+      now carries its scheduling file and frames, at the price of a stack per scheduled timer (about
+      1.6 µs, see `docs-site/core/performance.md`), so the failure is actionable but still not the
+      preset's to impose. One line opts in: `onStrayTimers: ({ timers }) => expect(timers).toEqual([])`.
 
 - [~] **`enableAngularDiagnostics()` inside the preset.** `/setup` imports no Angular, and the group
       needs the TestBed environment initialised first. Documented as the Angular half of strict, to
