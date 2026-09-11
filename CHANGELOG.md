@@ -129,6 +129,23 @@ The latest released version here must always match the one published on
   `no-structural-double`'s subject — a rule of its own rather than an arm of this one, because its
   finding **compiles** and everything in `configs.typeErrors` has to be a finding that does not.
 
+- **One enumerable key left on `Object.prototype` stops a worker collecting, and the run still looks
+  green.** `setupAutoSpy()` now watches `Object.prototype`, `Array.prototype` and
+  `Function.prototype`, takes back off any own enumerable key a test added, and fails that test by
+  name — `prototypePollution`, defaulting to `'throw'`; `guardPrototypePollution` is the same check
+  registered on its own. Vitest assembles a file's hooks in `mergeHooks`, which walks its hooks
+  object with `for…in`, so one inherited key is spread as if it were an array during **collect**:
+  `TypeError: Spread syntax requires ...iterable[Symbol.iterator] to be a function`, with no stack,
+  because every frame of it sits under `stackIgnorePatterns`. Under `isolate: false` the key outlives
+  the file that wrote it, so the casualties are that worker's whole tail. Found in a 1759-file
+  consumer, where the report read `145 failed | 1613 passed` over `11880 passed | 0 failed` — zero
+  failing tests because those 145 files never ran — and the count wandered across 0, 75, 83, 122, 135,
+  145 and 155 on an unchanged tree, since a run whose writer happened to go last came out green. The
+  write is nearly always accidental: patching `Object.getPrototypeOf(instance)` to decorate a class
+  hands you `Object.prototype` itself the moment `instance` is an object literal from a `useValue`
+  provider or a test double. A key the environment already carried is left alone, so a project's own
+  prototype polyfill is not swept.
+
 ### Documentation
 
 - **A member read while the component is being constructed can only be seeded by the provider.**
@@ -227,6 +244,19 @@ The latest released version here must always match the one published on
   in `BaseCoverageProvider.getGlobMatchers()`. The measurement behind it stands and still applies to
   the versions the package supports (peer `>=2.1.0`), so the check is gated on the installed major
   instead of being removed, and its message names the mechanism correctly.
+
+- **`propsOutsideHooks` graded the library's own `blockNetwork` stubs as written outside a hook.**
+  The epoch-opening `beforeEach` was registered after the hook `blockNetwork` installs its stubs
+  through, so `open`, `send` and `fetch` were stamped with the previous test's epoch and the sweep
+  reported its own patches — once per worker, behind whichever spec file went first: 13 stderr
+  blocks on one full run of a 1759-file suite over 13 workers, every one naming a spec that patches
+  no property at all. The same ordering is what made the strict grade unusable —
+  `propsOutsideHooks: 'throw'` failed a run of a single spec file on the stubs, which is why the
+  consumer kept `'warn'`. The opener now registers ahead of every stub-installing hook
+  `setupAutoSpy()` installs, and `setup-hook-order.spec.ts` holds the pairing: its first test fails
+  on exactly that throw if the order regresses. The spec lives in a file of its own because the
+  grader reports each patched property once per worker — next to the other `blockNetwork` suites the
+  first report is spent before it runs, and the regression sits behind the dedup, silent.
 
 ### Internal
 
