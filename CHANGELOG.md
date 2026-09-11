@@ -29,6 +29,9 @@ The latest released version here must always match the one published on
   with its first frames. A test that provokes one on purpose takes it with
   `takeStrictViolations()` from `vitest-auto-spy/setup`, which is also the assertion: after
   `expect(() => cart.total()).toThrow(…)`, `expect(takeStrictViolations()).toHaveLength(1)`.
+  The recorder rides the strict dispatch, so every entry point carries it — +0.16…0.19 kB min+gzip
+  on the core rows — and `/setup`, which also pays for the report and the advice text, takes 0.41 kB
+  (15.96 → 16.36 kB).
 
 - **`autoMocked<T>(overrides, config)`** takes the configuration `createAutoMock` takes — `returns`,
   `name`, `strict`, `observablePropsToSpyOn`. It accepted seeds only, so under a suite-wide
@@ -63,7 +66,8 @@ The latest released version here must always match the one published on
   `this.ngOnChanges(…)` and therefore does reach an instance spy. `warn`, because it decides on a
   heuristic: a spec that calls `component.ngOnInit()` itself, or an injector destroying a service,
   reaches the instance spy, and one file's syntax cannot tell those apart. The plugin ships thirty
-  rules.
+  rules, and the two of them add 1.1 kB min+gzip to `/eslint-plugin` (25.88 → 26.95 kB) — a
+  dev-time entry no test bundle ever imports.
 
 ### Fixed
 
