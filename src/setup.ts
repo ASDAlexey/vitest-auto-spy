@@ -25,6 +25,14 @@ useVitestAdapter();
 export { setupAutoSpy, type DuplicateCopiesReaction, type SetupAutoSpyOptions } from './lib/setup-auto-spy';
 export { getSpyEngine, setSpyEngine, type SpyEngine } from './lib/vitest-adapter';
 export { guardGlobalPatches, type GlobalPatchReaction } from './lib/global-patch-guard';
+export {
+  checkPrototypePollution,
+  guardPrototypePollution,
+  snapshotPrototypes,
+  type PrototypePollutionReaction,
+  type PrototypeSnapshot,
+  type WatchedPrototype,
+} from './lib/prototype-guard';
 export { installPerTest, type PerTestHandle } from './lib/install-per-test';
 export {
   mockNow,

@@ -25,6 +25,7 @@ import { trackMockRegistry } from './mock-registry';
 import { type BlockNetworkOptions, blockNetwork } from './network-stub';
 import { describeDuplicateCopies } from './package-identity';
 import { type OutsideHookReaction, beginPropEpoch, countMockedProps, reportPropsOutsideHooks, restoreMockedProps } from './prop-mock';
+import { type PrototypePollutionReaction, type PrototypeSnapshot, checkPrototypePollution, snapshotPrototypes } from './prototype-guard';
 import { type StrayRejection, flushStrayRejections, trackStrayRejections } from './stray-rejections';
 import { cancelStrayTimers, detectsAsyncLeaks, trackStrayTimers } from './stray-timers';
 import { restoreTimerGlobals } from './timer-globals';
@@ -137,6 +138,16 @@ export interface SetupAutoSpyOptions {
    * which is the same check registered on its own.
    */
   guardGlobals?: GlobalPatchReaction;
+  /**
+   * Report — and take back off — an own enumerable key a test leaves on `Object.prototype`,
+   * `Array.prototype` or `Function.prototype`. Default `'throw'`.
+   *
+   * On by default because the failure it catches is silent: Vitest walks a file's hooks with
+   * `for…in`, so one inherited key stops **every later spec file in the worker from collecting**,
+   * with no stack and zero failing tests — a green-looking run over code that never executed. See
+   * {@link guardPrototypePollution}.
+   */
+  prototypePollution?: PrototypePollutionReaction;
   /**
    * Put back timer globals that uninstalling the fakes removed rather than restored. Default `true`:
    * it only ever replaces a global that has gone missing, so it cannot overwrite anything a spec
@@ -564,6 +575,35 @@ function watchGlobalPatches(reaction: GlobalPatchReaction): TeardownStep[] {
 }
 
 /**
+ * Arm the prototype-pollution guard, handing back the check to run after each test.
+ *
+ * Registered here rather than through `guardPrototypePollution` (which stays the standalone entry
+ * point) so that the check is one of the steps above: it throws, and the restores have to survive it.
+ */
+function watchPrototypePollution(reaction: PrototypePollutionReaction): TeardownStep[] {
+  if (reaction === 'off') {
+    return [];
+  }
+
+  let before: PrototypeSnapshot[] = [];
+
+  beforeEach(() => {
+    // Taken once for the file: the check advances the snapshot itself, and a fresh one before every
+    // test would adopt a key the previous test left as the new baseline — the one case that has to
+    // be reported rather than accepted.
+    if (before.length === 0) {
+      before = snapshotPrototypes();
+    }
+  });
+
+  return [
+    (): void => {
+      checkPrototypePollution(before, reaction);
+    },
+  ];
+}
+
+/**
  * The hook-timeout annotation, as a step or as nothing at all.
  *
  * First of the diagnostics on purpose: it adds a sentence to a failure the runner has already
@@ -612,6 +652,24 @@ function watchStrayRejections(enabled: boolean): TeardownStep[] {
  * Both are one-shot rather than per test — nothing takes a repair off again — and both have to
  * happen before a spec file's own `beforeEach`, which is where a missing storage first fails.
  */
+/**
+ * The steps of the shared `afterEach` that report rather than restore.
+ *
+ * Kept apart from the restores because the split is not cosmetic: these are the steps that throw on
+ * purpose, the restores are the ones that put the environment back, and the net that re-runs the
+ * restores must not re-run a check that has already reported. See {@link runTeardown} for why the
+ * two nevertheless live in one hook.
+ */
+function buildDiagnostics(options: SetupAutoSpyOptions): TeardownStep[] {
+  return [
+    ...watchHookTimeouts(options.hookTimeoutHint ?? true),
+    ...watchFrozenClock(options.frozenClockHint ?? true),
+    ...watchGlobalPatches(options.guardGlobals ?? 'off'),
+    ...watchPrototypePollution(options.prototypePollution ?? 'throw'),
+    ...watchStrayRejections(options.strayRejections ?? false),
+  ];
+}
+
 function prepareEnvironment(options: SetupAutoSpyOptions): void {
   if (options.angularBuildHint ?? true) {
     noticeAngularBuildSplitting();
@@ -668,17 +726,7 @@ export function setupAutoSpy(options: SetupAutoSpyOptions = {}): void {
     });
   }
 
-  // The diagnostics come first because they are the steps that throw on purpose; every restore
-  // after them runs regardless. See {@link runTeardown} for why the two live in one hook.
-  // The diagnostics are the steps that throw on purpose; the restores are the ones that put the
-  // environment back. The split is not cosmetic — the net below re-runs the restores and must not
-  // re-run a check that has already reported.
-  const diagnostics: TeardownStep[] = [
-    ...watchHookTimeouts(options.hookTimeoutHint ?? true),
-    ...watchFrozenClock(options.frozenClockHint ?? true),
-    ...watchGlobalPatches(options.guardGlobals ?? 'off'),
-    ...watchStrayRejections(options.strayRejections ?? false),
-  ];
+  const diagnostics = buildDiagnostics(options);
   const restores: TeardownStep[] = [];
 
   if (options.restoreProps ?? true) {
