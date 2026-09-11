@@ -27,7 +27,7 @@ features:
     details: 'A method returning a Promise gets resolveWith and rejectWith, one returning an Observable gets nextWith and throwWith, and every method gets calledWith, mustBeCalledWith and failWith.'
     link: /core/control-helpers
   - title: Spy defaults that live with the class
-    details: 'registerAutoSpyDefaults(Router, config) once in a setup file and every provideAutoSpy or createSpyFromClass starts from it — merged with what the call site adds, not replaced. One Angular suite carried 23 different configurations of the same class across 109 spec files; a dozen classes go in as one table, each row checked against its own class, and an InjectionToken registers the same way from vitest-auto-spy/angular.'
+    details: 'registerAutoSpyDefaults(Router, config) once in a setup file and every provideAutoSpy or createSpyFromClass starts from it — merged with what the call site adds, not replaced. One Angular suite carried 23 different configurations of the same class across 109 spec files; a dozen classes go in as one table, each row checked against its own class, and an InjectionToken registers the same way from vitest-auto-spy/angular, clearAutoSpyDefaults taking one row back.'
     link: /core/create-spy-from-class
   - title: Vitest 5 on the same install
     details: 'One package spans Vitest 2.1 through 5.x — no second major, no version-split types, no edit to a spec. The same suite runs 7.7 % faster on Vitest 5, and the bundled spy engine adds another 8.1 % over vi.fn().'
@@ -36,7 +36,7 @@ features:
     details: 'vi.fn() and its equivalents sit behind an adapter that each entry point registers on import, so the same spec file runs on Vitest, bun:test, node:test and Rstest.'
     link: /runtimes/vitest
   - title: Angular, NestJS, React, Vue, Svelte
-    details: 'Every framework has its own entry point — DI providers, a shallow TestBed that skips the child subtree, child stubs read off the real definition so the selector cannot drift, signals and resources a spec can drive by hand.'
+    details: 'Every framework has its own entry point — DI providers, a shallow TestBed that skips the child subtree, child stubs that createComponentStub reads off the real definition so the selector and the inputs cannot drift, signals and resources a spec can drive by hand. provideActivatedRoute gives Angular its own ActivatedRoute over one record, createActivatedRoute the same without a TestBed; a setter on injectActivatedRoute() replaces the snapshot first and emits only the streams that moved, where the setRouteParam of Spectator 22.1 re-emits all five. stubWebStorage swaps localStorage for one test, and restoreMockedProps puts the old one back.'
     link: /adapters/angular
   - title: Strict mode instead of undefined
     details: 'The method nobody stubbed throws with the class, the method and the arguments in the message, rather than returning undefined that fails three frames later. A throw the code under test caught — a try/catch, an operator with no error handler — fails the test afterwards anyway, and one provoked on purpose is taken with takeStrictViolations(). A getter nobody configured or a stream nobody fed is reported after the test under unconfiguredReads, and surveyed first with onUnstubbedRead.'
@@ -191,7 +191,7 @@ from a type or an interface.
 <div class="vas-fact"><b>0</b><span>runtime dependencies</span></div>
 <div class="vas-fact"><b>4</b><span>runtimes, one core</span></div>
 <div class="vas-fact"><b>5</b><span>framework adapters</span></div>
-<div class="vas-fact"><b>33</b><span>lint rules</span></div>
+<div class="vas-fact"><b>34</b><span>lint rules</span></div>
 <div class="vas-fact"><b>100%</b><span>covered core</span></div>
 
 </div>

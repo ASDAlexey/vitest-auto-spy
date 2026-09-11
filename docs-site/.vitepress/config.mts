@@ -375,7 +375,13 @@ export default defineConfig({
           'no-instance-lifecycle-spy, spyOn ngOnInit not called, mockImplementation ngOnInit still runs, ' +
           'no-ts-expect-error-on-double, ts-expect-error nextWith, HttpEvent overload ts-ignore, ' +
           'no-constant-expect, expect(true).toBe(true), assertion that cannot fail, ' +
-          'no-compile-components, compileComponents no-op, inline templateUrl, ',
+          'no-compile-components, compileComponents no-op, inline templateUrl, ' +
+          'mock ActivatedRoute, ActivatedRoute stub vitest, route.paramMap is undefined in test, snapshot params undefined, ' +
+          'setRouteParam alternative, provideActivatedRoute, injectActivatedRoute, createActivatedRoute, ' +
+          'stub child component angular, mock child component standalone, stub input renamed spec still green, ' +
+          'createComponentStub, MockComponent alternative, ' +
+          'mock localStorage vitest, localStorage leaks between tests, in-memory localStorage per test, stubWebStorage, ' +
+          'getter returns undefined in test, observable property never emits, unconfiguredReads, onUnstubbedRead, ',
       },
     ],
     // max-image-preview:large is what lets Google and Yandex use the OG image in a result card.

@@ -27,7 +27,7 @@ features:
     details: 'Метод, возвращающий Promise, получает resolveWith и rejectWith, возвращающий Observable — nextWith и throwWith, а каждый метод получает calledWith, mustBeCalledWith и failWith.'
     link: /ru/core/control-helpers
   - title: Настройки спая живут рядом с классом
-    details: 'registerAutoSpyDefaults(Router, config) один раз в setup-файле — и каждый provideAutoSpy или createSpyFromClass стартует с них, сливая с тем, что добавил вызов, а не заменяя. В одной Angular-сюите один и тот же класс собрал 23 разные конфигурации в 109 файлах спек; десяток классов заезжает одной таблицей, и каждая строка проверяется по своему классу, а InjectionToken регистрируется так же, через vitest-auto-spy/angular.'
+    details: 'registerAutoSpyDefaults(Router, config) один раз в setup-файле — и каждый provideAutoSpy или createSpyFromClass стартует с них, сливая с тем, что добавил вызов, а не заменяя. В одной Angular-сюите один и тот же класс собрал 23 разные конфигурации в 109 файлах спек; десяток классов заезжает одной таблицей, и каждая строка проверяется по своему классу, а InjectionToken регистрируется так же, через vitest-auto-spy/angular, и одна строка снимается через clearAutoSpyDefaults.'
     link: /ru/core/create-spy-from-class
   - title: Vitest 5 тем же пакетом
     details: 'Один пакет покрывает Vitest с 2.1 по 5.x — без второго мажора, без раздвоенных типов, без единой правки в спеке. Та же сюита идёт на 7.7 % быстрее на Vitest 5, а встроенный движок спаев даёт ещё 8.1 % поверх vi.fn().'
@@ -36,7 +36,7 @@ features:
     details: 'vi.fn() и его аналоги сидят за адаптером, который каждая входная точка регистрирует при импорте, поэтому один и тот же файл спеки идёт на Vitest, bun:test, node:test и Rstest.'
     link: /ru/runtimes/vitest
   - title: Angular, NestJS, React, Vue, Svelte
-    details: 'У каждого фреймворка своя входная точка — провайдеры DI, поверхностный TestBed без дочернего поддерева, заглушки детей из настоящего определения, чтобы селектор не разъехался, сигналы и ресурсы, которыми спека управляет руками.'
+    details: 'У каждого фреймворка своя входная точка — провайдеры DI, поверхностный TestBed без дочернего поддерева, заглушки детей, которые createComponentStub читает из настоящего определения, чтобы селектор и инпуты не разъехались, сигналы и ресурсы, которыми спека управляет руками. provideActivatedRoute отдаёт Angular его собственный ActivatedRoute поверх одной записи, createActivatedRoute — то же без TestBed; сеттер на injectActivatedRoute() сначала заменяет snapshot и эмитит только те потоки, что сдвинулись, тогда как setRouteParam в Spectator 22.1 переизлучает все пять. stubWebStorage подменяет localStorage на один тест, а restoreMockedProps возвращает прежний.'
     link: /ru/adapters/angular
   - title: Строгий режим вместо undefined
     details: 'Метод, который никто не настроил, бросает с именем класса, метода и аргументами в сообщении, а не возвращает undefined, падающий тремя кадрами позже. Бросок, который код под тестом поймал — try/catch, оператор без обработчика ошибки, — всё равно роняет тест после его конца, а намеренный забирается функцией takeStrictViolations(). Геттер, который никто не настроил, и поток, который никто не накормил, попадают в отчёт после теста с unconfiguredReads, а сначала обследуются через onUnstubbedRead.'
@@ -190,7 +190,7 @@ users.save.rejectWith(new HttpError(409));
 <div class="vas-fact"><b>0</b><span>runtime-зависимостей</span></div>
 <div class="vas-fact"><b>4</b><span>среды, одно ядро</span></div>
 <div class="vas-fact"><b>5</b><span>адаптеров фреймворков</span></div>
-<div class="vas-fact"><b>33</b><span>правила линтера</span></div>
+<div class="vas-fact"><b>34</b><span>правила линтера</span></div>
 <div class="vas-fact"><b>100%</b><span>покрытие ядра</span></div>
 
 </div>
