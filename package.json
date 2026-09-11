@@ -147,6 +147,11 @@
       "import": "./dist/angular-http.js",
       "default": "./dist/angular-http.js"
     },
+    "./angular-router": {
+      "types": "./dist/angular-router.d.ts",
+      "import": "./dist/angular-router.js",
+      "default": "./dist/angular-router.js"
+    },
     "./nestjs": {
       "types": "./dist/nestjs.d.ts",
       "import": "./dist/nestjs.js",
@@ -289,6 +294,7 @@
     "@angular/common": ">=20.0.0",
     "@angular/core": ">=20.0.0",
     "@angular/platform-browser": ">=20.0.0",
+    "@angular/router": ">=20.0.0",
     "rxjs": ">=7.2.0",
     "vitest": ">=2.1.0"
   },
@@ -300,6 +306,9 @@
       "optional": true
     },
     "@angular/platform-browser": {
+      "optional": true
+    },
+    "@angular/router": {
       "optional": true
     },
     "rxjs": {
@@ -323,6 +332,7 @@
     "@angular/compiler-cli": "^22.1.5",
     "@angular/core": "^22.1.5",
     "@angular/platform-browser": "^22.1.5",
+    "@angular/router": "^22.1.5",
     "@eslint-community/eslint-plugin-eslint-comments": "^4.7.2",
     "@eslint/js": "^10.0.1",
     "@happy-dom/global-registrator": "^20.14.0",

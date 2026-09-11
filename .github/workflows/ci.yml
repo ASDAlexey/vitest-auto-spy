@@ -312,6 +312,7 @@ jobs:
             "@angular/common@${{ matrix.angular }}" \
             "@angular/compiler@${{ matrix.angular }}" \
             "@angular/platform-browser@${{ matrix.angular }}" \
+            "@angular/router@${{ matrix.angular }}" \
             rxjs vitest typescript @types/node \
             ../vitest-auto-spy-*.tgz
 
@@ -320,16 +321,33 @@ jobs:
       # The imports run inside a Vitest test rather than under a bare `node -e`: `angular-http`
       # registers an `afterEach` at module scope, and Vitest throws on a hook declared with no suite
       # in progress — so a plain import fails on an entry that is perfectly linkable.
+      #
+      # `angular-router` gets a runtime case of its own: its double is built with the router's
+      # internal constructors, which a major could reorder without changing a single public type.
       - name: Link-check every Angular entry
         working-directory: ${{ runner.temp }}/consumer
         run: |
           cat > link.test.ts <<'TS'
-          import { test } from 'vitest';
+          import { expect, test } from 'vitest';
 
           test('every Angular entry links', async () => {
             await import('vitest-auto-spy');
             await import('vitest-auto-spy/angular');
             await import('vitest-auto-spy/angular-http');
+            await import('vitest-auto-spy/angular-router');
+          });
+
+          test('the ActivatedRoute double is wired the way this major builds a route', async () => {
+            const { ActivatedRoute } = await import('@angular/router');
+            const { createActivatedRoute } = await import('vitest-auto-spy/angular-router');
+            const double = createActivatedRoute({ params: { id: '7' }, url: 'products/7' });
+
+            double.setParams({ id: '8' });
+
+            expect(double.route).toBeInstanceOf(ActivatedRoute);
+            expect(Object.keys(double.route).sort()).toEqual(Object.keys(new ActivatedRoute()).sort());
+            expect(double.route.snapshot.paramMap.get('id')).toBe('8');
+            expect(double.route.root).toBe(double.route);
           });
           TS
           npx vitest run link.test.ts
@@ -346,6 +364,7 @@ jobs:
           cat > probe.ts <<'TS'
           import { createSpyFromClass, type Spy } from 'vitest-auto-spy';
           import { provideAutoSpy, renderShallow } from 'vitest-auto-spy/angular';
+          import { provideActivatedRoute } from 'vitest-auto-spy/angular-router';
 
           class Service {
             load(id: string): Promise<string> {
@@ -354,7 +373,7 @@ jobs:
           }
 
           export const spy: Spy<Service> = createSpyFromClass(Service);
-          export const providers = [provideAutoSpy(Service)];
+          export const providers = [provideAutoSpy(Service), provideActivatedRoute({ params: { id: '7' } })];
           export const render = renderShallow;
           TS
           cat > tsconfig.json <<'JSON'

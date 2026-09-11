@@ -18,6 +18,8 @@ const EXTERNAL = [
   // a package every Angular consumer already has.
   '@angular/platform-browser',
   '@angular/platform-browser/testing',
+  // The optional router peer, reached only by `vitest-auto-spy/angular-router`.
+  '@angular/router',
   '@happy-dom/global-registrator',
   '@rstest/core',
   'bun',
@@ -62,6 +64,7 @@ const OUT_DIR = 'dist';
 // Every ESM entry except the two below, built together so they share the emitted chunks.
 const CHUNKED_ENTRIES = [
   'src/angular-http.ts',
+  'src/angular-router.ts',
   'src/bun.ts',
   'src/bun-angular.ts',
   'src/node.ts',

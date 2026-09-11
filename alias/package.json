@@ -109,6 +109,11 @@
       "import": "./angular-http.js",
       "default": "./angular-http.js"
     },
+    "./angular-router": {
+      "types": "./angular-router.d.ts",
+      "import": "./angular-router.js",
+      "default": "./angular-router.js"
+    },
     "./nestjs": {
       "types": "./nestjs.d.ts",
       "import": "./nestjs.js",
@@ -164,6 +169,7 @@
     "@angular/common": ">=20.0.0",
     "@angular/core": ">=20.0.0",
     "@angular/platform-browser": ">=20.0.0",
+    "@angular/router": ">=20.0.0",
     "rxjs": ">=7.2.0",
     "vitest": ">=2.1.0"
   },
@@ -175,6 +181,9 @@
       "optional": true
     },
     "@angular/platform-browser": {
+      "optional": true
+    },
+    "@angular/router": {
       "optional": true
     },
     "rxjs": {
@@ -203,6 +212,7 @@
     "./observer-spy.js",
     "./angular.js",
     "./angular-http.js",
+    "./angular-router.js",
     "./nestjs.js",
     "./react.js",
     "./vue.js",
