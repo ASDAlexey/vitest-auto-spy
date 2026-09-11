@@ -627,6 +627,16 @@ export function setupAutoSpy(options: SetupAutoSpyOptions = {}): void {
 
   prepareEnvironment(options);
 
+  // The per-test epoch opens before any hook this call registers. `blockNetwork` below installs its
+  // stubs through the mock*Prop journal, and a patch stamped with the previous test's epoch is graded
+  // as written outside a hook — until this registration moved ahead of it, the sweep reported the
+  // library's own stubs (`open`, `send`, `fetch`) under `propsOutsideHooks`. Guarded by the same
+  // option as the sweep that reads the epoch: with `restoreProps` off nothing grades patches, so no
+  // epoch is ever needed.
+  if (options.restoreProps ?? true) {
+    beforeEach(beginPropEpoch);
+  }
+
   if (options.strayTimers ?? false) {
     // Wrapping happens now, once per worker; the sweep is per file, because "still wanted?" only
     // becomes an unambiguous no once the file is over.
@@ -674,9 +684,6 @@ export function setupAutoSpy(options: SetupAutoSpyOptions = {}): void {
   if (options.restoreProps ?? true) {
     restores.push(restoreMockedProps);
     reportPropsOutsideHooks(options.propsOutsideHooks ?? 'warn');
-    // First of the per-test hooks, so a patch made in the spec's own `beforeEach` carries this
-    // test's epoch and one made in a `describe` body carries an older one.
-    beforeEach(beginPropEpoch);
   }
 
   if (options.restoreMocks ?? false) {
