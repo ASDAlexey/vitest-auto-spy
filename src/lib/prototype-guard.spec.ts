@@ -141,22 +141,27 @@ describe('guardPrototypePollution', () => {
 describe('guardPrototypePollution, wired into the run', () => {
   guardPrototypePollution('warn');
 
+  const warnings: unknown[][] = [];
+
   it('lets a test that writes nothing through', () => {
     expect(Object.keys(Object.prototype)).toEqual([]);
   });
 
   it('sweeps a real leak before the next test sees it', () => {
-    // The spy outlives the test on purpose: the guard reports from an `afterEach`, so restoring
-    // here would send its warning to the real console instead of to the assertion below.
-    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    // The spy outlives the test on purpose: the guard reports from an `afterEach`. The calls are
+    // collected outside the spy because Vitest 5 clears `mock.calls` before the next test starts.
+    vi.spyOn(console, 'warn').mockImplementation((...args: unknown[]) => {
+      warnings.push(args);
+    });
 
     Object.assign(Object.prototype, { [LEAKED]: () => undefined });
   });
 
   it('starts from a prototype the previous test left clean', () => {
-    expect(Object.keys(Object.prototype)).toEqual([]);
-    expect(console.warn).toHaveBeenCalledTimes(1);
-
     vi.mocked(console.warn).mockRestore();
+
+    expect(Object.keys(Object.prototype)).toEqual([]);
+    expect(warnings).toHaveLength(1);
+    expect(String(warnings[0]?.[0])).toMatch(/left "ngOnDestroy" on Object\.prototype/);
   });
 });
