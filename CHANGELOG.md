@@ -50,8 +50,8 @@ reaches the doubles a spec builds: it used to live in a copy of the module no sp
   loaded; any option passed next to it still wins. It is a preset rather than `strict: true` because
   that name already means strict *doubles*, which change what an unconfigured call returns — a
   semantic switch, not a report grade — and the preset leaves it alone. So does it `blockNetwork`,
-  which changes the code under test, and a failure on the `strayTimers` count, which would fail a
-  file with no location to go to. The Angular half is `enableAngularDiagnostics()`, which needs the
+  which changes the code under test, and a failure on the `strayTimers` count, which lands on a file
+  from `afterAll` and can charge it a callback the previous file scheduled after its sweep. The Angular half is `enableAngularDiagnostics()`, which needs the
   test environment first and so stays a line of its own: on the same consumer it found real defects
   in 25 files and 324 tests and cost nothing measurable, 12.5 s against 13.4 s for the full run.
 
@@ -205,6 +205,13 @@ reaches the doubles a spec builds: it used to live in a copy of the module no sp
   does not exist; it now shows `overrideComponentProvider(Cmp, ServiceClass)`, and
   `TestBed.overrideProvider(TOKEN, provideAutoSpyForToken(TOKEN))` for an `InjectionToken`.
 
+- **`extendWithAutoSpies({ providers })` reported the real service a spec kept on purpose.** A
+  fixture whose token the `providers` list overrides — the documented way to keep a real service —
+  was still read through `injectSpy`, which printed its "plain instance, not an auto-spy" warning in
+  every such test; under `misconfiguration: 'throw'` or `strayConsole: 'throw'`, both in
+  `preset: 'strict'`, the documented pattern failed. A token the list names, as a `{ provide }` object
+  or a bare class, nested arrays included, is now read with `TestBed.inject`, and the report is gone.
+
 - **`provideHttpTesting({ verifyOnTeardown })` checked only the first spec file of each worker, and
   under `sequence: { hooks: 'list' }` nothing.** The check was an `afterEach` registered when
   `vitest-auto-spy/angular-http` was first imported, behind a worker-wide on/off that one file's
@@ -217,13 +224,25 @@ reaches the doubles a spec builds: it used to live in a copy of the module no sp
 
 **`/setup` +2.35 kB (13.61 → 15.96 kB, +17.2 %), and it is the console guard.** Most of it is the
 report — method, quoted lines, caller frame and the repair — because the failure is only useful if
-it says where to go; the preset, the misconfiguration grade and the stray-timer origins are a few hundred bytes more. `/setup` is
-imported once per worker by the setup file. **`/eslint-plugin` +1.51 kB** is the three rules; it is
-loaded by ESLint, never by a test run. **`/angular-http` +0.26 kB** is the per-module arming and the
-reset snapshot, **`/angular` +0.71 kB** the diagnostics fixes and the getter seed. The core entries
-grew 0.34…0.43 kB each for the shared-settings holders, the misconfiguration grade, the bounded strict
-report and the lifecycle-hook exemption. Total across all twenty-one: 235.2 → 244.0 kB, and the badge
-moves 16.2 → 16.6 kB. No entry gained a runtime import of a peer.
+it says where to go; the preset, the misconfiguration grade and the stray-timer origins are a few
+hundred bytes more. `/setup` is imported once per worker by the setup file. **`/eslint-plugin`
++1.51 kB** is the three rules; it is loaded by ESLint, never by a test run. **`/angular-http`
++0.26 kB** is the per-module arming and the reset snapshot, **`/angular` +0.79 kB** the diagnostics
+fixes, the getter seed and the override read in `extendWithAutoSpies`. The core entries grew
+0.34…0.43 kB each for the shared-settings holders, the misconfiguration grade, the bounded strict
+report and the lifecycle-hook exemption. Total across all twenty-one: 235.2 → 244.1 kB, and the badge
+moves 16.2 → 16.6 kB. The one new runtime import is `@angular/core` in `/angular-http`, for the
+environment initializer — a peer its `@angular/common/http` import already requires; no core entry
+imports anything new.
+
+**Under `strayTimers`, a scheduled timer costs about 1.6 µs more.** The stray-timer origins are a
+stack captured at every `setTimeout`, `setInterval` and `requestAnimationFrame`: a `setTimeout` +
+`clearTimeout` pair on Node's real timers goes from 116 ns tracked in 5.5.0 to about 1.75 µs (70 ns
+untracked), and a pending timer holds about 0.9 kB more until it fires or is swept (Node v24.19.0,
+Apple M4 Max). Nearly all of it is V8 building the stack — about 0.9 µs for any depth, so the
+twelve-frame cap is not what to tune. `preset: 'strict'` turns `strayTimers` on, so it pays this too;
+without `strayTimers` nothing changed. Spies are unaffected: creation and first call stay within
+1.5 % of 5.5.0 on a 100-method double, and the retained bytes are identical.
 
 ## [5.5.0] - 2026-09-11
 
