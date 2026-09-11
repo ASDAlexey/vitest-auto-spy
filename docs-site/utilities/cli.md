@@ -43,7 +43,7 @@ error  tsconfig-glob-matches-nothing libs/users/tsconfig.spec.json
 
 | Check                            | What it finds                                                                                                                                                              | Why nothing catches it                                                                                                                                                                                                                                                                                                                                  |
 | -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `tsconfig-glob-matches-nothing`  | An `include` pattern that matches no file                                                                                                                                  | A glob that matches nothing type-checks nothing, and `tsc` reports success                                                                                                                                                                                                                                                                              |
+| `tsconfig-glob-matches-nothing`  | An `include` pattern that matches no file — an error when files it was meant for sit beside the config, `info` for a library that has none yet                             | A glob that matches nothing type-checks nothing, and `tsc` reports success                                                                                                                                                                                                                                                                              |
 | `tsconfig-file-missing`          | A `files` entry naming a file that is gone                                                                                                                                 | Same — the config is only read by editors once the runner stopped using it                                                                                                                                                                                                                                                                              |
 | `spec-imported-by-non-spec`      | A production module importing a `*.spec.ts`                                                                                                                                | Under a shared environment the import is a cycle, and the spec loses its own suite                                                                                                                                                                                                                                                                      |
 | `spec-exports-fixture`           | A spec importing another spec                                                                                                                                              | The imported file's suites are collected twice and its hooks run in a foreign file's context                                                                                                                                                                                                                                                            |
@@ -55,8 +55,8 @@ error  tsconfig-glob-matches-nothing libs/users/tsconfig.spec.json
 | `coverage-include-misses-bundle` | A source-only `coverage.include` in the runner config of an `@angular/build:unit-test` target                                                                              | Coverage is matched twice — first against the executed bundle chunks, then against the remapped sources. A list of `.ts` globs loses every counter on the first pass, and the run stays green — see [coverage under the unit-test builder](/adapters/angular#coverage-under-the-unit-test-builder)                                                      |
 | `jasmine-era-project`            | `jasmine-core`, `@types/jasmine`, `jasmine-auto-spies`, `@hirez_io/observer-spy`, a `karma*` package or a `karma.conf.*` on disk — or `"types": ["jasmine"]` in a tsconfig | **Info**, never an error: a repository is free to still be a jasmine repository. The fix names the order that works — point the specs at [`vitest-auto-spy/jasmine`](/migrating-jasmine) and land the suite green, _then_ `codemod --from jasmine` and drop the import. Doing it the other way round means rewriting a suite that was never green       |
 | `no-agent-instructions`          | No `AGENTS.md` / `CLAUDE.md` / `GEMINI.md` names the package                                                                                                               | A note, not an error. It is the one moment where saying so costs nothing                                                                                                                                                                                                                                                                                |
-| `helper-from-wrong-entry`        | A helper imported from an entry that does not export it — `provideAutoSpy` from the root, `flushEventLoop` from `/angular`                                                  | Resolving a name to the entry that owns it needs a table generated from the installed version's own export map, which no per-file linter has. And the files it fires in are usually the ones no `tsc` program covers — the check above says which                                                                                                        |
-| `no-unawaited-helper`            | `expectEmission`, `expectError`, `stable`, `flushEventLoop` and their siblings called as a statement and dropped                                                            | The promise settles after the test has already ended, so the assertion inside it reports into a later test, or nowhere. The run stays green and the spec looks like it asserted something                                                                                                                                                               |
+| `helper-from-wrong-entry`        | A helper imported from an entry that does not export it — `provideAutoSpy` from the root, `flushEventLoop` from `/angular`                                                 | Resolving a name to the entry that owns it needs a table generated from the installed version's own export map, which no per-file linter has. And the files it fires in are usually the ones no `tsc` program covers — the check above says which                                                                                                       |
+| `no-unawaited-helper`            | `expectEmission`, `expectError`, `stable`, `flushEventLoop` and their siblings called as a statement and dropped                                                           | The promise settles after the test has already ended, so the assertion inside it reports into a later test, or nowhere. The run stays green and the spec looks like it asserted something                                                                                                                                                               |
 
 The check that motivated the tool: a spec showing `Cannot find name 'vi'` in the editor while
 `tsc --noEmit` reported zero errors. A migration codemod editing `include` had eaten a `/**`,
@@ -166,21 +166,21 @@ below is why a real repository can get an honest "cannot tell" instead of a gues
 on the clock and 17.30s of CPU because the work was spread across several workers. A phase total
 larger than the wall clock is not a bug.
 
-| Phase         | What Vitest measures (its own `ModuleDiagnostic` wording)                                     |
-| ------------- | ----------------------------------------------------------------------------------------------- |
-| `environment` | The time to import and initiate an environment (`jsdom`, `happy-dom`, `node`) for the file       |
-| `prepare`     | The time Vitest spends setting up the test harness — runner, mocks — for the file               |
-| `import`      | The time to import the test module: everything it imports, plus running its suite callbacks     |
-| `setup`       | The time to import the configured setup file(s) for the file                                    |
-| `tests`       | Accumulated duration of the test bodies and hooks themselves                                     |
-| `transform`   | Whole-run transform time (esbuild/Vite), not tracked per file so it has no per-file finding      |
+| Phase         | What Vitest measures (its own `ModuleDiagnostic` wording)                                   |
+| ------------- | ------------------------------------------------------------------------------------------- |
+| `environment` | The time to import and initiate an environment (`jsdom`, `happy-dom`, `node`) for the file  |
+| `prepare`     | The time Vitest spends setting up the test harness — runner, mocks — for the file           |
+| `import`      | The time to import the test module: everything it imports, plus running its suite callbacks |
+| `setup`       | The time to import the configured setup file(s) for the file                                |
+| `tests`       | Accumulated duration of the test bodies and hooks themselves                                |
+| `transform`   | Whole-run transform time (esbuild/Vite), not tracked per file so it has no per-file finding |
 
 A phase only produces findings once it is worth a reader's afternoon: below 30 % of the total, or
 below 5 s of total CPU time across the whole run, `perf` says so and stops rather than naming files
 over noise.
 
 **`perf-environment`** fires when `environment` dominates. It ranks every spec file that is
-*DOM-free* — provably so, not probably — by the environment time it cost, and suggests
+_DOM-free_ — provably so, not probably — by the environment time it cost, and suggests
 `// @vitest-environment node` (or a `node`-environment project) for each. The rule is deliberately
 one-sided: a spec is a candidate only when it, the configured setup files, and every repository
 module any of them imports were read, none of them mentions a DOM name, and every package they
@@ -232,10 +232,10 @@ producing no report, or a `--json` file that does not parse as one. If the suite
 
 ### Flags
 
-| Flag           | Effect                                                                                  |
-| -------------- | ---------------------------------------------------------------------------------------- |
-| `--cwd <dir>`  | Run against another directory instead of the current one (shared with the other commands) |
-| `--json <path>` | Read a report an earlier `--out` run wrote, instead of running Vitest again              |
+| Flag            | Effect                                                                                                                 |
+| --------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `--cwd <dir>`   | Run against another directory instead of the current one (shared with the other commands)                              |
+| `--json <path>` | Read a report an earlier `--out` run wrote, instead of running Vitest again                                            |
 | `--out <path>`  | Keep the JSON report at this path. Without it, the report is written under `node_modules/.cache` and deleted once read |
 
 A positional path (`npx vitest-auto-spy perf src/cli`) is passed through to Vitest as its file

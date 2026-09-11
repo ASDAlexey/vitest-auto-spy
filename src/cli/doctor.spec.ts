@@ -21,7 +21,7 @@ import { buildGraph, extractSpecifiers, resolveRelative } from './checks/graph';
 import { checkJasmineEra } from './checks/jasmine-era';
 import { checkOrphanRunnerConfig, referencedPaths } from './checks/orphan-runner-config';
 import { checkSpecImports } from './checks/spec-imports';
-import { checkTsconfigGlobs, expandInclude, globToRegExp, isExemptPattern } from './checks/tsconfig-globs';
+import { checkTsconfigGlobs, expandInclude, globToRegExp, isExemptPattern, literalTail } from './checks/tsconfig-globs';
 import { runDoctor } from './doctor';
 import type { Profile } from './profile';
 import { readProfile } from './profile';
@@ -86,7 +86,54 @@ describe('isExemptPattern', () => {
   });
 });
 
+describe('literalTail', () => {
+  it('takes the file-name ending after the final wildcard', () => {
+    expect(literalTail('src/**/*.spec.ts')).toBe('.spec.ts');
+    // The codemod's shape: the same ending, so both globs are measured against the same files.
+    expect(literalTail('src*.spec.ts')).toBe('.spec.ts');
+    expect(literalTail('src/a?.ts')).toBe('.ts');
+  });
+
+  it('has none for a segment that names one file, or ends in a wildcard', () => {
+    expect(literalTail('src/polyfills.ts')).toBeUndefined();
+    expect(literalTail('src/**/*')).toBeUndefined();
+  });
+});
+
 describe('checkTsconfigGlobs', () => {
+  it('reports a library with no specs yet as info, not as a defect', () => {
+    const root = createTempRepo({
+      'package.json': '{}',
+      'libs/fresh/src/index.ts': '',
+      'libs/fresh/tsconfig.spec.json': JSON.stringify({ include: ['src/**/*.spec.ts'] }),
+      // A spec elsewhere in the repository is no evidence that this glob is broken.
+      'libs/other/src/a.spec.ts': '',
+    });
+    const findings = checkTsconfigGlobs(readProfile(root));
+
+    expect(findings.map((finding) => finding.severity)).toEqual(['info']);
+    expect(findings[0]?.message).toContain('no "*.spec.ts" beside this config');
+  });
+
+  it('keeps a glob pointed at the wrong directory an error, while the specs sit next to it', () => {
+    const root = createTempRepo({
+      'package.json': '{}',
+      'libs/app/src/a.spec.ts': '',
+      'libs/app/tsconfig.spec.json': JSON.stringify({ include: ['lib/**/*.spec.ts'] }),
+    });
+
+    expect(checkTsconfigGlobs(readProfile(root)).map((finding) => finding.severity)).toEqual(['error']);
+  });
+
+  it('keeps a named file that does not exist an error, whatever else the tree holds', () => {
+    const root = createTempRepo({
+      'package.json': '{}',
+      'tsconfig.json': JSON.stringify({ include: ['src/polyfills.ts'] }),
+    });
+
+    expect(checkTsconfigGlobs(readProfile(root)).map((finding) => finding.severity)).toEqual(['error']);
+  });
+
   it('reports the glob a codemod ate, and stays quiet about the one that works', () => {
     const root = createTempRepo({
       'package.json': '{}',

@@ -360,23 +360,23 @@ error  tsconfig-glob-matches-nothing libs/users/tsconfig.spec.json
 3 errors, 4 warnings, 1 note
 ```
 
-| Check                               | What it finds                                                                                                    |
-| ----------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| `tsconfig-glob-matches-nothing`     | An `include` pattern that matches no file — so it type-checks nothing                                            |
-| `tsconfig-file-missing`             | A `files` entry naming a file that is gone                                                                       |
-| `spec-imported-by-non-spec`         | A production module importing a `*.spec.ts`                                                                      |
-| `spec-exports-fixture`              | A spec importing another spec, whose hooks then run in a foreign file                                            |
-| `foreign-runner-pragma`             | `@jest-environment` left in a spec, which Vitest never reads                                                     |
-| `dead-runner-config`                | `jest.config.*` / `karma.conf.*` for a runner that is not installed                                              |
-| `orphan-runner-file`                | A setup file only that dead config referenced                                                                    |
-| `angular-build-splitting-off`       | `@angular/build` in `[22.1.5, 22.1.7)` — the OOM under `--coverage`                                              |
-| `coverage-all-removed`              | `coverage.all` in a config, on a Vitest that stopped reading the key                                             |
-| `coverage-include-misses-bundle`    | A `coverage.include` of sources only, in a runner config over a bundle                                           |
-| `coverage-include-recompiles-globs` | A coverage scope large enough that `picomatch` recompiling it per file costs more than the coverage. Info        |
-| `jasmine-era-project`               | `jasmine-core`, `@types/jasmine`, `karma.conf.*` or `@hirez_io/observer-spy` still installed. Info, not an error |
-| `no-agent-instructions`             | No instruction file names the package. A note, not an error                                                      |
-| `helper-from-wrong-entry`           | A named import taken from an entry that does not export it — `provideAutoSpy` from the root                      |
-| `no-unawaited-helper`               | An `expectEmission` / `stable` / `flushEventLoop` call dropped as a bare statement, so nothing awaits it         |
+| Check                               | What it finds                                                                                                                     |
+| ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `tsconfig-glob-matches-nothing`     | An `include` pattern that matches no file — so it type-checks nothing; `info` when nothing beside the config is there to miss yet |
+| `tsconfig-file-missing`             | A `files` entry naming a file that is gone                                                                                        |
+| `spec-imported-by-non-spec`         | A production module importing a `*.spec.ts`                                                                                       |
+| `spec-exports-fixture`              | A spec importing another spec, whose hooks then run in a foreign file                                                             |
+| `foreign-runner-pragma`             | `@jest-environment` left in a spec, which Vitest never reads                                                                      |
+| `dead-runner-config`                | `jest.config.*` / `karma.conf.*` for a runner that is not installed                                                               |
+| `orphan-runner-file`                | A setup file only that dead config referenced                                                                                     |
+| `angular-build-splitting-off`       | `@angular/build` in `[22.1.5, 22.1.7)` — the OOM under `--coverage`                                                               |
+| `coverage-all-removed`              | `coverage.all` in a config, on a Vitest that stopped reading the key                                                              |
+| `coverage-include-misses-bundle`    | A `coverage.include` of sources only, in a runner config over a bundle                                                            |
+| `coverage-include-recompiles-globs` | A coverage scope large enough that `picomatch` recompiling it per file costs more than the coverage. Info                         |
+| `jasmine-era-project`               | `jasmine-core`, `@types/jasmine`, `karma.conf.*` or `@hirez_io/observer-spy` still installed. Info, not an error                  |
+| `no-agent-instructions`             | No instruction file names the package. A note, not an error                                                                       |
+| `helper-from-wrong-entry`           | A named import taken from an entry that does not export it — `provideAutoSpy` from the root                                       |
+| `no-unawaited-helper`               | An `expectEmission` / `stable` / `flushEventLoop` call dropped as a bare statement, so nothing awaits it                          |
 
 The check that motivated the tool: a spec showing `Cannot find name 'vi'` in the editor while
 `tsc --noEmit` reported zero errors. A migration codemod editing `include` had eaten a `/**`,
