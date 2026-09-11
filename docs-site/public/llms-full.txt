@@ -3087,16 +3087,16 @@ prune reaches only one and the run dies out of memory.
 
 ## Bundle size
 
-The badge says 16.6 kB min+gzip, and that is the whole core entry bundled together. It is also the
+The badge says 16.8 kB min+gzip, and that is the whole core entry bundled together. It is also the
 largest number a consumer can pay for the core, because entries are separate subpaths and a project
 only pays for the ones it imports:
 
 | Imported                                      |    min+gzip |
 | --------------------------------------------- | ----------: |
-| `.` — the core entry, what the badge measures | **16.6 kB** |
-| `vitest-auto-spy/angular`                     |     21.0 kB |
-| `vitest-auto-spy/react` / `/vue` / `/svelte`  |     16.8 kB |
-| `vitest-auto-spy/node`                        |     15.6 kB |
+| `.` — the core entry, what the badge measures | **16.8 kB** |
+| `vitest-auto-spy/angular`                     |     21.2 kB |
+| `vitest-auto-spy/react` / `/vue` / `/svelte`  |     17.0 kB |
+| `vitest-auto-spy/node`                        |     15.8 kB |
 | `vitest-auto-spy/dom-stubs`                   |      5.4 kB |
 | `vitest-auto-spy/rxjs`                        |      2.2 kB |
 | `vitest-auto-spy/zone`                        |      1.1 kB |
@@ -3113,7 +3113,8 @@ the shadowed-provider check. `/dom-stubs` last moved for the
 `AbortSignal` statics and the `currentTime` setter, +219 B; the core rows last moved for the claim
 record that keeps helpers on a spy when two copies of the package share a process, +0.12…0.27 kB,
 and then for the suite-wide settings every bundle now reads off `globalThis` and the misconfiguration
-grade, the bounded strict report and the lifecycle-hook exemption, +0.34…0.43 kB.
+grade, the bounded strict report and the lifecycle-hook exemption, +0.34…0.43 kB, and now for the
+recorder behind `takeStrictViolations` and the swallowed-strict guard, +0.16…0.41 kB.
 
 `npm run size:entries` prints all twenty-one and compares them against a committed baseline, so an entry
 that quietly gains a second copy of the core fails a check instead of being noticed a release later.

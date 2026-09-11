@@ -39,10 +39,10 @@ features:
     details: 'Every framework has its own entry point — DI providers, a shallow TestBed that skips the child subtree, signals and resources a spec can drive by hand.'
     link: /adapters/angular
   - title: Strict mode instead of undefined
-    details: 'The method nobody stubbed throws with the class, the method and the arguments in the message, rather than returning undefined that fails three frames later.'
+    details: 'The method nobody stubbed throws with the class, the method and the arguments in the message, rather than returning undefined that fails three frames later. A throw the code under test caught — a try/catch, an operator with no error handler — fails the test afterwards anyway, and one provoked on purpose is taken with takeStrictViolations().'
     link: /core/strict-mode
   - title: Thirty lint rules and a codemod
-    details: 'The ESLint plugin underlines the old patterns as you type — a private member reached through a cast, an observer global stubbed by hand, a stub class of vi.fn() fields registered with useClass, schemas that can never apply — and the CLI codemod rewrites a jest-auto-spies suite into a diff you can read before you keep it.'
+    details: 'The ESLint plugin underlines the old patterns as you type — a private member reached through a cast, an observer global stubbed by hand, a stub class of vi.fn() fields registered with useClass, schemas that can never apply, a useValue no compiler ever checked, a lifecycle hook spied on the instance — and the CLI codemod rewrites a jest-auto-spies suite into a diff you can read before you keep it.'
     link: /utilities/eslint-plugin
   - title: Failures nothing else reports
     details: 'A mock*Prop patch left in a describe body stops applying after the first test, a component whose own providers shadow the spy quietly runs the real service, and one key left on Object.prototype stops every later file in the worker from collecting while Vitest 5.0 still prints zero failing tests and no stack — silent under every runner, named here by the property, the token or the file. Console output nothing absorbed fails the test that wrote it, with a code frame at the line; the onConsoleLog hook of Vitest 5.0 can only drop a line, never fail a test. One strict preset turns every guard to its failing grade.'
