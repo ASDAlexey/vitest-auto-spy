@@ -5,8 +5,10 @@ import {
   type SchedulerHost,
   cancelStrayTimers,
   countStrayTimers,
+  describeStrayTimers,
   detectsAsyncLeaks,
   trackStrayTimers,
+  withoutStrayTimerTracking,
 } from './stray-timers';
 
 /**
@@ -336,5 +338,98 @@ describe('detectsAsyncLeaks', () => {
 
   it('is false outside a Vitest worker, rather than throwing on the way there', () => {
     expect(detectsAsyncLeaks({})).toBe(false);
+  });
+});
+
+describe('withoutStrayTimerTracking', () => {
+  it('runs the work as it is on a host nothing tracks', () => {
+    expect(withoutStrayTimerTracking(() => 'ran', createHost())).toBe('ran');
+  });
+
+  it('keeps what the work schedules out of the count and the sweep, and tracks again afterwards', () => {
+    const host = createHost();
+    const stop = trackStrayTimers(host);
+
+    withoutStrayTimerTracking(() => {
+      host.setTimeout(() => undefined, 0);
+      host.setInterval(() => undefined, 10);
+      host.requestAnimationFrame?.(() => undefined);
+    }, host);
+
+    expect(countStrayTimers(host)).toBe(0);
+    expect(host.scheduled).toBe(2);
+
+    host.setTimeout(() => undefined, 0);
+
+    expect(countStrayTimers(host)).toBe(1);
+    stop();
+  });
+
+  it('tracks again even when the work throws', () => {
+    const host = createHost();
+    const stop = trackStrayTimers(host);
+
+    expect(() =>
+      withoutStrayTimerTracking(() => {
+        throw new Error('probe failed');
+      }, host),
+    ).toThrow('probe failed');
+
+    host.setTimeout(() => undefined, 0);
+
+    expect(countStrayTimers(host)).toBe(1);
+    stop();
+  });
+});
+
+describe('describeStrayTimers', () => {
+  it('names each outstanding callback, the spec file that scheduled it, and the line', () => {
+    const host = createManualHost();
+    const stop = trackStrayTimers(host);
+
+    host.setTimeout(() => undefined, 10);
+    host.setInterval(() => undefined, 10);
+    host.requestAnimationFrame?.(() => undefined);
+
+    const strays = describeStrayTimers(host);
+
+    stop();
+
+    expect(strays.map((stray) => stray.kind)).toEqual(['timeout', 'interval', 'frame']);
+    expect(strays[0]?.file).toMatch(/stray-timers\.spec\.ts$/);
+    expect(strays[0]?.frames[0]).toMatch(/stray-timers\.spec\.ts:\d+:\d+/);
+    expect(strays.every((stray) => stray.frames.length <= 5)).toBe(true);
+  });
+
+  it('drops what fired or was cleared, and knows nothing about a host nobody tracks', () => {
+    const host = createManualHost();
+    const stop = trackStrayTimers(host);
+    const fired = host.setTimeout(() => undefined, 10);
+    const cleared = host.setTimeout(() => undefined, 10);
+
+    host.fire(fired);
+    host.clearTimeout(cleared);
+
+    expect(describeStrayTimers(host)).toEqual([]);
+    stop();
+    expect(describeStrayTimers(createHost())).toEqual([]);
+  });
+
+  it('leaves the file out when the runner reports none', () => {
+    const host = createHost();
+    const stop = trackStrayTimers(host);
+    const worker: unknown = Reflect.get(globalThis, '__vitest_worker__');
+    const ownFile: unknown = Reflect.get(Object(worker), 'filepath');
+
+    Reflect.set(Object(worker), 'filepath', undefined);
+
+    try {
+      host.setTimeout(() => undefined, 10);
+    } finally {
+      Reflect.set(Object(worker), 'filepath', ownFile);
+    }
+
+    expect(describeStrayTimers(host)[0]?.file).toBeUndefined();
+    stop();
   });
 });

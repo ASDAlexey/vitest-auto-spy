@@ -31,6 +31,8 @@
  */
 import { defineHelper } from './define-helper';
 import { DOCS_LINKS, withDocs } from './docs-links';
+import { currentSpecFile } from './spec-file';
+import { ownFrames, stackFrames } from './stack-frames';
 
 /**
  * The callback half of a scheduler call, spelled out so a wrapper can pass it along and — for a
@@ -58,6 +60,22 @@ export interface SchedulerHost {
   cancelAnimationFrame?(handle: number): void;
 }
 
+/** One outstanding callback, and where it came from — what {@link describeStrayTimers} hands back. */
+export interface StrayTimer {
+  readonly kind: 'frame' | 'interval' | 'timeout';
+  /** The spec file that was running when it was scheduled; `undefined` outside a Vitest file. */
+  readonly file: string | undefined;
+  /** Up to five frames of the scheduling call, those outside dependencies first. */
+  readonly frames: readonly string[];
+}
+
+/** The stack is taken now and formatted only if the callback turns out to be a stray. */
+interface Origin {
+  readonly kind: StrayTimer['kind'];
+  readonly file: unknown;
+  readonly trace: Error;
+}
+
 /** Undo the wrapping installed by {@link trackStrayTimers}, cancelling anything still outstanding. */
 export type StopTrackingTimers = () => void;
 
@@ -66,7 +84,7 @@ interface Tracking {
    * Handles from `setTimeout` / `setInterval` that have neither fired nor been cancelled. Both
    * clears accept either kind, so which scheduler produced one is not worth storing.
    */
-  readonly handles: Set<unknown>;
+  readonly handles: Map<unknown, Origin>;
   /**
    * Handles whose firing cannot be observed — the legacy string form of `setTimeout`, whose handler
    * is not a function and therefore cannot be wrapped. They are cancelled at teardown like anything
@@ -74,7 +92,9 @@ interface Tracking {
    * every suite that used the form as leaking for the rest of the file.
    */
   readonly opaque: Set<unknown>;
-  readonly frames: Set<number>;
+  readonly frames: Map<number, Origin>;
+  /** Set while the library schedules on its own behalf, so its timers are never charged to a file. */
+  readonly pause: { paused: boolean };
   readonly stop: StopTrackingTimers;
 }
 
@@ -126,9 +146,10 @@ function defineScheduler(host: SchedulerHost, name: keyof SchedulerHost, value: 
 function scheduleTracked<THandle>(
   schedule: (callback: ScheduledCallback) => THandle,
   callback: ScheduledCallback,
-  handles: Set<THandle>,
-  oneShot: boolean,
+  handles: Map<THandle, Origin>,
+  kind: Origin['kind'],
 ): THandle {
+  const oneShot = kind !== 'interval';
   // eslint-disable-next-line prefer-const -- read by the closure below and assigned after it; `const` cannot express a binding whose reader is created first.
   let handle: THandle;
 
@@ -138,13 +159,29 @@ function scheduleTracked<THandle>(
   };
 
   handle = schedule(oneShot && typeof callback === 'function' ? forgetting : callback);
-  handles.add(handle);
+  handles.set(handle, captureOrigin(kind));
 
   return handle;
 }
 
+/**
+ * Where the callback was scheduled, cheaply: a V8 stack is captured at construction and formatted only
+ * when read, and the depth is capped so an Angular zone's frames do not come along.
+ */
+function captureOrigin(kind: Origin['kind']): Origin {
+  const limit = Error.stackTraceLimit;
+
+  Error.stackTraceLimit = 12;
+
+  const trace = new Error();
+
+  Error.stackTraceLimit = limit;
+
+  return { kind, file: currentSpecFile(), trace };
+}
+
 /** The two sets {@link wrapTimerScheduler} records into — see {@link Tracking} for what separates them. */
-type TimerSets = Pick<Tracking, 'handles' | 'opaque'>;
+type TimerSets = Pick<Tracking, 'handles' | 'opaque' | 'pause'>;
 
 /**
  * Replace `setTimeout` / `setInterval` with recording wrappers.
@@ -159,19 +196,23 @@ type TimerSets = Pick<Tracking, 'handles' | 'opaque'>;
 function wrapTimerScheduler(host: SchedulerHost, name: 'setInterval' | 'setTimeout', sets: TimerSets): () => void {
   const original = host[name];
   // Only a timeout is one-shot; an interval outlives its first run.
-  const oneShot = name === 'setTimeout';
+  const kind = name === 'setTimeout' ? 'timeout' : 'interval';
 
   // `defineHelper` so a leak `detectAsyncLeaks` finds is framed at the spec's `setTimeout` rather
   // than at the line below it — see this module's docblock.
   const wrapper = defineHelper((callback: ScheduledCallback, ...rest: unknown[]): unknown => {
-    if (oneShot && typeof callback === 'string') {
+    if (sets.pause.paused) {
+      return original(callback, ...rest);
+    }
+
+    if (kind === 'timeout' && typeof callback === 'string') {
       const handle = original(callback, ...rest);
       sets.opaque.add(handle);
 
       return handle;
     }
 
-    return scheduleTracked((tracked) => original(tracked, ...rest), callback, sets.handles, oneShot);
+    return scheduleTracked((tracked) => original(tracked, ...rest), callback, sets.handles, kind);
   });
 
   defineScheduler(host, name, wrapper);
@@ -186,7 +227,7 @@ function wrapTimerScheduler(host: SchedulerHost, name: 'setInterval' | 'setTimeo
  * pending": a timer the code under test cancelled itself has nothing left to leak, and counting it
  * would report every suite that cleans up properly as a leak.
  */
-function wrapTimerCanceller(host: SchedulerHost, name: 'clearInterval' | 'clearTimeout', handles: Set<unknown>): () => void {
+function wrapTimerCanceller(host: SchedulerHost, name: 'clearInterval' | 'clearTimeout', handles: Map<unknown, Origin>): () => void {
   const original = host[name];
 
   defineScheduler(host, name, (handle: unknown): void => {
@@ -206,7 +247,7 @@ function wrapTimerCanceller(host: SchedulerHost, name: 'clearInterval' | 'clearT
  * synchronous finds it can no longer override anything. Assignment goes through the setter and
  * leaves the forwarding intact.
  */
-function wrapFrameScheduler(host: SchedulerHost, frames: Set<number>): () => void {
+function wrapFrameScheduler(host: SchedulerHost, frames: Map<number, Origin>, pause: { paused: boolean }): () => void {
   const original = host.requestAnimationFrame;
   const originalCancel = host.cancelAnimationFrame;
 
@@ -215,7 +256,7 @@ function wrapFrameScheduler(host: SchedulerHost, frames: Set<number>): () => voi
   }
 
   host.requestAnimationFrame = defineHelper((callback: ScheduledCallback): number =>
-    scheduleTracked((tracked) => original(tracked), callback, frames, true),
+    pause.paused ? original(callback) : scheduleTracked((tracked) => original(tracked), callback, frames, 'frame'),
   );
 
   if (originalCancel) {
@@ -258,16 +299,17 @@ export function trackStrayTimers(host: SchedulerHost = defaultHost()): StopTrack
     return tracked.stop;
   }
 
-  const handles = new Set<unknown>();
+  const handles = new Map<unknown, Origin>();
   const opaque = new Set<unknown>();
-  const frames = new Set<number>();
+  const frames = new Map<number, Origin>();
+  const pause = { paused: false };
 
   const undo = [
-    wrapTimerScheduler(host, 'setTimeout', { handles, opaque }),
-    wrapTimerScheduler(host, 'setInterval', { handles, opaque }),
+    wrapTimerScheduler(host, 'setTimeout', { handles, opaque, pause }),
+    wrapTimerScheduler(host, 'setInterval', { handles, opaque, pause }),
     wrapTimerCanceller(host, 'clearTimeout', handles),
     wrapTimerCanceller(host, 'clearInterval', handles),
-    wrapFrameScheduler(host, frames),
+    wrapFrameScheduler(host, frames, pause),
   ];
 
   const stop: StopTrackingTimers = () => {
@@ -276,7 +318,7 @@ export function trackStrayTimers(host: SchedulerHost = defaultHost()): StopTrack
     registry().delete(host);
   };
 
-  registry().set(host, { handles, opaque, frames, stop });
+  registry().set(host, { handles, opaque, frames, pause, stop });
 
   return stop;
 }
@@ -311,7 +353,7 @@ export function cancelStrayTimers(host: SchedulerHost = defaultHost()): number {
 
   // A handle is either a timeout or an interval, and both clears accept either — calling both is
   // cheaper than recording which scheduler produced it.
-  tracked.handles.forEach((handle) => {
+  tracked.handles.forEach((_origin, handle) => {
     host.clearTimeout(handle);
     host.clearInterval(handle);
   });
@@ -324,12 +366,51 @@ export function cancelStrayTimers(host: SchedulerHost = defaultHost()): number {
   const cancelFrame = host.cancelAnimationFrame;
 
   if (cancelFrame) {
-    tracked.frames.forEach((handle) => cancelFrame(handle));
+    tracked.frames.forEach((_origin, handle) => cancelFrame(handle));
   }
 
   tracked.frames.clear();
 
   return cancelled;
+}
+
+/**
+ * Run `work` untracked. For setup work: jsdom answers every Web Storage write with a real `setTimeout`,
+ * so the library's storage probe would otherwise be charged to whichever file ran it.
+ */
+export function withoutStrayTimerTracking<T>(work: () => T, host: SchedulerHost = defaultHost()): T {
+  const tracked = registry().get(host);
+
+  if (!tracked) {
+    return work();
+  }
+
+  tracked.pause.paused = true;
+
+  try {
+    return work();
+  } finally {
+    tracked.pause.paused = false;
+  }
+}
+
+/** The stack frames of the wrappers in this file, which say nothing about where the call came from. */
+const OWN_MODULE_FRAME = /stray-timers\.[jt]s/;
+
+function describeOrigin({ kind, file, trace }: Origin): StrayTimer {
+  const frames = stackFrames(trace.stack).filter((frame) => !OWN_MODULE_FRAME.test(frame));
+
+  return { kind, file: typeof file === 'string' ? file : undefined, frames: ownFrames(frames, 5) };
+}
+
+/**
+ * What is still outstanding, and where each was scheduled — read it before {@link cancelStrayTimers}.
+ * The file is the one running at the time, which is how a callback charged to the wrong file is traced.
+ */
+export function describeStrayTimers(host: SchedulerHost = defaultHost()): StrayTimer[] {
+  const tracked = registry().get(host);
+
+  return tracked ? [...tracked.handles.values(), ...tracked.frames.values()].map(describeOrigin) : [];
 }
 
 /**
