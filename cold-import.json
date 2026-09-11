@@ -1,5 +1,5 @@
 {
-  "measuredOn": "2026-09-10",
+  "measuredOn": "2026-09-11",
   "node": "v24.19.0",
   "tolerance": {
     "ratio": 0.02,
@@ -40,7 +40,7 @@
     },
     "./eslint-plugin": {
       "modules": 2,
-      "bytes": 101589
+      "bytes": 117441
     },
     "./jasmine": {
       "modules": 12,
@@ -76,7 +76,7 @@
     },
     "./setup": {
       "modules": 11,
-      "bytes": 96842
+      "bytes": 99534
     },
     "./svelte": {
       "modules": 12,
