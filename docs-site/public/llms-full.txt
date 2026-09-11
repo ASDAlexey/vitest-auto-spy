@@ -18316,12 +18316,13 @@ where a seeded `override` would have put a plain function in place of a spy), `s
 same two strict-mode fields.
 
 **`StrictSpyConfiguration`** — the pair every factory that builds a double accepts, and which
-`setupAutoSpy(opts?)` takes as a suite-wide default:
+`setupAutoSpy(opts?)` takes as a suite-wide default, plus the read hook next to them:
 
-| Field              | Type                                                                                     | Effect                                                                                                     |
-| ------------------ | ---------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| `strict?`          | `boolean`                                                                                | Throw on a call to a method nobody configured, naming the class, the method and the arguments. Default off |
-| `onUnstubbedCall?` | `(call: { className: string \| undefined; method: string; args: unknown[] }) => unknown` | Run this instead, and use what it returns as the call's result. The general form of `strict`               |
+| Field              | Type                                                                                                                | Effect                                                                                                                                 |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `strict?`          | `boolean`                                                                                                           | Throw on a call to a method nobody configured, naming the class, the method and the arguments. Default off                             |
+| `onUnstubbedCall?` | `(call: { className: string \| undefined; method: string; args: unknown[] }) => unknown`                            | Run this instead, and use what it returns as the call's result. The general form of `strict`                                           |
+| `onUnstubbedRead?` | `(read: { className: string \| undefined; member: string; kind: 'getter' \| 'observable'; count: number }) => void` | Take the getters read and the streams subscribed to with nothing configured, after the test, instead of the `unconfiguredReads` report |
 
 A double's own configuration wins over the suite-wide one — an explicit `strict: false` included,
 which is the only way to exempt one wide collaborator from a global default; and `onUnstubbedCall`
@@ -18330,7 +18331,8 @@ wins over `strict` when both are given. `className` is `undefined` for a type-dr
 actually passed one of the two, and releases it in `afterAll` — under `isolate: false` a default
 armed by one file's setup would otherwise still be armed for files that never opted in. The default
 lives on `globalThis`, so it reaches a double whichever bundle of the package built it.
-[Strict mode](https://asdalexey.github.io/vitest-auto-spy/core/strict-mode) covers what counts as configured.
+`onUnstubbedRead` follows `onUnstubbedCall`'s precedence and answers only under `setupAutoSpy`, which
+marks where a test starts and ends. [Strict mode](https://asdalexey.github.io/vitest-auto-spy/core/strict-mode) covers what counts as configured.
 
 **`ValueConfig`** (for `nextWithValues`): `{ value, delay? }` | `{ errorValue, delay? }` |
 `{ complete?, delay? }`.
@@ -18404,7 +18406,7 @@ pass through untouched. A real value is accepted wherever a partial is, so a hos
 a `NodeList` stays assignable to the mapping of itself.
 
 **`ClassSpyConfiguration<T>`**, **`AutoMockConfiguration<T>`**, **`StrictSpyConfiguration`**,
-**`ValueConfig<T>`**, `UnstubbedCall`, `UnstubbedCallHandler`, `NextValueConfig`, `ErrorValueConfig`,
+**`ValueConfig<T>`**, `UnstubbedCall`, `UnstubbedCallHandler`, `UnstubbedRead`, `UnstubbedReadHandler`, `NextValueConfig`, `ErrorValueConfig`,
 `CompleteValueConfig`, `ValueConfigPerCall`, `OnlyMethodKeysOf<T>`, `OnlyObservablePropsOf<T>`,
 `AccessorKeysOf<T>`, `MethodReturns<T>`, `PropStubValue<V>`, `SpyOptions`, `Overloads<F>`,
 `AutoSpyDefaultEntry<T>`,
@@ -18418,7 +18420,8 @@ a `NodeList` stays assignable to the mapping of itself.
 `NestUnitClass<T>`, `NestUnitProvider` and `CreateNestUnitOptions` for `createNestUnit`;
 `/node` adds `StopTrackingNodeMocks`, the disarm handle `trackNodeMocks()` hands back;
 `/setup` adds `RestoreWebStorageOptions`, whose one field `view` names the window
-`restoreWebStorage()` takes a working storage from — `null` says there is no window.
+`restoreWebStorage()` takes a working storage from — `null` says there is no window — and
+`UnconfiguredReadsReaction`, the `'off' | 'warn' | 'throw'` of `setupAutoSpy({ unconfiguredReads })`.
 
 ## Exports by subpath
 

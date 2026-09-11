@@ -131,12 +131,13 @@ description: Все экспорты vitest-auto-spy и его подпутей,
 строгого режима), плюс те же два поля строгого режима.
 
 **`StrictSpyConfiguration`** — пара, которую принимает каждая фабрика, строящая дубль, и которую
-`setupAutoSpy(opts?)` берёт как дефолт на всю сюиту:
+`setupAutoSpy(opts?)` берёт как дефолт на всю сюиту, плюс хук чтений рядом с ними:
 
-| Поле               | Тип                                                                                      | Эффект                                                                                                       |
-| ------------------ | ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| `strict?`          | `boolean`                                                                                | Бросать на вызов метода, который никто не настроил, называя класс, метод и аргументы. По умолчанию выключено |
-| `onUnstubbedCall?` | `(call: { className: string \| undefined; method: string; args: unknown[] }) => unknown` | Выполнить это вместо вызова и использовать возвращённое как результат. Общая форма `strict`                  |
+| Поле               | Тип                                                                                                                 | Эффект                                                                                                                     |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `strict?`          | `boolean`                                                                                                           | Бросать на вызов метода, который никто не настроил, называя класс, метод и аргументы. По умолчанию выключено               |
+| `onUnstubbedCall?` | `(call: { className: string \| undefined; method: string; args: unknown[] }) => unknown`                            | Выполнить это вместо вызова и использовать возвращённое как результат. Общая форма `strict`                                |
+| `onUnstubbedRead?` | `(read: { className: string \| undefined; member: string; kind: 'getter' \| 'observable'; count: number }) => void` | Забрать после теста прочитанные геттеры и потоки с подпиской, которые никто не настроил, вместо отчёта `unconfiguredReads` |
 
 Собственная конфигурация дубля побеждает общую для сюиты — включая явный `strict: false`, и это
 единственный способ вывести один широкий коллаборатор из-под глобального дефолта; а `onUnstubbedCall`
@@ -145,7 +146,9 @@ description: Все экспорты vitest-auto-spy и его подпутей,
 действительно передала одно из двух, и снимает его в `afterAll` — при `isolate: false` дефолт,
 включённый setup-файлом одного файла, иначе остался бы включённым и для файлов, которые на него не
 подписывались. Дефолт живёт на `globalThis`, так что доходит до дубля, какой бы бандл пакета его ни
-построил. [Строгий режим](/ru/core/strict-mode) объясняет, что считается настроенным.
+построил. `onUnstubbedRead` следует старшинству `onUnstubbedCall` и отвечает только под `setupAutoSpy`,
+который отмечает, где тест начинается и где кончается. [Строгий режим](/ru/core/strict-mode) объясняет,
+что считается настроенным.
 
 **`ValueConfig`** (для `nextWithValues`): `{ value, delay? }` | `{ errorValue, delay? }` |
 `{ complete?, delay? }`.
@@ -222,7 +225,7 @@ _обращения_ к свойству: цепочка, идущая чере�
 самого себя.
 
 **`ClassSpyConfiguration<T>`**, **`AutoMockConfiguration<T>`**, **`StrictSpyConfiguration`**,
-**`ValueConfig<T>`**, `UnstubbedCall`, `UnstubbedCallHandler`, `NextValueConfig`, `ErrorValueConfig`,
+**`ValueConfig<T>`**, `UnstubbedCall`, `UnstubbedCallHandler`, `UnstubbedRead`, `UnstubbedReadHandler`, `NextValueConfig`, `ErrorValueConfig`,
 `CompleteValueConfig`, `ValueConfigPerCall`, `OnlyMethodKeysOf<T>`, `OnlyObservablePropsOf<T>`,
 `AccessorKeysOf<T>`, `MethodReturns<T>`, `PropStubValue<V>`, `SpyOptions`, `Overloads<F>`,
 `AutoSpyDefaultEntry<T>`,
@@ -236,7 +239,8 @@ _обращения_ к свойству: цепочка, идущая чере�
 `NestUnitClass<T>`, `NestUnitProvider` и `CreateNestUnitOptions` для `createNestUnit`;
 `/node` добавляет `StopTrackingNodeMocks` — ручку отключения, которую отдаёт `trackNodeMocks()`;
 `/setup` добавляет `RestoreWebStorageOptions`, чьё единственное поле `view` называет окно, из
-которого `restoreWebStorage()` берёт рабочее хранилище — `null` означает, что окна нет.
+которого `restoreWebStorage()` берёт рабочее хранилище — `null` означает, что окна нет, — и
+`UnconfiguredReadsReaction`, то самое `'off' | 'warn' | 'throw'` из `setupAutoSpy({ unconfiguredReads })`.
 
 ## Экспорты по подпутям {#exports-by-subpath}
 
