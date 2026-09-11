@@ -147,6 +147,28 @@ function tokenFor(fixture: AutoSpyFixture): ClassType<unknown> | InjectionToken<
 }
 
 /**
+ * The tokens `providers` names. A fixture whose token is among them was overridden on purpose, so it
+ * is read with `TestBed.inject` — `injectSpy` would report the real instance as a misconfiguration.
+ */
+function overriddenTokens(providers: readonly unknown[]): Set<unknown> {
+  const tokens = new Set<unknown>();
+
+  const visit = (provider: unknown): void => {
+    if (Array.isArray(provider)) {
+      provider.forEach(visit);
+
+      return;
+    }
+
+    tokens.add(typeof provider === 'function' ? provider : Reflect.get(Object(provider), 'provide'));
+  };
+
+  providers.forEach(visit);
+
+  return tokens;
+}
+
+/**
  * Turn a map of dependencies into typed `TestBed` fixtures.
  *
  * ```ts
@@ -198,6 +220,7 @@ export function extendWithAutoSpies<Context, const Spec extends Record<string, A
   // `noUncheckedIndexedAccess` that index is `AutoSpyFixture | undefined`, and the only honest way
   // to spend the `undefined` is a check that a key taken from the same object can never fail.
   const entries = Object.entries(spec);
+  const overridden = overriddenTokens(providers);
   let configured = false;
 
   const configureOnce = (onCleanup: (teardown: () => void) => void): void => {
@@ -229,7 +252,9 @@ export function extendWithAutoSpies<Context, const Spec extends Record<string, A
     builder = builder.extend(name, ({}, { onCleanup }) => {
       configureOnce(onCleanup);
 
-      return injectSpy(tokenFor(fixture));
+      const token = tokenFor(fixture);
+
+      return overridden.has(token) ? TestBed.inject(token) : injectSpy(token);
     });
   }
 

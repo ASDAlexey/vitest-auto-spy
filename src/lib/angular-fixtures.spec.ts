@@ -6,10 +6,11 @@
  */
 import { Injectable, InjectionToken } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { test as base, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, test as base, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import '../angular';
 import { extendWithAutoSpies } from './angular-fixtures';
+import { setMisconfigurationReaction } from './misconfiguration';
 
 interface Passcode {
   verify(code: string): boolean;
@@ -93,6 +94,29 @@ describe('extendWithAutoSpies — composition', () => {
   withOverride('an explicit provider beats the auto-spy for the same token', ({ cart }) => {
     expect(cart).toBe(real);
     expect(TestBed.inject(CartService)).toBe(real);
+  });
+
+  // A deliberate override is not a misconfiguration: the throwing grade (and `preset: 'strict'`) must
+  // not turn the documented way to keep a real service into a failure.
+  describe('under misconfiguration: throw', () => {
+    const withClassProvider = extendWithAutoSpies(base, { cart: CartService }, { providers: [[CartService]] });
+
+    beforeEach(() => {
+      setMisconfigurationReaction('throw');
+    });
+
+    afterEach(() => {
+      setMisconfigurationReaction(undefined);
+    });
+
+    withOverride('reads an overridden token without reporting the real instance', ({ cart }) => {
+      expect(cart).toBe(real);
+    });
+
+    withClassProvider('takes a class in a nested provider array as an override too', ({ cart }) => {
+      expect(cart).toBeInstanceOf(CartService);
+      expect(vi.isMockFunction(cart.checkout)).toBe(false);
+    });
   });
 
   // A `beforeEach` may keep configuring the module: it runs before any fixture resolves, and

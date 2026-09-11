@@ -67,12 +67,17 @@ test('does not build what it does not name', ({ api }) => {
 
 Each entry is a class, a `[Class, config]` pair taking whatever `provideAutoSpy` takes, or an
 `InjectionToken` — built from the token's own type, exactly as `provideAutoSpyForToken` does.
-Anything else the module needs goes in the third argument and is registered in the same call, ahead
-of the generated providers, so a token named there wins:
+Anything else the module needs goes in the third argument and is registered in the same call, after
+the generated providers, so a token named there wins:
 
 ```ts
 const test = extendWithAutoSpies(base, { cart: CartService }, { providers: [provideHttpClient(), CartComponent] });
 ```
+
+A fixture whose token that list names — `{ provide: CartService, useValue: real }` or a bare class —
+resolves to what the list provides, read with `TestBed.inject` rather than `injectSpy`: keeping a real
+service is a decision, not a misconfiguration, so it stays quiet under `misconfiguration: 'throw'` and
+`preset: 'strict'` too.
 
 ::: info Why the whole map at once, rather than a chain of `.extend`s
 This is a `TestBed` rule, not a typing limitation. Fixtures resolve lazily and independently, so in

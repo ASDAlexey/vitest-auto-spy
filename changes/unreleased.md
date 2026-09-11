@@ -35,5 +35,6 @@ _Last released: **v5.5.0** — the git tag, `package.json` and `CHANGELOG.md` ag
 - Strict doubles no longer throw from Angular's lifecycle hooks (`ngOnDestroy` at teardown).
 - Suite-wide `strict` / `onUnstubbedCall` / `setSpyEngine` reach doubles built by every bundle.
 - `overrides` on a spied getter seeds the getter spy.
+- `extendWithAutoSpies({ providers })` reads an overridden token with `TestBed.inject` — no not-a-spy report.
 - `enableAngularDiagnostics()` and `provideHttpTesting({ verifyOnTeardown })` check every spec file of a
   worker, and work under `sequence: { hooks: 'list' }`; `shadowedProviders` false reports and `NG0201`.
