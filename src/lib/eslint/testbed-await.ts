@@ -117,12 +117,17 @@ function answersTheTestBed(context: RuleContext, node: EsNode, seen: Set<string>
   return link !== undefined && ANSWERS_THE_TEST_BED.has(link) && answersTheTestBed(context, node.callee.object, seen);
 }
 
+/** What the reported call actually answers, so the message does not contradict its own next sentence. */
+function answerOf(member: string): string {
+  return ANSWERS_A_FIXTURE.has(member) ? 'the `ComponentFixture`' : 'the TestBed';
+}
+
 /** Drop the `await`, and the `async` of a hook that awaits nothing else. */
-function removal(context: RuleContext, awaited: EsAwaitExpression): SuggestionDescriptor {
+function removal(context: RuleContext, awaited: EsAwaitExpression, answers: string): SuggestionDescriptor {
   const callback = asyncOnlyFor(awaited);
 
   return {
-    desc: 'Remove the await — the TestBed call answers the TestBed, not a promise',
+    desc: `Remove the await — the TestBed call answers ${answers}, not a promise`,
     fix: (fixer: EsFixer): EsFix[] => {
       // The whole `await` expression is replaced by the text of what it awaited, rather than the
       // keyword cut out by range: ESTree does not record parentheses, so a range ending where the
@@ -144,7 +149,7 @@ export const noSyncTestbedAwait = defineRule({
   hasSuggestions: true,
   messages: {
     noSyncTestbedAwait:
-      '`{{member}}(…)` answers the TestBed, not a promise, so this `await` waits for nothing. Every `configureTestingModule` and ' +
+      '`{{member}}(…)` answers {{answers}}, not a promise, so this `await` waits for nothing. Every `configureTestingModule` and ' +
       '`override*` returns `TestBed` itself — that is what lets them chain — and `createComponent` / `getLastFixture` return the ' +
       '`ComponentFixture`; awaiting one of those only resumes the hook a microtask later, while making a synchronous setup read as ' +
       'an asynchronous one. Drop the `await`, and the `async` of a `beforeEach` / `beforeAll` / `afterEach` / `afterAll` / `it` / ' +
@@ -172,7 +177,9 @@ export const noSyncTestbedAwait = defineRule({
         return;
       }
 
-      context.report({ node, messageId: 'noSyncTestbedAwait', data: { member }, suggest: [removal(context, node)] });
+      const answers = answerOf(member);
+
+      context.report({ node, messageId: 'noSyncTestbedAwait', data: { member, answers }, suggest: [removal(context, node, answers)] });
     },
   }),
 });

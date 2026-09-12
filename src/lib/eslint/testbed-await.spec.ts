@@ -212,9 +212,18 @@ describe(RULE, () => {
   });
 
   it('offers one suggestion, and says what it removes', () => {
-    const [report] = verify('await TestBed.createComponent(Card);');
+    const [report] = verify('await TestBed.configureTestingModule({});');
 
     expect(report?.suggestions).toHaveLength(1);
     expect(report?.suggestions?.[0]?.desc).toBe('Remove the await — the TestBed call answers the TestBed, not a promise');
+  });
+
+  it('names what the reported call answers, rather than the TestBed for all of them', () => {
+    const [fixture] = verify('await TestBed.createComponent(Card);');
+    const [bed] = verify('await TestBed.overrideProvider(Api, { useValue: {} });');
+
+    expect(fixture?.message).toContain('`createComponent(…)` answers the `ComponentFixture`, not a promise');
+    expect(fixture?.suggestions?.[0]?.desc).toBe('Remove the await — the TestBed call answers the `ComponentFixture`, not a promise');
+    expect(bed?.message).toContain('`overrideProvider(…)` answers the TestBed, not a promise');
   });
 });
