@@ -1,5 +1,5 @@
 {
-  "measuredOn": "2026-09-11",
+  "measuredOn": "2026-09-12",
   "node": "v24.19.0",
   "tolerance": {
     "ratio": 0.02,
@@ -8,31 +8,31 @@
   "entries": {
     ".": {
       "modules": 2,
-      "bytes": 113962
+      "bytes": 114023
     },
     "./angular": {
       "modules": 2,
-      "bytes": 145562
+      "bytes": 162450
     },
     "./angular-http": {
       "modules": 3,
-      "bytes": 11397
+      "bytes": 11445
     },
     "./angular-router": {
-      "modules": 2,
-      "bytes": 9279
+      "modules": 5,
+      "bytes": 49556
     },
     "./bun": {
-      "modules": 11,
-      "bytes": 108284
+      "modules": 12,
+      "bytes": 108533
     },
     "./bun-angular": {
-      "modules": 13,
-      "bytes": 128148
+      "modules": 14,
+      "bytes": 134736
     },
     "./console": {
-      "modules": 9,
-      "bytes": 59257
+      "modules": 10,
+      "bytes": 59407
     },
     "./diagnostics": {
       "modules": 2,
@@ -44,51 +44,55 @@
     },
     "./eslint-plugin": {
       "modules": 2,
-      "bytes": 144197
+      "bytes": 152597
     },
     "./jasmine": {
-      "modules": 13,
-      "bytes": 102534
+      "modules": 14,
+      "bytes": 102745
     },
     "./jasmine-compat": {
       "modules": 3,
       "bytes": 10014
     },
     "./nestjs": {
-      "modules": 12,
-      "bytes": 97190
+      "modules": 13,
+      "bytes": 97401
     },
     "./node": {
-      "modules": 10,
-      "bytes": 111253
+      "modules": 11,
+      "bytes": 111472
     },
     "./observer-spy": {
       "modules": 2,
       "bytes": 6264
     },
     "./react": {
-      "modules": 13,
-      "bytes": 122956
+      "modules": 14,
+      "bytes": 123205
     },
     "./rstest": {
-      "modules": 11,
-      "bytes": 121419
+      "modules": 12,
+      "bytes": 121638
     },
     "./rxjs": {
       "modules": 5,
-      "bytes": 17828
+      "bytes": 17876
     },
     "./setup": {
-      "modules": 12,
-      "bytes": 120620
+      "modules": 13,
+      "bytes": 120770
+    },
+    "./signal-forms": {
+      "modules": 5,
+      "bytes": 274233
     },
     "./svelte": {
-      "modules": 13,
-      "bytes": 122956
+      "modules": 14,
+      "bytes": 123205
     },
     "./vue": {
-      "modules": 13,
-      "bytes": 123226
+      "modules": 14,
+      "bytes": 123475
     },
     "./zone": {
       "modules": 1,
