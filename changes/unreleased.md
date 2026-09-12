@@ -13,6 +13,39 @@ _Last released: **v5.7.0** — the git tag, `package.json` and `CHANGELOG.md` ag
 
 ### Added
 
+- **`perf --baseline` — the ratchet.** A committed record of what each spec file cost, stored as a
+  ratio to the median file of its run rather than in milliseconds, because a baseline written on a
+  laptop is compared on a runner two to five times slower and would otherwise report the hardware.
+  A file that grew against it becomes an ordinary gate candidate, re-measured on its own like any
+  other, with the milliseconds that share is worth in the current run in the message.
+  `--update-baseline`, `--baseline-factor` (2), `--baseline-floor-ms` (500).
+- **`perf --json` merges the reports of a sharded pipeline** — a directory or a pattern
+  (`coverage/**/perf-*.json`). Transform time adds, wall clock is the longest report rather than the
+  sum, a file measured twice keeps the slower reading, and every report is re-based onto one root:
+  GitLab clones each job into its own build directory, so a merge that kept absolute paths would
+  silently drop three shards out of four.
+- **Two tables under the phase table**: the slowest files, with `ms/test` beside `time` — 400 tests
+  sharing 6 s is a large file, 3 tests sharing 6 s is a slow one — and the slowest test bodies.
+  `--top <n>` sets the rows, `0` turns them off.
+
+- **`vitest-auto-spy perf --gate` — the first thing in this CLI allowed to fail a pipeline.** It
+  judges the `tests` phase alone (the other five are the harness and the machine, not anybody's
+  code), asks for both an absolute budget and a multiple of the median file **of the same run** so
+  the verdict survives a change of hardware, and re-measures every candidate on its own before
+  failing anything — a file that is fast when it has the machine to itself is reported as _not
+  reproduced_ rather than as a defect. `--max-test-ms` (1000), `--max-file-ms` (5000), `--factor`
+  (10), `--max-wall-ms` (off), `--gate-only`, `--no-confirm`. Exit `1` means over budget; exit `2`
+  means there was nothing to judge, which now includes a red suite — a failed test is measured until
+  its timeout, and 30 s of timeout looks exactly like 30 s of slow code.
+- **`perf --command '<line>'` — measure the command the repository actually uses.** A bare
+  `vitest run` is not every repository's suite: where one is assembled by an Angular builder, an Nx
+  target or a script, there is no root config, the defaults sweep up every `*.spec.*` in the tree
+  with no globals and no aliases, and every file fails to collect. `--command` runs the real line
+  with `VITEST_AUTO_SPY_PERF_OUT` and `VITEST_AUTO_SPY_PERF_REPORTER` in its environment;
+  `{paths}` / `{paths:<prefix>}` in it take the files of a confirmation pass.
+- The perf report is version 2: it carries how many bodies each file finished and the slowest few of
+  them by name (over 100 ms, at most five per file). Version 1 reports still read.
+
 - `setInputs(fixture, { … })` (`/angular`, `/bun-angular`): one `setInput` per name, checked against the compiled
   definition first, then one wait — the pair every spec writes after `renderShallow({ inputs })`.
 - `provideRouterDouble({ url })` / `injectRouterDouble()` / `createRouterDouble()` (`/angular-router`): a `Router`

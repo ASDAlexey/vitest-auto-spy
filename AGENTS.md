@@ -3550,7 +3550,7 @@ Full reference: <https://asdalexey.github.io/vitest-auto-spy/utilities/cli>.
 ### If you were asked why a suite is slow
 
 ```bash
-npx vitest-auto-spy perf              # runs the suite once and reports; always exits 0
+npx vitest-auto-spy perf              # runs the suite once and reports; exits 0 without --gate
 npx vitest-auto-spy perf src/some/dir # a path is passed through to Vitest as a file filter
 ```
 
@@ -3583,6 +3583,37 @@ that declares no `maxWorkers`, and it is the one finding here about **memory**: 
 is the default, resident memory measured at 1.42 GB plus ~155 MB per worker, and a cap of four costs
 about 2.8 % of wall clock. Do not quote a worker count as universally right — it is a property of
 the machine.
+
+**A bare `vitest run` is not every repository's suite, and `perf` refuses to pretend otherwise.**
+Where the suite is assembled by something else — an Angular builder, an Nx target, a script that
+generates a config per project — there is no root `vite(st).config.*`, the Vitest defaults sweep up
+every `*.spec.*` in the tree with no globals and no aliases, and every file fails to collect. The
+phase table that comes out of that is real seconds spent on nothing: measured on one such workspace,
+1 830 files, 29 s of wall clock and **zero** test bodies executed. `perf` checks for that shape
+before it runs anything, and refuses any report in which no body finished (exit 2). Measure the
+repository's own command instead:
+
+```bash
+npx vitest-auto-spy perf --command 'npm test'                          # measure that command
+npx vitest-auto-spy perf --command 'npm test -- {paths:--include=}' --gate
+```
+
+`--command` puts `VITEST_AUTO_SPY_PERF_OUT` and `VITEST_AUTO_SPY_PERF_REPORTER` in that command's
+environment; the configuration it reaches attaches the reporter itself (`reporters: perf ===
+undefined ? ['default'] : ['default', perf]`), and the reporter writes nothing at all when the first
+variable is unset, so it can be declared permanently. `{paths}` / `{paths:<prefix>}` is where the
+files of a confirmation pass go.
+
+**`--gate` is the only part of this command that fails anything**, and three rules keep it honest.
+It judges the `tests` phase alone, because the other five are the harness and the machine rather than
+anybody's code. A file is over budget only when it is over both an absolute floor and `--factor` ×
+the median file **of the same run**, which is what makes the verdict the same on a loaded CI runner
+and on an idle laptop. And every candidate is re-measured on its own before it may fail anything: a
+file that is fast when it has the machine to itself is reported as _not reproduced_, an `info` rather
+than a finding. Without a way to re-measure, findings are warnings that fail nothing unless
+`--no-confirm` says one reading is enough. Exit `1` is "over budget", exit `2` is "there was nothing
+to judge" — including a red suite, which the gate will not judge at all, since a failed test is
+measured until its timeout and 30 s of timeout looks exactly like 30 s of slow code.
 
 `--json <path>` re-analyses a report an earlier `--out <path>` run wrote, instead of running Vitest
 again. Full reference: <https://asdalexey.github.io/vitest-auto-spy/utilities/cli>.

@@ -345,7 +345,7 @@ The package ships one executable, with no dependencies and nothing to configure:
 
 ```bash
 npx vitest-auto-spy doctor   # read-only. Exits 1 when it finds something
-npx vitest-auto-spy perf     # where the suite's CPU time goes. Always exits 0
+npx vitest-auto-spy perf     # where the suite's CPU time goes. --gate fails a budget
 npx vitest-auto-spy codemod  # prints the migration diff. Writes nothing without --write
 npx vitest-auto-spy init     # writes the agent instructions pointer
 ```
@@ -411,7 +411,7 @@ Vitest prints one summary line per run with a phase breakdown; it is the only pl
 surface, and it is for the whole suite, not a file. `perf` reads the same numbers per file — through
 `TestModule.diagnostic()`, Vitest's own public accessor, via a reporter this package ships — and
 turns whichever phase dominates into a list of files and the rule that put them there. Nothing here
-parses terminal output, and it always exits 0: a slow suite is not a failing one.
+parses terminal output, and without --gate it always exits 0: a slow suite is not a failing one.
 
 ```bash
 npx vitest-auto-spy perf              # run the whole suite once and report
@@ -459,6 +459,24 @@ repository's own 117-file suite, and 119 ms against 253 ms per file on a spec th
 does nothing else. `perf-workers` is the one about **memory**: with no `maxWorkers` declared, Vitest
 takes one worker per core, and a worker measured at ~155 MB on top of a 1.42 GB floor — a cap of four
 cost 2.8 % of wall clock and about 2 GB less on a 16-core machine.
+
+**`--gate` is the half that may fail a pipeline**, and it is built so that it only ever fails over
+somebody's code. It judges the `tests` phase alone — the other five are the harness and the machine
+— it asks for both an absolute budget and a multiple of the median file **of the same run**, so the
+verdict survives a change of hardware, and it re-measures every candidate on its own before failing
+anything. A file that is not slow when it has the machine to itself is reported as _not reproduced_
+rather than as a defect.
+
+```bash
+npx vitest-auto-spy perf --command 'npm test -- {paths:--include=}' --gate
+```
+
+`--command` is also the answer to a bare `vitest run` not being your suite at all: where the suite is
+built by an Angular builder, an Nx target or a script, there is no root config, the defaults sweep up
+every `*.spec.*` in the tree, and every file fails to collect — 1 830 files and 0 test bodies on the
+workspace this was measured in, under a phase table that looked entirely plausible. `perf` refuses to
+call that a measurement and says which of the two entry points to use. Exit `1` means the gate
+failed; exit `2` means there was nothing to judge.
 
 Full reference, phase by phase and finding by finding: **[The CLI](https://asdalexey.github.io/vitest-auto-spy/utilities/cli)**.
 

@@ -230,13 +230,168 @@ installed in `--cwd`, the package's own `dist/perf-reporter.js` missing, the Vit
 producing no report, or a `--json` file that does not parse as one. If the suite ran but failed,
 `perf` still reports the timings it measured, with a warning that the run itself did not pass.
 
+### When a bare run is not your suite
+
+`vitest run` with no path reads the configuration in the directory it was started in, and in plenty
+of repositories that configuration does not exist: the suite is assembled by an Angular builder, an
+Nx target, or a script that generates a config per project. There, a bare run takes the Vitest
+defaults — no `globals`, no path aliases, an `include` that sweeps up every `*.spec.*` in the tree
+including build output — and every file fails to collect. Measured on one such workspace: **1 830
+files, 29 s of wall clock, 0 test bodies executed**, and a phase table that looked entirely
+plausible because transform and environment are real seconds however the files ended.
+
+`perf` refuses both halves of that. Before running anything it checks whether a bare run would be
+this repository's suite at all — no root `vite(st).config.*`, and a `test` script that does not
+invoke `vitest` itself — and stops with the two ways out instead of spending the half-minute. And
+whatever the source, a report in which **no test body finished** is not printed as a measurement:
+it exits 2 and says how many files were collected against how many bodies ran.
+
+```bash
+npx vitest-auto-spy perf --command 'npm test'                    # measure your own command
+npx vitest-auto-spy perf --command 'npm test -- {paths:--include=}' --gate
+```
+
+`--command` runs that shell line with `VITEST_AUTO_SPY_PERF_OUT` and `VITEST_AUTO_SPY_PERF_REPORTER`
+in its environment. The configuration the command reaches attaches the reporter itself, which is two
+lines wherever its `reporters` are declared:
+
+```ts
+const perf = process.env['VITEST_AUTO_SPY_PERF_REPORTER'];
+
+reporters: perf === undefined ? ['default'] : ['default', perf],
+```
+
+The reporter writes nothing at all unless `VITEST_AUTO_SPY_PERF_OUT` names a file, so a repository
+whose runner config cannot be rewritten per run can declare it permanently and pay nothing on the
+runs that are not measuring anything.
+
+`{paths}` in the command is where the files of a confirmation pass go; `{paths:<prefix>}` puts a flag
+in front of each one, which is what a harness taking `--include=<glob>` needs. Without the token the
+command cannot be narrowed, and the gate says so rather than re-running the whole suite to confirm
+one file.
+
+### The gate
+
+`--gate` is the only part of `perf` that fails anything. Everything else it prints is advice, and
+advice must never redden a merge request; a gate has the opposite obligation, so every finding in it
+has to be something the author of the diff did and can undo. Three decisions follow, and they are the
+whole design.
+
+**It judges test bodies, not the machine.** Of the six phases, `environment`, `prepare`, `setup` and
+`transform` are the harness: they scale with the file count and the CPU, and no spec author makes one
+of them smaller by writing better code. `import` is worse to attribute — under a shared worker the
+first file to reach a module pays for all of them, so the bill lands on whichever file the scheduler
+started. `tests` is the one phase that is somebody's code, so `tests` is what the budgets are over.
+
+**A budget is relative first and absolute second.** A file is over budget when it is over
+`--max-file-ms` **and** over `--factor` × the median file of the same run. The median moves with the
+machine, so the verdict survives a change of hardware; the absolute floor stops a fast suite from
+reporting its own fastest outlier as a defect. A suite that is uniformly slow produces no file
+finding at all — there is no outlier in it — which is what `--max-wall-ms` is for, and that one is
+off unless you ask, because wall clock is a property of the runner.
+
+**Nothing fails on one measurement.** Every candidate is re-measured on its own before it is allowed
+to fail anything, through the same `--command` the first reading came from. A file that is not slow
+when it has the machine to itself is reported as **not reproduced** — an `info`, not a finding —
+because "your test is slow" and "your test shared a worker with four others" are different
+statements, and a gate that cannot tell them apart is switched off within a week. Where no
+confirmation is possible the findings are warnings that fail nothing, unless `--no-confirm` says one
+reading is enough.
+
+```
+$ npx vitest-auto-spy perf --json out/perf.json --gate --command 'npm test -- {paths:--include=}'
+
+perf gate: re-measuring 1 file on their own before failing anything.
+
+error  perf-gate-slow-test libs/a/src/lib/thing.spec.ts
+       `Thing > waits for the retry` spent 4.31s in its body, over the 1.00s budget
+       (--max-test-ms 1000). Re-measured on its own: 4.05s, still over budget.
+       → A test body over a second is usually waiting rather than working: a timer nobody advanced
+         (`vi.useFakeTimers()` and `vi.advanceTimersByTime`), a real request or a real animation
+         frame, an `await` on something that settles on a schedule, or a fixture rebuilt from
+         scratch in every case.
+
+1 error, 0 warnings, 0 notes
+```
+
+The gate refuses to judge a run that did not pass: a failed test is measured until its timeout, and
+30 s of timeout looks exactly like 30 s of slow code. It also never gates a file outside
+`--gate-only` when that is given — CI can pass the spec files the branch touched, and the median is
+still taken over the whole run.
+
+**Exit codes.** `0` — the report was read and nothing failed. `1` — the gate failed, and that is the
+only thing that means "your suite is over budget". `2` — there was nothing to judge: no Vitest, no
+report, a `--json` file that does not parse, a run in which no test body executed, or a red suite
+under `--gate`.
+
+### The two tables, and the shards they were merged from
+
+Under the phase table `perf` prints the two lists a reader actually opens the report for — **the
+slowest files** and **the slowest test bodies** — because the phase table is a total and the rules
+above it only fire on specific fixable shapes. The file table carries `ms/test` next to `time`, and
+that column is the one that decides whether to open the file: 400 tests sharing 6 s is a large file,
+3 tests sharing 6 s is a slow one. `--top 0` turns both off; a run whose slowest file is under a
+second prints neither.
+
+A sharded pipeline writes one report per job, and a rule that compares a file against **the median
+of its own run** then compares it against a quarter of the evidence. `--json` takes a directory or a
+pattern and merges them:
+
+```bash
+npx vitest-auto-spy perf --json 'coverage/**/perf-*.json' --gate
+```
+
+Transform time adds, wall clock does **not** (the shards ran at the same time, so the merged wall
+clock is the longest of them), the version is the poorest of the inputs, and a file measured in two
+shards keeps the slower measurement and is named. The merge also re-bases every report onto one
+root, and that is load-bearing rather than tidy: GitLab clones each job into its own build
+directory, so four reports do not agree on where the repository is, and a merge that kept the
+absolute paths would silently drop three shards' files.
+
+### The baseline — catching what a single run cannot see
+
+A gate on today's numbers is blind to the regression that actually accumulates: a file that took
+300 ms last month and takes 900 ms today, under every budget the whole way, one `beforeEach` at a
+time. `--baseline` closes that against a committed record:
+
+```bash
+npx vitest-auto-spy perf --json out/perf.json --update-baseline    # record; commit the file
+npx vitest-auto-spy perf --json out/perf.json --gate --baseline perf-baseline.json
+```
+
+**It is recorded as a ratio, not in milliseconds**, and that is the whole reason it works. The
+baseline is written on somebody's laptop and compared on a runner two to five times slower sharing a
+host with three other jobs; in milliseconds every file would be "1.8× worse" and the ratchet would
+report the hardware. What is stored is each file's share of the median file of its own run, which a
+slower machine raises in the numerator and the denominator alike. A file that went from 3× the
+median to 9× did so because of something in the repository.
+
+A regression becomes an ordinary gate candidate — the same confirmation pass re-measures it on its
+own, and the message states the milliseconds that share is worth in **this** run, so the number on
+the screen can be checked against a clock. Files the baseline does not know are new, files it knows
+that this run did not measure were somebody else's shard, and neither is a finding: both are
+reported as drift. `--baseline-factor` (2) and `--baseline-floor-ms` (500) are the two thresholds.
+
 ### Flags
 
-| Flag            | Effect                                                                                                                 |
-| --------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `--cwd <dir>`   | Run against another directory instead of the current one (shared with the other commands)                              |
-| `--json <path>` | Read a report an earlier `--out` run wrote, instead of running Vitest again                                            |
-| `--out <path>`  | Keep the JSON report at this path. Without it, the report is written under `node_modules/.cache` and deleted once read |
+| Flag                  | Effect                                                                                                                                                            |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--cwd <dir>`         | Run against another directory instead of the current one (shared with the other commands)                                                                         |
+| `--json <path>`       | Read reports instead of running Vitest: one file, a directory, or a pattern such as `coverage/**/perf-*.json`, which merges every report a sharded pipeline wrote |
+| `--out <path>`        | Keep the JSON report at this path. Without it, the report is written under `node_modules/.cache` and deleted once read                                            |
+| `--command <c>`       | Measure this shell line instead of running Vitest directly; `{paths}` / `{paths:<prefix>}` take the files of a confirmation pass                                  |
+| `--gate`              | Fail the run over a confirmed budget. Exit 1                                                                                                                      |
+| `--max-test-ms`       | Budget for one test body. Default 1000; nothing under 100 ms is recorded, so that is the floor                                                                    |
+| `--max-file-ms`       | Budget for a file's bodies added up. Default 5000, and the file must also be over `--factor` × the run's median                                                   |
+| `--factor <n>`        | How many times the median file a file has to be. Default 10 — this is what makes the verdict machine-independent                                                  |
+| `--max-wall-ms`       | A whole-run budget. Off by default: wall clock is a property of the runner, so nothing derives it for you                                                         |
+| `--gate-only`         | Comma-separated paths the gate may judge; the median is still taken over the whole run                                                                            |
+| `--no-confirm`        | Skip the confirmation pass and gate on a single reading                                                                                                           |
+| `--baseline <p>`      | Compare against a committed baseline and fail on what grew; recorded as a ratio to the run's median file, so a slower machine is not a regression                 |
+| `--update-baseline`   | Record this run into the baseline instead of judging it. Defaults to `perf-baseline.json`                                                                         |
+| `--baseline-factor`   | How many times its recorded share a file has to take before it is a regression. Default 2                                                                         |
+| `--baseline-floor-ms` | The absolute floor under which a grown file is still noise. Default 500                                                                                           |
+| `--top <n>`           | Rows in the "slowest files" and "slowest bodies" tables; `0` turns them off. Default 10                                                                           |
 
 A positional path (`npx vitest-auto-spy perf src/cli`) is passed through to Vitest as its file
 filter; with none, `perf` measures the whole suite.

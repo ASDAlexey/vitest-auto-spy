@@ -12,6 +12,37 @@ The latest released version here must always match the one published on
 
 ### Added
 
+- **`perf --baseline` — the ratchet.** A committed record of what each spec file cost, stored as a
+  ratio to the median file of its run rather than in milliseconds, because a baseline written on a
+  laptop is compared on a runner two to five times slower and would otherwise report the hardware.
+  A file that grew against it becomes an ordinary gate candidate, re-measured on its own like any
+  other, with the milliseconds that share is worth in the current run in the message.
+  `--update-baseline`, `--baseline-factor` (2), `--baseline-floor-ms` (500).
+- **`perf --json` merges the reports of a sharded pipeline** — a directory or a pattern
+  (`coverage/**/perf-*.json`). Transform time adds, wall clock is the longest report rather than the
+  sum, a file measured twice keeps the slower reading, and every report is re-based onto one root:
+  GitLab clones each job into its own build directory, so a merge that kept absolute paths would
+  silently drop three shards out of four.
+- **Two tables under the phase table**: the slowest files, with `ms/test` beside `time` — 400 tests
+  sharing 6 s is a large file, 3 tests sharing 6 s is a slow one — and the slowest test bodies.
+  `--top <n>` sets the rows, `0` turns them off.
+- **`vitest-auto-spy perf --gate` — the first thing in this CLI allowed to fail a pipeline.** It
+  judges the `tests` phase alone (the other five are the harness and the machine, not anybody's
+  code), asks for both an absolute budget and a multiple of the median file **of the same run** so
+  the verdict survives a change of hardware, and re-measures every candidate on its own before
+  failing anything — a file that is fast when it has the machine to itself is reported as _not
+  reproduced_ rather than as a defect. `--max-test-ms` (1000), `--max-file-ms` (5000), `--factor`
+  (10), `--max-wall-ms` (off), `--gate-only`, `--no-confirm`. Exit `1` means over budget; exit `2`
+  means there was nothing to judge, which now includes a red suite — a failed test is measured until
+  its timeout, and 30 s of timeout looks exactly like 30 s of slow code.
+- **`perf --command '<line>'` — measure the command the repository actually uses.** A bare
+  `vitest run` is not every repository's suite: where one is assembled by an Angular builder, an Nx
+  target or a script, there is no root config, the defaults sweep up every `*.spec.*` in the tree
+  with no globals and no aliases, and every file fails to collect. `--command` runs the real line
+  with `VITEST_AUTO_SPY_PERF_OUT` and `VITEST_AUTO_SPY_PERF_REPORTER` in its environment;
+  `{paths}` / `{paths:<prefix>}` in it take the files of a confirmation pass.
+- The perf report is version 2: it carries how many bodies each file finished and the slowest few of
+  them by name (over 100 ms, at most five per file). Version 1 reports still read.
 - **`vitest-auto-spy/signal-forms` — Angular's signal forms in a spec (`createForm`,
   `registerFormMatchers`).** Signal forms are stable from Angular 22, and nobody ships testing tools
   for them; a spec that touches one meets the same two walls. `form()` injects, so a call in a
@@ -326,6 +357,50 @@ The latest released version here must always match the one published on
 
 ### Fixed
 
+- **A report measured in another checkout made the gate judge nothing and print an all-clear.** Paths
+  are re-based onto `PerfRun.root`, and a report whose files still land outside the working directory
+  is refused (exit 2) instead of producing an empty file set, no candidates and a positive verdict.
+- **The confirmation pass is checked to have actually narrowed.** A harness that ignores the paths it
+  is handed re-ran the whole suite and returned the same crowded number, which the gate reported as
+  "re-measured on its own". It now says the command ignored `{paths}` and confirms nothing.
+- **A `--gate-only` that matches nothing exits 2** instead of reporting that nothing was over budget;
+  a leading `./` is stripped, since a machine-generated list is where that spelling comes from.
+- **A file total is no longer suppressed by a body finding that failed to reproduce.** A 60-second
+  file passed the gate because its slowest body sat one millisecond over the body budget and then did
+  not confirm; the suppression now happens after confirmation, not before.
+- **A version 2 report with no per-test rows is no longer called "measured nothing".** The guard needs
+  both zero bodies **and** zero milliseconds of test time — the reporter treats the test collection as
+  optional, and an all-skipped shard is not a failed run.
+- **The gate refuses a red suite behind `--json` too**: the reporter records how many files failed, so
+  a handed-over report carries the one fact it used to lose.
+- **Duplicate test names collapse in the reporter** (`it.each` with no placeholder in the title gives
+  every case the same `fullName`): the slowest body of a name is kept, so one problem is reported once
+  and the second measurement belongs to the body it is attached to.
+- **`--command` refuses to run inside a measured run** (`VITEST_AUTO_SPY_PERF_OUT` already set), which
+  is what stops a composite `test` script from recursing, and the default report path carries the
+  process id so two runs cannot erase each other's report.
+- **Paths are quoted for the shell that will actually run them**: `cmd.exe` treats `'` as an ordinary
+  character, so the confirmation pass on Windows was handed quotes it could not read.
+- Budgets are clamped rather than trusted: `--max-file-ms 0 --factor 0` reported every file in the
+  repository, including the ones that ran nothing.
+- `perf` no longer offers `test.isolate: false` to a workspace whose builder already runs without
+  per-file isolation (`@angular/build:unit-test` passes it itself and overrides the runner config),
+  and its settings findings read every `vite*.config.*` in the repository rather than only the root.
+- **`perf` no longer prints a run that measured nothing as though it were a measurement.** Measured
+  on a workspace whose suite is built by the Angular unit-test builder: a bare run collected 1 830
+  files, every one of them failed on `describe is not defined` or an unresolved alias, and the
+  command reported "29.12s wall clock, 55.61s of CPU time" over a plausible-looking phase table —
+  because transform and environment are real seconds however the files ended. There are now two
+  guards: one before the run, which refuses a bare run in a repository with no root
+  `vite(st).config.*` whose `test` script does not invoke `vitest` (and names `--command` and
+  `--json` as the ways out), and one after it, which refuses any report in which no test body
+  finished. Both exit 2.
+- The perf reporter writes nothing at all unless `VITEST_AUTO_SPY_PERF_OUT` names a file, instead of
+  throwing. That is what lets a repository whose runner config cannot be rewritten per run — an
+  Angular builder that owns its `reporters` — declare it permanently and pay nothing for it.
+- `perf`'s settings findings read every `vite*.config.*` / `vitest*.config.*` in the repository, not
+  only `vitest.config.ts` at the root. A workspace that keeps its Vitest settings in a file of its
+  own was being told to cap a `maxWorkers` it had already capped.
 - **`runEffect` runs the previous run's cleanup, and refuses a destroyed effect.** It called the effect body only,
   so `onCleanup` callbacks piled up and every re-run leaked the previous closure; it now runs `cleanup()` then the
   body, the way Angular's own scheduler does, both under `untracked()` so a `computed()` wrapping the call no
