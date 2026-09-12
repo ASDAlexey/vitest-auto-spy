@@ -12,6 +12,58 @@ The latest released version here must always match the one published on
 
 ### Added
 
+- **`setInputs(fixture, { … })` — an input that changes after the first render.** `renderShallow({ inputs })`
+  covers the values a component starts at; every change after that was `fixture.componentRef.setInput(name, value)`
+  per name plus a wait, because a zoneless fixture recomputes nothing until asked. The helper is that pair, and it
+  resolves every name against the component's compiled definition **before** the first write: a name the component
+  does not declare gets an `NG0303` on the console from Angular and no change at all, discovered several assertions
+  later on state that never moved, where this fails at the call that caused it. Both spellings of an aliased input
+  resolve. Exported from `vitest-auto-spy/angular` and `vitest-auto-spy/bun-angular`.
+
+- **`provideRouterDouble({ url })` — a `Router` that cannot contradict itself (`/angular-router`).** After
+  `ActivatedRoute`, `Router` is the provider suites hand-roll most: 48 of them across two private suites, each
+  guessing its own defaults for `events`, `url` and a `navigate` that has to resolve. The double derives the rest
+  from one URL — `router.url` serialized by the router's own serializer, `routerState` as Angular's `RouterState`,
+  and `events` as a `BehaviorSubject` that starts at the `NavigationEnd` which put it there, so `emitNavigation()`
+  lands whether it runs before or after `detectChanges()`. `navigate` and `navigateByUrl` are spies resolving
+  `true`; `serializeUrl`, `parseUrl` and `createUrlTree` are real, so a guard's redirect is assertable and a
+  `routerLink` in a kept template still resolves its `href`. Every other member `Router` declares throws by name
+  instead of reading `undefined`. `injectRouterDouble()` reads the handle back, `createRouterDouble()` works
+  without a `TestBed`. Unlike `ActivatedRoute`, the order against `provideRouter()` does not matter.
+
+- **`provideWindowDouble(TOKEN, overrides?)` / `provideDocumentDouble(overrides?)` — merged over the real one.**
+  The two most hand-rolled token providers in the measured suites (95 `window`, 70 `document`), and the shapes are
+  always `useValue: window`, a slice such as `{ screen: { width, height } }`, or a `mockDocument` with one
+  `querySelector`. A double built from scratch loses everything its author did not think of, so these merge what
+  the spec names **over** the real jsdom object through a proxy: `screen.colorDepth`, `location.href` and
+  `document.createElement` still answer next to an overridden `screen.width`. A plain object override merges into
+  the real member, anything the spec built — a `vi.fn()`, an array, a class instance — replaces it whole. Writes
+  land on the double, never on the global, so there is nothing to restore. Angular has no `WINDOW` token, so the
+  window helper takes the application's own; `DOCUMENT` comes from `@angular/core`, where it has been declared
+  across the whole supported peer range. `createWindowDouble` / `createDocumentDouble` give the same object
+  without DI.
+
+- **`provideMatDialogData(TOKEN, data)` / `provideMatDialogRef(RefClass, init?)` — the Material dialog trio,
+  without Material as a dependency.** 36 hand-rolled providers across the measured suites are the same three shapes:
+  an object on `MAT_DIALOG_DATA`, a `{ close: vi.fn() }` on `MatDialogRef`, and a spy on `MatDialog`. The token and
+  the ref class are **arguments** — that is what keeps `@angular/material` out of this package's dependency list —
+  and they are enough to type the pair: the data type flows from the `InjectionToken<T>`, the result type off the
+  class's own `close()`. `close` is a spy, `afterClosed()` is a `ReplaySubject(1)` rather than Material's
+  `Subject`, so an assertion that subscribes after the component closed still sees the result — where the usual
+  `of(result)` seed lies about completion. Members the double does not carry throw by name, read off
+  `RefClass.prototype`, so the message matches whichever Material the consumer has. Opening stays a recipe:
+  `dialog.open.mockReturnValue(createMatDialogRef(MatDialogRef, { closedWith: 'saved' }).ref)`.
+
+- **`trackRecomputations(signal)` / `trackEffectRuns(effectRef)` — counting what the graph actually re-ran.**
+  "Changing the filter did not re-run the sync effect" was a counter added to production code and forgotten there.
+  Both hand back `{ count, stop() }`, install through `mockValueProp`, so `restoreMockedProps()` /
+  `setupAutoSpy()` own the undo, and refuse by name what is not a signal or an `EffectRef`.
+
+- **`mockResourceProp(obj, prop, initial, { status })` and `double.idle()`.** A resource waiting on a `params()`
+  that returns `undefined` reports `idle`, and a spec could only reach that state by driving the double there.
+  The fourth argument opens it in `idle`, `loading`, `reloading` or `local` directly; `'error'` is not among them,
+  because an error needs a reason and that is `fail()`.
+
 - **`registerAutoSpyDefaults` takes an `InjectionToken` — from `vitest-auto-spy/angular`.** The
   registry reached classes only, so a double behind a token was assembled again in every file that
   provided it — the drift the registry had removed for classes. On a consumer suite of ~1 760 spec
@@ -211,12 +263,54 @@ The latest released version here must always match the one published on
 
 ### Changed
 
+- **`mockSignalProp` writes through a writable signal instead of replacing it.** Angular links a consumer to the
+  signal it read, not to the property it read it through, so a spec that rendered first and patched second stranded
+  every `computed()`, `effect()` and template binding on the old signal — silently, for the rest of the test, with
+  the old value cached. A member that already is a `signal()`, `model()` or `linkedSignal()` is now driven through
+  its own node: the order against the first render stops mattering, a `model()` keeps its output half, and there is
+  nothing to restore — which also means `restoreMockedProps()` leaves the value where the spec left it. The swap
+  survives only where there is no node to write into. Two refusals replace the two silent lies: an `input()` names
+  `fixture.componentRef.setInput(name, value)` (replacing it used to kill the host's next write with
+  `inputSignalNode.applyValueToInputSignal is not a function`), and a read-only signal something has already read
+  says so rather than stranding it.
+
+- **`ResourceDouble` is a whole `ResourceRef`, and `hasValue()` follows Angular's value-based rule.** The double
+  answered `hasValue()` from its status, where Angular 22 answers it from the value, so a component branching on
+  `hasValue()` while loading took the wrong branch in the spec and the right one in production. It now also carries
+  `set`, `update`, `asReadonly`, `destroy` and `snapshot` with the semantics Angular gives them — a service that
+  hands out `asReadonly()` and a component that writes optimistically stop dying on a `TypeError` no compiler could
+  see — and a write through `value` moves the status to `'local'` instead of leaving it stale. `reload()` answers
+  `true` rather than `undefined`. **Breaking for a spec that asserts `hasValue()` in a non-resolved state**, and it
+  fails as a red assertion, never as a silent pass.
+
+- **`settleResource` takes an event-loop turn, and refuses a resource that never started.** Every round was a tick
+  plus a microtask, so a loader on a real timer could not settle and the helper reported a timeout of its own making;
+  from the third round each round also takes a macrotask turn, on a `setTimeout` captured at import so a faked clock
+  cannot freeze it, while the two common paths still cost nothing. A resource still `idle` is now a named failure
+  rather than a silent return — `idle` means the loader never ran and every assertion below was about to read the
+  default — with `{ allowIdle: true }` for the spec that asserts the idle state itself.
+
 - **`prefer-provide-auto-spy` names `selfReturning` for a chained call on a token.** Its token message
   used to recommend `provideAutoSpyForToken(LOGGER, { channel: vi.fn().mockReturnThis() })`, a seed
   that is stored verbatim and is no longer a spy; it now points at the third argument,
   `{ selfReturning: ["channel"] }`, which keeps `channel` assertable and configured under `strict`.
 
 ### Fixed
+
+- **`runEffect` runs the previous run's cleanup, and refuses a destroyed effect.** It called the effect body only,
+  so `onCleanup` callbacks piled up and every re-run leaked the previous closure; it now runs `cleanup()` then the
+  body, the way Angular's own scheduler does, both under `untracked()` so a `computed()` wrapping the call no
+  longer adopts the effect's producers. An effect whose view was torn down, or whose `EffectRef.destroy()` has
+  run, is refused by name instead of being run again. Destruction is detected from two independent traces at once,
+  and an unrecognised shape runs the effect rather than refusing it.
+
+- **`toHaveSignalValue` no longer calls the spy it was handed.** A spec passing `service.load` instead of a signal
+  had the matcher **call** the spy, fail opaquely, and leave a recorded call behind that broke
+  `toHaveBeenCalledTimes` further down. It now recognises Angular's signal brand, refuses a spy by name without
+  reading it, and throws on a non-function rather than returning `{ pass: false }`, which `.not` could hide.
+
+- **`settleResource({ turns: 0 })` reports the rounds it actually spent.** It spent one and reported "after 0
+  rounds"; the count is now taken after the work, and `{ turns: 0 }` is a check that fails without spending one.
 
 - **`registerAutoSpyDefaults` from `vitest-auto-spy/angular` keeps a generic class's declared default
   next to an accessor list and `returns`.** The class overload still had the shape `provideAutoSpy`

@@ -13,6 +13,21 @@ _Last released: **v5.7.0** — the git tag, `package.json` and `CHANGELOG.md` ag
 
 ### Added
 
+- `setInputs(fixture, { … })` (`/angular`, `/bun-angular`): one `setInput` per name, checked against the compiled
+  definition first, then one wait — the pair every spec writes after `renderShallow({ inputs })`.
+- `provideRouterDouble({ url })` / `injectRouterDouble()` / `createRouterDouble()` (`/angular-router`): a `Router`
+  derived from one URL — real `serializeUrl` / `parseUrl` / `createUrlTree`, `navigate` spies resolving `true`,
+  `setUrl`, `emitNavigation` over a `BehaviorSubject`, and a throw by name for every member it does not carry.
+- `provideWindowDouble(TOKEN, overrides?)` / `provideDocumentDouble(overrides?)` (+ the `create*` forms): a
+  `window` / `document` merged over the real jsdom object, with the globals never patched.
+- `provideMatDialogData(TOKEN, data)` / `provideMatDialogRef(RefClass, init?)` / `injectMatDialogRef` /
+  `createMatDialogRef`: the Material dialog trio with the token and the class as arguments, so `@angular/material`
+  stays out of the dependencies; `afterClosed()` still answers after the close.
+- `trackRecomputations(signal)` / `trackEffectRuns(effectRef)`: `{ count, stop() }` over what the reactive graph
+  re-ran, undone by `restoreMockedProps()`.
+- `mockResourceProp(obj, prop, initial, { status })` and `double.idle()`: open a resource double in `idle`,
+  `loading`, `reloading` or `local` instead of driving it there.
+
 - `registerAutoSpyDefaults(TOKEN, config)` from `vitest-auto-spy/angular`: an `InjectionToken` registers over the
   class registry, and `provideAutoSpyForToken(TOKEN)` merges its arguments over it; `AutoSpyTokenDefaults<T>`,
   token rows in the table form, `clearAutoSpyDefaults(TOKEN)`.
@@ -42,10 +57,25 @@ _Last released: **v5.7.0** — the git tag, `package.json` and `CHANGELOG.md` ag
 
 ### Changed
 
+- `mockSignalProp` writes through a `signal()` / `model()` / `linkedSignal()` instead of replacing it, so a
+  `computed()`, an `effect()` or a template that read it first stays connected; an `input()` and a read-only signal
+  with live consumers are refused by name.
+- `ResourceDouble` carries `set` / `update` / `asReadonly` / `destroy` / `snapshot`, a write through `value` moves
+  the status to `'local'`, and `hasValue()` follows Angular's value-based rule (breaking for a spec asserting it in
+  a non-resolved state); `reload()` answers `true`.
+- `settleResource` takes an event-loop turn from the third round and refuses a resource still `idle`
+  (`{ allowIdle: true }` keeps the old silence where the idle state is the assertion).
+
 - `prefer-provide-auto-spy`'s token message recommends `{ selfReturning: ["channel"] }` for a chained call
   instead of a `vi.fn().mockReturnThis()` seed.
 
 ### Fixed
+
+- `runEffect` runs the previous run's cleanup before the body, both under `untracked()`, and refuses an effect
+  whose view or `EffectRef` has been destroyed.
+- `toHaveSignalValue` recognises a signal instead of calling whatever function it was handed: a spy is refused by
+  name, unread, rather than recorded as a call.
+- `settleResource({ turns: 0 })` reports the rounds it actually spent.
 
 - `registerAutoSpyDefaults` from `/angular` keeps a generic class's default next to an accessor list and `returns`;
   the token overload was never affected, and the core one still needs the type argument there.
