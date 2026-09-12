@@ -56,10 +56,24 @@ export {
 // for why it is one file rather than two identical lists.
 export * from './lib/angular-portable';
 
-export { mockResourceProp, type MockedResource, type ResourceDouble, type ResourceDoubleStatus } from './lib/resource-prop';
+export {
+  mockResourceProp,
+  type MockedResource,
+  type MockResourceOptions,
+  type ResourceDouble,
+  type ResourceDoubleSnapshot,
+  type ResourceDoubleStatus,
+} from './lib/resource-prop';
 export { mockSignalProp } from './lib/signal-prop';
 export { registerResourceMatchers, type ResourceLike } from './lib/resource-matchers';
 export { registerSignalMatchers, type SignalLike } from './lib/signal-matchers';
+export {
+  createDocumentDouble,
+  createWindowDouble,
+  provideDocumentDouble,
+  provideWindowDouble,
+  type PlatformOverrides,
+} from './lib/platform-doubles';
 
 export {
   disableTestBedDiagnostics,
@@ -85,3 +99,16 @@ export {
   type EmissionSource,
   type SubscribableLike,
 } from './lib/expect-emission';
+
+// The Material dialog trio, and the only place this package names Material at all: the token and the
+// ref class are arguments precisely so that `@angular/material` stays out of its dependencies.
+export {
+  createMatDialogRef,
+  injectMatDialogRef,
+  provideMatDialogData,
+  provideMatDialogRef,
+  type DialogRefLike,
+  type DialogResult,
+  type MatDialogRefDouble,
+  type MatDialogRefInit,
+} from './lib/dialog-doubles';
