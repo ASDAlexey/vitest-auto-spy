@@ -11,8 +11,9 @@
  * So the double keeps one URL and derives the rest of it: `url` is that URL serialized the way the
  * real router serializes it, `routerState` is Angular's own `RouterState` over a root route holding
  * its query parameters and fragment, `events` is a `BehaviorSubject` that starts at the
- * `NavigationEnd` which put the router there, and `createUrlTree` / `serializeUrl` / `parseUrl` are
- * the router's real URL work rather than stubs.
+ * `NavigationEnd` which put the router there, `currentNavigation()` is `null` because a router
+ * standing at a URL is idle, and `createUrlTree` / `serializeUrl` / `parseUrl` are the router's real
+ * URL work rather than stubs.
  *
  * Navigation itself stays a spy, because a navigation in an application is asynchronous, runs
  * guards and can be cancelled: a double that moved its own URL on `navigate()` would be testing the
@@ -21,11 +22,16 @@
  * Lives behind `vitest-auto-spy/angular-router` with the `ActivatedRoute` double, for the same
  * reason: `@angular/router` is an optional peer, paid for by the suites that import this entry.
  */
-import type { FactoryProvider, Injector } from '@angular/core';
+import { type FactoryProvider, type Injector, type Signal, type WritableSignal, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import {
   DefaultUrlSerializer,
+  type Navigation,
+  NavigationCancel,
   NavigationEnd,
+  NavigationError,
+  NavigationSkipped,
+  NavigationStart,
   type Params,
   Router,
   type Event as RouterNavigationEvent,
@@ -42,10 +48,19 @@ import { DOCS_LINKS, withDocs } from './docs-links';
 import { createFunctionSpy } from './function-spy';
 import type { AddSpyMethodsByReturnTypes } from './types';
 
-/** Where the router starts. One field, because everything else about a router is derived from it. */
+/** What a spec names about the navigation in flight; every other field is derived from where the router stands. */
+export type NavigationInit = Partial<Navigation>;
+
+/** Where the router starts: the URL it stands at, and whether a navigation is running. */
 export interface RouterDoubleInit {
   /** The URL the router reports until the spec moves it. Serialized as the router would. Default `'/'`. */
   url?: string;
+  /**
+   * The navigation `currentNavigation()` and `getCurrentNavigation()` answer with. Default `null` —
+   * a router standing at a URL is idle, which is what the real one answers between navigations.
+   * Named here rather than only on the handle because a component reads it in a field initializer.
+   */
+  currentNavigation?: NavigationInit | null;
 }
 
 /** The handle a spec drives the router through. */
@@ -58,6 +73,12 @@ export interface RouterDouble {
   readonly navigateByUrl: AddSpyMethodsByReturnTypes<Router['navigateByUrl']>;
   /** Put the router at a URL: `url`, `routerState` and the root route move together. */
   setUrl(url: string): void;
+  /**
+   * Put a navigation in flight, or end it with `null`. What the spec names is kept; `id`,
+   * `initialUrl` and `extractedUrl` come from where the router stands, `trigger` is `'imperative'`
+   * and `extras` is empty.
+   */
+  setCurrentNavigation(navigation?: NavigationInit | null): void;
   /** Push an event through `router.events`. A `NavigationEnd`, or a URL, moves the URL with it. */
   emitNavigation(event?: RouterNavigationEvent | string): void;
 }
@@ -75,10 +96,28 @@ interface UrlState {
 }
 
 /** The members the double answers. Everything else Angular's `Router` declares throws by name. */
-const COVERED = 'url, events, navigate, navigateByUrl, createUrlTree, serializeUrl, parseUrl and routerState';
+const COVERED =
+  'url, events, navigate, navigateByUrl, createUrlTree, serializeUrl, parseUrl, routerState, currentNavigation and getCurrentNavigation';
+
+/**
+ * The public fields Angular's `Router` declares. A field lives on the instance, so
+ * `getOwnPropertyNames(Router.prototype)` cannot see one, and the guard below then treats a member
+ * the double lacks as "not a Router member" and hands back `undefined` — the failure it exists to
+ * prevent. `currentNavigation` is the one that costs: it is a signal, so `undefined` surfaces as
+ * "router.currentNavigation is not a function" wherever the component happened to call it, and the
+ * suites that meet it go back to hand-rolling the whole router.
+ */
+const DECLARED_FIELDS = [
+  'navigated',
+  'routeReuseStrategy',
+  'onSameUrlNavigation',
+  'config',
+  'componentInputBindingEnabled',
+  'currentNavigation',
+];
 
 /** Methods and getters of Angular's own `Router` — what the double is measured against. */
-const DECLARED: ReadonlySet<string> = new Set(Object.getOwnPropertyNames(Router.prototype));
+const DECLARED: ReadonlySet<string> = new Set([...Object.getOwnPropertyNames(Router.prototype), ...DECLARED_FIELDS]);
 
 const doubles = new WeakMap<object, RouterDouble>();
 
@@ -160,6 +199,102 @@ function createUrlState(initial: string): UrlState {
 }
 
 /**
+ * The navigation in flight follows the events, because that is where the real one comes from and
+ * where it goes: Angular puts one up on a `NavigationStart` and drops it once the navigation has
+ * ended — "the current navigation becomes null after the NavigationEnd event is emitted". A
+ * component that reads it while handling a `NavigationEnd` gets `null` in production too, and a
+ * double that kept the navigation would hide exactly that.
+ *
+ * @returns the id the event carried, when it started a navigation.
+ */
+function followEvent(
+  event: RouterNavigationEvent,
+  inFlight: WritableSignal<Navigation | null>,
+  navigationOf: (named: NavigationInit) => Navigation,
+): number | undefined {
+  if (event instanceof NavigationStart) {
+    inFlight.set(
+      navigationOf({
+        id: event.id,
+        initialUrl: serializer.parse(event.url),
+        extractedUrl: serializer.parse(event.url),
+        trigger: event.navigationTrigger ?? 'imperative',
+      }),
+    );
+
+    return event.id;
+  }
+
+  if (
+    event instanceof NavigationEnd ||
+    event instanceof NavigationCancel ||
+    event instanceof NavigationError ||
+    event instanceof NavigationSkipped
+  ) {
+    inFlight.set(null);
+  }
+
+  return undefined;
+}
+
+/** What the spec did not name comes from where the router stands, the way a real navigation starts. */
+function buildNavigation(state: UrlState, id: number, named: NavigationInit): Navigation {
+  return {
+    id,
+    initialUrl: state.tree(),
+    extractedUrl: state.tree(),
+    trigger: 'imperative',
+    extras: {},
+    previousNavigation: null,
+    // A no-op rather than a spy: a spec that asserts the abort passes its own, and every other spec
+    // would be carrying a spy nothing reads.
+    abort: (): void => undefined,
+    ...named,
+  };
+}
+
+/** The spies and the signal a router double is assembled around; the rest of it comes from the URL. */
+interface RouterParts {
+  readonly navigate: AddSpyMethodsByReturnTypes<Router['navigate']>;
+  readonly navigateByUrl: AddSpyMethodsByReturnTypes<Router['navigateByUrl']>;
+  readonly currentNavigation: Signal<Navigation | null>;
+}
+
+/** Every member the double answers, over the one piece of state behind it. */
+function buildRouter(state: UrlState, stream: Observable<RouterNavigationEvent>, parts: RouterParts): Router {
+  return guardMissingMembers({
+    get url(): string {
+      return state.url();
+    },
+    get events(): Observable<RouterNavigationEvent> {
+      return stream;
+    },
+    get routerState(): RouterState {
+      return state.routerState;
+    },
+    navigate: parts.navigate,
+    navigateByUrl: parts.navigateByUrl,
+    createUrlTree: (commands: readonly unknown[], extras: UrlCreationOptions = {}): UrlTree =>
+      createUrlTreeFromSnapshot(
+        (extras.relativeTo ?? state.routerState.root).snapshot,
+        commands,
+        queryParamsOf(state.tree(), extras),
+        fragmentOf(state.tree(), extras),
+      ),
+    serializeUrl: (target: UrlTree): string => serializer.serialize(target),
+    parseUrl: (target: string): UrlTree => serializer.parse(target),
+    get currentNavigation(): Signal<Navigation | null> {
+      return parts.currentNavigation;
+    },
+    getCurrentNavigation: (): Navigation | null => parts.currentNavigation(),
+    // Inert, and present rather than guarded: Angular's injector reads `ngOnDestroy` off every
+    // value it builds, so a double that threw on it would throw on `TestBed.resetTestingModule()`.
+    ngOnDestroy: (): void => undefined,
+    dispose: (): void => undefined,
+  });
+}
+
+/**
  * Build a `Router` double without a `TestBed` — for a class constructed with `new`, or a functional
  * guard that takes the router from its own injector in the spec.
  *
@@ -176,44 +311,26 @@ export function createRouterDouble(init: RouterDoubleInit = {}): RouterDouble {
   const stream = events.asObservable();
   let navigationId = 1;
 
+  const navigationOf = (named: NavigationInit): Navigation => buildNavigation(state, navigationId, named);
+  const inFlight = signal<Navigation | null>(init.currentNavigation ? navigationOf(init.currentNavigation) : null);
+  const currentNavigation = inFlight.asReadonly();
+
   const navigate = createFunctionSpy<Router['navigate']>('Router.navigate');
   const navigateByUrl = createFunctionSpy<Router['navigateByUrl']>('Router.navigateByUrl');
 
   navigate.resolveWith(true);
   navigateByUrl.resolveWith(true);
 
-  const router = guardMissingMembers({
-    get url(): string {
-      return state.url();
-    },
-    get events(): Observable<RouterNavigationEvent> {
-      return stream;
-    },
-    get routerState(): RouterState {
-      return state.routerState;
-    },
-    navigate,
-    navigateByUrl,
-    createUrlTree: (commands: readonly unknown[], extras: UrlCreationOptions = {}): UrlTree =>
-      createUrlTreeFromSnapshot(
-        (extras.relativeTo ?? state.routerState.root).snapshot,
-        commands,
-        queryParamsOf(state.tree(), extras),
-        fragmentOf(state.tree(), extras),
-      ),
-    serializeUrl: (target: UrlTree): string => serializer.serialize(target),
-    parseUrl: (target: string): UrlTree => serializer.parse(target),
-    // Inert, and present rather than guarded: Angular's injector reads `ngOnDestroy` off every
-    // value it builds, so a double that threw on it would throw on `TestBed.resetTestingModule()`.
-    ngOnDestroy: (): void => undefined,
-    dispose: (): void => undefined,
-  });
+  const router = buildRouter(state, stream, { navigate, navigateByUrl, currentNavigation });
 
   const double: RouterDouble = {
     router,
     navigate,
     navigateByUrl,
     setUrl: state.set,
+    setCurrentNavigation: (navigation?: NavigationInit | null): void => {
+      inFlight.set(navigation === null ? null : navigationOf(navigation ?? {}));
+    },
     emitNavigation: (event?: RouterNavigationEvent | string): void => {
       const next = typeof event === 'object' ? event : new NavigationEnd(++navigationId, event ?? state.url(), event ?? state.url());
 
@@ -221,6 +338,7 @@ export function createRouterDouble(init: RouterDoubleInit = {}): RouterDouble {
         state.set(next.urlAfterRedirects);
       }
 
+      navigationId = followEvent(next, inFlight, navigationOf) ?? navigationId;
       events.next(next);
     },
   };

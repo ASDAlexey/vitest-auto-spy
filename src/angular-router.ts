@@ -29,4 +29,11 @@ export {
   type ActivatedRouteDouble,
   type ActivatedRouteInit,
 } from './lib/angular-router';
-export { createRouterDouble, injectRouterDouble, provideRouterDouble, type RouterDouble, type RouterDoubleInit } from './lib/router-double';
+export {
+  createRouterDouble,
+  injectRouterDouble,
+  provideRouterDouble,
+  type NavigationInit,
+  type RouterDouble,
+  type RouterDoubleInit,
+} from './lib/router-double';

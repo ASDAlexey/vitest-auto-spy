@@ -4,10 +4,10 @@
  * real `TestBed` rather than calling the factory — an Angular provider that only works outside DI
  * is not a provider.
  */
-import { Component, Injector, inject } from '@angular/core';
+import { Component, Injector, computed, inject } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { TestBed } from '@angular/core/testing';
-import { ActivatedRoute, NavigationEnd, NavigationStart, Router, RouterLink, provideRouter } from '@angular/router';
+import { ActivatedRoute, NavigationCancel, NavigationEnd, NavigationStart, Router, RouterLink, provideRouter } from '@angular/router';
 import { filter, map } from 'rxjs';
 import { describe, expect, it } from 'vitest';
 
@@ -234,11 +234,96 @@ describe('the URL work, done for real', () => {
   });
 });
 
+describe('the navigation in flight', () => {
+  it('is null on a router that is standing still, which is what the real one answers', () => {
+    const { router } = createRouterDouble({ url: '/products/7' });
+
+    expect(router.currentNavigation()).toBeNull();
+    // eslint-disable-next-line @typescript-eslint/no-deprecated -- the double answering the deprecated method as well is the assertion
+    expect(router.getCurrentNavigation()).toBeNull();
+  });
+
+  it('takes one from the spec and derives the rest from where the router stands', () => {
+    const { router, setCurrentNavigation } = createRouterDouble({ url: '/products/7' });
+
+    setCurrentNavigation({ extras: { state: { from: 'the card' } } });
+
+    const navigation = router.currentNavigation();
+
+    expect(navigation?.extras.state).toEqual({ from: 'the card' });
+    expect(navigation?.trigger).toBe('imperative');
+    expect(navigation && navigation.initialUrl.toString()).toBe('/products/7');
+    // eslint-disable-next-line @typescript-eslint/no-deprecated -- same one truth through the deprecated method
+    expect(router.getCurrentNavigation()).toBe(navigation);
+  });
+
+  it('can be named at construction, because a component reads it in a field initializer', () => {
+    const { router } = createRouterDouble({ currentNavigation: { extras: { state: { id: 7 } } } });
+
+    expect(router.currentNavigation()?.extras.state).toEqual({ id: 7 });
+  });
+
+  it("starts on a NavigationStart, taking that event's id, URL and trigger", () => {
+    const { router, emitNavigation } = createRouterDouble({ url: '/' });
+
+    emitNavigation(new NavigationStart(4, '/products/8', 'popstate'));
+
+    const navigation = router.currentNavigation();
+
+    expect(navigation?.id).toBe(4);
+    expect(navigation?.trigger).toBe('popstate');
+    expect(navigation && navigation.extractedUrl.toString()).toBe('/products/8');
+  });
+
+  it('is gone once the navigation has ended, the way Angular drops it after NavigationEnd', () => {
+    const { router, emitNavigation, setCurrentNavigation } = createRouterDouble();
+
+    setCurrentNavigation();
+    expect(router.currentNavigation()).not.toBeNull();
+
+    emitNavigation('/products/9');
+
+    expect(router.currentNavigation()).toBeNull();
+  });
+
+  it('ends on a cancelled navigation too', () => {
+    const { router, emitNavigation, setCurrentNavigation } = createRouterDouble();
+
+    setCurrentNavigation();
+    emitNavigation(new NavigationCancel(5, '/products/9', 'a guard said no'));
+
+    expect(router.currentNavigation()).toBeNull();
+  });
+
+  it('is a signal a component can read through a computed', () => {
+    const { router, setCurrentNavigation } = createRouterDouble();
+    const state = computed(() => router.currentNavigation()?.extras.state);
+
+    expect(state()).toBeUndefined();
+
+    setCurrentNavigation({ extras: { state: { id: 7 } } });
+
+    expect(state()).toEqual({ id: 7 });
+  });
+
+  it('is cleared by null, and the router is idle again', () => {
+    const { router, setCurrentNavigation } = createRouterDouble();
+
+    setCurrentNavigation({ trigger: 'popstate' });
+    setCurrentNavigation(null);
+
+    expect(router.currentNavigation()).toBeNull();
+  });
+});
+
 describe('the members it does not have', () => {
   it('names the one the code under test reached for, and what the double covers', () => {
     const { router } = createRouterDouble();
 
     expect(() => router.lastSuccessfulNavigation).toThrow(/the Router double has no lastSuccessfulNavigation/);
+    // A field, not a prototype member: read off Router.prototype alone this one answered undefined,
+    // and a component calling the signal died on "is not a function" somewhere below the read.
+    expect(() => router.config).toThrow(/the Router double has no config/);
     expect(() => router.initialNavigation()).toThrow(/It answers url, events, navigate/);
   });
 
