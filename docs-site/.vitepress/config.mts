@@ -377,6 +377,7 @@ export default defineConfig({
           'no-instance-lifecycle-spy, spyOn ngOnInit not called, mockImplementation ngOnInit still runs, ' +
           'no-ts-expect-error-on-double, ts-expect-error nextWith, HttpEvent overload ts-ignore, ' +
           'no-constant-expect, expect(true).toBe(true), assertion that cannot fail, ' +
+          'no-redundant-smoke-test, should create test useless, it should be created delete, smoke test beside real tests, ' +
           'no-compile-components, compileComponents no-op, inline templateUrl, ' +
           'mock ActivatedRoute, ActivatedRoute stub vitest, route.paramMap is undefined in test, snapshot params undefined, ' +
           'setRouteParam alternative, provideActivatedRoute, injectActivatedRoute, createActivatedRoute, ' +

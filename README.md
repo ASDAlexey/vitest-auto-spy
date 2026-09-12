@@ -3424,6 +3424,7 @@ export can never be.
 | `no-instance-lifecycle-spy`       |   `warn`    | —                 | `vi.spyOn(component, 'ngOnInit')` and the other hooks a view reads off the prototype — Angular never calls the instance spy → spy on `Cls.prototype` before the component is created, or assert the hook's effect                                                                                                                                                                                  |
 | `no-ts-expect-error-on-double`    |   `error`   | —                 | `@ts-expect-error` / `@ts-ignore` above `nextWith`, `resolveWith`, `mockReturnValue`, `calledWith(…)` and the other helpers that check a stub against the method's signature — an overloaded method takes `Spy<X, { overload: { m: 'first' } }>`, anything else is a fixture of the wrong shape                                                                                                    |
 | `no-constant-expect`              |   `error`   | —                 | `expect(true).toBe(true)`, `expect({ … }).toBeDefined()` — a value the spec spelled out, under a matcher whose answer that value already fixes → assert on what the code produced, or `expect.fail(…)` for a branch the test must not reach                                                                                                                                                        |
+| `no-redundant-smoke-test`         |   `error`   | suggest           | `it('should create', () => expect(pipe).toBeTruthy())` — a test whose whole body asks whether the subject is there, in a block whose other tests run the same `beforeEach` and would fail first, naming what they were doing → delete it; the suggestion does. A block whose only running test is that one is left alone                                                                           |
 | `no-compile-components`           |   `error`   | suggest           | `compileComponents()` under a builder that inlines `templateUrl` / `styleUrls` — a promise already settled; **silent** until `{ builder: 'inline-resources' }` says so, because a JIT setup that loads resources at run time needs the call. One exception the rule cannot see: a component whose template holds a `@defer` block ships async class metadata, so the call stays load-bearing there |
 | `no-sync-testbed-await`           |   `error`   | suggest           | `await` on a TestBed call that answers the TestBed or a fixture — `configureTestingModule`, every `override*`, `resetTestingModule`, `createComponent`, `getLastFixture`; none of them is a promise, so the `await` waits for nothing and the `async` it forced on the hook awaits nothing either. The suggestion drops both. Reads no types, so it reports without `parserOptions.project`        |
 | `jasmine-namespace-without-entry` |   `error`   | —                 | `.and` / `.calls` / `.withArgs` on a library spy in a file that installs the compatibility layer nowhere                                                                                                                                                                                                                                                                                           |
@@ -3518,7 +3519,17 @@ reason is for. The report sits on the directive's line, so that comment reaches 
 `no-constant-expect` reports `expect(true).toBe(true)` and its relatives: a value the spec spelled out,
 under a matcher whose answer that value already fixes. `@vitest/eslint-plugin` has no such rule. On
 the same suite it reports four — two tests with nothing else to assert and two that import a barrel
-for coverage. `no-compile-components` says nothing until `['error', { builder: 'inline-resources' }]`
+for coverage.
+
+`no-redundant-smoke-test` reports the other test that cannot fail: one whose whole body is
+`expect(pipe).toBeTruthy()`, standing in a block that already has tests which run the same
+`beforeEach` — a nullish subject fails one of those first, on the call it was making, rather than on a
+line named after construction. It is weighed against the tests that share its setup, the ones nested
+`describe`s declare included, and it says nothing where that smoke test is the only running test of
+its block. Measured over an Angular suite of 1771 spec files: 569 findings in 540 of them, 515 still carrying the
+`should create` / `should be created` title `ng generate` wrote; on a second suite of 845 files, 97 in 87. The suggestion deletes the test together with the blank line above it.
+
+`no-compile-components` says nothing until `['error', { builder: 'inline-resources' }]`
 states that the builder inlines `templateUrl` / `styleUrls`; then `compileComponents()` is a promise
 already settled, and a suggestion deletes it together with the `async` of a hook that awaits nothing
 else — 449 calls in 411 files there, 435 of them with the edit. Not every one of them, though: a

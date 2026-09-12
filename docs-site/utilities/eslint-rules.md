@@ -36,44 +36,45 @@ Every section answers the same six questions:
 Grouped by subject, the same grouping the [setup page](/utilities/eslint-plugin) uses. Every rule is
 an `error` except four.
 
-| Rule                                                                  | In `recommended` | Reports                                                                                   |
-| --------------------------------------------------------------------- | ---------------- | ----------------------------------------------------------------------------------------- |
-| [`no-expect-in-subscribe`](#no-expect-in-subscribe)                   | `error`          | `expect()` inside a `subscribe` callback — it runs only if the stream emits               |
-| [`no-floating-assertion`](#no-floating-assertion)                     | `error`          | `expect()` in a `.then()` chain nothing awaits                                            |
-| [`no-done-callback`](#no-done-callback)                               | `error`          | a named first parameter on a test or hook, and `done.fail(…)` beneath it                  |
-| [`no-bare-called-with`](#no-bare-called-with)                         | `error`          | `calledWith(…)` / `mustBeCalledWith(…)` as a statement of its own                         |
-| [`no-constant-expect`](#no-constant-expect)                           | `error`          | `expect(true).toBe(true)` — a value spelled out in the spec, under a matcher it decides   |
-| [`prefer-create-spy-from-class`](#prefer-create-spy-from-class)       | `error`          | an object literal of two or more `vi.fn()`s                                               |
-| [`no-stub-class-double`](#no-stub-class-double)                       | `warn`           | a class whose fields are `vi.fn()`s — the same double with a `new` in front of it         |
-| [`no-structural-double`](#no-structural-double)                       | `warn`           | an object of `vi.fn()`s bound to a name declared as an object of Vitest `Mock`s           |
-| [`no-shared-module-level-mock`](#no-shared-module-level-mock)         | `error`          | an **exported** value that builds `vi.fn()`s while the module loads                       |
-| [`no-object-define-property`](#no-object-define-property)             | `error`          | `Object.defineProperty` / `defineProperties` in a spec                                    |
-| [`no-import-time-spread`](#no-import-time-spread)                     | `error`          | a spread of an imported binding evaluated at module scope                                 |
-| [`prefer-observer-stub`](#prefer-observer-stub)                       | `error`          | an observer global replaced by hand or through the runner                                 |
-| [`prefer-provide-activated-route`](#prefer-provide-activated-route)   | `error`          | an `ActivatedRoute` provided as a hand-built object, class or factory — half a route      |
-| [`no-passthrough-console-spy`](#no-passthrough-console-spy)           | `error`          | `vi.spyOn(console, m)` nothing gives an implementation — it calls through and prints      |
-| [`no-console-in-spec`](#no-console-in-spec)                           | `error`          | a spec that calls a console method, or replaces one by assignment                         |
-| [`no-import-time-console-spies`](#no-import-time-console-spies)       | `error`          | an import of `vitest-auto-spy/console` in a file that never calls `installConsoleSpies()` |
-| [`prefer-provide-auto-spy`](#prefer-provide-auto-spy)                 | `error`          | a provider — or a `TestBed.overrideProvider` — that hand-rolls a service double           |
-| [`prefer-inject-spy`](#prefer-inject-spy)                             | `error`          | `vi.spyOn` over the instance `TestBed.inject` handed back                                 |
-| [`no-unregistered-inject-spy`](#no-unregistered-inject-spy)           | `error`          | `injectSpy(X)` for a token this file never registered as an auto-spy                      |
-| [`prefer-render-shallow`](#prefer-render-shallow)                     | `warn`           | `TestBed.createComponent` in a file that never reads the rendered template                |
-| [`no-overridden-provider`](#no-overridden-provider)                   | `error`          | a provider a later one, or a `TestBed.overrideProvider`, replaces                         |
-| [`no-inject-before-override`](#no-inject-before-override)             | `error`          | an injection in a hook, in a suite that still calls `TestBed.override*`                   |
-| [`no-dead-schemas`](#no-dead-schemas)                                 | `error`          | `schemas` on a testing module that declares nothing                                       |
-| [`no-mistyped-use-value`](#no-mistyped-use-value)                     | `error`          | a `useValue` that does not fit the primitive type its `InjectionToken` declares           |
-| [`no-unknown-use-value-key`](#no-unknown-use-value-key)               | `error`          | a key of an object `useValue` the provided type does not have — keys only                 |
-| [`no-instance-lifecycle-spy`](#no-instance-lifecycle-spy)             | `warn`           | `vi.spyOn(component, 'ngOnInit')` — a hook spy Angular never calls                        |
-| [`no-compile-components`](#no-compile-components)                     | `error`          | `compileComponents()` under a builder that inlines resources — silent until told so       |
-| [`no-sync-testbed-await`](#no-sync-testbed-await)                     | `error`          | `await` on a TestBed call that answers the TestBed or a fixture, never a promise          |
-| [`no-private-member-access`](#no-private-member-access)               | `error`          | a `private` / `protected` member reached through brackets, a cast, or the prototype       |
-| [`no-mocked-for-spy`](#no-mocked-for-spy)                             | `error`          | `Mocked<T>` in a type position where the value is a spy                                   |
-| [`prefer-as-spy`](#prefer-as-spy)                                     | `error`          | `TestBed.inject(X) as Spy<X>` — a cast that no longer compiles                            |
-| [`no-ts-expect-error-on-double`](#no-ts-expect-error-on-double)       | `error`          | `@ts-expect-error` / `@ts-ignore` above a double's `nextWith`, `mockReturnValue`, …       |
-| [`no-jasmine-globals`](#no-jasmine-globals)                           | `error`          | `jasmine.*`, bare `spyOn(` / `fail(` / `pending(`, and `.withContext(`                    |
-| [`jasmine-namespace-without-entry`](#jasmine-namespace-without-entry) | `error`          | `.and` / `.calls` / `.withArgs` in a file that installs the compatibility layer nowhere   |
-| [`no-save-arguments-by-value`](#no-save-arguments-by-value)           | `error`          | `spy.calls.saveArgumentsByValue()` — a no-op here                                         |
-| [`prefer-native-spy-api`](#prefer-native-spy-api)                     | `error`          | `.and` / `.calls` where the spy's own API says the same thing                             |
+| Rule                                                                  | In `recommended` | Reports                                                                                     |
+| --------------------------------------------------------------------- | ---------------- | ------------------------------------------------------------------------------------------- |
+| [`no-expect-in-subscribe`](#no-expect-in-subscribe)                   | `error`          | `expect()` inside a `subscribe` callback — it runs only if the stream emits                 |
+| [`no-floating-assertion`](#no-floating-assertion)                     | `error`          | `expect()` in a `.then()` chain nothing awaits                                              |
+| [`no-done-callback`](#no-done-callback)                               | `error`          | a named first parameter on a test or hook, and `done.fail(…)` beneath it                    |
+| [`no-bare-called-with`](#no-bare-called-with)                         | `error`          | `calledWith(…)` / `mustBeCalledWith(…)` as a statement of its own                           |
+| [`no-constant-expect`](#no-constant-expect)                           | `error`          | `expect(true).toBe(true)` — a value spelled out in the spec, under a matcher it decides     |
+| [`no-redundant-smoke-test`](#no-redundant-smoke-test)                 | `error`          | a test whose whole body asserts the subject exists, beside tests that already run its setup |
+| [`prefer-create-spy-from-class`](#prefer-create-spy-from-class)       | `error`          | an object literal of two or more `vi.fn()`s                                                 |
+| [`no-stub-class-double`](#no-stub-class-double)                       | `warn`           | a class whose fields are `vi.fn()`s — the same double with a `new` in front of it           |
+| [`no-structural-double`](#no-structural-double)                       | `warn`           | an object of `vi.fn()`s bound to a name declared as an object of Vitest `Mock`s             |
+| [`no-shared-module-level-mock`](#no-shared-module-level-mock)         | `error`          | an **exported** value that builds `vi.fn()`s while the module loads                         |
+| [`no-object-define-property`](#no-object-define-property)             | `error`          | `Object.defineProperty` / `defineProperties` in a spec                                      |
+| [`no-import-time-spread`](#no-import-time-spread)                     | `error`          | a spread of an imported binding evaluated at module scope                                   |
+| [`prefer-observer-stub`](#prefer-observer-stub)                       | `error`          | an observer global replaced by hand or through the runner                                   |
+| [`prefer-provide-activated-route`](#prefer-provide-activated-route)   | `error`          | an `ActivatedRoute` provided as a hand-built object, class or factory — half a route        |
+| [`no-passthrough-console-spy`](#no-passthrough-console-spy)           | `error`          | `vi.spyOn(console, m)` nothing gives an implementation — it calls through and prints        |
+| [`no-console-in-spec`](#no-console-in-spec)                           | `error`          | a spec that calls a console method, or replaces one by assignment                           |
+| [`no-import-time-console-spies`](#no-import-time-console-spies)       | `error`          | an import of `vitest-auto-spy/console` in a file that never calls `installConsoleSpies()`   |
+| [`prefer-provide-auto-spy`](#prefer-provide-auto-spy)                 | `error`          | a provider — or a `TestBed.overrideProvider` — that hand-rolls a service double             |
+| [`prefer-inject-spy`](#prefer-inject-spy)                             | `error`          | `vi.spyOn` over the instance `TestBed.inject` handed back                                   |
+| [`no-unregistered-inject-spy`](#no-unregistered-inject-spy)           | `error`          | `injectSpy(X)` for a token this file never registered as an auto-spy                        |
+| [`prefer-render-shallow`](#prefer-render-shallow)                     | `warn`           | `TestBed.createComponent` in a file that never reads the rendered template                  |
+| [`no-overridden-provider`](#no-overridden-provider)                   | `error`          | a provider a later one, or a `TestBed.overrideProvider`, replaces                           |
+| [`no-inject-before-override`](#no-inject-before-override)             | `error`          | an injection in a hook, in a suite that still calls `TestBed.override*`                     |
+| [`no-dead-schemas`](#no-dead-schemas)                                 | `error`          | `schemas` on a testing module that declares nothing                                         |
+| [`no-mistyped-use-value`](#no-mistyped-use-value)                     | `error`          | a `useValue` that does not fit the primitive type its `InjectionToken` declares             |
+| [`no-unknown-use-value-key`](#no-unknown-use-value-key)               | `error`          | a key of an object `useValue` the provided type does not have — keys only                   |
+| [`no-instance-lifecycle-spy`](#no-instance-lifecycle-spy)             | `warn`           | `vi.spyOn(component, 'ngOnInit')` — a hook spy Angular never calls                          |
+| [`no-compile-components`](#no-compile-components)                     | `error`          | `compileComponents()` under a builder that inlines resources — silent until told so         |
+| [`no-sync-testbed-await`](#no-sync-testbed-await)                     | `error`          | `await` on a TestBed call that answers the TestBed or a fixture, never a promise            |
+| [`no-private-member-access`](#no-private-member-access)               | `error`          | a `private` / `protected` member reached through brackets, a cast, or the prototype         |
+| [`no-mocked-for-spy`](#no-mocked-for-spy)                             | `error`          | `Mocked<T>` in a type position where the value is a spy                                     |
+| [`prefer-as-spy`](#prefer-as-spy)                                     | `error`          | `TestBed.inject(X) as Spy<X>` — a cast that no longer compiles                              |
+| [`no-ts-expect-error-on-double`](#no-ts-expect-error-on-double)       | `error`          | `@ts-expect-error` / `@ts-ignore` above a double's `nextWith`, `mockReturnValue`, …         |
+| [`no-jasmine-globals`](#no-jasmine-globals)                           | `error`          | `jasmine.*`, bare `spyOn(` / `fail(` / `pending(`, and `.withContext(`                      |
+| [`jasmine-namespace-without-entry`](#jasmine-namespace-without-entry) | `error`          | `.and` / `.calls` / `.withArgs` in a file that installs the compatibility layer nowhere     |
+| [`no-save-arguments-by-value`](#no-save-arguments-by-value)           | `error`          | `spy.calls.saveArgumentsByValue()` — a no-op here                                           |
+| [`prefer-native-spy-api`](#prefer-native-spy-api)                     | `error`          | `.and` / `.calls` where the spy's own API says the same thing                               |
 
 Six of them have options: [`prefer-create-spy-from-class`](#prefer-create-spy-from-class),
 [`no-stub-class-double`](#no-stub-class-double) and
@@ -342,6 +343,78 @@ has no rule for this; its `valid-expect` checks the shape of the call, not what 
 
 **Severity.** `error`. The finding is a fact about the line: nothing the code does can change its
 answer.
+
+## no-redundant-smoke-test
+
+**`error`** · suggestion · syntax only
+
+**Reports.** A test whose every statement asks whether one value is there — `expect(pipe).toBeTruthy()`,
+`expect(service).toBeDefined()` — in a block that already has tests the runner will run.
+
+**Decides on.** The bodies of the block's tests, and nothing else:
+
+- A body counts as a smoke test when each of its statements is an `expect(x)` under `toBeTruthy`,
+  `toBeDefined` or `toBeInstanceOf`, or under `toBeFalsy`, `toBeNull` or `toBeUndefined` behind a `.not`
+  — the same question asked the other way round. One statement that does anything else — a call, a
+  local, an `if`, a matcher that reads a value — and the test is left alone. An empty body is not a
+  smoke test either.
+- The tests it is weighed against are the ones that run the same setup: the rest of its own block, and
+  every test the blocks nested inside it declare. A skipped sibling — `it.skip`, `xit`, `it.todo` —
+  proves nothing, so it does not count; a skipped smoke test is still reported.
+- A block whose only running test is this one is left alone: a spec that proves the subject can be
+  constructed is thin, but a rule that empties a file has stopped being a lint rule.
+- A test nested below the block is not weighed against the block above it — the outer tests do not run
+  the inner `beforeEach`, so they cannot answer for a subject that one builds.
+
+**Finding, and the repair.**
+
+```ts
+describe('SliderIndicatorPositionPipe', () => {
+  let pipe: SliderIndicatorPositionPipe;
+
+  beforeEach(() => {
+    pipe = new SliderIndicatorPositionPipe();
+  });
+
+  it('should create an instance', () => {
+    expect(pipe).toBeTruthy(); // ❌ green in every state of the code this file can reach
+  });
+
+  it('clamps a position past the right edge', () => {
+    expect(pipe.transform(120, 100, 200)).toBeLessThanOrEqual(95);
+  });
+});
+```
+
+Delete it; the suggestion does, blank line above it included. The test below runs the same
+`beforeEach`, so a `pipe` that came back nullish fails **it** first — on `transform` of undefined, which
+names what the spec was doing when it happened.
+
+Where building the subject really is what the spec is about, assert on that instead — a factory that
+rejects a bad config, a constructor that reads an optional token:
+
+```ts
+it('refuses a config with no bucket', () => {
+  expect(() => new Uploader({ bucket: '' })).toThrow('bucket is required');
+});
+```
+
+**Why it is recommended.** The line cannot fail on its own, and it is the one line of a spec that looks
+like coverage. Measured on one Angular suite of 1771 spec files: 569 reports in 540 files, 515 of them
+titled `should create`, `should be created` or `create an instance` — what `ng generate` writes into
+every new spec, kept while the file around it grew tests that already build the same subject. On a
+second suite, 845 files: 97 reports in 87 files. On a third, 127 files: one.
+[`vitest/expect-expect`](/utilities/eslint-plugin#alongside-vitest-expect-expect) sees an `expect` and
+is satisfied; `@vitest/eslint-plugin` (1.6) has no rule for this.
+
+**Limits.** Syntax only: an existence check behind a helper — `expectCreated(pipe)` — is not read, and
+neither is one reached through `expect.soft`. It does not look at what the block builds, so a smoke
+test whose siblings all test a **different** subject is reported too — that is a spec asserting the
+wrong thing rather than a false report, but it is the reading to know about. `it.each([…])('…')` is
+read as one test, whatever the table holds.
+
+**Severity.** `error`. The finding is a fact about the file: nothing the code under test does can
+change the answer, and the repair is a deletion.
 
 ## prefer-create-spy-from-class
 

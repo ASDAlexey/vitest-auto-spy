@@ -266,13 +266,14 @@ construction)_.
 The test passes because the assertion was never reached — the stream stayed silent, the promise was
 never awaited, the callback returned first — or was reached and could not fail.
 
-| Rule                                                                                            | Flags                                                                                         | Fix     | Without it |
-| ----------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- | ------- | :--------: |
-| [`no-expect-in-subscribe`](#no-expect-in-subscribe-reports-one-shape-and-three-different-edits) | `expect()` inside a `subscribe()` callback → `expectEmission` / `firstValueFrom`              | suggest |   green    |
-| [`no-floating-assertion`](#an-assertion-in-a-then-nobody-awaits)                                | `expect()` in a `.then()` nobody awaits → `expect(await promise)`                             | —       |   green    |
-| [`no-done-callback`](#a-done-parameter-is-not-a-style-question)                                 | `it('x', (done) => …)` → `async` + an awaited assertion, and `done.fail(…)` at the call site  | —       |   green    |
-| [`no-bare-called-with`](#no-bare-called-with-%E2%80%94-one-word-two-opposite-meanings)          | `spy.m.calledWith(1);` as a statement of its own — a stub nobody continued, asserting nothing | —       |   green    |
-| [`no-constant-expect`](/utilities/eslint-rules#no-constant-expect)                              | `expect(true).toBe(true)` — a value the spec spelled out, under a matcher that value decides  | —       |   green    |
+| Rule                                                                                            | Flags                                                                                                               | Fix     | Without it |
+| ----------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- | ------- | :--------: |
+| [`no-expect-in-subscribe`](#no-expect-in-subscribe-reports-one-shape-and-three-different-edits) | `expect()` inside a `subscribe()` callback → `expectEmission` / `firstValueFrom`                                    | suggest |   green    |
+| [`no-floating-assertion`](#an-assertion-in-a-then-nobody-awaits)                                | `expect()` in a `.then()` nobody awaits → `expect(await promise)`                                                   | —       |   green    |
+| [`no-done-callback`](#a-done-parameter-is-not-a-style-question)                                 | `it('x', (done) => …)` → `async` + an awaited assertion, and `done.fail(…)` at the call site                        | —       |   green    |
+| [`no-bare-called-with`](#no-bare-called-with-%E2%80%94-one-word-two-opposite-meanings)          | `spy.m.calledWith(1);` as a statement of its own — a stub nobody continued, asserting nothing                       | —       |   green    |
+| [`no-constant-expect`](/utilities/eslint-rules#no-constant-expect)                              | `expect(true).toBe(true)` — a value the spec spelled out, under a matcher that value decides                        | —       |   green    |
+| [`no-redundant-smoke-test`](/utilities/eslint-rules#no-redundant-smoke-test)                    | `it('should create', () => expect(pipe).toBeTruthy())` beside tests that already build the same subject → delete it | suggest |   green    |
 
 ### Doubles, and the modules that hold them
 

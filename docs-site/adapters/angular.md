@@ -846,7 +846,9 @@ Five things to know:
   interface's own members checked in the overrides too.
 - **A plain `{ … }` merges into the member; anything else replaces it.** `{ screen: { width: 1920 } }`
   leaves `screen.colorDepth` real, while a `vi.fn()`, an array, a `URL` or a stub instance is the
-  member, whole — those are things a spec built to stand in for it, not descriptions of it.
+  member, whole — those are things a spec built to stand in for it, not descriptions of it. The slice
+  goes three levels down, the way the merge does: `{ document: { location: { href: '' } } }` is checked
+  and merged member by member, and past that depth a member takes its whole type.
 - **There is nothing to restore.** The real `window` and `document` are never patched: the double is
   a view over them, and every write and delete the code under test makes lands on the view. Which is
   also how a spec moves a value mid-test — `Object.assign(TestBed.inject(WINDOW), { scrollY: 40 })`,

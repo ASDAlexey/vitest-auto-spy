@@ -393,7 +393,11 @@ else is a fixture of the wrong shape — check it against `ReturnType<X['m']>` a
 with `createMock<…>()`. A value outside the declared type on purpose keeps the directive under
 `// eslint-disable-next-line vitest-auto-spy/no-ts-expect-error-on-double -- <why>`.
 `no-constant-expect` reports `expect(true).toBe(true)` and its relatives — assert on what the code
-produced, or `expect.fail(…)` for a branch the test must not reach. `no-compile-components` is silent
+produced, or `expect.fail(…)` for a branch the test must not reach.
+`no-redundant-smoke-test` reports the generated `it('should create', () => expect(x).toBeTruthy())`
+where the block — its nested `describe`s counted — already has tests that run the same `beforeEach`:
+they fail first on a subject that came back nullish, and say what they were doing. Delete it; keep it
+only where it is the block's one running test, or make it assert the construction itself. `no-compile-components` is silent
 until `['error', { builder: 'inline-resources' }]`; with it, drop `compileComponents()` and the
 `async` it forced — except for a component whose template holds a `@defer` block, which ships async
 class metadata that the call resolves whatever the builder did. Keep that one behind

@@ -215,13 +215,20 @@ is a structural stand-in provided for the `Router` token:
 | `serializeUrl`, `parseUrl`  | the router's own `DefaultUrlSerializer`, not a pair of stubs                                                      |
 | `createUrlTree`             | Angular's `createUrlTreeFromSnapshot`, so `relativeTo`, `queryParamsHandling` and `preserveFragment` behave       |
 | `routerState`               | Angular's own `RouterState`: `snapshot.url` is the URL, and `root` a route carrying its query params and fragment |
+| `currentNavigation`         | the signal Angular 20.2+ declares: the navigation in flight, `null` while the router stands still                 |
+| `getCurrentNavigation()`    | the same answer through the deprecated method, so a component reading either one sees one truth                   |
 
-Anything else Angular's `Router` declares — `getCurrentNavigation`, `isActive`, `resetConfig` — is
-**not** `undefined`: reading it throws, naming the member and what the double covers. A member that
-answers a call nobody should be making in a unit test is how a wrong test survives a run.
+Anything else Angular's `Router` declares — `isActive`, `resetConfig`, `lastSuccessfulNavigation` —
+is **not** `undefined`: reading it throws, naming the member and what the double covers. A member
+that answers a call nobody should be making in a unit test is how a wrong test survives a run. That
+holds for the fields as well as for the methods: `currentNavigation`, `config` and `navigated` live
+on the instance rather than on `Router.prototype`, so a guard built from the prototype alone would
+have handed back `undefined` and let `router.currentNavigation()` fail as "is not a function"
+wherever the component happened to call it.
 
-`init` has one field, `url`, because everything else about a router follows from it. It defaults to
-`'/'`.
+`init` takes `url` — everything else about where a router stands follows from it, and it defaults to
+`'/'` — and `currentNavigation`, for the component that reads the navigation in a field
+initializer, before a test body could set one.
 
 ### `injectRouterDouble(injector?)`
 
@@ -235,13 +242,14 @@ router.navigate.resolveWith(false);
 The handle of the router `provideRouterDouble()` put in the test's injector. It reads the `TestBed`;
 pass `fixture.debugElement.injector` when the router is in a component's own `providers`.
 
-| Member                   | What it does                                                                             |
-| ------------------------ | ---------------------------------------------------------------------------------------- |
-| `router`                 | the value every injector in the test hands out for `Router`                              |
-| `navigate`               | the spied `navigate()` — assert on it, or answer with `resolveWith(false)`               |
-| `navigateByUrl`          | the spied `navigateByUrl()`, the same way                                                |
-| `setUrl(url)`            | put the router at a URL: `url`, `routerState` and the root route move together, silently |
-| `emitNavigation(event?)` | push an event through `router.events`                                                    |
+| Member                              | What it does                                                                             |
+| ----------------------------------- | ---------------------------------------------------------------------------------------- |
+| `router`                            | the value every injector in the test hands out for `Router`                              |
+| `navigate`                          | the spied `navigate()` — assert on it, or answer with `resolveWith(false)`               |
+| `navigateByUrl`                     | the spied `navigateByUrl()`, the same way                                                |
+| `setUrl(url)`                       | put the router at a URL: `url`, `routerState` and the root route move together, silently |
+| `emitNavigation(event?)`            | push an event through `router.events`                                                    |
+| `setCurrentNavigation(navigation?)` | put a navigation in flight, or end it with `null`                                        |
 
 `emitNavigation()` takes what the spec has: nothing (re-announce the current URL), a URL string (a
 `NavigationEnd` for it, built for you), or an event you built — `new NavigationEnd(1, '/a', '/a')`,
@@ -257,6 +265,36 @@ exposes:
 - **The first thing a subscriber sees is a `NavigationEnd` for the starting URL**, because that is
   the navigation that put the router there. A component counting navigations starts at one, not
   zero.
+
+### The navigation in flight
+
+```ts
+const router = injectRouterDouble();
+
+router.setCurrentNavigation({ extras: { state: { from: 'the card' } } });
+expect(component.origin()).toBe('the card');
+```
+
+`currentNavigation()` is what a component reads to find out where a navigation came from — the
+`extras.state` an opener passed, or the `trigger` that tells a `'popstate'` apart from a click. It
+is a signal on the instance, which is why a hand-rolled double usually spells it
+`instanceMethodsToSpyOn: ['currentNavigation']`: it is not on the prototype, so nothing reads it off
+the class.
+
+The double answers `null` until the spec says otherwise, because a router standing at a URL is idle
+and that is the real answer between navigations. What `setCurrentNavigation()` is given is kept and
+the rest is derived from where the router stands: `id`, `initialUrl` and `extractedUrl` from the
+current URL, `trigger` `'imperative'`, `extras` empty, `previousNavigation` `null`. Pass `abort`
+yourself when the spec asserts one — the default is a no-op rather than a spy nothing reads.
+
+It also follows the events, the way the real one does:
+
+- `emitNavigation(new NavigationStart(4, '/products/8', 'popstate'))` puts a navigation in flight
+  with that id, URL and trigger.
+- a `NavigationEnd`, `NavigationCancel`, `NavigationError` or `NavigationSkipped` ends it —
+  "the current navigation becomes null after the NavigationEnd event is emitted", so a component
+  that reads it while handling a `NavigationEnd` gets `null` here and `null` in production. A double
+  that kept the navigation would hide exactly that.
 
 ### `createRouterDouble(init?)`
 

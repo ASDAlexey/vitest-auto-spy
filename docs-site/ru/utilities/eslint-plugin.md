@@ -266,13 +266,14 @@ _доказательству_, а не по виду находки. Оба с�
 Тест проходит, потому что до ассерта не дошли — поток промолчал, промис никто не дождался, колбэк
 вернулся первым, — или дошли, но упасть он не мог.
 
-| Правило                                                                                         | На что срабатывает                                                                               | Правка    | Без него |
-| ----------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ | --------- | :------: |
-| [`no-expect-in-subscribe`](#no-expect-in-subscribe-reports-one-shape-and-three-different-edits) | `expect()` внутри колбэка `subscribe()` → `expectEmission` / `firstValueFrom`                    | подсказка |  зелено  |
-| [`no-floating-assertion`](#an-assertion-in-a-then-nobody-awaits)                                | `expect()` в `.then()`, которого никто не дождался → `expect(await promise)`                     | —         |  зелено  |
-| [`no-done-callback`](#a-done-parameter-is-not-a-style-question)                                 | `it('x', (done) => …)` → `async` и дождавшийся ассерт, а `done.fail(…)` — по месту вызова        | —         |  зелено  |
-| [`no-bare-called-with`](#no-bare-called-with-%E2%80%94-one-word-two-opposite-meanings)          | `spy.m.calledWith(1);` отдельной инструкцией — заглушка, которую никто не продолжил, без ассерта | —         |  зелено  |
-| [`no-constant-expect`](/ru/utilities/eslint-rules#no-constant-expect)                           | `expect(true).toBe(true)` — значение, выписанное в спеке, под матчером, чей ответ оно предрешает | —         |  зелено  |
+| Правило                                                                                         | На что срабатывает                                                                                                  | Правка    | Без него |
+| ----------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- | --------- | :------: |
+| [`no-expect-in-subscribe`](#no-expect-in-subscribe-reports-one-shape-and-three-different-edits) | `expect()` внутри колбэка `subscribe()` → `expectEmission` / `firstValueFrom`                                       | подсказка |  зелено  |
+| [`no-floating-assertion`](#an-assertion-in-a-then-nobody-awaits)                                | `expect()` в `.then()`, которого никто не дождался → `expect(await promise)`                                        | —         |  зелено  |
+| [`no-done-callback`](#a-done-parameter-is-not-a-style-question)                                 | `it('x', (done) => …)` → `async` и дождавшийся ассерт, а `done.fail(…)` — по месту вызова                           | —         |  зелено  |
+| [`no-bare-called-with`](#no-bare-called-with-%E2%80%94-one-word-two-opposite-meanings)          | `spy.m.calledWith(1);` отдельной инструкцией — заглушка, которую никто не продолжил, без ассерта                    | —         |  зелено  |
+| [`no-constant-expect`](/ru/utilities/eslint-rules#no-constant-expect)                           | `expect(true).toBe(true)` — значение, выписанное в спеке, под матчером, чей ответ оно предрешает                    | —         |  зелено  |
+| [`no-redundant-smoke-test`](/ru/utilities/eslint-rules#no-redundant-smoke-test)                 | `it('should create', () => expect(pipe).toBeTruthy())` рядом с тестами, которые уже строят тот же субъект → удалить | подсказка |  зелено  |
 
 ### Дубли и модули, которые их держат {#doubles-and-the-modules-that-hold-them}
 
