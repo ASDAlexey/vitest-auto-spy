@@ -722,12 +722,12 @@ provideAutoSpy(Router, { instanceMethodsToSpyOn: ['currentNavigation'] }); // ad
 **Why this is not only tidiness.** Measured over one Angular suite: 739 of 2228 `provideAutoSpy`
 calls carry a configuration, and the same class collects incompatible opinions —
 
-| class                  | calls | files | with a config | **distinct configurations** |
-| ---------------------- | ----: | ----: | ------------: | --------------------------: |
-| `Router`               |   122 |   109 |            60 |                      **23** |
-| `AccountService`       |    70 |    62 |            43 |                      **27** |
-| `PurchaseStateService` |    53 |    52 |            42 |                      **25** |
-| `SmartRemoteConfigService` | 85 |    70 |            47 |                           8 |
+| class                      | calls | files | with a config | **distinct configurations** |
+| -------------------------- | ----: | ----: | ------------: | --------------------------: |
+| `Router`                   |   122 |   109 |            60 |                      **23** |
+| `AccountService`           |    70 |    62 |            43 |                      **27** |
+| `PurchaseStateService`     |    53 |    52 |            42 |                      **25** |
+| `SmartRemoteConfigService` |    85 |    70 |            47 |                           8 |
 
 — and the `*RemoteConfigService` family is 205 calls, 120 of them repeating
 `{ gettersToSpyOn: ['remoteConfig'] }` word for word. The list options are
@@ -740,11 +740,11 @@ says so.
 
 The registration is the floor, the call site adds to it. Three behaviours, one per kind of key:
 
-| key                                                | merged how                              |
-| -------------------------------------------------- | --------------------------------------- |
-| every list (`gettersToSpyOn`, `observablePropsToSpyOn`, …) | unioned, registration first, no repeats |
-| `returns`, `overrides`                             | key by key, the call site winning       |
-| every scalar (`lazySpies`, `strict`, `fillMissing`) | the call site wins when it names the key |
+| key                                                        | merged how                               |
+| ---------------------------------------------------------- | ---------------------------------------- |
+| every list (`gettersToSpyOn`, `observablePropsToSpyOn`, …) | unioned, registration first, no repeats  |
+| `returns`, `overrides`                                     | key by key, the call site winning        |
+| every scalar (`lazySpies`, `strict`, `fillMissing`)        | the call site wins when it names the key |
 
 The bare-array form is taken too: `createSpyFromClass(X, ['reload'])` merges as
 `{ methodsToSpyOn: ['reload'] }`.
@@ -1206,7 +1206,7 @@ before it, and is superseded by one configured after — so what a call does nev
 order the spec happens to be written in. A `resetAutoSpy` drops it like any other configuration.
 
 **Why not `throwWith`**
-`throwWith` already means *error the stream* on an observable spy. Every spy carries every helper
+`throwWith` already means _error the stream_ on an observable spy. Every spy carries every helper
 bundle at runtime — only the return type in `Spy<T>` tells them apart — so a shared name would mean
 whichever bundle is attached last silently wins, on every spy in the run.
 
@@ -1910,7 +1910,7 @@ setupAutoSpy({ strict: true, unconfiguredReads: 'throw' }); // 'off' (default) |
   stream by `nextWith`, `nextOneTimeWith`, `nextWithValues` with at least one entry, `throwWith`,
   `complete`, `returnSubject`, or a real stream seeded through `overrides`. A registered _list_ alone
   configures nothing. `undefined` meant as the answer is said out loud, like `returns: { save:
-  undefined }` for a method: `accessorSpies.getters.x.mockReturnValue(undefined)`.
+undefined }` for a method: `accessorSpies.getters.x.mockReturnValue(undefined)`.
 - **Which doubles.** Strict ones — `strict: true` on the double or suite-wide — built by
   `createSpyFromClass`, `provideAutoSpy`, `createSpyFromInstance`, and `createAutoMock` /
   `provideAutoSpyForToken` for their observable properties. `strict: false` on a double exempts it.
@@ -1947,13 +1947,13 @@ The guard is carried by the function spies the two class/type factories build, a
 construction. Everything below builds its spies elsewhere and is **never** strict, whatever is
 configured:
 
-| Double                                                  | Why                                                                 |
-| ------------------------------------------------------- | ------------------------------------------------------------------- |
+| Double                                                  | Why                                                                                      |
+| ------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
 | **accessor spies** (`gettersToSpyOn`, …)                | a read cannot throw — reported after the test instead, [above](#reads-nobody-configured) |
-| **observable property spies**                           | the same — a subscription nothing fed is reported after the test    |
-| **`mockDeep<T>()` nodes**                               | `mockDeep` takes no strict configuration at all                     |
-| **`console-spy`** and **`mockResourceProp`'s `reload`** | internal spies, not doubles of your collaborator                    |
-| **standalone `createFunctionSpy(name)`**                | the guard is its optional second argument, and no caller passes one |
+| **observable property spies**                           | the same — a subscription nothing fed is reported after the test                         |
+| **`mockDeep<T>()` nodes**                               | `mockDeep` takes no strict configuration at all                                          |
+| **`console-spy`** and **`mockResourceProp`'s `reload`** | internal spies, not doubles of your collaborator                                         |
+| **standalone `createFunctionSpy(name)`**                | the guard is its optional second argument, and no caller passes one                      |
 
 `fillMissing` members are the exception that had to be closed rather than documented: a member the
 prototype never named is by definition one nobody configured, so leaving it lenient would have
@@ -2183,13 +2183,17 @@ for (const [name, make] of Object.entries(scenarios)) {
       make().subscribe((v) => expect(v).toBe(999));
     });
 
-    it('2. new Promise(done) + subscribe', () =>
-      new Promise<void>((done) => {
-        make().subscribe((v) => {
-          expect(v).toBe(999);
-          done();
-        });
-      }), 1200);
+    it(
+      '2. new Promise(done) + subscribe',
+      () =>
+        new Promise<void>((done) => {
+          make().subscribe((v) => {
+            expect(v).toBe(999);
+            done();
+          });
+        }),
+      1200,
+    );
 
     it('3. await firstValueFrom', async () => {
       expect(await firstValueFrom(make())).toBe(999);
@@ -3249,12 +3253,13 @@ only pays for the ones it imports:
 | Imported                                      |    min+gzip |
 | --------------------------------------------- | ----------: |
 | `.` — the core entry, what the badge measures | **17.2 kB** |
-| `vitest-auto-spy/angular`                     |     25.6 kB |
+| `vitest-auto-spy/angular`                     |     25.9 kB |
 | `vitest-auto-spy/react` / `/vue` / `/svelte`  |     17.4 kB |
 | `vitest-auto-spy/node`                        |     16.3 kB |
 | `vitest-auto-spy/dom-stubs`                   |      5.6 kB |
 | `vitest-auto-spy/rxjs`                        |      2.3 kB |
 | `vitest-auto-spy/angular-router`              |      6.4 kB |
+| `vitest-auto-spy/signal-forms`                |      1.4 kB |
 | `vitest-auto-spy/zone`                        |      1.1 kB |
 
 **The framework rows are not a framework tax.** `react`, `vue` and `svelte` weigh what the core
@@ -3279,9 +3284,11 @@ double that carries the whole `ResourceRef`, and the recomputation counters — 
 move that entry has made. `/angular-router` tripled, +4.31 kB, for the `Router` double: it is the
 router's own `DefaultUrlSerializer`, `createUrlTreeFromSnapshot` and `RouterState` doing the URL work
 rather than a structural stand-in guessing at it, which is the whole reason the double cannot
-contradict itself. `/eslint-plugin` is +1.77 kB for the rules of the previous two releases.
+contradict itself. `/eslint-plugin` is +1.77 kB for the rules of the previous two releases. `/signal-forms` arrives at
+1.36 kB — the whole entry is `createForm` and one matcher over Angular's own `form()`, which stays
+in `@angular/forms` where the consumer already has it.
 
-`npm run size:entries` prints all twenty-two and compares them against a committed baseline, so an entry
+`npm run size:entries` prints all twenty-three and compares them against a committed baseline, so an entry
 that quietly gains a second copy of the core fails a check instead of being noticed a release later.
 
 None of this reaches a production bundle in any case: the package is a devDependency, and the
@@ -3289,8 +3296,10 @@ framework adapters, rxjs layer, console spies and setup helpers each live behind
 
 ### What is in the download
 
-`dist/` is **1 409 kB**, the published tarball **588 kB**, and the package ships **82 files**
-(measured 2026-09-12; the previous edition said 1 230 kB, 508 kB and 77 files). An
+`dist/` is **1 560 kB**, the published tarball **584 kB**, and the package ships **84 files**
+(measured 2026-09-12; the previous edition said 1 409 kB, 588 kB and 82 files — the two new files
+are the `/signal-forms` entry and its declarations, and the tarball still shrank, because the
+markdown that ships with it was reformatted and compresses better). An
 earlier edition reported 241 kB, 108 kB and 54 files, and presented the change as a reduction.
 Those figures were correct when they were taken — they reproduce to the byte at v2.0.0 — but that
 package had thirteen subpaths, no command-line tool, and an ESLint entry a sixth of its current
@@ -4678,7 +4687,7 @@ See [Control helpers → Inspecting promise outcomes](https://asdalexey.github.i
 name of whatever function was passed in — so before this was handled, every spy printed as
 `[Function: dispatch]`, the library's internal dispatcher, wherever a spy was rendered.
 
-The adapter now gives the method's name to the *implementation*, at the moment it is created, and
+The adapter now gives the method's name to the _implementation_, at the moment it is created, and
 `mock.fn()` carries it onto the mock — a `node:test` mock takes its `name` from the function it
 wraps. `displayName` is set on the mock as well, for inspectors that prefer that convention. The
 name survives `mock.reset()`, `mock.restore()`, `resetCalls()` and a `mockImplementation()` swap,
@@ -4703,7 +4712,7 @@ Two things it still does not buy you, and neither has a fix on this side:
 
 - **`getMockName()` does not exist on a `node:test` mock.** It is a Jest-family method Vitest and Bun
   ship and `node:test` does not; read `spy.method.name` there instead.
-- **`node:test`'s own reporter never labels a mock.** Its output names the *test* that failed, not
+- **`node:test`'s own reporter never labels a mock.** Its output names the _test_ that failed, not
   the mock involved — the name shows up only where a spy is actually rendered as a value (an
   assertion diff, `util.inspect`, a library message), never as a heading in the TAP or spec reporter.
 
@@ -4967,12 +4976,12 @@ declare module 'vitest-auto-spy' {
 }
 ```
 
-The one import that makes the helpers *exist* is the one that makes them rxjs-typed, so the two
+The one import that makes the helpers _exist_ is the one that makes them rxjs-typed, so the two
 cannot drift apart.
 
 ```ts
-import 'vitest-auto-spy/rxjs';
 import type { Subject } from 'rxjs';
+import 'vitest-auto-spy/rxjs';
 
 const subject: Subject<Product[]> = myService.getProducts$.returnSubject(); // ✔ compiles
 ```
@@ -6064,7 +6073,7 @@ or seeded, and readable back as a plain record — installs one from `vitest-aut
 instead of writing a `TestingStorage` class per project.
 
 ```ts
-import { stubWebStorage, type WebStorageStub } from 'vitest-auto-spy/dom-stubs';
+import { type WebStorageStub, stubWebStorage } from 'vitest-auto-spy/dom-stubs';
 
 let local: WebStorageStub;
 
@@ -6174,12 +6183,12 @@ condition is falsy. `time`, `groupEnd` and `countReset` write nothing and are no
 **What absorbs.** The guard puts a recording wrapper _under_ whatever stands on `console`, so a call
 is stray exactly when it reaches that wrapper:
 
-| In the test                                                          | Result                                                        |
-| -------------------------------------------------------------------- | ------------------------------------------------------------- |
-| `installConsoleSpies()` from `vitest-auto-spy/console`, then asserts | absorbed — the spy never calls through                        |
-| `vi.spyOn(console, 'error').mockImplementation(() => undefined)`     | absorbed                                                      |
+| In the test                                                          | Result                                                         |
+| -------------------------------------------------------------------- | -------------------------------------------------------------- |
+| `installConsoleSpies()` from `vitest-auto-spy/console`, then asserts | absorbed — the spy never calls through                         |
+| `vi.spyOn(console, 'error').mockImplementation(() => undefined)`     | absorbed                                                       |
 | `vi.spyOn(console, 'error')` with no implementation                  | **stray** — it records the call, then calls through and prints |
-| nothing                                                              | **stray**                                                     |
+| nothing                                                              | **stray**                                                      |
 
 **Outside any test.** Output made while the file is being imported, in a `beforeAll` / `afterAll`,
 from a callback that fired after its test had ended, or in a test whose `afterEach` never ran, fails
@@ -6248,15 +6257,15 @@ setupAutoSpy({ preset: 'strict' });
 Starts every guard at its strictest grade. An option passed alongside it still wins, so
 `{ preset: 'strict', guardGlobals: 'warn' }` relaxes exactly one.
 
-| Option               | Under `preset: 'strict'`               | Default without it |
-| -------------------- | -------------------------------------- | ------------------ |
-| `duplicateCopies`    | `'throw'`                              | `'throw'`          |
-| `propsOutsideHooks`  | `'throw'`                              | `'warn'`           |
-| `guardGlobals`       | `'throw'`                              | `'off'`            |
-| `prototypePollution` | `'throw'`                              | `'throw'`          |
-| `strayConsole`       | `'throw'`                              | `'off'`            |
-| `misconfiguration`   | `'throw'`                              | `'warn'`           |
-| `strayTimers`        | `true`                                 | `false`            |
+| Option               | Under `preset: 'strict'`                | Default without it |
+| -------------------- | --------------------------------------- | ------------------ |
+| `duplicateCopies`    | `'throw'`                               | `'throw'`          |
+| `propsOutsideHooks`  | `'throw'`                               | `'warn'`           |
+| `guardGlobals`       | `'throw'`                               | `'off'`            |
+| `prototypePollution` | `'throw'`                               | `'throw'`          |
+| `strayConsole`       | `'throw'`                               | `'off'`            |
+| `misconfiguration`   | `'throw'`                               | `'warn'`           |
+| `strayTimers`        | `true`                                  | `false`            |
 | `strayRejections`    | `true` when zone.js is loaded, else off | `false`            |
 
 `strayRejections` is conditional because it throws where there is no zone.js to watch; the preset
@@ -6350,32 +6359,32 @@ each test: a stub installed for the previous test is exactly what must not still
 
 ## Options
 
-| Option                | Default   | Notes                                                                           |
-| --------------------- | --------- | ------------------------------------------------------------------------------- |
-| `duplicateCopies`     | `'throw'` | `'warn'` to report without failing, `'off'` to skip the check                   |
-| `restoreProps`        | `true`    | `restoreMockedProps()` in a global `afterEach`                                  |
-| `propsOutsideHooks`   | `'warn'`  | Report a `mock*Prop` patch made outside a per-test hook — see below             |
-| `restoreMocks`        | `false`   | `vi.restoreAllMocks()` in a global `afterEach` — turn on for `isolate: false`   |
-| `strayTimers`         | `false`   | Track and cancel timeouts, intervals and frames that outlive their file         |
-| `onStrayTimers`       | —         | Takes the per-file count and each stray's origin, instead of the stderr warning |
-| `strayRejections`     | `false`   | Fail the test a rejection zone.js swallowed surfaced in — needs zone.js         |
-| `blockNetwork`        | `false`   | Close every network channel the environment has — `true`, or a narrowing object |
-| `guardGlobals`        | `'off'`   | Report a test that redefines a global property as non-configurable              |
-| `prototypePollution`  | `'throw'` | Sweep and report an enumerable key a test left on a built-in prototype          |
-| `strayConsole`        | `'off'`   | Fail a test (or file) that wrote to the console without absorbing it — section 16 |
-| `misconfiguration`    | `'warn'`  | `'throw'` fails the library's own misuse reports at the call site               |
-| `preset`              | —         | `'strict'` starts every guard at its strictest grade — see above                |
-| `globalFakeTimers`    | `false`   | Fake timers for every test **and between them** — see below                     |
-| `restoreTimerGlobals` | `true`    | Put back timer globals that uninstalling the fakes deleted                      |
-| `restoreWebStorage`   | `true`    | Give the run a `localStorage` / `sessionStorage` that work — see section 14     |
-| `pruneMockRegistry`   | `false`   | Keep @vitest/spy's ever-growing mock registry to the mocks that outlive a file  |
-| `hookTimeoutHint`     | `true`    | Explain a hook that ran out of `hookTimeout` while `testTimeout` is larger      |
-| `frozenClockHint`     | `true`    | Explain a timeout that happened because nothing advanced the fake clock         |
-| `angularBuildHint`    | `true`    | Say once per worker that `@angular/build` builds the test bundle unsplit        |
-| `strict`              | `false`   | Every double built afterwards throws on a method nobody configured              |
-| `onUnstubbedCall`     | —         | The general form of `strict` — its return value becomes the call's result       |
+| Option                | Default   | Notes                                                                                  |
+| --------------------- | --------- | -------------------------------------------------------------------------------------- |
+| `duplicateCopies`     | `'throw'` | `'warn'` to report without failing, `'off'` to skip the check                          |
+| `restoreProps`        | `true`    | `restoreMockedProps()` in a global `afterEach`                                         |
+| `propsOutsideHooks`   | `'warn'`  | Report a `mock*Prop` patch made outside a per-test hook — see below                    |
+| `restoreMocks`        | `false`   | `vi.restoreAllMocks()` in a global `afterEach` — turn on for `isolate: false`          |
+| `strayTimers`         | `false`   | Track and cancel timeouts, intervals and frames that outlive their file                |
+| `onStrayTimers`       | —         | Takes the per-file count and each stray's origin, instead of the stderr warning        |
+| `strayRejections`     | `false`   | Fail the test a rejection zone.js swallowed surfaced in — needs zone.js                |
+| `blockNetwork`        | `false`   | Close every network channel the environment has — `true`, or a narrowing object        |
+| `guardGlobals`        | `'off'`   | Report a test that redefines a global property as non-configurable                     |
+| `prototypePollution`  | `'throw'` | Sweep and report an enumerable key a test left on a built-in prototype                 |
+| `strayConsole`        | `'off'`   | Fail a test (or file) that wrote to the console without absorbing it — section 16      |
+| `misconfiguration`    | `'warn'`  | `'throw'` fails the library's own misuse reports at the call site                      |
+| `preset`              | —         | `'strict'` starts every guard at its strictest grade — see above                       |
+| `globalFakeTimers`    | `false`   | Fake timers for every test **and between them** — see below                            |
+| `restoreTimerGlobals` | `true`    | Put back timer globals that uninstalling the fakes deleted                             |
+| `restoreWebStorage`   | `true`    | Give the run a `localStorage` / `sessionStorage` that work — see section 14            |
+| `pruneMockRegistry`   | `false`   | Keep @vitest/spy's ever-growing mock registry to the mocks that outlive a file         |
+| `hookTimeoutHint`     | `true`    | Explain a hook that ran out of `hookTimeout` while `testTimeout` is larger             |
+| `frozenClockHint`     | `true`    | Explain a timeout that happened because nothing advanced the fake clock                |
+| `angularBuildHint`    | `true`    | Say once per worker that `@angular/build` builds the test bundle unsplit               |
+| `strict`              | `false`   | Every double built afterwards throws on a method nobody configured                     |
+| `onUnstubbedCall`     | —         | The general form of `strict` — its return value becomes the call's result              |
 | `unconfiguredReads`   | `'off'`   | Report a strict double's getter read, or stream subscribed to, that nothing configured |
-| `onUnstubbedRead`     | —         | Takes those findings instead of the report, from every double — for a survey    |
+| `onUnstubbedRead`     | —         | Takes those findings instead of the report, from every double — for a survey           |
 
 `restoreMocks` is off by default because it also drops `vi.spyOn` stubs a suite installed in
 `beforeAll`; it is the knob to reach for when the run shares one environment across files.
@@ -8045,11 +8054,11 @@ Reasonable question if you came straight to Vitest and have never written a line
 of these rules are about a dialect you do not speak.** They are still on, and the reason is not
 principle — it is that they cannot fire on your code.
 
-| You are                                    | What the plugin does for you                                                                        |
-| ------------------------------------------ | --------------------------------------------------------------------------------------------------- |
+| You are                                    | What the plugin does for you                                                                            |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------------------- |
 | writing Vitest, never used Jasmine or Jest | the thirty-two core rules work; **the four jasmine rules are inert** — leave them on and never see them |
-| migrating off `jest-auto-spies` / Jest     | the core rules do the work, `no-done-callback` and `prefer-as-spy` most of it                       |
-| migrating off `jasmine-auto-spies`         | all thirty-six, with `prefer-native-spy-api` set to `'off'` until the bridge is gone               |
+| migrating off `jest-auto-spies` / Jest     | the core rules do the work, `no-done-callback` and `prefer-as-spy` most of it                           |
+| migrating off `jasmine-auto-spies`         | all thirty-six, with `prefer-native-spy-api` set to `'off'` until the bridge is gone                    |
 
 ### If you never used Jasmine
 
@@ -13650,7 +13659,7 @@ answers them.
 | `provideDocumentDouble(overrides?, token?)`                           | the same under Angular's `DOCUMENT`, or under a token of your own                    |
 | `createWindowDouble(overrides?)` / `createDocumentDouble(overrides?)` | the same doubles without a `TestBed` — for `new LayoutProbe(win)` or a bare function |
 
-Four things to know:
+Five things to know:
 
 - **The window helper takes your token, the document helper does not need one.** Angular ships
   `DOCUMENT`, from `@angular/core` itself since v20. It has never shipped a `WINDOW`: every
@@ -13667,6 +13676,19 @@ Four things to know:
   There is no handle to learn and no `restoreMockedProps()` to remember.
 - **A factory, not a `useValue`.** Every injector builds its own, so a provider array hoisted to a
   module constant cannot carry one test's writes into the next.
+- **`location` takes overrides like every other member.** The platform declares its members
+  unforgeable, which is what makes the hand-written `{ location: { reload: vi.fn() } }` the shape it
+  is; here it merges the same way everything else does:
+
+  ```ts
+  const win = TestBed.inject(WINDOW); // provideWindowDouble(WINDOW, { location: { reload } })
+
+  win.location.href = '/checkout'; // moves the double, not the address bar
+  expect(reload).toHaveBeenCalled(); // and `location.origin` is still jsdom's
+  ```
+
+  `mockValueProp(win, 'innerWidth', 800)` and its restore work on the double too, and neither
+  touches the global.
 
 **`provideDocumentDouble` hands the double to Angular as well**
 Overriding `DOCUMENT` for a testing module means the renderer injects it too. Replacing
@@ -13707,12 +13729,12 @@ something imported here: `MatDialogRef` is the DI token, the shape the double is
 and the type its result is read off — so the import in your own spec stays the only place Material
 is named.
 
-| Call                                      | Does                                                                                        |
-| ----------------------------------------- | ------------------------------------------------------------------------------------------- |
-| `provideMatDialogData(token, data)`       | a typed `{ provide, useValue }` — name the type argument and the data is checked against it |
-| `provideMatDialogRef(RefClass, init?)`    | a `FactoryProvider` — a fresh ref per injector; `init`: `closedWith`, `disableClose`        |
-| `injectMatDialogRef(RefClass, injector?)` | the handle: `.ref`, `.close` (the spy), `emitClose(result?)`                                |
-| `createMatDialogRef(RefClass, init?)`     | the same handle without a `TestBed` — and the ref a spied `MatDialog.open()` hands back     |
+| Call                                      | Does                                                                                                      |
+| ----------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| `provideMatDialogData(token, data)`       | a typed `{ provide, useValue }` — name the type argument and the data is checked against it               |
+| `provideMatDialogRef(RefClass, init?)`    | a `FactoryProvider` — a fresh ref per injector; `init`: `closedWith`, `disableClose`, `componentInstance` |
+| `injectMatDialogRef(RefClass, injector?)` | the handle: `.ref`, `.close` (the spy), `emitClose(result?)`                                              |
+| `createMatDialogRef(RefClass, init?)`     | the same handle without a `TestBed` — and the ref a spied `MatDialog.open()` hands back                   |
 
 ### Opening one: `MatDialog` needs no helper of its own
 
@@ -13730,7 +13752,7 @@ fixture.componentInstance.edit(); // opens, pipes afterClosed(), gets 'saved'
 There is no `openDialogReturning()` wrapper, on purpose: it would say `mockReturnValue` in different
 words, and it would have to know `MatDialog`'s own type — the one thing this design keeps out.
 
-Four things to know:
+Five things to know:
 
 - **`close` is the spy, and it is the same function the ref carries.** `expect(dialog.close)` and
   `expect(TestBed.inject(MatDialogRef).close)` are one assertion, so a component asserted the old way
@@ -13747,10 +13769,30 @@ Four things to know:
   object against the type you name; an `InjectionToken<EditUserData>` of your own checks it without
   naming anything. The value is handed out as it is, so build it per test rather than hoisting it to
   a module constant.
+- **`componentInstance` is how the opener drives the dialog**, and Material declares it as a class
+  field rather than on the prototype — so a double without it would hand the opener `undefined`
+  instead of failing. Pass the stand-in and it is checked, member by member, against the component
+  the ref class names:
+
+  ```ts
+  const save = new EventEmitter<string>();
+  const dialog = createMatDialogRef<MatDialogRef<NameInputDialog, string>>(MatDialogRef, {
+    componentInstance: { save, isSaving: signal(false) },
+  });
+
+  injectSpy(MatDialog).open.mockReturnValue(dialog.ref);
+
+  component.rename(); // subscribes to componentInstance.save
+  save.emit('Grace');
+
+  expect(dialog.close).toHaveBeenCalledWith('Grace');
+  ```
+
 - **Everything else the ref class declares throws by name.** `backdropClick`, `keydownEvents`,
-  `updateSize`, `updatePosition` and `getState` are the dialog doing its own work: the double names
-  the member in the failure instead of reading `undefined`, and the answer is the real
-  `MatDialogModule` with a `MatDialog` that opens it for real.
+  `updateSize`, `updatePosition`, `getState`, `componentRef` and `id` are the dialog doing its own
+  work: the double names the member in the failure instead of reading `undefined`, and the answer is
+  the real `MatDialogModule` with a `MatDialog` that opens it for real. A `componentInstance` nobody
+  passed says so by name too, and names the init field that fixes it.
 
 ## Module mocks under the unit-test builder
 
@@ -14827,12 +14869,12 @@ fixture.detectChanges(); // params and paramMap emitted; snapshot.params already
 `fragment`, `url` — in instance fields. Each of the usual doubles has only part of it, and the part
 it lacks fails a long way from the provider:
 
-| Double                                                         | What the code that reads the other half gets                                                          |
-| -------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| `provideAutoSpy(ActivatedRoute)`                               | no `snapshot`, no `params`: they are instance fields, and a spy is built from the prototype          |
-| `{ provide: ActivatedRoute, useValue: { snapshot: { params } } }` | `route.paramMap` is `undefined`, so `route.paramMap.pipe(…)` throws inside the component               |
+| Double                                                            | What the code that reads the other half gets                                                         |
+| ----------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `provideAutoSpy(ActivatedRoute)`                                  | no `snapshot`, no `params`: they are instance fields, and a spy is built from the prototype          |
+| `{ provide: ActivatedRoute, useValue: { snapshot: { params } } }` | `route.paramMap` is `undefined`, so `route.paramMap.pipe(…)` throws inside the component             |
 | `{ provide: ActivatedRoute, useValue: { params: of({ id }) } }`   | `snapshot` is `undefined`, and the stream never moves again — the second navigation cannot be tested |
-| both halves, written by hand                                   | they agree until the first spec that updates one and forgets the other                                |
+| both halves, written by hand                                      | they agree until the first spec that updates one and forgets the other                               |
 
 The double here is not a look-alike. It is Angular's own `ActivatedRoute`, built over one record:
 every stream is a `BehaviorSubject` of one of its fields, the snapshot is Angular's own
@@ -14855,16 +14897,16 @@ TestBed.configureTestingModule({
 });
 ```
 
-| `init` member | Reaches                                                          | Default     |
-| ------------- | ---------------------------------------------------------------- | ----------- |
-| `params`      | `params`, `paramMap`, `snapshot.params`, `snapshot.paramMap`     | `{}`        |
-| `queryParams` | `queryParams`, `queryParamMap` and their snapshot twins          | `{}`        |
-| `data`        | `data`, `snapshot.data`                                          | `{}`        |
-| `fragment`    | `fragment`, `snapshot.fragment`                                  | `null`      |
-| `url`         | `url`, `snapshot.url` — a string is split on `/`                 | `[]`        |
-| `outlet`      | `outlet`, `snapshot.outlet`                                      | `'primary'` |
-| `component`   | `component`, `snapshot.component`                                | `null`      |
-| `routeConfig` | `routeConfig`, `snapshot.routeConfig`                            | `null`      |
+| `init` member | Reaches                                                      | Default     |
+| ------------- | ------------------------------------------------------------ | ----------- |
+| `params`      | `params`, `paramMap`, `snapshot.params`, `snapshot.paramMap` | `{}`        |
+| `queryParams` | `queryParams`, `queryParamMap` and their snapshot twins      | `{}`        |
+| `data`        | `data`, `snapshot.data`                                      | `{}`        |
+| `fragment`    | `fragment`, `snapshot.fragment`                              | `null`      |
+| `url`         | `url`, `snapshot.url` — a string is split on `/`             | `[]`        |
+| `outlet`      | `outlet`, `snapshot.outlet`                                  | `'primary'` |
+| `component`   | `component`, `snapshot.component`                            | `null`      |
+| `routeConfig` | `routeConfig`, `snapshot.routeConfig`                        | `null`      |
 
 A string `url` gives segments without matrix parameters; pass `UrlSegment`s
 (`[new UrlSegment('products', { color: 'red' })]`) when the code reads them.
@@ -14890,14 +14932,14 @@ route.set({ params: { id: '9' }, fragment: null });
 The handle of the route `provideActivatedRoute()` put in the test's injector. It reads the `TestBed`;
 pass `fixture.debugElement.injector` when the route is in a component's own `providers`.
 
-| Member                   | What it does                                                                     |
-| ------------------------ | -------------------------------------------------------------------------------- |
-| `route`                  | the `ActivatedRoute` every injector in the test hands out                        |
-| `setParams(params)`      | replace the params                                                               |
-| `setQueryParams(params)` | replace the query params                                                         |
-| `setData(data)`          | replace the data                                                                 |
-| `setFragment(fragment)`  | replace the fragment; `null` for none                                            |
-| `setUrl(url)`            | replace the URL segments; a string or `UrlSegment[]`                             |
+| Member                   | What it does                                                                       |
+| ------------------------ | ---------------------------------------------------------------------------------- |
+| `route`                  | the `ActivatedRoute` every injector in the test hands out                          |
+| `setParams(params)`      | replace the params                                                                 |
+| `setQueryParams(params)` | replace the query params                                                           |
+| `setData(data)`          | replace the data                                                                   |
+| `setFragment(fragment)`  | replace the fragment; `null` for none                                              |
+| `setUrl(url)`            | replace the URL segments; a string or `UrlSegment[]`                               |
 | `set(change)`            | several of the above in one navigation: one new snapshot, each stream at most once |
 
 Every change behaves the way the router's own update after a navigation does, so a spec cannot see
@@ -14972,11 +15014,11 @@ supports.
 
 ## What each failure says
 
-| Message contains                                                    | Cause                                                                                       |
-| ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| `injectActivatedRoute(): nothing provides ActivatedRoute here`      | no provider at all — add `provideActivatedRoute({ … })` to `providers`                      |
+| Message contains                                                     | Cause                                                                                                        |
+| -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `injectActivatedRoute(): nothing provides ActivatedRoute here`       | no provider at all — add `provideActivatedRoute({ … })` to `providers`                                       |
 | `the ActivatedRoute here is … not one provideActivatedRoute() built` | a later provider won: `provideRouter()`, `RouterModule`, a `useValue`, `provideAutoSpy` — list this one last |
-| `the installed @angular/router does not wire ActivatedRoute …`      | a router major builds its classes differently; report it with the version                  |
+| `the installed @angular/router does not wire ActivatedRoute …`       | a router major builds its classes differently; report it with the version                                    |
 
 ## The Router double
 
@@ -15008,14 +15050,14 @@ This double keeps one URL and derives the rest of it. It is **not** an instance 
 a real `Router` drags the whole routing stack in, and a unit test has nothing to do with it — so it
 is a structural stand-in provided for the `Router` token:
 
-| Member                       | What it is                                                                                                    |
-| ---------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| `url`                        | the URL, serialized the way the real router serializes its own: `setUrl('products/7')` reads back `/products/7` |
-| `events`                     | a `BehaviorSubject`, starting at the `NavigationEnd` that put the router where it is                          |
-| `navigate`, `navigateByUrl`  | spies resolving `true`, which record the call and leave the URL alone                                         |
-| `serializeUrl`, `parseUrl`   | the router's own `DefaultUrlSerializer`, not a pair of stubs                                                  |
-| `createUrlTree`              | Angular's `createUrlTreeFromSnapshot`, so `relativeTo`, `queryParamsHandling` and `preserveFragment` behave   |
-| `routerState`                | Angular's own `RouterState`: `snapshot.url` is the URL, and `root` a route carrying its query params and fragment |
+| Member                      | What it is                                                                                                        |
+| --------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `url`                       | the URL, serialized the way the real router serializes its own: `setUrl('products/7')` reads back `/products/7`   |
+| `events`                    | a `BehaviorSubject`, starting at the `NavigationEnd` that put the router where it is                              |
+| `navigate`, `navigateByUrl` | spies resolving `true`, which record the call and leave the URL alone                                             |
+| `serializeUrl`, `parseUrl`  | the router's own `DefaultUrlSerializer`, not a pair of stubs                                                      |
+| `createUrlTree`             | Angular's `createUrlTreeFromSnapshot`, so `relativeTo`, `queryParamsHandling` and `preserveFragment` behave       |
+| `routerState`               | Angular's own `RouterState`: `snapshot.url` is the URL, and `root` a route carrying its query params and fragment |
 
 Anything else Angular's `Router` declares — `getCurrentNavigation`, `isActive`, `resetConfig` — is
 **not** `undefined`: reading it throws, naming the member and what the double covers. A member that
@@ -15036,13 +15078,13 @@ router.navigate.resolveWith(false);
 The handle of the router `provideRouterDouble()` put in the test's injector. It reads the `TestBed`;
 pass `fixture.debugElement.injector` when the router is in a component's own `providers`.
 
-| Member                   | What it does                                                                                 |
-| ------------------------ | ---------------------------------------------------------------------------------------------- |
-| `router`                 | the value every injector in the test hands out for `Router`                                  |
-| `navigate`               | the spied `navigate()` — assert on it, or answer with `resolveWith(false)`                   |
-| `navigateByUrl`          | the spied `navigateByUrl()`, the same way                                                    |
-| `setUrl(url)`            | put the router at a URL: `url`, `routerState` and the root route move together, silently     |
-| `emitNavigation(event?)` | push an event through `router.events`                                                        |
+| Member                   | What it does                                                                             |
+| ------------------------ | ---------------------------------------------------------------------------------------- |
+| `router`                 | the value every injector in the test hands out for `Router`                              |
+| `navigate`               | the spied `navigate()` — assert on it, or answer with `resolveWith(false)`               |
+| `navigateByUrl`          | the spied `navigateByUrl()`, the same way                                                |
+| `setUrl(url)`            | put the router at a URL: `url`, `routerState` and the root route move together, silently |
+| `emitNavigation(event?)` | push an event through `router.events`                                                    |
 
 `emitNavigation()` takes what the spec has: nothing (re-announce the current URL), a URL string (a
 `NavigationEnd` for it, built for you), or an event you built — `new NavigationEnd(1, '/a', '/a')`,
@@ -15094,12 +15136,12 @@ setup file — has to be loaded. Without it the first `provideRouterDouble()` sa
 
 ### What each Router failure says
 
-| Message contains                                                       | Cause                                                                                     |
-| ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| `the Router double has no …`                                           | the code under test reached for a `Router` member the double does not cover                |
+| Message contains                                                        | Cause                                                                                                                  |
+| ----------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `the Router double has no …`                                            | the code under test reached for a `Router` member the double does not cover                                            |
 | `the Router here is Angular's own, not one provideRouterDouble() built` | `Router` is `providedIn: 'root'`, so a `TestBed` without the double hands out a real one — add `provideRouterDouble()` |
-| `the Router here is a value written by hand …`                         | a `useValue` or `provideAutoSpy(Router)` won over it — list `provideRouterDouble()` last   |
-| `nothing provides Router in the injector given`                        | an injector built by hand with no `Router` at all                                          |
+| `the Router here is a value written by hand …`                          | a `useValue` or `provideAutoSpy(Router)` won over it — list `provideRouterDouble()` last                               |
+| `nothing provides Router in the injector given`                         | an injector built by hand with no `Router` at all                                                                      |
 
 Unlike the route, the double does not need to be listed after `provideRouter()`: `Router` is
 `providedIn: 'root'`, and `provideRouter()` does not re-provide the token, so an explicit provider
@@ -15117,6 +15159,148 @@ reason [`vitest-auto-spy/angular-http`](https://asdalexey.github.io/vitest-auto-
   same under [`bun test`](https://asdalexey.github.io/vitest-auto-spy/runtimes/bun-angular).
 - The entry weighs **6.4 kB min+gzip** (6396 B, measured the way the README badge is: esbuild
   bundle, minified, gzipped, peers external).
+
+---
+
+Source: https://asdalexey.github.io/vitest-auto-spy/adapters/signal-forms
+
+# Signal forms
+
+Signal forms are stable since Angular 22, and a spec that touches one meets the same two things
+every time — an error message about `inject()` that never mentions forms, and an `errors()` array
+that does not compare the way it looks like it should. This entry is those two, and nothing else.
+
+```ts
+import { minLength, required } from '@angular/forms/signals';
+import { createForm, registerFormMatchers } from 'vitest-auto-spy/signal-forms';
+
+registerFormMatchers(); // once, in the setup file
+
+const user = createForm({ email: '', name: '' }, (path) => {
+  required(path.email, { message: 'Email is required' });
+  minLength(path.name, 2);
+});
+
+expect(user.email).toHaveFieldErrors([{ kind: 'required', message: 'Email is required' }]);
+
+user.email().value.set('ada@example.test');
+
+expect(user.email).toHaveFieldErrors([]);
+```
+
+**`@angular/forms` is an optional peer, and this is the only entry that reaches it**
+Like `@angular/router` behind [`/angular-router`](https://asdalexey.github.io/vitest-auto-spy/adapters/angular-router) and `@angular/common` behind
+[`/angular-http`](https://asdalexey.github.io/vitest-auto-spy/adapters/angular-http), the forms peer is paid for by the suites that import this entry.
+`vitest-auto-spy/angular` keeps loading in a project that never installed it. Signal forms need
+Angular 22 or newer; the package's own floor stays at 20.
+
+## The injection context — `createForm`
+
+`form()` injects, so calling it in a `beforeEach` throws:
+
+```
+NG0203: The `Injector` token injection failed. `inject()` function must be called from an injection context…
+```
+
+Nothing in that message says "form", and the repair is either an options bag
+(`{ injector: TestBed.inject(Injector) }`) or a `TestBed.runInInjectionContext` wrapped around the
+call. Angular's own testing guide calls the isolated schema test the default way to test a form —
+most forms need no rendering at all — so this is the step between a reader and the recommended
+pattern. `createForm` is that step taken.
+
+| Call                                          | Does                                                                   |
+| --------------------------------------------- | ---------------------------------------------------------------------- |
+| `createForm(model, schema?, options?)`        | `form()` in the `TestBed`'s injection context; `model` is a `signal()` |
+| `createForm(initialValue, schema?, options?)` | the same, with the model signal made for you                           |
+| `registerFormMatchers()`                      | adds `expect(field).toHaveFieldErrors(…)` to the runner                |
+
+What comes back is Angular's own `FieldTree`, with nothing wrapped or proxied: the states, the
+validators, the schema and the write-through to the model are the framework's.
+
+Three things to know:
+
+- **The model is the source of truth, both ways.** `form()` writes into the signal it was given, so
+  a spec that passes its own `signal()` can assert on it directly; pass the plain value instead and
+  the signal is made here, because `user().value()` reads it back either way.
+- **A `computed()` is refused by name.** A form writes into its model, and a derived signal cannot
+  take a write — without the check it would be wrapped as a value and every write would vanish
+  silently.
+- **`options.injector` is for the validator that injects.** A schema is a function, so
+  `inject(SomeService)` inside it resolves against whichever injector built the form. Pass
+  `fixture.debugElement.injector` when the service is in a component's own `providers`.
+
+## The errors — `toHaveFieldErrors`
+
+`field().errors()` answers `RequiredValidationError` instances rather than `{ kind, message }`
+objects, and each one carries a `fieldTree` back-reference to the field it came from. So the
+assertion that looks right fails on a property nobody wrote:
+
+```ts
+expect(user.email().errors()).toEqual([{ kind: 'required' }]); // fails: `fieldTree` is not in the expected object
+```
+
+What suites write instead is `errors().some((error) => error.kind === 'required')`, which passes
+just as happily when the field has three other errors nobody expected — a validator that started
+firing is invisible to it.
+
+```ts
+expect(user.email).toHaveFieldErrors(['required']); // the whole set, by kind
+expect(user.email).toHaveFieldErrors('required'); // one kind needs no array
+expect(user.email).toHaveFieldErrors([{ kind: 'minLength', message: 'Too short' }]); // and its message
+expect(user.email).toHaveFieldErrors([]); // nothing at all
+```
+
+- **The whole set is compared, order-free.** Two errors where the spec named one is a failure, and
+  the message prints both sides by kind.
+- **A message is compared only where the spec names one**, so `'required'` keeps matching after a
+  copy edit, while a spec that cares about the wording says so.
+- **A field tree and its state both read.** `expect(user.email)` and `expect(user.email())` are the
+  same assertion — anything else fails with what it received rather than passing on `undefined`.
+- **Register it once**, in the setup file, next to
+  [`registerSignalMatchers()`](https://asdalexey.github.io/vitest-auto-spy/adapters/angular#asserting-a-signal). The two are separate calls because this
+  one's types reach `@angular/forms` and the other's must not.
+
+## A form the component owns
+
+The other half of a real suite: the component builds the form itself, so the spec drives it through
+the component rather than building one.
+
+```ts
+const fixture = TestBed.createComponent(ReviewFormComponent);
+
+fixture.componentInstance.form.tags().value.set([tag]);
+
+await stable(fixture);
+
+expect(fixture.componentInstance.form.tags).toHaveFieldErrors([]);
+expect(fixture.componentInstance.form.tags().dirty()).toBe(true);
+```
+
+`createForm` has nothing to add there — the component already built the form in its own injection
+context — but the matcher does, and so does
+[`setInputs`](https://asdalexey.github.io/vitest-auto-spy/adapters/angular#changing-an-input-mid-test) for the inputs the
+form reacts to.
+
+## Custom controls
+
+A component implementing `FormValueControl<T>` or `FormCheckboxControl` is a plain component: the
+contract is `value = model<T>()` plus whatever state inputs it reads. No double is needed, and none
+is shipped — it is `renderShallow` and `setInputs`:
+
+```ts
+const fixture = renderShallow(PublishCheckboxComponent, { inputs: { label: 'Published' } });
+
+await setInputs(fixture, { value: true });
+
+expect(fixture.componentInstance.value()).toBe(true);
+```
+
+**There is no `FieldTree` double here, on purpose**
+A double would stand in for a form a component receives as an input — and across the suites this
+package is measured against, no component takes one: forms are built by the component that owns
+them, and controls take a `value` model instead. A double for a shape nobody writes is a shape
+nobody tests. If yours is different, the issue tracker is the place — measured shapes are what this
+package ships.
 
 ---
 
@@ -15139,13 +15323,13 @@ is taken once, in a setup file — and because four of the five hang off the sam
 `TestBed.configureTestingModule` hook the
 [timing diagnostics](https://asdalexey.github.io/vitest-auto-spy/adapters/angular#where-a-spec-spends-its-time) already install.
 
-| Member             | Default | Fails when                                                                         |
-| ------------------ | ------- | ---------------------------------------------------------------------------------- |
-| `ngModuleScopes`   | `true`  | a testing module imports an NgModule that contributes nothing at all               |
-| `deadSchemas`      | `true`  | `schemas` sit next to a standalone component, where they can never apply           |
-| `unspiedProviders` | `true`  | `injectSpy` gets a real instance — a `console.warn` today, a throw under the group |
-| `pendingRequests`  | `true`  | a test ends with unflushed `HttpTestingController` requests                        |
-| `shadowedProviders` | `true` | a double on the testing module loses to the component's own `providers`            |
+| Member              | Default | Fails when                                                                         |
+| ------------------- | ------- | ---------------------------------------------------------------------------------- |
+| `ngModuleScopes`    | `true`  | a testing module imports an NgModule that contributes nothing at all               |
+| `deadSchemas`       | `true`  | `schemas` sit next to a standalone component, where they can never apply           |
+| `unspiedProviders`  | `true`  | `injectSpy` gets a real instance — a `console.warn` today, a throw under the group |
+| `pendingRequests`   | `true`  | a test ends with unflushed `HttpTestingController` requests                        |
+| `shadowedProviders` | `true`  | a double on the testing module loses to the component's own `providers`            |
 
 Every member defaults to `true`; pass `false` to leave one out. Calling `enableAngularDiagnostics`
 again **replaces** the previous selection rather than adding to it. The per-test hooks are
@@ -15341,7 +15525,7 @@ const fixture = TestBed.createComponent(PromoComponent); // ← fails here, unde
 A component-level provider is resolved by the component's **node** injector, and the module injector
 is only consulted when the node injector has nothing. So a `provideAutoSpy(X)` on the testing module
 never reaches a component that declares `X` itself: the component talks to the real service, the
-double records nothing, and an assertion that it was *not* called passes for the wrong reason.
+double records nothing, and an assertion that it was _not_ called passes for the wrong reason.
 
 Measured in one Angular suite: of 71 component specs whose subject declares its own `providers`, 43
 register the same token on the module too. 22 of those work around it with
@@ -16123,10 +16307,10 @@ satisfies the rxjs one.
 meaning, no spy behaves differently.** Most suites upgrade by changing the version and running the
 suite.
 
-|                                                                                                               | What to do                                                                             |
-| ------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+|                                                                                                                        | What to do                                                                             |
+| ---------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
 | [1. Angular is `>=20`, and there are now three Angular peers](#_1-angular-is-20-and-there-are-now-three-angular-peers) | upgrade Angular if you are below 20; add `@angular/platform-browser` if pnpm complains |
-| [2. rxjs is `>=7.2`](#_2-rxjs-is-7-2-because-the-deep-import-path-is-gone)                                    | nothing, unless you pin `rxjs@7.0` or `7.1` on purpose                                 |
+| [2. rxjs is `>=7.2`](#_2-rxjs-is-7-2-because-the-deep-import-path-is-gone)                                             | nothing, unless you pin `rxjs@7.0` or `7.1` on purpose                                 |
 
 ## 1. Angular is `>=20`, and there are now three Angular peers
 
@@ -16212,7 +16396,7 @@ recommended path. The `bun-angular` floor rests on `provideZonelessChangeDetecti
 `>=20.0.0 <23.0.0` is the tempting shape, because `ɵSIGNAL` is a private symbol Angular owes nobody
 compatibility on. It is the wrong fix twice over: a bound forces a release of this package for every
 Angular major, and it hands `ERESOLVE` to anyone who upgraded Angular first. Worse, it does not
-actually protect the thing it looks like it protects — a private symbol can be dropped in a *minor*.
+actually protect the thing it looks like it protects — a private symbol can be dropped in a _minor_.
 The real insurance is structural: read the symbol off the module instead of naming it in the import
 list, so a future Angular without `ɵSIGNAL` breaks one helper rather than the whole entry. That
 pattern is already in this codebase (`zoneless.ts`, `proxy-zone.ts`), and it is where `runEffect()`
@@ -17778,33 +17962,33 @@ workaround described above, that goes as well.
 
 ## The translation table
 
-| `@ngneat/spectator`                                          | `vitest-auto-spy`                                                            | Notes                                                                            |
-| ------------------------------------------------------------ | ---------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
-| `createSpyObject(Service)`                                   | [`createSpyFromClass(Service)`](https://asdalexey.github.io/vitest-auto-spy/core/create-spy-from-class)                 | reads the real prototype; see [the typing difference](#the-typing-trap)          |
-| `mockProvider(Service)`                                      | [`provideAutoSpy(Service)`](https://asdalexey.github.io/vitest-auto-spy/adapters/angular)                               | goes in `providers`, same place                                                  |
-| `mockProvider(Service, { getX: 1 })`                         | `provideAutoSpy(Service, { returns: { getX: 1 } })`                          | `overrides` for a member that is not a method result                             |
-| `createServiceFactory(Service)`                              | `TestBed.configureTestingModule({ providers: [...] })`                       | Angular's own API; there is no factory to create                                 |
-| `spectator.service`                                          | `TestBed.inject(Service)`                                                    | the real instance under test                                                     |
-| `spectator.inject(Dep)`                                      | [`injectSpy(Dep)`](https://asdalexey.github.io/vitest-auto-spy/adapters/angular)                                        | **warns** when the injector returned a real instance — Spectator cannot          |
-| `SpyObject<T>`                                               | [`Spy<T>`](https://asdalexey.github.io/vitest-auto-spy/core/create-spy-from-class)                                      | a mapped type over the real prototype                                            |
-| `as SpyObject<T>` cast                                       | [`asSpy(x)`](https://asdalexey.github.io/vitest-auto-spy/core/create-spy-from-class) / `asInstance(spy)`                | named views instead of an assertion the linter argues with                       |
-| `spy.method.andReturn(v)`                                    | `spy.method.mockReturnValue(v)`                                              | plus `calledWith(...)` for per-argument dispatch                                 |
-| `spy.method.andCallFake(fn)`                                 | `spy.method.mockImplementation(fn)`                                          |                                                                                  |
-| _(no equivalent)_                                            | `spy.load.resolveWith(v)` / `.nextWith(v)` / `.failWith(e)`                  | [helpers picked from the return type](https://asdalexey.github.io/vitest-auto-spy/core/control-helpers)                     |
-| _(no equivalent)_                                            | `gettersToSpyOn` / `settersToSpyOn` / `autoSpyAccessors`                     | Spectator has no accessor spies at all                                           |
-| `createComponentFactory(Cmp)` (shallow)                      | [`renderShallow(Cmp, { … })`](https://asdalexey.github.io/vitest-auto-spy/adapters/angular#shallow-component-rendering) | one call for `configureTestingModule` + `NO_ERRORS_SCHEMA` + `overrideComponent` |
-| `spectator.component`                                        | `component` from `renderShallow`                                             |                                                                                  |
-| `spectator.fixture`                                          | `fixture` from `renderShallow`                                               | a real `ComponentFixture`                                                        |
-| `spectator.detectChanges()`                                  | `fixture.detectChanges()` / `await stable(fixture)`                          | prefer `stable` when zoneless — see [the trap](https://asdalexey.github.io/vitest-auto-spy/adapters/angular)                |
-| `spectator.setInput({ x: 1 })`                               | `inputs: { x: 1 }` on `renderShallow`, or `fixture.componentRef.setInput`    | signal inputs take the **value**                                                 |
-| `SpectatorHost` / `createHostFactory`                        | `renderShallow(Cmp, { template: '…', keepTemplate: true })`                  | closest equivalent; not identical                                                |
-| `spectator.query(byTestId('x'))`                             | `fixture.debugElement.query(By.css('[data-testid=x]'))`                      | **not provided here** — Angular's own API, or Testing Library                    |
-| `spectator.click(el)`, `typeInElement`, `dispatchMouseEvent` | `@testing-library/angular` + `@testing-library/user-event`                   | **not provided here**                                                            |
-| `toHaveClass`, `toHaveText`, `toBeVisible`, …                | `@testing-library/jest-dom`                                                  | **not provided here**                                                            |
-| `SpectatorHttp` / `createHttpFactory`                        | [`provideHttpTesting()` / `expectRequest()`](https://asdalexey.github.io/vitest-auto-spy/adapters/angular-http)         | and it fails a test that leaks an unanswered request                             |
+| `@ngneat/spectator`                                          | `vitest-auto-spy`                                                                            | Notes                                                                            |
+| ------------------------------------------------------------ | -------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| `createSpyObject(Service)`                                   | [`createSpyFromClass(Service)`](https://asdalexey.github.io/vitest-auto-spy/core/create-spy-from-class)                                 | reads the real prototype; see [the typing difference](#the-typing-trap)          |
+| `mockProvider(Service)`                                      | [`provideAutoSpy(Service)`](https://asdalexey.github.io/vitest-auto-spy/adapters/angular)                                               | goes in `providers`, same place                                                  |
+| `mockProvider(Service, { getX: 1 })`                         | `provideAutoSpy(Service, { returns: { getX: 1 } })`                                          | `overrides` for a member that is not a method result                             |
+| `createServiceFactory(Service)`                              | `TestBed.configureTestingModule({ providers: [...] })`                                       | Angular's own API; there is no factory to create                                 |
+| `spectator.service`                                          | `TestBed.inject(Service)`                                                                    | the real instance under test                                                     |
+| `spectator.inject(Dep)`                                      | [`injectSpy(Dep)`](https://asdalexey.github.io/vitest-auto-spy/adapters/angular)                                                        | **warns** when the injector returned a real instance — Spectator cannot          |
+| `SpyObject<T>`                                               | [`Spy<T>`](https://asdalexey.github.io/vitest-auto-spy/core/create-spy-from-class)                                                      | a mapped type over the real prototype                                            |
+| `as SpyObject<T>` cast                                       | [`asSpy(x)`](https://asdalexey.github.io/vitest-auto-spy/core/create-spy-from-class) / `asInstance(spy)`                                | named views instead of an assertion the linter argues with                       |
+| `spy.method.andReturn(v)`                                    | `spy.method.mockReturnValue(v)`                                                              | plus `calledWith(...)` for per-argument dispatch                                 |
+| `spy.method.andCallFake(fn)`                                 | `spy.method.mockImplementation(fn)`                                                          |                                                                                  |
+| _(no equivalent)_                                            | `spy.load.resolveWith(v)` / `.nextWith(v)` / `.failWith(e)`                                  | [helpers picked from the return type](https://asdalexey.github.io/vitest-auto-spy/core/control-helpers)                     |
+| _(no equivalent)_                                            | `gettersToSpyOn` / `settersToSpyOn` / `autoSpyAccessors`                                     | Spectator has no accessor spies at all                                           |
+| `createComponentFactory(Cmp)` (shallow)                      | [`renderShallow(Cmp, { … })`](https://asdalexey.github.io/vitest-auto-spy/adapters/angular#shallow-component-rendering)                 | one call for `configureTestingModule` + `NO_ERRORS_SCHEMA` + `overrideComponent` |
+| `spectator.component`                                        | `component` from `renderShallow`                                                             |                                                                                  |
+| `spectator.fixture`                                          | `fixture` from `renderShallow`                                                               | a real `ComponentFixture`                                                        |
+| `spectator.detectChanges()`                                  | `fixture.detectChanges()` / `await stable(fixture)`                                          | prefer `stable` when zoneless — see [the trap](https://asdalexey.github.io/vitest-auto-spy/adapters/angular)                |
+| `spectator.setInput({ x: 1 })`                               | `inputs: { x: 1 }` on `renderShallow`, or `fixture.componentRef.setInput`                    | signal inputs take the **value**                                                 |
+| `SpectatorHost` / `createHostFactory`                        | `renderShallow(Cmp, { template: '…', keepTemplate: true })`                                  | closest equivalent; not identical                                                |
+| `spectator.query(byTestId('x'))`                             | `fixture.debugElement.query(By.css('[data-testid=x]'))`                                      | **not provided here** — Angular's own API, or Testing Library                    |
+| `spectator.click(el)`, `typeInElement`, `dispatchMouseEvent` | `@testing-library/angular` + `@testing-library/user-event`                                   | **not provided here**                                                            |
+| `toHaveClass`, `toHaveText`, `toBeVisible`, …                | `@testing-library/jest-dom`                                                                  | **not provided here**                                                            |
+| `SpectatorHttp` / `createHttpFactory`                        | [`provideHttpTesting()` / `expectRequest()`](https://asdalexey.github.io/vitest-auto-spy/adapters/angular-http)                         | and it fails a test that leaks an unanswered request                             |
 | `SpectatorRouting` / `createRoutingFactory`, `setRouteParam` | [`provideActivatedRoute()` / `injectActivatedRoute().setParams()`](https://asdalexey.github.io/vitest-auto-spy/adapters/angular-router) | Angular's own `ActivatedRoute`; a setter replaces the whole set, not one key     |
-| `flushEffects()`                                             | [`flushEffects()`](https://asdalexey.github.io/vitest-auto-spy/adapters/angular)                                        | same name, same job                                                              |
-| `runInInjectionContext(fn)`                                  | `TestBed.runInInjectionContext(fn)`                                          | Angular's own                                                                    |
+| `flushEffects()`                                             | [`flushEffects()`](https://asdalexey.github.io/vitest-auto-spy/adapters/angular)                                                        | same name, same job                                                              |
+| `runInInjectionContext(fn)`                                  | `TestBed.runInInjectionContext(fn)`                                                          | Angular's own                                                                    |
 
 ## A service spec, before and after
 
@@ -19038,6 +19222,8 @@ The exported surface of `vitest-auto-spy` and its subpaths.
 | `injectActivatedRoute(injector?)` / `createActivatedRoute(init?)`                                            | The handle whose setters move the streams and the snapshot together — from the `TestBed`, or built without one (`/angular-router`)                                                         |
 | `provideRouterDouble(init?)`                                                                                 | A `Router` over one URL: `url`, `routerState` and `events` agree, and `navigate` / `navigateByUrl` are spies resolving `true` (`/angular-router`)                                          |
 | `injectRouterDouble(injector?)` / `createRouterDouble(init?)`                                                | The handle: the two navigation spies, `setUrl(url)` and `emitNavigation(event?)` — from the `TestBed`, or built without one (`/angular-router`)                                            |
+| `createForm(model, schema?, options?)`                                                                       | Angular's own signal `form()`, built in the `TestBed`'s injection context (`/signal-forms`)                                                                                                |
+| `registerFormMatchers()`                                                                                     | Adds `expect(field).toHaveFieldErrors(['required'])` — the whole error set of a field, by kind (`/signal-forms`)                                                                           |
 | `registerResourceMatchers()`                                                                                 | Adds `toBeLoading` / `toHaveResourceValue` / `toHaveResourceError`; the value matcher fails an unresolved resource (`/angular`)                                                            |
 | `registerSignalMatchers()`                                                                                   | Adds `expect(sig).toHaveSignalValue(value)` (`/angular`)                                                                                                                                   |
 | `enableTestBedDiagnostics(opts?)`                                                                            | Per-file report of how much of a spec's time went into `TestBed` (`/angular`)                                                                                                              |
@@ -19186,8 +19372,8 @@ a `NodeList` stays assignable to the mapping of itself.
 `AutoSpyDefaultEntry<T>`,
 `AddThrowHelper` (the `failWith` every method spy carries) are exported from the core as well;
 `/angular` adds `AutoSpyTokenDefaults<T>` (a token's registration), `AutoSpyFixture`, `SpiedFixtures<Spec>` and `ExtendWithAutoSpiesOptions` for
-`extendWithAutoSpies`, `ComponentStubOptions` for `createComponentStub`, and `MatDialogRefInit<R>`,
-`MatDialogRefDouble<Ref>`, `DialogRefLike` and `DialogResult<Ref>` for the dialog doubles; `/dom-stubs` adds
+`extendWithAutoSpies`, `ComponentStubOptions` for `createComponentStub`, and `MatDialogRefInit<Ref>`,
+`MatDialogRefDouble<Ref>`, `DialogRefLike`, `DialogResult<Ref>` and `DialogComponent<Ref>` for the dialog doubles; `/dom-stubs` adds
 `WebStorageKey`, `WebStorageStub` and `WebStorageStubOptions` for `stubWebStorage`; `/angular-http` adds `RequestMatcher`, `RequestExpectation`, `ResponseBody`,
 `FlushOptions`, `RequestErrorOptions`, `ExpectRequestOptions` and `HttpTestingOptions` for
 `expectRequest` and `provideHttpTesting`; `/angular-router` adds `ActivatedRouteInit`,
@@ -19221,6 +19407,7 @@ report does not evaluate them — see [Upgrading to 4.0](https://asdalexey.githu
 | `/angular`          | `provideAutoSpy`, `provideAutoSpyForToken`, `registerAutoSpyDefaults` / `clearAutoSpyDefaults` (a token as well as a class), `injectSpy`, `extendWithAutoSpies`, `overrideAutoSpy`, `overrideComponentProvider`, `assertNgModuleScopes`, `assertComponentDefIntact`, `setupAngularTestEnv`, `createDirectiveHost`, `createComponentStub`, `registerDirectiveMatchers`, `renderShallow`, `setInputs`, `createWithAutoSpies`, `stable`, `flushEffects`, `settleResource`, `runEffect`, `trackRecomputations`, `trackEffectRuns`, `mockResourceProp`, `mockSignalProp`, `provideWindowDouble`, `provideDocumentDouble`, `provideMatDialogData`, `provideMatDialogRef`, `injectMatDialogRef`, `createMatDialogRef`, `registerSignalMatchers`, `registerResourceMatchers`, `enableAngularDiagnostics`, `disableAngularDiagnostics`, `assertNoPendingRequests`, `trackInjections`, the TestBed diagnostics |
 | `/angular-http`     | `provideHttpTesting`, `expectRequest`, `expectNoRequest`, `verifyNoPendingRequests` — the `httpResource()` / `HttpClient` recipe in two lines. The **only** entry that imports `@angular/common`, which is an optional peer; like `/angular-router`, it does not re-export the core                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | `/angular-router`   | `provideActivatedRoute`, `injectActivatedRoute`, `createActivatedRoute` — Angular's own `ActivatedRoute` over one record, so its streams and snapshot cannot disagree; `provideRouterDouble`, `injectRouterDouble`, `createRouterDouble` — a `Router` over one URL, with `navigate` and `navigateByUrl` already spied. The **only** entry that imports `@angular/router`, an optional peer; like `/angular-http`, it does not re-export the core                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `/signal-forms`     | `createForm`, `registerFormMatchers`, `CreateFormOptions`, `FieldErrorMatch` — a signal form built where `form()` can inject, and the `toHaveFieldErrors` matcher. The **only** entry that imports `@angular/forms`, an optional peer needing Angular 22; like `/angular-router`, it does not re-export the core                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | `/nestjs`           | `provideAutoSpy`, `injectSpy(moduleRef, token)`, `createNestUnit`, `trackInjections`, `NestModuleRef`, `NestValueProvider`, `NestUnit`, `NestUnitSpies`, `CreateNestUnitOptions`, `NestUnitProvider`, `NestUnitClass`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | `/vue`              | `provideAutoSpy`, `VueInjectionToken`, `VueProvideSpy`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | `/react`, `/svelte` | — (the core, under a name that reads right in those suites)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
@@ -19498,9 +19685,12 @@ properties and getters, 30 `createSpyFromClass` declarations typed `Spy<T>`, 600
 into a temporary directory, type-checks it against the library's **sources** with
 `tsc --extendedDiagnostics`, subtracts a control program with the same class and imports but no
 spies, and fails the gate when the instantiations attributable to `Spy<T>` and its helpers exceed
-the budget. On 2026-09-02, TypeScript 5.9.3: total 19 933, control 10 807, **delta 9 126** against
-a budget of **11 000** — about 20 % of headroom, where a deep-proxy regression would roughly double
-the delta. It is a different fixture from the survey's (which was never committed) and it counts
+the budget. On 2026-09-12, TypeScript 6.0.3: total 23 265, control 12 855, **delta 10 410** against
+a budget of **12 500** — about 20 % of headroom, where a deep-proxy regression would roughly double
+the delta. The previous baseline was 9 126 against 11 000 on 2026-09-02 under TypeScript 5.9.3, and
+the move is not a regression: the control program rose 10 807 → 12 855 on its own (+18.9 %) while
+the delta rose 14.1 %, so `Spy<T>` is a smaller share of a larger bill — a major TypeScript version
+and the typed features added in the same path since, not a type that degenerated. It is a different fixture from the survey's (which was never committed) and it counts
 against the sources rather than the published declarations, so the delta is not comparable to the
 2 656 above — only to itself across commits. `node scripts/check-type-budget.mjs --print` dumps the
 fixture, `--measure` prints the numbers without failing.
@@ -20051,15 +20241,15 @@ error text or the failing shape — because that is what an agent has in hand wh
 Each entry registers its own mock adapter on import, and three of them are opt-in on purpose. An
 agent that knows only the bare specifier writes a spec that throws at the first helper:
 
-| Subpath                                   | Needed for                                                                      |
-| ----------------------------------------- | ------------------------------------------------------------------------------- |
-| `vitest-auto-spy/rxjs`                    | `nextWith`, `observablePropsToSpyOn`, `throwWith` — imported once, in setup     |
-| `vitest-auto-spy/bun`                     | any spec run by `bun test` (`/bun-angular` for Angular's TestBed there)         |
-| `vitest-auto-spy/node`                    | a `node --test` suite, ESM or CJS                                               |
-| `vitest-auto-spy/rstest`                  | any spec run by [Rstest](https://asdalexey.github.io/vitest-auto-spy/runtimes/rstest) — `npx rstest run`                   |
-| `vitest-auto-spy/angular`                 | `provideAutoSpy`, `injectSpy`, `renderShallow`, the override helpers            |
+| Subpath                                   | Needed for                                                                                                    |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `vitest-auto-spy/rxjs`                    | `nextWith`, `observablePropsToSpyOn`, `throwWith` — imported once, in setup                                   |
+| `vitest-auto-spy/bun`                     | any spec run by `bun test` (`/bun-angular` for Angular's TestBed there)                                       |
+| `vitest-auto-spy/node`                    | a `node --test` suite, ESM or CJS                                                                             |
+| `vitest-auto-spy/rstest`                  | any spec run by [Rstest](https://asdalexey.github.io/vitest-auto-spy/runtimes/rstest) — `npx rstest run`                                                 |
+| `vitest-auto-spy/angular`                 | `provideAutoSpy`, `injectSpy`, `renderShallow`, the override helpers                                          |
 | `vitest-auto-spy/setup`                   | `setupAutoSpy` (with `strayConsole`, `preset: 'strict'`), the clock helpers, `installPerTest`, focus matchers |
-| [`vitest-auto-spy/zone`](https://asdalexey.github.io/vitest-auto-spy/utilities/zone) | `fakeAsync` / `waitForAsync` on Vitest — zone.js stays out of every other entry |
+| [`vitest-auto-spy/zone`](https://asdalexey.github.io/vitest-auto-spy/utilities/zone) | `fakeAsync` / `waitForAsync` on Vitest — zone.js stays out of every other entry                               |
 
 ## Errors that name their own fix
 

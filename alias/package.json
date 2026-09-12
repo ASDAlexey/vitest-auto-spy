@@ -114,6 +114,11 @@
       "import": "./angular-router.js",
       "default": "./angular-router.js"
     },
+    "./signal-forms": {
+      "types": "./signal-forms.d.ts",
+      "import": "./signal-forms.js",
+      "default": "./signal-forms.js"
+    },
     "./nestjs": {
       "types": "./nestjs.d.ts",
       "import": "./nestjs.js",
@@ -168,6 +173,7 @@
   "peerDependencies": {
     "@angular/common": ">=20.0.0",
     "@angular/core": ">=20.0.0",
+    "@angular/forms": ">=22.0.0",
     "@angular/platform-browser": ">=20.0.0",
     "@angular/router": ">=20.0.0",
     "rxjs": ">=7.2.0",
@@ -178,6 +184,9 @@
       "optional": true
     },
     "@angular/core": {
+      "optional": true
+    },
+    "@angular/forms": {
       "optional": true
     },
     "@angular/platform-browser": {
@@ -213,6 +222,7 @@
     "./angular.js",
     "./angular-http.js",
     "./angular-router.js",
+    "./signal-forms.js",
     "./nestjs.js",
     "./react.js",
     "./vue.js",
