@@ -6,9 +6,13 @@
 import { computed, signal } from '@angular/core';
 import { beforeAll, describe, expect, it } from 'vitest';
 
+import { createFunctionSpy } from './function-spy';
+import { registerMockAdapter } from './mock-adapter';
 import { registerSignalMatchers } from './signal-matchers';
+import { vitestMockAdapter } from './vitest-adapter';
 
 beforeAll(() => {
+  registerMockAdapter(vitestMockAdapter);
   registerSignalMatchers();
 });
 
@@ -34,5 +38,26 @@ describe('toHaveSignalValue', () => {
 
   it('rejects a value that is not a signal', () => {
     expect(() => expect('idle').toHaveSignalValue('idle')).toThrow(/expected a signal \(a zero-argument getter\)/);
+  });
+
+  it('reads a plain zero-argument getter', () => {
+    expect(() => 3).toHaveSignalValue(3);
+  });
+
+  it('rejects a spy without calling it', () => {
+    const load = createFunctionSpy<() => void>('load');
+
+    expect(() => expect(load).toHaveSignalValue(undefined)).toThrow(/expected a signal .+ received a spy/s);
+    expect(load).toHaveBeenCalledTimes(0);
+  });
+
+  it('rejects a spy that carries the jasmine surface instead', () => {
+    const load = Object.assign(() => undefined, { calls: { count: (): number => 0 } });
+
+    expect(() => expect(load).toHaveSignalValue(undefined)).toThrow(/mockSignalProp\(\)/);
+  });
+
+  it('refuses a spy through `.not` as well', () => {
+    expect(() => expect(createFunctionSpy<() => void>('load')).not.toHaveSignalValue(3)).toThrow(/received a spy/);
   });
 });

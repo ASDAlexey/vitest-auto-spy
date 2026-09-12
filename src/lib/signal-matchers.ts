@@ -6,7 +6,12 @@
  * matcher reads the signal, compares with the runner's own deep equality, and reports which signal
  * was wrong — while refusing anything that is not a zero-argument getter, so the "forgot the
  * parentheses" mistake fails instead of silently passing.
+ *
+ * A spy is refused without being read: it is callable and takes no argument, so the shape check
+ * alone would let the matcher call it, pass on the `undefined` an unconfigured spy returns, and
+ * leave a phantom call in the record for the next `toHaveBeenCalledTimes` to trip over.
  */
+import { ɵSIGNAL } from '@angular/core';
 import { expect } from 'vitest';
 
 /** Anything readable like a signal: `signal()`, `computed()`, `input()`, or a plain getter. */
@@ -33,6 +38,16 @@ interface MatcherResult {
 }
 
 /**
+ * Whether a callable is a spy rather than a signal or a getter.
+ *
+ * `mock` is on this library's spies and on every runner's own — Vitest, Jest, Bun and `node:test`;
+ * `calls` is the jasmine surface, which a spy built through `/jasmine` carries instead.
+ */
+function isSpy(received: object): boolean {
+  return 'mock' in received || 'calls' in received;
+}
+
+/**
  * Register {@link toHaveSignalValue} with the runner. Call once, from your setup file.
  *
  * @example
@@ -46,10 +61,15 @@ export function registerSignalMatchers(): void {
   expect.extend({
     toHaveSignalValue(received: unknown, expected: unknown): MatcherResult {
       if (typeof received !== 'function') {
-        return {
-          pass: false,
-          message: (): string => `expected a signal (a zero-argument getter), received ${this.utils.printReceived(received)}`,
-        };
+        throw new Error(`expected a signal (a zero-argument getter), received ${this.utils.printReceived(received)}`);
+      }
+
+      // Angular brands every signal it makes; a plain getter carries no brand, so a spy is what is
+      // left to tell apart by shape — and the brand is per copy of `@angular/core`, hence the order.
+      if (!(ɵSIGNAL in received) && isSpy(received)) {
+        throw new Error(
+          `expected a signal (a zero-argument getter), received a spy: ${this.utils.printReceived(received)}. Reading it would have recorded a call — put a real signal on the property with mockSignalProp(), or assert the spy itself.`,
+        );
       }
 
       const actual: unknown = received();
