@@ -44,6 +44,16 @@ jobs:
 
       - run: npm ci --no-audit --no-fund
 
+      # Worker counts and every later comparison of these lanes are only as good as the capacity of
+      # the runner they ran on, and a hosted image is free to change it: `cpu.max` reads
+      # `max 100000` with no quota and `400000 100000` for four CPUs.
+      - name: Runner capacity
+        run: |
+          nproc
+          cat /sys/fs/cgroup/cpu.max || echo 'no cgroup v2 cpu limit exposed'
+          cat /sys/fs/cgroup/memory.max || echo 'no cgroup v2 memory limit exposed'
+          free -m
+
       - name: Test + coverage
         if: matrix.lane == 'coverage'
         run: npm run test:coverage
