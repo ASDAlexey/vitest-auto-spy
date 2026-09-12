@@ -45,11 +45,20 @@ const TOUCHES = 600;
 /**
  * Instantiations attributable to `Spy<T>` on the fixture above: measured delta plus ~20 % headroom.
  *
- * Baseline 2026-09-02, TypeScript 5.9.3: total 19 933, control 10 807, delta 9 126. A deep-proxy
- * regression roughly doubles the delta, so 20 % catches it while leaving room for a helper or two.
- * Raise this only together with the number in `docs-site/comparison.md` ("Type-check cost").
+ * Baseline 2026-09-12, TypeScript 6.0.3: total 23 265, control 12 855, delta 10 410.
+ * Previous baseline 2026-09-02, TypeScript 5.9.3: total 19 933, control 10 807, delta 9 126.
+ *
+ * **The re-baseline is not a regression.** The control program — the same fixture and the same
+ * imports, with no spies and no touches — rose 10 807 → 12 855 on its own (+18.9 %), while the
+ * delta rose +14.1 %: the toolchain moved a major version and the library grew typed features in
+ * the same path (per-method overload maps, `selfReturning`, the optional / inherited member fix).
+ * Had `Spy<T>` degenerated, the delta would have risen *faster* than the control, not slower.
+ *
+ * A deep-proxy regression roughly doubles the delta, so 20 % catches it while leaving room for a
+ * helper or two. Raise this only together with the number in `docs-site/comparison.md`
+ * ("Type-check cost"), and only with the control's own movement measured next to it.
  */
-const BUDGET = 11_000;
+const BUDGET = 12_500;
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const require = createRequire(import.meta.url);

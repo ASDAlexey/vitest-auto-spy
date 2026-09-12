@@ -252,9 +252,12 @@ properties and getters, 30 `createSpyFromClass` declarations typed `Spy<T>`, 600
 into a temporary directory, type-checks it against the library's **sources** with
 `tsc --extendedDiagnostics`, subtracts a control program with the same class and imports but no
 spies, and fails the gate when the instantiations attributable to `Spy<T>` and its helpers exceed
-the budget. On 2026-09-02, TypeScript 5.9.3: total 19 933, control 10 807, **delta 9 126** against
-a budget of **11 000** — about 20 % of headroom, where a deep-proxy regression would roughly double
-the delta. It is a different fixture from the survey's (which was never committed) and it counts
+the budget. On 2026-09-12, TypeScript 6.0.3: total 23 265, control 12 855, **delta 10 410** against
+a budget of **12 500** — about 20 % of headroom, where a deep-proxy regression would roughly double
+the delta. The previous baseline was 9 126 against 11 000 on 2026-09-02 under TypeScript 5.9.3, and
+the move is not a regression: the control program rose 10 807 → 12 855 on its own (+18.9 %) while
+the delta rose 14.1 %, so `Spy<T>` is a smaller share of a larger bill — a major TypeScript version
+and the typed features added in the same path since, not a type that degenerated. It is a different fixture from the survey's (which was never committed) and it counts
 against the sources rather than the published declarations, so the delta is not comparable to the
 2 656 above — only to itself across commits. `node scripts/check-type-budget.mjs --print` dumps the
 fixture, `--measure` prints the numbers without failing.
