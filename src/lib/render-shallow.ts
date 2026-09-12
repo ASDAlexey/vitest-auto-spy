@@ -24,9 +24,20 @@ import {
 } from '@angular/core';
 import { type ComponentFixture, TestBed } from '@angular/core/testing';
 
-/** The value `componentRef.setInput` expects for a member — signal inputs are set with the value, not the signal. */
+/**
+ * The value `componentRef.setInput` expects for a member — signal inputs are set with the value, not
+ * the signal.
+ *
+ * The read type in the pattern is what makes a transform input work.
+ * `input(false, { transform: booleanAttribute })` is an `InputSignalWithTransform<boolean, unknown>`,
+ * and against a pattern whose read type is fixed to `unknown` that match **fails**: the node behind
+ * the signal carries the read type in both directions, so a wider one is not a supertype, and
+ * `never` matches nothing at all. The member fell through to itself, and the spec was told to pass
+ * an `InputSignalWithTransform` where the component takes a boolean.
+ */
 type InputValue<Member> =
-  Member extends InputSignalWithTransform<unknown, infer Write>
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the pattern has to match every instantiation, and only `any` does: the read type is invariant, so `unknown` matches none of the transform inputs and `never` matches nothing at all
+  Member extends InputSignalWithTransform<any, infer Write>
     ? Write
     : Member extends InputSignal<infer Value>
       ? Value
