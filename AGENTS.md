@@ -61,6 +61,7 @@ Add-ons, orthogonal to the runner:
 | Run diagnostics   | `vitest-auto-spy/diagnostics`    | `compareTestRuns`, `summarizeTestRun`, `formatTestRunComparison`, `diffByField`. **Moved off the root in 4.0.0**                                                                                                                                                                |
 | Angular HTTP      | `vitest-auto-spy/angular-http`   | `provideHttpTesting`, `expectRequest` — `httpResource()` / `HttpClient` (§13). Optional `@angular/common` peer, this entry only                                                                                                                                                 |
 | Angular router    | `vitest-auto-spy/angular-router` | `provideActivatedRoute`, `injectActivatedRoute` — an `ActivatedRoute` whose streams and snapshot share one record; `provideRouterDouble`, `injectRouterDouble` — a `Router` whose URL, `routerState` and `events` agree (§13). Optional `@angular/router` peer, this entry only |
+| Signal forms      | `vitest-auto-spy/signal-forms`   | `createForm`, `registerFormMatchers` — a signal form built where `form()` can inject, and `toHaveFieldErrors` over what it produced (§13). Optional `@angular/forms` peer, this entry only; Angular 22+                                                                         |
 | Setup helpers     | `vitest-auto-spy/setup`          | `setupAutoSpy()`, `setupFakeTimers()`                                                                                                                                                                                                                                           |
 | Zone patch        | `import 'vitest-auto-spy/zone'`  | `fakeAsync` / `waitForAsync` on Vitest (§14)                                                                                                                                                                                                                                    |
 | jasmine compat    | `vitest-auto-spy/jasmine`        | `.and` / `.calls` / `.withArgs`, the `jasmine` namespace (§20)                                                                                                                                                                                                                  |
@@ -2371,6 +2372,60 @@ Four things to know:
 - **It builds spies**, so a runtime entry has to be imported in the suite (`vitest-auto-spy/angular`
   in the same file, or the setup file); the route double needs none.
 
+### Signal forms — `vitest-auto-spy/signal-forms`
+
+```ts
+import { minLength, required } from '@angular/forms/signals';
+import { createForm, registerFormMatchers } from 'vitest-auto-spy/signal-forms';
+
+registerFormMatchers(); // once, in the setup file
+
+const user = createForm({ email: '', name: '' }, (path) => {
+  required(path.email, { message: 'Email is required' });
+  minLength(path.name, 2);
+});
+
+expect(user.email).toHaveFieldErrors([{ kind: 'required', message: 'Email is required' }]);
+
+user.email().value.set('ada@example.test');
+
+expect(user.email).toHaveFieldErrors([]);
+```
+
+Signal forms are stable from Angular 22, and a spec that touches one meets the same two things every
+time. **`form()` injects**, so a call in a `beforeEach` throws `NG0203: The Injector token injection
+failed` — a message about `inject()` that never says "form", whose repair is
+`{ injector: TestBed.inject(Injector) }` or a `TestBed.runInInjectionContext` around the call.
+**`errors()` answers `RequiredValidationError` instances**, each carrying a `fieldTree`
+back-reference, so `toEqual([{ kind: 'required' }])` fails on a property nobody wrote and every
+suite falls back to `errors().some((error) => error.kind === 'required')` — which passes just as
+happily when the field has three other errors nobody expected.
+
+| Call                                          | Does                                                                      |
+| --------------------------------------------- | ------------------------------------------------------------------------- |
+| `createForm(model, schema?, options?)`        | Angular's own `form()`, built in the `TestBed`'s injection context        |
+| `createForm(initialValue, schema?, options?)` | the same, with the model signal made for you                              |
+| `registerFormMatchers()`                      | adds `expect(field).toHaveFieldErrors(kinds)` — the whole set, order-free |
+
+Four things to know:
+
+- **What comes back is Angular's `FieldTree`**, not a double: the states, the validators and the
+  write-through to the model are the framework's. A spec that passes its own `signal()` asserts on it
+  directly; a plain value gets a signal made here, and `user().value()` reads it back either way.
+- **A `computed()` is refused by name** — a form writes into its model, and without the check a
+  derived signal would be wrapped as a value while every write vanished.
+- **`options.injector` is for the validator that injects**: pass `fixture.debugElement.injector`
+  when the service a schema reaches for lives in a component's own `providers`.
+- **`toHaveFieldErrors` compares the whole set**, by `kind`, and by `message` only where the spec
+  names one; `[]` is "no errors". A field tree and its state both read, so `expect(user.email)` and
+  `expect(user.email())` are the same assertion.
+
+**No `FieldTree` double is shipped, on purpose.** It would stand in for a form a component takes as
+an input, and across the measured suites no component takes one: forms are built by the component
+that owns them (assert through `component.form.tags()`), and custom controls — `FormValueControl<T>`,
+`FormCheckboxControl` — are plain components whose contract is `value = model<T>()`, which is
+`renderShallow` plus `setInputs`.
+
 ### `window` and `document` over the real ones — `provideWindowDouble` / `provideDocumentDouble`
 
 ```ts
@@ -2403,7 +2458,7 @@ answers the way jsdom answers it.
 | `provideDocumentDouble(overrides?, token?)`                           | the same under Angular's `DOCUMENT`, or under a token of your own |
 | `createWindowDouble(overrides?)` / `createDocumentDouble(overrides?)` | the same doubles without a `TestBed`                              |
 
-Four things to know:
+Five things to know:
 
 - **The window helper needs your token.** Angular ships `DOCUMENT` (from `@angular/core` itself
   since v20) and has never shipped a `WINDOW`: every application declares its own
@@ -2417,6 +2472,11 @@ Four things to know:
   most of `Window` `readonly`). There is no handle and no `restoreMockedProps()` in this recipe.
 - **`provideDocumentDouble` hands the double to Angular as well** — the renderer injects `DOCUMENT`
   too, so replace `createElement` or `body` only where the spec means to.
+- **`location` takes overrides like everything else**, though the platform declares its members
+  unforgeable: `{ location: { reload: vi.fn() } }` — the shape most hand-written window mocks are —
+  records the reload, leaves `location.href` real, and `win.location.href = '/next'` moves the
+  double rather than the address bar. `mockValueProp(TestBed.inject(WINDOW), 'innerWidth', 800)` and
+  its restore work on the double too, and neither touches the global.
 
 ### The Material dialog trio — `provideMatDialogData` / `provideMatDialogRef`
 
@@ -2447,12 +2507,12 @@ subscribes to `afterClosed()` dies on "is not a function"; the repair written ne
 `afterClosed: () => of('saved')`, answers before anything closed the dialog — the spec then passes
 whether or not `close()` was ever called.
 
-| Call                                      | Does                                                                                        |
-| ----------------------------------------- | ------------------------------------------------------------------------------------------- |
-| `provideMatDialogData(token, data)`       | a typed `{ provide, useValue }` — name the type argument and the data is checked against it |
-| `provideMatDialogRef(RefClass, init?)`    | a `FactoryProvider` — a fresh ref per injector; `init`: `closedWith`, `disableClose`        |
-| `injectMatDialogRef(RefClass, injector?)` | the handle: `.ref`, `.close` (the spy), `emitClose(result?)`                                |
-| `createMatDialogRef(RefClass, init?)`     | the same handle without a `TestBed` — and the ref a spied `MatDialog.open()` hands back     |
+| Call                                      | Does                                                                                                      |
+| ----------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| `provideMatDialogData(token, data)`       | a typed `{ provide, useValue }` — name the type argument and the data is checked against it               |
+| `provideMatDialogRef(RefClass, init?)`    | a `FactoryProvider` — a fresh ref per injector; `init`: `closedWith`, `disableClose`, `componentInstance` |
+| `injectMatDialogRef(RefClass, injector?)` | the handle: `.ref`, `.close` (the spy), `emitClose(result?)`                                              |
+| `createMatDialogRef(RefClass, init?)`     | the same handle without a `TestBed` — and the ref a spied `MatDialog.open()` hands back                   |
 
 `MatDialog` itself needs no helper of its own: `provideAutoSpy(MatDialog)` already spies it, and the
 ref double is the thing its `open()` was missing.
@@ -2463,7 +2523,7 @@ TestBed.configureTestingModule({ providers: [provideAutoSpy(MatDialog)] });
 injectSpy(MatDialog).open.mockReturnValue(createMatDialogRef(MatDialogRef, { closedWith: 'saved' }).ref);
 ```
 
-Four things to know:
+Five things to know:
 
 - **`close` is the spy, and it is the same function the ref carries.** `expect(dialog.close)` and
   `expect(TestBed.inject(MatDialogRef).close)` are one assertion. `emitClose(result?)` is the other
@@ -2477,9 +2537,28 @@ Four things to know:
   compiles for a component that reads `data.name`. `provideMatDialogData<EditUserData>(…)` checks the
   object; a token of your own typed `InjectionToken<EditUserData>` checks it without naming anything.
   The value is handed out as it is, so build it per test rather than hoisting it to a constant.
+- **`componentInstance` is how the opener drives the dialog**, and it is the one member Material
+  keeps off the prototype, so a double that did not have it would read `undefined` rather than
+  fail. Hand the stand-in over and the opener works against it — checked, member by member, against
+  the component the ref class names:
+
+  ```ts
+  const save = new EventEmitter<string>();
+  const dialog = createMatDialogRef<MatDialogRef<NameInputDialog, string>>(MatDialogRef, {
+    componentInstance: { save, isSaving: signal(false) },
+  });
+
+  injectSpy(MatDialog).open.mockReturnValue(dialog.ref);
+  save.emit('Grace');
+
+  expect(dialog.close).toHaveBeenCalledWith('Grace');
+  ```
+
 - **What it does not answer throws by name.** `backdropClick`, `keydownEvents`, `updateSize`,
-  `updatePosition` and `getState` are the dialog doing its own work; the double names them in the
-  failure instead of reading `undefined`, and the real `MatDialogModule` is what answers them.
+  `updatePosition`, `getState`, `componentRef` and `id` are the dialog doing its own work; the
+  double names them in the failure instead of reading `undefined`, and the real `MatDialogModule` is
+  what answers them. A `componentInstance` nobody handed over says so by name too, and names the
+  init field that fixes it.
 
 ### Which collaborators the code asked for — `trackInjections`
 

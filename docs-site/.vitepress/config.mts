@@ -51,6 +51,7 @@ const RU_LABEL: Record<string, string> = {
 
   'Angular diagnostics': 'Диагностика Angular',
   'Angular router': 'Роутер Angular',
+  'Signal forms': 'Сигнальные формы',
   'Component provider overrides': 'Переопределение провайдеров компонента',
 
   'To 4.0 — rxjs out of your program': 'На 4.0 — rxjs вне вашей программы',
@@ -132,6 +133,7 @@ const SIDEBAR = [
       { text: 'Angular', link: '/adapters/angular' },
       { text: 'Angular HTTP', link: '/adapters/angular-http' },
       { text: 'Angular router', link: '/adapters/angular-router' },
+      { text: 'Signal forms', link: '/adapters/signal-forms' },
       { text: 'Angular diagnostics', link: '/adapters/angular-diagnostics' },
       { text: 'Component provider overrides', link: '/adapters/angular-overrides' },
       { text: 'NestJS', link: '/adapters/nestjs' },

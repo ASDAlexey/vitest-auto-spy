@@ -636,12 +636,13 @@ only pays for the ones it imports:
 | Imported                                      |    min+gzip |
 | --------------------------------------------- | ----------: |
 | `.` — the core entry, what the badge measures | **17.2 kB** |
-| `vitest-auto-spy/angular`                     |     25.6 kB |
+| `vitest-auto-spy/angular`                     |     25.9 kB |
 | `vitest-auto-spy/react` / `/vue` / `/svelte`  |     17.4 kB |
 | `vitest-auto-spy/node`                        |     16.3 kB |
 | `vitest-auto-spy/dom-stubs`                   |      5.6 kB |
 | `vitest-auto-spy/rxjs`                        |      2.3 kB |
 | `vitest-auto-spy/angular-router`              |      6.4 kB |
+| `vitest-auto-spy/signal-forms`                |      1.4 kB |
 | `vitest-auto-spy/zone`                        |      1.1 kB |
 
 **The framework rows are not a framework tax.** `react`, `vue` and `svelte` weigh what the core
@@ -666,9 +667,11 @@ double that carries the whole `ResourceRef`, and the recomputation counters — 
 move that entry has made. `/angular-router` tripled, +4.31 kB, for the `Router` double: it is the
 router's own `DefaultUrlSerializer`, `createUrlTreeFromSnapshot` and `RouterState` doing the URL work
 rather than a structural stand-in guessing at it, which is the whole reason the double cannot
-contradict itself. `/eslint-plugin` is +1.77 kB for the rules of the previous two releases.
+contradict itself. `/eslint-plugin` is +1.77 kB for the rules of the previous two releases. `/signal-forms` arrives at
+1.36 kB — the whole entry is `createForm` and one matcher over Angular's own `form()`, which stays
+in `@angular/forms` where the consumer already has it.
 
-`npm run size:entries` prints all twenty-two and compares them against a committed baseline, so an entry
+`npm run size:entries` prints all twenty-three and compares them against a committed baseline, so an entry
 that quietly gains a second copy of the core fails a check instead of being noticed a release later.
 
 None of this reaches a production bundle in any case: the package is a devDependency, and the
@@ -676,8 +679,10 @@ framework adapters, rxjs layer, console spies and setup helpers each live behind
 
 ### What is in the download
 
-`dist/` is **1 409 kB**, the published tarball **588 kB**, and the package ships **82 files**
-(measured 2026-09-12; the previous edition said 1 230 kB, 508 kB and 77 files). An
+`dist/` is **1 560 kB**, the published tarball **584 kB**, and the package ships **84 files**
+(measured 2026-09-12; the previous edition said 1 409 kB, 588 kB and 82 files — the two new files
+are the `/signal-forms` entry and its declarations, and the tarball still shrank, because the
+markdown that ships with it was reformatted and compresses better). An
 earlier edition reported 241 kB, 108 kB and 54 files, and presented the change as a reduction.
 Those figures were correct when they were taken — they reproduce to the byte at v2.0.0 — but that
 package had thirteen subpaths, no command-line tool, and an ESLint entry a sixth of its current

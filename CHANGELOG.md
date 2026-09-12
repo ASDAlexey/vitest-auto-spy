@@ -12,6 +12,30 @@ The latest released version here must always match the one published on
 
 ### Added
 
+- **`vitest-auto-spy/signal-forms` — Angular's signal forms in a spec (`createForm`,
+  `registerFormMatchers`).** Signal forms are stable from Angular 22, and nobody ships testing tools
+  for them; a spec that touches one meets the same two walls. `form()` injects, so a call in a
+  `beforeEach` throws `NG0203: The Injector token injection failed` — a message about `inject()`
+  that never says "form" — and the repair, an `{ injector: TestBed.inject(Injector) }` or a
+  `TestBed.runInInjectionContext` around the call, is what stands between a reader and the isolated
+  schema test Angular's own guide calls the default. `createForm(model, schema?)` is that step taken:
+  Angular's own `form()`, built in the `TestBed`'s injection context, returning the framework's
+  `FieldTree` with nothing wrapped. It takes the model as a `signal()` or as a plain value (the
+  signal is made for you), takes `{ injector }` for a schema whose validator injects, and refuses a
+  `computed()` by name — a form writes into its model, and a derived signal would have swallowed
+  every write in silence. The second wall is `errors()`: it answers `RequiredValidationError`
+  instances carrying a `fieldTree` back-reference, so `toEqual([{ kind: 'required' }])` fails on a
+  property nobody wrote and suites settle for `errors().some((error) => error.kind === 'required')`,
+  which passes just as happily with three other errors present. `registerFormMatchers()` adds
+  `expect(field).toHaveFieldErrors(['required'])` — the whole set, order-free, by `kind`, and by
+  `message` only where the spec names one, reading a field tree and a field state alike.
+  `@angular/forms` is an **optional** peer (`>=22`) confined to this entry, so
+  `vitest-auto-spy/angular` keeps loading where it was never installed. No `FieldTree` double ships:
+  across the measured suites no component takes a form as an input — forms belong to the component
+  that owns them, and custom controls (`FormValueControl`, `FormCheckboxControl`) are plain
+  components whose contract is `value = model<T>()`, which `renderShallow` and `setInputs` already
+  cover.
+
 - **`setInputs(fixture, { … })` — an input that changes after the first render.** `renderShallow({ inputs })`
   covers the values a component starts at; every change after that was `fixture.componentRef.setInput(name, value)`
   per name plus a wait, because a zoneless fixture recomputes nothing until asked. The helper is that pair, and it
@@ -38,10 +62,12 @@ The latest released version here must always match the one published on
   the spec names **over** the real jsdom object through a proxy: `screen.colorDepth`, `location.href` and
   `document.createElement` still answer next to an overridden `screen.width`. A plain object override merges into
   the real member, anything the spec built — a `vi.fn()`, an array, a class instance — replaces it whole. Writes
-  land on the double, never on the global, so there is nothing to restore. Angular has no `WINDOW` token, so the
-  window helper takes the application's own; `DOCUMENT` comes from `@angular/core`, where it has been declared
-  across the whole supported peer range. `createWindowDouble` / `createDocumentDouble` give the same object
-  without DI.
+  land on the double, never on the global, so there is nothing to restore. `location` merges like everything else,
+  though the platform declares its members unforgeable and a proxy over the real object cannot answer for them —
+  which is what the hand-written `{ location: { reload: vi.fn() } }` needs; `mockValueProp` and its restore work on
+  the double too. Angular has no `WINDOW` token, so the window helper takes the application's own; `DOCUMENT` comes
+  from `@angular/core`, where it has been declared across the whole supported peer range. `createWindowDouble` /
+  `createDocumentDouble` give the same object without DI.
 
 - **`provideMatDialogData(TOKEN, data)` / `provideMatDialogRef(RefClass, init?)` — the Material dialog trio,
   without Material as a dependency.** 36 hand-rolled providers across the measured suites are the same three shapes:
@@ -50,8 +76,11 @@ The latest released version here must always match the one published on
   and they are enough to type the pair: the data type flows from the `InjectionToken<T>`, the result type off the
   class's own `close()`. `close` is a spy, `afterClosed()` is a `ReplaySubject(1)` rather than Material's
   `Subject`, so an assertion that subscribes after the component closed still sees the result — where the usual
-  `of(result)` seed lies about completion. Members the double does not carry throw by name, read off
-  `RefClass.prototype`, so the message matches whichever Material the consumer has. Opening stays a recipe:
+  `of(result)` seed lies about completion. `init.componentInstance` is the dialog component's stand-in — how the
+  opener reaches `save` and `isSaving` — checked member by member against the component the ref class names.
+  Members the double does not carry throw by name, read off `RefClass.prototype` plus the three Material declares
+  as class fields (`componentInstance`, `componentRef`, `id`), so the message matches whichever Material the
+  consumer has. Opening stays a recipe:
   `dialog.open.mockReturnValue(createMatDialogRef(MatDialogRef, { closedWith: 'saved' }).ref)`.
 
 - **`trackRecomputations(signal)` / `trackEffectRuns(effectRef)` — counting what the graph actually re-ran.**

@@ -837,7 +837,7 @@ answers them.
 | `provideDocumentDouble(overrides?, token?)`                           | the same under Angular's `DOCUMENT`, or under a token of your own                    |
 | `createWindowDouble(overrides?)` / `createDocumentDouble(overrides?)` | the same doubles without a `TestBed` — for `new LayoutProbe(win)` or a bare function |
 
-Four things to know:
+Five things to know:
 
 - **The window helper takes your token, the document helper does not need one.** Angular ships
   `DOCUMENT`, from `@angular/core` itself since v20. It has never shipped a `WINDOW`: every
@@ -854,6 +854,19 @@ Four things to know:
   There is no handle to learn and no `restoreMockedProps()` to remember.
 - **A factory, not a `useValue`.** Every injector builds its own, so a provider array hoisted to a
   module constant cannot carry one test's writes into the next.
+- **`location` takes overrides like every other member.** The platform declares its members
+  unforgeable, which is what makes the hand-written `{ location: { reload: vi.fn() } }` the shape it
+  is; here it merges the same way everything else does:
+
+  ```ts
+  const win = TestBed.inject(WINDOW); // provideWindowDouble(WINDOW, { location: { reload } })
+
+  win.location.href = '/checkout'; // moves the double, not the address bar
+  expect(reload).toHaveBeenCalled(); // and `location.origin` is still jsdom's
+  ```
+
+  `mockValueProp(win, 'innerWidth', 800)` and its restore work on the double too, and neither
+  touches the global.
 
 ::: warning `provideDocumentDouble` hands the double to Angular as well
 Overriding `DOCUMENT` for a testing module means the renderer injects it too. Replacing
@@ -896,12 +909,12 @@ and the type its result is read off — so the import in your own spec stays the
 is named.
 :::
 
-| Call                                      | Does                                                                                        |
-| ----------------------------------------- | ------------------------------------------------------------------------------------------- |
-| `provideMatDialogData(token, data)`       | a typed `{ provide, useValue }` — name the type argument and the data is checked against it |
-| `provideMatDialogRef(RefClass, init?)`    | a `FactoryProvider` — a fresh ref per injector; `init`: `closedWith`, `disableClose`        |
-| `injectMatDialogRef(RefClass, injector?)` | the handle: `.ref`, `.close` (the spy), `emitClose(result?)`                                |
-| `createMatDialogRef(RefClass, init?)`     | the same handle without a `TestBed` — and the ref a spied `MatDialog.open()` hands back     |
+| Call                                      | Does                                                                                                      |
+| ----------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| `provideMatDialogData(token, data)`       | a typed `{ provide, useValue }` — name the type argument and the data is checked against it               |
+| `provideMatDialogRef(RefClass, init?)`    | a `FactoryProvider` — a fresh ref per injector; `init`: `closedWith`, `disableClose`, `componentInstance` |
+| `injectMatDialogRef(RefClass, injector?)` | the handle: `.ref`, `.close` (the spy), `emitClose(result?)`                                              |
+| `createMatDialogRef(RefClass, init?)`     | the same handle without a `TestBed` — and the ref a spied `MatDialog.open()` hands back                   |
 
 ### Opening one: `MatDialog` needs no helper of its own
 
@@ -919,7 +932,7 @@ fixture.componentInstance.edit(); // opens, pipes afterClosed(), gets 'saved'
 There is no `openDialogReturning()` wrapper, on purpose: it would say `mockReturnValue` in different
 words, and it would have to know `MatDialog`'s own type — the one thing this design keeps out.
 
-Four things to know:
+Five things to know:
 
 - **`close` is the spy, and it is the same function the ref carries.** `expect(dialog.close)` and
   `expect(TestBed.inject(MatDialogRef).close)` are one assertion, so a component asserted the old way
@@ -936,10 +949,30 @@ Four things to know:
   object against the type you name; an `InjectionToken<EditUserData>` of your own checks it without
   naming anything. The value is handed out as it is, so build it per test rather than hoisting it to
   a module constant.
+- **`componentInstance` is how the opener drives the dialog**, and Material declares it as a class
+  field rather than on the prototype — so a double without it would hand the opener `undefined`
+  instead of failing. Pass the stand-in and it is checked, member by member, against the component
+  the ref class names:
+
+  ```ts
+  const save = new EventEmitter<string>();
+  const dialog = createMatDialogRef<MatDialogRef<NameInputDialog, string>>(MatDialogRef, {
+    componentInstance: { save, isSaving: signal(false) },
+  });
+
+  injectSpy(MatDialog).open.mockReturnValue(dialog.ref);
+
+  component.rename(); // subscribes to componentInstance.save
+  save.emit('Grace');
+
+  expect(dialog.close).toHaveBeenCalledWith('Grace');
+  ```
+
 - **Everything else the ref class declares throws by name.** `backdropClick`, `keydownEvents`,
-  `updateSize`, `updatePosition` and `getState` are the dialog doing its own work: the double names
-  the member in the failure instead of reading `undefined`, and the answer is the real
-  `MatDialogModule` with a `MatDialog` that opens it for real.
+  `updateSize`, `updatePosition`, `getState`, `componentRef` and `id` are the dialog doing its own
+  work: the double names the member in the failure instead of reading `undefined`, and the answer is
+  the real `MatDialogModule` with a `MatDialog` that opens it for real. A `componentInstance` nobody
+  passed says so by name too, and names the init field that fixes it.
 
 ## Module mocks under the unit-test builder
 

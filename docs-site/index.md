@@ -155,6 +155,7 @@ from a type or an interface.
 - [Angular](/adapters/angular)
 - [Angular HTTP](/adapters/angular-http)
 - [Angular router](/adapters/angular-router)
+- [Signal forms](/adapters/signal-forms)
 - [NestJS](/adapters/nestjs)
 - [React](/adapters/react)
 - [Vue / Pinia](/adapters/vue)

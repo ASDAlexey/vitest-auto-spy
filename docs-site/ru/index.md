@@ -154,6 +154,7 @@ users.save.rejectWith(new HttpError(409));
 - [Angular](/ru/adapters/angular)
 - [Angular HTTP](/ru/adapters/angular-http)
 - [Роутер Angular](/ru/adapters/angular-router)
+- [Сигнальные формы](/ru/adapters/signal-forms)
 - [NestJS](/ru/adapters/nestjs)
 - [React](/ru/adapters/react)
 - [Vue / Pinia](/ru/adapters/vue)

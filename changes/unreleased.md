@@ -18,11 +18,16 @@ _Last released: **v5.7.0** — the git tag, `package.json` and `CHANGELOG.md` ag
 - `provideRouterDouble({ url })` / `injectRouterDouble()` / `createRouterDouble()` (`/angular-router`): a `Router`
   derived from one URL — real `serializeUrl` / `parseUrl` / `createUrlTree`, `navigate` spies resolving `true`,
   `setUrl`, `emitNavigation` over a `BehaviorSubject`, and a throw by name for every member it does not carry.
+- `vitest-auto-spy/signal-forms` — `createForm(model, schema?, options?)` builds Angular's own signal `form()` in the
+  `TestBed`'s injection context (the `NG0203` every spec hits), and `registerFormMatchers()` adds
+  `toHaveFieldErrors(['required'])` over a field's whole error set. Optional `@angular/forms` peer, Angular 22+.
 - `provideWindowDouble(TOKEN, overrides?)` / `provideDocumentDouble(overrides?)` (+ the `create*` forms): a
-  `window` / `document` merged over the real jsdom object, with the globals never patched.
+  `window` / `document` merged over the real jsdom object, with the globals never patched — `location` and the
+  other unforgeable members included.
 - `provideMatDialogData(TOKEN, data)` / `provideMatDialogRef(RefClass, init?)` / `injectMatDialogRef` /
   `createMatDialogRef`: the Material dialog trio with the token and the class as arguments, so `@angular/material`
-  stays out of the dependencies; `afterClosed()` still answers after the close.
+  stays out of the dependencies; `afterClosed()` still answers after the close, and `init.componentInstance` is
+  the dialog component the opener drives.
 - `trackRecomputations(signal)` / `trackEffectRuns(effectRef)`: `{ count, stop() }` over what the reactive graph
   re-ran, undone by `restoreMockedProps()`.
 - `mockResourceProp(obj, prop, initial, { status })` and `double.idle()`: open a resource double in `idle`,

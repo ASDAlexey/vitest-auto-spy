@@ -842,7 +842,7 @@ TestBed.configureTestingModule({
 | `provideDocumentDouble(overrides?, token?)`                           | то же самое под ангуляровским `DOCUMENT` — или под своим токеном         |
 | `createWindowDouble(overrides?)` / `createDocumentDouble(overrides?)` | те же дубли без `TestBed` — для `new LayoutProbe(win)` или голой функции |
 
-Четыре вещи, которые стоит знать:
+Пять вещей, которые стоит знать:
 
 - **Оконный хелпер принимает ваш токен, документному токен не нужен.** Angular поставляет `DOCUMENT`,
   начиная с v20 — прямо из `@angular/core`. А `WINDOW` он не поставлял никогда: каждое приложение
@@ -859,6 +859,19 @@ TestBed.configureTestingModule({
   Никакой ручки запоминать не надо, и `restoreMockedProps()` вспоминать тоже.
 - **Фабрика, а не `useValue`.** Каждый инжектор собирает свой дубль, поэтому массив провайдеров,
   поднятый в константу модуля, не может перенести записи одного теста в следующий.
+- **`location` принимает переопределения наравне с остальными членами.** Платформа объявляет его
+  члены неподделываемыми — из-за этого самодельный `{ location: { reload: vi.fn() } }` и выглядит
+  так, как выглядит; здесь он вливается ровно так же, как всё остальное:
+
+  ```ts
+  const win = TestBed.inject(WINDOW); // provideWindowDouble(WINDOW, { location: { reload } })
+
+  win.location.href = '/checkout'; // двигает дубль, а не адресную строку
+  expect(reload).toHaveBeenCalled(); // и `location.origin` по-прежнему от jsdom
+  ```
+
+  `mockValueProp(win, 'innerWidth', 800)` и его восстановление тоже работают на дубле, и ни то, ни
+  другое не трогает глобальный объект.
 
 ::: warning `provideDocumentDouble` отдаёт дубль и самому Angular
 Переопределение `DOCUMENT` для тестового модуля означает, что его инжектит и рендерер. Подмена
@@ -901,12 +914,12 @@ await expect(expectEmission(dialog.ref.afterClosed())).resolves.toBe('saved');
 назван.
 :::
 
-| Вызов                                     | Что делает                                                                                       |
-| ----------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| `provideMatDialogData(token, data)`       | типизированный `{ provide, useValue }` — назовите тип-аргумент, и данные будут проверены по нему |
-| `provideMatDialogRef(RefClass, init?)`    | `FactoryProvider` — свой ref на каждый инжектор; `init`: `closedWith`, `disableClose`            |
-| `injectMatDialogRef(RefClass, injector?)` | ручка: `.ref`, `.close` (спай), `emitClose(result?)`                                             |
-| `createMatDialogRef(RefClass, init?)`     | та же ручка без `TestBed` — и тот самый ref, который отдаёт заспаенный `MatDialog.open()`        |
+| Вызов                                     | Что делает                                                                                                 |
+| ----------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `provideMatDialogData(token, data)`       | типизированный `{ provide, useValue }` — назовите тип-аргумент, и данные будут проверены по нему           |
+| `provideMatDialogRef(RefClass, init?)`    | `FactoryProvider` — свой ref на каждый инжектор; `init`: `closedWith`, `disableClose`, `componentInstance` |
+| `injectMatDialogRef(RefClass, injector?)` | ручка: `.ref`, `.close` (спай), `emitClose(result?)`                                                       |
+| `createMatDialogRef(RefClass, init?)`     | та же ручка без `TestBed` — и тот самый ref, который отдаёт заспаенный `MatDialog.open()`                  |
 
 ### Как его открыть: `MatDialog` не нужна отдельная обёртка {#opening-one-matdialog-needs-no-helper-of-its-own}
 
@@ -924,7 +937,7 @@ fixture.componentInstance.edit(); // открывает, пропускает af
 Обёртки `openDialogReturning()` нет намеренно: она сказала бы `mockReturnValue` другими словами и при
 этом была бы обязана знать тип самого `MatDialog` — ровно то, что эта конструкция и выносит наружу.
 
-Четыре вещи, которые стоит знать:
+Пять вещей, которые стоит знать:
 
 - **`close` — это спай, и это та же самая функция, которую несёт ref.** `expect(dialog.close)` и
   `expect(TestBed.inject(MatDialogRef).close)` — одна и та же проверка, так что компонент, который
@@ -941,10 +954,31 @@ fixture.componentInstance.edit(); // открывает, пропускает af
   проверяет объект по названному типу; свой `InjectionToken<EditUserData>` проверяет его, ничего не
   называя. Значение отдаётся как есть, поэтому собирайте его на каждый тест, а не поднимайте в
   константу модуля.
+- **Через `componentInstance` открывающая сторона и управляет диалогом**, и именно его Material
+  объявляет полем класса, а не на прототипе, — поэтому дубль без него отдал бы открывающему
+  `undefined` вместо того, чтобы упасть. Передайте заглушку — и она проверяется, член за членом, по
+  тому компоненту, который называет класс ref:
+
+  ```ts
+  const save = new EventEmitter<string>();
+  const dialog = createMatDialogRef<MatDialogRef<NameInputDialog, string>>(MatDialogRef, {
+    componentInstance: { save, isSaving: signal(false) },
+  });
+
+  injectSpy(MatDialog).open.mockReturnValue(dialog.ref);
+
+  component.rename(); // подписывается на componentInstance.save
+  save.emit('Grace');
+
+  expect(dialog.close).toHaveBeenCalledWith('Grace');
+  ```
+
 - **Всё остальное, что объявляет класс ref, бросает по имени.** `backdropClick`, `keydownEvents`,
-  `updateSize`, `updatePosition` и `getState` — это работа самого диалога: дубль называет член в
-  сообщении об ошибке вместо того, чтобы вернуть `undefined`, а ответ на такое — настоящий
-  `MatDialogModule` и `MatDialog`, который по-настоящему его открывает.
+  `updateSize`, `updatePosition`, `getState`, `componentRef` и `id` — это работа самого диалога:
+  дубль называет член в сообщении об ошибке вместо того, чтобы вернуть `undefined`, а ответ на
+  такое — настоящий `MatDialogModule` и `MatDialog`, который по-настоящему его открывает.
+  `componentInstance`, который никто не передал, тоже называет себя по имени — и называет поле
+  `init`, которым это чинится.
 
 ## Моки модулей под unit-test-билдером {#module-mocks-under-the-unit-test-builder}
 
