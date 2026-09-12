@@ -107,6 +107,7 @@ export {
   injectMatDialogRef,
   provideMatDialogData,
   provideMatDialogRef,
+  type DialogComponent,
   type DialogRefLike,
   type DialogResult,
   type MatDialogRefDouble,

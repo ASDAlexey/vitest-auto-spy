@@ -42,16 +42,30 @@ export interface DialogRefLike {
  */
 export type DialogResult<Ref> = Ref extends { close(result?: infer R): void } ? R : never;
 
+/**
+ * The dialog component the ref was opened for — the `T` of Material's `MatDialogRef<T, R>`.
+ *
+ * Read off the class's own `componentInstance`, so a stand-in is checked against the component the
+ * ref names while `@angular/material` stays unimported here.
+ */
+export type DialogComponent<Ref> = Ref extends { componentInstance: infer T } ? NonNullable<T> : never;
+
 /** Where the ref double starts. */
-export interface MatDialogRefInit<R> {
+export interface MatDialogRefInit<Ref extends DialogRefLike> {
   /**
    * The result `afterClosed()` answers with no component involved — for the ref a spied
    * `dialog.open()` hands back. A dismissal closes with `undefined`, which this field cannot say;
    * `emitClose()` is how a spec expresses that one.
    */
-  closedWith?: R;
+  closedWith?: DialogResult<Ref>;
   /** `ref.disableClose`, which components both read and write. Default `undefined`, as Material leaves it. */
   disableClose?: boolean;
+  /**
+   * What `ref.componentInstance` answers — the members of the dialog component the opener drives it
+   * through, a `save` emitter and an `isSaving` signal being the usual pair. Left out, reading it
+   * throws by name rather than handing the opener `undefined`.
+   */
+  componentInstance?: Partial<DialogComponent<Ref>>;
 }
 
 /** The handle a spec drives the dialog through. The ref itself keeps the class's own shape. */
@@ -65,7 +79,13 @@ export interface MatDialogRefDouble<Ref extends DialogRefLike> {
 }
 
 /** The members the double answers. Everything else the ref class declares throws by name. */
-const COVERED = 'close(), afterClosed(), beforeClosed(), afterOpened() and disableClose';
+const COVERED = 'close(), afterClosed(), beforeClosed(), afterOpened(), disableClose and the componentInstance it was handed';
+
+/**
+ * Material declares these as class fields rather than on the prototype, so the guard below cannot
+ * read them off the class and would hand the code under test `undefined` for every one of them.
+ */
+const FIELDS = ['componentInstance', 'componentRef', 'id'];
 
 const doubles = new WeakMap<object, unknown>();
 
@@ -75,15 +95,19 @@ const doubles = new WeakMap<object, unknown>();
  * class the spec passed, so the message is about whichever Material is installed there.
  */
 function guardMissingMembers<Ref extends DialogRefLike>(RefClass: AbstractType<Ref>, double: object): Ref {
-  const declared: ReadonlySet<string> = new Set(Object.getOwnPropertyNames(RefClass.prototype));
+  const declared: ReadonlySet<string> = new Set([...Object.getOwnPropertyNames(RefClass.prototype), ...FIELDS]);
   const guarded = new Proxy(double, {
     get(target, key, receiver): unknown {
       if (typeof key === 'string' && !(key in target) && declared.has(key)) {
+        const repair =
+          key === 'componentInstance'
+            ? `hand the component's stand-in to the double, provideMatDialogRef(${RefClass.name}, { componentInstance: { … } })`
+            : 'backdropClick, keydownEvents, updateSize, updatePosition, getState, componentRef and id are the dialog doing ' +
+              'its own work, which is the real MatDialogModule and a MatDialog that opens it';
+
         throw new Error(
           withDocs(
-            `[vitest-auto-spy] provideMatDialogRef: the ${RefClass.name} double has no ${key}. It answers ${COVERED} — ` +
-              'backdropClick, keydownEvents, updateSize, updatePosition and getState are the dialog doing its own work, ' +
-              'which is the real MatDialogModule and a MatDialog that opens it.',
+            `[vitest-auto-spy] provideMatDialogRef: the ${RefClass.name} double has no ${key}. It answers ${COVERED} — ${repair}.`,
             DOCS_LINKS.angular,
           ),
         );
@@ -109,7 +133,7 @@ function guardMissingMembers<Ref extends DialogRefLike>(RefClass: AbstractType<R
  */
 export function createMatDialogRef<Ref extends DialogRefLike>(
   RefClass: AbstractType<Ref>,
-  init: MatDialogRefInit<DialogResult<Ref>> = {},
+  init: MatDialogRefInit<Ref> = {},
 ): MatDialogRefDouble<Ref> {
   // Replayed, where Material's own is a plain `Subject`: an assertion usually subscribes after the
   // component has already closed the dialog, and a `Subject` has nothing left to say by then.
@@ -133,13 +157,19 @@ export function createMatDialogRef<Ref extends DialogRefLike>(
     emitClose(init.closedWith);
   }
 
-  const ref = guardMissingMembers(RefClass, {
+  const answered = {
     close,
     afterClosed: (): Observable<DialogResult<Ref> | undefined> => closedStream,
     beforeClosed: (): Observable<DialogResult<Ref> | undefined> => closedStream,
     afterOpened: (): Observable<void> => openedStream,
     disableClose: init.disableClose,
-  });
+  };
+  // Added rather than always present, so a ref nobody handed a component throws by name for it
+  // instead of answering `undefined` to the opener that reaches through it.
+  const ref = guardMissingMembers(
+    RefClass,
+    init.componentInstance === undefined ? answered : { ...answered, componentInstance: init.componentInstance },
+  );
   const double: MatDialogRefDouble<Ref> = { ref, close, emitClose };
 
   doubles.set(ref, double);
@@ -165,7 +195,7 @@ export function createMatDialogRef<Ref extends DialogRefLike>(
  */
 export function provideMatDialogRef<Ref extends DialogRefLike>(
   RefClass: AbstractType<Ref>,
-  init: MatDialogRefInit<DialogResult<Ref>> = {},
+  init: MatDialogRefInit<Ref> = {},
 ): FactoryProvider {
   return { provide: RefClass, useFactory: (): Ref => createMatDialogRef(RefClass, init).ref };
 }

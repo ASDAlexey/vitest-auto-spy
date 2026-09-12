@@ -10,6 +10,7 @@ import type { InjectionToken, Provider } from '@angular/core';
 import { describe, expectTypeOf, it } from 'vitest';
 
 import {
+  type DialogComponent,
   type DialogResult,
   type MatDialogRefDouble,
   createMatDialogRef,
@@ -25,7 +26,10 @@ declare class MatDialogRef<T, R = unknown> {
   afterClosed(): { subscribe(next: (result: R | undefined) => void): void };
 }
 
-declare class EditUserDialog {}
+declare class EditUserDialog {
+  name: string;
+  save(): void;
+}
 declare class ConfirmDialogRef extends MatDialogRef<EditUserDialog, 'discarded' | 'saved'> {}
 
 interface EditUserData {
@@ -72,8 +76,18 @@ describe('provideMatDialogRef', () => {
     // @ts-expect-error — the ref closes with 'saved' or 'discarded'
     provideMatDialogRef(ConfirmDialogRef, { closedWith: 'stored' });
 
-    // @ts-expect-error — `disableClose` is the only other thing the init says
+    // @ts-expect-error — the init says closedWith, disableClose and componentInstance, and nothing else
     provideMatDialogRef(ConfirmDialogRef, { afterClosed: () => undefined });
+  });
+
+  it('checks the component stand-in against the dialog the ref class names, a member at a time', () => {
+    provideMatDialogRef(ConfirmDialogRef, { componentInstance: { save: () => undefined } });
+
+    // @ts-expect-error — nothing on EditUserDialog is called that
+    provideMatDialogRef(ConfirmDialogRef, { componentInstance: { saev: () => undefined } });
+
+    // @ts-expect-error — `name` is a string
+    provideMatDialogRef(ConfirmDialogRef, { componentInstance: { name: 7 } });
   });
 });
 
@@ -87,6 +101,10 @@ describe('the double', () => {
   it('reads the result off the class rather than being told it', () => {
     expectTypeOf<DialogResult<ConfirmDialogRef>>().toEqualTypeOf<'discarded' | 'saved'>();
     expectTypeOf<DialogResult<MatDialogRef<EditUserDialog>>>().toEqualTypeOf<unknown>();
+  });
+
+  it('reads the dialog component off the class the same way', () => {
+    expectTypeOf<DialogComponent<ConfirmDialogRef>>().toEqualTypeOf<EditUserDialog>();
   });
 
   it('types the close spy and the outside close by that result', () => {

@@ -8,7 +8,7 @@
  * included, because those are what the guard is measured against. The one deviation is Material's
  * `R = any` default, written `unknown` so the file needs no `any` disables.
  */
-import { Component, InjectionToken, type Type, inject, signal } from '@angular/core';
+import { Component, EventEmitter, InjectionToken, type Type, inject, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { type Observable, filter, map } from 'rxjs';
 import { describe, expect, it } from 'vitest';
@@ -28,7 +28,7 @@ function notInstalled(member: string): Error {
 }
 
 class MatDialogRef<T, R = unknown> {
-  componentInstance: T | null = null;
+  declare componentInstance: T;
   disableClose: boolean | undefined = undefined;
   id = 'mat-mdc-dialog-0';
 
@@ -161,6 +161,36 @@ class UserListComponent {
   }
 }
 
+@Component({
+  selector: 'vas-name-input',
+  standalone: true,
+  template: '',
+})
+class NameInputDialog {
+  readonly save = new EventEmitter<string>();
+  readonly isSaving = signal(false);
+}
+
+@Component({
+  selector: 'vas-rename',
+  standalone: true,
+  template: '',
+})
+class RenameComponent {
+  readonly saved = signal('none');
+  private readonly dialog = inject(MatDialog);
+
+  rename(): void {
+    const ref = this.dialog.open<NameInputDialog, string>(NameInputDialog, { data: { name: 'Ada' } });
+
+    ref.componentInstance.save.subscribe((name) => {
+      ref.componentInstance.isSaving.set(true);
+      this.saved.set(name);
+      ref.close(name);
+    });
+  }
+}
+
 function renderDialog(): EditUserDialog {
   TestBed.configureTestingModule({
     providers: [provideMatDialogData(MAT_DIALOG_DATA, { id: 7, name: 'Ada' }), provideMatDialogRef(MatDialogRef)],
@@ -279,6 +309,43 @@ describe('the members the double does not have', () => {
 
     expect(Reflect.get(ref, 'openedFromTheLeft')).toBeUndefined();
     expect(Reflect.get(ref, Symbol.iterator)).toBeUndefined();
+  });
+
+  it('throws by name for the fields Material keeps off the prototype', () => {
+    const { ref } = createMatDialogRef(MatDialogRef);
+
+    expect(() => ref.componentInstance).toThrow(
+      /double has no componentInstance.+provideMatDialogRef\(MatDialogRef, \{ componentInstance/s,
+    );
+    expect(() => ref.id).toThrow(/double has no id/);
+  });
+});
+
+describe('the dialog component the ref was opened for', () => {
+  it('answers the stand-in the spec handed it, to the opener that drives the dialog through it', () => {
+    TestBed.configureTestingModule({ providers: [provideAutoSpy(MatDialog)] });
+
+    const save = new EventEmitter<string>();
+    const isSaving = signal(false);
+    const dialog = createMatDialogRef<MatDialogRef<NameInputDialog, string>>(MatDialogRef, { componentInstance: { save, isSaving } });
+
+    injectSpy(MatDialog).open.mockReturnValue(dialog.ref);
+
+    const fixture = TestBed.createComponent(RenameComponent);
+
+    fixture.componentInstance.rename();
+    save.emit('Grace');
+
+    expect(fixture.componentInstance.saved()).toBe('Grace');
+    expect(isSaving()).toBe(true);
+    expect(dialog.close).toHaveBeenCalledWith('Grace');
+  });
+
+  it('is the very object the spec passed, so the component it stands in for is asserted on directly', () => {
+    const componentInstance = { isSaving: signal(true) };
+    const { ref } = createMatDialogRef<MatDialogRef<NameInputDialog, string>>(MatDialogRef, { componentInstance });
+
+    expect(ref.componentInstance).toBe(componentInstance);
   });
 });
 
