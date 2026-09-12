@@ -12,20 +12,102 @@ The latest released version here must always match the one published on
 
 ### Added
 
+- **The `Router` double answers `currentNavigation()` and `getCurrentNavigation()`.** They are how a
+  component finds out where a navigation came from — the `extras.state` an opener passed, the
+  `trigger` that tells a `'popstate'` from a click — and the double had neither, which is enough to
+  send a suite back to hand-rolling the whole router: measured on an 11 000-file Angular monorepo,
+  9 spec files stub one of the two and 20 production call sites read them. The answer is derived
+  like the rest of the double: `null` while the router stands at its URL, which is what the real one
+  answers between navigations. `setCurrentNavigation({ extras: { state } })` puts one in flight and
+  keeps what the spec named — `id`, `initialUrl` and `extractedUrl` come from the current URL,
+  `trigger` is `'imperative'`, `extras` is empty; `provideRouterDouble({ currentNavigation })` names
+  it at construction, for the component that reads it in a field initializer. It follows the events
+  too: a `NavigationStart` pushed through `emitNavigation()` starts one with that event's id, URL and
+  trigger, and a `NavigationEnd`, `NavigationCancel`, `NavigationError` or `NavigationSkipped` ends
+  it — "the current navigation becomes null after the NavigationEnd event is emitted", so a component
+  reading it inside a `NavigationEnd` handler gets `null` here and `null` in production.
+
+- **`no-redundant-smoke-test` — the generated `should create` test, where the file grew past it.** A test whose
+  whole body is `expect(pipe).toBeTruthy()` cannot fail on its own: every other test in the block runs the same
+  `beforeEach`, so a subject that came back nullish fails one of those first, on the call it was making rather than
+  on a line named after construction. The rule reports it wherever the block — the tests its nested `describe`s
+  declare counted with it, since those run the same setup — has something that actually runs, and stays silent where
+  that smoke test is the only running test there: a spec proving the subject can be built is thin, but a rule that
+  empties a file is not a lint rule. Recognised bodies are `expect(x)` under `toBeTruthy`, `toBeDefined` or
+  `toBeInstanceOf`, and under `toBeFalsy` / `toBeNull` / `toBeUndefined` behind a `.not`; a skipped sibling proves
+  nothing and does not count. The suggestion removes the test together with the blank line above it. Measured on an
+  Angular suite of 1771 spec files: 569 findings in 540 files, 515 of them still titled `should create` /
+  `should be created`; on a second suite of 845 files, 97 in 87; on a third of 127, one.
+
+- **`perf --top` says why there is no table.** The hotspot tables keep their one-second floor — below it a
+  ranking is the reader’s attention spent on the scheduler rather than on a decision somebody made — but the
+  floor was invisible: `--top 15` on a fast suite printed nothing at all, which reads as a broken flag rather
+  than as a verdict. Asked for explicitly, it now answers with the number that suppressed it: the slowest
+  file’s time in its bodies against the floor, or that no file finished a body. Without `--top` the report is
+  as quiet as it was.
+
+### Fixed
+
+- **`perf` no longer tells a config that computes its worker cap that it declared none.** The check
+  looked for `maxWorkers:`, so a config that sizes the pool from the cgroup and passes the result as
+  a shorthand property — the one that thought about this hardest — was told to set a cap it already
+  had. The shorthand, and the `const` behind it, now count.
+
+- **A transform input was typed as the signal itself, so `renderShallow({ inputs })` and `setInputs`
+  rejected every value a spec could pass it.** `input(false, { transform: booleanAttribute })` is an
+  `InputSignalWithTransform<boolean, unknown>`, and `ComponentInputs` matched it against a pattern
+  whose read type was fixed to `unknown` — a match that fails, because the node behind the signal
+  carries the read type in both directions and a wider one is not a supertype (`never` matches
+  nothing at all, so the pattern has to be inferred). The member then fell through to itself and the
+  error read `Type 'boolean' is not assignable to type 'InputSignalWithTransform<boolean, unknown>'`,
+  which names no repair a spec can make. Found rolling `setInputs` out over a 1 770-file suite, where
+  it was the only failure of the 21 that was the helper's fault rather than a lie the spec had been
+  telling `componentRef.setInput`. A transform input now takes what the transform takes — `unknown`
+  for `booleanAttribute`, `string | number` for a transform declared that way — and rejects what it
+  returns.
+
+- **A `Router` member the double lacks now throws even when it is a field.** The guard was built from
+  `Object.getOwnPropertyNames(Router.prototype)`, and Angular declares `currentNavigation`,
+  `config`, `navigated`, `routeReuseStrategy`, `onSameUrlNavigation` and `componentInputBindingEnabled`
+  on the instance — so those six were not "a member the double has no answer for" but "not a Router
+  member at all", and reading one handed back `undefined`. The one that costs is `currentNavigation`:
+  it is a signal, so the test died as `router.currentNavigation is not a function` at whatever line
+  called it, which is the failure this guard exists to prevent. The five that remain uncovered now
+  throw by name.
+
+- **`provideWindowDouble` / `provideDocumentDouble`: the overrides type follows the merge down.** The proxy
+  re-merges every plain object it hands out, so `{ document: { location: { href: '' } } }` has always worked at
+  run time, while `PlatformOverrides` sliced one level only and rejected it — a consumer meeting that wall
+  reached for `createMock<Location>()` or a cast for a reason nobody could state. Three levels now, bounded
+  because `Window` is recursive (`window.window` is a `Window`); arrays and methods are still matched whole.
+  Measured on this package's type suite: 711-856 ms, unmoved, and the type budget unchanged.
+- **`no-sync-testbed-await` names what the call it reported answers.** The message and the suggestion were
+  templated with one predicate — "answers the TestBed, not a promise" — for both families the rule covers, so
+  on `createComponent` / `getLastFixture` it contradicted its own next sentence, which says those two return
+  the `ComponentFixture`. The reported member now decides the clause. Found while the rule was being rolled
+  out over a 1 867-file suite.
+
+## [5.9.0] - 2026-09-12
+
+### Added
+
 - **`perf --baseline` — the ratchet.** A committed record of what each spec file cost, stored as a
   ratio to the median file of its run rather than in milliseconds, because a baseline written on a
   laptop is compared on a runner two to five times slower and would otherwise report the hardware.
   A file that grew against it becomes an ordinary gate candidate, re-measured on its own like any
   other, with the milliseconds that share is worth in the current run in the message.
   `--update-baseline`, `--baseline-factor` (2), `--baseline-floor-ms` (500).
+
 - **`perf --json` merges the reports of a sharded pipeline** — a directory or a pattern
   (`coverage/**/perf-*.json`). Transform time adds, wall clock is the longest report rather than the
   sum, a file measured twice keeps the slower reading, and every report is re-based onto one root:
   GitLab clones each job into its own build directory, so a merge that kept absolute paths would
   silently drop three shards out of four.
+
 - **Two tables under the phase table**: the slowest files, with `ms/test` beside `time` — 400 tests
   sharing 6 s is a large file, 3 tests sharing 6 s is a slow one — and the slowest test bodies.
   `--top <n>` sets the rows, `0` turns them off.
+
 - **`vitest-auto-spy perf --gate` — the first thing in this CLI allowed to fail a pipeline.** It
   judges the `tests` phase alone (the other five are the harness and the machine, not anybody's
   code), asks for both an absolute budget and a multiple of the median file **of the same run** so
@@ -35,14 +117,17 @@ The latest released version here must always match the one published on
   (10), `--max-wall-ms` (off), `--gate-only`, `--no-confirm`. Exit `1` means over budget; exit `2`
   means there was nothing to judge, which now includes a red suite — a failed test is measured until
   its timeout, and 30 s of timeout looks exactly like 30 s of slow code.
+
 - **`perf --command '<line>'` — measure the command the repository actually uses.** A bare
   `vitest run` is not every repository's suite: where one is assembled by an Angular builder, an Nx
   target or a script, there is no root config, the defaults sweep up every `*.spec.*` in the tree
   with no globals and no aliases, and every file fails to collect. `--command` runs the real line
   with `VITEST_AUTO_SPY_PERF_OUT` and `VITEST_AUTO_SPY_PERF_REPORTER` in its environment;
   `{paths}` / `{paths:<prefix>}` in it take the files of a confirmation pass.
+
 - The perf report is version 2: it carries how many bodies each file finished and the slowest few of
   them by name (over 100 ms, at most five per file). Version 1 reports still read.
+
 - **`vitest-auto-spy/signal-forms` — Angular's signal forms in a spec (`createForm`,
   `registerFormMatchers`).** Signal forms are stable from Angular 22, and nobody ships testing tools
   for them; a spec that touches one meets the same two walls. `form()` injects, so a call in a
@@ -134,6 +219,205 @@ The latest released version here must always match the one published on
   that returns `undefined` reports `idle`, and a spec could only reach that state by driving the double there.
   The fourth argument opens it in `idle`, `loading`, `reloading` or `local` directly; `'error'` is not among them,
   because an error needs a reason and that is `fail()`.
+
+- **`no-sync-testbed-await`: the `await` that `compileComponents()` was hiding.**
+  `TestBed.configureTestingModule(…)` and every `override*` return `TestBed` itself — that is what
+  makes them chainable — `resetTestingModule()` does too, and `createComponent()` / `getLastFixture()`
+  return the `ComponentFixture`. None of them is a promise, so an `await` in front of one waits for
+  nothing and the `async` it forced on the hook then awaits nothing either; both read, to everybody
+  after, as a setup that is asynchronous and is not. The shape was invisible while the chain ended in
+  a call that really did return a promise: on an Angular suite of 1862 spec files, removing 448
+  `compileComponents()` calls from 410 files uncovered 18 such `await`s and 33 hooks left `async` with
+  nothing to wait for, all of them older than the removal. Run over that consumer's last commit —
+  1759 spec files, 411 still calling `compileComponents()` — the rule reports **14 times in 10
+  files**, every one with the edit, and over the same tree with the calls removed and their awaits
+  fixed it reports nothing: no false positive in 1759 files either way. The rule reports the `await` wherever the
+  receiver is `TestBed`, `getTestBed()`, a chain of those members, or a name the file settles to one
+  of them, and the chain is read link by link so that `TestBed.inject(Api).createComponent(x)` is not
+  one. A suggestion drops the `await` **and** the `async` of a `beforeEach` / `beforeAll` /
+  `afterEach` / `afterAll` / `it` / `test` callback that then awaits nothing else — the same edit
+  `no-compile-components` offers, and a suggestion for the same reason: without the `await` the next
+  statement runs one microtask earlier. `TestBed.inject(TOKEN)` and `TestBed.runInInjectionContext(fn)`
+  are never reported, because each answers whatever the token or the callback holds, and four
+  `await TestBed.inject(…)` calls in that suite await a real promise. `error`, **syntax only**: the
+  fact is Angular's own signature, so unlike `@typescript-eslint/await-thenable` the rule needs no
+  `parserOptions.project`. Run both and the same line draws two reports — one of which names the
+  TestBed and carries the whole edit, while the stock suggestion leaves the `async` behind for
+  `@typescript-eslint/require-await` to find on a later run; before that `require-await` is silent,
+  because the `async` function does contain an `await`.
+
+- **`prefer-provide-activated-route`: the hand-built half a green test keeps believing in.**
+  `ActivatedRoute` keeps `snapshot`, `params`, `queryParams`, `data`, `fragment` and `url` in instance
+  fields, so a hand-written double holds whichever half its author read first and `undefined` in the
+  other — and a spec that sets `snapshot.params` without emitting `params` tests a route no navigation
+  can produce. On an Angular monorepo of 11 000+ spec files, 42 providers of a hand-built route sit
+  across 36 of them, and every shape is a half: a lone `snapshot`, an empty `{}`, a tree of `children`,
+  a `createSpyFromClass(ActivatedRoute)` whose instance fields no longer exist, a `useFactory`
+  assembling the two halves with `mockReadonlyPropGetter` one by one. The rule reports all four
+  descriptor slots — `useValue`, written in place or parked in a name above the TestBed, `useClass`,
+  `useFactory`, `useExisting` — and `provideAutoSpy(ActivatedRoute)` with a message of its own: a spy
+  reads the prototype, and a route keeps nothing there. `provideActivatedRoute()` and every form of
+  `createActivatedRoute()` a descriptor can carry — `.route`, destructured, built in a factory — are
+  silent by shape. `error`, **syntax only**: every report has a `provide:` naming the route class
+  beside it, so there is no heuristic in the decision, and the repair it names is a drop-in
+  replacement of the reported line. With `no-sync-testbed-await` the two add 1.77 kB min+gzip to
+  `/eslint-plugin` (29.52 → 31.30 kB) — a dev-time entry no test bundle imports.
+
+### Changed
+
+- **`mockSignalProp` writes through a writable signal instead of replacing it.** Angular links a consumer to the
+  signal it read, not to the property it read it through, so a spec that rendered first and patched second stranded
+  every `computed()`, `effect()` and template binding on the old signal — silently, for the rest of the test, with
+  the old value cached. A member that already is a `signal()`, `model()` or `linkedSignal()` is now driven through
+  its own node: the order against the first render stops mattering, a `model()` keeps its output half, and there is
+  nothing to restore — which also means `restoreMockedProps()` leaves the value where the spec left it. The swap
+  survives only where there is no node to write into. Two refusals replace the two silent lies: an `input()` names
+  `fixture.componentRef.setInput(name, value)` (replacing it used to kill the host's next write with
+  `inputSignalNode.applyValueToInputSignal is not a function`), and a read-only signal something has already read
+  says so rather than stranding it.
+
+- **`ResourceDouble` is a whole `ResourceRef`, and `hasValue()` follows Angular's value-based rule.** The double
+  answered `hasValue()` from its status, where Angular 22 answers it from the value, so a component branching on
+  `hasValue()` while loading took the wrong branch in the spec and the right one in production. It now also carries
+  `set`, `update`, `asReadonly`, `destroy` and `snapshot` with the semantics Angular gives them — a service that
+  hands out `asReadonly()` and a component that writes optimistically stop dying on a `TypeError` no compiler could
+  see — and a write through `value` moves the status to `'local'` instead of leaving it stale. `reload()` answers
+  `true` rather than `undefined`. **Breaking for a spec that asserts `hasValue()` in a non-resolved state**, and it
+  fails as a red assertion, never as a silent pass.
+
+- **`settleResource` takes an event-loop turn, and refuses a resource that never started.** Every round was a tick
+  plus a microtask, so a loader on a real timer could not settle and the helper reported a timeout of its own making;
+  from the third round each round also takes a macrotask turn, on a `setTimeout` captured at import so a faked clock
+  cannot freeze it, while the two common paths still cost nothing. A resource still `idle` is now a named failure
+  rather than a silent return — `idle` means the loader never ran and every assertion below was about to read the
+  default — with `{ allowIdle: true }` for the spec that asserts the idle state itself.
+
+### Fixed
+
+- **A report measured in another checkout made the gate judge nothing and print an all-clear.** Paths
+  are re-based onto `PerfRun.root`, and a report whose files still land outside the working directory
+  is refused (exit 2) instead of producing an empty file set, no candidates and a positive verdict.
+
+- **The confirmation pass is checked to have actually narrowed.** A harness that ignores the paths it
+  is handed re-ran the whole suite and returned the same crowded number, which the gate reported as
+  "re-measured on its own". It now says the command ignored `{paths}` and confirms nothing.
+
+- **A `--gate-only` that matches nothing exits 2** instead of reporting that nothing was over budget;
+  a leading `./` is stripped, since a machine-generated list is where that spelling comes from.
+
+- **A file total is no longer suppressed by a body finding that failed to reproduce.** A 60-second
+  file passed the gate because its slowest body sat one millisecond over the body budget and then did
+  not confirm; the suppression now happens after confirmation, not before.
+
+- **A version 2 report with no per-test rows is no longer called "measured nothing".** The guard needs
+  both zero bodies **and** zero milliseconds of test time — the reporter treats the test collection as
+  optional, and an all-skipped shard is not a failed run.
+
+- **The gate refuses a red suite behind `--json` too**: the reporter records how many files failed, so
+  a handed-over report carries the one fact it used to lose.
+
+- **Duplicate test names collapse in the reporter** (`it.each` with no placeholder in the title gives
+  every case the same `fullName`): the slowest body of a name is kept, so one problem is reported once
+  and the second measurement belongs to the body it is attached to.
+
+- **`--command` refuses to run inside a measured run** (`VITEST_AUTO_SPY_PERF_OUT` already set), which
+  is what stops a composite `test` script from recursing, and the default report path carries the
+  process id so two runs cannot erase each other's report.
+
+- **Paths are quoted for the shell that will actually run them**: `cmd.exe` treats `'` as an ordinary
+  character, so the confirmation pass on Windows was handed quotes it could not read.
+
+- Budgets are clamped rather than trusted: `--max-file-ms 0 --factor 0` reported every file in the
+  repository, including the ones that ran nothing.
+
+- `perf` no longer offers `test.isolate: false` to a workspace whose builder already runs without
+  per-file isolation (`@angular/build:unit-test` passes it itself and overrides the runner config),
+  and its settings findings read every `vite*.config.*` in the repository rather than only the root.
+
+- **`perf` no longer prints a run that measured nothing as though it were a measurement.** Measured
+  on a workspace whose suite is built by the Angular unit-test builder: a bare run collected 1 830
+  files, every one of them failed on `describe is not defined` or an unresolved alias, and the
+  command reported "29.12s wall clock, 55.61s of CPU time" over a plausible-looking phase table —
+  because transform and environment are real seconds however the files ended. There are now two
+  guards: one before the run, which refuses a bare run in a repository with no root
+  `vite(st).config.*` whose `test` script does not invoke `vitest` (and names `--command` and
+  `--json` as the ways out), and one after it, which refuses any report in which no test body
+  finished. Both exit 2.
+
+- The perf reporter writes nothing at all unless `VITEST_AUTO_SPY_PERF_OUT` names a file, instead of
+  throwing. That is what lets a repository whose runner config cannot be rewritten per run — an
+  Angular builder that owns its `reporters` — declare it permanently and pay nothing for it.
+
+- `perf`'s settings findings read every `vite*.config.*` / `vitest*.config.*` in the repository, not
+  only `vitest.config.ts` at the root. A workspace that keeps its Vitest settings in a file of its
+  own was being told to cap a `maxWorkers` it had already capped.
+
+- **`runEffect` runs the previous run's cleanup, and refuses a destroyed effect.** It called the effect body only,
+  so `onCleanup` callbacks piled up and every re-run leaked the previous closure; it now runs `cleanup()` then the
+  body, the way Angular's own scheduler does, both under `untracked()` so a `computed()` wrapping the call no
+  longer adopts the effect's producers. An effect whose view was torn down, or whose `EffectRef.destroy()` has
+  run, is refused by name instead of being run again. Destruction is detected from two independent traces at once,
+  and an unrecognised shape runs the effect rather than refusing it.
+
+- **`toHaveSignalValue` no longer calls the spy it was handed.** A spec passing `service.load` instead of a signal
+  had the matcher **call** the spy, fail opaquely, and leave a recorded call behind that broke
+  `toHaveBeenCalledTimes` further down. It now recognises Angular's signal brand, refuses a spy by name without
+  reading it, and throws on a non-function rather than returning `{ pass: false }`, which `.not` could hide.
+
+- **`settleResource({ turns: 0 })` reports the rounds it actually spent.** It spent one and reported "after 0
+  rounds"; the count is now taken after the work, and `{ turns: 0 }` is a check that fails without spending one.
+
+- **`registerAutoSpyDefaults` from `vitest-auto-spy/angular` keeps a generic class's declared default
+  next to an accessor list and `returns`.** The class overload still had the shape `provideAutoSpy`
+  lost: `registerAutoSpyDefaults(FlagService, { gettersToSpyOn: ['flags'], returns: { isEnabled:
+  false } })` failed with `No overload matches this call`, the class overload reading `T` back from the
+  list as `{ flags: any }`. It now takes `T` from the class alone (`NoInfer`), as `provideAutoSpy`,
+  `overrideAutoSpy` and `overrideComponentProvider` do. The token overload never had the defect: `T`
+  is read off the `InjectionToken<T>` reference before the configuration is consulted, so
+  `registerAutoSpyDefaults(TOKEN, { observablePropsToSpyOn: […], returns: {…} })` compiles without a
+  type argument on TypeScript 5.4 through 6.0, and a type test now pins it. The core
+  `registerAutoSpyDefaults` keeps the trap for the same reason `createSpyFromClass` does — `NoInfer`
+  is above the core's TypeScript floor — so there the argument is still spelled out. Types only.
+
+- **A seeded member of a type-driven double is never reconfigured by `returns` or `selfReturning`,
+  and no mock API is reached for on it.** `registerAutoSpyDefaults(LOGGER, { returns: {…},
+  selfReturning: ['channel'] })` in a setup file, then a spec seeding that very member —
+  `provideAutoSpyForToken(LOGGER, { channel: () => asInstance(channelLogger) })` — threw
+  `TypeError: asVitestMock(...).mockImplementation is not a function` out of the provider, before the
+  first line of the test ran. `createAutoMock` stores a seed verbatim, so the member the
+  configuration pass read back was the spec's own arrow function: not a spy, so the value could not
+  go into the library's container, and the fallback then handed a plain function to the adapter. The
+  merge rule already answers it — the call site outranks the registration, and a seed is documented
+  as returned verbatim — so a member named in `overrides` is now left exactly as it was seeded,
+  whatever `returns` or `selfReturning` say about it. That also settles the one case the old fallback
+  did reach: a seeded `vi.fn()` used to be overwritten by `returns` and now keeps its own
+  implementation, which is the same rule rather than a second one. Every member that survives the
+  seed check is one the double built itself, so that path no longer imports the adapter at all.
+
+- **`no-compile-components` names the `@defer` exception instead of promising more than it can
+  see.** Under an inlining builder the rule reported every `compileComponents()` as doing nothing —
+  but a component whose template holds a `@defer` block ships async class metadata, which that call
+  resolves whatever the builder did with the template, and removing it fails the test at run time
+  with `Component 'X' has unresolved metadata. Please call 'await TestBed.compileComponents()'`.
+  Measured on a 1 862-file suite: 410 files called it, and removing all of them broke exactly that
+  one class of file. The message now says the call is *usually* redundant, names the exception, and
+  spells the `// eslint-disable-next-line vitest-auto-spy/no-compile-components -- @defer: async
+  class metadata` that keeps such a call; the suggestion's own text carries the caveat too, since
+  that is what a bulk edit reads. What is reported did not change — a spec file shows nothing about
+  another file's template and this rule reads no types, so narrowing it by call shape would be a
+  guess wearing the clothes of a check.
+
+Size, min+gzip, measured commit by commit. Token registrations add 18 B to the core entry and 64 B to
+`/angular` (21.57 → 21.64 kB). `/jasmine` and `/nestjs` carry the same core and changed no line of
+their own: +415 B (12.45 → 12.87 kB) and +409 B (12.14 → 12.55 kB), past 3 % only because the base is
+smaller — 406 B and 392 B from the trackers and `selfReturning`, the rest from token registrations.
+`/setup` takes another 34 B from the `angular-router` link added to the shared documentation-link
+table. The four new lint rules add 2.57 kB to `/eslint-plugin` (26.95 → 29.52 kB), a dev-time entry
+no test bundle imports.
+
+## [5.8.0] - 2026-09-11
+
+### Added
 
 - **`registerAutoSpyDefaults` takes an `InjectionToken` — from `vitest-auto-spy/angular`.** The
   registry reached classes only, so a double behind a token was assembled again in every file that
@@ -240,49 +524,6 @@ The latest released version here must always match the one published on
   commit with `no-unknown-use-value-key`, add 2.57 kB min+gzip together to `/eslint-plugin` (26.95 →
   29.52 kB) — a dev-time entry no test bundle imports.
 
-- **`no-sync-testbed-await`: the `await` that `compileComponents()` was hiding.**
-  `TestBed.configureTestingModule(…)` and every `override*` return `TestBed` itself — that is what
-  makes them chainable — `resetTestingModule()` does too, and `createComponent()` / `getLastFixture()`
-  return the `ComponentFixture`. None of them is a promise, so an `await` in front of one waits for
-  nothing and the `async` it forced on the hook then awaits nothing either; both read, to everybody
-  after, as a setup that is asynchronous and is not. The shape was invisible while the chain ended in
-  a call that really did return a promise: on an Angular suite of 1862 spec files, removing 448
-  `compileComponents()` calls from 410 files uncovered 18 such `await`s and 33 hooks left `async` with
-  nothing to wait for, all of them older than the removal. Run over that consumer's last commit —
-  1759 spec files, 411 still calling `compileComponents()` — the rule reports **14 times in 10
-  files**, every one with the edit, and over the same tree with the calls removed and their awaits
-  fixed it reports nothing: no false positive in 1759 files either way. The rule reports the `await` wherever the
-  receiver is `TestBed`, `getTestBed()`, a chain of those members, or a name the file settles to one
-  of them, and the chain is read link by link so that `TestBed.inject(Api).createComponent(x)` is not
-  one. A suggestion drops the `await` **and** the `async` of a `beforeEach` / `beforeAll` /
-  `afterEach` / `afterAll` / `it` / `test` callback that then awaits nothing else — the same edit
-  `no-compile-components` offers, and a suggestion for the same reason: without the `await` the next
-  statement runs one microtask earlier. `TestBed.inject(TOKEN)` and `TestBed.runInInjectionContext(fn)`
-  are never reported, because each answers whatever the token or the callback holds, and four
-  `await TestBed.inject(…)` calls in that suite await a real promise. `error`, **syntax only**: the
-  fact is Angular's own signature, so unlike `@typescript-eslint/await-thenable` the rule needs no
-  `parserOptions.project`. Run both and the same line draws two reports — one of which names the
-  TestBed and carries the whole edit, while the stock suggestion leaves the `async` behind for
-  `@typescript-eslint/require-await` to find on a later run; before that `require-await` is silent,
-  because the `async` function does contain an `await`.
-
-- **`prefer-provide-activated-route`: the hand-built half a green test keeps believing in.**
-  `ActivatedRoute` keeps `snapshot`, `params`, `queryParams`, `data`, `fragment` and `url` in instance
-  fields, so a hand-written double holds whichever half its author read first and `undefined` in the
-  other — and a spec that sets `snapshot.params` without emitting `params` tests a route no navigation
-  can produce. On an Angular monorepo of 11 000+ spec files, 42 providers of a hand-built route sit
-  across 36 of them, and every shape is a half: a lone `snapshot`, an empty `{}`, a tree of `children`,
-  a `createSpyFromClass(ActivatedRoute)` whose instance fields no longer exist, a `useFactory`
-  assembling the two halves with `mockReadonlyPropGetter` one by one. The rule reports all four
-  descriptor slots — `useValue`, written in place or parked in a name above the TestBed, `useClass`,
-  `useFactory`, `useExisting` — and `provideAutoSpy(ActivatedRoute)` with a message of its own: a spy
-  reads the prototype, and a route keeps nothing there. `provideActivatedRoute()` and every form of
-  `createActivatedRoute()` a descriptor can carry — `.route`, destructured, built in a factory — are
-  silent by shape. `error`, **syntax only**: every report has a `provide:` naming the route class
-  beside it, so there is no heuristic in the decision, and the repair it names is a drop-in
-  replacement of the reported line. With `no-sync-testbed-await` the two add 1.77 kB min+gzip to
-  `/eslint-plugin` (29.52 → 31.30 kB) — a dev-time entry no test bundle imports.
-
 - **A strict double's getter nobody configured, and its stream nobody fed, are reported after the
   test.** Strict mode throws on a method nobody configured, but a spied getter still answered
   `undefined` and an observable property spy stayed a silent stream — the same "no data" branch, and
@@ -335,110 +576,12 @@ The latest released version here must always match the one published on
 
 ### Changed
 
-- **`mockSignalProp` writes through a writable signal instead of replacing it.** Angular links a consumer to the
-  signal it read, not to the property it read it through, so a spec that rendered first and patched second stranded
-  every `computed()`, `effect()` and template binding on the old signal — silently, for the rest of the test, with
-  the old value cached. A member that already is a `signal()`, `model()` or `linkedSignal()` is now driven through
-  its own node: the order against the first render stops mattering, a `model()` keeps its output half, and there is
-  nothing to restore — which also means `restoreMockedProps()` leaves the value where the spec left it. The swap
-  survives only where there is no node to write into. Two refusals replace the two silent lies: an `input()` names
-  `fixture.componentRef.setInput(name, value)` (replacing it used to kill the host's next write with
-  `inputSignalNode.applyValueToInputSignal is not a function`), and a read-only signal something has already read
-  says so rather than stranding it.
-
-- **`ResourceDouble` is a whole `ResourceRef`, and `hasValue()` follows Angular's value-based rule.** The double
-  answered `hasValue()` from its status, where Angular 22 answers it from the value, so a component branching on
-  `hasValue()` while loading took the wrong branch in the spec and the right one in production. It now also carries
-  `set`, `update`, `asReadonly`, `destroy` and `snapshot` with the semantics Angular gives them — a service that
-  hands out `asReadonly()` and a component that writes optimistically stop dying on a `TypeError` no compiler could
-  see — and a write through `value` moves the status to `'local'` instead of leaving it stale. `reload()` answers
-  `true` rather than `undefined`. **Breaking for a spec that asserts `hasValue()` in a non-resolved state**, and it
-  fails as a red assertion, never as a silent pass.
-
-- **`settleResource` takes an event-loop turn, and refuses a resource that never started.** Every round was a tick
-  plus a microtask, so a loader on a real timer could not settle and the helper reported a timeout of its own making;
-  from the third round each round also takes a macrotask turn, on a `setTimeout` captured at import so a faked clock
-  cannot freeze it, while the two common paths still cost nothing. A resource still `idle` is now a named failure
-  rather than a silent return — `idle` means the loader never ran and every assertion below was about to read the
-  default — with `{ allowIdle: true }` for the spec that asserts the idle state itself.
-
 - **`prefer-provide-auto-spy` names `selfReturning` for a chained call on a token.** Its token message
   used to recommend `provideAutoSpyForToken(LOGGER, { channel: vi.fn().mockReturnThis() })`, a seed
   that is stored verbatim and is no longer a spy; it now points at the third argument,
   `{ selfReturning: ["channel"] }`, which keeps `channel` assertable and configured under `strict`.
 
 ### Fixed
-
-- **A report measured in another checkout made the gate judge nothing and print an all-clear.** Paths
-  are re-based onto `PerfRun.root`, and a report whose files still land outside the working directory
-  is refused (exit 2) instead of producing an empty file set, no candidates and a positive verdict.
-- **The confirmation pass is checked to have actually narrowed.** A harness that ignores the paths it
-  is handed re-ran the whole suite and returned the same crowded number, which the gate reported as
-  "re-measured on its own". It now says the command ignored `{paths}` and confirms nothing.
-- **A `--gate-only` that matches nothing exits 2** instead of reporting that nothing was over budget;
-  a leading `./` is stripped, since a machine-generated list is where that spelling comes from.
-- **A file total is no longer suppressed by a body finding that failed to reproduce.** A 60-second
-  file passed the gate because its slowest body sat one millisecond over the body budget and then did
-  not confirm; the suppression now happens after confirmation, not before.
-- **A version 2 report with no per-test rows is no longer called "measured nothing".** The guard needs
-  both zero bodies **and** zero milliseconds of test time — the reporter treats the test collection as
-  optional, and an all-skipped shard is not a failed run.
-- **The gate refuses a red suite behind `--json` too**: the reporter records how many files failed, so
-  a handed-over report carries the one fact it used to lose.
-- **Duplicate test names collapse in the reporter** (`it.each` with no placeholder in the title gives
-  every case the same `fullName`): the slowest body of a name is kept, so one problem is reported once
-  and the second measurement belongs to the body it is attached to.
-- **`--command` refuses to run inside a measured run** (`VITEST_AUTO_SPY_PERF_OUT` already set), which
-  is what stops a composite `test` script from recursing, and the default report path carries the
-  process id so two runs cannot erase each other's report.
-- **Paths are quoted for the shell that will actually run them**: `cmd.exe` treats `'` as an ordinary
-  character, so the confirmation pass on Windows was handed quotes it could not read.
-- Budgets are clamped rather than trusted: `--max-file-ms 0 --factor 0` reported every file in the
-  repository, including the ones that ran nothing.
-- `perf` no longer offers `test.isolate: false` to a workspace whose builder already runs without
-  per-file isolation (`@angular/build:unit-test` passes it itself and overrides the runner config),
-  and its settings findings read every `vite*.config.*` in the repository rather than only the root.
-- **`perf` no longer prints a run that measured nothing as though it were a measurement.** Measured
-  on a workspace whose suite is built by the Angular unit-test builder: a bare run collected 1 830
-  files, every one of them failed on `describe is not defined` or an unresolved alias, and the
-  command reported "29.12s wall clock, 55.61s of CPU time" over a plausible-looking phase table —
-  because transform and environment are real seconds however the files ended. There are now two
-  guards: one before the run, which refuses a bare run in a repository with no root
-  `vite(st).config.*` whose `test` script does not invoke `vitest` (and names `--command` and
-  `--json` as the ways out), and one after it, which refuses any report in which no test body
-  finished. Both exit 2.
-- The perf reporter writes nothing at all unless `VITEST_AUTO_SPY_PERF_OUT` names a file, instead of
-  throwing. That is what lets a repository whose runner config cannot be rewritten per run — an
-  Angular builder that owns its `reporters` — declare it permanently and pay nothing for it.
-- `perf`'s settings findings read every `vite*.config.*` / `vitest*.config.*` in the repository, not
-  only `vitest.config.ts` at the root. A workspace that keeps its Vitest settings in a file of its
-  own was being told to cap a `maxWorkers` it had already capped.
-- **`runEffect` runs the previous run's cleanup, and refuses a destroyed effect.** It called the effect body only,
-  so `onCleanup` callbacks piled up and every re-run leaked the previous closure; it now runs `cleanup()` then the
-  body, the way Angular's own scheduler does, both under `untracked()` so a `computed()` wrapping the call no
-  longer adopts the effect's producers. An effect whose view was torn down, or whose `EffectRef.destroy()` has
-  run, is refused by name instead of being run again. Destruction is detected from two independent traces at once,
-  and an unrecognised shape runs the effect rather than refusing it.
-
-- **`toHaveSignalValue` no longer calls the spy it was handed.** A spec passing `service.load` instead of a signal
-  had the matcher **call** the spy, fail opaquely, and leave a recorded call behind that broke
-  `toHaveBeenCalledTimes` further down. It now recognises Angular's signal brand, refuses a spy by name without
-  reading it, and throws on a non-function rather than returning `{ pass: false }`, which `.not` could hide.
-
-- **`settleResource({ turns: 0 })` reports the rounds it actually spent.** It spent one and reported "after 0
-  rounds"; the count is now taken after the work, and `{ turns: 0 }` is a check that fails without spending one.
-
-- **`registerAutoSpyDefaults` from `vitest-auto-spy/angular` keeps a generic class's declared default
-  next to an accessor list and `returns`.** The class overload still had the shape `provideAutoSpy`
-  lost: `registerAutoSpyDefaults(FlagService, { gettersToSpyOn: ['flags'], returns: { isEnabled:
-  false } })` failed with `No overload matches this call`, the class overload reading `T` back from the
-  list as `{ flags: any }`. It now takes `T` from the class alone (`NoInfer`), as `provideAutoSpy`,
-  `overrideAutoSpy` and `overrideComponentProvider` do. The token overload never had the defect: `T`
-  is read off the `InjectionToken<T>` reference before the configuration is consulted, so
-  `registerAutoSpyDefaults(TOKEN, { observablePropsToSpyOn: […], returns: {…} })` compiles without a
-  type argument on TypeScript 5.4 through 6.0, and a type test now pins it. The core
-  `registerAutoSpyDefaults` keeps the trap for the same reason `createSpyFromClass` does — `NoInfer`
-  is above the core's TypeScript floor — so there the argument is still spelled out. Types only.
 
 - **`provideAutoSpy` keeps a generic class's declared default next to an accessor list and
   `returns`.** `provideAutoSpy(RemoteConfigService, { gettersToSpyOn: ['remoteConfig'], returns: {
@@ -457,42 +600,6 @@ The latest released version here must always match the one published on
   stored `setItem(1, …)` under the number and `getItem('1')` missed it; keys now go through
   `String()` as the platform's do, and `key()` converts its index as an `unsigned long` (`key(-1)` is
   `null`, `key(NaN)` is the first key). +37 B min+gzip on `/setup`.
-
-- **A seeded member of a type-driven double is never reconfigured by `returns` or `selfReturning`,
-  and no mock API is reached for on it.** `registerAutoSpyDefaults(LOGGER, { returns: {…},
-  selfReturning: ['channel'] })` in a setup file, then a spec seeding that very member —
-  `provideAutoSpyForToken(LOGGER, { channel: () => asInstance(channelLogger) })` — threw
-  `TypeError: asVitestMock(...).mockImplementation is not a function` out of the provider, before the
-  first line of the test ran. `createAutoMock` stores a seed verbatim, so the member the
-  configuration pass read back was the spec's own arrow function: not a spy, so the value could not
-  go into the library's container, and the fallback then handed a plain function to the adapter. The
-  merge rule already answers it — the call site outranks the registration, and a seed is documented
-  as returned verbatim — so a member named in `overrides` is now left exactly as it was seeded,
-  whatever `returns` or `selfReturning` say about it. That also settles the one case the old fallback
-  did reach: a seeded `vi.fn()` used to be overwritten by `returns` and now keeps its own
-  implementation, which is the same rule rather than a second one. Every member that survives the
-  seed check is one the double built itself, so that path no longer imports the adapter at all.
-
-- **`no-compile-components` names the `@defer` exception instead of promising more than it can
-  see.** Under an inlining builder the rule reported every `compileComponents()` as doing nothing —
-  but a component whose template holds a `@defer` block ships async class metadata, which that call
-  resolves whatever the builder did with the template, and removing it fails the test at run time
-  with `Component 'X' has unresolved metadata. Please call 'await TestBed.compileComponents()'`.
-  Measured on a 1 862-file suite: 410 files called it, and removing all of them broke exactly that
-  one class of file. The message now says the call is *usually* redundant, names the exception, and
-  spells the `// eslint-disable-next-line vitest-auto-spy/no-compile-components -- @defer: async
-  class metadata` that keeps such a call; the suggestion's own text carries the caveat too, since
-  that is what a bulk edit reads. What is reported did not change — a spec file shows nothing about
-  another file's template and this rule reads no types, so narrowing it by call shape would be a
-  guess wearing the clothes of a check.
-
-Size, min+gzip, measured commit by commit. Token registrations add 18 B to the core entry and 64 B to
-`/angular` (21.57 → 21.64 kB). `/jasmine` and `/nestjs` carry the same core and changed no line of
-their own: +415 B (12.45 → 12.87 kB) and +409 B (12.14 → 12.55 kB), past 3 % only because the base is
-smaller — 406 B and 392 B from the trackers and `selfReturning`, the rest from token registrations.
-`/setup` takes another 34 B from the `angular-router` link added to the shared documentation-link
-table. The four new lint rules add 2.57 kB to `/eslint-plugin` (26.95 → 29.52 kB), a dev-time entry
-no test bundle imports.
 
 ## [5.7.0] - 2026-09-11
 
@@ -5126,7 +5233,9 @@ by hand there, in more than one place, by more than one person.
   `mockAccessorsProp`.
 - Dual ESM + CJS build with type declarations; 100% test coverage.
 
-[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.7.0...HEAD
+[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.9.0...HEAD
+[5.9.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.8.0...v5.9.0
+[5.8.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.7.0...v5.8.0
 [5.7.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.6.0...v5.7.0
 [5.6.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.5.0...v5.6.0
 [5.5.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.4.0...v5.5.0
