@@ -111,6 +111,12 @@ selected.set(true); // every computed reading it updates
 It also removes the temptation to reach for `component.selected` and call `.set` on it — `Signal<T>`
 has no `set`, so that only type-checks behind an assertion.
 
+A member that is already a `signal()`, `model()` or `linkedSignal()` is written through rather than
+replaced, so it makes no difference whether the component has rendered yet. A `computed()` is
+replaced, and that has to happen before the first render — `mockSignalProp` says so instead of
+leaving the old value standing. An `input()` is refused outright: drive one with
+`fixture.componentRef.setInput(name, value)`.
+
 Use `mockReadonlyPropGetter` when the value must be recomputed on each read rather than replaced, and
 `mockValueProp` for an ordinary writable field.
 

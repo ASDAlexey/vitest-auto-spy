@@ -295,6 +295,42 @@ const { fixture, component } = renderShallow(TaskListComponent, {
 Обнуление шаблона сохраняет хуки жизненного цикла, входы, сигналы и DI — всё, что реально читает
 спека, проверяющая состояние на стороне TypeScript.
 
+### Смена входа посреди теста {#changing-an-input-mid-test}
+
+`inputs` закрывает первые значения, которые получает компонент. Всё, что после, спека пишет руками
+в две строки — по одному `componentRef.setInput` на имя, а потом ожидание, потому что zoneless-фикстура
+ничего не пересчитывает, пока её об этом не попросят. `setInputs` — это и есть та пара:
+
+```ts
+import { setInputs } from 'vitest-auto-spy/angular';
+
+await setInputs(fixture, { projectId: 7, filter: 'open' });
+expect(component.visible()).toEqual([openTask]);
+```
+
+Ожидание — это [`stable`](#zoneless-waiting), а третий аргумент — его опции: `{ timeout, label }`,
+когда спека ведёт больше одной фикстуры. Пропущенное ожидание — ровно та ошибка, ради которой
+хелпер и существует: проверка сразу после голого `setInput` читает состояние, которое произвело
+**предыдущее** значение, и спека падает на числе, которое было верным один рендер назад.
+
+Имена сверяются со скомпилированным определением до того, как проставлено первое, так что
+отклонённый вызов оставляет компонент ровно таким, каким он был. На имя, которого компонент не
+объявлял, `componentRef.setInput` отвечает `NG0303` в консоли и никаким изменением — опечатка, вход,
+переименованный уже после написания спеки, или обычное поле, принятое за вход, попадают сюда все,
+а следующая проверка падает на состоянии, которое никто не двигал. Работает любое написание
+алиасного входа: и поле класса, по которому построен тип, и публичное имя, которое биндит Angular.
+
+`model()` проставляется здесь как любой другой вход. Его **выходная** половина эмитит тогда, когда
+значение двигает сам компонент, — поэтому подписываемся до вызова, а ждём после:
+
+```ts
+const emitted = expectEmission(component.total); // подписались сейчас, пока ничего не сдвинулось
+
+await setInputs(fixture, { step: 3 });
+
+await expect(emitted).resolves.toBe(30); // эффект, который запустил новый step, уже отработал
+```
+
 ### Сколько это экономит — по замерам {#what-it-saves-measured}
 
 На приватной zoneless-сюите на Angular 22 (784 спеки, AOT-билдер `@angular/build:unit-test`) три
@@ -465,9 +501,30 @@ expect(products.value()).toEqual([product]);
 одно ожидание, чтобы принять доставку. Обычному `resource()` сброс не нужен, а значит не нужен и
 тик: `await settleResource(data)` — это всё.
 
-Ожидание завершается на любом устаканившемся статусе, включая `error` и `idle`: ждать их значило бы
-ждать того, чего уже не случится. По истечении срока оно называет ресурс и тот сброс, которого не
-хватает.
+Ожидание завершается на `resolved` и на `error`: запрос, который упал, уже закончился, и проверка
+для него — `toHaveResourceError`. Каждый круг — это тик плюс микротаск, а с третьего круга ещё и
+оборот цикла событий, так что загрузчик, который разрешается от настоящего таймера, от полифилла
+`fetch` или от `rxResource` поверх `timer(0)`, тоже доезжает; всё, что устаканивается за обычные
+один-два круга, за это не платит. `{ turns }` — это бюджет, и он тратится ровно так, как о нём потом
+сообщает падение, поэтому `{ turns: 0 }` — это форма «проверить и упасть». По истечении срока
+ожидание называет ресурс и тот сброс, которого не хватает.
+
+`idle` теперь падает, а не проходит молча, потому что это и есть та самая ловушка значения по
+умолчанию во плоти: вычисление `params()` вернуло `undefined`, загрузчик ни разу не выполнился,
+`value()` — всё ещё умолчание, и каждая проверка после ожидания прочитает это умолчание и пройдёт.
+
+```ts
+const productId = signal<string | undefined>(undefined); // спека его так и не выставила
+const product = TestBed.runInInjectionContext(() =>
+  resource({ params: () => productId(), loader: loadProduct, defaultValue: EMPTY_PRODUCT }),
+);
+
+await settleResource(product, { label: 'the product resource' });
+// [vitest-auto-spy] settleResource: the product resource never started — its status is 'idle', so
+// the loader has not run and `value()` is still the default every assertion below is about to read.
+```
+
+Передайте `{ allowIdle: true }`, когда состояние `idle` — это и есть то, что проверяет спека.
 
 ::: tip Три из этих строк — одна, `vitest-auto-spy/angular-http`
 Сниппет выше — общая форма, и за ней стоит тянуться, когда ожидание не привязано к одному запросу.
@@ -495,6 +552,76 @@ expect(products.value()).toEqual([product]);
 никогда не работал.
 :::
 
+### `httpResource()`, который живёт на компоненте {#an-httpresource-that-lives-on-a-component}
+
+Всё выше создаёт ресурс через `TestBed.runInInjectionContext`, потому что это самая короткая форма
+записи. В реальном коде это поле компонента, и меняется ровно одно — откуда берётся контекст
+инъекции: его выдаёт `renderShallow`, первая проверка изменений отправляет запрос, а ожидание всё то
+же самое:
+
+```ts
+@Component({
+  selector: 'app-product-list',
+  template: `
+    @for (product of products.value(); track product.id) {
+      <li class="product">{{ product.name }}</li>
+    }
+  `,
+})
+export class ProductListComponent {
+  readonly query = signal('');
+  readonly products = httpResource<Product[]>(() => `/api/products?q=${this.query()}`, { defaultValue: [] });
+}
+```
+
+```ts
+import { provideHttpClient } from '@angular/common/http';
+import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
+import { TestBed } from '@angular/core/testing';
+import { flushEffects, registerResourceMatchers, renderShallow, settleResource, stable } from 'vitest-auto-spy/angular';
+
+registerResourceMatchers(); // один раз, в setup-файле
+
+it('renders what it loaded, and re-requests when the query changes', async () => {
+  const { fixture, component } = renderShallow(ProductListComponent, {
+    providers: [provideHttpClient(), provideHttpClientTesting()],
+    keepTemplate: true,
+  });
+  const httpTesting = TestBed.inject(HttpTestingController);
+
+  // первая проверка изменений внутри renderShallow и есть тик — запрос уже ушёл
+  expect(component.products).toBeLoading();
+
+  httpTesting.expectOne('/api/products?q=').flush([{ id: 1, name: 'Anvil' }]);
+  await settleResource(component.products, { label: 'the product list' });
+
+  expect(component.products).toHaveResourceValue([{ id: 1, name: 'Anvil' }]);
+
+  await stable(fixture); // до этой строки вьюха отстаёт от значения на кадр
+  expect(fixture.nativeElement.querySelectorAll('.product')).toHaveLength(1);
+
+  component.query.set('anv');
+  flushEffects(); // здесь читается новый params(), и уходит второй запрос
+
+  httpTesting.expectOne('/api/products?q=anv').flush([]);
+  await settleResource(component.products, { label: 'the product list' });
+
+  expect(component.products).toHaveResourceValue([]);
+});
+```
+
+Отсюда стоит вынести две вещи: `renderShallow` уже тикнул, так что первый запрос существует ещё до
+первой проверки, и каждому последующему изменению сигнала, который читает вычисление `params()`,
+нужен свой `flushEffects()` перед следующим `expectOne` — запрос отправляет проверка изменений, а не
+`set()`. С [`expectRequest()`](/ru/adapters/angular-http) обе строки каждой пары сворачиваются в
+одну:
+
+```ts
+await expectRequest('/api/products?q=').flush([{ id: 1, name: 'Anvil' }]);
+
+expect(component.products).toHaveResourceValue([{ id: 1, name: 'Anvil' }]);
+```
+
 ### Пропустить запрос целиком — `mockResourceProp` {#skipping-the-request-entirely-—-mockresourceprop}
 
 Всё выше — ответ на случай, когда запрос и _есть_ суть проверки. Часто это не так: спека про
@@ -513,17 +640,23 @@ expect(component.emptyState()).toBe(true);
 products.set([product]); // status → 'resolved'
 expect(component.emptyState()).toBe(false);
 
-products.loading(); // status → 'loading', hasValue() → false
+products.loading(); // status → 'loading', значение остаётся прежним
 expect(component.spinner()).toBe(true);
 
-products.fail('offline'); // status → 'error', error() → Error('offline')
+products.fail('offline'); // status → 'error', error() → Error('offline'), hasValue() → false
 expect(component.errorMessage()).toBe('offline');
+
+products.idle(); // status → 'idle', снова начальное значение
+expect(component.placeholder()).toBe(true);
 ```
 
 Ничто никогда не находится в полёте, поэтому и ждать нечего — ни тика, ни сброса, ни бюджета, ни
 возможности случайно пройти проверку против значения по умолчанию. Ресурс стартует в `'resolved'` с
 начальным значением, потому что именно это состояние нужно большинству проверок и именно его иначе
-пришлось бы организовывать.
+пришлось бы организовывать. Второе частое начало — ресурс на `params`, который ещё не стартовал, и
+это аргумент, а не первая строка спеки:
+`mockResourceProp(service, 'products', [], { status: 'idle' })`. Назвать там можно любой статус,
+кроме `'error'`: ошибке нужна причина, а её принимает `fail()`.
 
 Реактивность настоящая: дубль построен на настоящих `signal()`, поэтому `computed()`, читающий
 `products.value()`, пересчитывается, а `effect()`, наблюдающий за `products.status()`, выполняется —
@@ -534,9 +667,32 @@ expect(component.errorMessage()).toBe('offline');
 | ------------- | ----------------------------------------------------------------- |
 | `set(value)`  | разрешить со значением; сбрасывает ошибку                         |
 | `fail(error)` | уронить с `Error` или строкой-сообщением                          |
-| `loading()`   | вернуть в полёт                                                   |
+| `loading()`   | вернуть в полёт, значение не трогая                               |
+| `idle()`      | вернуть в состояние «ещё не запускался», к начальному значению    |
 | `reload`      | спай на `reload()` — проверяйте вызов, ничего не переотправляется |
 | `resource`    | установленный дубль, чтобы проверять его напрямую                 |
+
+Дубль на свойстве — это целый `ResourceRef`, а не его читающая половина, потому что вторую половину
+вызывает как раз код под тестом: сервис отдаёт наружу `readonly products = this.#products.asReadonly()`,
+а оптимистичное обновление пишет прямо в ресурс. Каждый из этих членов делает то же, что и у
+настоящего Angular, включая то, что происходит со статусом.
+
+| У дубля                 | Что делает                                                                          |
+| ----------------------- | ----------------------------------------------------------------------------------- |
+| `value`                 | writable-сигнал; `value.set` / `value.update` переводят статус в `'local'`          |
+| `set(v)` / `update(fn)` | та же запись, записанная так, как её пишет Angular                                  |
+| `hasValue()`            | `true`, если статус не `'error'` и значение не `undefined`                          |
+| `snapshot()`            | `{ status, value }` или `{ status: 'error', error }` — то, что читает `@switch`     |
+| `asReadonly()`          | тот же самый дубль                                                                  |
+| `destroy()`             | назад в `'idle'` с начальным значением; последующие записи из кода ничего не делают |
+| `reload()`              | спай — `true`, пока спека не скажет иначе, и ничего не переотправляется             |
+
+`hasValue()` стоит перечитать дважды. С Angular v20 он опирается на значение, а не на статус: у
+ресурса, объявленного с `defaultValue`, значение определено с момента создания, поэтому `hasValue()`
+возвращает `true` и в `loading`, и в `reloading`, и в `idle`, а `false` — только в состоянии `error`
+или над `undefined`. Шаблон вида `@if (products.hasValue()) { … } @else { <spinner/> }` поэтому
+продолжает показывать список, пока грузится следующая страница, — а дубль, отвечавший по старому
+правилу от статуса, показывал вместо него спиннер.
 
 Откатывается через `restoreMockedProps()`, как и любая другая заплата на свойство, так что сюите с
 `setupAutoSpy()` собственная уборка не нужна.
@@ -586,8 +742,21 @@ runEffect(component.highlightEffect);
 expect(component.icon()).toBe('starFilled');
 ```
 
-`runEffect` выполняет тело с текущими значениями сигналов, с работающей регистрацией очистки и не
-помечая эффект чистым, — более поздний сброс ведёт себя как обычно.
+`runEffect` выполняет тело с текущими значениями сигналов и не помечает эффект чистым — более
+поздний сброс ведёт себя как обычно. Сначала он выполняет очистку, зарегистрированную предыдущим
+прогоном, ровно там же, где её выполняет собственный планировщик Angular, — так спека и наблюдает
+колбэк `onCleanup`:
+
+```ts
+runEffect(component.subscription); // здесь срабатывает очистка, зарегистрированная прошлым прогоном
+
+expect(component.unsubscribed).toBe(true);
+```
+
+Поэтому после двух вызовов на эффекте остаётся одна зарегистрированная очистка, а не две. Это важно
+для очистки, которая не идемпотентна, — `queue.pop()`, декремент счётчика, `unsubscribe` на общем
+сабджекте: раньше каждый вызов оставлял ещё одно замыкание, и все они срабатывали разом на
+`fixture.destroy()`.
 
 ::: warning Прежде чем тянуться вместо этого к `vi.mock('@angular/core')`
 Первый порыв — подменить `effect()` функцией тождества, чтобы колбэк стал чем-то, что спека держит в
@@ -598,11 +767,184 @@ expect(component.icon()).toBe('starFilled');
 эффекта в любом случае остаётся более долговечной формой.
 :::
 
+Уничтоженный эффект не выполняется, а отклоняется. После `fixture.destroy()` или после
+`effectRef.destroy()` Angular больше никогда не выполнил бы тело, поэтому спека, которая получает
+здесь прогон, проверяет то, чего продакшен произвести не может, — а проверяют в этот момент обычно
+как раз поведение при уничтожении. Сообщение называет починку: перенесите вызов выше `destroy()` или
+посмотрите, что осталось после уничтожения.
+
 Он читает реактивный узел Angular с `EffectRef`, то есть завязан на деталь, внутреннюю по
 договорённости. Если будущий Angular перенесёт тело эффекта, `runEffect` бросит исключение с
 сообщением, что проверять надо **результат** эффекта: выставьте сигналы, которые он читает, сделайте
 `await stable(fixture)` и посмотрите, что получилось. Это более долговечная форма везде, где она
 практична.
+
+## Подсчёт пересчётов и прогонов эффекта {#counting-recomputations-and-effect-runs}
+
+`computed()` возвращает одно и то же значение независимо от того, был он взят из кэша или пересчитан,
+поэтому «это не пересчиталось» — не та проверка, которую спека может написать, если только само
+вычисление не несёт в себе счётчик, то есть если ради теста не править продакшен-код.
+`trackRecomputations` и `trackEffectRuns` считают снаружи:
+
+```ts
+import { trackEffectRuns, trackRecomputations } from 'vitest-auto-spy/angular';
+
+const recomputed = trackRecomputations(component.total);
+const synced = trackEffectRuns(component.syncEffect);
+
+component.unrelatedFilter.set('open');
+await stable(fixture);
+
+expect(component.total()).toBe(42);
+expect(recomputed.count).toBe(0);
+expect(synced.count).toBe(0);
+```
+
+Оба возвращают `{ count, stop() }`. `count` живой — читайте его столько раз, сколько нужно спеке, —
+а `stop()` возвращает узлу его собственный член. То же делает `restoreMockedProps()`, а значит и
+`setupAutoSpy()` после каждого теста, так что спека, которая до `stop()` не дошла, всё равно ничего
+за собой не оставляет.
+
+`trackRecomputations` считает **вычисление**, а не чтения: `computed()`, прочитанный десять раз без
+изменения входов, пересчитывается один раз. Он принимает `computed()` или `linkedSignal()`; обычный
+`signal()` хранит значение, а не вычисляет его, и отклоняется с указанием на подходящий хелпер.
+`trackEffectRuns` считает каждый прогон, кто бы его ни запросил: сброс планировщика,
+`stable(fixture)`, `runEffect()` того же эффекта.
+
+## `window` и `document`, не теряя настоящих {#window-and-document-without-losing-the-real-one}
+
+Это два самых рукописных провайдера, какие бывают в ангуляровской сюите: 95 штук на `window` и 70 на
+`document` в двух приватных сюитах — и написаны они тремя способами. `useValue: window` не изолирует
+ничего: всё, что тест записал, остаётся там до конца воркера. Срез — `{ screen: { width: 1280, height: 720 } }`.
+И `mockDocument` с одним написанным вручную `querySelector`. У последних двух общая беда: компонент
+читает `screen.colorDepth` или вызывает `document.createElement` и получает `undefined` — дубль знает
+только те члены, о которых подумал его автор, и спека падает там, где к проверяемому нет никакого
+отношения.
+
+`provideWindowDouble` / `provideDocumentDouble` вместо этого накладывают переопределения **поверх
+настоящего jsdom-объекта**:
+
+```ts
+import { provideDocumentDouble, provideWindowDouble } from 'vitest-auto-spy/angular';
+
+TestBed.configureTestingModule({
+  providers: [provideWindowDouble(WINDOW, { screen: { width: 1920, height: 1080 } }), provideDocumentDouble({ visibilityState: 'hidden' })],
+});
+```
+
+`screen.colorDepth`, `location.href`, `getComputedStyle`, `addEventListener`,
+`document.createElement` и всё остальное, чего переопределения не назвали, отвечают ровно так, как
+отвечает jsdom.
+
+| Вызов                                                                 | Что делает                                                               |
+| --------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| `provideWindowDouble(token, overrides?)`                              | `FactoryProvider` под собственный оконный токен приложения               |
+| `provideDocumentDouble(overrides?, token?)`                           | то же самое под ангуляровским `DOCUMENT` — или под своим токеном         |
+| `createWindowDouble(overrides?)` / `createDocumentDouble(overrides?)` | те же дубли без `TestBed` — для `new LayoutProbe(win)` или голой функции |
+
+Четыре вещи, которые стоит знать:
+
+- **Оконный хелпер принимает ваш токен, документному токен не нужен.** Angular поставляет `DOCUMENT`,
+  начиная с v20 — прямо из `@angular/core`. А `WINDOW` он не поставлял никогда: каждое приложение
+  объявляет свой `InjectionToken<Window>`, поэтому `provideWindowDouble` этот токен надо передать.
+  Хелпер обобщён по типу токена, так что у `InjectionToken<AppWindow>` в переопределениях проверятся
+  и собственные члены этого интерфейса.
+- **Простой `{ … }` вливается в член, всё остальное его заменяет.** `{ screen: { width: 1920 } }`
+  оставляет `screen.colorDepth` настоящим, а `vi.fn()`, массив, `URL` или экземпляр заглушки
+  становятся членом целиком: это вещи, которые спека собрала вместо члена, а не его описания.
+- **Восстанавливать нечего.** Настоящие `window` и `document` не патчатся вовсе: дубль — это вид на
+  них, и всякая запись и всякое удаление из проверяемого кода попадают в этот вид. Так же спека
+  двигает значение по ходу теста: `Object.assign(TestBed.inject(WINDOW), { scrollY: 40 })` — именно
+  `Object.assign`, а не присваивание, потому что в lib.dom почти весь `Window` объявлен `readonly`.
+  Никакой ручки запоминать не надо, и `restoreMockedProps()` вспоминать тоже.
+- **Фабрика, а не `useValue`.** Каждый инжектор собирает свой дубль, поэтому массив провайдеров,
+  поднятый в константу модуля, не может перенести записи одного теста в следующий.
+
+::: warning `provideDocumentDouble` отдаёт дубль и самому Angular
+Переопределение `DOCUMENT` для тестового модуля означает, что его инжектит и рендерер. Подмена
+`createElement` или `body` поэтому меняет не только то, что читает компонент, но и то, как собирается
+фикстура, — подменяйте их только там, где спека этого и добивается.
+:::
+
+## Диалог Material — без Material в зависимостях {#the-material-dialog-without-material-as-a-dependency}
+
+Три провайдера, 36 штук на две приватные сюиты, и каждый раз это одни и те же три формы: объект
+(или `null`) на `MAT_DIALOG_DATA`, самодельный `{ close: vi.fn() }` на `MatDialogRef` и спай на сам
+`MatDialog`.
+
+Ломается именно тот, что про ref, причём дважды. `close` — единственный член, который кто-либо
+пишет, поэтому компонент, подписанный на `afterClosed()`, падает с «is not a function»; а починка,
+которую дописывают рядом, `afterClosed: () => of('saved')`, отдаёт результат ещё до того, как диалог
+кто-то закрыл, — и спека проходит независимо от того, звали `close()` вообще или нет.
+
+```ts
+import { MAT_DIALOG_DATA, MatDialogRef } from '@angular/material/dialog';
+import { expectEmission, injectMatDialogRef, provideMatDialogData, provideMatDialogRef } from 'vitest-auto-spy/angular';
+
+TestBed.configureTestingModule({
+  providers: [provideMatDialogData<EditUserData>(MAT_DIALOG_DATA, { id: 7, name: 'Ada' }), provideMatDialogRef(MatDialogRef)],
+});
+
+const dialog = injectMatDialogRef(MatDialogRef);
+
+TestBed.createComponent(EditUserDialog).componentInstance.save();
+
+expect(dialog.close).toHaveBeenCalledWith('saved');
+await expect(expectEmission(dialog.ref.afterClosed())).resolves.toBe('saved');
+```
+
+::: info `@angular/material` не зависимость этого пакета и ею не станет
+Библиотека не тянет за собой ни одной рантайм-зависимости, а диалог — форма одной библиотеки
+компонентов, а не Angular. Поэтому токен и класс ref передаются **аргументами**, а не импортируются
+здесь: `MatDialogRef` — это и DI-токен, и форма, по которой меряется дубль, и тип, из которого
+читается результат, так что импорт в вашей же спеке остаётся единственным местом, где Material
+назван.
+:::
+
+| Вызов                                     | Что делает                                                                                       |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `provideMatDialogData(token, data)`       | типизированный `{ provide, useValue }` — назовите тип-аргумент, и данные будут проверены по нему |
+| `provideMatDialogRef(RefClass, init?)`    | `FactoryProvider` — свой ref на каждый инжектор; `init`: `closedWith`, `disableClose`            |
+| `injectMatDialogRef(RefClass, injector?)` | ручка: `.ref`, `.close` (спай), `emitClose(result?)`                                             |
+| `createMatDialogRef(RefClass, init?)`     | та же ручка без `TestBed` — и тот самый ref, который отдаёт заспаенный `MatDialog.open()`        |
+
+### Как его открыть: `MatDialog` не нужна отдельная обёртка {#opening-one-matdialog-needs-no-helper-of-its-own}
+
+`provideAutoSpy(MatDialog)` уже делает из него спай. В рецепте не хватало ref, который возвращает его
+`open()`, — а это и есть дубль, засеянный тем результатом, который пользователь сейчас выберет:
+
+```ts
+TestBed.configureTestingModule({ providers: [provideAutoSpy(MatDialog)] });
+
+injectSpy(MatDialog).open.mockReturnValue(createMatDialogRef(MatDialogRef, { closedWith: 'saved' }).ref);
+
+fixture.componentInstance.edit(); // открывает, пропускает afterClosed() через pipe, получает 'saved'
+```
+
+Обёртки `openDialogReturning()` нет намеренно: она сказала бы `mockReturnValue` другими словами и при
+этом была бы обязана знать тип самого `MatDialog` — ровно то, что эта конструкция и выносит наружу.
+
+Четыре вещи, которые стоит знать:
+
+- **`close` — это спай, и это та же самая функция, которую несёт ref.** `expect(dialog.close)` и
+  `expect(TestBed.inject(MatDialogRef).close)` — одна и та же проверка, так что компонент, который
+  проверяли по-старому, читается ровно так же. `emitClose(result?)` — вторая половина: пользователь
+  закрывает диалог снаружи, потоки двигаются, а спай не записывает ничего; и это единственный способ
+  закрыть с `undefined` — то есть отменой, чего `closedWith` выразить не может.
+- **`afterClosed()` реплеится, тогда как у Material это обычный `Subject`.** Единственное
+  сознательное расхождение: в спеке проверка обычно подписывается _после_ того, как компонент уже
+  закрыл диалог, а `Subject` к этому моменту сказать уже нечего. `beforeClosed()` — тот же поток
+  (дубль закрывается мгновенно, промежутка между ними нет), а `afterOpened()` уже отдал значение и
+  завершился.
+- **Material объявляет `MAT_DIALOG_DATA` как `InjectionToken<any>`** — потому-то `useValue: null` и
+  компилируется для компонента, который читает `data.name`. `provideMatDialogData<EditUserData>(…)`
+  проверяет объект по названному типу; свой `InjectionToken<EditUserData>` проверяет его, ничего не
+  называя. Значение отдаётся как есть, поэтому собирайте его на каждый тест, а не поднимайте в
+  константу модуля.
+- **Всё остальное, что объявляет класс ref, бросает по имени.** `backdropClick`, `keydownEvents`,
+  `updateSize`, `updatePosition` и `getState` — это работа самого диалога: дубль называет член в
+  сообщении об ошибке вместо того, чтобы вернуть `undefined`, а ответ на такое — настоящий
+  `MatDialogModule` и `MatDialog`, который по-настоящему его открывает.
 
 ## Моки модулей под unit-test-билдером {#module-mocks-under-the-unit-test-builder}
 
@@ -964,6 +1306,13 @@ expect(component.items).toHaveSignalValue([{ id: 1 }]);
 что не является геттером без аргументов, — так что ошибка с забытыми скобками падает, а не проходит
 втихую.
 
+Спай — тоже вызываемое значение без аргументов, поэтому матчер распознаёт его и отвергает **не
+читая**: иначе `expect(service.load).toHaveSignalValue(undefined)` прошёл бы по `undefined`, который
+возвращает ненастроенный спай, и оставил бы после себя лишний вызов, на котором споткнётся
+следующий `toHaveBeenCalledTimes`. Отказ бросает исключение, а не проваливает проверку мягко, так
+что и `.not` его не спрячет; если имелся в виду сигнал — положите настоящий сигнал в свойство через
+`mockSignalProp`. Обычный геттер без аргументов по-прежнему читается.
+
 ## Мокирование свойств-сигналов и readonly-свойств {#signal-readonly-property-mocking}
 
 ```ts
@@ -1033,6 +1382,27 @@ expect(component.label()).toBe('42 items');
 
 Возврат ручки заодно снимает соблазн взять `service.count` и позвать на нём `.set`: у `Signal<T>`
 нет `set`, так что это проходит проверку типов только через приведение.
+
+**Что он подменяет, а что нет.** Angular связывает потребителя с тем сигналом, который тот прочитал,
+а не со свойством, через которое прочитал. Спека, которая сперва рендерит, а потом патчит, оставила
+бы каждый `computed()`, `effect()` и биндинг в шаблоне на старом сигнале до конца теста — вместе с
+закэшированным значением и без единого слова об этом. Поэтому член, который и так записываемый —
+`signal()`, `model()`, `linkedSignal()`, — не подменяется: хелпер пишет в тот сигнал, который у
+класса уже есть, и возвращает именно его. Порядок перестаёт иметь значение, у `model()` остаётся
+живой выходная половина, а `restoreMockedProps()` нечего возвращать на место — значение просто
+остаётся там, куда его поставила спека, и заметно это только на объекте, который живёт дольше теста.
+
+Подмена осталась для двух форм, писать в которые некуда: объявленного классом `computed()` и члена,
+которого у спая ещё нет. Их по-прежнему надо патчить **до того, как их кто-нибудь прочитает** — до
+первого `detectChanges()` / `stable(fixture)`, — и хелпер это проверяет, а не предполагает.
+Readonly-сигнал, который уже прочитал живой потребитель, он назовёт по имени и откажется подменять
+там, где подмены никто бы не заметил.
+
+От `input()` он отказывается сразу. Angular выставляет вход через узел входа, а не через свойство,
+поэтому подменённый вход ломает следующую запись со стороны хоста сообщением
+`inputSignalNode.applyValueToInputSignal is not a function`. Управляйте им штатно:
+`fixture.componentRef.setInput('mode', value)` по ходу теста или
+`renderShallow(Component, { inputs: { … } })` для начального значения.
 
 ## На что спека тратит время {#where-a-spec-spends-its-time}
 
@@ -1341,13 +1711,13 @@ expect(chart.series()).toEqual([1, 2, 3]); // сигнальный вход ос
 chart.pointSelected.emit(2); // выход, который слушает родитель
 ```
 
-| Копируется из определения                                             | Не копируется                                                             |
-| --------------------------------------------------------------------- | ------------------------------------------------------------------------- |
-| селектор — компилируется обратно в тот же список селекторов           | шаблон: заглушка рендерит по одному `<ng-content>` на слот проекции      |
-| каждый вход под публичным именем, с алиасом и трансформом             | хост-биндинги и хост-директивы                                            |
+| Копируется из определения                                                        | Не копируется                                                                      |
+| -------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| селектор — компилируется обратно в тот же список селекторов                      | шаблон: заглушка рендерит по одному `<ng-content>` на слот проекции                |
+| каждый вход под публичным именем, с алиасом и трансформом                        | хост-биндинги и хост-директивы                                                     |
 | `input()` как сигнальный вход, `model()` как модель, вход-декоратор как свойство | провайдеры, так что ничего из предоставляемого ребёнком до его контента не доходит |
-| каждый выход, как `EventEmitter`                                      | хуки жизненного цикла и запросы                                           |
-| `exportAs`; у пайпа — имя и чистота                                   | всё, что не засеяно вторым аргументом                                     |
+| каждый выход, как `EventEmitter`                                                 | хуки жизненного цикла и запросы                                                    |
+| `exportAs`; у пайпа — имя и чистота                                              | всё, что не засеяно вторым аргументом                                              |
 
 Второй аргумент засевает члены каждого экземпляра, копируя их на каждый экземпляр отдельно, — метод,
 который родитель зовёт через `viewChild`, или `transform` пайпа, по умолчанию тождественный:

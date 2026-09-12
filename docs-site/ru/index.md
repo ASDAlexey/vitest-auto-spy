@@ -38,6 +38,9 @@ features:
   - title: Angular, NestJS, React, Vue, Svelte
     details: 'У каждого фреймворка своя входная точка — провайдеры DI, поверхностный TestBed без дочернего поддерева, заглушки детей, которые createComponentStub читает из настоящего определения, чтобы селектор и инпуты не разъехались, сигналы и ресурсы, которыми спека управляет руками. provideActivatedRoute отдаёт Angular его собственный ActivatedRoute поверх одной записи, createActivatedRoute — то же без TestBed; сеттер на injectActivatedRoute() сначала заменяет snapshot и эмитит только те потоки, что сдвинулись, тогда как setRouteParam в Spectator 22.1 переизлучает все пять. stubWebStorage подменяет localStorage на один тест, а restoreMockedProps возвращает прежний.'
     link: /ru/adapters/angular
+  - title: Провайдеры, которые каждая сюита пишет руками
+    details: 'provideRouterDouble выводит url, routerState и events из одного URL вместо четырёх догадок самодельного Router, а navigate отвечает true; provideWindowDouble и provideDocumentDouble подмешивают названное спекой поверх настоящего jsdom-объекта, поэтому член, о котором никто не подумал, по-прежнему отвечает, а сами глобальные объекты не патчатся; provideMatDialogData и provideMatDialogRef закрывают троицу материального диалога, а @angular/material не становится зависимостью пакета. mockSignalProp пишет сквозь член, который уже является signal(), model() или linkedSignal(), а не подменяет его, поэтому computed, effect или шаблон, прочитавшие его первыми, остаются связанными; setInputs меняет вход посреди теста, а trackRecomputations считает, что действительно пересчиталось.'
+    link: /ru/adapters/angular
   - title: Строгий режим вместо undefined
     details: 'Метод, который никто не настроил, бросает с именем класса, метода и аргументами в сообщении, а не возвращает undefined, падающий тремя кадрами позже. Бросок, который код под тестом поймал — try/catch, оператор без обработчика ошибки, — всё равно роняет тест после его конца, а намеренный забирается функцией takeStrictViolations(). Геттер, который никто не настроил, и поток, который никто не накормил, попадают в отчёт после теста с unconfiguredReads, а сначала обследуются через onUnstubbedRead.'
     link: /ru/core/strict-mode
@@ -190,7 +193,7 @@ users.save.rejectWith(new HttpError(409));
 <div class="vas-fact"><b>0</b><span>runtime-зависимостей</span></div>
 <div class="vas-fact"><b>4</b><span>среды, одно ядро</span></div>
 <div class="vas-fact"><b>5</b><span>адаптеров фреймворков</span></div>
-<div class="vas-fact"><b>34</b><span>правила линтера</span></div>
+<div class="vas-fact"><b>36</b><span>правил линтера</span></div>
 <div class="vas-fact"><b>100%</b><span>покрытие ядра</span></div>
 
 </div>

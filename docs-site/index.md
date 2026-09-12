@@ -38,6 +38,9 @@ features:
   - title: Angular, NestJS, React, Vue, Svelte
     details: 'Every framework has its own entry point — DI providers, a shallow TestBed that skips the child subtree, child stubs that createComponentStub reads off the real definition so the selector and the inputs cannot drift, signals and resources a spec can drive by hand. provideActivatedRoute gives Angular its own ActivatedRoute over one record, createActivatedRoute the same without a TestBed; a setter on injectActivatedRoute() replaces the snapshot first and emits only the streams that moved, where the setRouteParam of Spectator 22.1 re-emits all five. stubWebStorage swaps localStorage for one test, and restoreMockedProps puts the old one back.'
     link: /adapters/angular
+  - title: The providers every suite hand-rolls
+    details: 'provideRouterDouble derives url, routerState and events from one URL instead of the four a hand-built Router guesses at, and navigate answers true; provideWindowDouble and provideDocumentDouble merge what the spec names over the real jsdom object, so the member nobody thought of still answers and the globals are never patched; provideMatDialogData and provideMatDialogRef cover the Material dialog trio while @angular/material stays out of this package. mockSignalProp writes through a member that already is a signal(), model() or linkedSignal() rather than replacing it, so a computed, an effect or a template that read it first is still connected; setInputs changes an input mid-test, and trackRecomputations counts what actually re-ran.'
+    link: /adapters/angular
   - title: Strict mode instead of undefined
     details: 'The method nobody stubbed throws with the class, the method and the arguments in the message, rather than returning undefined that fails three frames later. A throw the code under test caught — a try/catch, an operator with no error handler — fails the test afterwards anyway, and one provoked on purpose is taken with takeStrictViolations(). A getter nobody configured or a stream nobody fed is reported after the test under unconfiguredReads, and surveyed first with onUnstubbedRead.'
     link: /core/strict-mode
@@ -191,7 +194,7 @@ from a type or an interface.
 <div class="vas-fact"><b>0</b><span>runtime dependencies</span></div>
 <div class="vas-fact"><b>4</b><span>runtimes, one core</span></div>
 <div class="vas-fact"><b>5</b><span>framework adapters</span></div>
-<div class="vas-fact"><b>34</b><span>lint rules</span></div>
+<div class="vas-fact"><b>36</b><span>lint rules</span></div>
 <div class="vas-fact"><b>100%</b><span>covered core</span></div>
 
 </div>

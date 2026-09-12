@@ -82,15 +82,19 @@ describe('TaskService', () => {
 ```
 
 One `configureTestingModule` per `describe` — reconfiguring per `it()` recompiles the module every
-test. Use `mockReadonlyProp(component, 'selected', signal(true))` for the signals of the class under
-test, `await stable(fixture)` before asserting zoneless state, `renderShallow` for components — `prefer-render-shallow` reports the `TestBed.createComponent` in a file that reads no markup back, and the rewrite is a suggestion rather than a `--fix` because `renderShallow` configures the module itself. For an
+test. Use `mockSignalProp(service, 'count', 0)` for a signal on a collaborator — a member that already is
+a `signal()`, `model()` or `linkedSignal()` is written through rather than replaced, so patching after
+the first render is no longer a silent no-op, while an `input()` is refused by name (change one with
+`await setInputs(fixture, { … })`). `await stable(fixture)` before asserting zoneless state, `renderShallow` for components — `prefer-render-shallow` reports the `TestBed.createComponent` in a file that reads no markup back, and the rewrite is a suggestion rather than a `--fix` because `renderShallow` configures the module itself. For an
 `httpResource()`, `await expectRequest(url).flush(body)` from `vitest-auto-spy/angular-http` is the
 whole dance — the request is issued by `flushEffects()`, not on creation, and the value is settled
 before the promise resolves; by hand it is six steps and asserting early reads the resource's
 default value and passes emptily. For a `resource()` with no single request behind it, drive it and
 `await settleResource(r)`. When the request is not what the spec is about, skip it: `mockResourceProp(service,
-'products', [])` gives a double whose `set` / `fail` / `loading` move it directly, with nothing in
-flight to await.
+'products', [])` gives a whole `ResourceRef` double — `set` / `fail` / `loading` / `idle` move it
+directly, `value` is writable, `hasValue()` follows Angular's value-based rule, and there is nothing
+in flight to await; `settleResource` refuses a resource that is still `idle`, because an idle one
+never ran its loader and every assertion below it would read the default.
 
 ## Migrating a suite off `jest-auto-spies`
 
@@ -133,7 +137,7 @@ it('loads', async () => {
 
 | Situation                                                                                 | Helper                                                                                                           |
 | ----------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| a `signal()` / `computed()` field on the class under test                                 | `mockSignalProp(obj, prop, initial)` — returns the writable                                                      |
+| a `signal()` / `computed()` field on the class under test                                 | `mockSignalProp(obj, prop, initial)` — writes through a writable one; an `input()` is refused                    |
 | a resource field, when the HTTP round trip is not the point                               | `mockResourceProp(obj, prop, initial)` — `set` / `fail` / `loading`                                              |
 | the HTTP round trip _is_ the point                                                        | `expectRequest(url).flush(body)` — `/angular-http`, settling included                                            |
 | a component or service that reads `ActivatedRoute`                                        | `provideActivatedRoute({ params })`, then `injectActivatedRoute().setParams(…)` — `/angular-router`              |
@@ -215,6 +219,11 @@ it('loads', async () => {
 | a `TestingStorage` class for `localStorage` / `sessionStorage`                            | `stubWebStorage('localStorage', { items })` from `/dom-stubs` — `snapshot()` to assert |
 | `'x' does not exist in type 'MethodReturns<{ y: any; }>'` on a generic class              | spell out the type argument — `createSpyFromClass<Config>(Config, …)`; `provideAutoSpy` infers it |
 | "did the migration lose a test?" with matching counters                                   | `compareTestRuns(before, after)`                                                                                 |
+| an input that has to change after the first render                                        | `await setInputs(fixture, { … })` — one `setInput` per name, one wait                                            |
+| a component that navigates, or reads `router.url`                                         | `provideRouterDouble({ url })` + `injectRouterDouble()` — `/angular-router`                                      |
+| a `window` or `document` behind a DI token                                                | `provideWindowDouble(WINDOW, { screen })` / `provideDocumentDouble({ … })`                                       |
+| `MAT_DIALOG_DATA` and `MatDialogRef` provided by hand                                     | `provideMatDialogData(TOKEN, data)` / `provideMatDialogRef(MatDialogRef)`                                        |
+| asserting a `computed()` did **not** recompute                                            | `trackRecomputations(sig)` / `trackEffectRuns(ref)` — `{ count, stop() }`                                        |
 
 ## Rules that prevent most of the mistakes
 
@@ -394,6 +403,12 @@ without it the test dies on `has unresolved metadata`. **Never `await` the TestB
 suggestion does. `TestBed.inject(TOKEN)` and `runInInjectionContext(fn)` are not reported, because
 either can genuinely hold a promise, and `compileComponents()` / `whenStable()` /
 `whenRenderingDone()` / `getDeferBlocks()` keep their `await`.
+
+**Never provide a hand-built `ActivatedRoute`** — `prefer-provide-activated-route` reports every
+`useValue` / `useClass` / `useFactory` / `useExisting` on that token, and `provideAutoSpy(ActivatedRoute)`
+with a message of its own, because a double of it knows either the streams or the snapshot and never
+both. `provideActivatedRoute({ params })` and `createActivatedRoute({ params })` are the two shapes it
+stays silent on, by shape rather than by import.
 
 **`prefer-observer-stub` reports an observer global replaced by hand** — `globalThis.IntersectionObserver = class { … }`, `vi.stubGlobal('ResizeObserver', …)`, `vi.spyOn(globalThis, 'MutationObserver')` — and names `stubIntersectionObserver()` / `stubResizeObserver()` / `stubMutationObserver()` instead. Take the `let original = globalThis.X` and the `afterEach` that assigns it back out with the block: the helper installs through `mockValueProp`, so `restoreMockedProps()` already owns the undo, and a restore written inside an `it` never runs once a test above it goes red.
 

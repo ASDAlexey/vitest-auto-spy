@@ -302,6 +302,42 @@ const { fixture, component } = renderShallow(TaskListComponent, {
 template keeps lifecycle hooks, inputs, signals and DI — everything a spec that asserts on
 TypeScript state actually reads.
 
+### Changing an input mid-test
+
+`inputs` covers the first values a component is given. Everything after it is the two lines a spec
+writes by hand — one `componentRef.setInput` per name, then a wait, because a zoneless fixture
+recomputes nothing until something asks it to. `setInputs` is that pair:
+
+```ts
+import { setInputs } from 'vitest-auto-spy/angular';
+
+await setInputs(fixture, { projectId: 7, filter: 'open' });
+expect(component.visible()).toEqual([openTask]);
+```
+
+The wait is [`stable`](#zoneless-waiting), and the third argument is its options — `{ timeout, label }`
+when a spec drives more than one fixture. Leaving it out is the failure this helper exists for: an
+assertion placed straight after a bare `setInput` reads the state the **previous** value produced, and
+the spec then fails on a number that was right one render ago.
+
+The names are checked against the compiled definition before the first one is set, so a refused call
+leaves the component exactly as it was. `componentRef.setInput` answers a name the component does not
+declare with an `NG0303` on the console and no change at all — a typo, an input renamed since the
+spec was written, or a plain field mistaken for an input all land there, and the assertion that
+follows fails on state nothing moved. Either spelling of an aliased input works: the class field the
+type is keyed by, or the public name Angular binds.
+
+A `model()` is set here like any other input. Its **output** half emits when the component itself
+moves the value, so subscribe before the call and await after it:
+
+```ts
+const emitted = expectEmission(component.total); // subscribed now, before anything moves
+
+await setInputs(fixture, { step: 3 });
+
+await expect(emitted).resolves.toBe(30); // the effect the new step started has already run
+```
+
 ### What it saves, measured
 
 On a private Angular 22 zoneless suite (784 specs, the AOT `@angular/build:unit-test` builder), three
@@ -467,9 +503,30 @@ amount of waiting fixes. One tick to get the request out, your flush, then one w
 delivery. A plain `resource()` needs no flush and so needs no tick: `await settleResource(data)` is
 the whole of it.
 
-The wait ends on any settled status, `error` and `idle` included — waiting for those would be
-waiting for something that cannot happen. On expiry it names the resource and the flush it is
+The wait ends on `resolved` and on `error` — a request that threw has finished, and
+`toHaveResourceError` is the assertion for it. Each round is a tick plus a microtask, and from the
+third round an event-loop turn as well, so a loader resolving from a real timer, a `fetch` polyfill
+or an `rxResource` over `timer(0)` gets there too; nothing that settles in the usual one or two
+rounds pays for that. `{ turns }` is the budget and it is spent exactly as the failure reports it, so
+`{ turns: 0 }` is the check-and-fail form. On expiry it names the resource and the flush it is
 missing.
+
+`idle` fails instead of passing quietly, because it is the default-value trap in person: the
+`params()` computation returned `undefined`, the loader never ran, `value()` is still the default,
+and every assertion after the wait would read that default and pass.
+
+```ts
+const productId = signal<string | undefined>(undefined); // the spec never set it
+const product = TestBed.runInInjectionContext(() =>
+  resource({ params: () => productId(), loader: loadProduct, defaultValue: EMPTY_PRODUCT }),
+);
+
+await settleResource(product, { label: 'the product resource' });
+// [vitest-auto-spy] settleResource: the product resource never started — its status is 'idle', so
+// the loader has not run and `value()` is still the default every assertion below is about to read.
+```
+
+Pass `{ allowIdle: true }` when the idle state is itself what the spec asserts.
 
 ::: tip Three of those lines are one — `vitest-auto-spy/angular-http`
 The snippet above is the general form, and it is what to reach for when the wait is not tied to one
@@ -495,6 +552,76 @@ finishes the whole budget having issued zero requests, then fails saying the con
 met. Its docstring used to claim this exact use case; it never worked.
 :::
 
+### An `httpResource()` that lives on a component
+
+Everything above creates the resource through `TestBed.runInInjectionContext`, because that is the
+shortest form to write down. The shape people actually ship is a field on a component, and the only
+thing that changes is where the injection context comes from — `renderShallow` supplies it, the
+first change detection issues the request, and the wait is the same one:
+
+```ts
+@Component({
+  selector: 'app-product-list',
+  template: `
+    @for (product of products.value(); track product.id) {
+      <li class="product">{{ product.name }}</li>
+    }
+  `,
+})
+export class ProductListComponent {
+  readonly query = signal('');
+  readonly products = httpResource<Product[]>(() => `/api/products?q=${this.query()}`, { defaultValue: [] });
+}
+```
+
+```ts
+import { provideHttpClient } from '@angular/common/http';
+import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
+import { TestBed } from '@angular/core/testing';
+import { flushEffects, registerResourceMatchers, renderShallow, settleResource, stable } from 'vitest-auto-spy/angular';
+
+registerResourceMatchers(); // once, in the setup file
+
+it('renders what it loaded, and re-requests when the query changes', async () => {
+  const { fixture, component } = renderShallow(ProductListComponent, {
+    providers: [provideHttpClient(), provideHttpClientTesting()],
+    keepTemplate: true,
+  });
+  const httpTesting = TestBed.inject(HttpTestingController);
+
+  // renderShallow's first change detection is the tick — the request is already out.
+  expect(component.products).toBeLoading();
+
+  httpTesting.expectOne('/api/products?q=').flush([{ id: 1, name: 'Anvil' }]);
+  await settleResource(component.products, { label: 'the product list' });
+
+  expect(component.products).toHaveResourceValue([{ id: 1, name: 'Anvil' }]);
+
+  await stable(fixture); // the view is one frame behind the value until this
+  expect(fixture.nativeElement.querySelectorAll('.product')).toHaveLength(1);
+
+  component.query.set('anv');
+  flushEffects(); // the new params() is read here, and the second request goes out
+
+  httpTesting.expectOne('/api/products?q=anv').flush([]);
+  await settleResource(component.products, { label: 'the product list' });
+
+  expect(component.products).toHaveResourceValue([]);
+});
+```
+
+Two things are worth reading off that: `renderShallow` already ticked, so the first request exists
+before the first assertion, and every later change to a signal the `params()` computation reads needs
+its own `flushEffects()` before the next `expectOne` — the request is issued by change detection, not
+by the `set()`. With
+[`expectRequest()`](/adapters/angular-http) both lines of each pair collapse into one:
+
+```ts
+await expectRequest('/api/products?q=').flush([{ id: 1, name: 'Anvil' }]);
+
+expect(component.products).toHaveResourceValue([{ id: 1, name: 'Anvil' }]);
+```
+
 ### Skipping the request entirely — `mockResourceProp`
 
 Everything above is the answer when the request _is_ the point. Often it is not: the spec is about a
@@ -512,17 +639,23 @@ expect(component.emptyState()).toBe(true);
 products.set([product]); // status → 'resolved'
 expect(component.emptyState()).toBe(false);
 
-products.loading(); // status → 'loading', hasValue() → false
+products.loading(); // status → 'loading', the value left where it was
 expect(component.spinner()).toBe(true);
 
-products.fail('offline'); // status → 'error', error() → Error('offline')
+products.fail('offline'); // status → 'error', error() → Error('offline'), hasValue() → false
 expect(component.errorMessage()).toBe('offline');
+
+products.idle(); // status → 'idle', back at the initial value
+expect(component.placeholder()).toBe(true);
 ```
 
 Nothing is ever in flight, so there is nothing to wait for — no tick, no flush, no budget, and no
 way for the test to pass against a default value by accident. The resource starts `'resolved'` at
 the initial value, because that is the state most assertions want and the one that would otherwise
-have to be arranged.
+have to be arranged. A resource driven by `params` that has not started yet is the other common
+opening, and it is an argument rather than a first line:
+`mockResourceProp(service, 'products', [], { status: 'idle' })`. Any status except `'error'` can be
+named there — an error needs a reason, and that is what `fail()` takes.
 
 Reactivity is genuine: the double is built from real `signal()`s, so a `computed()` reading
 `products.value()` recomputes and an `effect()` watching `products.status()` runs, exactly as
@@ -533,9 +666,32 @@ nothing.
 | ------------- | ------------------------------------------------------------ |
 | `set(value)`  | resolve with a value; clears any error                       |
 | `fail(error)` | fail with an `Error` or a message string                     |
-| `loading()`   | put it back in flight                                        |
+| `loading()`   | put it back in flight, leaving the value alone               |
+| `idle()`      | park it before it ever ran, back at the initial value        |
 | `reload`      | the spied `reload()` — assert the call, nothing is re-issued |
 | `resource`    | the installed double, for asserting on it directly           |
+
+The double on the property is a whole `ResourceRef`, not the read-only half of one, because the code
+under test calls the other half: a service hands out `readonly products = this.#products.asReadonly()`,
+and an optimistic update writes straight through the resource. Each of these does what Angular's own
+does, including to the status.
+
+| On the double           | What it does                                                                            |
+| ----------------------- | --------------------------------------------------------------------------------------- |
+| `value`                 | a writable signal; `value.set` / `value.update` move the status to `'local'`            |
+| `set(v)` / `update(fn)` | the same write, spelled the way Angular spells it                                       |
+| `hasValue()`            | `true` unless the status is `'error'` or the value is `undefined`                       |
+| `snapshot()`            | `{ status, value }`, or `{ status: 'error', error }` — what `@switch` reads             |
+| `asReadonly()`          | the same double back                                                                    |
+| `destroy()`             | back to `'idle'` at the initial value; later writes from the code under test do nothing |
+| `reload()`              | the spy — `true` until the spec says otherwise, and nothing is re-issued                |
+
+`hasValue()` is the one worth reading twice. It has been value-based since Angular v20, not
+status-based: a resource declared with a `defaultValue` has a defined value from the moment it is
+created, so `hasValue()` is `true` while it is `loading`, `reloading` and `idle`, and `false` only in
+the `error` state or over an `undefined` value. A template written as
+`@if (products.hasValue()) { … } @else { <spinner/> }` therefore keeps showing the list while the
+next page loads, and a double that answered the old status-based rule showed the spinner instead.
 
 Undone by `restoreMockedProps()` like every other property patch, so a suite running `setupAutoSpy()`
 needs no teardown of its own.
@@ -585,8 +741,20 @@ runEffect(component.highlightEffect);
 expect(component.icon()).toBe('starFilled');
 ```
 
-`runEffect` runs the body with the signal values as they stand, cleanup registration intact, without
-marking the effect clean — a later flush still behaves normally.
+`runEffect` runs the body with the signal values as they stand, without marking the effect clean — a
+later flush still behaves normally. It runs the previous run's cleanup first, exactly where
+Angular's own scheduler runs it, so this is also how a spec observes an `onCleanup` callback:
+
+```ts
+runEffect(component.subscription); // the cleanup the last run registered fires here
+
+expect(component.unsubscribed).toBe(true);
+```
+
+Two calls therefore leave one registered cleanup on the effect, not two. That matters for the
+cleanup that is not idempotent — a `queue.pop()`, a counter decrement, an `unsubscribe` on a shared
+subject: before, every call left one more closure behind and all of them fired together at
+`fixture.destroy()`.
 
 ::: warning Before reaching for `vi.mock('@angular/core')` instead
 The instinct is to replace `effect()` with the identity function so the callback becomes something
@@ -596,10 +764,182 @@ factory avoids one specific construct, and a relative path never works at all. S
 writing one; asserting the effect's result stays the more durable shape either way.
 :::
 
+A destroyed effect is refused rather than run. After `fixture.destroy()`, or after
+`effectRef.destroy()`, Angular would never run the body again, so a spec that gets a run there is
+asserting something production cannot produce — and it is teardown behaviour that a spec is usually
+asserting at that point. The message names the repair: move the call above the `destroy()`, or check
+what the teardown left behind.
+
 It reads Angular's reactive node off the `EffectRef`, so it is tied to an internal-by-convention
 detail. If a future Angular moves the effect body, `runEffect` throws with a message saying to assert
 the effect's **result** instead — set the signals it reads, `await stable(fixture)`, check what came
 out. That is the more durable shape wherever it is practical.
+
+## Counting recomputations and effect runs
+
+A `computed()` returns the same value whether it was cached or recomputed, so "this did not
+recompute" is not an assertion a spec can write — unless the computation itself carries a counter,
+which means editing production code to make a test possible. `trackRecomputations` and
+`trackEffectRuns` count from the outside:
+
+```ts
+import { trackEffectRuns, trackRecomputations } from 'vitest-auto-spy/angular';
+
+const recomputed = trackRecomputations(component.total);
+const synced = trackEffectRuns(component.syncEffect);
+
+component.unrelatedFilter.set('open');
+await stable(fixture);
+
+expect(component.total()).toBe(42);
+expect(recomputed.count).toBe(0);
+expect(synced.count).toBe(0);
+```
+
+Both hand back a `{ count, stop() }`. `count` is live — read it as often as the spec needs — and
+`stop()` puts the node's own member back. So does `restoreMockedProps()`, and therefore
+`setupAutoSpy()` after every test, so a spec that never reaches `stop()` still leaves nothing behind.
+
+`trackRecomputations` counts the **computation**, not the reads: a `computed()` read ten times
+without an input changing recomputes once. It takes a `computed()` or a `linkedSignal()`; a plain
+`signal()` holds a value rather than computing one and is refused with the helper that fits it.
+`trackEffectRuns` counts every run, whoever asked for it — a scheduler flush, a `stable(fixture)`, a
+`runEffect()` of the same effect.
+
+## `window` and `document` without losing the real one
+
+These two are the most hand-written providers an Angular suite has — 95 `window` ones and 70
+`document` ones across two private suites — and they come in three shapes: `useValue: window`, which
+isolates nothing (whatever the test writes stays there for the rest of the worker); a slice,
+`{ screen: { width: 1280, height: 720 } }`; and a `mockDocument` carrying one hand-written
+`querySelector`. The last two share a failure. The component reads `screen.colorDepth`, or calls
+`document.createElement`, and gets `undefined` — the double knows only the members its author
+happened to think of, and the spec fails somewhere that has nothing to do with what it was testing.
+
+`provideWindowDouble` / `provideDocumentDouble` merge the overrides **over the real jsdom object**
+instead:
+
+```ts
+import { provideDocumentDouble, provideWindowDouble } from 'vitest-auto-spy/angular';
+
+TestBed.configureTestingModule({
+  providers: [provideWindowDouble(WINDOW, { screen: { width: 1920, height: 1080 } }), provideDocumentDouble({ visibilityState: 'hidden' })],
+});
+```
+
+`screen.colorDepth`, `location.href`, `getComputedStyle`, `addEventListener`,
+`document.createElement` and everything else the overrides did not name still answer the way jsdom
+answers them.
+
+| Call                                                                  | Does                                                                                 |
+| --------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `provideWindowDouble(token, overrides?)`                              | a `FactoryProvider` under the application's own window token                         |
+| `provideDocumentDouble(overrides?, token?)`                           | the same under Angular's `DOCUMENT`, or under a token of your own                    |
+| `createWindowDouble(overrides?)` / `createDocumentDouble(overrides?)` | the same doubles without a `TestBed` — for `new LayoutProbe(win)` or a bare function |
+
+Four things to know:
+
+- **The window helper takes your token, the document helper does not need one.** Angular ships
+  `DOCUMENT`, from `@angular/core` itself since v20. It has never shipped a `WINDOW`: every
+  application declares its own `InjectionToken<Window>`, so `provideWindowDouble` has to be handed
+  that one. It is generic over the token's type, so an `InjectionToken<AppWindow>` has that
+  interface's own members checked in the overrides too.
+- **A plain `{ … }` merges into the member; anything else replaces it.** `{ screen: { width: 1920 } }`
+  leaves `screen.colorDepth` real, while a `vi.fn()`, an array, a `URL` or a stub instance is the
+  member, whole — those are things a spec built to stand in for it, not descriptions of it.
+- **There is nothing to restore.** The real `window` and `document` are never patched: the double is
+  a view over them, and every write and delete the code under test makes lands on the view. Which is
+  also how a spec moves a value mid-test — `Object.assign(TestBed.inject(WINDOW), { scrollY: 40 })`,
+  `Object.assign` rather than an assignment because lib.dom declares most of `Window` `readonly`.
+  There is no handle to learn and no `restoreMockedProps()` to remember.
+- **A factory, not a `useValue`.** Every injector builds its own, so a provider array hoisted to a
+  module constant cannot carry one test's writes into the next.
+
+::: warning `provideDocumentDouble` hands the double to Angular as well
+Overriding `DOCUMENT` for a testing module means the renderer injects it too. Replacing
+`createElement` or `body` therefore changes how the fixture is built, not only what the component
+reads — override those only where the spec means to.
+:::
+
+## The Material dialog, without Material as a dependency
+
+Three providers, 36 of them across two private suites, and they are the same three every time: an
+object (or `null`) on `MAT_DIALOG_DATA`, a hand-rolled `{ close: vi.fn() }` on `MatDialogRef`, and a
+spy on `MatDialog` itself.
+
+The ref one is where they break, twice. `close` is the only member anybody writes, so the component
+that subscribes to `afterClosed()` dies on "is not a function" — and the repair written next to it,
+`afterClosed: () => of('saved')`, answers the result before anything closed the dialog, so the spec
+passes whether or not `close()` was ever called.
+
+```ts
+import { MAT_DIALOG_DATA, MatDialogRef } from '@angular/material/dialog';
+import { expectEmission, injectMatDialogRef, provideMatDialogData, provideMatDialogRef } from 'vitest-auto-spy/angular';
+
+TestBed.configureTestingModule({
+  providers: [provideMatDialogData<EditUserData>(MAT_DIALOG_DATA, { id: 7, name: 'Ada' }), provideMatDialogRef(MatDialogRef)],
+});
+
+const dialog = injectMatDialogRef(MatDialogRef);
+
+TestBed.createComponent(EditUserDialog).componentInstance.save();
+
+expect(dialog.close).toHaveBeenCalledWith('saved');
+await expect(expectEmission(dialog.ref.afterClosed())).resolves.toBe('saved');
+```
+
+::: info `@angular/material` is not a dependency of this package, and will not become one
+This library ships no runtime dependencies at all, and a dialog is one component library's shape
+rather than Angular's. That is why the token and the ref class are **arguments** rather than
+something imported here: `MatDialogRef` is the DI token, the shape the double is measured against
+and the type its result is read off — so the import in your own spec stays the only place Material
+is named.
+:::
+
+| Call                                      | Does                                                                                        |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------- |
+| `provideMatDialogData(token, data)`       | a typed `{ provide, useValue }` — name the type argument and the data is checked against it |
+| `provideMatDialogRef(RefClass, init?)`    | a `FactoryProvider` — a fresh ref per injector; `init`: `closedWith`, `disableClose`        |
+| `injectMatDialogRef(RefClass, injector?)` | the handle: `.ref`, `.close` (the spy), `emitClose(result?)`                                |
+| `createMatDialogRef(RefClass, init?)`     | the same handle without a `TestBed` — and the ref a spied `MatDialog.open()` hands back     |
+
+### Opening one: `MatDialog` needs no helper of its own
+
+`provideAutoSpy(MatDialog)` already spies it. What the recipe was missing is the ref its `open()`
+hands back — which is the double, seeded with the result the user is about to choose:
+
+```ts
+TestBed.configureTestingModule({ providers: [provideAutoSpy(MatDialog)] });
+
+injectSpy(MatDialog).open.mockReturnValue(createMatDialogRef(MatDialogRef, { closedWith: 'saved' }).ref);
+
+fixture.componentInstance.edit(); // opens, pipes afterClosed(), gets 'saved'
+```
+
+There is no `openDialogReturning()` wrapper, on purpose: it would say `mockReturnValue` in different
+words, and it would have to know `MatDialog`'s own type — the one thing this design keeps out.
+
+Four things to know:
+
+- **`close` is the spy, and it is the same function the ref carries.** `expect(dialog.close)` and
+  `expect(TestBed.inject(MatDialogRef).close)` are one assertion, so a component asserted the old way
+  keeps reading the same. `emitClose(result?)` is the other half: the user closing the dialog from
+  outside, where the streams move and the spy records nothing — and the only way to close with
+  `undefined`, which is what a dismissal is and what `closedWith` cannot express.
+- **`afterClosed()` is replayed, where Material's own is a plain `Subject`.** The one deliberate
+  departure, because in a spec the assertion usually subscribes _after_ the component has already
+  closed the dialog, and a `Subject` has nothing left to say by then. `beforeClosed()` is the same
+  stream — the double closes instantly, so there is no window between the two — and `afterOpened()`
+  has already emitted and completed.
+- **Material declares `MAT_DIALOG_DATA` as `InjectionToken<any>`**, which is why `useValue: null`
+  compiles for a component that reads `data.name`. `provideMatDialogData<EditUserData>(…)` checks the
+  object against the type you name; an `InjectionToken<EditUserData>` of your own checks it without
+  naming anything. The value is handed out as it is, so build it per test rather than hoisting it to
+  a module constant.
+- **Everything else the ref class declares throws by name.** `backdropClick`, `keydownEvents`,
+  `updateSize`, `updatePosition` and `getState` are the dialog doing its own work: the double names
+  the member in the failure instead of reading `undefined`, and the answer is the real
+  `MatDialogModule` with a `MatDialog` that opens it for real.
 
 ## Module mocks under the unit-test builder
 
@@ -958,6 +1298,13 @@ function. The matcher reads it, deep-compares with the runner's own equality, an
 that is not a zero-argument getter, so the missing-parentheses mistake fails instead of quietly
 passing.
 
+A spy is a zero-argument callable too, so the matcher recognises one and refuses it **without
+reading it** — `expect(service.load).toHaveSignalValue(undefined)` would otherwise pass on the
+`undefined` an unconfigured spy returns and leave a phantom call behind for the next
+`toHaveBeenCalledTimes` to trip over. The refusal throws rather than failing softly, so `.not`
+cannot hide it either; put a real signal on the property with `mockSignalProp` when that is what
+you meant. A plain zero-argument getter is still read, as before.
+
 ## Signal / readonly property mocking
 
 ```ts
@@ -976,7 +1323,7 @@ class prototype, a singleton), which is always the case under Vitest's `isolate:
 [`setupAutoSpy()`](../utilities/setup) wires the `afterEach` for you.
 
 **That journal is made of strong references, which is the memory half of the same rule.** Each
-entry holds the patched object *and* the descriptor it replaced, and an entry whose patch has
+entry holds the patched object _and_ the descriptor it replaced, and an entry whose patch has
 already been undone is marked rather than spliced out — splicing would make a suite that patches
 thousands of properties quadratic. The list is therefore only ever emptied wholesale, by
 `restoreMockedProps()`. Under `isolate: true` it lives on a per-file `globalThis` and dies with the
@@ -1028,6 +1375,27 @@ rather than cause.
 
 Returning the handle also removes the temptation to reach for `service.count` and call `.set` on
 it: `Signal<T>` has no `set`, so that only type-checks after an assertion.
+
+**What it replaces, and what it does not.** Angular links a consumer to the signal it read, not to
+the property it read it through. A spec that renders first and patches second would therefore leave
+every `computed()`, `effect()` and template binding on the old signal for the rest of the test —
+cached value and all, with nothing said about it. So a member that is already writable — `signal()`,
+`model()`, `linkedSignal()` — is not replaced: the helper writes into the signal the class already
+has and hands that one back. Order stops mattering, a `model()` keeps its output half, and there is
+nothing for `restoreMockedProps()` to put back — the value simply stays where the spec left it,
+which is only visible on an object that outlives the test.
+
+The swap is kept for the two shapes with no node to write into: a `computed()` the class declares,
+and a member the spy does not have yet. Those still have to be patched **before anything reads
+them** — before the first `detectChanges()` / `stable(fixture)` — and the helper checks rather than
+assumes. A read-only signal a live consumer has already read is refused by name instead of being
+replaced where nothing would notice.
+
+An `input()` is refused outright. Angular sets an input through the input node rather than through
+the property, so a replaced one breaks the host's next write with
+`inputSignalNode.applyValueToInputSignal is not a function`. Drive it the supported way:
+`fixture.componentRef.setInput('mode', value)` during the test, or
+`renderShallow(Component, { inputs: { … } })` for the value it starts at.
 
 ## Where a spec spends its time
 
@@ -1331,13 +1699,13 @@ expect(chart.series()).toEqual([1, 2, 3]); // a signal input stays a signal inpu
 chart.pointSelected.emit(2); // an output the parent listens to
 ```
 
-| Copied from the definition                                             | Not copied                                                              |
-| ---------------------------------------------------------------------- | ----------------------------------------------------------------------- |
-| the selector — compiled back to the same selector list                 | the template: the stub renders one `<ng-content>` per projection slot  |
-| every input under its public name, alias and transform included        | host bindings and host directives                                       |
-| `input()` as a signal input, `model()` as a model, a decorator input as a property | providers, so nothing the real child provides reaches its content |
-| every output, as an `EventEmitter`                                     | lifecycle hooks and queries                                             |
-| `exportAs`; for a pipe, its name and purity                            | anything the second argument does not seed                              |
+| Copied from the definition                                                         | Not copied                                                            |
+| ---------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| the selector — compiled back to the same selector list                             | the template: the stub renders one `<ng-content>` per projection slot |
+| every input under its public name, alias and transform included                    | host bindings and host directives                                     |
+| `input()` as a signal input, `model()` as a model, a decorator input as a property | providers, so nothing the real child provides reaches its content     |
+| every output, as an `EventEmitter`                                                 | lifecycle hooks and queries                                           |
+| `exportAs`; for a pipe, its name and purity                                        | anything the second argument does not seed                            |
 
 The second argument seeds members on every instance, copied per instance — a method the parent calls
 through a `viewChild`, or a pipe's `transform`, which is the identity by default:
