@@ -70,6 +70,7 @@ import { preferRenderShallow } from './prefer-render-shallow';
 import { noPrivateMemberAccess } from './private-access';
 import { patchKey, propHelperSuggestion } from './prop-helpers';
 import { OVERRIDE_PROVIDER_CALL, overrideDescriptor } from './provider-override';
+import { preferProvideActivatedRoute } from './route-double';
 import {
   type EsArrayExpression,
   type EsAssignmentExpression,
@@ -690,6 +691,7 @@ export const rules: Record<string, RuleModule> = {
   'no-unregistered-inject-spy': noUnregisteredInjectSpy,
   'prefer-render-shallow': preferRenderShallow,
   'prefer-observer-stub': preferObserverStub,
+  'prefer-provide-activated-route': preferProvideActivatedRoute,
   'no-stub-class-double': noStubClassDouble,
   'no-structural-double': noStructuralDouble,
   'no-passthrough-console-spy': noPassthroughConsoleSpy,

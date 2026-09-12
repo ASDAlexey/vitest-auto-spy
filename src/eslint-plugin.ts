@@ -83,6 +83,12 @@ const PLUGIN_NAME = 'vitest-auto-spy';
  * `no-overridden-provider`'s new override arm is 9 reports in 5 files, at `error` for the same
  * reason plus a stronger one: it reports a spec that configured a double nobody uses.
  *
+ * **`prefer-provide-activated-route` rides the same proof**: every one of its reports has a
+ * `provide:` naming the route class beside it, so there is no heuristic in the decision — only the
+ * slot the hand-built half arrived in. What it reports is the one double whose halves a green test
+ * can keep apart, and the helper it names is a provider, so the repair is a drop-in replacement of
+ * the reported line.
+ *
  * **The three console rules decide on facts, not on a reading of the code**, so they are `error`: on the
  * 1759-file consumer they report 0, 6 in 2 files, and 32 of the 39 files that import `/console`.
  *
@@ -138,6 +144,7 @@ const recommendedRules: Record<string, RuleSeverity> = {
   [`${PLUGIN_NAME}/no-stub-class-double`]: 'warn',
   [`${PLUGIN_NAME}/no-structural-double`]: 'warn',
   [`${PLUGIN_NAME}/prefer-observer-stub`]: 'error',
+  [`${PLUGIN_NAME}/prefer-provide-activated-route`]: 'error',
   [`${PLUGIN_NAME}/no-passthrough-console-spy`]: 'error',
   [`${PLUGIN_NAME}/no-console-in-spec`]: 'error',
   [`${PLUGIN_NAME}/no-import-time-console-spies`]: 'error',
