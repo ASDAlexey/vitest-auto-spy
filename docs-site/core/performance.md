@@ -663,8 +663,11 @@ trackers and the `unconfiguredReads` ledger, with `selfReturning` in the same co
 also carries the report, and last for token registrations, +18 B.
 
 `/angular` then took `setInputs`, the `window` / `document` and Material-dialog doubles, the resource
-double that carries the whole `ResourceRef`, and the recomputation counters — +2.91 kB, the largest
-move that entry has made. `/angular-router` tripled, +4.31 kB, for the `Router` double: it is the
+double that carries the whole `ResourceRef`, and the recomputation counters — +3.26 kB against
+v5.8.0, the largest move that entry has made; the last 0.35 kB of it are the two fixes that landed
+after the doubles did, the unforgeable members the `window` double answers for by hand and the
+dialog ref checked against the component it was opened for. `/angular-router` tripled, +4.32 kB,
+for the `Router` double: it is the
 router's own `DefaultUrlSerializer`, `createUrlTreeFromSnapshot` and `RouterState` doing the URL work
 rather than a structural stand-in guessing at it, which is the whole reason the double cannot
 contradict itself. `/eslint-plugin` is +1.77 kB for the rules of the previous two releases. `/signal-forms` arrives at

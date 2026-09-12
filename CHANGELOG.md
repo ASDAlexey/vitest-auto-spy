@@ -73,7 +73,8 @@ The latest released version here must always match the one published on
   resolves every name against the component's compiled definition **before** the first write: a name the component
   does not declare gets an `NG0303` on the console from Angular and no change at all, discovered several assertions
   later on state that never moved, where this fails at the call that caused it. Both spellings of an aliased input
-  resolve. Exported from `vitest-auto-spy/angular` and `vitest-auto-spy/bun-angular`.
+  resolve. Exported from `vitest-auto-spy/angular` and `vitest-auto-spy/bun-angular`, 0.62 kB
+  min+gzip on each.
 
 - **`provideRouterDouble({ url })` — a `Router` that cannot contradict itself (`/angular-router`).** After
   `ActivatedRoute`, `Router` is the provider suites hand-roll most: 48 of them across two private suites, each
@@ -85,6 +86,11 @@ The latest released version here must always match the one published on
   `routerLink` in a kept template still resolves its `href`. Every other member `Router` declares throws by name
   instead of reading `undefined`. `injectRouterDouble()` reads the handle back, `createRouterDouble()` works
   without a `TestBed`. Unlike `ActivatedRoute`, the order against `provideRouter()` does not matter.
+  The entry goes 2.09 → 6.41 kB min+gzip, and the double's own code is 1.43 kB of that: a spied
+  `navigate` pulls in the spy engine (4.10 kB measured on its own), which an entry that held nothing
+  but plain Angular objects never carried — 5 modules and 49.6 kB of this package on a cold import where there were 2 and 9.3 kB, which is 2.5 ms of the entry's 83 ms, the rest being Angular itself. It is the price of `navigate` being assertable rather than
+  a stub that answers `true`, and it is paid by the suites that import this entry — `/angular` itself
+  is unchanged by it.
 
 - **`provideWindowDouble(TOKEN, overrides?)` / `provideDocumentDouble(overrides?)` — merged over the real one.**
   The two most hand-rolled token providers in the measured suites (95 `window`, 70 `document`), and the shapes are
@@ -98,7 +104,7 @@ The latest released version here must always match the one published on
   which is what the hand-written `{ location: { reload: vi.fn() } }` needs; `mockValueProp` and its restore work on
   the double too. Angular has no `WINDOW` token, so the window helper takes the application's own; `DOCUMENT` comes
   from `@angular/core`, where it has been declared across the whole supported peer range. `createWindowDouble` /
-  `createDocumentDouble` give the same object without DI.
+  `createDocumentDouble` give the same object without DI. 0.76 kB min+gzip on `/angular`.
 
 - **`provideMatDialogData(TOKEN, data)` / `provideMatDialogRef(RefClass, init?)` — the Material dialog trio,
   without Material as a dependency.** 36 hand-rolled providers across the measured suites are the same three shapes:
@@ -111,13 +117,18 @@ The latest released version here must always match the one published on
   opener reaches `save` and `isSaving` — checked member by member against the component the ref class names.
   Members the double does not carry throw by name, read off `RefClass.prototype` plus the three Material declares
   as class fields (`componentInstance`, `componentRef`, `id`), so the message matches whichever Material the
-  consumer has. Opening stays a recipe:
+  consumer has. `injectMatDialogRef(RefClass)` reads the handle back inside the test — `closedWith`, `emitClose()`
+  and the spied `close` — and `createMatDialogRef(RefClass, init?)` builds the same pair without a
+  `TestBed`. Opening stays a recipe:
   `dialog.open.mockReturnValue(createMatDialogRef(MatDialogRef, { closedWith: 'saved' }).ref)`.
+  1.05 kB min+gzip on `/angular`, and `@angular/material` is still not a dependency.
 
 - **`trackRecomputations(signal)` / `trackEffectRuns(effectRef)` — counting what the graph actually re-ran.**
   "Changing the filter did not re-run the sync effect" was a counter added to production code and forgotten there.
   Both hand back `{ count, stop() }`, install through `mockValueProp`, so `restoreMockedProps()` /
-  `setupAutoSpy()` own the undo, and refuse by name what is not a signal or an `EffectRef`.
+  `setupAutoSpy()` own the undo, and refuse by name what is not a signal or an `EffectRef`. 0.73 kB
+  min+gzip on `/angular` and on `/bun-angular`, which takes those two entries to 25.91 kB (+3.26)
+  and 20.97 kB (+1.41) — the four Angular doubles of this release, and nothing else.
 
 - **`mockResourceProp(obj, prop, initial, { status })` and `double.idle()`.** A resource waiting on a `params()`
   that returns `undefined` reports `idle`, and a spec could only reach that state by driving the double there.
@@ -269,7 +280,8 @@ The latest released version here must always match the one published on
   `createActivatedRoute()` a descriptor can carry — `.route`, destructured, built in a factory — are
   silent by shape. `error`, **syntax only**: every report has a `provide:` naming the route class
   beside it, so there is no heuristic in the decision, and the repair it names is a drop-in
-  replacement of the reported line.
+  replacement of the reported line. With `no-sync-testbed-await` the two add 1.77 kB min+gzip to
+  `/eslint-plugin` (29.52 → 31.30 kB) — a dev-time entry no test bundle imports.
 
 - **A strict double's getter nobody configured, and its stream nobody fed, are reported after the
   test.** Strict mode throws on a method nobody configured, but a spied getter still answered
