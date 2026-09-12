@@ -165,6 +165,7 @@ const recommendedRules: Record<string, RuleSeverity> = {
   [`${PLUGIN_NAME}/no-constant-expect`]: 'error',
   [`${PLUGIN_NAME}/no-compile-components`]: 'error',
   [`${PLUGIN_NAME}/no-sync-testbed-await`]: 'error',
+  [`${PLUGIN_NAME}/no-redundant-smoke-test`]: 'error',
   [`${PLUGIN_NAME}/jasmine-namespace-without-entry`]: 'error',
   [`${PLUGIN_NAME}/no-jasmine-globals`]: 'error',
   [`${PLUGIN_NAME}/no-save-arguments-by-value`]: 'error',

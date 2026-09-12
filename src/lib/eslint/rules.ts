@@ -94,6 +94,7 @@ import {
   isIdentifier,
   isMemberExpression,
 } from './rule-types';
+import { noRedundantSmokeTest } from './smoke-test';
 import { noStubClassDouble, stubClassProvider } from './stub-class';
 import { type EsNamedCall, type SubscribeRepair, enclosingSubscribe, helperAssertions, repairFor } from './subscribe-repair';
 import { noSyncTestbedAwait } from './testbed-await';
@@ -705,5 +706,6 @@ export const rules: Record<string, RuleModule> = {
   'no-constant-expect': noConstantExpect,
   'no-compile-components': noCompileComponents,
   'no-sync-testbed-await': noSyncTestbedAwait,
+  'no-redundant-smoke-test': noRedundantSmokeTest,
   ...jasmineRules,
 };
