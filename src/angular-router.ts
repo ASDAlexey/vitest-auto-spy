@@ -1,5 +1,6 @@
 /**
- * `vitest-auto-spy/angular-router` — an `ActivatedRoute` whose streams and snapshot agree.
+ * `vitest-auto-spy/angular-router` — an `ActivatedRoute` whose streams and snapshot agree, and a
+ * `Router` whose URL, `routerState` and `events` agree with each other.
  *
  * ```ts
  * import { injectActivatedRoute, provideActivatedRoute } from 'vitest-auto-spy/angular-router';
@@ -28,3 +29,4 @@ export {
   type ActivatedRouteDouble,
   type ActivatedRouteInit,
 } from './lib/angular-router';
+export { createRouterDouble, injectRouterDouble, provideRouterDouble, type RouterDouble, type RouterDoubleInit } from './lib/router-double';

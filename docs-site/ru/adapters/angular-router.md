@@ -1,9 +1,12 @@
 ---
 title: Роутер Angular
-description: provideActivatedRoute и injectActivatedRoute — собственный ActivatedRoute Angular поверх одной записи, так что его потоки, ParamMap и снимок не могут разойтись, а сеттер двигает их вместе.
+description: provideActivatedRoute и provideRouterDouble — собственный ActivatedRoute Angular поверх одной записи и Router, у которого URL, routerState и events не могут разойтись, а navigate уже спай.
 ---
 
 # Роутер Angular
+
+Здесь живут два дубля: `ActivatedRoute`, который читает компонент, и [`Router`](#the-router-double),
+которым он навигирует. Друг без друга они обходятся, а спека, которой нужны оба, объявляет оба.
 
 ```ts
 import { injectActivatedRoute, provideActivatedRoute } from 'vitest-auto-spy/angular-router';
@@ -176,6 +179,131 @@ expect(page.productId()).toBe('8');
 | `the ActivatedRoute here is … not one provideActivatedRoute() built` | выиграл более поздний провайдер: `provideRouter()`, `RouterModule`, `useValue`, `provideAutoSpy` — ставьте этот последним |
 | `the installed @angular/router does not wire ActivatedRoute …`       | мажор роутера собирает классы иначе; сообщите об этом с версией                                          |
 
+## Дубль Router {#the-router-double}
+
+### `provideRouterDouble(init?)` {#providerouterdouble-init}
+
+```ts
+import { injectRouterDouble, provideRouterDouble } from 'vitest-auto-spy/angular-router';
+
+TestBed.configureTestingModule({ providers: [provideRouterDouble({ url: '/products/7' })] });
+
+const fixture = TestBed.createComponent(ProductPage);
+const router = injectRouterDouble();
+
+await fixture.componentInstance.checkout();
+expect(router.navigate).toHaveBeenCalledWith(['/checkout']);
+
+router.emitNavigation('/products/8'); // events выпустил NavigationEnd; router.url уже читает его
+fixture.detectChanges();
+```
+
+После маршрута `Router` — провайдер, который реальные сюиты пишут руками чаще всего: 48 штук в двух
+приватных наборах тестов, и все 48 — одна и та же строка:
+`createAutoMock<Router>({ events: of(), url: '/' }, { returns: { navigate: Promise.resolve(true) } })`.
+Каждая её часть — догадка, сквозь которую компонент проваливается: `of()` больше ничего не выпустит,
+`url` — строка, которую никто не обновляет, `routerState` нет вовсе, а `serializeUrl` падает на
+первом же редиректе, собранном гардом.
+
+Этот дубль держит один URL и выводит из него всё остальное. В отличие от маршрута выше он **не**
+экземпляр класса Angular — настоящий `Router` тянет за собой всю маршрутизацию, а юнит-тесту она ни
+к чему, — поэтому это структурный дубль, выданный на токен `Router`:
+
+| Член                        | Что это                                                                                                     |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `url`                       | URL, сериализованный так же, как настоящий роутер сериализует свой: `setUrl('products/7')` читается как `/products/7` |
+| `events`                    | `BehaviorSubject`, начинающийся с того `NavigationEnd`, который привёл роутер сюда                          |
+| `navigate`, `navigateByUrl` | спаи, резолвящиеся в `true`: записывают вызов и не трогают URL                                              |
+| `serializeUrl`, `parseUrl`  | собственный `DefaultUrlSerializer` роутера, а не пара заглушек                                              |
+| `createUrlTree`             | `createUrlTreeFromSnapshot` самого Angular, поэтому `relativeTo`, `queryParamsHandling` и `preserveFragment` работают |
+| `routerState`               | собственный `RouterState` Angular: `snapshot.url` — это URL, а `root` — маршрут с его query-параметрами и фрагментом |
+
+Всё остальное, что объявляет `Router` Angular, — `getCurrentNavigation`, `isActive`, `resetConfig` —
+**не** `undefined`: чтение падает, называя член и то, что дубль покрывает. Член, отвечающий на вызов,
+которого в юнит-тесте быть не должно, — это то, как неправильный тест доживает до зелёного прогона.
+
+У `init` одно поле, `url`, потому что всё остальное в роутере следует из него. По умолчанию — `'/'`.
+
+### `injectRouterDouble(injector?)` {#injectrouterdouble-injector}
+
+```ts
+const router = injectRouterDouble();
+
+router.setUrl('/products/8?tab=reviews');
+router.navigate.resolveWith(false);
+```
+
+Хендл роутера, который `provideRouterDouble()` положил в инжектор теста. Читает `TestBed`; передайте
+`fixture.debugElement.injector`, когда роутер лежит в собственных `providers` компонента.
+
+| Член                     | Что делает                                                                            |
+| ------------------------ | --------------------------------------------------------------------------------------- |
+| `router`                 | то значение, которое каждый инжектор в тесте выдаёт на `Router`                       |
+| `navigate`               | спай `navigate()` — проверяйте его или отвечайте через `resolveWith(false)`           |
+| `navigateByUrl`          | спай `navigateByUrl()`, точно так же                                                  |
+| `setUrl(url)`            | поставить роутер на URL: `url`, `routerState` и корневой маршрут двигаются вместе и молча |
+| `emitNavigation(event?)` | протолкнуть событие через `router.events`                                             |
+
+`emitNavigation()` принимает то, что есть у спеки: ничего (объявить текущий URL заново), строку URL
+(`NavigationEnd` для неё соберут за вас) или собранное вами событие — `new NavigationEnd(1, '/a', '/a')`,
+`new NavigationStart(1, '/a')`, что угодно из объединения. `NavigationEnd` двигает URL вместе с
+собой, как это делает настоящий роутер; любое другое событие оставляет URL на месте.
+
+Из того, что `events` — `BehaviorSubject`, а не `Subject`, который выставляет настоящий роутер,
+следуют две вещи:
+
+- **Подписчик, пришедший позже, видит последнюю навигацию.** Что раньше — `emitNavigation()` или
+  `fixture.detectChanges()` — перестаёт решать, увидел ли её компонент; на этом и держится флакость
+  самодельных дублей на `Subject`.
+- **Первое, что видит подписчик, — `NavigationEnd` стартового URL**, потому что это и есть навигация,
+  которая привела роутер сюда. Компонент, считающий навигации, начинает с единицы, а не с нуля.
+
+### `createRouterDouble(init?)` {#createrouterdouble-init}
+
+Тот же дубль без `TestBed` — для гарда или класса, который создаётся через `new`:
+
+```ts
+import { createRouterDouble } from 'vitest-auto-spy/angular-router';
+
+const { router, navigate } = createRouterDouble({ url: '/admin' });
+
+expect(new AuthGuard(router).canActivate()).toBe(false);
+expect(navigate).toHaveBeenCalledWith(['/login']);
+```
+
+### Чего дубль Router не делает {#what-the-router-double-does-not-do}
+
+- **Он не навигирует.** `navigate()` и `navigateByUrl()` записывают вызов и резолвятся в `true`, но
+  не двигают `url`. Навигация в приложении асинхронна, проходит гарды и может быть отменена — дубль,
+  который двигал бы собственный URL по вызову, проверял бы сам себя. Двигают его `setUrl()` и
+  `emitNavigation()`, а когда под тестом сама навигация — это `RouterTestingHarness` поверх
+  настоящего `provideRouter()`.
+- **Это токен `Router` и ничего больше.** Ни маршрутов, ни аутлета, ни `RouterLinkActive`. Ссылка
+  `routerLink` в шаблоне разрешается — её `href` выходит из `createUrlTree` и `serializeUrl`, а они
+  собственные роутерные, — но как только спека про маршрутизацию, а не про компонент, короче дорога
+  через настоящий роутер.
+- **Он не заменяет `provideActivatedRoute()`.** `routerState.root` — корневой маршрут: он несёт
+  query-параметры и фрагмент URL и, как настоящий корень, не имеет ни сегментов, ни параметров.
+  Маршрут, который инжектит компонент, — по-прежнему второй хелпер на этой странице; они стоят рядом.
+
+В отличие от дубля маршрута этот строит спаи, поэтому вход, регистрирующий мок-адаптер, — любой
+импорт `vitest-auto-spy` в сюите, обычно `vitest-auto-spy/angular` в том же файле или в setup-файле,
+— должен быть загружен. Без него первый же `provideRouterDouble()` скажет
+`No mock adapter registered` и назовёт нужный импорт.
+
+### Что говорит каждое падение Router {#what-each-router-failure-says}
+
+| Сообщение содержит                                                     | Причина                                                                                  |
+| ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `the Router double has no …`                                           | код под тестом полез за членом `Router`, которого у дубля нет                             |
+| `the Router here is Angular's own, not one provideRouterDouble() built` | `Router` объявлен `providedIn: 'root'`, поэтому `TestBed` без дубля выдаёт настоящий — добавьте `provideRouterDouble()` |
+| `the Router here is a value written by hand …`                         | выиграл `useValue` или `provideAutoSpy(Router)` — ставьте `provideRouterDouble()` последним |
+| `nothing provides Router in the injector given`                        | инжектор, собранный руками, в котором `Router` нет вовсе                                  |
+
+В отличие от маршрута этот дубль не нужно ставить после `provideRouter()`: `Router` объявлен
+`providedIn: 'root'`, а `provideRouter()` токен заново не выдаёт, поэтому явный провайдер выигрывает
+в любом порядке.
+
 ## Отдельный вход и опциональная peer-зависимость {#its-own-entry-and-an-optional-peer}
 
 `vitest-auto-spy/angular-router` — единственная часть пакета, которая импортирует `@angular/router`,
@@ -186,5 +314,5 @@ expect(page.productId()).toBe('8');
 - Как и `/angular-http`, он **не** реэкспортирует ядро; это спутник `vitest-auto-spy/angular`.
 - Он не регистрирует ни хуков, ни мок-адаптера и ничего не импортирует из тест-раннера, поэтому
   точно так же работает под [`bun test`](/ru/runtimes/bun-angular).
-- Вход весит **2.1 kB min+gzip** (2063 B, замерено так же, как для бейджа в README: бандл esbuild,
+- Вход весит **6.4 kB min+gzip** (6396 B, замерено так же, как для бейджа в README: бандл esbuild,
   минифицированный, gzip, пиры внешние).
