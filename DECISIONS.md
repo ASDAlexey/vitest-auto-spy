@@ -17,35 +17,35 @@ last commit (1759 spec files) it reports 14 times in 10 files, and over the same
 removed and their awaits fixed, not once. The judgement calls:
 
 - [~] **Reporting `inject` and `runInInjectionContext`.** Not done, and this is the line that decided
-      the member list. `TestBed.inject(TOKEN)` answers whatever the token holds and
-      `runInInjectionContext(fn)` whatever the callback returns — either can be a promise, and in the
-      measured suite four `await TestBed.inject(VPN_DETECT_RESULT)` calls await a real one. Nothing in
-      the syntax tells those from the ordinary case, so a syntactic rule reporting them would be wrong
-      about working code. `execute` and the deprecated `get` are out for the same reason. What is in
-      is exactly what Angular types as returning `TestBed` or a `ComponentFixture`:
-      `configureTestingModule`, `overrideComponent`, `overrideDirective`, `overrideModule`,
-      `overridePipe`, `overrideProvider`, `overrideTemplate`, `overrideTemplateUsingTestingModule`,
-      `resetTestingModule`, `createComponent`, `getLastFixture`.
+  the member list. `TestBed.inject(TOKEN)` answers whatever the token holds and
+  `runInInjectionContext(fn)` whatever the callback returns — either can be a promise, and in the
+  measured suite four `await TestBed.inject(VPN_DETECT_RESULT)` calls await a real one. Nothing in
+  the syntax tells those from the ordinary case, so a syntactic rule reporting them would be wrong
+  about working code. `execute` and the deprecated `get` are out for the same reason. What is in
+  is exactly what Angular types as returning `TestBed` or a `ComponentFixture`:
+  `configureTestingModule`, `overrideComponent`, `overrideDirective`, `overrideModule`,
+  `overridePipe`, `overrideProvider`, `overrideTemplate`, `overrideTemplateUsingTestingModule`,
+  `resetTestingModule`, `createComponent`, `getLastFixture`.
 - [~] **Reporting the members that return `void`** — `configureCompiler`, `initTestEnvironment`,
-      `resetTestEnvironment`, `flushEffects`, `tick`, and a fixture's `detectChanges`. Not done.
-      Awaiting one of them is equally a no-op, but the rule's message states one fact — _this call
-      hands the TestBed back, which is why it chains_ — and that fact is false about a `void` member;
-      a second message for a second fact is two rules wearing one name. `configureCompiler` sits
-      among eight members that do return `TestBed` and is the likeliest to be added back by mistake,
-      so the member list says out loud that it returns `void`. None of the six appears under an
-      `await` anywhere in the consumer suites this was measured on.
+  `resetTestEnvironment`, `flushEffects`, `tick`, and a fixture's `detectChanges`. Not done.
+  Awaiting one of them is equally a no-op, but the rule's message states one fact — _this call
+  hands the TestBed back, which is why it chains_ — and that fact is false about a `void` member;
+  a second message for a second fact is two rules wearing one name. `configureCompiler` sits
+  among eight members that do return `TestBed` and is the likeliest to be added back by mistake,
+  so the member list says out loud that it returns `void`. None of the six appears under an
+  `await` anywhere in the consumer suites this was measured on.
 - [~] **Requiring `TestBed` to be the identifier imported from `@angular/core/testing`.** Not done.
-      The name is read as written, which is what `no-inject-before-override`,
-      `prefer-provide-activated-route` and the token rules already do: a project barrel re-exporting
-      the testing entry is ordinary, and a rule keyed on the import would go silent on exactly those
-      files. The chain carries the precision instead — only members Angular declares as returning
-      `TestBed` count as links, so `TestBed.inject(Api).createComponent(x)` is not one.
+  The name is read as written, which is what `no-inject-before-override`,
+  `prefer-provide-activated-route` and the token rules already do: a project barrel re-exporting
+  the testing entry is ordinary, and a rule keyed on the import would go silent on exactly those
+  files. The chain carries the precision instead — only members Angular declares as returning
+  `TestBed` count as links, so `TestBed.inject(Api).createComponent(x)` is not one.
 - [~] **A `--fix` rather than a suggestion.** Not done, for the reason `no-compile-components` gives
-      for the same edit: dropping the `await` moves the next statement one microtask earlier, and
-      dropping the `async` changes what the hook hands the runner. The second half also cannot see a
-      callback's explicit `: Promise<void>` return annotation, which stops compiling once the `async`
-      is gone — acceptable for an edit a human accepts one at a time, not for one `--fix` applies in
-      bulk.
+  for the same edit: dropping the `await` moves the next statement one microtask earlier, and
+  dropping the `async` changes what the hook hands the runner. The second half also cannot see a
+  callback's explicit `: Promise<void>` return annotation, which stops compiling once the `async`
+  is gone — acceptable for an edit a human accepts one at a time, not for one `--fix` applies in
+  bulk.
 - **`error` in `recommended`, despite the overlap with `@typescript-eslint/await-thenable`.** Probed
   rather than assumed: with both rules on and a program wired, the shape draws **two reports at the
   same line and the same column**, each with a suggestion and neither with a fix. That is the whole
@@ -63,30 +63,30 @@ Two defects from the same consumer suite adopting 5.8.0. Both had more than one 
 what was **not** chosen is the part worth keeping.
 
 - [~] **Telling a host mock from a plain function, so `returns` could still configure the first one.**
-      Not done. The crash was `createAutoMock` handing a seeded arrow function to
-      `adapter.restoreImplementation`, and the obvious repair is an `isMockFn` on `MockAdapter`: seed
-      the library's own container for a spy it built, drive a `vi.fn()` through the adapter, leave a
-      plain function alone. It would have kept the one existing behaviour that used that fallback — a
-      seeded `vi.fn()` overwritten by `returns` — and cost four adapters, the `RedefineAdapterParts`
-      list and three stub adapters in specs. Rejected for producing two rules where one will do: a
-      seed would win when it is a plain function and lose when it is a `vi.fn()`, which nobody could
-      predict from the documentation. One rule instead — a member named in `overrides` is left exactly
-      as seeded — is the merge rule the package already states (the call site outranks a registration;
-      a seed is returned verbatim), and it makes the fallback unreachable rather than safe, which is
-      why it was deleted instead of guarded.
+  Not done. The crash was `createAutoMock` handing a seeded arrow function to
+  `adapter.restoreImplementation`, and the obvious repair is an `isMockFn` on `MockAdapter`: seed
+  the library's own container for a spy it built, drive a `vi.fn()` through the adapter, leave a
+  plain function alone. It would have kept the one existing behaviour that used that fallback — a
+  seeded `vi.fn()` overwritten by `returns` — and cost four adapters, the `RedefineAdapterParts`
+  list and three stub adapters in specs. Rejected for producing two rules where one will do: a
+  seed would win when it is a plain function and lose when it is a `vi.fn()`, which nobody could
+  predict from the documentation. One rule instead — a member named in `overrides` is left exactly
+  as seeded — is the merge rule the package already states (the call site outranks a registration;
+  a seed is returned verbatim), and it makes the fallback unreachable rather than safe, which is
+  why it was deleted instead of guarded.
 - [~] **Narrowing `no-compile-components` by the shape of the call.** Not done. The files that broke
-      when the call was removed write `await TestBed.compileComponents();` on its own rather than
-      chained onto `configureTestingModule(…)`, and that shape is easy to select on. It is not
-      evidence: the two spellings are a style difference, the correlation is one class of file in one
-      suite, and a rule that skipped the standalone form would stop reporting the ordinary redundant
-      call while still reporting `@defer` specs written the chained way — worse on both sides. Whether
-      the call is load-bearing is a fact about **another file's template**, which no spec shows and
-      this rule reads no types to reach, so it stays reported and the exception is named in the
-      message and in the suggestion's own text.
+  when the call was removed write `await TestBed.compileComponents();` on its own rather than
+  chained onto `configureTestingModule(…)`, and that shape is easy to select on. It is not
+  evidence: the two spellings are a style difference, the correlation is one class of file in one
+  suite, and a rule that skipped the standalone form would stop reporting the ordinary redundant
+  call while still reporting `@defer` specs written the chained way — worse on both sides. Whether
+  the call is load-bearing is a fact about **another file's template**, which no spec shows and
+  this rule reads no types to reach, so it stays reported and the exception is named in the
+  message and in the suggestion's own text.
 - [~] **Dropping `no-compile-components` from `configs.recommended`, or lowering it to `warn`.** Not
-      done. It is inert until a project passes `{ builder: 'inline-resources' }`, its findings are
-      suggestions rather than fixes, and on the measured suite the exception was one class of file out
-      of 410 — a scoped disable per call is a smaller price than losing the other 409.
+  done. It is inert until a project passes `{ builder: 'inline-resources' }`, its findings are
+  suggestions rather than fixes, and on the measured suite the exception was one class of file out
+  of 410 — a scoped disable per call is a smaller price than losing the other 409.
 
 ## `NoInfer` on `registerAutoSpyDefaults`, 2026-09-11
 
@@ -96,14 +96,14 @@ with `tsc` 5.4.5, 5.8.3, 5.9.3 and 6.0.3, in this repository and in the consumer
 call compiles on every one of them. Only the class overload was changed.
 
 - [~] **`NoInfer` on the token overload.** Not done, because there is nothing for it to fix.
-      `InjectionToken<T>` never uses `T` in a member, but inference does not go through members for
-      two references to the same generic class — it infers from the type arguments directly, at the
-      highest priority, while a list such as `observablePropsToSpyOn` contributes only a `keyof`
-      candidate, which ranks below it. A type test (`angular-spy-defaults.test-d.ts`) pins the
-      consumer's shape, with a wrong `returns` value beside it so an `any` cannot pass it.
+  `InjectionToken<T>` never uses `T` in a member, but inference does not go through members for
+  two references to the same generic class — it infers from the type arguments directly, at the
+  highest priority, while a list such as `observablePropsToSpyOn` contributes only a `keyof`
+  candidate, which ranks below it. A type test (`angular-spy-defaults.test-d.ts`) pins the
+  consumer's shape, with a wrong `returns` value beside it so an `any` cannot pass it.
 - [~] **`NoInfer` on the core `registerAutoSpyDefaults`.** Not done, for the reason the core
-      factories keep the trap (below): the TypeScript floor. `spy.test-d.ts` holds the rejection and
-      the explicit form, next to `createSpyFromClass`'s pair.
+  factories keep the trap (below): the TypeScript floor. `spy.test-d.ts` holds the rejection and
+  the explicit form, next to `createSpyFromClass`'s pair.
 
 ## Token registrations, `selfReturning` and `no-unknown-use-value-key`, 2026-09-11
 
@@ -113,52 +113,52 @@ object `useValue` should have at least its keys checked. What shipped is in `CHA
 weighed and left out is here.
 
 - [~] **An option on `no-mistyped-use-value` instead of a rule of its own.** Not done. The two report
-      different findings — a primitive value of the wrong type, and an object key the type does not
-      have — and a project that accepts one reading has to be able to switch the other off without
-      losing it, the argument that made `no-stub-class-double` and `no-structural-double` rules of
-      their own rather than arms of `prefer-create-spy-from-class`. An option would also share one
-      severity between them. Every rule here but one is option-less, and the ones with options tune a
-      threshold or name a file; none switches a second finding on.
+  different findings — a primitive value of the wrong type, and an object key the type does not
+  have — and a project that accepts one reading has to be able to switch the other off without
+  losing it, the argument that made `no-stub-class-double` and `no-structural-double` rules of
+  their own rather than arms of `prefer-create-spy-from-class`. An option would also share one
+  severity between them. Every rule here but one is option-less, and the ones with options tune a
+  threshold or name a file; none switches a second finding on.
 
 - [~] **Checking the values of an object `useValue`, not only its keys.** Not done, and not reopened:
-      5.7.0 left object tokens out of `no-mistyped-use-value` because a `useValue` is usually a
-      partial fixture and assignability would be hundreds of findings nobody should rewrite. A key the
-      type does not have is never a partial fixture — it is a member nothing reads — so the narrow
-      form is the one that holds at the expected rate (two keys in a hand count over 434 class
-      literals).
+  5.7.0 left object tokens out of `no-mistyped-use-value` because a `useValue` is usually a
+  partial fixture and assignability would be hundreds of findings nobody should rewrite. A key the
+  type does not have is never a partial fixture — it is a member nothing reads — so the narrow
+  form is the one that holds at the expected rate (two keys in a hand count over 434 class
+  literals).
 
 - [~] **Following the literal behind a name, an `as`, or a `TestBed.overrideProvider` descriptor.**
-      Not done. A literal behind a name is already typed at its declaration more often than not, an
-      `as` is the spec saying it knows better, and following either costs the one-file guarantee
-      every rule here keeps. A spread is read as contributing no keys: its type may be anything, and
-      the literal keys beside it are still checked.
+  Not done. A literal behind a name is already typed at its declaration more often than not, an
+  `as` is the spec saying it knows better, and following either costs the one-file guarantee
+  every rule here keeps. A spread is read as contributing no keys: its type may be anything, and
+  the literal keys beside it are still checked.
 
 - [~] **A key missing from one member of a union.** Not reported: a key is known when any
-      non-primitive member of the union has it. `getPropertyOfType` on the union itself answers only
-      for keys every member carries, which would report the discriminating keys of every
-      `Config | Legacy` fixture — correct code.
+  non-primitive member of the union has it. `getPropertyOfType` on the union itself answers only
+  for keys every member carries, which would report the discriminating keys of every
+  `Config | Legacy` fixture — correct code.
 
 - [~] **Typing `selfReturning` as "methods whose return type accepts the double".** Not done, on a
-      measured case: the consumer's logger interface declares `channel(name): ChannelLogger`, and the
-      root interface does not satisfy `ChannelLogger` (it lacks `name`, `enabled`, `log`, `trace`,
-      `time`). A return-type filter would reject exactly the call the option exists for, while at run
-      time a type-driven double answers every key `ChannelLogger` has. The list is
-      `OnlyMethodKeysOf<T>`, like every other method list, and costs nothing new to instantiate.
+  measured case: the consumer's logger interface declares `channel(name): ChannelLogger`, and the
+  root interface does not satisfy `ChannelLogger` (it lacks `name`, `enabled`, `log`, `trace`,
+  `time`). A return-type filter would reject exactly the call the option exists for, while at run
+  time a type-driven double answers every key `ChannelLogger` has. The list is
+  `OnlyMethodKeysOf<T>`, like every other method list, and costs nothing new to instantiate.
 
 - [~] **A way to remove a registered `selfReturning` entry at the call site.** None beyond `returns`:
-      lists union by design, and a method named in both answers its `returns` value, which is how one
-      link is taken out. A subtraction syntax would make the merge order-dependent for the first time.
+  lists union by design, and a method named in both answers its `returns` value, which is how one
+  link is taken out. A subtraction syntax would make the merge order-dependent for the first time.
 
 - [~] **A token overload on the core `registerAutoSpyDefaults`, through a structural stand-in for
-      `InjectionToken`.** Not done. `InjectionToken<T>` never uses `T` in a member, so no structural
-      shape the core could declare carries `T`: the keys of `returns` and `selfReturning` would go
-      unchecked, which is the whole value of the typed form. The core may not import Angular's types,
-      so the token overload lives on the `/angular` export of the same name, over the same registry.
-      `/bun-angular` does not export `provideAutoSpyForToken`, so it does not get the overload either.
+  `InjectionToken`.** Not done. `InjectionToken<T>` never uses `T` in a member, so no structural
+  shape the core could declare carries `T`: the keys of `returns` and `selfReturning` would go
+  unchecked, which is the whole value of the typed form. The core may not import Angular's types,
+  so the token overload lives on the `/angular` export of the same name, over the same registry.
+  `/bun-angular` does not export `provideAutoSpyForToken`, so it does not get the overload either.
 
 - [~] **A token row type beside `AutoSpyDefaultEntry<T>`.** Not exported:
-      `[InjectionToken<T>, AutoSpyTokenDefaults<T>]` says it, and one more exported name is one more
-      to keep in step with the table's constraint.
+  `[InjectionToken<T>, AutoSpyTokenDefaults<T>]` says it, and one more exported name is one more
+  to keep in step with the table's constraint.
 
 ## `vitest-auto-spy/angular-router` — what the route double leaves out, 2026-09-11
 
@@ -166,36 +166,36 @@ Asked for by a consumer suite with 99 hand-built `ActivatedRoute` doubles. What 
 `CHANGELOG.md`; what was weighed and left out is here.
 
 - [~] **A look-alike object instead of Angular's class.** Not done. A plain object with the same
-      keys passes a key comparison and fails `instanceof`, `relativeTo` (the router walks
-      `snapshot.root` and `children`) and every getter Angular adds later. The double is built with
-      the router's own internal constructors instead — positional, unchanged from 20 through 22 —
-      and `assertRouteWiring` reads every member back as it builds, so a major that reorders them
-      fails loudly on the first `provideActivatedRoute()` rather than yielding a route that reads
-      the wrong field. The CI Angular range job builds the double on every supported major.
+  keys passes a key comparison and fails `instanceof`, `relativeTo` (the router walks
+  `snapshot.root` and `children`) and every getter Angular adds later. The double is built with
+  the router's own internal constructors instead — positional, unchanged from 20 through 22 —
+  and `assertRouteWiring` reads every member back as it builds, so a major that reorders them
+  fails loudly on the first `provideActivatedRoute()` rather than yielding a route that reads
+  the wrong field. The CI Angular range job builds the double on every supported major.
 
 - [~] **Parent and child routes.** Not done. A tree means a second record per node and a rule for
-      which parts a child inherits (`paramsInheritanceStrategy`), and the evidence did not ask for
-      it: `firstChild` was patched in a handful of specs, never a whole tree. The route is a one-node
-      tree so the tree getters answer instead of throwing; `mockReadonlyProp` or
-      `RouterTestingHarness` covers the rest.
+  which parts a child inherits (`paramsInheritanceStrategy`), and the evidence did not ask for
+  it: `firstChild` was patched in a handful of specs, never a whole tree. The route is a one-node
+  tree so the tree getters answer instead of throwing; `mockReadonlyProp` or
+  `RouterTestingHarness` covers the rest.
 
 - [~] **`title`.** Not done. The router keeps the resolved title in `data` under a private
-      `Symbol('RouteTitle')` that no public API exposes. Reaching it would take a probe through a
-      proxy handed to the snapshot's getter — clever, fragile, and for a member no spec in the
-      evidence read. It emits `undefined`, as for a route nobody gave a title.
+  `Symbol('RouteTitle')` that no public API exposes. Reaching it would take a probe through a
+  proxy handed to the snapshot's getter — clever, fragile, and for a member no spec in the
+  evidence read. It emits `undefined`, as for a route nobody gave a title.
 
 - [~] **Merging setters.** Not done. `setQueryParams({ page: '2' })` replaces the whole set, because
-      the params after a navigation are the whole set and a merging setter would let a spec reach a
-      state the router never produces. Spreading the old ones is one expression.
+  the params after a navigation are the whole set and a merging setter would let a spec reach a
+  state the router never produces. Spreading the old ones is one expression.
 
 - [~] **Always emitting on a setter.** Not done. The router emits a stream only when its value
-      changed by its own shallow equality; a double that emitted anyway would pass a spec whose
-      component re-fetches on a no-op navigation the application never makes.
+  changed by its own shallow equality; a double that emitted anyway would pass a spec whose
+  component re-fetches on a no-op navigation the application never makes.
 
 - [~] **A lint rule for the hand-written `useValue`.** Not in this change. `prefer-provide-auto-spy`
-      still recommends `provideAutoSpy(ActivatedRoute)` for `{ provide: ActivatedRoute, useValue }`,
-      which is the weaker double for this one token; pointing that message at
-      `provideActivatedRoute()` is a follow-up.
+  still recommends `provideAutoSpy(ActivatedRoute)` for `{ provide: ActivatedRoute, useValue }`,
+  which is the weaker double for this one token; pointing that message at
+  `provideActivatedRoute()` is a follow-up.
 
 ## Three syntactic rules — a suppressed stub, a constant assertion, a dead `compileComponents()`, 2026-09-11
 
@@ -204,41 +204,41 @@ same 1759-file consumer before they shipped (34, 4 and 449 reports). What shippe
 what was weighed and left out is here.
 
 - [~] **Skipping a `@ts-expect-error` that carries a reason.** Every one of the 34 directives the rule
-      found carried a reason — the consumer's lint requires one, as `@typescript-eslint/ban-ts-comment`
-      does by default — and the wrong diagnoses were written in exactly that place ("the collapsed
-      generic"). The escape for the four deliberate ones is a per-line `eslint-disable-next-line` with
-      its own reason; the report sits on the directive's line so that comment reaches it.
+  found carried a reason — the consumer's lint requires one, as `@typescript-eslint/ban-ts-comment`
+  does by default — and the wrong diagnoses were written in exactly that place ("the collapsed
+  generic"). The escape for the four deliberate ones is a per-line `eslint-disable-next-line` with
+  its own reason; the report sits on the directive's line so that comment reaches it.
 
 - [~] **`rejectWith`, `failWith`, `throwWith` and `mockRejectedValue` in the helper list.** Their
-      parameter is `unknown`, so no stub shape can be wrong there, and a directive above one silences
-      something else — the message would be false.
+  parameter is `unknown`, so no stub shape can be wrong there, and a directive above one silences
+  something else — the message would be false.
 
 - [~] **A type-aware form of the same rule**, asking the checker whether the suppressed error is about
-      the stub. The syntactic reading already lands on the right lines, and a program would make the
-      rule silent in every suite that lints without one.
+  the stub. The syntactic reading already lands on the right lines, and a program would make the
+  rule silent in every suite that lints without one.
 
 - [~] **`no-compile-components` as the plugin's first `off` in `recommended`.** The contract is that
-      every rule ships switched on. The rule ships at `error` and says nothing until
-      `{ builder: 'inline-resources' }` states a fact no spec holds — the pattern the three type-aware
-      rules already follow for a program. Reading the builder from `angular.json`, or `templateUrl`
-      from the component, needs another file, which no rule here reads.
+  every rule ships switched on. The rule ships at `error` and says nothing until
+  `{ builder: 'inline-resources' }` states a fact no spec holds — the pattern the three type-aware
+  rules already follow for a program. Reading the builder from `angular.json`, or `templateUrl`
+  from the component, needs another file, which no rule here reads.
 
 - [~] **A `--fix` for `no-compile-components`.** A suggestion only: dropping the `await` moves the next
-      statement one microtask earlier, and removing `async` changes what a hook returns. The edit is
-      offered only for a statement of its own; a `.then()` chain, a returned or stored promise and a
-      concise arrow body use the promise and are reported bare — returning `TestBed` from a concise
-      hook would hand Vitest a function it calls as teardown.
+  statement one microtask earlier, and removing `async` changes what a hook returns. The edit is
+  offered only for a statement of its own; a `.then()` chain, a returned or stored promise and a
+  concise arrow body use the promise and are reported bare — returning `TestBed` from a concise
+  hook would hand Vitest a function it calls as teardown.
 
 - [~] **`no-constant-expect` following a name** (`const ok = true; expect(ok).toBe(true)`) or evaluating
-      arithmetic (`expect(1 + 1).toBe(2)`). All four findings were literals, and every step past the
-      spelling is a step towards a rule that has to be right about the program. `expect.soft` and chai's
-      `expect(x).to.be.true` are not read either.
+  arithmetic (`expect(1 + 1).toBe(2)`). All four findings were literals, and every step past the
+  spelling is a step towards a rule that has to be right about the program. `expect.soft` and chai's
+  `expect(x).to.be.true` are not read either.
 
 - [~] **Leaving `no-constant-expect` to `@vitest/eslint-plugin`.** Checked against 1.6.27: nothing there
-      reads the value handed to `expect` — `valid-expect` checks the call's shape, the `prefer-to-be-*`
-      family rewrites matchers. The plugin already carries runner-level hygiene of this kind
-      (`no-done-callback`, `no-floating-assertion`); if the upstream plugin gains the rule, this one
-      should point at it and go.
+  reads the value handed to `expect` — `valid-expect` checks the call's shape, the `prefer-to-be-*`
+  family rewrites matchers. The plugin already carries runner-level hygiene of this kind
+  (`no-done-callback`, `no-floating-assertion`); if the upstream plugin gains the rule, this one
+  should point at it and go.
 
 ## The read side of strict — `unconfiguredReads`, 2026-09-11
 
@@ -247,45 +247,45 @@ Asked for because strict mode stopped at the call: a spied getter nobody configu
 unconfigured method. What shipped is in `CHANGELOG.md`; what was weighed and left out is here.
 
 - [~] **Throwing on the read.** Not done. A double that lands in a failure diff is read by the
-      formatter, and a throw there replaces the assertion message with the library's — the test fails
-      either way, but on the wrong sentence. The report after the test is the whole design.
+  formatter, and a throw there replaces the assertion message with the library's — the test fails
+  either way, but on the wrong sentence. The report after the test is the whole design.
 
 - [~] **In `preset: 'strict'`.** Not included, for the reason `strict` itself is not: it is a decision
-      about how a suite writes its doubles — every getter and stream a test touches has to be
-      configured, `undefined` included — rather than a grade for a report of something already
-      broken. `swallowedStrictCalls` is in the preset because every finding there is a test that ran
-      on without the answer it asked for; here an unconfigured read may be the answer the test meant,
-      and only the spec can say. An existing suite starts with `onUnstubbedRead`, not a red run.
+  about how a suite writes its doubles — every getter and stream a test touches has to be
+  configured, `undefined` included — rather than a grade for a report of something already
+  broken. `swallowedStrictCalls` is in the preset because every finding there is a test that ran
+  on without the answer it asked for; here an unconfigured read may be the answer the test meant,
+  and only the spec can say. An existing suite starts with `onUnstubbedRead`, not a red run.
 
 - [~] **On by default under `strict: true`**, as `swallowedStrictCalls` is. Not done, for the same
-      reason: the default stays `'off'`, and turning it on is one option.
+  reason: the default stays `'off'`, and turning it on is one option.
 
 - [~] **Counting only the literal test body.** Not done. The window runs from `setupAutoSpy`'s own
-      `beforeEach`, which precedes every hook of the spec file, to its `afterEach`, which follows them.
-      A spec's `beforeEach` is where most suites run the code under test (`fixture.detectChanges()`),
-      so a body-only count would miss the case it exists for. Collection, `beforeAll` and `afterAll`
-      stay outside, and so does anything after the report ran.
+  `beforeEach`, which precedes every hook of the spec file, to its `afterEach`, which follows them.
+  A spec's `beforeEach` is where most suites run the code under test (`fixture.detectChanges()`),
+  so a body-only count would miss the case it exists for. Collection, `beforeAll` and `afterAll`
+  stay outside, and so does anything after the report ran.
 
 - [~] **Judging a subscription when it happens.** Not done. Subscribing in `beforeEach` and calling
-      `nextWith` in the test is the ordinary way to drive a stream, and the subscriber does receive the
-      value — the stream is judged at the end of the test instead. A getter read is judged when it
-      happens: it has already answered `undefined`, and configuring the getter later does not change
-      what the code under test did with that answer.
+  `nextWith` in the test is the ordinary way to drive a stream, and the subscriber does receive the
+  value — the stream is judged at the end of the test instead. A getter read is judged when it
+  happens: it has already answered `undefined`, and configuring the getter later does not change
+  what the code under test did with that answer.
 
 - [~] **The handler's return value as the read's answer**, as `onUnstubbedCall` does for a call. Not
-      done: the handler runs after the test, with the report's verdict — a stream cannot be judged any
-      earlier, and a survey that disagreed with the report would not predict what turning it on fails.
-      The same timing is why both handlers need `setupAutoSpy`: a test is what it marks out.
+  done: the handler runs after the test, with the report's verdict — a stream cannot be judged any
+  earlier, and a survey that disagreed with the report would not predict what turning it on fails.
+  The same timing is why both handlers need `setupAutoSpy`: a test is what it marks out.
 
 - [~] **A `takeUnconfiguredReads()` for a test that reads on purpose.** Not shipped beside
-      `takeStrictViolations()`. A throw provoked on purpose needs taking; an `undefined` meant on
-      purpose is configured — `accessorSpies.getters.x.mockReturnValue(undefined)`, the read-side twin
-      of `returns: { save: undefined }`.
+  `takeStrictViolations()`. A throw provoked on purpose needs taking; an `undefined` meant on
+  purpose is configured — `accessorSpies.getters.x.mockReturnValue(undefined)`, the read-side twin
+  of `returns: { save: undefined }`.
 
 - [~] **Setters, `mockAccessorsProp`, `mockDeep` nodes.** Not covered. A write answers nothing the
-      code under test depends on. `mockAccessorsProp` patches any object, not a double, and has no
-      strict configuration to consult. `mockDeep` keeps the decision recorded below for calls: every
-      hop of a chain is a read, so a suite-wide strict would report every existing deep tree.
+  code under test depends on. `mockAccessorsProp` patches any object, not a double, and has no
+  strict configuration to consult. `mockDeep` keeps the decision recorded below for calls: every
+  hop of a chain is a read, so a suite-wide strict would report every existing deep tree.
 
 ## Component stubs, a spec's own Web Storage and a generic class's default, 2026-09-11
 
@@ -293,40 +293,40 @@ Three items from a consumer's list after a suite-wide strict pass. What shipped 
 what was weighed and left out is here.
 
 - [~] **`NoInfer` on the core factories.** `createSpyFromClass(GenericClass, { gettersToSpyOn: […],
-      returns: {…} })` still fails; only the `/angular` providers were changed — the `provideAutoSpy`
-      of `/jasmine`, `/nestjs` and `/vue` keep the core signature. The mechanism, probed
-      with `tsc` 6.0.3: a generic class argument is deferred to overload resolution's second pass, the
-      first pass infers `T` from the configuration alone (`{ remoteConfig: any }` through
-      `keyof T`, or a partial through `overrides`), and the candidate is rejected before the second
-      pass reads the class. The fix needs both halves — `NoInfer` so the configuration contributes
-      nothing, and a `T = any` default so the first pass accepts the configuration; `NoInfer` alone
-      gives `T = unknown` and rejects every list. Measured and not enough: `[X] extends [infer U] ? U :
-      never` and `[T][T extends any ? 0 : never]` let the `keyof` inference through, and a
-      type-parameter rest in the constructor type changes nothing. `NoInfer` is TypeScript 5.4, above the floor the core documents; every Angular `/angular`
-      supports is past it. The one visible cost: a call that is an error anyway reports `Spy<any>`.
+returns: {…} })` still fails; only the `/angular` providers were changed — the `provideAutoSpy`
+  of `/jasmine`, `/nestjs` and `/vue` keep the core signature. The mechanism, probed
+  with `tsc` 6.0.3: a generic class argument is deferred to overload resolution's second pass, the
+  first pass infers `T` from the configuration alone (`{ remoteConfig: any }` through
+  `keyof T`, or a partial through `overrides`), and the candidate is rejected before the second
+  pass reads the class. The fix needs both halves — `NoInfer` so the configuration contributes
+  nothing, and a `T = any` default so the first pass accepts the configuration; `NoInfer` alone
+  gives `T = unknown` and rejects every list. Measured and not enough: `[X] extends [infer U] ? U :
+never` and `[T][T extends any ? 0 : never]` let the `keyof` inference through, and a
+  type-parameter rest in the constructor type changes nothing. `NoInfer` is TypeScript 5.4, above the floor the core documents; every Angular `/angular`
+  supports is past it. The one visible cost: a call that is an error anyway reports `Spy<any>`.
 - [~] **What `createComponentStub` does not copy.** Host bindings, host directives, providers,
-      lifecycle hooks and queries — a stub that ran any of them would be the child again. A signal
-      input's transform lives inside the real `input()` and cannot be read without constructing the
-      child, so a stub's signal input holds the raw value; a decorator input's transform is in the
-      definition and is copied. Every output is an `EventEmitter`, whatever the child used — both
-      have `emit` and `subscribe`, which is all a parent and a spec touch. `required` is not
-      enforced.
+  lifecycle hooks and queries — a stub that ran any of them would be the child again. A signal
+  input's transform lives inside the real `input()` and cannot be read without constructing the
+  child, so a stub's signal input holds the raw value; a decorator input's transform is in the
+  definition and is copied. Every output is an `EventEmitter`, whatever the child used — both
+  have `emit` and `subscribe`, which is all a parent and a spec touch. `required` is not
+  enforced.
 - [~] **Two private pieces of Angular, both pinned by the spec.** The selector goes through a port
-      of Angular's `stringifyCSSSelector`, which is not exported, rather than a patch of the stub's
-      `ɵcmp.selectors` after compilation; the spec asserts the compiled selector lists are equal. A
-      signal input is declared with `Input({ isSignal: true })`, which is what Angular's own JIT
-      transform emits and not public API; the spec reading `chart.series()` fails if it moves. And each
-      stub's prototype carries a non-enumerable `ɵstub<n>`: Angular hashes a component's prototype names
-      into its ID and warns `NG0912` on a shared one, which a stub of a template-only child — or the
-      same child stubbed in every test — produced, and which a strict console guard fails the test on.
+  of Angular's `stringifyCSSSelector`, which is not exported, rather than a patch of the stub's
+  `ɵcmp.selectors` after compilation; the spec asserts the compiled selector lists are equal. A
+  signal input is declared with `Input({ isSignal: true })`, which is what Angular's own JIT
+  transform emits and not public API; the spec reading `chart.series()` fails if it moves. And each
+  stub's prototype carries a non-enumerable `ɵstub<n>`: Angular hashes a component's prototype names
+  into its ID and warns `NG0912` on a shared one, which a stub of a template-only child — or the
+  same child stubbed in every test — produced, and which a strict console guard fails the test on.
 - [~] **`createComponentStub` on `/bun-angular`.** Not re-exported there, like `createDirectiveHost`:
-      it reads Angular structurally and could move to `angular-portable.ts` the day a Bun suite asks.
+  it reads Angular structurally and could move to `angular-portable.ts` the day a Bun suite asks.
 - [~] **What `stubWebStorage` does not do.** No named-property access — `localStorage.token` and
-      `Object.keys(localStorage)` do not see the items; that needs a `Proxy` on every read, for a
-      shape the platform itself discourages. No `storage` event, no quota, `instanceof Storage` is
-      false, and `vi.spyOn(Storage.prototype, 'setItem')` does not see its calls — spy on the
-      instance. Unlike `restoreWebStorage()` it installs in a `node` environment: the repair guesses
-      what the environment should have been, the stub is what the spec asked for.
+  `Object.keys(localStorage)` do not see the items; that needs a `Proxy` on every read, for a
+  shape the platform itself discourages. No `storage` event, no quota, `instanceof Storage` is
+  false, and `vi.spyOn(Storage.prototype, 'setItem')` does not see its calls — spy on the
+  instance. Unlike `restoreWebStorage()` it installs in a `node` environment: the repair guesses
+  what the environment should have been, the stub is what the spec asked for.
 
 ## Failing on everything — the stray-console guard and `preset: 'strict'`, 2026-09-11
 
@@ -334,43 +334,43 @@ Asked for as "any console output in a test is an error, every warning an error, 
 goes". What shipped is in `CHANGELOG.md`; what was weighed and left out is here.
 
 - [~] **Auto-installing the `/console` spies per test under the guard.** Not done. The only signal
-      that a file wants the spies is its import, and under `isolate: false` the entry is evaluated
-      once per worker: every file after the first imports a cached module and runs no code, so there
-      is nothing at run time to scope an install to. Installing for every test once the entry has
-      loaded would silence every later file — the failure the guard exists to catch. Counting a call
-      as absorbed when the test later *reads* the spy was also rejected: it hangs correctness on
-      intercepting `mock` reads, which every matcher, `vi.clearAllMocks()` and the registry pruner
-      also perform. So under the guard the import installs nothing, and `installConsoleSpies()` in a
-      `beforeEach` (or at the top of the file) is the one explicit, deterministic place.
+  that a file wants the spies is its import, and under `isolate: false` the entry is evaluated
+  once per worker: every file after the first imports a cached module and runs no code, so there
+  is nothing at run time to scope an install to. Installing for every test once the entry has
+  loaded would silence every later file — the failure the guard exists to catch. Counting a call
+  as absorbed when the test later _reads_ the spy was also rejected: it hangs correctness on
+  intercepting `mock` reads, which every matcher, `vi.clearAllMocks()` and the registry pruner
+  also perform. So under the guard the import installs nothing, and `installConsoleSpies()` in a
+  `beforeEach` (or at the top of the file) is the one explicit, deterministic place.
 
 - [~] **Buffering stray output and replaying it at teardown.** Not done. The guard forwards every
-      call as it happens, so Vitest's `stdout | file > test` attribution, `onConsoleLog` and the
-      output of a failing test stay exactly what they were; the failure message quotes what matters.
+  call as it happens, so Vitest's `stdout | file > test` attribution, `onConsoleLog` and the
+  output of a failing test stay exactly what they were; the failure message quotes what matters.
 
 - [~] **`strict: true` as the preset's name.** Taken: `strict` already means strict doubles, which
-      change what an unconfigured call *returns*. That is a decision about how a suite writes its
-      doubles, not a report grade, so it is not in the preset either — `preset: 'strict'` is.
+  change what an unconfigured call _returns_. That is a decision about how a suite writes its
+  doubles, not a report grade, so it is not in the preset either — `preset: 'strict'` is.
 
 - [~] **`blockNetwork` and `restoreMocks` in the preset.** The first changes what the code under
-      test sees; the second also drops `vi.spyOn` stubs a suite installed in `beforeAll`. Neither is
-      a grade.
+  test sees; the second also drops `vi.spyOn` stubs a suite installed in `beforeAll`. Neither is
+  a grade.
 
 - [~] **Failing a file on stray timers under the preset.** The sweep runs in `afterAll`, so the
-      failure lands on a file rather than a test, and a callback scheduled after the previous file's
-      sweep is charged to the next one — the count can fail a file that scheduled nothing. Each stray
-      now carries its scheduling file and frames, at the price of a stack per scheduled timer (about
-      1.6 µs, see `docs-site/core/performance.md`), so the failure is actionable but still not the
-      preset's to impose. One line opts in: `onStrayTimers: ({ timers }) => expect(timers).toEqual([])`.
+  failure lands on a file rather than a test, and a callback scheduled after the previous file's
+  sweep is charged to the next one — the count can fail a file that scheduled nothing. Each stray
+  now carries its scheduling file and frames, at the price of a stack per scheduled timer (about
+  1.6 µs, see `docs-site/core/performance.md`), so the failure is actionable but still not the
+  preset's to impose. One line opts in: `onStrayTimers: ({ timers }) => expect(timers).toEqual([])`.
 
 - [~] **`enableAngularDiagnostics()` inside the preset.** `/setup` imports no Angular, and the group
-      needs the TestBed environment initialised first. Documented as the Angular half of strict, to
-      call in the same setup file — on a 1759-file Angular consumer it found real defects in 25 files
-      and 324 tests at no measurable cost (12.5 s against 13.4 s).
+  needs the TestBed environment initialised first. Documented as the Angular half of strict, to
+  call in the same setup file — on a 1759-file Angular consumer it found real defects in 25 files
+  and 324 tests at no measurable cost (12.5 s against 13.4 s).
 
 - [~] **Grading `process.stdout` / `process.stderr` writes and jsdom's virtual console.** Not
-      watched: neither goes through the console Vitest intercepts, so neither is attributed to a test
-      the guard could fail. A suite that wants jsdom's errors graded routes `jsdomError` to
-      `console.error`.
+  watched: neither goes through the console Vitest intercepts, so neither is attributed to a test
+  the guard could fail. A suite that wants jsdom's errors graded routes `jsdomError` to
+  `console.error`.
 
 ## Field findings — repository reconnaissance, 2026-09-10
 
@@ -380,46 +380,46 @@ independently, which is the check worth having. What shipped is in `CHANGELOG.md
 deliberately left out is here.
 
 - [~] **An autofix for `no-dead-schemas`, and per-call reporting.** Neither, on purpose. The repair
-      is "delete the line and the import", and dropping an import is the one edit that turns a lint
-      pass into a compile error when something else still uses the name. Not per-call either —
-      Angular merges successive `configureTestingModule` calls, so the file decides. The rule found
-      230 entries in 204 files.
+  is "delete the line and the import", and dropping an import is the one edit that turns a lint
+  pass into a compile error when something else still uses the name. Not per-call either —
+  Angular merges successive `configureTestingModule` calls, so the file decides. The rule found
+  230 entries in 204 files.
 
 - [~] **A lint rule for shadowed providers**, pairing `x.component.spec.ts` with `x.component.ts` and
-      reading the decorator statically. Not shipped beside
-      `enableAngularDiagnostics({ shadowedProviders })` / `assertNoShadowedProviders`: it would have
-      to resolve an import to a sibling file, which no rule in this plugin does — and the runtime
-      check answers the same question from evidence rather than from a naming convention. Worth
-      revisiting only if a project reports the diagnostic being too late to be useful.
+  reading the decorator statically. Not shipped beside
+  `enableAngularDiagnostics({ shadowedProviders })` / `assertNoShadowedProviders`: it would have
+  to resolve an import to a sibling file, which no rule in this plugin does — and the runtime
+  check answers the same question from evidence rather than from a naming convention. Worth
+  revisiting only if a project reports the diagnostic being too late to be useful.
 
 - [~] **Inheritance and merging for `registerAutoSpyDefaults`.** Not shipped: a subclass inheriting
-      its base's registration, because it would let one setup line change doubles in files nobody was
-      looking at. Not shipped: merging two registrations of the same class — the second replaces, so
-      the drift the API removes cannot reappear inside it.
+  its base's registration, because it would let one setup line change doubles in files nobody was
+  looking at. Not shipped: merging two registrations of the same class — the second replaces, so
+  the drift the API removes cannot reappear inside it.
 
 - [~] **Two simpler typings for the table form of `registerAutoSpyDefaults`.** Both compile every
-      table, which is the one thing the form must not do. `Array<[ClassType<unknown>,
-      ClassSpyConfiguration<unknown>]>` checks nothing — a configuration names keys *of its class*,
-      and no two instantiations unify, so widening the row to a common type gives up the checking the
-      form exists for. Putting the row check on the **parameter**
-      (`entries: Entries & AutoSpyDefaultEntries<Entries>`) fails for a subtler reason: the relation
-      TS uses to *choose* an overload defers the conditional and accepts a wrong key, though a
-      single-signature function catches the same call. The check therefore lives in the **constraint**,
-      where it is instantiated after the overload has been chosen. Both were written and both silently
-      accepted a key the row class does not have; `src/type-tests/spy-defaults.test-d.ts` is what
-      keeps a third one from landing.
+  table, which is the one thing the form must not do. `Array<[ClassType<unknown>,
+ClassSpyConfiguration<unknown>]>` checks nothing — a configuration names keys _of its class_,
+  and no two instantiations unify, so widening the row to a common type gives up the checking the
+  form exists for. Putting the row check on the **parameter**
+  (`entries: Entries & AutoSpyDefaultEntries<Entries>`) fails for a subtler reason: the relation
+  TS uses to _choose_ an overload defers the conditional and accepts a wrong key, though a
+  single-signature function catches the same call. The check therefore lives in the **constraint**,
+  where it is instantiated after the overload has been chosen. Both were written and both silently
+  accepted a key the row class does not have; `src/type-tests/spy-defaults.test-d.ts` is what
+  keeps a third one from landing.
 
 - [~] **Warning when a registration names a member no prototype carries.** Nothing does, for the same
-      reason the call-site lists do not: the option exists to name instance fields, and telling a typo
-      from one is not decidable.
+  reason the call-site lists do not: the option exists to name instance fields, and telling a typo
+  from one is not decidable.
 
 - [~] **A provider that replaced nothing** (`{ provide: 'LOCALE_ID', useValue: 'ru-RU' }` against the
-      real `LOCALE_ID` from `@angular/core`). Checked and **not folded** into `shadowedProviders`:
-      that check compares a registered *double* with what the component resolved, and this provider
-      is not a double, so there is nothing to compare. The general form — "declared, and nothing ever
-      asked for it" — needs to know whether a token was injected, which Angular does not report. No
-      dedicated rule either: one occurrence in the repository, already removed, and a rule on one
-      finding is a rule that gets switched off. Revisit if a second shape of it turns up.
+  real `LOCALE_ID` from `@angular/core`). Checked and **not folded** into `shadowedProviders`:
+  that check compares a registered _double_ with what the component resolved, and this provider
+  is not a double, so there is nothing to compare. The general form — "declared, and nothing ever
+  asked for it" — needs to know whether a token was injected, which Angular does not report. No
+  dedicated rule either: one occurrence in the repository, already removed, and a rule on one
+  finding is a rule that gets switched off. Revisit if a second shape of it turns up.
 
 ## Field findings — consumer suite hardening, 2026-09-09
 
@@ -428,35 +428,35 @@ Reported from the same consumer while a batch of specs was being moved onto `pro
 it was changed; what shipped out of it is in `CHANGELOG.md`, what was deliberately left out is here.
 
 - [~] **Re-applying a `mock*Prop` patch on every test.** It is the fix that "a patch made outside a
-      per-test hook expired after one test" looks like it wants, and it would defeat what
-      `restoreMockedProps()` exists for — a patch that puts itself back per test outlives its file
-      under `isolate: false`, and "the file this patch belongs to" is not something the journal can
-      see. The report graded by `propsOutsideHooks` is what shipped instead.
+  per-test hook expired after one test" looks like it wants, and it would defeat what
+  `restoreMockedProps()` exists for — a patch that puts itself back per test outlives its file
+  under `isolate: false`, and "the file this patch belongs to" is not something the journal can
+  see. The report graded by `propsOutsideHooks` is what shipped instead.
 
 - [~] **Detecting that same shape without `setupAutoSpy`.** Nothing does: without its `beforeEach`
-      there is no epoch to compare against — and without the sweep the patch stays put, so there is
-      nothing to report either.
+  there is no epoch to compare against — and without the sweep the patch stays put, so there is
+  nothing to report either.
 
 - [~] **A diagnostic that recognises `restoreMocks: true`** and fails with a message. It was the
-      other candidate against accessor spies not surviving that flag, and it is the wrong one: it
-      would report a breakage where there is no longer one to report, now that the Vitest and Rstest
-      adapters install accessor spies by redefining the property instead of through the runner's
-      `spyOn`. The diagnostic that stays is the one for the failure nothing can repair — a
-      non-configurable property.
+  other candidate against accessor spies not surviving that flag, and it is the wrong one: it
+  would report a breakage where there is no longer one to report, now that the Vitest and Rstest
+  adapters install accessor spies by redefining the property instead of through the runner's
+  `spyOn`. The diagnostic that stays is the one for the failure nothing can repair — a
+  non-configurable property.
 
 - [~] **`no-inject-before-override` following a helper of the consumer's own** that wraps
-      `TestBed.inject`. Not shipped: that needs cross-file resolution, and the rule's whole guarantee
-      is that it decides from one file. `injectSpy()`, `renderShallow()` and
-      `TestBed.runInInjectionContext` it does read.
+  `TestBed.inject`. Not shipped: that needs cross-file resolution, and the rule's whole guarantee
+  is that it decides from one file. `injectSpy()`, `renderShallow()` and
+  `TestBed.runInInjectionContext` it does read.
 
 - [~] **A paired helper for reaching a private member.** Not shipped beside
-      `no-private-member-access`: it would legitimise exactly what the rule reports, and the repair
-      is a design question rather than a mechanical one. Also not shipped: a syntactic fallback when
-      no program is configured — measured at 37 % false positives on the consumer's corpus, which is
-      the level at which a rule gets switched off and takes the real findings with it. And
-      deliberately not relying on the neighbouring props that happen to exist in that consumer
-      (`as any` banned by its lint config, `as unknown as` being weeded out separately): the next
-      repository has neither and the escape survives.
+  `no-private-member-access`: it would legitimise exactly what the rule reports, and the repair
+  is a design question rather than a mechanical one. Also not shipped: a syntactic fallback when
+  no program is configured — measured at 37 % false positives on the consumer's corpus, which is
+  the level at which a rule gets switched off and takes the real findings with it. And
+  deliberately not relying on the neighbouring props that happen to exist in that consumer
+  (`as any` banned by its lint config, `as unknown as` being weeded out separately): the next
+  repository has neither and the escape survives.
 
       three literals in one `providers` array give three reports, twenty give twenty, and the
       before/after of converting one differs by exactly the one converted. What is real is the
@@ -473,11 +473,11 @@ it was changed; what shipped out of it is in `CHANGELOG.md`, what was deliberate
       (`ENVIRONMENT_MOCK`, `MockAccount`) rather than service doubles.
 
 - [~] **"`provideAutoSpyForToken`'s second argument silently yields a non-spy."** Checked and **not
-      reproduced** as a silent failure. A data value where the type declares a method does not
-      compile — `DeepPartial<T>` narrows a function member to `T[K] | ((...args) => ReturnType<T[K]>)`
-      — and a plain arrow seeded there fails loudly at the assertion with the runner's own "received
-      value must be a mock or spy function". No change made; a warning on a seeded non-mock function
-      was considered and rejected as noise on a legitimate use.
+  reproduced** as a silent failure. A data value where the type declares a method does not
+  compile — `DeepPartial<T>` narrows a function member to `T[K] | ((...args) => ReturnType<T[K]>)`
+  — and a plain arrow seeded there fails loudly at the assertion with the runner's own "received
+  value must be a mock or spy function". No change made; a warning on a seeded non-mock function
+  was considered and rejected as noise on a legitimate use.
 
 ## Field findings — consumer monorepo merge, 2026-08-29
 
@@ -491,15 +491,15 @@ consumer. Docs for the migration half of this list have landed in
 new rows in the no-twin table).
 
 - [~] **The `Cannot redefine property` guard covers this library's own seam only.**
-      `lib/mock-adapter.ts:107` catches the `TypeError` out of `spyOnGetter` / `spyOnSetter` and
-      re-throws it naming the target, the reason the property is locked and `DOCS_LINKS.realSeam`,
-      which is the whole of the fix that shipped. It sits on one path. A consumer's own
-      `vi.spyOn(barrel, 'export')` never enters this library and still throws the bare
-      `TypeError: Cannot redefine property: injectDomainMetrics`; and `mockReadonlyProp` /
-      `mockValueProp` call `Object.defineProperty` directly (`lib/prop-mock.ts:190`, `:238`) with no
-      guard of their own, so the library's _own_ prop helpers hand back the unhelpful text the
-      adapters no longer do. Wrapping those two is a few lines and closes the inconsistency; the
-      hand-written `vi.spyOn` case needs a different channel entirely, since nothing of ours runs.
+  `lib/mock-adapter.ts:107` catches the `TypeError` out of `spyOnGetter` / `spyOnSetter` and
+  re-throws it naming the target, the reason the property is locked and `DOCS_LINKS.realSeam`,
+  which is the whole of the fix that shipped. It sits on one path. A consumer's own
+  `vi.spyOn(barrel, 'export')` never enters this library and still throws the bare
+  `TypeError: Cannot redefine property: injectDomainMetrics`; and `mockReadonlyProp` /
+  `mockValueProp` call `Object.defineProperty` directly (`lib/prop-mock.ts:190`, `:238`) with no
+  guard of their own, so the library's _own_ prop helpers hand back the unhelpful text the
+  adapters no longer do. Wrapping those two is a few lines and closes the inconsistency; the
+  hand-written `vi.spyOn` case needs a different channel entirely, since nothing of ours runs.
 
       **The prop-helper half shipped 2026-08-30.** `CANNOT_REDEFINE`, `describeSpyTarget` and the
       explanation itself moved to `lib/redefine-failure.ts`, and all four `mock*Prop` helpers now go
@@ -620,41 +620,41 @@ Did **not** reproduce, and why:
   is the maintainer's call and not a doc-shaped one. Recorded so the trade is not re-derived.
 
 - [~] **`injectSpy(Service)` inferring `Service<{}>` instead of the generic's declared default.** Not
-      this library's to fix, and measured rather than argued: TypeScript instantiates a generic
-      class's own type parameters to their **constraints**, not their **defaults**, in every
-      inference position. On tsc 5.9 both `f<T>(token: new (…) => T): T` and
-      `g<C extends abstract new (…) => unknown>(token: C): InstanceType<C>` yield `Service<{}>` for a
-      class declared `Service<T = Defaults>`. No signature this package could write changes that; an
-      explicit type argument is the only fix, which is what `injectSpy`'s docstring already says.
+  this library's to fix, and measured rather than argued: TypeScript instantiates a generic
+  class's own type parameters to their **constraints**, not their **defaults**, in every
+  inference position. On tsc 5.9 both `f<T>(token: new (…) => T): T` and
+  `g<C extends abstract new (…) => unknown>(token: C): InstanceType<C>` yield `Service<{}>` for a
+  class declared `Service<T = Defaults>`. No signature this package could write changes that; an
+  explicit type argument is the only fix, which is what `injectSpy`'s docstring already says.
 
 Left as proposals, deliberately:
 
 - [~] **Narrowing `prefer-provide-auto-spy` to skip a literal whose `vi.fn()`s all sit below the
-      first level** (`{ headers: { get: vi.fn() } }` behind a request token). The premise checks out
-      — `createAutoMock<T>()` makes every accessed key a function spy, so `req.headers` is a spy and
-      `req.headers.get(…)` reads a property off one — but the conclusion does not follow: the second
-      argument expresses it exactly (`provideAutoSpyForToken(REQUEST, { headers: { get: vi.fn() } })`,
-      seeded verbatim), and `mockDeep` is the other answer. So the message gained the nested case
-      instead. Weakening a rule on one report, when the recommendation it makes is reachable, buys a
-      false negative for every genuinely nested service double.
+  first level** (`{ headers: { get: vi.fn() } }` behind a request token). The premise checks out
+  — `createAutoMock<T>()` makes every accessed key a function spy, so `req.headers` is a spy and
+  `req.headers.get(…)` reads a property off one — but the conclusion does not follow: the second
+  argument expresses it exactly (`provideAutoSpyForToken(REQUEST, { headers: { get: vi.fn() } })`,
+  seeded verbatim), and `mockDeep` is the other answer. So the message gained the nested case
+  instead. Weakening a rule on one report, when the recommendation it makes is reachable, buys a
+  false negative for every genuinely nested service double.
 - [~] **A lint rule for `helper-from-wrong-entry`.** Still the `doctor` check only. The reason on
-      record — resolving a name to an entry needs the installed version's own export map, which a
-      per-file linter has none of — is unchanged by this report, and the table is generated
-      (`src/cli/checks/export-map.generated.ts`), so a rule *could* carry it. What would decide it is
-      evidence that the miss survives a type gate; every instance in this report was found by `tsc`.
+  record — resolving a name to an entry needs the installed version's own export map, which a
+  per-file linter has none of — is unchanged by this report, and the table is generated
+  (`src/cli/checks/export-map.generated.ts`), so a rule _could_ carry it. What would decide it is
+  evidence that the miss survives a type gate; every instance in this report was found by `tsc`.
 - [~] **A `writableProps` option on `createAutoMock`.** The narrower form of the `readonly` fix — keep
-      the modifier, drop it for the seeded keys — cannot be written in TypeScript for the call shape
-      that needs it. It would take inferring the seed's type into a second type parameter, and
-      supplying **any** explicit type argument turns inference off for all of them: the ubiquitous
-      call is `createAutoMock<AuthorizationService>({ … })`, which would fall back to the default and
-      seed nothing. That fact is measured and still holds. What no longer follows from it is the
-      wholesale form: stripping `readonly` from `Spy<T>` and `DeepMockProxy<T>` shipped briefly and
-      was reverted, because an assignment to a *spied accessor* is silently inert — the write lands
-      on the setter spy while the getter keeps answering `undefined`, so a loud `TS2540` fixable in
-      one line became a green test asserting nothing. `mockValueProp` is the answer instead, and it
-      needs no new option and no new type: `readonly` does not take a key out of `keyof T`, so the
-      checked overload already accepts the member, and `defineProperty` makes the value readable
-      where `[[Set]]` — plain assignment, `Reflect.set` and `Mutable<T>` alike — does not.
+  the modifier, drop it for the seeded keys — cannot be written in TypeScript for the call shape
+  that needs it. It would take inferring the seed's type into a second type parameter, and
+  supplying **any** explicit type argument turns inference off for all of them: the ubiquitous
+  call is `createAutoMock<AuthorizationService>({ … })`, which would fall back to the default and
+  seed nothing. That fact is measured and still holds. What no longer follows from it is the
+  wholesale form: stripping `readonly` from `Spy<T>` and `DeepMockProxy<T>` shipped briefly and
+  was reverted, because an assignment to a _spied accessor_ is silently inert — the write lands
+  on the setter spy while the getter keeps answering `undefined`, so a loud `TS2540` fixable in
+  one line became a green test asserting nothing. `mockValueProp` is the answer instead, and it
+  needs no new option and no new type: `readonly` does not take a key out of `keyof T`, so the
+  checked overload already accepts the member, and `defineProperty` makes the value readable
+  where `[[Set]]` — plain assignment, `Reflect.set` and `Mutable<T>` alike — does not.
 
 ## Timeout budgets — closed 2026-08-30, and the one part that stays out of reach
 
@@ -685,11 +685,11 @@ re-deriving:
   reverse registration order, so the clock is real again by the time the hint reads it.
 
 - [~] **One more Jest/Vitest budget difference, reporting-only and not acted on.**
-      `slowTestThreshold` is `5` in Jest (**seconds**, `jest-config`) and `300` in Vitest
-      (**milliseconds**), so a migrated suite starts marking most of its files slow. Nothing fails, so
-      there is nothing to annotate; it is documented in `docs-site/migrating.md` and that is probably
-      the whole of the answer. `teardownTimeout` has no Jest counterpart at all and is not on the
-      serialized worker config, so it cannot be read from a setup file either way.
+  `slowTestThreshold` is `5` in Jest (**seconds**, `jest-config`) and `300` in Vitest
+  (**milliseconds**), so a migrated suite starts marking most of its files slow. Nothing fails, so
+  there is nothing to annotate; it is documented in `docs-site/migrating.md` and that is probably
+  the whole of the answer. `teardownTimeout` has no Jest counterpart at all and is not on the
+  serialized worker config, so it cannot be read from a setup file either way.
 
 ## Coverage under a bundling builder — closed 2026-08-30, and what stays out of reach
 
@@ -1426,30 +1426,30 @@ population being handed the boilerplate `createSpyFromClass(Service)` deletes.
   remain free of the Angular transform. Two runs of five passes each, median of 60 reps, Node
   24.19.0, Angular 21. What it found:
 
-  | figure | published | measured | verdict |
-  | --- | ---: | ---: | --- |
-  | `renderShallow` at 0 children | 1.2× | **0.95×** | **sign is wrong** — it is _slower_ on a childless component (0.447 vs 0.471 ms), which is what the prose always said and the number contradicted |
-  | at 25 children | 1.8× | 1.73× | reproduces |
-  | at 100 children | 5.7× | 4.50× | same order, ~21 % low |
-  | at 400 children | 16.2× | **20.8×** | measures _higher_ |
-  | full per-test cycle | 1.933 ms | **1.215 ms** | ~30 % low |
-  | `createComponent` on an already-configured module | 1.987 ms | **1.049 ms** | absolutes do not reproduce; the _conclusion_ hardens — bed reuse buys ~14 %, not the 1.03× the published pair implied |
-  | `keepTemplate: true` | 1.074 ms | 0.862 ms | closest of the lot; as a ratio the rung is 1.41–1.60×, not 1.80× |
-  | `compileComponents()` on a standalone AOT bed | 0.137 ms | **0.005 ms** | 27× low — it is a no-op there; the conclusion is unaffected |
+  | figure                                            | published |     measured | verdict                                                                                                                                          |
+  | ------------------------------------------------- | --------: | -----------: | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+  | `renderShallow` at 0 children                     |      1.2× |    **0.95×** | **sign is wrong** — it is _slower_ on a childless component (0.447 vs 0.471 ms), which is what the prose always said and the number contradicted |
+  | at 25 children                                    |      1.8× |        1.73× | reproduces                                                                                                                                       |
+  | at 100 children                                   |      5.7× |        4.50× | same order, ~21 % low                                                                                                                            |
+  | at 400 children                                   |     16.2× |    **20.8×** | measures _higher_                                                                                                                                |
+  | full per-test cycle                               |  1.933 ms | **1.215 ms** | ~30 % low                                                                                                                                        |
+  | `createComponent` on an already-configured module |  1.987 ms | **1.049 ms** | absolutes do not reproduce; the _conclusion_ hardens — bed reuse buys ~14 %, not the 1.03× the published pair implied                            |
+  | `keepTemplate: true`                              |  1.074 ms |     0.862 ms | closest of the lot; as a ratio the rung is 1.41–1.60×, not 1.80×                                                                                 |
+  | `compileComponents()` on a standalone AOT bed     |  0.137 ms | **0.005 ms** | 27× low — it is a no-op there; the conclusion is unaffected                                                                                      |
 
   The absolutes almost certainly differ because the original used a heavier child than this bench's
   one-element/one-binding one. Making the child heavier would move them toward the published
   figures, which is exactly the wrong move; the child stayed minimal and is documented as such.
 
 - [~] **The Angular plugin does not process `input()` initializers in a `.bench.ts` file.** One of
-      the two traps the Angular bench cost a rebuild to find, and the one that stays: `setInput`
-      fails with `NG0303`, and the first draft silently reported the JIT warm-up order as a per-size
-      curve. Adding `include: ['**/bench-angular/**/*.bench.ts']` to the plugin options does not
-      help, so the bench uses four host classes with literal row counts instead — a workaround in
-      this repository for a limitation that is not in it. The other trap — `--update` stamping the
-      self-benchmark's command over `bench-angular/baseline.json` — is fixed: `--update` now carries
-      `generated.command` and `generated.note` forward and `--command "<text>"` sets the line when
-      the recipe changes.
+  the two traps the Angular bench cost a rebuild to find, and the one that stays: `setInput`
+  fails with `NG0303`, and the first draft silently reported the JIT warm-up order as a per-size
+  curve. Adding `include: ['**/bench-angular/**/*.bench.ts']` to the plugin options does not
+  help, so the bench uses four host classes with literal row counts instead — a workaround in
+  this repository for a limitation that is not in it. The other trap — `--update` stamping the
+  self-benchmark's command over `bench-angular/baseline.json` — is fixed: `--update` now carries
+  `generated.command` and `generated.note` forward and `--command "<text>"` sets the line when
+  the recipe changes.
 
 - [~] **A `@testing-library/angular` migration note — shipped 2026-09-04** as
   `docs-site/migrating-testing-library-angular.md`, with every claim re-verified by running the
@@ -1475,4 +1475,3 @@ population being handed the boilerplate `createSpyFromClass(Service)` deletes.
   2026-09-04 — ts-auto-mock 740 days, testdouble 896, moq.ts 1220, `@fluffy-spoon/substitute` 1945,
   `@golevelup/nestjs-testing` 2486, plus `@ngneat/spectator` at 306 days with the 404 repo. Note for
   the next pass: **`jest-auto-spies` is at 346 days and crosses the year mark in September 2026.**
-

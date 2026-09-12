@@ -92,7 +92,7 @@ See [Control helpers → Inspecting promise outcomes](/core/control-helpers#sett
 name of whatever function was passed in — so before this was handled, every spy printed as
 `[Function: dispatch]`, the library's internal dispatcher, wherever a spy was rendered.
 
-The adapter now gives the method's name to the *implementation*, at the moment it is created, and
+The adapter now gives the method's name to the _implementation_, at the moment it is created, and
 `mock.fn()` carries it onto the mock — a `node:test` mock takes its `name` from the function it
 wraps. `displayName` is set on the mock as well, for inspectors that prefer that convention. The
 name survives `mock.reset()`, `mock.restore()`, `resetCalls()` and a `mockImplementation()` swap,
@@ -117,7 +117,7 @@ Two things it still does not buy you, and neither has a fix on this side:
 
 - **`getMockName()` does not exist on a `node:test` mock.** It is a Jest-family method Vitest and Bun
   ship and `node:test` does not; read `spy.method.name` there instead.
-- **`node:test`'s own reporter never labels a mock.** Its output names the *test* that failed, not
+- **`node:test`'s own reporter never labels a mock.** Its output names the _test_ that failed, not
   the mock involved — the name shows up only where a spy is actually rendered as a value (an
   assertion diff, `util.inspect`, a library message), never as a heading in the TAP or spec reporter.
 

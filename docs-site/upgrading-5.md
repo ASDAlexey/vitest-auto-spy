@@ -27,10 +27,10 @@ satisfies the rxjs one.
 meaning, no spy behaves differently.** Most suites upgrade by changing the version and running the
 suite.
 
-|                                                                                                               | What to do                                                                             |
-| ------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+|                                                                                                                        | What to do                                                                             |
+| ---------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
 | [1. Angular is `>=20`, and there are now three Angular peers](#_1-angular-is-20-and-there-are-now-three-angular-peers) | upgrade Angular if you are below 20; add `@angular/platform-browser` if pnpm complains |
-| [2. rxjs is `>=7.2`](#_2-rxjs-is-7-2-because-the-deep-import-path-is-gone)                                    | nothing, unless you pin `rxjs@7.0` or `7.1` on purpose                                 |
+| [2. rxjs is `>=7.2`](#_2-rxjs-is-7-2-because-the-deep-import-path-is-gone)                                             | nothing, unless you pin `rxjs@7.0` or `7.1` on purpose                                 |
 
 ## 1. Angular is `>=20`, and there are now three Angular peers
 
@@ -117,7 +117,7 @@ recommended path. The `bun-angular` floor rests on `provideZonelessChangeDetecti
 `>=20.0.0 <23.0.0` is the tempting shape, because `ɵSIGNAL` is a private symbol Angular owes nobody
 compatibility on. It is the wrong fix twice over: a bound forces a release of this package for every
 Angular major, and it hands `ERESOLVE` to anyone who upgraded Angular first. Worse, it does not
-actually protect the thing it looks like it protects — a private symbol can be dropped in a *minor*.
+actually protect the thing it looks like it protects — a private symbol can be dropped in a _minor_.
 The real insurance is structural: read the symbol off the module instead of naming it in the import
 list, so a future Angular without `ɵSIGNAL` breaks one helper rather than the whole entry. That
 pattern is already in this codebase (`zoneless.ts`, `proxy-zone.ts`), and it is where `runEffect()`

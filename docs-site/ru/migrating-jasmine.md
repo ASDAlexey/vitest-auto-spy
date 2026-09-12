@@ -89,56 +89,56 @@ spy.load.nextWith(account); // jest-auto-spies и здесь
 делает та же строка после смены спецификатора импорта. Правая колонка — конечное состояние; **✎**
 помечает строки, которых не касается ни один трансформ: их и надо искать руками после прогона кодмода.
 
-| `jasmine-auto-spies`                                               | на `vitest-auto-spy/jasmine`                                     | конечное состояние                                          |
-| ------------------------------------------------------------------ | ----------------------------------------------------------------- | ------------------------------------------------------------ |
-| `createSpyFromClass(C)`                                            | идентично                                                        | `createSpyFromClass` из `vitest-auto-spy`                   |
-| `createSpyFromClass(C, ['load', 'save'])`                          | идентично                                                        | без изменений                                               |
-| `methodsToSpyOn` / `observablePropsToSpyOn`                        | идентично, тот же дополняющий смысл                              | без изменений                                               |
-| `gettersToSpyOn` / `settersToSpyOn`                                | идентично                                                        | без изменений                                               |
-| `providedMethodNames`                                              | принимается, вливается в `methodsToSpyOn`, предупреждает раз на вызов | ✎ переименуйте в `methodsToSpyOn`                        |
-| `createFunctionSpy<F>('name')`                                     | идентично                                                        | `createFunctionSpy` из `vitest-auto-spy`                    |
-| `provideAutoSpy(C)`                                                | идентичный `{ provide, useValue }`                               | `provideAutoSpy` из `/angular` (или `/nestjs`, `/vue`)      |
-| `createSpyObj(base, names, props?)`                                | идентично, все четыре формы аргументов                           | **остаётся на `/jasmine`** — больше его никто не экспортирует |
-| `type Spy<T>`                                                      | та же форма, **без** `@types/jasmine`                            | `Spy<T>` из `vitest-auto-spy`                               |
-| `createObservableWithValues`                                       | из `vitest-auto-spy/rxjs`, без изменений                         | без изменений                                               |
-| `spy.m.and.returnValue(v)`                                         | идентично                                                        | `spy.m.mockReturnValue(v)`                                  |
-| `spy.m.and.returnValues(a, b)`                                     | идентично                                                        | `.mockReturnValueOnce(a).mockReturnValueOnce(b)`            |
-| `spy.m.and.callFake(fn)`                                           | идентично                                                        | `spy.m.mockImplementation(fn)`                              |
-| `spy.m.and.stub()`                                                 | идентично                                                        | `spy.m.mockImplementation(() => undefined)`                 |
-| `spy.m.and.throwError('boom')`                                     | идентично                                                        | `.mockImplementation(() => { throw new Error('boom'); })`   |
-| `spy.m.and.resolveTo(v)`                                           | идентично                                                        | `spy.m.mockResolvedValue(v)`                                |
-| `spy.m.and.callThrough()`                                          | **восстанавливает диспетчеризацию этой библиотеки** — см. ниже   | сообщается, оставляется побайтно как есть                   |
-| `spy.m.and.identity`                                               | имя спая                                                         | ✎ Vitest называет переменную, а не спай — уберите чтение    |
-| `spy.m.and.resolveWith / rejectWith / resolveWithPerCall`          | идентично                                                        | уберите `.and` — `spy.m.resolveWith(v)`                     |
-| `spy.m.and.nextWith / nextOneTimeWith / nextWithValues`            | идентично                                                        | уберите `.and`                                              |
-| `spy.m.and.nextWithPerCall / throwWith / complete / returnSubject` | идентично                                                        | уберите `.and`                                              |
-| `spy.m.withArgs(1).and.returnValue(v)`                             | идентично                                                        | `spy.m.calledWith(1).mockReturnValue(v)`                    |
-| `expect(spy.m.withArgs(1)).toHaveBeenCalled()`                     | **аналога нет** — `withArgs` возвращает цепочку, а не спай       | ✎ `expect(spy.m).toHaveBeenCalledWith(1)`                   |
-| `spy.m.calls.count()` / `any()`                                    | идентично                                                        | ✎ `spy.m.mock.calls.length`                                 |
-| `spy.m.calls.argsFor(i)` / `allArgs()`                             | идентично                                                        | ✎ `spy.m.mock.calls[i]` / `spy.m.mock.calls`                |
-| `spy.m.calls.all()` / `first()` / `mostRecent()`                   | идентично                                                        | ✎ `spy.m.mock.calls` рядом с `spy.m.mock.results`           |
-| `spy.m.calls.thisFor(i)`                                           | идентично                                                        | ✎ `spy.m.mock.instances[i]`                                 |
-| `spy.m.calls.reset()`                                              | идентично                                                        | ✎ `spy.m.mockClear()`                                       |
-| `spy.m.calls.saveArgumentsByValue()`                               | **задокументированный no-op** — см. ниже                         | ✎ снимайте копию в `mockImplementation`                     |
-| `spy.accessorSpies.getters.x.and.returnValue(v)`                   | идентично                                                        | `spy.accessorSpies.getters.x.mockReturnValue(v)`            |
+| `jasmine-auto-spies`                                               | на `vitest-auto-spy/jasmine`                                          | конечное состояние                                            |
+| ------------------------------------------------------------------ | --------------------------------------------------------------------- | ------------------------------------------------------------- |
+| `createSpyFromClass(C)`                                            | идентично                                                             | `createSpyFromClass` из `vitest-auto-spy`                     |
+| `createSpyFromClass(C, ['load', 'save'])`                          | идентично                                                             | без изменений                                                 |
+| `methodsToSpyOn` / `observablePropsToSpyOn`                        | идентично, тот же дополняющий смысл                                   | без изменений                                                 |
+| `gettersToSpyOn` / `settersToSpyOn`                                | идентично                                                             | без изменений                                                 |
+| `providedMethodNames`                                              | принимается, вливается в `methodsToSpyOn`, предупреждает раз на вызов | ✎ переименуйте в `methodsToSpyOn`                             |
+| `createFunctionSpy<F>('name')`                                     | идентично                                                             | `createFunctionSpy` из `vitest-auto-spy`                      |
+| `provideAutoSpy(C)`                                                | идентичный `{ provide, useValue }`                                    | `provideAutoSpy` из `/angular` (или `/nestjs`, `/vue`)        |
+| `createSpyObj(base, names, props?)`                                | идентично, все четыре формы аргументов                                | **остаётся на `/jasmine`** — больше его никто не экспортирует |
+| `type Spy<T>`                                                      | та же форма, **без** `@types/jasmine`                                 | `Spy<T>` из `vitest-auto-spy`                                 |
+| `createObservableWithValues`                                       | из `vitest-auto-spy/rxjs`, без изменений                              | без изменений                                                 |
+| `spy.m.and.returnValue(v)`                                         | идентично                                                             | `spy.m.mockReturnValue(v)`                                    |
+| `spy.m.and.returnValues(a, b)`                                     | идентично                                                             | `.mockReturnValueOnce(a).mockReturnValueOnce(b)`              |
+| `spy.m.and.callFake(fn)`                                           | идентично                                                             | `spy.m.mockImplementation(fn)`                                |
+| `spy.m.and.stub()`                                                 | идентично                                                             | `spy.m.mockImplementation(() => undefined)`                   |
+| `spy.m.and.throwError('boom')`                                     | идентично                                                             | `.mockImplementation(() => { throw new Error('boom'); })`     |
+| `spy.m.and.resolveTo(v)`                                           | идентично                                                             | `spy.m.mockResolvedValue(v)`                                  |
+| `spy.m.and.callThrough()`                                          | **восстанавливает диспетчеризацию этой библиотеки** — см. ниже        | сообщается, оставляется побайтно как есть                     |
+| `spy.m.and.identity`                                               | имя спая                                                              | ✎ Vitest называет переменную, а не спай — уберите чтение      |
+| `spy.m.and.resolveWith / rejectWith / resolveWithPerCall`          | идентично                                                             | уберите `.and` — `spy.m.resolveWith(v)`                       |
+| `spy.m.and.nextWith / nextOneTimeWith / nextWithValues`            | идентично                                                             | уберите `.and`                                                |
+| `spy.m.and.nextWithPerCall / throwWith / complete / returnSubject` | идентично                                                             | уберите `.and`                                                |
+| `spy.m.withArgs(1).and.returnValue(v)`                             | идентично                                                             | `spy.m.calledWith(1).mockReturnValue(v)`                      |
+| `expect(spy.m.withArgs(1)).toHaveBeenCalled()`                     | **аналога нет** — `withArgs` возвращает цепочку, а не спай            | ✎ `expect(spy.m).toHaveBeenCalledWith(1)`                     |
+| `spy.m.calls.count()` / `any()`                                    | идентично                                                             | ✎ `spy.m.mock.calls.length`                                   |
+| `spy.m.calls.argsFor(i)` / `allArgs()`                             | идентично                                                             | ✎ `spy.m.mock.calls[i]` / `spy.m.mock.calls`                  |
+| `spy.m.calls.all()` / `first()` / `mostRecent()`                   | идентично                                                             | ✎ `spy.m.mock.calls` рядом с `spy.m.mock.results`             |
+| `spy.m.calls.thisFor(i)`                                           | идентично                                                             | ✎ `spy.m.mock.instances[i]`                                   |
+| `spy.m.calls.reset()`                                              | идентично                                                             | ✎ `spy.m.mockClear()`                                         |
+| `spy.m.calls.saveArgumentsByValue()`                               | **задокументированный no-op** — см. ниже                              | ✎ снимайте копию в `mockImplementation`                       |
+| `spy.accessorSpies.getters.x.and.returnValue(v)`                   | идентично                                                             | `spy.accessorSpies.getters.x.mockReturnValue(v)`              |
 
 И `@hirez_io/observer-spy` рядом с ним, который заменяет та же точка входа, — см.
 [ниже](#hirez-io-observer-spy-comes-along-too). Конечное состояние — это другой **род** проверки, а не
 переименование, поэтому ни одна из этих строк не дело кодмода:
 
-| `@hirez_io/observer-spy`                    | на `vitest-auto-spy/observer-spy`                | конечное состояние                                                                     |
-| ------------------------------------------- | ------------------------------------------------- | --------------------------------------------------------------------------------------- |
-| `subscribeSpyTo(source$)`                   | идентично                                         | `await expectEmission(source$)` там, где смысл в одном значении                         |
-| `subscribeSpyTo(source$, { expectErrors })` | идентично                                         | `await expectError(source$)`                                                            |
-| `spy.getFirstValue()`                       | идентично, но **бросает** на пустом спае          | `await expectEmission(source$)`                                                         |
-| `spy.getValues()`                           | идентично, но **копия**, типизированная `T[]`     | `await expectEmissions(source$, n)`                                                     |
-| `spy.getValueAt(i)` / `getLastValue()`      | идентично (`getValueAt` бросает на пустом)        | `await expectEmissions(source$, n)`, затем индекс                                        |
-| `spy.receivedComplete()` / `onComplete()`   | идентично                                         | `await expectCompletion(source$)`                                                       |
-| `spy.receivedError()` / `getError()`        | идентично                                         | `await expectError(source$)` — он резолвится _с_ ошибкой                                |
-| `spy.receivedNext()`                        | идентично                                         | `await expectNoEmission(source$)` для отрицания                                          |
-| `autoUnsubscribe()`                         | **не реализовано**                                | `using spy = subscribeSpyTo(source$)`                                                   |
-| `queueForAutoUnsubscribe(sub)`              | **не реализовано**                                | то же самое — или ничего, потому что хелперы эмиссий отписываются сами                  |
-| `fakeTime(fn)`                              | **не реализовано**                                | `setupFakeTimers()` + `await advanceTimers(ms)` либо `TestScheduler` из rxjs напрямую   |
+| `@hirez_io/observer-spy`                    | на `vitest-auto-spy/observer-spy`             | конечное состояние                                                                    |
+| ------------------------------------------- | --------------------------------------------- | ------------------------------------------------------------------------------------- |
+| `subscribeSpyTo(source$)`                   | идентично                                     | `await expectEmission(source$)` там, где смысл в одном значении                       |
+| `subscribeSpyTo(source$, { expectErrors })` | идентично                                     | `await expectError(source$)`                                                          |
+| `spy.getFirstValue()`                       | идентично, но **бросает** на пустом спае      | `await expectEmission(source$)`                                                       |
+| `spy.getValues()`                           | идентично, но **копия**, типизированная `T[]` | `await expectEmissions(source$, n)`                                                   |
+| `spy.getValueAt(i)` / `getLastValue()`      | идентично (`getValueAt` бросает на пустом)    | `await expectEmissions(source$, n)`, затем индекс                                     |
+| `spy.receivedComplete()` / `onComplete()`   | идентично                                     | `await expectCompletion(source$)`                                                     |
+| `spy.receivedError()` / `getError()`        | идентично                                     | `await expectError(source$)` — он резолвится _с_ ошибкой                              |
+| `spy.receivedNext()`                        | идентично                                     | `await expectNoEmission(source$)` для отрицания                                       |
+| `autoUnsubscribe()`                         | **не реализовано**                            | `using spy = subscribeSpyTo(source$)`                                                 |
+| `queueForAutoUnsubscribe(sub)`              | **не реализовано**                            | то же самое — или ничего, потому что хелперы эмиссий отписываются сами                |
+| `fakeTime(fn)`                              | **не реализовано**                            | `setupFakeTimers()` + `await advanceTimers(ms)` либо `TestScheduler` из rxjs напрямую |
 
 Последние три отсутствуют намеренно, а не «пока не сделаны». `fakeTime` построен на виртуальном
 времени `TestScheduler` из rxjs _и_ на протоколе колбэка `done`, а ни то ни другое переезд целым не
@@ -171,38 +171,38 @@ import { jasmine } from 'vitest-auto-spy/jasmine';
 библиотеку, — это то самое действие на расстоянии, из-за которого о миграции невозможно рассуждать, а
 явный импорт — одна строка на файл, которую кодмод в конце удаляет.
 
-| jasmine                                                           | под Vitest                                             | примечания                                                                                    |
-| ----------------------------------------------------------------- | ------------------------------------------------------ | ----------------------------------------------------------------------------------------------- |
-| `spyOn(o, 'm')`                                                   | `vi.spyOn(o, 'm').mockImplementation(() => undefined)` | ⚠️ [умолчание вывернуто](#spyon-means-the-opposite-thing-on-the-two-sides)                     |
-| `spyOnProperty(o, 'p', 'get')`                                    | то же самое, с видом аксессора                         | то же вывернутое умолчание                                                                    |
-| `jasmine.createSpy('load')`                                       | `vi.fn()`                                              | имя уходит — Vitest сообщает о переменной                                                     |
-| `jasmine.createSpy('load', original)`                             | `vi.fn(original)`                                      | оригинал — тот аргумент, который ещё что-то значит                                            |
-| `jasmine.createSpyObj(…)`                                         | `createSpyObj` из `vitest-auto-spy/jasmine`            | все формы, что и наверху; где есть класс или тип, лучше брать их                              |
-| `jasmine.any` / `anything` / `objectContaining`                   | `expect.any` / `expect.anything` / …                   | называются одинаково на обеих сторонах                                                        |
-| `jasmine.arrayContaining` / `stringMatching` / `stringContaining` | `expect.arrayContaining` / …                           | называются одинаково на обеих сторонах                                                        |
-| `jasmine.truthy` / `falsy` / `empty` / `notEmpty`                 | **двойника `expect.*` нет**                            | `registerJasmineMatchers()`, ниже                                                             |
-| `jasmine.is` / `mapContaining` / `setContaining`                  | **двойника `expect.*` нет**                            | `registerJasmineMatchers()`, ниже                                                             |
-| `jasmine.arrayWithExactContents`                                  | **двойника `expect.*` нет**                            | `registerJasmineMatchers()`, ниже                                                             |
-| `jasmine.clock().install()` / `.uninstall()`                      | `vi.useFakeTimers()` / `vi.useRealTimers()`            |                                                                                               |
+| jasmine                                                           | под Vitest                                             | примечания                                                                                       |
+| ----------------------------------------------------------------- | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------ |
+| `spyOn(o, 'm')`                                                   | `vi.spyOn(o, 'm').mockImplementation(() => undefined)` | ⚠️ [умолчание вывернуто](#spyon-means-the-opposite-thing-on-the-two-sides)                       |
+| `spyOnProperty(o, 'p', 'get')`                                    | то же самое, с видом аксессора                         | то же вывернутое умолчание                                                                       |
+| `jasmine.createSpy('load')`                                       | `vi.fn()`                                              | имя уходит — Vitest сообщает о переменной                                                        |
+| `jasmine.createSpy('load', original)`                             | `vi.fn(original)`                                      | оригинал — тот аргумент, который ещё что-то значит                                               |
+| `jasmine.createSpyObj(…)`                                         | `createSpyObj` из `vitest-auto-spy/jasmine`            | все формы, что и наверху; где есть класс или тип, лучше брать их                                 |
+| `jasmine.any` / `anything` / `objectContaining`                   | `expect.any` / `expect.anything` / …                   | называются одинаково на обеих сторонах                                                           |
+| `jasmine.arrayContaining` / `stringMatching` / `stringContaining` | `expect.arrayContaining` / …                           | называются одинаково на обеих сторонах                                                           |
+| `jasmine.truthy` / `falsy` / `empty` / `notEmpty`                 | **двойника `expect.*` нет**                            | `registerJasmineMatchers()`, ниже                                                                |
+| `jasmine.is` / `mapContaining` / `setContaining`                  | **двойника `expect.*` нет**                            | `registerJasmineMatchers()`, ниже                                                                |
+| `jasmine.arrayWithExactContents`                                  | **двойника `expect.*` нет**                            | `registerJasmineMatchers()`, ниже                                                                |
+| `jasmine.clock().install()` / `.uninstall()`                      | `vi.useFakeTimers()` / `vi.useRealTimers()`            |                                                                                                  |
 | `jasmine.clock().tick(n)`                                         | `vi.advanceTimersByTime(n)`                            | ни то ни другое не досчитывает промис — [`advanceTimers`](/ru/utilities/fake-timers) досчитывает |
-| `jasmine.clock().mockDate(d)`                                     | `vi.setSystemTime(d)`                                  |                                                                                               |
-| `jasmine.clock().withMock(fn)`                                    | есть в пространстве имён; **двойника в `vi` нет**      | кодмод сообщает о нём и оставляет как есть                                                    |
-| `jasmine.addMatchers(m)`                                          | `expect.extend(m)`                                     |                                                                                               |
-| `jasmine.addCustomEqualityTester(t)`                              | `expect.addEqualityTesters([t])`                       | один тестер, завёрнутый в массив, который принимает Vitest                                    |
-| `jasmine.DEFAULT_TIMEOUT_INTERVAL = n`                            | **настройка конфига, а не оператор**                   | `vi.setConfig({ testTimeout: n, hookTimeout: n })` — [оба](#the-timeout-is-two-numbers-here)   |
-| `jasmine.getEnv()`                                                | **нет**                                                | порядок и bail — это `vitest.config.ts`, а не рантайм-окружение                                |
-| `jasmine.addSpyStrategy` / `setDefaultSpyStrategy`                | **нет**                                                | опишите поведение как `mockImplementation` там, где строится дубль                            |
-| `jasmine.Spy` (тип)                                               | `Mock` из `vitest`                                     | голый mock                                                                                    |
-| `jasmine.SpyObj<T>` (тип)                                         | `Spy<T>` из этого пакета                               | дубль целиком — одно слово разницы, две разные вещи                                           |
-| `fdescribe` / `fit`                                               | `describe.only` / `it.only`                            |                                                                                               |
-| `xdescribe` / `xit` / `xtest`                                     | `describe.skip` / `it.skip`                            | голое переименование падает как `TS2304: Cannot find name 'xit'`                              |
-| `expect(x).toBeTrue()` / `.toBeFalse()`                           | `.toBe(true)` / `.toBe(false)`                         | ⚠️ **не** `toBeTruthy` / `toBeFalsy`, которые предлагает собственная ошибка Vitest             |
-| `expect(x).toHaveSize(n)`                                         | `.toHaveLength(n)`                                     |                                                                                               |
-| `expect(spy).toHaveBeenCalledOnceWith(a)`                         | `.toHaveBeenCalledExactlyOnceWith(a)`                  | один матчер, а не `toHaveBeenCalledTimes(1)` плюс `toHaveBeenCalledWith(a)`                   |
-| `expect(el).toHaveClass(c)`                                       | **нет**                                                | вне browser mode; `expect(el.classList.contains(c)).toBe(true)`                                |
-| `expect(x).withContext(msg).toBe(y)`                              | `expect(x, msg).toBe(y)`                               | ⚠️ [сообщение исчезает, ничего не уронив](#withcontext-does-not-throw-it-loses-the-message)    |
-| `fail(msg)`                                                       | `expect.fail(msg)`                                     | никакого `vi.fail` не существует                                                              |
-| `it('x', (done) => …)`                                            | `async` + `await`                                      | **не переписывается** — Vitest передаёт `TestContext`, а не `done`                             |
+| `jasmine.clock().mockDate(d)`                                     | `vi.setSystemTime(d)`                                  |                                                                                                  |
+| `jasmine.clock().withMock(fn)`                                    | есть в пространстве имён; **двойника в `vi` нет**      | кодмод сообщает о нём и оставляет как есть                                                       |
+| `jasmine.addMatchers(m)`                                          | `expect.extend(m)`                                     |                                                                                                  |
+| `jasmine.addCustomEqualityTester(t)`                              | `expect.addEqualityTesters([t])`                       | один тестер, завёрнутый в массив, который принимает Vitest                                       |
+| `jasmine.DEFAULT_TIMEOUT_INTERVAL = n`                            | **настройка конфига, а не оператор**                   | `vi.setConfig({ testTimeout: n, hookTimeout: n })` — [оба](#the-timeout-is-two-numbers-here)     |
+| `jasmine.getEnv()`                                                | **нет**                                                | порядок и bail — это `vitest.config.ts`, а не рантайм-окружение                                  |
+| `jasmine.addSpyStrategy` / `setDefaultSpyStrategy`                | **нет**                                                | опишите поведение как `mockImplementation` там, где строится дубль                               |
+| `jasmine.Spy` (тип)                                               | `Mock` из `vitest`                                     | голый mock                                                                                       |
+| `jasmine.SpyObj<T>` (тип)                                         | `Spy<T>` из этого пакета                               | дубль целиком — одно слово разницы, две разные вещи                                              |
+| `fdescribe` / `fit`                                               | `describe.only` / `it.only`                            |                                                                                                  |
+| `xdescribe` / `xit` / `xtest`                                     | `describe.skip` / `it.skip`                            | голое переименование падает как `TS2304: Cannot find name 'xit'`                                 |
+| `expect(x).toBeTrue()` / `.toBeFalse()`                           | `.toBe(true)` / `.toBe(false)`                         | ⚠️ **не** `toBeTruthy` / `toBeFalsy`, которые предлагает собственная ошибка Vitest               |
+| `expect(x).toHaveSize(n)`                                         | `.toHaveLength(n)`                                     |                                                                                                  |
+| `expect(spy).toHaveBeenCalledOnceWith(a)`                         | `.toHaveBeenCalledExactlyOnceWith(a)`                  | один матчер, а не `toHaveBeenCalledTimes(1)` плюс `toHaveBeenCalledWith(a)`                      |
+| `expect(el).toHaveClass(c)`                                       | **нет**                                                | вне browser mode; `expect(el.classList.contains(c)).toBe(true)`                                  |
+| `expect(x).withContext(msg).toBe(y)`                              | `expect(x, msg).toBe(y)`                               | ⚠️ [сообщение исчезает, ничего не уронив](#withcontext-does-not-throw-it-loses-the-message)      |
+| `fail(msg)`                                                       | `expect.fail(msg)`                                     | никакого `vi.fail` не существует                                                                 |
+| `it('x', (done) => …)`                                            | `async` + `await`                                      | **не переписывается** — Vitest передаёт `TestContext`, а не `done`                               |
 
 Строку про `done` кодмод не трогает намеренно. Сигнатура с колбэком — это форма управления потоком, а
 не имя: превратить её в `async` значит решить, чего именно ждёт тест, а правдоподобная догадка здесь —
@@ -465,11 +465,11 @@ _и есть_ ожидание, а тишина — это падение со �
 Четыре правила в [`vitest-auto-spy/eslint-plugin`](/ru/utilities/eslint-plugin) закрывают окно между
 шагом 1 и шагом 3:
 
-| Правило                           | Уровень | Сообщает о                                                                                                     |
-| --------------------------------- | ------- | ---------------------------------------------------------------------------------------------------------------- |
-| `jasmine-namespace-without-entry` | `error` | `.and` / `.calls` / `.withArgs` на спае библиотеки в файле, который нигде не ставит слой                        |
-| `no-jasmine-globals`              | `error` | `jasmine.*`, голые `spyOn(` / `spyOnProperty(` / `spyOnAllFunctions(` / `fail(` / `pending(`, `.withContext(`   |
-| `no-save-arguments-by-value`      | `error` | описанном выше no-op                                                                                            |
+| Правило                           | Уровень | Сообщает о                                                                                                               |
+| --------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `jasmine-namespace-without-entry` | `error` | `.and` / `.calls` / `.withArgs` на спае библиотеки в файле, который нигде не ставит слой                                 |
+| `no-jasmine-globals`              | `error` | `jasmine.*`, голые `spyOn(` / `spyOnProperty(` / `spyOnAllFunctions(` / `fail(` / `pending(`, `.withContext(`            |
+| `no-save-arguments-by-value`      | `error` | описанном выше no-op                                                                                                     |
 | `prefer-native-spy-api`           | `error` | `.and` / `.calls` там, где собственный API спая говорит то же самое — **`--fix`**, если получается проследить получателя |
 
 Все четыре приходят на `error`; последнее — то самое правило, которое держат в `'off'` на время
@@ -500,8 +500,7 @@ _и есть_ ожидание, а тишина — это падение со �
 ## Чего оригинал не может {#what-upstream-cannot-do}
 
 `jasmine-auto-spies@8.0.1` последний раз публиковался в **августе 2023**. Он только CJS, без карты
-`exports`, прибит к `rxjs <8` и `jasmine-core <6` и несёт дюжину открытых issue, старейший — с февраля
-2021. Поддержку Vitest попросили в 2022 году (issue #66); community-пакет `vitest-auto-spies` предложили
+`exports`, прибит к `rxjs <8` и `jasmine-core <6` и несёт дюжину открытых issue, старейший — с февраля 2021. Поддержку Vitest попросили в 2022 году (issue #66); community-пакет `vitest-auto-spies` предложили
 как PR #90, и он до сих пор не влит. Ничто из этого не упрёк библиотеке — так и выглядит стабильный
 пакет, который перестал двигаться. Но это значит, что следующего не будет, а перевезённая сюита
 получает каждый пункт в день переезда:

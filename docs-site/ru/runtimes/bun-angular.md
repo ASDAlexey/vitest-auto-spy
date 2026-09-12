@@ -78,15 +78,15 @@ bun test              # добавьте --isolate, чтобы получить 
 
 ## Что вы получаете {#what-you-get}
 
-| Хелпер                                    | Работает на Bun | Примечания                                                       |
-| ----------------------------------------- | :-------------: | ----------------------------------------------------------------- |
-| `provideAutoSpy` / `injectSpy`            |       ✅        | идентично точке входа Vitest, спаи по умолчанию ленивые           |
-| `renderShallow`                           |       ✅        | настоящий `ComponentFixture`, поддерево потомков отброшено        |
-| `createWithAutoSpies`                     |       ✅        | собирает класс через DI Angular со всеми зависимостями в спаях    |
-| `stable` / `flushEffects`                 |       ✅        | ожидание в zoneless-режиме                                        |
-| всё ядро (`createSpyFromClass`, …)        |       ✅        | реэкспортируется из этой точки входа                              |
-| `registerSignalMatchers`                  |       ❌        | нужен `expect.extend` раннера — только Vitest                     |
-| диагностика TestBed (`instrumentTestBed`) |       ❌        | нужны хуки раннера уровня набора — только Vitest                  |
+| Хелпер                                    | Работает на Bun | Примечания                                                     |
+| ----------------------------------------- | :-------------: | -------------------------------------------------------------- |
+| `provideAutoSpy` / `injectSpy`            |       ✅        | идентично точке входа Vitest, спаи по умолчанию ленивые        |
+| `renderShallow`                           |       ✅        | настоящий `ComponentFixture`, поддерево потомков отброшено     |
+| `createWithAutoSpies`                     |       ✅        | собирает класс через DI Angular со всеми зависимостями в спаях |
+| `stable` / `flushEffects`                 |       ✅        | ожидание в zoneless-режиме                                     |
+| всё ядро (`createSpyFromClass`, …)        |       ✅        | реэкспортируется из этой точки входа                           |
+| `registerSignalMatchers`                  |       ❌        | нужен `expect.extend` раннера — только Vitest                  |
+| диагностика TestBed (`instrumentTestBed`) |       ❌        | нужны хуки раннера уровня набора — только Vitest               |
 
 ## Стили {#stylesheets}
 

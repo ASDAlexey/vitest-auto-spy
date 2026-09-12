@@ -299,15 +299,15 @@ error text or the failing shape — because that is what an agent has in hand wh
 Each entry registers its own mock adapter on import, and three of them are opt-in on purpose. An
 agent that knows only the bare specifier writes a spec that throws at the first helper:
 
-| Subpath                                   | Needed for                                                                      |
-| ----------------------------------------- | ------------------------------------------------------------------------------- |
-| `vitest-auto-spy/rxjs`                    | `nextWith`, `observablePropsToSpyOn`, `throwWith` — imported once, in setup     |
-| `vitest-auto-spy/bun`                     | any spec run by `bun test` (`/bun-angular` for Angular's TestBed there)         |
-| `vitest-auto-spy/node`                    | a `node --test` suite, ESM or CJS                                               |
-| `vitest-auto-spy/rstest`                  | any spec run by [Rstest](/runtimes/rstest) — `npx rstest run`                   |
-| `vitest-auto-spy/angular`                 | `provideAutoSpy`, `injectSpy`, `renderShallow`, the override helpers            |
+| Subpath                                   | Needed for                                                                                                    |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `vitest-auto-spy/rxjs`                    | `nextWith`, `observablePropsToSpyOn`, `throwWith` — imported once, in setup                                   |
+| `vitest-auto-spy/bun`                     | any spec run by `bun test` (`/bun-angular` for Angular's TestBed there)                                       |
+| `vitest-auto-spy/node`                    | a `node --test` suite, ESM or CJS                                                                             |
+| `vitest-auto-spy/rstest`                  | any spec run by [Rstest](/runtimes/rstest) — `npx rstest run`                                                 |
+| `vitest-auto-spy/angular`                 | `provideAutoSpy`, `injectSpy`, `renderShallow`, the override helpers                                          |
 | `vitest-auto-spy/setup`                   | `setupAutoSpy` (with `strayConsole`, `preset: 'strict'`), the clock helpers, `installPerTest`, focus matchers |
-| [`vitest-auto-spy/zone`](/utilities/zone) | `fakeAsync` / `waitForAsync` on Vitest — zone.js stays out of every other entry |
+| [`vitest-auto-spy/zone`](/utilities/zone) | `fakeAsync` / `waitForAsync` on Vitest — zone.js stays out of every other entry                               |
 
 ## Errors that name their own fix
 

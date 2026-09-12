@@ -129,11 +129,11 @@ Reasonable question if you came straight to Vitest and have never written a line
 of these rules are about a dialect you do not speak.** They are still on, and the reason is not
 principle — it is that they cannot fire on your code.
 
-| You are                                    | What the plugin does for you                                                                        |
-| ------------------------------------------ | --------------------------------------------------------------------------------------------------- |
+| You are                                    | What the plugin does for you                                                                            |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------------------- |
 | writing Vitest, never used Jasmine or Jest | the thirty-two core rules work; **the four jasmine rules are inert** — leave them on and never see them |
-| migrating off `jest-auto-spies` / Jest     | the core rules do the work, `no-done-callback` and `prefer-as-spy` most of it                       |
-| migrating off `jasmine-auto-spies`         | all thirty-six, with `prefer-native-spy-api` set to `'off'` until the bridge is gone               |
+| migrating off `jest-auto-spies` / Jest     | the core rules do the work, `no-done-callback` and `prefer-as-spy` most of it                           |
+| migrating off `jasmine-auto-spies`         | all thirty-six, with `prefer-native-spy-api` set to `'off'` until the bridge is gone                    |
 
 ### If you never used Jasmine
 

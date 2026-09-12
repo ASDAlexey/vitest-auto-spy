@@ -4,3 +4,8 @@ node_modules
 package-lock.json
 CHANGELOG.md
 
+
+# Scratch, caches and agent worktrees: not shipped, not reviewed, and full of captured
+# third-party text that reformatting would silently rewrite.
+.claude
+tasks

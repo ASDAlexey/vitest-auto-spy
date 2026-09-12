@@ -209,13 +209,17 @@ for (const [name, make] of Object.entries(scenarios)) {
       make().subscribe((v) => expect(v).toBe(999));
     });
 
-    it('2. new Promise(done) + subscribe', () =>
-      new Promise<void>((done) => {
-        make().subscribe((v) => {
-          expect(v).toBe(999);
-          done();
-        });
-      }), 1200);
+    it(
+      '2. new Promise(done) + subscribe',
+      () =>
+        new Promise<void>((done) => {
+          make().subscribe((v) => {
+            expect(v).toBe(999);
+            done();
+          });
+        }),
+      1200,
+    );
 
     it('3. await firstValueFrom', async () => {
       expect(await firstValueFrom(make())).toBe(999);

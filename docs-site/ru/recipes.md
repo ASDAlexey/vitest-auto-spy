@@ -19,7 +19,7 @@ description: Формы, к которым в итоге пришла больш
 | [`mockValueProp`](/ru/adapters/angular#signal-readonly-property-mocking)    |                              104 |
 | `instanceMethodsToSpyOn`                                                    |                              103 |
 | `observablePropsToSpyOn`                                                    |                               79 |
-| [спаи консоли](/ru/utilities/console)                                     |                               68 |
+| [спаи консоли](/ru/utilities/console)                                       |                               68 |
 | [`createSpyFromClass`](/ru/core/create-spy-from-class)                      |                               41 |
 
 Отсюда следует две вещи. **`createSpyFromClass` — исключение, а не правило**: в ангуляровском

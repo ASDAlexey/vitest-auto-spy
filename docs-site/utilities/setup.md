@@ -687,7 +687,7 @@ or seeded, and readable back as a plain record — installs one from `vitest-aut
 instead of writing a `TestingStorage` class per project.
 
 ```ts
-import { stubWebStorage, type WebStorageStub } from 'vitest-auto-spy/dom-stubs';
+import { type WebStorageStub, stubWebStorage } from 'vitest-auto-spy/dom-stubs';
 
 let local: WebStorageStub;
 
@@ -797,12 +797,12 @@ condition is falsy. `time`, `groupEnd` and `countReset` write nothing and are no
 **What absorbs.** The guard puts a recording wrapper _under_ whatever stands on `console`, so a call
 is stray exactly when it reaches that wrapper:
 
-| In the test                                                          | Result                                                        |
-| -------------------------------------------------------------------- | ------------------------------------------------------------- |
-| `installConsoleSpies()` from `vitest-auto-spy/console`, then asserts | absorbed — the spy never calls through                        |
-| `vi.spyOn(console, 'error').mockImplementation(() => undefined)`     | absorbed                                                      |
+| In the test                                                          | Result                                                         |
+| -------------------------------------------------------------------- | -------------------------------------------------------------- |
+| `installConsoleSpies()` from `vitest-auto-spy/console`, then asserts | absorbed — the spy never calls through                         |
+| `vi.spyOn(console, 'error').mockImplementation(() => undefined)`     | absorbed                                                       |
 | `vi.spyOn(console, 'error')` with no implementation                  | **stray** — it records the call, then calls through and prints |
-| nothing                                                              | **stray**                                                     |
+| nothing                                                              | **stray**                                                      |
 
 **Outside any test.** Output made while the file is being imported, in a `beforeAll` / `afterAll`,
 from a callback that fired after its test had ended, or in a test whose `afterEach` never ran, fails
@@ -871,15 +871,15 @@ setupAutoSpy({ preset: 'strict' });
 Starts every guard at its strictest grade. An option passed alongside it still wins, so
 `{ preset: 'strict', guardGlobals: 'warn' }` relaxes exactly one.
 
-| Option               | Under `preset: 'strict'`               | Default without it |
-| -------------------- | -------------------------------------- | ------------------ |
-| `duplicateCopies`    | `'throw'`                              | `'throw'`          |
-| `propsOutsideHooks`  | `'throw'`                              | `'warn'`           |
-| `guardGlobals`       | `'throw'`                              | `'off'`            |
-| `prototypePollution` | `'throw'`                              | `'throw'`          |
-| `strayConsole`       | `'throw'`                              | `'off'`            |
-| `misconfiguration`   | `'throw'`                              | `'warn'`           |
-| `strayTimers`        | `true`                                 | `false`            |
+| Option               | Under `preset: 'strict'`                | Default without it |
+| -------------------- | --------------------------------------- | ------------------ |
+| `duplicateCopies`    | `'throw'`                               | `'throw'`          |
+| `propsOutsideHooks`  | `'throw'`                               | `'warn'`           |
+| `guardGlobals`       | `'throw'`                               | `'off'`            |
+| `prototypePollution` | `'throw'`                               | `'throw'`          |
+| `strayConsole`       | `'throw'`                               | `'off'`            |
+| `misconfiguration`   | `'throw'`                               | `'warn'`           |
+| `strayTimers`        | `true`                                  | `false`            |
 | `strayRejections`    | `true` when zone.js is loaded, else off | `false`            |
 
 `strayRejections` is conditional because it throws where there is no zone.js to watch; the preset
@@ -973,32 +973,32 @@ each test: a stub installed for the previous test is exactly what must not still
 
 ## Options
 
-| Option                | Default   | Notes                                                                           |
-| --------------------- | --------- | ------------------------------------------------------------------------------- |
-| `duplicateCopies`     | `'throw'` | `'warn'` to report without failing, `'off'` to skip the check                   |
-| `restoreProps`        | `true`    | `restoreMockedProps()` in a global `afterEach`                                  |
-| `propsOutsideHooks`   | `'warn'`  | Report a `mock*Prop` patch made outside a per-test hook — see below             |
-| `restoreMocks`        | `false`   | `vi.restoreAllMocks()` in a global `afterEach` — turn on for `isolate: false`   |
-| `strayTimers`         | `false`   | Track and cancel timeouts, intervals and frames that outlive their file         |
-| `onStrayTimers`       | —         | Takes the per-file count and each stray's origin, instead of the stderr warning |
-| `strayRejections`     | `false`   | Fail the test a rejection zone.js swallowed surfaced in — needs zone.js         |
-| `blockNetwork`        | `false`   | Close every network channel the environment has — `true`, or a narrowing object |
-| `guardGlobals`        | `'off'`   | Report a test that redefines a global property as non-configurable              |
-| `prototypePollution`  | `'throw'` | Sweep and report an enumerable key a test left on a built-in prototype          |
-| `strayConsole`        | `'off'`   | Fail a test (or file) that wrote to the console without absorbing it — section 16 |
-| `misconfiguration`    | `'warn'`  | `'throw'` fails the library's own misuse reports at the call site               |
-| `preset`              | —         | `'strict'` starts every guard at its strictest grade — see above                |
-| `globalFakeTimers`    | `false`   | Fake timers for every test **and between them** — see below                     |
-| `restoreTimerGlobals` | `true`    | Put back timer globals that uninstalling the fakes deleted                      |
-| `restoreWebStorage`   | `true`    | Give the run a `localStorage` / `sessionStorage` that work — see section 14     |
-| `pruneMockRegistry`   | `false`   | Keep @vitest/spy's ever-growing mock registry to the mocks that outlive a file  |
-| `hookTimeoutHint`     | `true`    | Explain a hook that ran out of `hookTimeout` while `testTimeout` is larger      |
-| `frozenClockHint`     | `true`    | Explain a timeout that happened because nothing advanced the fake clock         |
-| `angularBuildHint`    | `true`    | Say once per worker that `@angular/build` builds the test bundle unsplit        |
-| `strict`              | `false`   | Every double built afterwards throws on a method nobody configured              |
-| `onUnstubbedCall`     | —         | The general form of `strict` — its return value becomes the call's result       |
+| Option                | Default   | Notes                                                                                  |
+| --------------------- | --------- | -------------------------------------------------------------------------------------- |
+| `duplicateCopies`     | `'throw'` | `'warn'` to report without failing, `'off'` to skip the check                          |
+| `restoreProps`        | `true`    | `restoreMockedProps()` in a global `afterEach`                                         |
+| `propsOutsideHooks`   | `'warn'`  | Report a `mock*Prop` patch made outside a per-test hook — see below                    |
+| `restoreMocks`        | `false`   | `vi.restoreAllMocks()` in a global `afterEach` — turn on for `isolate: false`          |
+| `strayTimers`         | `false`   | Track and cancel timeouts, intervals and frames that outlive their file                |
+| `onStrayTimers`       | —         | Takes the per-file count and each stray's origin, instead of the stderr warning        |
+| `strayRejections`     | `false`   | Fail the test a rejection zone.js swallowed surfaced in — needs zone.js                |
+| `blockNetwork`        | `false`   | Close every network channel the environment has — `true`, or a narrowing object        |
+| `guardGlobals`        | `'off'`   | Report a test that redefines a global property as non-configurable                     |
+| `prototypePollution`  | `'throw'` | Sweep and report an enumerable key a test left on a built-in prototype                 |
+| `strayConsole`        | `'off'`   | Fail a test (or file) that wrote to the console without absorbing it — section 16      |
+| `misconfiguration`    | `'warn'`  | `'throw'` fails the library's own misuse reports at the call site                      |
+| `preset`              | —         | `'strict'` starts every guard at its strictest grade — see above                       |
+| `globalFakeTimers`    | `false`   | Fake timers for every test **and between them** — see below                            |
+| `restoreTimerGlobals` | `true`    | Put back timer globals that uninstalling the fakes deleted                             |
+| `restoreWebStorage`   | `true`    | Give the run a `localStorage` / `sessionStorage` that work — see section 14            |
+| `pruneMockRegistry`   | `false`   | Keep @vitest/spy's ever-growing mock registry to the mocks that outlive a file         |
+| `hookTimeoutHint`     | `true`    | Explain a hook that ran out of `hookTimeout` while `testTimeout` is larger             |
+| `frozenClockHint`     | `true`    | Explain a timeout that happened because nothing advanced the fake clock                |
+| `angularBuildHint`    | `true`    | Say once per worker that `@angular/build` builds the test bundle unsplit               |
+| `strict`              | `false`   | Every double built afterwards throws on a method nobody configured                     |
+| `onUnstubbedCall`     | —         | The general form of `strict` — its return value becomes the call's result              |
 | `unconfiguredReads`   | `'off'`   | Report a strict double's getter read, or stream subscribed to, that nothing configured |
-| `onUnstubbedRead`     | —         | Takes those findings instead of the report, from every double — for a survey    |
+| `onUnstubbedRead`     | —         | Takes those findings instead of the report, from every double — for a survey           |
 
 `restoreMocks` is off by default because it also drops `vi.spyOn` stubs a suite installed in
 `beforeAll`; it is the knob to reach for when the run shares one environment across files.

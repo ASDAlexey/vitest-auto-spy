@@ -14,8 +14,8 @@ _выводить_, стоит токенов на каждой задаче и 
 
 | Что                                                                               | Где                                                                       | Для чего лучше всего                                            |
 | --------------------------------------------------------------------------------- | ------------------------------------------------------------------------- | --------------------------------------------------------------- |
-| [`llms.txt`](/llms.txt)                                                        | корень сайта                                                              | краулеру, выбирающему единственную нужную страницу              |
-| [`llms-full.txt`](/llms-full.txt)                                              | корень сайта                                                              | прочитать всю документацию одним запросом                       |
+| [`llms.txt`](/llms.txt)                                                           | корень сайта                                                              | краулеру, выбирающему единственную нужную страницу              |
+| [`llms-full.txt`](/llms-full.txt)                                                 | корень сайта                                                              | прочитать всю документацию одним запросом                       |
 | [`AGENTS.md`](https://github.com/ASDAlexey/vitest-auto-spy/blob/master/AGENTS.md) | `node_modules/vitest-auto-spy/AGENTS.md`                                  | любому агенту, **без сети** — файл едет в тарболе               |
 | [Паттерны спек](/ru/recipes)                                                      | сайт документации                                                         | формы, к которым пришла живая сюита, с частотами                |
 | Скилл для Claude Code                                                             | [плагин](#claude-code-plugin) или `.claude/skills/`, который пишет `init` | Claude Code — грузится, только когда спека упоминает библиотеку |
@@ -305,15 +305,15 @@ _симптом_: текст ошибки или форма падения, по
 намеренно вручную. Агент, который знает только голый спецификатор, напишет спеку, падающую на первом
 же хелпере:
 
-| Подпуть                                      | Нужен для                                                                                 |
-| -------------------------------------------- | ----------------------------------------------------------------------------------------- |
-| `vitest-auto-spy/rxjs`                       | `nextWith`, `observablePropsToSpyOn`, `throwWith` — импортируется один раз, в setup       |
-| `vitest-auto-spy/bun`                        | любой спеки, которую гоняет `bun test` (`/bun-angular` — для тамошнего `TestBed` Angular) |
-| `vitest-auto-spy/node`                       | сюиты на `node --test`, ESM или CJS                                                       |
-| `vitest-auto-spy/rstest`                     | любой спеки, которую гоняет [Rstest](/ru/runtimes/rstest), — `npx rstest run`             |
-| `vitest-auto-spy/angular`                    | `provideAutoSpy`, `injectSpy`, `renderShallow`, хелперов переопределения                  |
+| Подпуть                                      | Нужен для                                                                                                  |
+| -------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `vitest-auto-spy/rxjs`                       | `nextWith`, `observablePropsToSpyOn`, `throwWith` — импортируется один раз, в setup                        |
+| `vitest-auto-spy/bun`                        | любой спеки, которую гоняет `bun test` (`/bun-angular` — для тамошнего `TestBed` Angular)                  |
+| `vitest-auto-spy/node`                       | сюиты на `node --test`, ESM или CJS                                                                        |
+| `vitest-auto-spy/rstest`                     | любой спеки, которую гоняет [Rstest](/ru/runtimes/rstest), — `npx rstest run`                              |
+| `vitest-auto-spy/angular`                    | `provideAutoSpy`, `injectSpy`, `renderShallow`, хелперов переопределения                                   |
 | `vitest-auto-spy/setup`                      | `setupAutoSpy` (со `strayConsole` и `preset: 'strict'`), хелперов часов, `installPerTest`, матчеров фокуса |
-| [`vitest-auto-spy/zone`](/ru/utilities/zone) | `fakeAsync` / `waitForAsync` на Vitest — zone.js не попадает ни в одну другую точку входа |
+| [`vitest-auto-spy/zone`](/ru/utilities/zone) | `fakeAsync` / `waitForAsync` на Vitest — zone.js не попадает ни в одну другую точку входа                  |
 
 ## Ошибки, которые называют, чем чинить {#errors-that-name-their-own-fix}
 

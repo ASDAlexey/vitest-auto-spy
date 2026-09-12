@@ -12,21 +12,21 @@ npm ci
 
 ## Development workflow
 
-| Command | What it does |
-| --- | --- |
-| `npm test` | Run the test suite once |
-| `npm run test:watch` | Run tests in watch mode |
-| `npm run test:coverage` | Run tests with coverage (100% thresholds enforced) |
-| `npm run typecheck` | Type-check the project with `tsc --noEmit` |
-| `npm run check` | The full gate CI runs — everything below plus lint, `format:check`, jscpd, the sync checks and every suite |
-| `npm run deps:check` | Fail when `node_modules` drifted from `package-lock.json`, so the gate tests the versions `npm ci` installs |
-| `npm run test:types` | Assert what callers **infer** — `expectTypeOf` cases under `src/type-tests` |
-| `npm run types:budget` | Count the type instantiations `Spy<T>` costs `tsc` on a generated fixture; fails past the budget in `scripts/check-type-budget.mjs` (`--measure` prints the numbers, `--print` the fixture) |
-| `npm run test:node` | Run `src/node-tests/` on the real `node --test`, the only place the `node:test` adapter is not a stub |
-| `npm run build` | Build the ESM + CJS bundles and type declarations |
-| `npm run bench` | Micro-benchmark this package only (`bench/auto-spy.bench.ts`) — runs in any checkout, no extra install |
-| `npm run bench:vs` | Head-to-head micro-benchmark against `@bugsplat/vitest-auto-spies`, `vitest-mock-extended`, `@golevelup/ts-vitest` and a hand-written `vi.fn()` control (`bench/vs-libraries.bench.ts`) — needs `npm ci --prefix bench` first |
-| `npm run bench:suite` | Suite-scale harness: generates synthetic suites (1 000 / 3 000 / 10 000 tests) and measures wall-clock and peak RSS per arm. `npm run bench:suite --help` prints every option; a full run at 10 000 tests takes tens of minutes, so start with `--sizes 100 --repeats 1` to smoke-test |
+| Command                 | What it does                                                                                                                                                                                                                                                                           |
+| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `npm test`              | Run the test suite once                                                                                                                                                                                                                                                                |
+| `npm run test:watch`    | Run tests in watch mode                                                                                                                                                                                                                                                                |
+| `npm run test:coverage` | Run tests with coverage (100% thresholds enforced)                                                                                                                                                                                                                                     |
+| `npm run typecheck`     | Type-check the project with `tsc --noEmit`                                                                                                                                                                                                                                             |
+| `npm run check`         | The full gate CI runs — everything below plus lint, `format:check`, jscpd, the sync checks and every suite                                                                                                                                                                             |
+| `npm run deps:check`    | Fail when `node_modules` drifted from `package-lock.json`, so the gate tests the versions `npm ci` installs                                                                                                                                                                            |
+| `npm run test:types`    | Assert what callers **infer** — `expectTypeOf` cases under `src/type-tests`                                                                                                                                                                                                            |
+| `npm run types:budget`  | Count the type instantiations `Spy<T>` costs `tsc` on a generated fixture; fails past the budget in `scripts/check-type-budget.mjs` (`--measure` prints the numbers, `--print` the fixture)                                                                                            |
+| `npm run test:node`     | Run `src/node-tests/` on the real `node --test`, the only place the `node:test` adapter is not a stub                                                                                                                                                                                  |
+| `npm run build`         | Build the ESM + CJS bundles and type declarations                                                                                                                                                                                                                                      |
+| `npm run bench`         | Micro-benchmark this package only (`bench/auto-spy.bench.ts`) — runs in any checkout, no extra install                                                                                                                                                                                 |
+| `npm run bench:vs`      | Head-to-head micro-benchmark against `@bugsplat/vitest-auto-spies`, `vitest-mock-extended`, `@golevelup/ts-vitest` and a hand-written `vi.fn()` control (`bench/vs-libraries.bench.ts`) — needs `npm ci --prefix bench` first                                                          |
+| `npm run bench:suite`   | Suite-scale harness: generates synthetic suites (1 000 / 3 000 / 10 000 tests) and measures wall-clock and peak RSS per arm. `npm run bench:suite --help` prints every option; a full run at 10 000 tests takes tens of minutes, so start with `--sizes 100 --repeats 1` to smoke-test |
 
 ### Benchmarking against other libraries
 
@@ -79,23 +79,23 @@ package has more surfaces than most, because half of its audience is a coding ag
 never open the README. **Walk this table on every user-facing change** — the ones with a command
 are checked in CI, the rest are not, and the ones that are not are the ones that rot.
 
-| Surface | Where | Checked by |
-| --- | --- | --- |
-| Changelog | `CHANGELOG.md`, under `## [Unreleased]` | — |
-| README bullet | the feature list at the top | — |
-| README section | a `##` section, and its line in the table of contents | — |
-| Docs page | `docs-site/<area>/<page>.md` | — |
-| Docs sidebar | `docs-site/.vitepress/config.mts` — a page missing here is also missing from `llms.txt` | `npm run llms:check` |
-| Landing | the `features:` cards in `docs-site/index.md` — prose inside YAML, so no `: ` in an unquoted value | `npm run docs:check` |
-| Landing (Russian) | `docs-site/ru/index.md` — a card-for-card translation of the English landing, same order, same `icon` and `link`; numbers, versions and export names are copied, not restated | `npm run docs:check` |
-| Agent reference | `AGENTS.md` — the file an agent reads instead of the README | — |
-| Claude Code skill | `skills/vitest-auto-spy/SKILL.md` | — |
-| Agent guide | `docs-site/agents.md`, when the change is about how an agent uses the package | — |
-| LLM files | `docs-site/public/llms.txt`, `llms-full.txt` — regenerate with `npm run llms` | `npm run llms:check` |
-| Plugin manifest | `.claude-plugin/` | `npm run plugin:sync:check` |
-| Alias package | `alias/` — a new **entry point** must appear there | `npm run alias:sync:check` |
-| Size badge | the `minzip` badge, when the main entry grew | `npm run size:badge:check` |
-| TODO | `TODO.md` — what is still open; `DECISIONS.md` — what it deliberately did **not** ship, and why | — |
+| Surface           | Where                                                                                                                                                                         | Checked by                  |
+| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------- |
+| Changelog         | `CHANGELOG.md`, under `## [Unreleased]`                                                                                                                                       | —                           |
+| README bullet     | the feature list at the top                                                                                                                                                   | —                           |
+| README section    | a `##` section, and its line in the table of contents                                                                                                                         | —                           |
+| Docs page         | `docs-site/<area>/<page>.md`                                                                                                                                                  | —                           |
+| Docs sidebar      | `docs-site/.vitepress/config.mts` — a page missing here is also missing from `llms.txt`                                                                                       | `npm run llms:check`        |
+| Landing           | the `features:` cards in `docs-site/index.md` — prose inside YAML, so no `: ` in an unquoted value                                                                            | `npm run docs:check`        |
+| Landing (Russian) | `docs-site/ru/index.md` — a card-for-card translation of the English landing, same order, same `icon` and `link`; numbers, versions and export names are copied, not restated | `npm run docs:check`        |
+| Agent reference   | `AGENTS.md` — the file an agent reads instead of the README                                                                                                                   | —                           |
+| Claude Code skill | `skills/vitest-auto-spy/SKILL.md`                                                                                                                                             | —                           |
+| Agent guide       | `docs-site/agents.md`, when the change is about how an agent uses the package                                                                                                 | —                           |
+| LLM files         | `docs-site/public/llms.txt`, `llms-full.txt` — regenerate with `npm run llms`                                                                                                 | `npm run llms:check`        |
+| Plugin manifest   | `.claude-plugin/`                                                                                                                                                             | `npm run plugin:sync:check` |
+| Alias package     | `alias/` — a new **entry point** must appear there                                                                                                                            | `npm run alias:sync:check`  |
+| Size badge        | the `minzip` badge, when the main entry grew                                                                                                                                  | `npm run size:badge:check`  |
+| TODO              | `TODO.md` — what is still open; `DECISIONS.md` — what it deliberately did **not** ship, and why                                                                               | —                           |
 
 Two habits that keep this cheap:
 
@@ -126,12 +126,12 @@ Releases are **fully automated**. When a PR is merged into `master`, the
 [`Auto Release`](./.github/workflows/auto-release.yml) workflow inspects the
 Conventional Commits since the last tag and, if there is anything releasable:
 
-| Commit(s) since last tag | Version bump |
-| --- | --- |
-| `BREAKING CHANGE:` in body, or `type!:` in the header | major |
-| `feat:` | minor |
-| `fix:` | patch |
-| only `chore` / `docs` / `refactor` / `test` / `ci` / … | no release |
+| Commit(s) since last tag                               | Version bump |
+| ------------------------------------------------------ | ------------ |
+| `BREAKING CHANGE:` in body, or `type!:` in the header  | major        |
+| `feat:`                                                | minor        |
+| `fix:`                                                 | patch        |
+| only `chore` / `docs` / `refactor` / `test` / `ci` / … | no release   |
 
 The workflow then bumps `package.json`, creates the `vX.Y.Z` commit and tag,
 publishes to npm (with provenance), publishes the `vitest-auto-spies` alias
@@ -154,12 +154,12 @@ in the repository can publish on its own, and there is no secret to leak or rota
 
 Each package carries its own publisher, and both name the **same** workflow file:
 
-| npm package | Publisher | Organization or user | Repository | Workflow filename | Environment | Allowed actions |
-| --- | --- | --- | --- | --- | --- | --- |
-| `vitest-auto-spy` | GitHub Actions | `ASDAlexey` | `vitest-auto-spy` | `auto-release.yml` | *(empty)* | `npm publish` |
-| `vitest-auto-spies` | GitHub Actions | `ASDAlexey` | `vitest-auto-spy` | `auto-release.yml` | *(empty)* | `npm publish` |
+| npm package         | Publisher      | Organization or user | Repository        | Workflow filename  | Environment | Allowed actions |
+| ------------------- | -------------- | -------------------- | ----------------- | ------------------ | ----------- | --------------- |
+| `vitest-auto-spy`   | GitHub Actions | `ASDAlexey`          | `vitest-auto-spy` | `auto-release.yml` | _(empty)_   | `npm publish`   |
+| `vitest-auto-spies` | GitHub Actions | `ASDAlexey`          | `vitest-auto-spy` | `auto-release.yml` | _(empty)_   | `npm publish`   |
 
-Registered at npmjs.com → the package → **Settings** → *Trusted Publisher*. Changing it is an
+Registered at npmjs.com → the package → **Settings** → _Trusted Publisher_. Changing it is an
 account-level action, so it needs 2FA on the npm account; it cannot be scripted.
 
 Four things this table is easy to get wrong:
@@ -171,7 +171,7 @@ Four things this table is easy to get wrong:
 - **`Environment` must stay empty.** Fill it in and npm starts demanding that the publishing job
   declare a matching `environment:`, which neither job does.
 - **The alias's row also says `auto-release.yml`, not `publish-alias.yml`.** npm validates the
-  workflow that *entered* the run, and `publish-alias.yml` is reached through `workflow_call`. That
+  workflow that _entered_ the run, and `publish-alias.yml` is reached through `workflow_call`. That
   is why it has no `workflow_dispatch` of its own — see [the alias](#the-vitest-auto-spies-alias).
 
 Reading a failure: **`ENEEDAUTH`** ("need auth … you need to authorize this machine") means npm found
@@ -193,12 +193,12 @@ npm is retiring granular access tokens that bypass 2FA, in two steps:
 
 - **2026-07-31, in force** — such a token can no longer perform account, org or package management
   actions.
-- **~2027-01, announced** — it loses direct publish too: *"Their publishing surface will reduce to
-  reading private packages and staging a publish, which a maintainer approves with 2FA."*
+- **~2027-01, announced** — it loses direct publish too: _"Their publishing surface will reduce to
+  reading private packages and staging a publish, which a maintainer approves with 2FA."_
 
 **This repository is not affected, and there is nothing to do in January.** Trusted publishing is
 the recommended replacement, not a thing being retired, and both packages already use it. The
-alternative npm offers — *staged publishing*, where CI prepares a release and a human approves it
+alternative npm offers — _staged publishing_, where CI prepares a release and a human approves it
 with 2FA — would turn an automatic release into a manual one, which is why the trusted publishers
 above allow `npm publish` and deliberately do **not** allow `npm stage publish`.
 
@@ -251,19 +251,19 @@ published first would be uninstallable).
 > from the earlier unpublish, so no trusted publisher can be registered for it and every run ends in
 > `ENEEDAUTH` — a red job on an otherwise green release, for a package that cannot go out anyway.
 > The automatic call is disabled in `auto-release.yml`; the alias now publishes only on a manual
-> *Run workflow* with `alias_ref`, which is also how to check whether npm has freed the name. To
+> _Run workflow_ with `alias_ref`, which is also how to check whether npm has freed the name. To
 > restore it, put the second clause of the `publish-alias` job's `if` back — the note above the job
 > spells it out.
 
 It is `workflow_call`-only on purpose. npm validates the workflow that **entered** the run, and for
 a reusable workflow that is the caller — so the trusted publisher registered on `vitest-auto-spies`
-names `auto-release.yml`, and a run started directly on *Publish alias* would present a workflow ref
+names `auto-release.yml`, and a run started directly on _Publish alias_ would present a workflow ref
 npm does not trust.
 
 Two cases still need a human:
 
-- **Catching up a version that was released without the alias** — Actions → *Auto Release* → *Run
-  workflow*, with `alias_ref` set to the tag (e.g. `v3.9.0`). That skips the whole canonical release
+- **Catching up a version that was released without the alias** — Actions → _Auto Release_ → _Run
+  workflow_, with `alias_ref` set to the tag (e.g. `v3.9.0`). That skips the whole canonical release
   and only republishes the alias; it is a no-op if that version is already on npm.
 - **npm is down or the OIDC exchange is rejected** — the fallback is `cd alias && npm publish`, which
   needs a local login (`npm login`; a stale `~/.npmrc` token fails as a **404 on PUT**, not as a 401,

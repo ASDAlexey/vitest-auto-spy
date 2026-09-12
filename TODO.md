@@ -12,7 +12,7 @@ which is where this file's `[~]` entries went on 2026-09-10 — a decision is no
       list leaves `refund` as the object's real method, `applyReturns` finds a callable, the value
       cannot go into the library's container, and the fallback hands a plain function to the
       adapter. The same root cause as the `createAutoMock` crash fixed on 2026-09-12, but not the
-      same repair — a member is not a *seed* here, so the answer is the misconfiguration report the
+      same repair — a member is not a _seed_ here, so the answer is the misconfiguration report the
       class path already prints (`returns names 'refund', which is not a spied method of the spy`),
       which needs telling a host mock from a plain function: `applyReturns` is deliberately allowed
       to drive a `vi.fn()` through the adapter (`create-spy-from-class.spec.ts`, "configures a
@@ -88,7 +88,7 @@ it). What is left here is the part that is still undone.
       on a fully unpublished name (_"you may not publish any new versions of that
       package until 24 hours have passed"_) expired on **2026-08-30T20:35:25Z** and
       nothing blocks the publish any more. Re-checked 2026-09-10: `npm view
-      vitest-auto-spies` is still a 404, so this is waiting on a person, not on npm.
+vitest-auto-spies` is still a 404, so this is waiting on a person, not on npm.
       A trusted publisher is
       configured on a package's settings page, which a non-existent package does not
       have, so the order is: one manual `cd alias && npm publish --access public` (a
@@ -111,7 +111,6 @@ it). What is left here is the part that is still undone.
       either, so this changes nothing operationally; it removes the bypass-token
       escape hatch, which is only worth removing once it is no longer the fallback.
       Needs 2FA on the account.
-
 
 ## Claude Code plugin directory — submission — DECIDED 2026-09-02: submit
 

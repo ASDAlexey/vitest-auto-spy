@@ -25,12 +25,12 @@ fixture.detectChanges(); // params и paramMap выпустили значени
 `fragment`, `url` — в полях экземпляра. У каждого из привычных дублей есть только часть этого, и
 недостающая часть падает далеко от провайдера:
 
-| Дубль                                                             | Что получает код, читающий другую половину                                                             |
-| ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| `provideAutoSpy(ActivatedRoute)`                                  | ни `snapshot`, ни `params`: это поля экземпляра, а спай строится по прототипу                          |
-| `{ provide: ActivatedRoute, useValue: { snapshot: { params } } }` | `route.paramMap` — `undefined`, и `route.paramMap.pipe(…)` падает внутри компонента                    |
-| `{ provide: ActivatedRoute, useValue: { params: of({ id }) } }`   | `snapshot` — `undefined`, а поток больше не сдвинется: вторую навигацию не проверить                   |
-| обе половины, написанные руками                                   | они совпадают до первой спеки, которая обновила одну и забыла про другую                               |
+| Дубль                                                             | Что получает код, читающий другую половину                                           |
+| ----------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `provideAutoSpy(ActivatedRoute)`                                  | ни `snapshot`, ни `params`: это поля экземпляра, а спай строится по прототипу        |
+| `{ provide: ActivatedRoute, useValue: { snapshot: { params } } }` | `route.paramMap` — `undefined`, и `route.paramMap.pipe(…)` падает внутри компонента  |
+| `{ provide: ActivatedRoute, useValue: { params: of({ id }) } }`   | `snapshot` — `undefined`, а поток больше не сдвинется: вторую навигацию не проверить |
+| обе половины, написанные руками                                   | они совпадают до первой спеки, которая обновила одну и забыла про другую             |
 
 Дубль здесь — не подделка под маршрут. Это собственный `ActivatedRoute` Angular, собранный поверх
 одной записи: каждый поток — `BehaviorSubject` одного из её полей, снимок — собственный
@@ -53,16 +53,16 @@ TestBed.configureTestingModule({
 });
 ```
 
-| Поле `init`   | Куда попадает                                                  | По умолчанию |
-| ------------- | -------------------------------------------------------------- | ------------ |
-| `params`      | `params`, `paramMap`, `snapshot.params`, `snapshot.paramMap`   | `{}`         |
-| `queryParams` | `queryParams`, `queryParamMap` и их двойники в снимке          | `{}`         |
-| `data`        | `data`, `snapshot.data`                                        | `{}`         |
-| `fragment`    | `fragment`, `snapshot.fragment`                                | `null`       |
-| `url`         | `url`, `snapshot.url` — строка режется по `/`                  | `[]`         |
-| `outlet`      | `outlet`, `snapshot.outlet`                                    | `'primary'`  |
-| `component`   | `component`, `snapshot.component`                              | `null`       |
-| `routeConfig` | `routeConfig`, `snapshot.routeConfig`                          | `null`       |
+| Поле `init`   | Куда попадает                                                | По умолчанию |
+| ------------- | ------------------------------------------------------------ | ------------ |
+| `params`      | `params`, `paramMap`, `snapshot.params`, `snapshot.paramMap` | `{}`         |
+| `queryParams` | `queryParams`, `queryParamMap` и их двойники в снимке        | `{}`         |
+| `data`        | `data`, `snapshot.data`                                      | `{}`         |
+| `fragment`    | `fragment`, `snapshot.fragment`                              | `null`       |
+| `url`         | `url`, `snapshot.url` — строка режется по `/`                | `[]`         |
+| `outlet`      | `outlet`, `snapshot.outlet`                                  | `'primary'`  |
+| `component`   | `component`, `snapshot.component`                            | `null`       |
+| `routeConfig` | `routeConfig`, `snapshot.routeConfig`                        | `null`       |
 
 Строковый `url` даёт сегменты без матричных параметров; передайте `UrlSegment`
 (`[new UrlSegment('products', { color: 'red' })]`), если код их читает.
@@ -90,14 +90,14 @@ route.set({ params: { id: '9' }, fragment: null });
 Хендл маршрута, который `provideActivatedRoute()` положил в инжектор теста. Читает `TestBed`;
 передайте `fixture.debugElement.injector`, когда маршрут лежит в собственных `providers` компонента.
 
-| Член                     | Что делает                                                                          |
-| ------------------------ | ----------------------------------------------------------------------------------- |
-| `route`                  | тот `ActivatedRoute`, который выдаёт каждый инжектор в тесте                        |
-| `setParams(params)`      | заменить параметры                                                                  |
-| `setQueryParams(params)` | заменить query-параметры                                                            |
-| `setData(data)`          | заменить данные                                                                     |
-| `setFragment(fragment)`  | заменить фрагмент; `null` — фрагмента нет                                           |
-| `setUrl(url)`            | заменить сегменты URL; строка или `UrlSegment[]`                                    |
+| Член                     | Что делает                                                                                   |
+| ------------------------ | -------------------------------------------------------------------------------------------- |
+| `route`                  | тот `ActivatedRoute`, который выдаёт каждый инжектор в тесте                                 |
+| `setParams(params)`      | заменить параметры                                                                           |
+| `setQueryParams(params)` | заменить query-параметры                                                                     |
+| `setData(data)`          | заменить данные                                                                              |
+| `setFragment(fragment)`  | заменить фрагмент; `null` — фрагмента нет                                                    |
+| `setUrl(url)`            | заменить сегменты URL; строка или `UrlSegment[]`                                             |
 | `set(change)`            | несколько из перечисленного одной навигацией: один новый снимок, каждый поток не больше раза |
 
 Каждое изменение ведёт себя так же, как собственное обновление роутера после навигации, поэтому
@@ -173,11 +173,11 @@ expect(page.productId()).toBe('8');
 
 ## Что говорит каждое падение {#what-each-failure-says}
 
-| Сообщение содержит                                                   | Причина                                                                                                  |
-| -------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| `injectActivatedRoute(): nothing provides ActivatedRoute here`       | провайдера нет вовсе — добавьте `provideActivatedRoute({ … })` в `providers`                             |
+| Сообщение содержит                                                   | Причина                                                                                                                   |
+| -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `injectActivatedRoute(): nothing provides ActivatedRoute here`       | провайдера нет вовсе — добавьте `provideActivatedRoute({ … })` в `providers`                                              |
 | `the ActivatedRoute here is … not one provideActivatedRoute() built` | выиграл более поздний провайдер: `provideRouter()`, `RouterModule`, `useValue`, `provideAutoSpy` — ставьте этот последним |
-| `the installed @angular/router does not wire ActivatedRoute …`       | мажор роутера собирает классы иначе; сообщите об этом с версией                                          |
+| `the installed @angular/router does not wire ActivatedRoute …`       | мажор роутера собирает классы иначе; сообщите об этом с версией                                                           |
 
 ## Дубль Router {#the-router-double}
 
@@ -209,14 +209,14 @@ fixture.detectChanges();
 экземпляр класса Angular — настоящий `Router` тянет за собой всю маршрутизацию, а юнит-тесту она ни
 к чему, — поэтому это структурный дубль, выданный на токен `Router`:
 
-| Член                        | Что это                                                                                                     |
-| --------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| Член                        | Что это                                                                                                               |
+| --------------------------- | --------------------------------------------------------------------------------------------------------------------- |
 | `url`                       | URL, сериализованный так же, как настоящий роутер сериализует свой: `setUrl('products/7')` читается как `/products/7` |
-| `events`                    | `BehaviorSubject`, начинающийся с того `NavigationEnd`, который привёл роутер сюда                          |
-| `navigate`, `navigateByUrl` | спаи, резолвящиеся в `true`: записывают вызов и не трогают URL                                              |
-| `serializeUrl`, `parseUrl`  | собственный `DefaultUrlSerializer` роутера, а не пара заглушек                                              |
+| `events`                    | `BehaviorSubject`, начинающийся с того `NavigationEnd`, который привёл роутер сюда                                    |
+| `navigate`, `navigateByUrl` | спаи, резолвящиеся в `true`: записывают вызов и не трогают URL                                                        |
+| `serializeUrl`, `parseUrl`  | собственный `DefaultUrlSerializer` роутера, а не пара заглушек                                                        |
 | `createUrlTree`             | `createUrlTreeFromSnapshot` самого Angular, поэтому `relativeTo`, `queryParamsHandling` и `preserveFragment` работают |
-| `routerState`               | собственный `RouterState` Angular: `snapshot.url` — это URL, а `root` — маршрут с его query-параметрами и фрагментом |
+| `routerState`               | собственный `RouterState` Angular: `snapshot.url` — это URL, а `root` — маршрут с его query-параметрами и фрагментом  |
 
 Всё остальное, что объявляет `Router` Angular, — `getCurrentNavigation`, `isActive`, `resetConfig` —
 **не** `undefined`: чтение падает, называя член и то, что дубль покрывает. Член, отвечающий на вызов,
@@ -236,13 +236,13 @@ router.navigate.resolveWith(false);
 Хендл роутера, который `provideRouterDouble()` положил в инжектор теста. Читает `TestBed`; передайте
 `fixture.debugElement.injector`, когда роутер лежит в собственных `providers` компонента.
 
-| Член                     | Что делает                                                                            |
-| ------------------------ | --------------------------------------------------------------------------------------- |
-| `router`                 | то значение, которое каждый инжектор в тесте выдаёт на `Router`                       |
-| `navigate`               | спай `navigate()` — проверяйте его или отвечайте через `resolveWith(false)`           |
-| `navigateByUrl`          | спай `navigateByUrl()`, точно так же                                                  |
+| Член                     | Что делает                                                                                |
+| ------------------------ | ----------------------------------------------------------------------------------------- |
+| `router`                 | то значение, которое каждый инжектор в тесте выдаёт на `Router`                           |
+| `navigate`               | спай `navigate()` — проверяйте его или отвечайте через `resolveWith(false)`               |
+| `navigateByUrl`          | спай `navigateByUrl()`, точно так же                                                      |
 | `setUrl(url)`            | поставить роутер на URL: `url`, `routerState` и корневой маршрут двигаются вместе и молча |
-| `emitNavigation(event?)` | протолкнуть событие через `router.events`                                             |
+| `emitNavigation(event?)` | протолкнуть событие через `router.events`                                                 |
 
 `emitNavigation()` принимает то, что есть у спеки: ничего (объявить текущий URL заново), строку URL
 (`NavigationEnd` для неё соберут за вас) или собранное вами событие — `new NavigationEnd(1, '/a', '/a')`,
@@ -293,12 +293,12 @@ expect(navigate).toHaveBeenCalledWith(['/login']);
 
 ### Что говорит каждое падение Router {#what-each-router-failure-says}
 
-| Сообщение содержит                                                     | Причина                                                                                  |
-| ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| `the Router double has no …`                                           | код под тестом полез за членом `Router`, которого у дубля нет                             |
+| Сообщение содержит                                                      | Причина                                                                                                                 |
+| ----------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `the Router double has no …`                                            | код под тестом полез за членом `Router`, которого у дубля нет                                                           |
 | `the Router here is Angular's own, not one provideRouterDouble() built` | `Router` объявлен `providedIn: 'root'`, поэтому `TestBed` без дубля выдаёт настоящий — добавьте `provideRouterDouble()` |
-| `the Router here is a value written by hand …`                         | выиграл `useValue` или `provideAutoSpy(Router)` — ставьте `provideRouterDouble()` последним |
-| `nothing provides Router in the injector given`                        | инжектор, собранный руками, в котором `Router` нет вовсе                                  |
+| `the Router here is a value written by hand …`                          | выиграл `useValue` или `provideAutoSpy(Router)` — ставьте `provideRouterDouble()` последним                             |
+| `nothing provides Router in the injector given`                         | инжектор, собранный руками, в котором `Router` нет вовсе                                                                |
 
 В отличие от маршрута этот дубль не нужно ставить после `provideRouter()`: `Router` объявлен
 `providedIn: 'root'`, а `provideRouter()` токен заново не выдаёт, поэтому явный провайдер выигрывает

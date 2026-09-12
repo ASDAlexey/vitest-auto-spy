@@ -25,12 +25,12 @@ fixture.detectChanges(); // params and paramMap emitted; snapshot.params already
 `fragment`, `url` — in instance fields. Each of the usual doubles has only part of it, and the part
 it lacks fails a long way from the provider:
 
-| Double                                                         | What the code that reads the other half gets                                                          |
-| -------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| `provideAutoSpy(ActivatedRoute)`                               | no `snapshot`, no `params`: they are instance fields, and a spy is built from the prototype          |
-| `{ provide: ActivatedRoute, useValue: { snapshot: { params } } }` | `route.paramMap` is `undefined`, so `route.paramMap.pipe(…)` throws inside the component               |
+| Double                                                            | What the code that reads the other half gets                                                         |
+| ----------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `provideAutoSpy(ActivatedRoute)`                                  | no `snapshot`, no `params`: they are instance fields, and a spy is built from the prototype          |
+| `{ provide: ActivatedRoute, useValue: { snapshot: { params } } }` | `route.paramMap` is `undefined`, so `route.paramMap.pipe(…)` throws inside the component             |
 | `{ provide: ActivatedRoute, useValue: { params: of({ id }) } }`   | `snapshot` is `undefined`, and the stream never moves again — the second navigation cannot be tested |
-| both halves, written by hand                                   | they agree until the first spec that updates one and forgets the other                                |
+| both halves, written by hand                                      | they agree until the first spec that updates one and forgets the other                               |
 
 The double here is not a look-alike. It is Angular's own `ActivatedRoute`, built over one record:
 every stream is a `BehaviorSubject` of one of its fields, the snapshot is Angular's own
@@ -53,16 +53,16 @@ TestBed.configureTestingModule({
 });
 ```
 
-| `init` member | Reaches                                                          | Default     |
-| ------------- | ---------------------------------------------------------------- | ----------- |
-| `params`      | `params`, `paramMap`, `snapshot.params`, `snapshot.paramMap`     | `{}`        |
-| `queryParams` | `queryParams`, `queryParamMap` and their snapshot twins          | `{}`        |
-| `data`        | `data`, `snapshot.data`                                          | `{}`        |
-| `fragment`    | `fragment`, `snapshot.fragment`                                  | `null`      |
-| `url`         | `url`, `snapshot.url` — a string is split on `/`                 | `[]`        |
-| `outlet`      | `outlet`, `snapshot.outlet`                                      | `'primary'` |
-| `component`   | `component`, `snapshot.component`                                | `null`      |
-| `routeConfig` | `routeConfig`, `snapshot.routeConfig`                            | `null`      |
+| `init` member | Reaches                                                      | Default     |
+| ------------- | ------------------------------------------------------------ | ----------- |
+| `params`      | `params`, `paramMap`, `snapshot.params`, `snapshot.paramMap` | `{}`        |
+| `queryParams` | `queryParams`, `queryParamMap` and their snapshot twins      | `{}`        |
+| `data`        | `data`, `snapshot.data`                                      | `{}`        |
+| `fragment`    | `fragment`, `snapshot.fragment`                              | `null`      |
+| `url`         | `url`, `snapshot.url` — a string is split on `/`             | `[]`        |
+| `outlet`      | `outlet`, `snapshot.outlet`                                  | `'primary'` |
+| `component`   | `component`, `snapshot.component`                            | `null`      |
+| `routeConfig` | `routeConfig`, `snapshot.routeConfig`                        | `null`      |
 
 A string `url` gives segments without matrix parameters; pass `UrlSegment`s
 (`[new UrlSegment('products', { color: 'red' })]`) when the code reads them.
@@ -89,14 +89,14 @@ route.set({ params: { id: '9' }, fragment: null });
 The handle of the route `provideActivatedRoute()` put in the test's injector. It reads the `TestBed`;
 pass `fixture.debugElement.injector` when the route is in a component's own `providers`.
 
-| Member                   | What it does                                                                     |
-| ------------------------ | -------------------------------------------------------------------------------- |
-| `route`                  | the `ActivatedRoute` every injector in the test hands out                        |
-| `setParams(params)`      | replace the params                                                               |
-| `setQueryParams(params)` | replace the query params                                                         |
-| `setData(data)`          | replace the data                                                                 |
-| `setFragment(fragment)`  | replace the fragment; `null` for none                                            |
-| `setUrl(url)`            | replace the URL segments; a string or `UrlSegment[]`                             |
+| Member                   | What it does                                                                       |
+| ------------------------ | ---------------------------------------------------------------------------------- |
+| `route`                  | the `ActivatedRoute` every injector in the test hands out                          |
+| `setParams(params)`      | replace the params                                                                 |
+| `setQueryParams(params)` | replace the query params                                                           |
+| `setData(data)`          | replace the data                                                                   |
+| `setFragment(fragment)`  | replace the fragment; `null` for none                                              |
+| `setUrl(url)`            | replace the URL segments; a string or `UrlSegment[]`                               |
 | `set(change)`            | several of the above in one navigation: one new snapshot, each stream at most once |
 
 Every change behaves the way the router's own update after a navigation does, so a spec cannot see
@@ -171,11 +171,11 @@ supports.
 
 ## What each failure says
 
-| Message contains                                                    | Cause                                                                                       |
-| ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| `injectActivatedRoute(): nothing provides ActivatedRoute here`      | no provider at all — add `provideActivatedRoute({ … })` to `providers`                      |
+| Message contains                                                     | Cause                                                                                                        |
+| -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `injectActivatedRoute(): nothing provides ActivatedRoute here`       | no provider at all — add `provideActivatedRoute({ … })` to `providers`                                       |
 | `the ActivatedRoute here is … not one provideActivatedRoute() built` | a later provider won: `provideRouter()`, `RouterModule`, a `useValue`, `provideAutoSpy` — list this one last |
-| `the installed @angular/router does not wire ActivatedRoute …`      | a router major builds its classes differently; report it with the version                  |
+| `the installed @angular/router does not wire ActivatedRoute …`       | a router major builds its classes differently; report it with the version                                    |
 
 ## The Router double
 
@@ -207,14 +207,14 @@ This double keeps one URL and derives the rest of it. It is **not** an instance 
 a real `Router` drags the whole routing stack in, and a unit test has nothing to do with it — so it
 is a structural stand-in provided for the `Router` token:
 
-| Member                       | What it is                                                                                                    |
-| ---------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| `url`                        | the URL, serialized the way the real router serializes its own: `setUrl('products/7')` reads back `/products/7` |
-| `events`                     | a `BehaviorSubject`, starting at the `NavigationEnd` that put the router where it is                          |
-| `navigate`, `navigateByUrl`  | spies resolving `true`, which record the call and leave the URL alone                                         |
-| `serializeUrl`, `parseUrl`   | the router's own `DefaultUrlSerializer`, not a pair of stubs                                                  |
-| `createUrlTree`              | Angular's `createUrlTreeFromSnapshot`, so `relativeTo`, `queryParamsHandling` and `preserveFragment` behave   |
-| `routerState`                | Angular's own `RouterState`: `snapshot.url` is the URL, and `root` a route carrying its query params and fragment |
+| Member                      | What it is                                                                                                        |
+| --------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `url`                       | the URL, serialized the way the real router serializes its own: `setUrl('products/7')` reads back `/products/7`   |
+| `events`                    | a `BehaviorSubject`, starting at the `NavigationEnd` that put the router where it is                              |
+| `navigate`, `navigateByUrl` | spies resolving `true`, which record the call and leave the URL alone                                             |
+| `serializeUrl`, `parseUrl`  | the router's own `DefaultUrlSerializer`, not a pair of stubs                                                      |
+| `createUrlTree`             | Angular's `createUrlTreeFromSnapshot`, so `relativeTo`, `queryParamsHandling` and `preserveFragment` behave       |
+| `routerState`               | Angular's own `RouterState`: `snapshot.url` is the URL, and `root` a route carrying its query params and fragment |
 
 Anything else Angular's `Router` declares — `getCurrentNavigation`, `isActive`, `resetConfig` — is
 **not** `undefined`: reading it throws, naming the member and what the double covers. A member that
@@ -235,13 +235,13 @@ router.navigate.resolveWith(false);
 The handle of the router `provideRouterDouble()` put in the test's injector. It reads the `TestBed`;
 pass `fixture.debugElement.injector` when the router is in a component's own `providers`.
 
-| Member                   | What it does                                                                                 |
-| ------------------------ | ---------------------------------------------------------------------------------------------- |
-| `router`                 | the value every injector in the test hands out for `Router`                                  |
-| `navigate`               | the spied `navigate()` — assert on it, or answer with `resolveWith(false)`                   |
-| `navigateByUrl`          | the spied `navigateByUrl()`, the same way                                                    |
-| `setUrl(url)`            | put the router at a URL: `url`, `routerState` and the root route move together, silently     |
-| `emitNavigation(event?)` | push an event through `router.events`                                                        |
+| Member                   | What it does                                                                             |
+| ------------------------ | ---------------------------------------------------------------------------------------- |
+| `router`                 | the value every injector in the test hands out for `Router`                              |
+| `navigate`               | the spied `navigate()` — assert on it, or answer with `resolveWith(false)`               |
+| `navigateByUrl`          | the spied `navigateByUrl()`, the same way                                                |
+| `setUrl(url)`            | put the router at a URL: `url`, `routerState` and the root route move together, silently |
+| `emitNavigation(event?)` | push an event through `router.events`                                                    |
 
 `emitNavigation()` takes what the spec has: nothing (re-announce the current URL), a URL string (a
 `NavigationEnd` for it, built for you), or an event you built — `new NavigationEnd(1, '/a', '/a')`,
@@ -293,12 +293,12 @@ setup file — has to be loaded. Without it the first `provideRouterDouble()` sa
 
 ### What each Router failure says
 
-| Message contains                                                       | Cause                                                                                     |
-| ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| `the Router double has no …`                                           | the code under test reached for a `Router` member the double does not cover                |
+| Message contains                                                        | Cause                                                                                                                  |
+| ----------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `the Router double has no …`                                            | the code under test reached for a `Router` member the double does not cover                                            |
 | `the Router here is Angular's own, not one provideRouterDouble() built` | `Router` is `providedIn: 'root'`, so a `TestBed` without the double hands out a real one — add `provideRouterDouble()` |
-| `the Router here is a value written by hand …`                         | a `useValue` or `provideAutoSpy(Router)` won over it — list `provideRouterDouble()` last   |
-| `nothing provides Router in the injector given`                        | an injector built by hand with no `Router` at all                                          |
+| `the Router here is a value written by hand …`                          | a `useValue` or `provideAutoSpy(Router)` won over it — list `provideRouterDouble()` last                               |
+| `nothing provides Router in the injector given`                         | an injector built by hand with no `Router` at all                                                                      |
 
 Unlike the route, the double does not need to be listed after `provideRouter()`: `Router` is
 `providedIn: 'root'`, and `provideRouter()` does not re-provide the token, so an explicit provider

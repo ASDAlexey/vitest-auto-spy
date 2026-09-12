@@ -20,13 +20,13 @@ is taken once, in a setup file — and because four of the five hang off the sam
 `TestBed.configureTestingModule` hook the
 [timing diagnostics](/adapters/angular#where-a-spec-spends-its-time) already install.
 
-| Member             | Default | Fails when                                                                         |
-| ------------------ | ------- | ---------------------------------------------------------------------------------- |
-| `ngModuleScopes`   | `true`  | a testing module imports an NgModule that contributes nothing at all               |
-| `deadSchemas`      | `true`  | `schemas` sit next to a standalone component, where they can never apply           |
-| `unspiedProviders` | `true`  | `injectSpy` gets a real instance — a `console.warn` today, a throw under the group |
-| `pendingRequests`  | `true`  | a test ends with unflushed `HttpTestingController` requests                        |
-| `shadowedProviders` | `true` | a double on the testing module loses to the component's own `providers`            |
+| Member              | Default | Fails when                                                                         |
+| ------------------- | ------- | ---------------------------------------------------------------------------------- |
+| `ngModuleScopes`    | `true`  | a testing module imports an NgModule that contributes nothing at all               |
+| `deadSchemas`       | `true`  | `schemas` sit next to a standalone component, where they can never apply           |
+| `unspiedProviders`  | `true`  | `injectSpy` gets a real instance — a `console.warn` today, a throw under the group |
+| `pendingRequests`   | `true`  | a test ends with unflushed `HttpTestingController` requests                        |
+| `shadowedProviders` | `true`  | a double on the testing module loses to the component's own `providers`            |
 
 Every member defaults to `true`; pass `false` to leave one out. Calling `enableAngularDiagnostics`
 again **replaces** the previous selection rather than adding to it. The per-test hooks are
@@ -222,7 +222,7 @@ const fixture = TestBed.createComponent(PromoComponent); // ← fails here, unde
 A component-level provider is resolved by the component's **node** injector, and the module injector
 is only consulted when the node injector has nothing. So a `provideAutoSpy(X)` on the testing module
 never reaches a component that declares `X` itself: the component talks to the real service, the
-double records nothing, and an assertion that it was *not* called passes for the wrong reason.
+double records nothing, and an assertion that it was _not_ called passes for the wrong reason.
 
 Measured in one Angular suite: of 71 component specs whose subject declares its own `providers`, 43
 register the same token on the module too. 22 of those work around it with

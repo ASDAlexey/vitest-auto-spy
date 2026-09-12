@@ -49,7 +49,7 @@ before it, and is superseded by one configured after — so what a call does nev
 order the spec happens to be written in. A `resetAutoSpy` drops it like any other configuration.
 
 ::: tip Why not `throwWith`
-`throwWith` already means *error the stream* on an observable spy. Every spy carries every helper
+`throwWith` already means _error the stream_ on an observable spy. Every spy carries every helper
 bundle at runtime — only the return type in `Spy<T>` tells them apart — so a shared name would mean
 whichever bundle is attached last silently wins, on every spy in the run.
 :::

@@ -170,12 +170,12 @@ provideAutoSpy(Router, { instanceMethodsToSpyOn: ['currentNavigation'] }); // ad
 **Why this is not only tidiness.** Measured over one Angular suite: 739 of 2228 `provideAutoSpy`
 calls carry a configuration, and the same class collects incompatible opinions —
 
-| class                  | calls | files | with a config | **distinct configurations** |
-| ---------------------- | ----: | ----: | ------------: | --------------------------: |
-| `Router`               |   122 |   109 |            60 |                      **23** |
-| `AccountService`       |    70 |    62 |            43 |                      **27** |
-| `PurchaseStateService` |    53 |    52 |            42 |                      **25** |
-| `SmartRemoteConfigService` | 85 |    70 |            47 |                           8 |
+| class                      | calls | files | with a config | **distinct configurations** |
+| -------------------------- | ----: | ----: | ------------: | --------------------------: |
+| `Router`                   |   122 |   109 |            60 |                      **23** |
+| `AccountService`           |    70 |    62 |            43 |                      **27** |
+| `PurchaseStateService`     |    53 |    52 |            42 |                      **25** |
+| `SmartRemoteConfigService` |    85 |    70 |            47 |                           8 |
 
 — and the `*RemoteConfigService` family is 205 calls, 120 of them repeating
 `{ gettersToSpyOn: ['remoteConfig'] }` word for word. The list options are
@@ -188,11 +188,11 @@ says so.
 
 The registration is the floor, the call site adds to it. Three behaviours, one per kind of key:
 
-| key                                                | merged how                              |
-| -------------------------------------------------- | --------------------------------------- |
-| every list (`gettersToSpyOn`, `observablePropsToSpyOn`, …) | unioned, registration first, no repeats |
-| `returns`, `overrides`                             | key by key, the call site winning       |
-| every scalar (`lazySpies`, `strict`, `fillMissing`) | the call site wins when it names the key |
+| key                                                        | merged how                               |
+| ---------------------------------------------------------- | ---------------------------------------- |
+| every list (`gettersToSpyOn`, `observablePropsToSpyOn`, …) | unioned, registration first, no repeats  |
+| `returns`, `overrides`                                     | key by key, the call site winning        |
+| every scalar (`lazySpies`, `strict`, `fillMissing`)        | the call site wins when it names the key |
 
 The bare-array form is taken too: `createSpyFromClass(X, ['reload'])` merges as
 `{ methodsToSpyOn: ['reload'] }`.

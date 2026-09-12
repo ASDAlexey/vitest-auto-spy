@@ -35,7 +35,7 @@ of a case runs the same 60 reps after the same 30 warm-up reps.
 
 `vitest.bench.angular.config.mts` sets `suppressExportGetterWarnings: true`, and that is not about
 the warning — see [`bench/README.md`](../bench/README.md#the-harness-on-vitest-5). The tracker Vitest
-installs to produce it wraps every cross-module export in a counting getter *inside the timed body*.
+installs to produce it wraps every cross-module export in a counting getter _inside the timed body_.
 
 **This benchmark was broken before the port, and by something else.** Since the move to Angular 22
 and TypeScript 6 it died on `SyntaxError: Invalid or unexpected token` — with `"src"` as a bare

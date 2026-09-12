@@ -48,17 +48,17 @@ that is the class of bug this catches.
 One glossary, so two pages do not name the same thing differently. The landing was translated first
 and is the precedent the rest follows.
 
-| English | Russian |
-| --- | --- |
-| spy (noun) | спай — never «шпион»; the verb is «поставить спай», not «шпионить» |
-| test double | дубль |
-| suite | сюита |
-| runner | раннер |
-| collaborator | коллаборатор |
-| helper | хелпер |
-| peer dependency | peer-зависимость |
-| barrel | barrel-модуль — never «бочка» |
-| Related | Смотрите также |
+| English         | Russian                                                            |
+| --------------- | ------------------------------------------------------------------ |
+| spy (noun)      | спай — never «шпион»; the verb is «поставить спай», not «шпионить» |
+| test double     | дубль                                                              |
+| suite           | сюита                                                              |
+| runner          | раннер                                                             |
+| collaborator    | коллаборатор                                                       |
+| helper          | хелпер                                                             |
+| peer dependency | peer-зависимость                                                   |
+| barrel          | barrel-модуль — never «бочка»                                      |
+| Related         | Смотрите также                                                     |
 
 Translate prose, the frontmatter `title`/`description`, and comments inside examples. Leave
 identifiers, imports, CLI flags, config keys, the error strings the library actually throws (readers

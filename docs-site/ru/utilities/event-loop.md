@@ -20,11 +20,11 @@ expect(dialog.open).toHaveBeenCalled();
 таймеры обычно были глобальными. Под Vitest с настоящим бандлером это четыре отдельных механизма,
 и тест, ждущий не ту очередь, падает с сообщением, которое не называет ни одну из них.
 
-| Что ожидает                                    | Что им управляет                                  | Что **не** сработает                      |
-| --------------------------------------------- | -------------------------------------------------- | ----------------------------------------- |
-| change detection                               | `fixture.detectChanges()`                          | любой `await`                             |
-| эффекты, `afterNextRender`, затем CD           | `await stable(fixture)`                            | один только `detectChanges()`             |
-| таймеры, дебаунсы, поллинг                     | `await advanceTimers(ms)`                          | `await Promise.resolve()`                 |
+| Что ожидает                                              | Что им управляет                                   | Что **не** сработает                      |
+| -------------------------------------------------------- | -------------------------------------------------- | ----------------------------------------- |
+| change detection                                         | `fixture.detectChanges()`                          | любой `await`                             |
+| эффекты, `afterNextRender`, затем CD                     | `await stable(fixture)`                            | один только `detectChanges()`             |
+| таймеры, дебаунсы, поллинг                               | `await advanceTimers(ms)`                          | `await Promise.resolve()`                 |
 | динамический `import()`, нативный `async` в зависимостях | `await flushEventLoop()` / `settleDynamicImport()` | `tick()`, `flushMicrotasks()`, микротаски |
 
 ## `flushEventLoop(turns?)` {#flusheventloop-turns}

@@ -106,12 +106,12 @@ declare module 'vitest-auto-spy' {
 }
 ```
 
-The one import that makes the helpers *exist* is the one that makes them rxjs-typed, so the two
+The one import that makes the helpers _exist_ is the one that makes them rxjs-typed, so the two
 cannot drift apart.
 
 ```ts
-import 'vitest-auto-spy/rxjs';
 import type { Subject } from 'rxjs';
+import 'vitest-auto-spy/rxjs';
 
 const subject: Subject<Product[]> = myService.getProducts$.returnSubject(); // ✔ compiles
 ```

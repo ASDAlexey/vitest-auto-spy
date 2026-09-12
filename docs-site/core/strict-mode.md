@@ -252,7 +252,7 @@ setupAutoSpy({ strict: true, unconfiguredReads: 'throw' }); // 'off' (default) |
   stream by `nextWith`, `nextOneTimeWith`, `nextWithValues` with at least one entry, `throwWith`,
   `complete`, `returnSubject`, or a real stream seeded through `overrides`. A registered _list_ alone
   configures nothing. `undefined` meant as the answer is said out loud, like `returns: { save:
-  undefined }` for a method: `accessorSpies.getters.x.mockReturnValue(undefined)`.
+undefined }` for a method: `accessorSpies.getters.x.mockReturnValue(undefined)`.
 - **Which doubles.** Strict ones — `strict: true` on the double or suite-wide — built by
   `createSpyFromClass`, `provideAutoSpy`, `createSpyFromInstance`, and `createAutoMock` /
   `provideAutoSpyForToken` for their observable properties. `strict: false` on a double exempts it.
@@ -289,13 +289,13 @@ The guard is carried by the function spies the two class/type factories build, a
 construction. Everything below builds its spies elsewhere and is **never** strict, whatever is
 configured:
 
-| Double                                                  | Why                                                                 |
-| ------------------------------------------------------- | ------------------------------------------------------------------- |
+| Double                                                  | Why                                                                                      |
+| ------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
 | **accessor spies** (`gettersToSpyOn`, …)                | a read cannot throw — reported after the test instead, [above](#reads-nobody-configured) |
-| **observable property spies**                           | the same — a subscription nothing fed is reported after the test    |
-| **`mockDeep<T>()` nodes**                               | `mockDeep` takes no strict configuration at all                     |
-| **`console-spy`** and **`mockResourceProp`'s `reload`** | internal spies, not doubles of your collaborator                    |
-| **standalone `createFunctionSpy(name)`**                | the guard is its optional second argument, and no caller passes one |
+| **observable property spies**                           | the same — a subscription nothing fed is reported after the test                         |
+| **`mockDeep<T>()` nodes**                               | `mockDeep` takes no strict configuration at all                                          |
+| **`console-spy`** and **`mockResourceProp`'s `reload`** | internal spies, not doubles of your collaborator                                         |
+| **standalone `createFunctionSpy(name)`**                | the guard is its optional second argument, and no caller passes one                      |
 
 `fillMissing` members are the exception that had to be closed rather than documented: a member the
 prototype never named is by definition one nobody configured, so leaving it lenient would have

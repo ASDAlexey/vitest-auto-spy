@@ -72,16 +72,16 @@ file on the first edit.
 
 ## What each command does
 
-| Command                    | What it measures                                                                                                                                                                  | Cost            |
-| -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------- |
-| `npm run bench:vs`         | This package against `jest-auto-spies`, `jasmine-auto-spies`, `@bugsplat/vitest-auto-spies`, `vitest-mock-extended`, `@golevelup/ts-vitest` and a hand-written `vi.fn()` control. | ~1 min          |
-| `npm run bench:vs:precise` | Seven runs at double the budgets; every published number comes from this.                                                                                                         | ~13 min         |
-| `npm run bench:vs:fast`    | The same, budgets divided by eight — for editing the benchmark. Marks itself as not a result.                                                                                     | ~10 s           |
-| `npm run bench`            | This package against itself — lazy against eager spies, `calledWith` dispatch, and a spied call against a plain one. Needs no install here. `--json <path>` keeps the raw results.                | ~1 min          |
+| Command                    | What it measures                                                                                                                                                                   | Cost            |
+| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------- |
+| `npm run bench:vs`         | This package against `jest-auto-spies`, `jasmine-auto-spies`, `@bugsplat/vitest-auto-spies`, `vitest-mock-extended`, `@golevelup/ts-vitest` and a hand-written `vi.fn()` control.  | ~1 min          |
+| `npm run bench:vs:precise` | Seven runs at double the budgets; every published number comes from this.                                                                                                          | ~13 min         |
+| `npm run bench:vs:fast`    | The same, budgets divided by eight — for editing the benchmark. Marks itself as not a result.                                                                                      | ~10 s           |
+| `npm run bench`            | This package against itself — lazy against eager spies, `calledWith` dispatch, and a spied call against a plain one. Needs no install here. `--json <path>` keeps the raw results. | ~1 min          |
 | `npm run bench:check`      | Compares a `npm run bench` results file against `baseline.json` and reports what moved. Report-only unless `--strict`.                                                             | instant         |
 | `npm run bench:smoke`      | Runs one throwaway case end to end and checks the results file the rest of the harness reads. Measures nothing quotable — it guards the harness itself.                            | ~2 s            |
-| `npm run bench:memory`     | Retained heap per double, across the same libraries, at two class widths and two touch levels.                                                                                    | ~40 s           |
-| `npm run bench:suite`      | Whole synthetic suites — 1 000 / 3 000 / 10 000 tests — measuring wall-clock and peak RSS per library.                                                                            | tens of minutes |
+| `npm run bench:memory`     | Retained heap per double, across the same libraries, at two class widths and two touch levels.                                                                                     | ~40 s           |
+| `npm run bench:suite`      | Whole synthetic suites — 1 000 / 3 000 / 10 000 tests — measuring wall-clock and peak RSS per library.                                                                             | tens of minutes |
 
 **Every one of them prints the same table.** A terminal gets a boxed one, a pipe gets markdown — so
 `npm run bench:memory > table.md` produces something a documentation page takes verbatim, which is
@@ -546,7 +546,6 @@ current task, which a microtask `await` does not end. Two consequences, both han
   package's own arms moved by less than the run's own margin (1.54 → 1.79 µs, 2.71 → 2.67 µs). The
   ratios in the published head-to-head table therefore understate the current gap, and the absolute
   microseconds on the Performance page predate the runner upgrade. Re-measure before quoting them.
-
 
 ## How these numbers stay current
 
