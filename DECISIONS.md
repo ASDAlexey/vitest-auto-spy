@@ -8,6 +8,103 @@ reason.
 
 Shipped work is not here either — it is in `CHANGELOG.md` and in git history.
 
+## `no-sync-testbed-await` — which members, which grade, and the stock rules next to it, 2026-09-12
+
+The second half of the `no-compile-components` cleanup. Removing 448 `compileComponents()` calls from
+410 files of a 1862-file Angular suite left 18 `await`s on a value that was never a promise and 33
+hooks `async` with nothing to wait for, so the rule reports the `await` itself. Over that consumer's
+last commit (1759 spec files) it reports 14 times in 10 files, and over the same tree with the calls
+removed and their awaits fixed, not once. The judgement calls:
+
+- [~] **Reporting `inject` and `runInInjectionContext`.** Not done, and this is the line that decided
+      the member list. `TestBed.inject(TOKEN)` answers whatever the token holds and
+      `runInInjectionContext(fn)` whatever the callback returns — either can be a promise, and in the
+      measured suite four `await TestBed.inject(VPN_DETECT_RESULT)` calls await a real one. Nothing in
+      the syntax tells those from the ordinary case, so a syntactic rule reporting them would be wrong
+      about working code. `execute` and the deprecated `get` are out for the same reason. What is in
+      is exactly what Angular types as returning `TestBed` or a `ComponentFixture`:
+      `configureTestingModule`, `overrideComponent`, `overrideDirective`, `overrideModule`,
+      `overridePipe`, `overrideProvider`, `overrideTemplate`, `overrideTemplateUsingTestingModule`,
+      `resetTestingModule`, `createComponent`, `getLastFixture`.
+- [~] **Reporting the members that return `void`** — `configureCompiler`, `initTestEnvironment`,
+      `resetTestEnvironment`, `flushEffects`, `tick`, and a fixture's `detectChanges`. Not done.
+      Awaiting one of them is equally a no-op, but the rule's message states one fact — _this call
+      hands the TestBed back, which is why it chains_ — and that fact is false about a `void` member;
+      a second message for a second fact is two rules wearing one name. `configureCompiler` sits
+      among eight members that do return `TestBed` and is the likeliest to be added back by mistake,
+      so the member list says out loud that it returns `void`. None of the six appears under an
+      `await` anywhere in the consumer suites this was measured on.
+- [~] **Requiring `TestBed` to be the identifier imported from `@angular/core/testing`.** Not done.
+      The name is read as written, which is what `no-inject-before-override`,
+      `prefer-provide-activated-route` and the token rules already do: a project barrel re-exporting
+      the testing entry is ordinary, and a rule keyed on the import would go silent on exactly those
+      files. The chain carries the precision instead — only members Angular declares as returning
+      `TestBed` count as links, so `TestBed.inject(Api).createComponent(x)` is not one.
+- [~] **A `--fix` rather than a suggestion.** Not done, for the reason `no-compile-components` gives
+      for the same edit: dropping the `await` moves the next statement one microtask earlier, and
+      dropping the `async` changes what the hook hands the runner. The second half also cannot see a
+      callback's explicit `: Promise<void>` return annotation, which stops compiling once the `async`
+      is gone — acceptable for an edit a human accepts one at a time, not for one `--fix` applies in
+      bulk.
+- **`error` in `recommended`, despite the overlap with `@typescript-eslint/await-thenable`.** Probed
+  rather than assumed: with both rules on and a program wired, the shape draws **two reports at the
+  same line and the same column**, each with a suggestion and neither with a fix. That is the whole
+  cost, and it exists only in a project that has `parserOptions.project` — the case this rule exists
+  to cover the absence of. What is not duplicated is the rest. `await-thenable` names "a non-Promise
+  (non-Thenable) value" and its suggestion removes the `await` alone, leaving the hook `async`;
+  `@typescript-eslint/require-await` reports **nothing** on the original shape, because the `async`
+  function does contain an `await` expression, and finds the leftover only after the other rule's
+  suggestion has been applied. Measured on the probe: our suggestion leaves `require-await` silent,
+  `await-thenable`'s leaves it reporting `Async arrow function has no 'await' expression`.
+
+## A seeded member against `returns`, and `@defer` against `no-compile-components`, 2026-09-12
+
+Two defects from the same consumer suite adopting 5.8.0. Both had more than one defensible answer, so
+what was **not** chosen is the part worth keeping.
+
+- [~] **Telling a host mock from a plain function, so `returns` could still configure the first one.**
+      Not done. The crash was `createAutoMock` handing a seeded arrow function to
+      `adapter.restoreImplementation`, and the obvious repair is an `isMockFn` on `MockAdapter`: seed
+      the library's own container for a spy it built, drive a `vi.fn()` through the adapter, leave a
+      plain function alone. It would have kept the one existing behaviour that used that fallback — a
+      seeded `vi.fn()` overwritten by `returns` — and cost four adapters, the `RedefineAdapterParts`
+      list and three stub adapters in specs. Rejected for producing two rules where one will do: a
+      seed would win when it is a plain function and lose when it is a `vi.fn()`, which nobody could
+      predict from the documentation. One rule instead — a member named in `overrides` is left exactly
+      as seeded — is the merge rule the package already states (the call site outranks a registration;
+      a seed is returned verbatim), and it makes the fallback unreachable rather than safe, which is
+      why it was deleted instead of guarded.
+- [~] **Narrowing `no-compile-components` by the shape of the call.** Not done. The files that broke
+      when the call was removed write `await TestBed.compileComponents();` on its own rather than
+      chained onto `configureTestingModule(…)`, and that shape is easy to select on. It is not
+      evidence: the two spellings are a style difference, the correlation is one class of file in one
+      suite, and a rule that skipped the standalone form would stop reporting the ordinary redundant
+      call while still reporting `@defer` specs written the chained way — worse on both sides. Whether
+      the call is load-bearing is a fact about **another file's template**, which no spec shows and
+      this rule reads no types to reach, so it stays reported and the exception is named in the
+      message and in the suggestion's own text.
+- [~] **Dropping `no-compile-components` from `configs.recommended`, or lowering it to `warn`.** Not
+      done. It is inert until a project passes `{ builder: 'inline-resources' }`, its findings are
+      suggestions rather than fixes, and on the measured suite the exception was one class of file out
+      of 410 — a scoped disable per call is a smaller price than losing the other 409.
+
+## `NoInfer` on `registerAutoSpyDefaults`, 2026-09-11
+
+A consumer reported that the token overload collapses `T` to `{ activeRow$: any } & …` when a
+registration names `observablePropsToSpyOn` next to `returns`, and wrote the type argument out. Probed
+with `tsc` 5.4.5, 5.8.3, 5.9.3 and 6.0.3, in this repository and in the consumer's own program: the
+call compiles on every one of them. Only the class overload was changed.
+
+- [~] **`NoInfer` on the token overload.** Not done, because there is nothing for it to fix.
+      `InjectionToken<T>` never uses `T` in a member, but inference does not go through members for
+      two references to the same generic class — it infers from the type arguments directly, at the
+      highest priority, while a list such as `observablePropsToSpyOn` contributes only a `keyof`
+      candidate, which ranks below it. A type test (`angular-spy-defaults.test-d.ts`) pins the
+      consumer's shape, with a wrong `returns` value beside it so an `any` cannot pass it.
+- [~] **`NoInfer` on the core `registerAutoSpyDefaults`.** Not done, for the reason the core
+      factories keep the trap (below): the TypeScript floor. `spy.test-d.ts` holds the rejection and
+      the explicit form, next to `createSpyFromClass`'s pair.
+
 ## Token registrations, `selfReturning` and `no-unknown-use-value-key`, 2026-09-11
 
 Asked for from the same consumer suite (~1 760 spec files): the registry should reach doubles behind

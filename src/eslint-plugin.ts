@@ -102,6 +102,16 @@ const PLUGIN_NAME = 'vitest-auto-spy';
  * silent**: whether the call is dead depends on the builder, which no spec shows, so it reports only once
  * `{ builder: 'inline-resources' }` says so — the way the type-aware rules wait for a program.
  *
+ * **`no-sync-testbed-await` decides on Angular's own signatures**, so it is `error` as well, and it is
+ * the rule here whose whole point is that it needs no program: `configureTestingModule`, every
+ * `override*` and `createComponent` answer the TestBed or the fixture, and the member name settles
+ * that without a type checker. A consumer that also runs `@typescript-eslint/await-thenable` does get
+ * two reports on the line — measured on the probe in `DECISIONS.md`: this one naming the TestBed fact
+ * and carrying the edit, the stock one naming "a non-Promise (non-Thenable) value" and carrying none.
+ * That is not a reason to grade it down. The overlap only exists once `parserOptions.project` is
+ * wired, which is the case this rule exists to cover the absence of, and either half is one line of
+ * config away.
+ *
  * **Three of these can report on code that is correct, and each one is listed there with what to do
  * about it.** They are not mistakes in the rules; they are the limit of what one file can know, and
  * only one of the three has an option, which is worth knowing before reaching for a severity:
@@ -154,6 +164,7 @@ const recommendedRules: Record<string, RuleSeverity> = {
   [`${PLUGIN_NAME}/no-ts-expect-error-on-double`]: 'error',
   [`${PLUGIN_NAME}/no-constant-expect`]: 'error',
   [`${PLUGIN_NAME}/no-compile-components`]: 'error',
+  [`${PLUGIN_NAME}/no-sync-testbed-await`]: 'error',
   [`${PLUGIN_NAME}/jasmine-namespace-without-entry`]: 'error',
   [`${PLUGIN_NAME}/no-jasmine-globals`]: 'error',
   [`${PLUGIN_NAME}/no-save-arguments-by-value`]: 'error',

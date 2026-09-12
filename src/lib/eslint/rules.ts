@@ -96,6 +96,7 @@ import {
 } from './rule-types';
 import { noStubClassDouble, stubClassProvider } from './stub-class';
 import { type EsNamedCall, type SubscribeRepair, enclosingSubscribe, helperAssertions, repairFor } from './subscribe-repair';
+import { noSyncTestbedAwait } from './testbed-await';
 import { INSTANTIATES_THE_MODULE, breaksAnOverride } from './testbed-order';
 import { noTsExpectErrorOnDouble } from './ts-expect-error-on-double';
 import { noUnknownUseValueKey } from './unknown-use-value-key';
@@ -703,5 +704,6 @@ export const rules: Record<string, RuleModule> = {
   'no-ts-expect-error-on-double': noTsExpectErrorOnDouble,
   'no-constant-expect': noConstantExpect,
   'no-compile-components': noCompileComponents,
+  'no-sync-testbed-await': noSyncTestbedAwait,
   ...jasmineRules,
 };

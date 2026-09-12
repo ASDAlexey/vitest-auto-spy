@@ -97,6 +97,11 @@ export interface EsCallExpression extends EsNode {
   arguments: EsNode[];
 }
 
+/** `await x` — the one expression a rule has to look *through*, to whatever was waited for. */
+export interface EsAwaitExpression extends EsNode {
+  argument: EsNode;
+}
+
 export interface EsMemberExpression extends EsNode {
   object: EsNode;
   property: EsNode;
