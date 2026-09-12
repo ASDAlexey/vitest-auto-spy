@@ -641,7 +641,7 @@ only pays for the ones it imports:
 | `vitest-auto-spy/node`                        |     16.3 kB |
 | `vitest-auto-spy/dom-stubs`                   |      5.6 kB |
 | `vitest-auto-spy/rxjs`                        |      2.3 kB |
-| `vitest-auto-spy/angular-router`              |      6.4 kB |
+| `vitest-auto-spy/angular-router`              |      6.8 kB |
 | `vitest-auto-spy/signal-forms`                |      1.4 kB |
 | `vitest-auto-spy/zone`                        |      1.1 kB |
 
@@ -670,7 +670,11 @@ dialog ref checked against the component it was opened for. `/angular-router` tr
 for the `Router` double: it is the
 router's own `DefaultUrlSerializer`, `createUrlTreeFromSnapshot` and `RouterState` doing the URL work
 rather than a structural stand-in guessing at it, which is the whole reason the double cannot
-contradict itself. `/eslint-plugin` is +1.77 kB for the rules of the previous two releases. `/signal-forms` arrives at
+contradict itself; it then took another 390 B (6411 B → 6801 B, +6.1 %) for the navigation in flight —
+`currentNavigation()`, `setCurrentNavigation()` and the event bookkeeping that ends one.
+`/eslint-plugin` is +1.77 kB for the rules of the previous two releases, and +1122 B
+(31295 B → 32417 B, +3.6 %) for `no-redundant-smoke-test`; it is a lint-time entry point that no
+spec run loads. `/signal-forms` arrives at
 1.36 kB — the whole entry is `createForm` and one matcher over Angular's own `form()`, which stays
 in `@angular/forms` where the consumer already has it.
 

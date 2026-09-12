@@ -25,7 +25,10 @@ The latest released version here must always match the one published on
   too: a `NavigationStart` pushed through `emitNavigation()` starts one with that event's id, URL and
   trigger, and a `NavigationEnd`, `NavigationCancel`, `NavigationError` or `NavigationSkipped` ends
   it — "the current navigation becomes null after the NavigationEnd event is emitted", so a component
-  reading it inside a `NavigationEnd` handler gets `null` here and `null` in production.
+  reading it inside a `NavigationEnd` handler gets `null` here and `null` in production. It costs
+  390 B min+gzip on `/angular-router` (6411 B → 6801 B, +6.1 %): the event bookkeeping and the
+  derived `Navigation`, all of it behind the entry point that already pulls `@angular/router` in.
+  Every other entry point, `.` included, is unchanged to the byte.
 
 - **`no-redundant-smoke-test` — the generated `should create` test, where the file grew past it.** A test whose
   whole body is `expect(pipe).toBeTruthy()` cannot fail on its own: every other test in the block runs the same
@@ -37,7 +40,10 @@ The latest released version here must always match the one published on
   `toBeInstanceOf`, and under `toBeFalsy` / `toBeNull` / `toBeUndefined` behind a `.not`; a skipped sibling proves
   nothing and does not count. The suggestion removes the test together with the blank line above it. Measured on an
   Angular suite of 1771 spec files: 569 findings in 540 files, 515 of them still titled `should create` /
-  `should be created`; on a second suite of 845 files, 97 in 87; on a third of 127, one.
+  `should be created`; on a second suite of 845 files, 97 in 87; on a third of 127, one. The rule adds
+  1122 B min+gzip to `/eslint-plugin` (31295 B → 32417 B, +3.6 %), which is the rule and nothing else —
+  the plugin is a lint-time entry point that a test run never loads, and the runtime entry points did
+  not move.
 
 - **`perf --top` says why there is no table.** The hotspot tables keep their one-second floor — below it a
   ranking is the reader’s attention spent on the scheduler rather than on a decision somebody made — but the

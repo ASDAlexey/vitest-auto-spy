@@ -656,7 +656,7 @@ npm run bench:suite --help       # стенд масштаба сюиты сам
 | `vitest-auto-spy/node`                           |     16,3 кБ |
 | `vitest-auto-spy/dom-stubs`                      |      5,6 кБ |
 | `vitest-auto-spy/rxjs`                           |      2,3 кБ |
-| `vitest-auto-spy/angular-router`                 |      6,4 кБ |
+| `vitest-auto-spy/angular-router`                 |      6,8 кБ |
 | `vitest-auto-spy/signal-forms`                   |      1,4 кБ |
 | `vitest-auto-spy/zone`                           |      1,1 кБ |
 
@@ -683,8 +683,11 @@ npm run bench:suite --help       # стенд масштаба сюиты сам
 ресурса, который несёт весь `ResourceRef`, и счётчики пересчётов — +2,91 кБ, самый большой сдвиг
 этой точки входа. `/angular-router` утроился, +4,31 кБ, из-за двойника `Router`: работу с URL делают
 настоящие `DefaultUrlSerializer`, `createUrlTreeFromSnapshot` и `RouterState`, а не структурная
-подделка, которая их угадывает, — ровно поэтому двойник и не может сам себе противоречить.
-`/eslint-plugin` — +1,77 кБ за правила двух предыдущих релизов. `/signal-forms` приходит на 1,36 кБ:
+подделка, которая их угадывает, — ровно поэтому двойник и не может сам себе противоречить; затем он
+взял ещё 390 Б (6411 Б → 6801 Б, +6,1 %) на навигацию в полёте — `currentNavigation()`,
+`setCurrentNavigation()` и учёт событий, который её завершает. `/eslint-plugin` — +1,77 кБ за правила
+двух предыдущих релизов и +1122 Б (31295 Б → 32417 Б, +3,6 %) за `no-redundant-smoke-test`; это точка
+входа времени линта, которую не грузит ни один прогон спек. `/signal-forms` приходит на 1,36 кБ:
 вся точка входа — это `createForm` и один матчер поверх собственной `form()` Angular, которая
 остаётся в `@angular/forms`, где она у потребителя уже есть.
 
