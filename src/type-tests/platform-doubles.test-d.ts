@@ -45,6 +45,16 @@ describe('the providers', () => {
     provideWindowDouble(WINDOW, { screen: { widht: 1920 } });
   });
 
+  it('follows the merge down the levels the merge follows, and keeps checking', () => {
+    provideWindowDouble(WINDOW, { document: { location: { href: 'https://shop.test/cart' } } });
+
+    // @ts-expect-error — `Location` has no `hrefs`
+    provideWindowDouble(WINDOW, { document: { location: { hrefs: 'https://shop.test/cart' } } });
+
+    // @ts-expect-error — `href` is a string
+    provideWindowDouble(WINDOW, { document: { location: { href: 7 } } });
+  });
+
   it('takes a whole member the spec built, function or object, where a slice would not do', () => {
     provideDocumentDouble({ querySelector: () => null, location: new URL('https://shop.test/cart') });
 

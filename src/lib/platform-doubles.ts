@@ -34,15 +34,38 @@
  */
 import { DOCUMENT, type FactoryProvider, type ProviderToken } from '@angular/core';
 
+/** How many levels of slicing the type follows. Beyond it a member takes its whole type. */
+type Levels = [never, 0, 1, 2, 3];
+
+/**
+ * One member's override: the member's own type, or a slice of it wherever it is a plain-ish object.
+ *
+ * A method is matched whole and **first**: `Partial<(…) => …>` is a mapped type over a function,
+ * which drops the call signature and leaves `{}` — a slice branch that accepts anything at all. An
+ * array is matched whole too: slicing one by index describes nothing a spec means.
+ */
+type PlatformOverride<V, Depth extends number> = V extends (...args: never[]) => unknown
+  ? V
+  : V extends readonly unknown[]
+    ? V
+    : V extends object
+      ? Depth extends 0
+        ? V
+        : V | { [K in keyof V]?: PlatformOverride<V[K], Levels[Depth]> }
+      : V;
+
 /**
  * What a spec says about a platform object: a value per member, and a **slice** wherever the member
  * is itself an object — `{ screen: { width: 1920 } }` leaves `screen.colorDepth` real.
+ *
+ * The slice goes as deep as the merge does, three levels of it: the proxy re-merges every plain
+ * object it hands out, so `{ document: { location: { href: '' } } }` works at run time, and a type
+ * that stopped at the first level sent a spec that wrote it to `createMock<Location>()` or to a
+ * cast for no reason anybody could state. Depth is bounded because `Window` is recursive —
+ * `window.window` is a `Window` — and an unbounded mapped type over it is a bill every call site
+ * pays.
  */
-export type PlatformOverrides<T> = {
-  // A method is matched whole and first: `Partial<(…) => …>` is a mapped type over a function, which
-  // drops the call signature and leaves `{}` — a slice branch that accepts anything at all.
-  [K in keyof T]?: T[K] extends (...args: never[]) => unknown ? T[K] : T[K] extends object ? Partial<T[K]> | T[K] : T[K];
-};
+export type PlatformOverrides<T> = { [K in keyof T]?: PlatformOverride<T[K], 3> };
 
 type Slots = Record<PropertyKey, unknown>;
 
