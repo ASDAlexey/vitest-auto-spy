@@ -25,7 +25,6 @@ import { DISPOSE } from './dispose-symbol';
 import { DOCS_LINKS, withDocs } from './docs-links';
 import { type UnstubbedGuard, createFunctionSpy, resolveUnstubbedGuard, seedReturnValue } from './function-spy';
 import { reportMisconfiguration } from './misconfiguration';
-import { getMockAdapter } from './mock-adapter';
 import {
   NOT_STORED,
   type ProxyPropStore,
@@ -93,9 +92,18 @@ export function createAutoMock<T, Options extends SpyOptions = SpyOptions>(
     config?.observablePropsToSpyOn,
     config?.observablePropsToSpyOn?.length ? resolveReadGuard(config.name, config) : undefined,
   );
+
+  // What the call site seeded, kept as the set both passes consult — see `applyMockReturns`.
+  const seeded = new Set<PropertyKey>(overrides ? Reflect.ownKeys(overrides) : []);
+
   // Before `returns`, which overwrites it: a method named in both answers the `returns` value.
-  applyMockReturns(mock, config?.selfReturning && Object.fromEntries(config.selfReturning.map((name) => [name, mock])), 'selfReturning');
-  applyMockReturns(mock, config?.returns);
+  applyMockReturns(
+    mock,
+    config?.selfReturning && Object.fromEntries(config.selfReturning.map((name) => [name, mock])),
+    seeded,
+    'selfReturning',
+  );
+  applyMockReturns(mock, config?.returns, seeded);
 
   return mock;
 }
@@ -189,18 +197,33 @@ function isCallable(value: unknown): value is Func {
   return typeof value === 'function';
 }
 
-/** Install the configured return values on a type-driven mock. */
-function applyMockReturns(mock: object, returns: Record<string, unknown> | undefined, option = 'returns'): void {
+/**
+ * Install the configured return values on a type-driven mock.
+ *
+ * A member the call site seeded through `overrides` is left exactly as it was seeded. That is the
+ * merge rule this library already states — the call site outranks a registration, and a seed is
+ * returned verbatim rather than turned into a spy — and it is also the only answer that cannot
+ * crash: a seed is any value the spec wrote, so `returns` naming the same member used to hand a
+ * plain arrow function to the adapter and die on `mockImplementation is not a function`.
+ */
+function applyMockReturns(
+  mock: object,
+  returns: Record<string, unknown> | undefined,
+  seeded: ReadonlySet<PropertyKey>,
+  option = 'returns',
+): void {
   if (!returns) {
     return;
   }
 
-  const adapter = getMockAdapter();
-
   for (const [name, value] of Object.entries(returns)) {
+    if (seeded.has(name)) {
+      continue;
+    }
+
     // Reading materialises the spy for that key, which is what has to happen before it can be
-    // configured; `restoreImplementation` rather than `mockReturnValue` because the latter is not on
-    // every runner's mock (`node:test` has no such method) — the adapter is that seam.
+    // configured. Every key that survives the seed check is one this double built itself, so the
+    // value goes into the library's own container and no host mock API is reached for.
     const spy: unknown = Reflect.get(mock, name);
 
     if (name === 'constructor' || !isCallable(spy)) {
@@ -219,9 +242,7 @@ function applyMockReturns(mock: object, returns: Record<string, unknown> | undef
       continue;
     }
 
-    if (!seedReturnValue(spy, value)) {
-      adapter.restoreImplementation(spy, () => value);
-    }
+    seedReturnValue(spy, value);
   }
 }
 

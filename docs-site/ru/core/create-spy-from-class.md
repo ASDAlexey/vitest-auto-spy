@@ -573,6 +573,22 @@ provideAutoSpyForToken(LOGGER, undefined, { selfReturning: ['channel'] });
 сам экземпляр), `createAutoMock`, `provideAutoSpy`, `provideAutoSpyForToken`. Булев `selfReturning` у
 `mockDeep` — та же идея для каждого узла глубокого двойника.
 
+Член, который **засеяла** сама точка вызова, перекрывает и то и другое — так одно зарегистрированное
+звено заменяют своим двойником:
+
+```ts
+// vitest-setup.ts
+registerAutoSpyDefaults(LOGGER, { returns: { info: undefined, err: undefined }, selfReturning: ['channel'] });
+
+// одна спека, которой нужно проверять канал, а не родителя
+provideAutoSpyForToken(LOGGER, { channel: () => asInstance(channelLogger) });
+```
+
+`overrides` хранится как есть и шпионом уже не является, поэтому `returns` и `selfReturning` такой
+член пропускают, а не настраивают: значение, обычная функция и `vi.fn()` остаются ровно тем, чем их
+засеяли. Раньше на такой форме провайдер падал с `TypeError: asVitestMock(...).mockImplementation is
+not a function` для обычной функции, а засеянный `vi.fn()` молча перезаписывался.
+
 ## `gettersToSpyOn` принимает геттер, возвращающий сигнал {#getterstospyon-accepts-a-signal-valued-getter}
 
 ```ts

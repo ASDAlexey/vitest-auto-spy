@@ -563,6 +563,22 @@ set up, since lists only ever union. Every factory takes it: `createSpyFromClass
 `provideAutoSpyForToken`. `mockDeep`'s boolean `selfReturning` is the same idea for every node of a
 deep double.
 
+A member the call site **seeded** wins over both, and that is how one registered link is replaced by a
+double of your own:
+
+```ts
+// vitest-setup.ts
+registerAutoSpyDefaults(LOGGER, { returns: { info: undefined, err: undefined }, selfReturning: ['channel'] });
+
+// one spec, which wants to assert on the channel rather than on the parent
+provideAutoSpyForToken(LOGGER, { channel: () => asInstance(channelLogger) });
+```
+
+`overrides` is stored verbatim and is no longer a spy, so `returns` and `selfReturning` skip a member
+named there rather than configuring it — a value, a plain function and a `vi.fn()` are all left exactly
+as seeded. That shape used to throw `TypeError: asVitestMock(...).mockImplementation is not a function`
+out of the provider for a plain function, and to overwrite a seeded `vi.fn()` without a word.
+
 ## `gettersToSpyOn` accepts a signal-valued getter
 
 ```ts

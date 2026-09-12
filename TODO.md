@@ -4,6 +4,22 @@ Only work that is still to be taken. Shipped work lives in `CHANGELOG.md` and in
 questions that were asked, measured and closed with a "no" live in [`DECISIONS.md`](./DECISIONS.md),
 which is where this file's `[~]` entries went on 2026-09-10 — a decision is not a task.
 
+## Factories
+
+- [ ] **`createSpyFromInstance` still reaches for a mock API on a member it did not spy.**
+      `createSpyFromInstance(client, { onlyMethodsToSpyOn: ['ping'], returns: { refund: 'done' } })`
+      dies on `TypeError: asVitestMock(...).mockImplementation is not a function`: the restricting
+      list leaves `refund` as the object's real method, `applyReturns` finds a callable, the value
+      cannot go into the library's container, and the fallback hands a plain function to the
+      adapter. The same root cause as the `createAutoMock` crash fixed on 2026-09-12, but not the
+      same repair — a member is not a *seed* here, so the answer is the misconfiguration report the
+      class path already prints (`returns names 'refund', which is not a spied method of the spy`),
+      which needs telling a host mock from a plain function: `applyReturns` is deliberately allowed
+      to drive a `vi.fn()` through the adapter (`create-spy-from-class.spec.ts`, "configures a
+      callable the library did not build through its implementation instead"), so the guard costs an
+      `isMockFn` on `MockAdapter` and four implementations — see the entry in `DECISIONS.md` that
+      declined it for `createAutoMock`.
+
 ## Angular diagnostics
 
 - [ ] **`enableAngularDiagnostics` sees only the static `TestBed.configureTestingModule`.** Its

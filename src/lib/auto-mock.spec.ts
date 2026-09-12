@@ -232,11 +232,12 @@ describe('createAutoMock returns configuration', () => {
     takeStrictViolations();
   });
 
-  it('falls back to the host implementation for a callable the library did not build', () => {
+  it('leaves a seeded member exactly as it was seeded, host mock or not', () => {
     const save = vi.fn(() => 'seeded');
     const store = createAutoMock<{ save(): string }>({ save }, { returns: { save: 'configured' } });
 
-    expect(store.save()).toBe('configured');
+    expect(store.save()).toBe('seeded');
+    expect(store.save).toBe(save);
   });
 
   it('says so when `returns` names a member the double never spies', () => {
@@ -409,6 +410,34 @@ describe('createAutoMock — selfReturning', () => {
     createAutoMock<{ then(): void }>(undefined, { selfReturning: ['then'] });
 
     expect(warn).toHaveBeenCalledWith(expect.stringContaining("createAutoMock: selfReturning names 'then'"));
+    warn.mockRestore();
+  });
+
+  it('gives way to a seeded override that is a plain function, rather than configuring it as a mock', () => {
+    const channel = createAutoMock<ChannelLogger>();
+    const logger = createAutoMock<AppLogger>({ channel: () => channel }, { selfReturning: ['channel'] });
+
+    expect(logger.channel('auth')).toBe(channel);
+  });
+});
+
+describe('createAutoMock — returns against a seeded override', () => {
+  interface ProductService {
+    getProducts(): string[];
+  }
+
+  it('gives way to a seeded override that is a plain function, rather than configuring it as a mock', () => {
+    const products = createAutoMock<ProductService>({ getProducts: () => ['seeded'] }, { returns: { getProducts: ['registered'] } });
+
+    expect(products.getProducts()).toEqual(['seeded']);
+  });
+
+  it('leaves the seed alone without reporting it as a member the double never spies', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    createAutoMock<ProductService>({ getProducts: () => ['seeded'] }, { returns: { getProducts: ['registered'] } });
+
+    expect(warn).not.toHaveBeenCalled();
     warn.mockRestore();
   });
 });
