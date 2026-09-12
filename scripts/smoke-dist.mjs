@@ -376,6 +376,57 @@ const CROSS_ENTRY = [
       assert(after?.value === before?.value && after?.get === before?.get, 'the root entry did not undo the patch the dom-stubs entry made');
     `,
   },
+  {
+    // The `Router` double's `navigate` is a real spy, built in `dist/angular-router.js` from the
+    // engine of whichever runtime entry registered the adapter, and read by a third bundle: the
+    // report is decided by `map instanceof ArgsMap`, which is exactly what an inlined class breaks.
+    name: 'diagnostics/explainSpy reads the navigate spy of a router double built by angular-router',
+    entries: ['./node', './angular-router', './diagnostics'],
+    body: `
+      await import(NODE);
+      const { createRouterDouble } = await import(ANGULAR_ROUTER);
+      const { explainSpy } = await import(DIAGNOSTICS);
+
+      const { router } = createRouterDouble({ url: '/orders/7' });
+      assert(router.url === '/orders/7', 'the double did not serialize the url it was given');
+
+      router.navigate.calledWith(['/checkout']).resolveWith(false);
+      assert((await router.navigate(['/checkout'])) === false, 'the configured argument list did not win');
+      assert((await router.navigate(['/orders'])) === true, 'the default of a navigate spy is no longer true');
+
+      const report = explainSpy(router.navigate, 'navigate');
+      assert(report.includes("calledWith(['/checkout'])"), 'the configured argument list is missing from the report');
+      assert(report.includes('matched #1'), 'the recorded call was not attributed to the config it hit');
+      assert(report.includes('the default value was used'), 'the unmatched call was not reported as a default');
+    `,
+  },
+  {
+    // Same shape for the dialog ref: `close` is spied in `dist/angular.js`, and `afterClosed()` is a
+    // ReplaySubject(1) rather than Material's Subject, so a subscription opened after the close is
+    // the assertion a spec actually writes.
+    name: 'diagnostics/explainSpy reads the close spy of a dialog ref built by angular',
+    entries: ['./node', './angular', './diagnostics'],
+    body: `
+      await import(NODE);
+      const { createMatDialogRef } = await import(ANGULAR);
+      const { explainSpy } = await import(DIAGNOSTICS);
+
+      class MatDialogRef {
+        close(_result) {}
+        afterClosed() {}
+      }
+
+      const dialog = createMatDialogRef(MatDialogRef, { closedWith: 'saved' });
+      dialog.ref.close('saved');
+
+      let seen;
+      dialog.ref.afterClosed().subscribe((value) => { seen = value; });
+      assert(seen === 'saved', 'afterClosed() did not replay the result to a later subscriber');
+
+      const report = explainSpy(dialog.ref.close, 'close');
+      assert(report.includes("close('saved')"), 'the recorded call is missing from the report: ' + report);
+    `,
+  },
   // `dist/index.js` carries its own `fast-spy`, the framework entries share another, and 5.4.0 put
   // the helper bundle on the wrong copy's prototype: whichever entry loaded first built spies with no
   // `calledWith`. Both load orders, because the claim record has to hold in either.
