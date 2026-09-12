@@ -198,3 +198,19 @@ export function formatHotspots(run: PerfRun, cwd: string, options: Partial<Hotsp
 
   return [...fileSection(files, totalTestMs(run, cwd), width), ...caseSection(caseHotspots(run, cwd, limit), width)].join('\n\n');
 }
+
+/**
+ * Why there is no table, for the caller that asked for one by name.
+ *
+ * The floor is right and stays, but it is a decision the reader cannot see: `--top 15` answering with
+ * nothing reads as a broken flag, and "the tables are missing" is the one question this module's own
+ * silence cannot answer. Printed only when the rows were asked for explicitly.
+ */
+export function hotspotFloorNote(run: PerfRun, cwd: string, floorMs: number = HOTSPOT_DEFAULTS.floorMs): string {
+  const [slowest] = fileHotspots(run, cwd, 1);
+
+  return slowest === undefined
+    ? 'No hotspot tables: no file in this run finished a test body, so there is nothing to rank.'
+    : `No hotspot tables: the slowest file spent ${formatMs(slowest.ms)} in its test bodies, under the ${formatMs(floorMs)} floor. ` +
+        'Below it a ranking is the reader’s attention spent on the machine rather than on a decision somebody made.';
+}

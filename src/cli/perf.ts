@@ -11,7 +11,7 @@ import { findBarrelImports } from './checks/barrels';
 import { DOM_FREE_RULE, findDomFreeSpecs } from './checks/dom-free';
 import type { SourceGraph } from './checks/graph';
 import { buildGraph } from './checks/graph';
-import { formatHotspots } from './checks/perf-hotspots';
+import { formatHotspots, hotspotFloorNote } from './checks/perf-hotspots';
 import { isolationFromAngularBuilder } from './checks/runner-isolation';
 import type { CliIo } from './main';
 import type { BaselineOptions } from './perf-baseline';
@@ -52,7 +52,12 @@ const CONFIG_FILE = /(?:^|\/)vite(?:st)?[\w.-]*\.config\.[cm]?[jt]s$/;
 const NO_ISOLATION = /\bisolate\s*:\s*false/;
 const JSDOM = /\benvironment\s*:\s*["'`]jsdom["'`]/;
 const HAPPY_DOM = /happy-dom/;
-const WORKER_CAP = /\bmaxWorkers\s*:/;
+/**
+ * A property, the shorthand for a value computed above it, or the `const` behind that shorthand —
+ * a config that sizes its pool from the cgroup rather than from a literal is the one that thought
+ * about this hardest, and it was the one being told it had not declared a cap.
+ */
+const WORKER_CAP = /\bmaxWorkers\s*[,:=}]|\bmaxWorkers\s*$/m;
 
 /**
  * Summed phase time above which the worker count is a decision rather than a detail.
@@ -517,6 +522,24 @@ function recordBaseline(run: PerfRun, cwd: string, path: string, io: CliIo): voi
 }
 
 /**
+ * The two tables, or — when `--top` asked for rows the floor then suppressed — the reason there are
+ * none. A flag that answers with nothing reads as a broken flag.
+ */
+function reportHotspots(run: PerfRun, cwd: string, top: number | undefined, io: CliIo): void {
+  const hotspots = formatHotspots(run, cwd, top === undefined ? {} : { limit: top });
+
+  if (hotspots !== '') {
+    io.out(`\n${hotspots}`);
+
+    return;
+  }
+
+  if (top !== undefined && top > 0) {
+    io.out(`\n${hotspotFloorNote(run, cwd)}`);
+  }
+}
+
+/**
  * The whole command below the argument parsing.
  *
  * Without `--gate` it still always exits 0 on a report it could read: a slow suite is not a broken
@@ -561,12 +584,7 @@ export function renderPerf(source: PerfSource, profile: Profile, io: CliIo, opti
 
   io.out(formatPhases(analysis.phases));
 
-  const hotspots = formatHotspots(source.run, profile.cwd, options.top === undefined ? {} : { limit: options.top });
-
-  if (hotspots !== '') {
-    io.out(`\n${hotspots}`);
-  }
-
+  reportHotspots(source.run, profile.cwd, options.top, io);
   reportFindings(analysis, io);
 
   if (options.baseline?.update === true) {

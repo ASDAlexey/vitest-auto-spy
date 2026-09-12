@@ -108,7 +108,9 @@ Options
                  take (2), and the absolute floor under which it is noise
                  (500 ms).
   --top <n>      perf only. Rows in the "slowest files" and "slowest bodies"
-                 tables. 0 turns them off.
+                 tables. 0 turns them off. Asked for explicitly, a run whose
+                 slowest file is under the one-second floor says so rather
+                 than printing nothing.
   --check        init only. Write nothing; exit 1 if the block is out of date.
   --dry-run      init only. Print what would change and write nothing.
   --uninstall    init only. Remove the managed blocks and the files it created.

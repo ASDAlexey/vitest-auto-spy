@@ -805,6 +805,15 @@ describe('analysePerf', () => {
     expect(checks(analysePerf(large(capped), readProfile(capped)).findings)).toEqual([]);
   });
 
+  it('counts a cap the config computes, not only one written as a literal', () => {
+    const computed = cleanRepo(1, {
+      'vitest.config.ts': 'const maxWorkers = Math.max(1, cpus() * 0.85);\nexport default { test: { maxWorkers } };\n',
+    });
+    const large = run({ root: computed, files: [file(join(computed, 'src/case-0.spec.ts'), { tests: 90_000 })] });
+
+    expect(checks(analysePerf(large, readProfile(computed)).findings)).toEqual([]);
+  });
+
   it('says nothing about workers on a run that finishes in seconds', () => {
     const root = cleanRepo(1);
     const analysis = analysePerf(run({ root, files: [file(join(root, 'src/case-0.spec.ts'), { tests: 6_000 })] }), readProfile(root));
@@ -1273,6 +1282,23 @@ describe('renderPerf, the tables and the notes around the phases', () => {
 
     expect(renderPerf(source, readProfile(root), hidden, { top: 0 })).toBe(0);
     expect(hidden.stdout.join('\n')).not.toContain('slowest files');
+  });
+
+  it('says why a run asked for rows got none, and stays quiet about it when nobody asked', () => {
+    const root = cleanRepo(1);
+    const asked = recorder();
+    const silent = recorder();
+    const quick: PerfSource = {
+      ok: true,
+      run: run({ root, wall: 900, files: [file(join(root, 'src/quick.spec.ts'), { tests: 40, testCount: 8 })] }),
+      runFailed: false,
+    };
+
+    expect(renderPerf(quick, readProfile(root), asked, { top: 15 })).toBe(0);
+    expect(asked.stdout.join('\n')).toContain('No hotspot tables: the slowest file spent 40ms');
+
+    expect(renderPerf(quick, readProfile(root), silent)).toBe(0);
+    expect(silent.stdout.join('\n')).not.toContain('No hotspot tables');
   });
 
   it('prints what the source had to say about itself, when it had something', () => {

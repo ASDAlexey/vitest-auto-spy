@@ -12,7 +12,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import type { PerfFile, PerfRun } from '../perf-data';
-import { caseHotspots, fileHotspots, formatHotspots } from './perf-hotspots';
+import { caseHotspots, fileHotspots, formatHotspots, hotspotFloorNote } from './perf-hotspots';
 
 const ROOT = '/repo';
 
@@ -138,6 +138,13 @@ describe('formatHotspots', () => {
 
   it('prints nothing when no file was measured, even with the floor taken away', () => {
     expect(formatHotspots(run([file('libs/empty.spec.ts')]), ROOT, { floorMs: 0 })).toBe('');
+  });
+
+  it('says why there is no table, in the two ways there can be none', () => {
+    const quick = hotspotFloorNote(run([file('libs/quick.spec.ts', { tests: 40, testCount: 8 })]), ROOT);
+
+    expect(quick).toContain('the slowest file spent 40ms in its test bodies, under the 1.00s floor');
+    expect(hotspotFloorNote(run([file('libs/empty.spec.ts')]), ROOT)).toContain('no file in this run finished a test body');
   });
 
   it('shows the total, the cost of one test and the share of the run side by side, and an em dash for a file that finished none', () => {
