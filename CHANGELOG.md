@@ -113,9 +113,51 @@ The latest released version here must always match the one published on
   than as the plugin's first `off`. A suggestion drops the call (the whole statement when only
   `TestBed` is left) and the `async` of a hook or test that awaits nothing else; a `.then()` chain, a
   returned or stored promise and a concise arrow body are reported without one. On the consumer: 449
-  calls in 411 files, 435 with the edit. The plugin ships thirty-four rules; the three, landing in one
+  calls in 411 files, 435 with the edit. The plugin ships thirty-six rules; the three, landing in one
   commit with `no-unknown-use-value-key`, add 2.57 kB min+gzip together to `/eslint-plugin` (26.95 →
   29.52 kB) — a dev-time entry no test bundle imports.
+
+- **`no-sync-testbed-await`: the `await` that `compileComponents()` was hiding.**
+  `TestBed.configureTestingModule(…)` and every `override*` return `TestBed` itself — that is what
+  makes them chainable — `resetTestingModule()` does too, and `createComponent()` / `getLastFixture()`
+  return the `ComponentFixture`. None of them is a promise, so an `await` in front of one waits for
+  nothing and the `async` it forced on the hook then awaits nothing either; both read, to everybody
+  after, as a setup that is asynchronous and is not. The shape was invisible while the chain ended in
+  a call that really did return a promise: on an Angular suite of 1862 spec files, removing 448
+  `compileComponents()` calls from 410 files uncovered 18 such `await`s and 33 hooks left `async` with
+  nothing to wait for, all of them older than the removal. Run over that consumer's last commit —
+  1759 spec files, 411 still calling `compileComponents()` — the rule reports **14 times in 10
+  files**, every one with the edit, and over the same tree with the calls removed and their awaits
+  fixed it reports nothing: no false positive in 1759 files either way. The rule reports the `await` wherever the
+  receiver is `TestBed`, `getTestBed()`, a chain of those members, or a name the file settles to one
+  of them, and the chain is read link by link so that `TestBed.inject(Api).createComponent(x)` is not
+  one. A suggestion drops the `await` **and** the `async` of a `beforeEach` / `beforeAll` /
+  `afterEach` / `afterAll` / `it` / `test` callback that then awaits nothing else — the same edit
+  `no-compile-components` offers, and a suggestion for the same reason: without the `await` the next
+  statement runs one microtask earlier. `TestBed.inject(TOKEN)` and `TestBed.runInInjectionContext(fn)`
+  are never reported, because each answers whatever the token or the callback holds, and four
+  `await TestBed.inject(…)` calls in that suite await a real promise. `error`, **syntax only**: the
+  fact is Angular's own signature, so unlike `@typescript-eslint/await-thenable` the rule needs no
+  `parserOptions.project`. Run both and the same line draws two reports — one of which names the
+  TestBed and carries the whole edit, while the stock suggestion leaves the `async` behind for
+  `@typescript-eslint/require-await` to find on a later run; before that `require-await` is silent,
+  because the `async` function does contain an `await`.
+
+- **`prefer-provide-activated-route`: the hand-built half a green test keeps believing in.**
+  `ActivatedRoute` keeps `snapshot`, `params`, `queryParams`, `data`, `fragment` and `url` in instance
+  fields, so a hand-written double holds whichever half its author read first and `undefined` in the
+  other — and a spec that sets `snapshot.params` without emitting `params` tests a route no navigation
+  can produce. On an Angular monorepo of 11 000+ spec files, 42 providers of a hand-built route sit
+  across 36 of them, and every shape is a half: a lone `snapshot`, an empty `{}`, a tree of `children`,
+  a `createSpyFromClass(ActivatedRoute)` whose instance fields no longer exist, a `useFactory`
+  assembling the two halves with `mockReadonlyPropGetter` one by one. The rule reports all four
+  descriptor slots — `useValue`, written in place or parked in a name above the TestBed, `useClass`,
+  `useFactory`, `useExisting` — and `provideAutoSpy(ActivatedRoute)` with a message of its own: a spy
+  reads the prototype, and a route keeps nothing there. `provideActivatedRoute()` and every form of
+  `createActivatedRoute()` a descriptor can carry — `.route`, destructured, built in a factory — are
+  silent by shape. `error`, **syntax only**: every report has a `provide:` naming the route class
+  beside it, so there is no heuristic in the decision, and the repair it names is a drop-in
+  replacement of the reported line.
 
 - **A strict double's getter nobody configured, and its stream nobody fed, are reported after the
   test.** Strict mode throws on a method nobody configured, but a spied getter still answered
@@ -176,6 +218,18 @@ The latest released version here must always match the one published on
 
 ### Fixed
 
+- **`registerAutoSpyDefaults` from `vitest-auto-spy/angular` keeps a generic class's declared default
+  next to an accessor list and `returns`.** The class overload still had the shape `provideAutoSpy`
+  lost: `registerAutoSpyDefaults(FlagService, { gettersToSpyOn: ['flags'], returns: { isEnabled:
+  false } })` failed with `No overload matches this call`, the class overload reading `T` back from the
+  list as `{ flags: any }`. It now takes `T` from the class alone (`NoInfer`), as `provideAutoSpy`,
+  `overrideAutoSpy` and `overrideComponentProvider` do. The token overload never had the defect: `T`
+  is read off the `InjectionToken<T>` reference before the configuration is consulted, so
+  `registerAutoSpyDefaults(TOKEN, { observablePropsToSpyOn: […], returns: {…} })` compiles without a
+  type argument on TypeScript 5.4 through 6.0, and a type test now pins it. The core
+  `registerAutoSpyDefaults` keeps the trap for the same reason `createSpyFromClass` does — `NoInfer`
+  is above the core's TypeScript floor — so there the argument is still spelled out. Types only.
+
 - **`provideAutoSpy` keeps a generic class's declared default next to an accessor list and
   `returns`.** `provideAutoSpy(RemoteConfigService, { gettersToSpyOn: ['remoteConfig'], returns: {
   isKeyEnabled: false } })` failed with `'isKeyEnabled' does not exist in type 'MethodReturns<{
@@ -193,6 +247,34 @@ The latest released version here must always match the one published on
   stored `setItem(1, …)` under the number and `getItem('1')` missed it; keys now go through
   `String()` as the platform's do, and `key()` converts its index as an `unsigned long` (`key(-1)` is
   `null`, `key(NaN)` is the first key). +37 B min+gzip on `/setup`.
+
+- **A seeded member of a type-driven double is never reconfigured by `returns` or `selfReturning`,
+  and no mock API is reached for on it.** `registerAutoSpyDefaults(LOGGER, { returns: {…},
+  selfReturning: ['channel'] })` in a setup file, then a spec seeding that very member —
+  `provideAutoSpyForToken(LOGGER, { channel: () => asInstance(channelLogger) })` — threw
+  `TypeError: asVitestMock(...).mockImplementation is not a function` out of the provider, before the
+  first line of the test ran. `createAutoMock` stores a seed verbatim, so the member the
+  configuration pass read back was the spec's own arrow function: not a spy, so the value could not
+  go into the library's container, and the fallback then handed a plain function to the adapter. The
+  merge rule already answers it — the call site outranks the registration, and a seed is documented
+  as returned verbatim — so a member named in `overrides` is now left exactly as it was seeded,
+  whatever `returns` or `selfReturning` say about it. That also settles the one case the old fallback
+  did reach: a seeded `vi.fn()` used to be overwritten by `returns` and now keeps its own
+  implementation, which is the same rule rather than a second one. Every member that survives the
+  seed check is one the double built itself, so that path no longer imports the adapter at all.
+
+- **`no-compile-components` names the `@defer` exception instead of promising more than it can
+  see.** Under an inlining builder the rule reported every `compileComponents()` as doing nothing —
+  but a component whose template holds a `@defer` block ships async class metadata, which that call
+  resolves whatever the builder did with the template, and removing it fails the test at run time
+  with `Component 'X' has unresolved metadata. Please call 'await TestBed.compileComponents()'`.
+  Measured on a 1 862-file suite: 410 files called it, and removing all of them broke exactly that
+  one class of file. The message now says the call is *usually* redundant, names the exception, and
+  spells the `// eslint-disable-next-line vitest-auto-spy/no-compile-components -- @defer: async
+  class metadata` that keeps such a call; the suggestion's own text carries the caveat too, since
+  that is what a bulk edit reads. What is reported did not change — a spec file shows nothing about
+  another file's template and this rule reads no types, so narrowing it by call shape would be a
+  guess wearing the clothes of a check.
 
 Size, min+gzip, measured commit by commit. Token registrations add 18 B to the core entry and 64 B to
 `/angular` (21.57 → 21.64 kB). `/jasmine` and `/nestjs` carry the same core and changed no line of
