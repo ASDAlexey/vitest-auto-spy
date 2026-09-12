@@ -340,7 +340,7 @@ Beyond the runner swap, everything the old API did not have:
 [`renderShallow` and `createWithAutoSpies`](/adapters/angular),
 [observable assertions](/core/observable-assertions),
 [fake timers that settle](/utilities/fake-timers),
-[console spies](/utilities/console), [thirty-six ESLint rules](/utilities/eslint-plugin),
+[console spies](/utilities/console), [thirty-seven ESLint rules](/utilities/eslint-plugin),
 Bun and `node:test` support — and [Angular's `TestBed` under `bun test`](/runtimes/bun-angular).
 
 ## Did the migration lose a test?

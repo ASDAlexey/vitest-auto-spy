@@ -217,12 +217,20 @@ fixture.detectChanges();
 | `serializeUrl`, `parseUrl`  | собственный `DefaultUrlSerializer` роутера, а не пара заглушек                                                        |
 | `createUrlTree`             | `createUrlTreeFromSnapshot` самого Angular, поэтому `relativeTo`, `queryParamsHandling` и `preserveFragment` работают |
 | `routerState`               | собственный `RouterState` Angular: `snapshot.url` — это URL, а `root` — маршрут с его query-параметрами и фрагментом  |
+| `currentNavigation`         | сигнал, который объявляет Angular 20.2+: навигация в полёте, `null` пока роутер стоит на месте                        |
+| `getCurrentNavigation()`    | тот же ответ через устаревший метод, чтобы компонент, читающий любой из двух, видел одну правду                       |
 
-Всё остальное, что объявляет `Router` Angular, — `getCurrentNavigation`, `isActive`, `resetConfig` —
+Всё остальное, что объявляет `Router` Angular, — `isActive`, `resetConfig`, `lastSuccessfulNavigation` —
 **не** `undefined`: чтение падает, называя член и то, что дубль покрывает. Член, отвечающий на вызов,
 которого в юнит-тесте быть не должно, — это то, как неправильный тест доживает до зелёного прогона.
+Это верно и для полей, не только для методов: `currentNavigation`, `config` и `navigated` лежат на
+экземпляре, а не на `Router.prototype`, поэтому гард, собранный по одному прототипу, отдал бы
+`undefined` и уронил `router.currentNavigation()` как «is not a function» там, где компонент до него
+дотянулся.
 
-У `init` одно поле, `url`, потому что всё остальное в роутере следует из него. По умолчанию — `'/'`.
+`init` принимает `url` — всё остальное о том, где стоит роутер, следует из него, по умолчанию `'/'` —
+и `currentNavigation`, для компонента, который читает навигацию в инициализаторе поля, раньше, чем
+тело теста успело бы её выставить.
 
 ### `injectRouterDouble(injector?)` {#injectrouterdouble-injector}
 
@@ -236,13 +244,14 @@ router.navigate.resolveWith(false);
 Хендл роутера, который `provideRouterDouble()` положил в инжектор теста. Читает `TestBed`; передайте
 `fixture.debugElement.injector`, когда роутер лежит в собственных `providers` компонента.
 
-| Член                     | Что делает                                                                                |
-| ------------------------ | ----------------------------------------------------------------------------------------- |
-| `router`                 | то значение, которое каждый инжектор в тесте выдаёт на `Router`                           |
-| `navigate`               | спай `navigate()` — проверяйте его или отвечайте через `resolveWith(false)`               |
-| `navigateByUrl`          | спай `navigateByUrl()`, точно так же                                                      |
-| `setUrl(url)`            | поставить роутер на URL: `url`, `routerState` и корневой маршрут двигаются вместе и молча |
-| `emitNavigation(event?)` | протолкнуть событие через `router.events`                                                 |
+| Член                                | Что делает                                                                                |
+| ----------------------------------- | ----------------------------------------------------------------------------------------- |
+| `router`                            | то значение, которое каждый инжектор в тесте выдаёт на `Router`                           |
+| `navigate`                          | спай `navigate()` — проверяйте его или отвечайте через `resolveWith(false)`               |
+| `navigateByUrl`                     | спай `navigateByUrl()`, точно так же                                                      |
+| `setUrl(url)`                       | поставить роутер на URL: `url`, `routerState` и корневой маршрут двигаются вместе и молча |
+| `emitNavigation(event?)`            | протолкнуть событие через `router.events`                                                 |
+| `setCurrentNavigation(navigation?)` | поставить навигацию в полёт или завершить её через `null`                                 |
 
 `emitNavigation()` принимает то, что есть у спеки: ничего (объявить текущий URL заново), строку URL
 (`NavigationEnd` для неё соберут за вас) или собранное вами событие — `new NavigationEnd(1, '/a', '/a')`,
@@ -257,6 +266,35 @@ router.navigate.resolveWith(false);
   самодельных дублей на `Subject`.
 - **Первое, что видит подписчик, — `NavigationEnd` стартового URL**, потому что это и есть навигация,
   которая привела роутер сюда. Компонент, считающий навигации, начинает с единицы, а не с нуля.
+
+### Навигация в полёте {#the-navigation-in-flight}
+
+```ts
+const router = injectRouterDouble();
+
+router.setCurrentNavigation({ extras: { state: { from: 'the card' } } });
+expect(component.origin()).toBe('the card');
+```
+
+`currentNavigation()` — это то, что компонент читает, чтобы узнать, откуда пришла навигация: `extras.state`,
+который передал открывший, или `trigger`, отличающий `'popstate'` от клика. Это сигнал на экземпляре,
+и поэтому самодельный дубль обычно пишется как `instanceMethodsToSpyOn: ['currentNavigation']`: на
+прототипе его нет, и с класса его никто не считает.
+
+Дубль отвечает `null`, пока спека не скажет иначе, потому что роутер, стоящий на URL, простаивает —
+и это настоящий ответ между навигациями. То, что передали в `setCurrentNavigation()`, сохраняется,
+остальное выводится из того, где стоит роутер: `id`, `initialUrl` и `extractedUrl` — из текущего URL,
+`trigger` — `'imperative'`, `extras` — пустой, `previousNavigation` — `null`. `abort` передавайте сами,
+когда спека его проверяет: по умолчанию там пустышка, а не спай, который никто не читает.
+
+Он следит и за событиями, как это делает настоящий:
+
+- `emitNavigation(new NavigationStart(4, '/products/8', 'popstate'))` ставит в полёт навигацию с этим
+  id, URL и триггером.
+- `NavigationEnd`, `NavigationCancel`, `NavigationError` или `NavigationSkipped` её завершает —
+  «the current navigation becomes null after the NavigationEnd event is emitted», поэтому компонент,
+  читающий её при обработке `NavigationEnd`, получит `null` и здесь, и в продакшене. Дубль, который
+  оставил бы навигацию на месте, скрыл бы ровно это.
 
 ### `createRouterDouble(init?)` {#createrouterdouble-init}
 

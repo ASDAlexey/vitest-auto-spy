@@ -2345,27 +2345,35 @@ converged on, and every part of it is a guess the component falls through: `of()
 `url` is a string nobody updates, `routerState` is absent, `serializeUrl` throws on the first
 redirect a guard builds. `provideRouterDouble(init)` keeps one URL and derives the rest.
 
-| Call                            | Does                                                                                                         |
-| ------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| `provideRouterDouble(init?)`    | a `FactoryProvider` for the `Router` token — a fresh router per injector; `init` is `{ url }`, default `'/'` |
-| `injectRouterDouble(injector?)` | the handle: `.router`, `.navigate`, `.navigateByUrl`, `setUrl(url)`, `emitNavigation(event?)`                |
-| `createRouterDouble(init?)`     | the same handle without a `TestBed` — for `new AuthGuard(router)`                                            |
+| Call                            | Does                                                                                                                               |
+| ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `provideRouterDouble(init?)`    | a `FactoryProvider` for the `Router` token — a fresh router per injector; `init` is `{ url }`, default `'/'`                       |
+| `injectRouterDouble(injector?)` | the handle: `.router`, `.navigate`, `.navigateByUrl`, `setUrl(url)`, `emitNavigation(event?)`, `setCurrentNavigation(navigation?)` |
+| `createRouterDouble(init?)`     | the same handle without a `TestBed` — for `new AuthGuard(router)`                                                                  |
 
 Unlike the route, this is **not** an instance of Angular's class: a real `Router` drags the whole
 routing stack in. It is a structural double that answers `url` (serialized as the real router does),
 `events` (a `BehaviorSubject` starting at the `NavigationEnd` that put it there), `navigate` and
 `navigateByUrl` (spies resolving `true`), `serializeUrl` / `parseUrl` / `createUrlTree` (the
-router's own URL work, via `DefaultUrlSerializer` and `createUrlTreeFromSnapshot`) and `routerState`
-(Angular's own, its `snapshot.url` the URL). **Every other member `Router` declares throws by name**
-rather than reading `undefined`.
+router's own URL work, via `DefaultUrlSerializer` and `createUrlTreeFromSnapshot`), `routerState`
+(Angular's own, its `snapshot.url` the URL) and `currentNavigation` / `getCurrentNavigation()` (the
+navigation in flight, `null` while the router stands still). **Every other member `Router` declares
+throws by name** rather than reading `undefined` — and that holds for the instance fields too, which
+is why a hand-rolled double needs `instanceMethodsToSpyOn: ['currentNavigation']` and this one does
+not.
 
-Four things to know:
+Five things to know:
 
 - **It does not navigate.** `navigate()` records the call and resolves `true`; it does not move
   `url`. `setUrl()` and `emitNavigation()` move it; `RouterTestingHarness` over a real
   `provideRouter()` is what tests a navigation.
 - **`emitNavigation()` takes what you have** — nothing, a URL string, or an event you built. A
   `NavigationEnd` moves the URL with it; any other event does not.
+- **The navigation in flight follows the events.** `setCurrentNavigation({ extras: { state } })`
+  puts one up and `setCurrentNavigation(null)` ends it; a `NavigationStart` pushed through
+  `emitNavigation()` starts one with that event's id, URL and trigger, and a `NavigationEnd`,
+  `NavigationCancel`, `NavigationError` or `NavigationSkipped` drops it back to `null` — which is
+  what the real router answers to a component reading it while handling a `NavigationEnd`.
 - **Ordering does not matter here.** `Router` is `providedIn: 'root'` and `provideRouter()` does not
   re-provide the token, so the double wins in either order — and a `TestBed` without it hands out a
   real router, which is what `injectRouterDouble()` says by name.
@@ -3137,8 +3145,8 @@ blanket downgrade so those keep their severity; do not copy the two names into a
 | `no-save-arguments-by-value`      | `error` | —                 | `spy.calls.saveArgumentsByValue()` — a no-op here, so the spec silently asserts on post-mutation state                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | `prefer-native-spy-api`           | `error` | `--fix` / suggest | `.and` / `.calls` where the spy's own API says the same thing — turn it on for the last mile off the jasmine shim                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 
-Thirty-six rules, **every one an `error` since 4.0.0 except `prefer-render-shallow`,
-`no-stub-class-double`, `no-structural-double` and `no-instance-lifecycle-spy`**; three fix on their own, eleven offer suggestions. Thirty-three are syntactic; `no-private-member-access`, `no-mistyped-use-value` and
+Thirty-seven rules, **every one an `error` since 4.0.0 except `prefer-render-shallow`,
+`no-stub-class-double`, `no-structural-double` and `no-instance-lifecycle-spy`**; three fix on their own, twelve offer suggestions. Thirty-four are syntactic; `no-private-member-access`, `no-mistyped-use-value` and
 `no-unknown-use-value-key` read types, and all three report nothing at all without `parserOptions.project` / `projectService`
 rather than guessing. `no-compile-components` waits the same way for a fact no file holds — which
 builder the project has — and reports nothing until `{ builder: 'inline-resources' }` states it. The config used to be a graded mix of `error` / `warn` / `off`, which decided for the
@@ -3411,7 +3419,7 @@ packages, which a subpath export can never be.
 | `injectActivatedRoute(): nothing provides ActivatedRoute here`                                                                                      | no `ActivatedRoute` provider in the injector it read                                                                                                                                                                                                                        | `provideActivatedRoute({ … })` from `vitest-auto-spy/angular-router` in `providers`; `injectActivatedRoute(fixture.debugElement.injector)` for a component-level one (§13)                                                                                                                                                                                                                                                                                                                                        |
 | `the ActivatedRoute here is … not one provideActivatedRoute() built`                                                                                | a later provider of `ActivatedRoute` won — `provideRouter()`, `RouterModule`, a `useValue`, `provideAutoSpy(ActivatedRoute)`                                                                                                                                                | list `provideActivatedRoute()` last, or drop the other provider (§13)                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | `provideActivatedRoute: the installed @angular/router does not wire ActivatedRoute …`                                                               | a router major builds `ActivatedRoute` with different internal constructors                                                                                                                                                                                                 | report it with the `@angular/router` version; provide the route by hand until then (§13)                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| `provideRouterDouble: the Router double has no …`                                                                                                   | the code under test reached for a `Router` member the double does not cover — `getCurrentNavigation`, `isActive`, `resetConfig`                                                                                                                                             | the double covers `url`, `events`, `navigate`, `navigateByUrl`, `createUrlTree`, `serializeUrl`, `parseUrl` and `routerState`; past that, a real `provideRouter([])` with `RouterTestingHarness` (§13)                                                                                                                                                                                                                                                                                                            |
+| `provideRouterDouble: the Router double has no …`                                                                                                   | the code under test reached for a `Router` member the double does not cover — `isActive`, `resetConfig`, `lastSuccessfulNavigation`                                                                                                                                         | the double covers `url`, `events`, `navigate`, `navigateByUrl`, `createUrlTree`, `serializeUrl`, `parseUrl`, `routerState` and `currentNavigation` / `getCurrentNavigation()`; past that, a real `provideRouter([])` with `RouterTestingHarness` (§13)                                                                                                                                                                                                                                                            |
 | `injectRouterDouble(): the Router here is Angular's own …`                                                                                          | `Router` is `providedIn: 'root'`, so a `TestBed` without the double hands out a real one                                                                                                                                                                                    | add `provideRouterDouble({ … })` from `vitest-auto-spy/angular-router` to `providers` (§13)                                                                                                                                                                                                                                                                                                                                                                                                                       |
 
 **Seven of these are library defects, not spec ones.** On anything below 3.8.0, upgrade and change

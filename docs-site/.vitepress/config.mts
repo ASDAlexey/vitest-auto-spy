@@ -316,6 +316,8 @@ export default defineConfig({
           'eslint plugin for vitest spies, done callback is deprecated use promise instead, ' +
           'what does this eslint rule mean, turn off one eslint rule, link to a lint rule doc, ' +
           'prefer-render-shallow, why is this rule a warning, eslint rule severity vitest spies, ' +
+          'should create test is useless, ng generate spec only tests toBeTruthy, delete the default angular spec, ' +
+          'no-redundant-smoke-test, test that cannot fail, smoke test asserts nothing, ' +
           'createSpyFromClass, createAutoMock, mockDeep, deep mock, createFixture, createFixtureFactory, ' +
           'resolveWith, calledWith, mustBeCalledWith, failWith, mockThrow, throw for specific arguments, nextWithValues, assertMocked, ' +
           'extendWithAutoSpies, test.extend fixtures, TestBed fixtures, vitest 4.1, detect-async-leaks, stray timers, onStrayTimers, no-bare-called-with, ' +
@@ -387,6 +389,9 @@ export default defineConfig({
           'getter returns undefined in test, observable property never emits, unconfiguredReads, onUnstubbedRead, ' +
           'mock Router angular test, router.url undefined in test, router events never emit, NavigationEnd in a test, ' +
           'provideRouterDouble, createRouterDouble, injectRouterDouble, navigate spy resolves true, routerLink href in test, ' +
+          'router.currentNavigation is not a function, getCurrentNavigation returns null in test, mock currentNavigation angular, ' +
+          'read navigation extras state in a test, how to fake a popstate navigation, setCurrentNavigation, ' +
+          'currentNavigation signal angular 20, instanceMethodsToSpyOn currentNavigation, ' +
           'mock window vitest, window is read-only jsdom, cannot redefine window.location, location.reload is not a function, ' +
           'mock document angular, DOCUMENT token test, WINDOW token angular, provideWindowDouble, provideDocumentDouble, ' +
           'createWindowDouble, createDocumentDouble, override screen.width in test, ' +
