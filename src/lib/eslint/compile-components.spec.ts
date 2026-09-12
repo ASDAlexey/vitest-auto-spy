@@ -48,11 +48,23 @@ describe(RULE, () => {
   it('reports every spelling of the call, and says why it waits for the option', () => {
     const [report] = verify('await TestBed.compileComponents();', INLINED);
 
-    expect(report?.message).toMatch(/does nothing here[\s\S]*inline-resources[\s\S]*reports nothing until the option/);
+    expect(report?.message).toMatch(/usually redundant here[\s\S]*inline-resources[\s\S]*reports nothing until the option/);
     expect(report?.message).toContain('#how-to-mock-a-components-children');
     expect(verify('TestBed.configureTestingModule({}).compileComponents().then(() => render());', INLINED)).toHaveLength(1);
     expect(verify('function ready() {\n  return getTestBed().compileComponents();\n}', INLINED)).toHaveLength(1);
     expect(verify('const ready = bed.compileComponents();', INLINED)).toHaveLength(1);
+  });
+
+  it('names the async-metadata exception the builder cannot settle, and the way to keep such a call', () => {
+    const [report] = verify('await TestBed.compileComponents();', INLINED);
+
+    expect(report?.message).toContain('@defer');
+    expect(report?.message).toContain('unresolved metadata');
+    expect(report?.message).toContain('eslint-disable-next-line vitest-auto-spy/no-compile-components');
+  });
+
+  it('carries the exception into the suggestion, which is the text a bulk edit reads', () => {
+    expect(verify('await TestBed.compileComponents();', INLINED)[0]?.suggestions?.[0]?.desc).toContain('@defer');
   });
 
   it('drops the call and the async of a hook that awaits nothing else', () => {
