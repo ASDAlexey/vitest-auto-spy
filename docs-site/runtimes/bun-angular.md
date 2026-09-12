@@ -135,6 +135,12 @@ own implementation is the documented outcome, not a problem.
 
 ## Limits worth knowing
 
+- **A signal `input()` does not bind.** Bun compiles a component with the JIT compiler, which
+  fills `ɵcmp.inputs` from `@Input()` alone — an `input()` or `model()` field never lands there, so
+  `componentRef.setInput('step', 5)`, and the `inputs` of `renderShallow`, log `NG0303` and set
+  nothing. Declare the input a `bun:test` spec drives as `@Input()`, or keep that spec on the Vitest
+  entry, where the Angular build plugin compiles the component ahead of time. `setInputs()` at least
+  fails by name rather than leaving the value where it was.
 - **The rewrite is textual, not a parse.** It skips comments and string literals — a `templateUrl`
   written in prose is left alone — but it does not track `${…}` interpolation or regex literals.
 - **Line numbers are preserved.** Every inlined value is a single-line literal, so a failing spec's
