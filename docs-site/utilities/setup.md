@@ -1133,3 +1133,54 @@ is what makes it read as "coverage broke the tests".
 Two ways out: run coverage with per-file isolation (`ng test <project> --coverage --isolate`, or
 `isolate: true` in the config for that case alone), or call `setupAutoSpy()` from something that is
 evaluated per file rather than from a module the runner can cache.
+
+## The setup file that gets its own copy of Angular
+
+A setup file that calls `initTestEnvironment` — directly, or through whichever preset a workspace
+inherited — runs before any spec, and therefore before the library is imported. Where the two halves
+of the run resolve `@angular/core` differently, that ordering is enough to leave two copies of
+Angular in the process: the platform, the environment and the `TestBed` the setup file built belong
+to one of them, and every spec builds on the other.
+
+What surfaces says nothing about copies. One half of it is this:
+
+```text
+No mock adapter registered. Import a runtime entry once before creating spies — …
+```
+
+The registry is module state of `vitest-auto-spy`, and importing an entry is what writes to it, so a
+run holding two copies of the library can hand a spec the copy nobody imported.
+
+The other half is a `TestBed` that behaves like a stranger — `configureTestingModule` accepted and
+the component still resolving the real service, an `overrideProvider` that never applies, `NG0203`
+from an injection context that looks perfectly ordinary. A second `TestBed` with an injector of its
+own explains all three, and none of them says so.
+
+The repair is in the runner config, not in a spec:
+
+```ts
+// vitest.config.ts
+export default defineConfig({
+  resolve: {
+    dedupe: ['@angular/core', '@angular/common', '@angular/platform-browser', '@angular/compiler', 'rxjs'],
+  },
+  test: {
+    server: { deps: { inline: ['vitest-auto-spy'] } },
+  },
+});
+```
+
+`dedupe` makes every importer resolve those packages to one file, whichever nested `node_modules`
+directory it happens to sit under. Inlining the library sends it through the same transform pipeline
+the specs go through instead of leaving it externalised to Node, so the copy the setup file loads and
+the copy a spec loads are one module instance — one registry, one set of spies. `rxjs` earns its
+place on that list for the same reason the Angular packages do: an `Observable` from one copy fails
+the other's `instanceof`, which is a different failure with the same cause.
+
+`test.server.deps.inline` is where that key lives from Vitest 1 onwards — checked here against the
+5.0 typings; the top-level `test.deps.inline` that older answers still show moved there and is gone.
+
+Reach for the duplicate-copy report in section 2 first. Two installs, or one install loaded as both
+ESM and CommonJS, are the commoner causes, and neither of them needs `dedupe` — the report names
+both copies, and this section is what to do when the paths it prints are the same package resolved
+twice.
