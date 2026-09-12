@@ -53,8 +53,13 @@ type AngularAutoSpyDefaultEntries<Entries extends readonly unknown[]> = {
  *
  * providers: [provideAutoSpyForToken(LOGGER)]; // starts from the registration
  * ```
+ *
+ * `T` of a class key comes from the class alone, as in `provideAutoSpy` — a generic class keeps its
+ * declared default next to an accessor list and `returns`. A token key needs no such help: `T`
+ * inferred from the `InjectionToken<T>` reference outranks anything the configuration offers.
  */
-export function registerAutoSpyDefaults<T>(ObjectClass: ClassType<T>, config: ClassSpyConfiguration<T>): void;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- see `provideAutoSpy`: read only while the generic class argument is deferred.
+export function registerAutoSpyDefaults<T = any>(ObjectClass: ClassType<T>, config: NoInfer<ClassSpyConfiguration<T>>): void;
 export function registerAutoSpyDefaults<T>(token: InjectionToken<T>, config: AutoSpyTokenDefaults<T>): void;
 export function registerAutoSpyDefaults<
   const Entries extends AngularAutoSpyDefaultEntries<Entries> & readonly (readonly [unknown, unknown])[],

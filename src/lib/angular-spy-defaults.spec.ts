@@ -120,6 +120,25 @@ describe('registerAutoSpyDefaults with an InjectionToken', () => {
     expect(logger(undefined, { returns: { channel } }).channel('auth')).toBe(channel);
   });
 
+  it('lets a seed at the call site replace a registered selfReturning link with a plain function', () => {
+    const channel: ChannelLogger = { info: (): void => undefined };
+
+    registerAutoSpyDefaults(LOGGER, { returns: { info: undefined, err: undefined }, selfReturning: ['channel'] });
+
+    const log = logger({ channel: () => channel });
+
+    expect(log.channel('auth')).toBe(channel);
+    expect(log.info('signed in')).toBeUndefined();
+  });
+
+  it('lets a seed at the call site replace a registered returns entry with a plain function', () => {
+    registerAutoSpyDefaults(NAVIGATION, { returns: { focused: 'registered' } });
+
+    TestBed.configureTestingModule({ providers: [provideAutoSpyForToken(NAVIGATION, { focused: () => 'seeded' })] });
+
+    expect(TestBed.inject(NAVIGATION).focused()).toBe('seeded');
+  });
+
   it('names the double in a strict report by a registered name rather than the token description', () => {
     registerAutoSpyDefaults(LOGGER, { strict: true, name: 'registered log' });
 

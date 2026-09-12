@@ -107,10 +107,11 @@ createSpyFromClass(RemoteConfigService, { gettersToSpyOn: ['remoteConfig'], retu
 createSpyFromClass<RemoteConfigService>(RemoteConfigService, { gettersToSpyOn: ['remoteConfig'], returns: { isKeyEnabled: false } }); // ✅
 ```
 
-Любая половина по отдельности выводит объявленное умолчание. `provideAutoSpy`, `overrideAutoSpy` и
-`overrideComponentProvider` из `/angular` берут `T` только из класса (`NoInfer`), поэтому там первая
-строка компилируется как есть. Фабрики ядра его не используют: `NoInfer` требует TypeScript 5.4 —
-выше границы, которую документирует ядро, а любой Angular, поддерживаемый `/angular`, её уже прошёл.
+Любая половина по отдельности выводит объявленное умолчание. `provideAutoSpy`, `overrideAutoSpy`,
+`overrideComponentProvider` и перегрузка `registerAutoSpyDefaults` для класса из `/angular` берут `T`
+только из класса (`NoInfer`), поэтому там первая строка компилируется как есть. Фабрики ядра и
+`registerAutoSpyDefaults` из ядра его не используют: `NoInfer` требует TypeScript 5.4 — выше
+границы, которую документирует ядро, а любой Angular, поддерживаемый `/angular`, её уже прошёл.
 
 ## `asInstances(...)` — весь список аргументов разом {#asinstances-—-a-whole-argument-list-at-once}
 

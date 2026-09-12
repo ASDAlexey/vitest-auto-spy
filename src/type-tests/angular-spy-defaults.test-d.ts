@@ -10,8 +10,13 @@
  *
  * In a table, each row is checked against its own key — a class row against the class, a token row
  * against the token's `T` — and the diagnostic lands on the offending row's line.
+ *
+ * A class key takes `T` from the class alone, as `provideAutoSpy` does: a generic class next to an
+ * accessor list and `returns` otherwise reads `T` back from the list as `{ flags: any }` and rejects
+ * the `returns` key. The core entry keeps that trap (`spy.test-d.ts`).
  */
 import { InjectionToken } from '@angular/core';
+import type { Subject } from 'rxjs';
 import { describe, expectTypeOf, it } from 'vitest';
 
 import { type AutoSpyTokenDefaults, provideAutoSpyForToken, registerAutoSpyDefaults } from '../angular';
@@ -39,7 +44,25 @@ class RouterLike {
   }
 }
 
+interface Navigation {
+  activeRow$: Subject<HTMLElement>;
+  backButton$: Subject<boolean>;
+  navigateBack(force?: boolean): void;
+  setFocus(element: HTMLElement): void;
+  arrowMove(direction: number): void;
+}
+
+interface FlagDefaults {
+  beta: boolean;
+}
+
+declare class FlagService<T extends object = FlagDefaults> {
+  get flags(): Readonly<T>;
+  isEnabled(key: keyof T): boolean;
+}
+
 const LOGGER = new InjectionToken<AppLogger>('LOGGER');
+const NAVIGATION = new InjectionToken<Navigation>('NAVIGATION');
 
 describe('registerAutoSpyDefaults with an InjectionToken', () => {
   it('takes a registration whose keys the token type has', () => {
@@ -76,6 +99,42 @@ describe('registerAutoSpyDefaults with an InjectionToken', () => {
     const defaults: AutoSpyTokenDefaults<AppLogger> = { selfReturning: ['channel'] };
 
     registerAutoSpyDefaults(LOGGER, defaults);
+  });
+
+  it('takes T from the token when the registration names observable members next to returns', () => {
+    registerAutoSpyDefaults(NAVIGATION, {
+      observablePropsToSpyOn: ['activeRow$', 'backButton$'],
+      returns: { setFocus: undefined, navigateBack: undefined, arrowMove: undefined },
+    });
+    // @ts-expect-error — `setFocus` answers nothing, so a registration may not seed it with a value
+    registerAutoSpyDefaults(NAVIGATION, { observablePropsToSpyOn: ['activeRow$'], returns: { setFocus: 1 } });
+  });
+});
+
+describe('the per-class form on a generic class', () => {
+  it('keeps the declared default with an accessor list and returns together', () => {
+    registerAutoSpyDefaults(FlagService, { gettersToSpyOn: ['flags'], returns: { isEnabled: false } });
+  });
+
+  it('keeps it with overrides and returns together', () => {
+    registerAutoSpyDefaults(FlagService, { overrides: { flags: { beta: true } }, returns: { isEnabled: false } });
+  });
+
+  it('still takes the type argument spelled out', () => {
+    registerAutoSpyDefaults<FlagService<{ alpha: boolean }>>(FlagService, {
+      gettersToSpyOn: ['flags'],
+      overrides: { flags: { alpha: true } },
+      returns: { isEnabled: true },
+    });
+  });
+
+  it('still checks the registration against the class, not against any', () => {
+    // @ts-expect-error — `isEnabled` answers a boolean
+    registerAutoSpyDefaults(FlagService, { gettersToSpyOn: ['flags'], returns: { isEnabled: 'yes' } });
+    // @ts-expect-error — `alpha` is not a flag of the declared default
+    registerAutoSpyDefaults(FlagService, { gettersToSpyOn: ['flags'], overrides: { flags: { alpha: true } } });
+    // @ts-expect-error — `nope` is not a member of FlagService
+    registerAutoSpyDefaults(FlagService, { gettersToSpyOn: ['nope'], returns: { isEnabled: false } });
   });
 });
 

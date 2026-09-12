@@ -15,7 +15,7 @@
  */
 import { describe, expectTypeOf, it } from 'vitest';
 
-import { asInstance, createAutoMock, createSpyFromClass, mockValueProp } from '../auto-spy';
+import { asInstance, createAutoMock, createSpyFromClass, mockValueProp, registerAutoSpyDefaults } from '../auto-spy';
 import type { Mutable, ObservableLike, OnlyMethodKeysOf, RestoreProp, Spy, SpyDisposable } from '../auto-spy';
 
 class Storage {
@@ -391,6 +391,12 @@ describe('a generic class, an accessor list and returns', () => {
     expectTypeOf(createSpyFromClass(FlagService, { returns: { isEnabled: false } }).isEnabled)
       .parameter(0)
       .toEqualTypeOf<'beta'>();
+  });
+
+  it('is rejected inferred by the core registerAutoSpyDefaults too, and compiles spelled out', () => {
+    // @ts-expect-error -- 'isEnabled' does not exist in type 'MethodReturns<{ flags: any; }>'
+    registerAutoSpyDefaults(FlagService, { gettersToSpyOn: ['flags'], returns: { isEnabled: false } });
+    registerAutoSpyDefaults<FlagService>(FlagService, { gettersToSpyOn: ['flags'], returns: { isEnabled: false } });
   });
 });
 

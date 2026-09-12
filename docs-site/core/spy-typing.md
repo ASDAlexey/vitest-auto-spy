@@ -105,10 +105,11 @@ createSpyFromClass(RemoteConfigService, { gettersToSpyOn: ['remoteConfig'], retu
 createSpyFromClass<RemoteConfigService>(RemoteConfigService, { gettersToSpyOn: ['remoteConfig'], returns: { isKeyEnabled: false } }); // ✅
 ```
 
-Either half alone infers the declared default. `provideAutoSpy`, `overrideAutoSpy` and
-`overrideComponentProvider` from `/angular` take `T` from the class alone (`NoInfer`), so there the
-first line compiles as written. The core factories do not use it: `NoInfer` needs TypeScript 5.4,
-above the floor the core documents, while every Angular that `/angular` supports is past it.
+Either half alone infers the declared default. `provideAutoSpy`, `overrideAutoSpy`,
+`overrideComponentProvider` and the class overload of `registerAutoSpyDefaults` from `/angular` take
+`T` from the class alone (`NoInfer`), so there the first line compiles as written. The core factories
+and the core `registerAutoSpyDefaults` do not use it: `NoInfer` needs TypeScript 5.4, above the floor
+the core documents, while every Angular that `/angular` supports is past it.
 
 ## `asInstances(...)` — a whole argument list at once
 
