@@ -231,6 +231,7 @@ export const EXPORTED_BY: Readonly<Record<string, string>> = {
   mutationRecord: '7',
   MutationRecordInit: '7',
   narrow: '0 1 2 3 4 17 18 19',
+  NavigationInit: '14',
   NestModuleRef: '16',
   NestUnit: '16',
   NestUnitClass: '16',

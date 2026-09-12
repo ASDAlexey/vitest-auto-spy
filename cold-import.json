@@ -20,7 +20,7 @@
     },
     "./angular-router": {
       "modules": 5,
-      "bytes": 49556
+      "bytes": 51594
     },
     "./bun": {
       "modules": 12,
@@ -44,7 +44,7 @@
     },
     "./eslint-plugin": {
       "modules": 2,
-      "bytes": 152597
+      "bytes": 158190
     },
     "./jasmine": {
       "modules": 14,

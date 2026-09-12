@@ -8193,13 +8193,14 @@ construction)_.
 The test passes because the assertion was never reached — the stream stayed silent, the promise was
 never awaited, the callback returned first — or was reached and could not fail.
 
-| Rule                                                                                            | Flags                                                                                         | Fix     | Without it |
-| ----------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- | ------- | :--------: |
-| [`no-expect-in-subscribe`](#no-expect-in-subscribe-reports-one-shape-and-three-different-edits) | `expect()` inside a `subscribe()` callback → `expectEmission` / `firstValueFrom`              | suggest |   green    |
-| [`no-floating-assertion`](#an-assertion-in-a-then-nobody-awaits)                                | `expect()` in a `.then()` nobody awaits → `expect(await promise)`                             | —       |   green    |
-| [`no-done-callback`](#a-done-parameter-is-not-a-style-question)                                 | `it('x', (done) => …)` → `async` + an awaited assertion, and `done.fail(…)` at the call site  | —       |   green    |
-| [`no-bare-called-with`](#no-bare-called-with-%E2%80%94-one-word-two-opposite-meanings)          | `spy.m.calledWith(1);` as a statement of its own — a stub nobody continued, asserting nothing | —       |   green    |
-| [`no-constant-expect`](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-rules#no-constant-expect)                              | `expect(true).toBe(true)` — a value the spec spelled out, under a matcher that value decides  | —       |   green    |
+| Rule                                                                                            | Flags                                                                                                               | Fix     | Without it |
+| ----------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- | ------- | :--------: |
+| [`no-expect-in-subscribe`](#no-expect-in-subscribe-reports-one-shape-and-three-different-edits) | `expect()` inside a `subscribe()` callback → `expectEmission` / `firstValueFrom`                                    | suggest |   green    |
+| [`no-floating-assertion`](#an-assertion-in-a-then-nobody-awaits)                                | `expect()` in a `.then()` nobody awaits → `expect(await promise)`                                                   | —       |   green    |
+| [`no-done-callback`](#a-done-parameter-is-not-a-style-question)                                 | `it('x', (done) => …)` → `async` + an awaited assertion, and `done.fail(…)` at the call site                        | —       |   green    |
+| [`no-bare-called-with`](#no-bare-called-with-%E2%80%94-one-word-two-opposite-meanings)          | `spy.m.calledWith(1);` as a statement of its own — a stub nobody continued, asserting nothing                       | —       |   green    |
+| [`no-constant-expect`](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-rules#no-constant-expect)                              | `expect(true).toBe(true)` — a value the spec spelled out, under a matcher that value decides                        | —       |   green    |
+| [`no-redundant-smoke-test`](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-rules#no-redundant-smoke-test)                    | `it('should create', () => expect(pipe).toBeTruthy())` beside tests that already build the same subject → delete it | suggest |   green    |
 
 ### Doubles, and the modules that hold them
 
@@ -9635,44 +9636,45 @@ Every section answers the same six questions:
 Grouped by subject, the same grouping the [setup page](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-plugin) uses. Every rule is
 an `error` except four.
 
-| Rule                                                                  | In `recommended` | Reports                                                                                   |
-| --------------------------------------------------------------------- | ---------------- | ----------------------------------------------------------------------------------------- |
-| [`no-expect-in-subscribe`](#no-expect-in-subscribe)                   | `error`          | `expect()` inside a `subscribe` callback — it runs only if the stream emits               |
-| [`no-floating-assertion`](#no-floating-assertion)                     | `error`          | `expect()` in a `.then()` chain nothing awaits                                            |
-| [`no-done-callback`](#no-done-callback)                               | `error`          | a named first parameter on a test or hook, and `done.fail(…)` beneath it                  |
-| [`no-bare-called-with`](#no-bare-called-with)                         | `error`          | `calledWith(…)` / `mustBeCalledWith(…)` as a statement of its own                         |
-| [`no-constant-expect`](#no-constant-expect)                           | `error`          | `expect(true).toBe(true)` — a value spelled out in the spec, under a matcher it decides   |
-| [`prefer-create-spy-from-class`](#prefer-create-spy-from-class)       | `error`          | an object literal of two or more `vi.fn()`s                                               |
-| [`no-stub-class-double`](#no-stub-class-double)                       | `warn`           | a class whose fields are `vi.fn()`s — the same double with a `new` in front of it         |
-| [`no-structural-double`](#no-structural-double)                       | `warn`           | an object of `vi.fn()`s bound to a name declared as an object of Vitest `Mock`s           |
-| [`no-shared-module-level-mock`](#no-shared-module-level-mock)         | `error`          | an **exported** value that builds `vi.fn()`s while the module loads                       |
-| [`no-object-define-property`](#no-object-define-property)             | `error`          | `Object.defineProperty` / `defineProperties` in a spec                                    |
-| [`no-import-time-spread`](#no-import-time-spread)                     | `error`          | a spread of an imported binding evaluated at module scope                                 |
-| [`prefer-observer-stub`](#prefer-observer-stub)                       | `error`          | an observer global replaced by hand or through the runner                                 |
-| [`prefer-provide-activated-route`](#prefer-provide-activated-route)   | `error`          | an `ActivatedRoute` provided as a hand-built object, class or factory — half a route      |
-| [`no-passthrough-console-spy`](#no-passthrough-console-spy)           | `error`          | `vi.spyOn(console, m)` nothing gives an implementation — it calls through and prints      |
-| [`no-console-in-spec`](#no-console-in-spec)                           | `error`          | a spec that calls a console method, or replaces one by assignment                         |
-| [`no-import-time-console-spies`](#no-import-time-console-spies)       | `error`          | an import of `vitest-auto-spy/console` in a file that never calls `installConsoleSpies()` |
-| [`prefer-provide-auto-spy`](#prefer-provide-auto-spy)                 | `error`          | a provider — or a `TestBed.overrideProvider` — that hand-rolls a service double           |
-| [`prefer-inject-spy`](#prefer-inject-spy)                             | `error`          | `vi.spyOn` over the instance `TestBed.inject` handed back                                 |
-| [`no-unregistered-inject-spy`](#no-unregistered-inject-spy)           | `error`          | `injectSpy(X)` for a token this file never registered as an auto-spy                      |
-| [`prefer-render-shallow`](#prefer-render-shallow)                     | `warn`           | `TestBed.createComponent` in a file that never reads the rendered template                |
-| [`no-overridden-provider`](#no-overridden-provider)                   | `error`          | a provider a later one, or a `TestBed.overrideProvider`, replaces                         |
-| [`no-inject-before-override`](#no-inject-before-override)             | `error`          | an injection in a hook, in a suite that still calls `TestBed.override*`                   |
-| [`no-dead-schemas`](#no-dead-schemas)                                 | `error`          | `schemas` on a testing module that declares nothing                                       |
-| [`no-mistyped-use-value`](#no-mistyped-use-value)                     | `error`          | a `useValue` that does not fit the primitive type its `InjectionToken` declares           |
-| [`no-unknown-use-value-key`](#no-unknown-use-value-key)               | `error`          | a key of an object `useValue` the provided type does not have — keys only                 |
-| [`no-instance-lifecycle-spy`](#no-instance-lifecycle-spy)             | `warn`           | `vi.spyOn(component, 'ngOnInit')` — a hook spy Angular never calls                        |
-| [`no-compile-components`](#no-compile-components)                     | `error`          | `compileComponents()` under a builder that inlines resources — silent until told so       |
-| [`no-sync-testbed-await`](#no-sync-testbed-await)                     | `error`          | `await` on a TestBed call that answers the TestBed or a fixture, never a promise          |
-| [`no-private-member-access`](#no-private-member-access)               | `error`          | a `private` / `protected` member reached through brackets, a cast, or the prototype       |
-| [`no-mocked-for-spy`](#no-mocked-for-spy)                             | `error`          | `Mocked<T>` in a type position where the value is a spy                                   |
-| [`prefer-as-spy`](#prefer-as-spy)                                     | `error`          | `TestBed.inject(X) as Spy<X>` — a cast that no longer compiles                            |
-| [`no-ts-expect-error-on-double`](#no-ts-expect-error-on-double)       | `error`          | `@ts-expect-error` / `@ts-ignore` above a double's `nextWith`, `mockReturnValue`, …       |
-| [`no-jasmine-globals`](#no-jasmine-globals)                           | `error`          | `jasmine.*`, bare `spyOn(` / `fail(` / `pending(`, and `.withContext(`                    |
-| [`jasmine-namespace-without-entry`](#jasmine-namespace-without-entry) | `error`          | `.and` / `.calls` / `.withArgs` in a file that installs the compatibility layer nowhere   |
-| [`no-save-arguments-by-value`](#no-save-arguments-by-value)           | `error`          | `spy.calls.saveArgumentsByValue()` — a no-op here                                         |
-| [`prefer-native-spy-api`](#prefer-native-spy-api)                     | `error`          | `.and` / `.calls` where the spy's own API says the same thing                             |
+| Rule                                                                  | In `recommended` | Reports                                                                                     |
+| --------------------------------------------------------------------- | ---------------- | ------------------------------------------------------------------------------------------- |
+| [`no-expect-in-subscribe`](#no-expect-in-subscribe)                   | `error`          | `expect()` inside a `subscribe` callback — it runs only if the stream emits                 |
+| [`no-floating-assertion`](#no-floating-assertion)                     | `error`          | `expect()` in a `.then()` chain nothing awaits                                              |
+| [`no-done-callback`](#no-done-callback)                               | `error`          | a named first parameter on a test or hook, and `done.fail(…)` beneath it                    |
+| [`no-bare-called-with`](#no-bare-called-with)                         | `error`          | `calledWith(…)` / `mustBeCalledWith(…)` as a statement of its own                           |
+| [`no-constant-expect`](#no-constant-expect)                           | `error`          | `expect(true).toBe(true)` — a value spelled out in the spec, under a matcher it decides     |
+| [`no-redundant-smoke-test`](#no-redundant-smoke-test)                 | `error`          | a test whose whole body asserts the subject exists, beside tests that already run its setup |
+| [`prefer-create-spy-from-class`](#prefer-create-spy-from-class)       | `error`          | an object literal of two or more `vi.fn()`s                                                 |
+| [`no-stub-class-double`](#no-stub-class-double)                       | `warn`           | a class whose fields are `vi.fn()`s — the same double with a `new` in front of it           |
+| [`no-structural-double`](#no-structural-double)                       | `warn`           | an object of `vi.fn()`s bound to a name declared as an object of Vitest `Mock`s             |
+| [`no-shared-module-level-mock`](#no-shared-module-level-mock)         | `error`          | an **exported** value that builds `vi.fn()`s while the module loads                         |
+| [`no-object-define-property`](#no-object-define-property)             | `error`          | `Object.defineProperty` / `defineProperties` in a spec                                      |
+| [`no-import-time-spread`](#no-import-time-spread)                     | `error`          | a spread of an imported binding evaluated at module scope                                   |
+| [`prefer-observer-stub`](#prefer-observer-stub)                       | `error`          | an observer global replaced by hand or through the runner                                   |
+| [`prefer-provide-activated-route`](#prefer-provide-activated-route)   | `error`          | an `ActivatedRoute` provided as a hand-built object, class or factory — half a route        |
+| [`no-passthrough-console-spy`](#no-passthrough-console-spy)           | `error`          | `vi.spyOn(console, m)` nothing gives an implementation — it calls through and prints        |
+| [`no-console-in-spec`](#no-console-in-spec)                           | `error`          | a spec that calls a console method, or replaces one by assignment                           |
+| [`no-import-time-console-spies`](#no-import-time-console-spies)       | `error`          | an import of `vitest-auto-spy/console` in a file that never calls `installConsoleSpies()`   |
+| [`prefer-provide-auto-spy`](#prefer-provide-auto-spy)                 | `error`          | a provider — or a `TestBed.overrideProvider` — that hand-rolls a service double             |
+| [`prefer-inject-spy`](#prefer-inject-spy)                             | `error`          | `vi.spyOn` over the instance `TestBed.inject` handed back                                   |
+| [`no-unregistered-inject-spy`](#no-unregistered-inject-spy)           | `error`          | `injectSpy(X)` for a token this file never registered as an auto-spy                        |
+| [`prefer-render-shallow`](#prefer-render-shallow)                     | `warn`           | `TestBed.createComponent` in a file that never reads the rendered template                  |
+| [`no-overridden-provider`](#no-overridden-provider)                   | `error`          | a provider a later one, or a `TestBed.overrideProvider`, replaces                           |
+| [`no-inject-before-override`](#no-inject-before-override)             | `error`          | an injection in a hook, in a suite that still calls `TestBed.override*`                     |
+| [`no-dead-schemas`](#no-dead-schemas)                                 | `error`          | `schemas` on a testing module that declares nothing                                         |
+| [`no-mistyped-use-value`](#no-mistyped-use-value)                     | `error`          | a `useValue` that does not fit the primitive type its `InjectionToken` declares             |
+| [`no-unknown-use-value-key`](#no-unknown-use-value-key)               | `error`          | a key of an object `useValue` the provided type does not have — keys only                   |
+| [`no-instance-lifecycle-spy`](#no-instance-lifecycle-spy)             | `warn`           | `vi.spyOn(component, 'ngOnInit')` — a hook spy Angular never calls                          |
+| [`no-compile-components`](#no-compile-components)                     | `error`          | `compileComponents()` under a builder that inlines resources — silent until told so         |
+| [`no-sync-testbed-await`](#no-sync-testbed-await)                     | `error`          | `await` on a TestBed call that answers the TestBed or a fixture, never a promise            |
+| [`no-private-member-access`](#no-private-member-access)               | `error`          | a `private` / `protected` member reached through brackets, a cast, or the prototype         |
+| [`no-mocked-for-spy`](#no-mocked-for-spy)                             | `error`          | `Mocked<T>` in a type position where the value is a spy                                     |
+| [`prefer-as-spy`](#prefer-as-spy)                                     | `error`          | `TestBed.inject(X) as Spy<X>` — a cast that no longer compiles                              |
+| [`no-ts-expect-error-on-double`](#no-ts-expect-error-on-double)       | `error`          | `@ts-expect-error` / `@ts-ignore` above a double's `nextWith`, `mockReturnValue`, …         |
+| [`no-jasmine-globals`](#no-jasmine-globals)                           | `error`          | `jasmine.*`, bare `spyOn(` / `fail(` / `pending(`, and `.withContext(`                      |
+| [`jasmine-namespace-without-entry`](#jasmine-namespace-without-entry) | `error`          | `.and` / `.calls` / `.withArgs` in a file that installs the compatibility layer nowhere     |
+| [`no-save-arguments-by-value`](#no-save-arguments-by-value)           | `error`          | `spy.calls.saveArgumentsByValue()` — a no-op here                                           |
+| [`prefer-native-spy-api`](#prefer-native-spy-api)                     | `error`          | `.and` / `.calls` where the spy's own API says the same thing                               |
 
 Six of them have options: [`prefer-create-spy-from-class`](#prefer-create-spy-from-class),
 [`no-stub-class-double`](#no-stub-class-double) and
@@ -9941,6 +9943,78 @@ has no rule for this; its `valid-expect` checks the shape of the call, not what 
 
 **Severity.** `error`. The finding is a fact about the line: nothing the code does can change its
 answer.
+
+## no-redundant-smoke-test
+
+**`error`** · suggestion · syntax only
+
+**Reports.** A test whose every statement asks whether one value is there — `expect(pipe).toBeTruthy()`,
+`expect(service).toBeDefined()` — in a block that already has tests the runner will run.
+
+**Decides on.** The bodies of the block's tests, and nothing else:
+
+- A body counts as a smoke test when each of its statements is an `expect(x)` under `toBeTruthy`,
+  `toBeDefined` or `toBeInstanceOf`, or under `toBeFalsy`, `toBeNull` or `toBeUndefined` behind a `.not`
+  — the same question asked the other way round. One statement that does anything else — a call, a
+  local, an `if`, a matcher that reads a value — and the test is left alone. An empty body is not a
+  smoke test either.
+- The tests it is weighed against are the ones that run the same setup: the rest of its own block, and
+  every test the blocks nested inside it declare. A skipped sibling — `it.skip`, `xit`, `it.todo` —
+  proves nothing, so it does not count; a skipped smoke test is still reported.
+- A block whose only running test is this one is left alone: a spec that proves the subject can be
+  constructed is thin, but a rule that empties a file has stopped being a lint rule.
+- A test nested below the block is not weighed against the block above it — the outer tests do not run
+  the inner `beforeEach`, so they cannot answer for a subject that one builds.
+
+**Finding, and the repair.**
+
+```ts
+describe('SliderIndicatorPositionPipe', () => {
+  let pipe: SliderIndicatorPositionPipe;
+
+  beforeEach(() => {
+    pipe = new SliderIndicatorPositionPipe();
+  });
+
+  it('should create an instance', () => {
+    expect(pipe).toBeTruthy(); // ❌ green in every state of the code this file can reach
+  });
+
+  it('clamps a position past the right edge', () => {
+    expect(pipe.transform(120, 100, 200)).toBeLessThanOrEqual(95);
+  });
+});
+```
+
+Delete it; the suggestion does, blank line above it included. The test below runs the same
+`beforeEach`, so a `pipe` that came back nullish fails **it** first — on `transform` of undefined, which
+names what the spec was doing when it happened.
+
+Where building the subject really is what the spec is about, assert on that instead — a factory that
+rejects a bad config, a constructor that reads an optional token:
+
+```ts
+it('refuses a config with no bucket', () => {
+  expect(() => new Uploader({ bucket: '' })).toThrow('bucket is required');
+});
+```
+
+**Why it is recommended.** The line cannot fail on its own, and it is the one line of a spec that looks
+like coverage. Measured on one Angular suite of 1771 spec files: 569 reports in 540 files, 515 of them
+titled `should create`, `should be created` or `create an instance` — what `ng generate` writes into
+every new spec, kept while the file around it grew tests that already build the same subject. On a
+second suite, 845 files: 97 reports in 87 files. On a third, 127 files: one.
+[`vitest/expect-expect`](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-plugin#alongside-vitest-expect-expect) sees an `expect` and
+is satisfied; `@vitest/eslint-plugin` (1.6) has no rule for this.
+
+**Limits.** Syntax only: an existence check behind a helper — `expectCreated(pipe)` — is not read, and
+neither is one reached through `expect.soft`. It does not look at what the block builds, so a smoke
+test whose siblings all test a **different** subject is reported too — that is a spec asserting the
+wrong thing rather than a false report, but it is the reading to know about. `it.each([…])('…')` is
+read as one test, whatever the table holds.
+
+**Severity.** `error`. The finding is a fact about the file: nothing the code under test does can
+change the answer, and the repair is a deletion.
 
 ## prefer-create-spy-from-class
 
@@ -13826,7 +13900,9 @@ Five things to know:
   interface's own members checked in the overrides too.
 - **A plain `{ … }` merges into the member; anything else replaces it.** `{ screen: { width: 1920 } }`
   leaves `screen.colorDepth` real, while a `vi.fn()`, an array, a `URL` or a stub instance is the
-  member, whole — those are things a spec built to stand in for it, not descriptions of it.
+  member, whole — those are things a spec built to stand in for it, not descriptions of it. The slice
+  goes three levels down, the way the merge does: `{ document: { location: { href: '' } } }` is checked
+  and merged member by member, and past that depth a member takes its whole type.
 - **There is nothing to restore.** The real `window` and `document` are never patched: the double is
   a view over them, and every write and delete the code under test makes lands on the view. Which is
   also how a spec moves a value mid-test — `Object.assign(TestBed.inject(WINDOW), { scrollY: 40 })`,
@@ -15216,13 +15292,20 @@ is a structural stand-in provided for the `Router` token:
 | `serializeUrl`, `parseUrl`  | the router's own `DefaultUrlSerializer`, not a pair of stubs                                                      |
 | `createUrlTree`             | Angular's `createUrlTreeFromSnapshot`, so `relativeTo`, `queryParamsHandling` and `preserveFragment` behave       |
 | `routerState`               | Angular's own `RouterState`: `snapshot.url` is the URL, and `root` a route carrying its query params and fragment |
+| `currentNavigation`         | the signal Angular 20.2+ declares: the navigation in flight, `null` while the router stands still                 |
+| `getCurrentNavigation()`    | the same answer through the deprecated method, so a component reading either one sees one truth                   |
 
-Anything else Angular's `Router` declares — `getCurrentNavigation`, `isActive`, `resetConfig` — is
-**not** `undefined`: reading it throws, naming the member and what the double covers. A member that
-answers a call nobody should be making in a unit test is how a wrong test survives a run.
+Anything else Angular's `Router` declares — `isActive`, `resetConfig`, `lastSuccessfulNavigation` —
+is **not** `undefined`: reading it throws, naming the member and what the double covers. A member
+that answers a call nobody should be making in a unit test is how a wrong test survives a run. That
+holds for the fields as well as for the methods: `currentNavigation`, `config` and `navigated` live
+on the instance rather than on `Router.prototype`, so a guard built from the prototype alone would
+have handed back `undefined` and let `router.currentNavigation()` fail as "is not a function"
+wherever the component happened to call it.
 
-`init` has one field, `url`, because everything else about a router follows from it. It defaults to
-`'/'`.
+`init` takes `url` — everything else about where a router stands follows from it, and it defaults to
+`'/'` — and `currentNavigation`, for the component that reads the navigation in a field
+initializer, before a test body could set one.
 
 ### `injectRouterDouble(injector?)`
 
@@ -15236,13 +15319,14 @@ router.navigate.resolveWith(false);
 The handle of the router `provideRouterDouble()` put in the test's injector. It reads the `TestBed`;
 pass `fixture.debugElement.injector` when the router is in a component's own `providers`.
 
-| Member                   | What it does                                                                             |
-| ------------------------ | ---------------------------------------------------------------------------------------- |
-| `router`                 | the value every injector in the test hands out for `Router`                              |
-| `navigate`               | the spied `navigate()` — assert on it, or answer with `resolveWith(false)`               |
-| `navigateByUrl`          | the spied `navigateByUrl()`, the same way                                                |
-| `setUrl(url)`            | put the router at a URL: `url`, `routerState` and the root route move together, silently |
-| `emitNavigation(event?)` | push an event through `router.events`                                                    |
+| Member                              | What it does                                                                             |
+| ----------------------------------- | ---------------------------------------------------------------------------------------- |
+| `router`                            | the value every injector in the test hands out for `Router`                              |
+| `navigate`                          | the spied `navigate()` — assert on it, or answer with `resolveWith(false)`               |
+| `navigateByUrl`                     | the spied `navigateByUrl()`, the same way                                                |
+| `setUrl(url)`                       | put the router at a URL: `url`, `routerState` and the root route move together, silently |
+| `emitNavigation(event?)`            | push an event through `router.events`                                                    |
+| `setCurrentNavigation(navigation?)` | put a navigation in flight, or end it with `null`                                        |
 
 `emitNavigation()` takes what the spec has: nothing (re-announce the current URL), a URL string (a
 `NavigationEnd` for it, built for you), or an event you built — `new NavigationEnd(1, '/a', '/a')`,
@@ -15258,6 +15342,36 @@ exposes:
 - **The first thing a subscriber sees is a `NavigationEnd` for the starting URL**, because that is
   the navigation that put the router there. A component counting navigations starts at one, not
   zero.
+
+### The navigation in flight
+
+```ts
+const router = injectRouterDouble();
+
+router.setCurrentNavigation({ extras: { state: { from: 'the card' } } });
+expect(component.origin()).toBe('the card');
+```
+
+`currentNavigation()` is what a component reads to find out where a navigation came from — the
+`extras.state` an opener passed, or the `trigger` that tells a `'popstate'` apart from a click. It
+is a signal on the instance, which is why a hand-rolled double usually spells it
+`instanceMethodsToSpyOn: ['currentNavigation']`: it is not on the prototype, so nothing reads it off
+the class.
+
+The double answers `null` until the spec says otherwise, because a router standing at a URL is idle
+and that is the real answer between navigations. What `setCurrentNavigation()` is given is kept and
+the rest is derived from where the router stands: `id`, `initialUrl` and `extractedUrl` from the
+current URL, `trigger` `'imperative'`, `extras` empty, `previousNavigation` `null`. Pass `abort`
+yourself when the spec asserts one — the default is a no-op rather than a spy nothing reads.
+
+It also follows the events, the way the real one does:
+
+- `emitNavigation(new NavigationStart(4, '/products/8', 'popstate'))` puts a navigation in flight
+  with that id, URL and trigger.
+- a `NavigationEnd`, `NavigationCancel`, `NavigationError` or `NavigationSkipped` ends it —
+  "the current navigation becomes null after the NavigationEnd event is emitted", so a component
+  that reads it while handling a `NavigationEnd` gets `null` here and `null` in production. A double
+  that kept the navigation would hide exactly that.
 
 ### `createRouterDouble(init?)`
 
@@ -19378,8 +19492,8 @@ The exported surface of `vitest-auto-spy` and its subpaths.
 | `expectNoRequest(matcher?, opts?)` / `verifyNoPendingRequests()`                                             | Assert that nothing was requested / that nothing was left unanswered (`/angular-http`)                                                                                                     |
 | `provideActivatedRoute(init?)`                                                                               | An `ActivatedRoute` whose streams, `paramMap`s and snapshot are built from one record, as Angular's own class (`/angular-router`)                                                          |
 | `injectActivatedRoute(injector?)` / `createActivatedRoute(init?)`                                            | The handle whose setters move the streams and the snapshot together — from the `TestBed`, or built without one (`/angular-router`)                                                         |
-| `provideRouterDouble(init?)`                                                                                 | A `Router` over one URL: `url`, `routerState` and `events` agree, and `navigate` / `navigateByUrl` are spies resolving `true` (`/angular-router`)                                          |
-| `injectRouterDouble(injector?)` / `createRouterDouble(init?)`                                                | The handle: the two navigation spies, `setUrl(url)` and `emitNavigation(event?)` — from the `TestBed`, or built without one (`/angular-router`)                                            |
+| `provideRouterDouble(init?)`                                                                                 | A `Router` over one URL: `url`, `routerState`, `events` and `currentNavigation()` agree, and `navigate` / `navigateByUrl` are spies resolving `true` (`/angular-router`)                   |
+| `injectRouterDouble(injector?)` / `createRouterDouble(init?)`                                                | The handle: the two navigation spies, `setUrl(url)`, `emitNavigation(event?)` and `setCurrentNavigation(navigation?)` — from the `TestBed`, or built without one (`/angular-router`)       |
 | `createForm(model, schema?, options?)`                                                                       | Angular's own signal `form()`, built in the `TestBed`'s injection context (`/signal-forms`)                                                                                                |
 | `registerFormMatchers()`                                                                                     | Adds `expect(field).toHaveFieldErrors(['required'])` — the whole error set of a field, by kind (`/signal-forms`)                                                                           |
 | `registerResourceMatchers()`                                                                                 | Adds `toBeLoading` / `toHaveResourceValue` / `toHaveResourceError`; the value matcher fails an unresolved resource (`/angular`)                                                            |
@@ -19538,7 +19652,7 @@ a `NodeList` stays assignable to the mapping of itself.
 `WebStorageKey`, `WebStorageStub` and `WebStorageStubOptions` for `stubWebStorage`; `/angular-http` adds `RequestMatcher`, `RequestExpectation`, `ResponseBody`,
 `FlushOptions`, `RequestErrorOptions`, `ExpectRequestOptions` and `HttpTestingOptions` for
 `expectRequest` and `provideHttpTesting`; `/angular-router` adds `ActivatedRouteInit`,
-`ActivatedRouteChange` and `ActivatedRouteDouble` for its route helpers, and `RouterDoubleInit` and
+`ActivatedRouteChange` and `ActivatedRouteDouble` for its route helpers, and `RouterDoubleInit`, `NavigationInit` and
 `RouterDouble` for its router ones; `/nestjs` adds `NestUnit<T>`, `NestUnitSpies`,
 `NestUnitClass<T>`, `NestUnitProvider` and `CreateNestUnitOptions` for `createNestUnit`;
 `/node` adds `StopTrackingNodeMocks`, the disarm handle `trackNodeMocks()` hands back;
