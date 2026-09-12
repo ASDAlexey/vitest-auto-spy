@@ -9,6 +9,7 @@ import { TestBed } from '@angular/core/testing';
 import { describe, expect, it, vi } from 'vitest';
 
 import { createDocumentDouble, createWindowDouble, provideDocumentDouble, provideWindowDouble } from './platform-doubles';
+import { mockValueProp } from './prop-mock';
 
 interface AppWindow extends Window {
   appBuildId: string;
@@ -140,6 +141,73 @@ describe('createWindowDouble', () => {
 
     expect(win.innerWidth).toBe(globalThis.window.innerWidth);
   });
+
+  it('answers a spy put inside location, which the platform declares unforgeable', () => {
+    const reload = vi.fn();
+    const win = createWindowDouble({ location: { reload } });
+
+    win.location.reload();
+
+    expect(reload).toHaveBeenCalledOnce();
+    expect(win.location.href).toBe(globalThis.window.location.href);
+  });
+
+  it('keeps an assignment to location off the real address bar', () => {
+    const win = createWindowDouble({ location: { href: 'http://app.test/' } });
+
+    win.location.href = 'http://app.test/checkout';
+
+    expect(win.location.href).toBe('http://app.test/checkout');
+    expect(globalThis.window.location.href).not.toBe('http://app.test/checkout');
+  });
+
+  it('merges a storage slice and leaves the members it did not name to the real one', () => {
+    const setItem = vi.fn();
+    const win = createWindowDouble({ localStorage: { setItem } });
+
+    win.localStorage.setItem('token', 'abc');
+
+    expect(setItem).toHaveBeenCalledWith('token', 'abc');
+    expect(win.localStorage.length).toBe(globalThis.localStorage.length);
+  });
+
+  it('takes a mockValueProp patch and gives the member back when it is restored', () => {
+    const win = createWindowDouble({ innerWidth: 375 });
+    const restore = mockValueProp(win, 'innerWidth', 800);
+
+    expect(win.innerWidth).toBe(800);
+
+    restore();
+
+    expect(win.innerWidth).toBe(375);
+    expect(globalThis.window.innerWidth).not.toBe(800);
+  });
+
+  it('reads through a patched getter and writes through its setter', () => {
+    const win = createWindowDouble();
+    const written: number[] = [];
+
+    Object.defineProperty(win, 'scrollY', {
+      get: (): number => 40,
+      set: (value: number): void => void written.push(value),
+    });
+
+    expect(win.scrollY).toBe(40);
+
+    Object.assign(win, { scrollY: 90 });
+
+    expect(written).toEqual([90]);
+    expect(globalThis.window.scrollY).toBe(0);
+  });
+
+  it('lists an override among its own keys, and has no descriptor for a member nobody has', () => {
+    const win = createWindowDouble<AppWindow>({ appBuildId: '2026.09.12' });
+
+    expect(Object.keys(win)).toContain('appBuildId');
+    expect(Object.getOwnPropertyDescriptor(win, 'appBuildId')?.value).toBe('2026.09.12');
+    expect(Object.getOwnPropertyDescriptor(win, 'location')?.configurable).toBe(true);
+    expect(Object.getOwnPropertyDescriptor(win, 'nothingIsHere')).toBeUndefined();
+  });
 });
 
 describe('createDocumentDouble', () => {
@@ -157,6 +225,26 @@ describe('createDocumentDouble', () => {
     const doc = createDocumentDouble();
 
     expect(doc.title).toBe(globalThis.document.title);
+  });
+
+  it('takes a member the environment does not implement at all, and keeps it off the real document', () => {
+    const exitFullscreen = vi.fn();
+    const doc = createDocumentDouble();
+
+    Object.assign(doc, { exitFullscreen });
+    doc.exitFullscreen();
+
+    expect(exitFullscreen).toHaveBeenCalledOnce();
+    expect(Object.hasOwn(globalThis.document, 'exitFullscreen')).toBe(false);
+  });
+
+  it('is what a window double hands out for window.document when the spec wires one in', () => {
+    const doc = createDocumentDouble({ visibilityState: 'hidden' });
+    const win = createWindowDouble({ document: doc });
+
+    expect(win.document).toBe(doc);
+    expect(win.document.visibilityState).toBe('hidden');
+    expect(globalThis.window.document.visibilityState).toBe('visible');
   });
 });
 

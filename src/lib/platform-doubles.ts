@@ -63,75 +63,134 @@ function isSlice(value: unknown): value is Slots {
   return prototype === Object.prototype || prototype === null;
 }
 
+function valueSlot(value: unknown): PropertyDescriptor {
+  return { value, writable: true, enumerable: true, configurable: true };
+}
+
+/** What one double knows: the object behind it, what the spec said, and what was built from that. */
+interface View {
+  readonly real: object;
+  readonly slots: Map<string | symbol, PropertyDescriptor>;
+  readonly slices: Map<string | symbol, unknown>;
+  readonly bound: WeakMap<object, unknown>;
+}
+
+function readSlice(view: View, key: string | symbol, override: Slots): unknown {
+  const built = view.slices.get(key);
+
+  if (built !== undefined) {
+    return built;
+  }
+
+  const actual: unknown = Reflect.get(view.real, key, view.real);
+
+  if (typeof actual !== 'object' || actual === null) {
+    return override;
+  }
+
+  const slice = mergeOver(actual, override);
+
+  view.slices.set(key, slice);
+
+  return slice;
+}
+
+function readReal(view: View, key: string | symbol): unknown {
+  const actual: unknown = Reflect.get(view.real, key, view.real);
+
+  if (typeof actual !== 'function') {
+    return actual;
+  }
+
+  // Bound to the real object, and remembered per function rather than per key: a method handed out
+  // twice has to be the same function, or code that stores one and compares it later breaks.
+  const handle = view.bound.get(actual);
+
+  if (handle !== undefined) {
+    return handle;
+  }
+
+  const fresh: unknown = actual.bind(view.real);
+
+  view.bound.set(actual, fresh);
+
+  return fresh;
+}
+
+function read(view: View, key: string | symbol, receiver: unknown): unknown {
+  const slot = view.slots.get(key);
+
+  if (slot === undefined) {
+    return readReal(view, key);
+  }
+
+  if (slot.get !== undefined) {
+    return slot.get.call(receiver);
+  }
+
+  const override: unknown = slot.value;
+
+  return isSlice(override) ? readSlice(view, key, override) : override;
+}
+
 function mergeOver<T extends object>(real: T, overrides: Slots): T {
-  // Copied, so the record the caller passed is never written to: the same overrides object is
-  // usually a module constant shared by every test of the file.
-  const slots: Slots = { ...overrides };
-  const slices = new Map<PropertyKey, unknown>();
-  const bound = new WeakMap<object, unknown>();
+  // Copied into descriptors, so the record the caller passed is never written to: the same
+  // overrides object is usually a module constant shared by every test of the file.
+  const slots = new Map<string | symbol, PropertyDescriptor>();
 
-  return new Proxy(real, {
-    get(target, key): unknown {
-      if (Object.hasOwn(slots, key)) {
-        const override = slots[key];
+  for (const key of Reflect.ownKeys(overrides)) {
+    slots.set(key, valueSlot(Reflect.get(overrides, key)));
+  }
 
-        if (!isSlice(override)) {
-          return override;
-        }
+  const view: View = { real, slots, slices: new Map(), bound: new WeakMap() };
+  // The proxy stands on an empty object of the real one's prototype rather than on the real object
+  // itself: `location.reload` and the rest of the unforgeable members are own, non-configurable and
+  // non-writable, and a proxy may not answer for such a member with anything but its real value.
+  // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- an object built from the real prototype is a `T` for every read that matters; the traps below answer before the target is ever consulted.
+  const target = Object.create(Reflect.getPrototypeOf(real)) as T;
 
-        const built = slices.get(key);
+  return new Proxy(target, {
+    get: (_target, key, receiver): unknown => read(view, key, receiver),
+    set(_target, key, value, receiver): boolean {
+      const slot = slots.get(key);
 
-        if (built !== undefined) {
-          return built;
-        }
+      if (slot?.set !== undefined) {
+        slot.set.call(receiver, value);
 
-        const actual: unknown = Reflect.get(target, key, target);
-
-        if (typeof actual !== 'object' || actual === null) {
-          return override;
-        }
-
-        const slice = mergeOver(actual, override);
-
-        slices.set(key, slice);
-
-        return slice;
+        return true;
       }
 
-      const actual: unknown = Reflect.get(target, key, target);
+      slots.set(key, valueSlot(value));
+      view.slices.delete(key);
 
-      if (typeof actual !== 'function') {
-        return actual;
-      }
-
-      // Bound to the real object, and remembered per function rather than per key: a method handed
-      // out twice has to be the same function, or code that stores one and compares it later breaks.
-      const handle = bound.get(actual);
-
-      if (handle !== undefined) {
-        return handle;
-      }
-
-      const fresh: unknown = actual.bind(target);
-
-      bound.set(actual, fresh);
-
-      return fresh;
+      return true;
     },
-    set(_target, key, value): boolean {
-      slots[key] = value;
-      slices.delete(key);
+    defineProperty(_target, key, descriptor): boolean {
+      // Configurable whatever the caller asked for: a proxy may not report a non-configurable
+      // member its target does not have, and the target here has none of them.
+      slots.set(key, { ...descriptor, configurable: true });
+      view.slices.delete(key);
 
       return true;
     },
     deleteProperty(_target, key): boolean {
-      delete slots[key];
-      slices.delete(key);
+      slots.delete(key);
+      view.slices.delete(key);
 
       return true;
     },
-    has(target, key): boolean {
-      return Object.hasOwn(slots, key) || Reflect.has(target, key);
+    has: (_target, key): boolean => slots.has(key) || Reflect.has(real, key),
+    ownKeys: (): (string | symbol)[] => [...new Set([...Reflect.ownKeys(real), ...slots.keys()])],
+    getOwnPropertyDescriptor(_target, key): PropertyDescriptor | undefined {
+      const slot = slots.get(key);
+
+      if (slot !== undefined) {
+        return slot;
+      }
+
+      const actual = Reflect.getOwnPropertyDescriptor(real, key);
+
+      return actual === undefined ? undefined : { ...actual, configurable: true };
     },
   });
 }
