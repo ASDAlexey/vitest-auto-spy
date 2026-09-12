@@ -383,7 +383,20 @@ export default defineConfig({
           'stub child component angular, mock child component standalone, stub input renamed spec still green, ' +
           'createComponentStub, MockComponent alternative, ' +
           'mock localStorage vitest, localStorage leaks between tests, in-memory localStorage per test, stubWebStorage, ' +
-          'getter returns undefined in test, observable property never emits, unconfiguredReads, onUnstubbedRead, ',
+          'getter returns undefined in test, observable property never emits, unconfiguredReads, onUnstubbedRead, ' +
+          'mock Router angular test, router.url undefined in test, router events never emit, NavigationEnd in a test, ' +
+          'provideRouterDouble, createRouterDouble, injectRouterDouble, navigate spy resolves true, routerLink href in test, ' +
+          'mock window vitest, window is read-only jsdom, cannot redefine window.location, location.reload is not a function, ' +
+          'mock document angular, DOCUMENT token test, WINDOW token angular, provideWindowDouble, provideDocumentDouble, ' +
+          'createWindowDouble, createDocumentDouble, override screen.width in test, ' +
+          'mock MatDialogRef, MAT_DIALOG_DATA in a test, afterClosed never emits, dialog.close not called, ' +
+          'material dialog unit test without material, provideMatDialogRef, provideMatDialogData, createMatDialogRef, injectMatDialogRef, ' +
+          'angular signal forms testing, test a signal form, form() NG0203, NG0203 inject() must be called from an injection context, ' +
+          'schema validation unit test angular, createForm, registerFormMatchers, toHaveFieldErrors, ' +
+          'errors() toEqual fails, RequiredValidationError fieldTree, FieldTree in a test, ' +
+          'change an input after the first render, componentRef.setInput in a test, NG0303 in a spec, setInputs, ' +
+          'count signal recomputations, did the effect run again, trackRecomputations, trackEffectRuns, ' +
+          'resource idle state test, mockResourceProp status idle, no-sync-testbed-await, prefer-provide-activated-route, ',
       },
     ],
     // max-image-preview:large is what lets Google and Yandex use the OG image in a result card.

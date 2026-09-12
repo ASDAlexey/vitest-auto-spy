@@ -222,9 +222,10 @@ it('loads', async () => {
 | an input that has to change after the first render                                        | `await setInputs(fixture, { … })` — one `setInput` per name, one wait                                                         |
 | a component that navigates, or reads `router.url`                                         | `provideRouterDouble({ url })` + `injectRouterDouble()` — `/angular-router`                                                   |
 | a `window` or `document` behind a DI token                                                | `provideWindowDouble(WINDOW, { screen })` / `provideDocumentDouble({ … })`                                                    |
-| `MAT_DIALOG_DATA` and `MatDialogRef` provided by hand                                     | `provideMatDialogData(TOKEN, data)` / `provideMatDialogRef(MatDialogRef)`                                                     |
+| `MAT_DIALOG_DATA` and `MatDialogRef` provided by hand                                     | `provideMatDialogData(TOKEN, data)` / `provideMatDialogRef(MatDialogRef)` + `injectMatDialogRef(Ref)`                         |
 | asserting a `computed()` did **not** recompute                                            | `trackRecomputations(sig)` / `trackEffectRuns(ref)` — `{ count, stop() }`                                                     |
-| `form()` in a spec, or `errors()` read by hand                                            | `createForm(model, schema)` + `toHaveFieldErrors(['required'])` — `/signal-forms`                                             |
+| `form()` in a spec, or `errors()` read by hand                                            | `createForm(model, schema)` + `registerFormMatchers()` — then `toHaveFieldErrors([…])` (`/signal-forms`)                      |
+| any of those doubles without a `TestBed`                                                  | `createRouterDouble` / `createWindowDouble` / `createDocumentDouble` / `createMatDialogRef`                                   |
 
 ## Rules that prevent most of the mistakes
 

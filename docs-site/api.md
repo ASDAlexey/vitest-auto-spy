@@ -238,7 +238,10 @@ a `NodeList` stays assignable to the mapping of itself.
 `AddThrowHelper` (the `failWith` every method spy carries) are exported from the core as well;
 `/angular` adds `AutoSpyTokenDefaults<T>` (a token's registration), `AutoSpyFixture`, `SpiedFixtures<Spec>` and `ExtendWithAutoSpiesOptions` for
 `extendWithAutoSpies`, `ComponentStubOptions` for `createComponentStub`, and `MatDialogRefInit<Ref>`,
-`MatDialogRefDouble<Ref>`, `DialogRefLike`, `DialogResult<Ref>` and `DialogComponent<Ref>` for the dialog doubles; `/dom-stubs` adds
+`MatDialogRefDouble<Ref>`, `DialogRefLike`, `DialogResult<Ref>` and `DialogComponent<Ref>` for the dialog doubles,
+`PlatformOverrides<T>` for the window and document ones, `RunCounter` (the `{ count, stop() }` of
+`trackRecomputations` and `trackEffectRuns`) and `MockResourceOptions` / `ResourceDoubleSnapshot<V>` for
+`mockResourceProp`; `/dom-stubs` adds
 `WebStorageKey`, `WebStorageStub` and `WebStorageStubOptions` for `stubWebStorage`; `/angular-http` adds `RequestMatcher`, `RequestExpectation`, `ResponseBody`,
 `FlushOptions`, `RequestErrorOptions`, `ExpectRequestOptions` and `HttpTestingOptions` for
 `expectRequest` and `provideHttpTesting`; `/angular-router` adds `ActivatedRouteInit`,
