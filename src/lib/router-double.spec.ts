@@ -7,7 +7,18 @@
 import { Component, Injector, computed, inject } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { TestBed } from '@angular/core/testing';
-import { ActivatedRoute, NavigationCancel, NavigationEnd, NavigationStart, Router, RouterLink, provideRouter } from '@angular/router';
+import {
+  ActivatedRoute,
+  NavigationCancel,
+  NavigationEnd,
+  NavigationError,
+  NavigationSkipped,
+  NavigationStart,
+  Router,
+  RouterLink,
+  Scroll,
+  provideRouter,
+} from '@angular/router';
 import { filter, map } from 'rxjs';
 import { describe, expect, it } from 'vitest';
 
@@ -293,6 +304,61 @@ describe('the navigation in flight', () => {
     emitNavigation(new NavigationCancel(5, '/products/9', 'a guard said no'));
 
     expect(router.currentNavigation()).toBeNull();
+  });
+
+  it('ends on a failed navigation, and on one the router skipped', () => {
+    const { router, emitNavigation, setCurrentNavigation } = createRouterDouble();
+
+    setCurrentNavigation();
+    emitNavigation(new NavigationError(5, '/products/9', new Error('a resolver threw')));
+
+    expect(router.currentNavigation()).toBeNull();
+
+    setCurrentNavigation();
+    emitNavigation(new NavigationSkipped(6, '/products/9', 'the URL did not change'));
+
+    expect(router.currentNavigation()).toBeNull();
+  });
+
+  it('stands through an event that neither starts a navigation nor ends one', () => {
+    const { router, emitNavigation, setCurrentNavigation } = createRouterDouble({ url: '/products/7' });
+
+    setCurrentNavigation({ extras: { state: { from: 'the card' } } });
+    emitNavigation(new Scroll(new NavigationEnd(5, '/products/9', '/products/9'), [0, 0], null));
+
+    expect(router.currentNavigation()?.extras.state).toEqual({ from: 'the card' });
+    expect(router.url).toBe('/products/7');
+  });
+
+  it('falls back to an imperative trigger when the event carries none', () => {
+    const { router, emitNavigation } = createRouterDouble({ url: '/' });
+    const start = new NavigationStart(4, '/products/8');
+
+    // Angular's constructor defaults the trigger, but leaves the field optional on the event type,
+    // and `Navigation.trigger` is not optional.
+    (start as { navigationTrigger?: NavigationStart['navigationTrigger'] }).navigationTrigger = undefined;
+
+    emitNavigation(start);
+
+    expect(router.currentNavigation()?.trigger).toBe('imperative');
+  });
+
+  it('carries an abort the code under test can call, inert until the spec passes its own', () => {
+    const { router, setCurrentNavigation } = createRouterDouble();
+    let aborted = 0;
+
+    setCurrentNavigation();
+
+    expect(() => router.currentNavigation()?.abort()).not.toThrow();
+
+    setCurrentNavigation({
+      abort: () => {
+        aborted += 1;
+      },
+    });
+    router.currentNavigation()?.abort();
+
+    expect(aborted).toBe(1);
   });
 
   it('is a signal a component can read through a computed', () => {
