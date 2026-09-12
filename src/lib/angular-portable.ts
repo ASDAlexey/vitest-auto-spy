@@ -13,5 +13,7 @@
 export { createWithAutoSpies, type AutoSpiedInstance, type CreateWithAutoSpiesOptions, type SpyRegistry } from './create-with-auto-spies';
 export { renderShallow, type ComponentInputs, type RenderShallowOptions, type ShallowRender } from './render-shallow';
 export { runEffect } from './run-effect';
+export { setInputs } from './set-inputs';
 export { settleResource, type ResourceStatusLike, type SettleResourceOptions } from './settle-resource';
+export { trackEffectRuns, trackRecomputations, type RunCounter } from './track-signal-runs';
 export { flushEffects, stable, type StableOptions } from './zoneless';
