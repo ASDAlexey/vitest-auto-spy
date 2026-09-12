@@ -39,6 +39,7 @@ export const DOCS_LINKS = {
   realSeam: `${DOCS}/utilities/module-mocks#provide-a-real-seam`,
   rxjs: `${DOCS}/runtimes/rxjs`,
   setup: `${DOCS}/utilities/setup`,
+  signalForms: `${DOCS}/adapters/signal-forms`,
   // Its own page rather than a section of the factory's: the reader arriving here was thrown at by a
   // double they configured somewhere else entirely, and the question they have is what counts as
   // configured — which is the whole page, not a paragraph of another one.

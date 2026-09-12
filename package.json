@@ -152,6 +152,11 @@
       "import": "./dist/angular-router.js",
       "default": "./dist/angular-router.js"
     },
+    "./signal-forms": {
+      "types": "./dist/signal-forms.d.ts",
+      "import": "./dist/signal-forms.js",
+      "default": "./dist/signal-forms.js"
+    },
     "./nestjs": {
       "types": "./dist/nestjs.d.ts",
       "import": "./dist/nestjs.js",
@@ -293,6 +298,7 @@
   "peerDependencies": {
     "@angular/common": ">=20.0.0",
     "@angular/core": ">=20.0.0",
+    "@angular/forms": ">=22.0.0",
     "@angular/platform-browser": ">=20.0.0",
     "@angular/router": ">=20.0.0",
     "rxjs": ">=7.2.0",
@@ -303,6 +309,9 @@
       "optional": true
     },
     "@angular/core": {
+      "optional": true
+    },
+    "@angular/forms": {
       "optional": true
     },
     "@angular/platform-browser": {
@@ -331,6 +340,7 @@
     "@angular/compiler": "^22.1.5",
     "@angular/compiler-cli": "^22.1.5",
     "@angular/core": "^22.1.5",
+    "@angular/forms": "22.1.5",
     "@angular/platform-browser": "^22.1.5",
     "@angular/router": "^22.1.5",
     "@eslint-community/eslint-plugin-eslint-comments": "^4.7.2",

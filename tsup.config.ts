@@ -18,6 +18,9 @@ const EXTERNAL = [
   // a package every Angular consumer already has.
   '@angular/platform-browser',
   '@angular/platform-browser/testing',
+  // The optional forms peer, reached only by `vitest-auto-spy/signal-forms`.
+  '@angular/forms',
+  '@angular/forms/signals',
   // The optional router peer, reached only by `vitest-auto-spy/angular-router`.
   '@angular/router',
   '@happy-dom/global-registrator',
@@ -79,6 +82,7 @@ const CHUNKED_ENTRIES = [
   'src/vue.ts',
   'src/svelte.ts',
   'src/setup.ts',
+  'src/signal-forms.ts',
   'src/zone.ts',
 ];
 
