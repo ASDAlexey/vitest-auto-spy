@@ -636,12 +636,12 @@ only pays for the ones it imports:
 | Imported                                      |    min+gzip |
 | --------------------------------------------- | ----------: |
 | `.` — the core entry, what the badge measures | **17.2 kB** |
-| `vitest-auto-spy/angular`                     |     22.7 kB |
+| `vitest-auto-spy/angular`                     |     25.6 kB |
 | `vitest-auto-spy/react` / `/vue` / `/svelte`  |     17.4 kB |
-| `vitest-auto-spy/node`                        |     16.2 kB |
+| `vitest-auto-spy/node`                        |     16.3 kB |
 | `vitest-auto-spy/dom-stubs`                   |      5.6 kB |
 | `vitest-auto-spy/rxjs`                        |      2.3 kB |
-| `vitest-auto-spy/angular-router`              |      2.1 kB |
+| `vitest-auto-spy/angular-router`              |      6.4 kB |
 | `vitest-auto-spy/zone`                        |      1.1 kB |
 
 **The framework rows are not a framework tax.** `react`, `vue` and `svelte` weigh what the core
@@ -649,7 +649,7 @@ weighs, within a rounding error of each other, because that is what they are: `s
 barrel — a `registerMockAdapter` call and `export * from './auto-spy'` — and its own code is seven
 bytes in the bundle. Nobody should go looking for weight in it.
 
-Every figure here is the committed baseline in `size-entries.json` as of 2026-09-11, which is what
+Every figure here is the committed baseline in `size-entries.json` as of 2026-09-12, which is what
 `size:entries:check` and the badge both read; an earlier edition of this table quoted 15.1, 18.7 and
 14.5 kB for the first three rows, taken before the defaults registry, the outside-a-hook report and
 the shadowed-provider check. `/dom-stubs` last moved for `stubWebStorage`, +256 B, and `/angular` for
@@ -661,6 +661,13 @@ recorder behind `takeStrictViolations` and the swallowed-strict guard, +0.16…0
 trackers and the `unconfiguredReads` ledger, with `selfReturning` in the same commit — +0.37…0.41 kB on the core rows and +0.61 kB on `/setup`, which
 also carries the report, and last for token registrations, +18 B.
 
+`/angular` then took `setInputs`, the `window` / `document` and Material-dialog doubles, the resource
+double that carries the whole `ResourceRef`, and the recomputation counters — +2.91 kB, the largest
+move that entry has made. `/angular-router` tripled, +4.31 kB, for the `Router` double: it is the
+router's own `DefaultUrlSerializer`, `createUrlTreeFromSnapshot` and `RouterState` doing the URL work
+rather than a structural stand-in guessing at it, which is the whole reason the double cannot
+contradict itself. `/eslint-plugin` is +1.77 kB for the rules of the previous two releases.
+
 `npm run size:entries` prints all twenty-two and compares them against a committed baseline, so an entry
 that quietly gains a second copy of the core fails a check instead of being noticed a release later.
 
@@ -669,17 +676,17 @@ framework adapters, rxjs layer, console spies and setup helpers each live behind
 
 ### What is in the download
 
-`dist/` is **1 230 kB**, the published tarball **508 kB**, and the package ships **77 files**
-(measured 2026-09-11, after 5.4.0; the previous edition said 1 035 kB, 431 kB and 75 files). An
+`dist/` is **1 409 kB**, the published tarball **588 kB**, and the package ships **82 files**
+(measured 2026-09-12; the previous edition said 1 230 kB, 508 kB and 77 files). An
 earlier edition reported 241 kB, 108 kB and 54 files, and presented the change as a reduction.
 Those figures were correct when they were taken — they reproduce to the byte at v2.0.0 — but that
 package had thirteen subpaths, no command-line tool, and an ESLint entry a sixth of its current
 size. Comparing them to today's is comparing two different packages.
 
 Where the bytes are is more useful than the total. The two largest JavaScript files in the package,
-`dist/cli.js` at 159 kB and `dist/eslint-plugin.cjs` at 117 kB, are **never loaded by a spec file** —
+`dist/cli.js` at 160 kB and `dist/eslint-plugin.cjs` at 153 kB, are **never loaded by a spec file** —
 they are the `vitest-auto-spy` executable and the lint rules, together a fifth of `dist/`. The next
-two, `dist/index.js` at 103 kB and `dist/angular.js` at 127 kB, are large on purpose: both are built
+two, `dist/index.js` at 109 kB and `dist/angular.js` at 156 kB, are large on purpose: both are built
 unsplit, so each carries its own copy of what it needs rather than reaching a shared chunk through
 the loader. `tsup.config.ts` records the measurement behind that decision — the root entry goes
 3.2 → 2.4 ms and root plus `angular` 4.7 → 3.7 ms under Node's native loader, so 0.8 and 1.0 ms per
