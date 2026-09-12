@@ -463,7 +463,7 @@ Short and factual.
   ways an AOT test bundle fails half an hour later in someone else's spec.
 - **Beyond Vitest**, the same API runs on `bun:test` and `node:test`, and Angular's `TestBed` runs
   [under `bun test`](/runtimes/bun-angular).
-- **[Thirty-four lint rules](/utilities/eslint-plugin)** versioned with the API they recommend.
+- **[Thirty-six lint rules](/utilities/eslint-plugin)** versioned with the API they recommend.
 
 ## Did the migration lose a test?
 

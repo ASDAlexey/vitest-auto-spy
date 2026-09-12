@@ -352,7 +352,7 @@ source$ = new Subject<Page>(); // дубль всё ещё выдаёт мёрт
 [`renderShallow` и `createWithAutoSpies`](/ru/adapters/angular),
 [проверки на observable](/ru/core/observable-assertions),
 [фейковые таймеры, которые дожидаются успокоения](/ru/utilities/fake-timers),
-[спаи на консоль](/ru/utilities/console), [тридцать четыре правила ESLint](/ru/utilities/eslint-plugin),
+[спаи на консоль](/ru/utilities/console), [тридцать шесть правил ESLint](/ru/utilities/eslint-plugin),
 поддержку Bun и `node:test` — и [`TestBed` из Angular под `bun test`](/ru/runtimes/bun-angular).
 
 ## Не потеряла ли миграция тест? {#did-the-migration-lose-a-test}

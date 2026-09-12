@@ -1,6 +1,6 @@
 ---
 title: ESLint plugin
-description: Thirty-four flat-config lint rules that steer a suite onto the auto-spy helpers, grouped by subject, every one an error by default bar the four that report a cost or a heuristic, with the dial documented and the false-positive cases named.
+description: Thirty-six flat-config lint rules that steer a suite onto the auto-spy helpers, grouped by subject, every one an error by default bar the four that report a cost or a heuristic, with the dial documented and the false-positive cases named.
 ---
 
 # ESLint plugin
@@ -22,7 +22,7 @@ which a subpath export of this package can never be.
 
 **How this page is laid out.** [Adding it](#adding-it-to-your-project) is the four things a first
 config needs. [Which apply to you](#which-of-the-twenty-apply-to-you) answers the question a
-Vitest-only project asks — four of the thirty-four are about a dialect you may not speak.
+Vitest-only project asks — four of the thirty-six are about a dialect you may not speak.
 [Rules](#rules) is the reference table, in seven groups. [Tuning](#tuning-it-for-your-project) is
 every dial, including the three rules that can report on correct code. Everything after that is
 _why_ — one section per rule, for when a report has arrived and you want to know what it saved you
@@ -80,7 +80,7 @@ need different severities.
 
 ### 3. Type information is optional, and three rules want it {#_3-type-information-is-optional-and-one-rule-wants-it}
 
-Thirty-one of the thirty-four are syntactic: they read the file's own AST and never ask the type checker.
+Thirty-three of the thirty-six are syntactic: they read the file's own AST and never ask the type checker.
 So the plugin works with `parserOptions.project` unset, adds nothing measurable to lint time, and
 does not need your specs to be in a `tsconfig` — which matters in the repositories where they are
 not.
@@ -123,17 +123,17 @@ npx eslint . --format stylish | tail -30   # the summary tells you which rule do
 Whatever is left is either a real finding or a rule you would rather not enforce yet. Both are
 answered below.
 
-## Which of the thirty-four apply to you {#which-of-the-twenty-apply-to-you}
+## Which of the thirty-six apply to you {#which-of-the-twenty-apply-to-you}
 
 Reasonable question if you came straight to Vitest and have never written a line of Jasmine: **four
 of these rules are about a dialect you do not speak.** They are still on, and the reason is not
 principle — it is that they cannot fire on your code.
 
-| You are                                    | What the plugin does for you                                                                         |
-| ------------------------------------------ | ---------------------------------------------------------------------------------------------------- |
-| writing Vitest, never used Jasmine or Jest | the thirty core rules work; **the four jasmine rules are inert** — leave them on and never see them |
-| migrating off `jest-auto-spies` / Jest     | the core rules do the work, `no-done-callback` and `prefer-as-spy` most of it                        |
-| migrating off `jasmine-auto-spies`         | all thirty-four, with `prefer-native-spy-api` set to `'off'` until the bridge is gone                        |
+| You are                                    | What the plugin does for you                                                                        |
+| ------------------------------------------ | --------------------------------------------------------------------------------------------------- |
+| writing Vitest, never used Jasmine or Jest | the thirty-two core rules work; **the four jasmine rules are inert** — leave them on and never see them |
+| migrating off `jest-auto-spies` / Jest     | the core rules do the work, `no-done-callback` and `prefer-as-spy` most of it                       |
+| migrating off `jasmine-auto-spies`         | all thirty-six, with `prefer-native-spy-api` set to `'off'` until the bridge is gone               |
 
 ### If you never used Jasmine
 
@@ -180,7 +180,7 @@ never jasmine's.
 ### If you are coming from Jest
 
 There is no separate Jest rule set, because most of what a Jest suite has to unlearn is already in
-the core thirty — these are the ones that carry a migration:
+the core thirty-two — these are the ones that carry a migration:
 
 | Rule                           | What it catches in a Jest suite                                                                                                                                                                                                                               |
 | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -203,7 +203,7 @@ that file needs). See [Migrating from jest-auto-spies](/migrating).
 
 ### If you are coming from Jasmine
 
-All thirty-four apply, and the four in the last group are the ones written for you. Two are pure
+All thirty-six apply, and the four in the last group are the ones written for you. Two are pure
 diagnosis — `no-jasmine-globals` and `no-save-arguments-by-value` name silent behaviour changes that
 survive a rename — and `jasmine-namespace-without-entry` catches the spy built before the layer was
 installed. The fourth, `prefer-native-spy-api`, reports the bridge itself, so it is the one line of
@@ -235,10 +235,10 @@ default is the `warn`, and a project that has decided to make the move sets it t
 [one line](#turn-one-rule-down) that turns the others down.
 
 The other two, `no-stub-class-double` and `no-structural-double` (5.5.0), are graded on the
-*evidence* rather than on the kind of finding. Both report the same drift
+_evidence_ rather than on the kind of finding. Both report the same drift
 `prefer-create-spy-from-class` reports at `error` — a double whose shape was written by hand and is
 free to fall behind the class — but neither has a `provide:` beside it to settle the question, so
-each decides on a heuristic: a class whose fields are `vi.fn()`s, an object whose *declared type* is
+each decides on a heuristic: a class whose fields are `vi.fn()`s, an object whose _declared type_ is
 an object of Vitest `Mock`s. Neither would be defensible at `error`, and that judgement does not move
 with the count — which is worth saying because the counts moved a lot inside this release. On the same
 1759-file suite the two started at 12 reports across 8 files and 115 across 74; once
@@ -272,46 +272,48 @@ never awaited, the callback returned first — or was reached and could not fail
 | [`no-floating-assertion`](#an-assertion-in-a-then-nobody-awaits)                                | `expect()` in a `.then()` nobody awaits → `expect(await promise)`                             | —       |   green    |
 | [`no-done-callback`](#a-done-parameter-is-not-a-style-question)                                 | `it('x', (done) => …)` → `async` + an awaited assertion, and `done.fail(…)` at the call site  | —       |   green    |
 | [`no-bare-called-with`](#no-bare-called-with-%E2%80%94-one-word-two-opposite-meanings)          | `spy.m.calledWith(1);` as a statement of its own — a stub nobody continued, asserting nothing | —       |   green    |
-| [`no-constant-expect`](/utilities/eslint-rules#no-constant-expect)                              | `expect(true).toBe(true)` — a value the spec spelled out, under a matcher that value decides   | —       |   green    |
+| [`no-constant-expect`](/utilities/eslint-rules#no-constant-expect)                              | `expect(true).toBe(true)` — a value the spec spelled out, under a matcher that value decides  | —       |   green    |
 
 ### Doubles, and the modules that hold them
 
 Not about a single test but about what one file leaves behind for the next.
 
-| Rule                                                                                                 | Flags                                                                                                                    | Fix     |       Without it        |
-| ---------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ | ------- | :---------------------: |
-| [`prefer-create-spy-from-class`](#two-things-these-rules-learned-the-hard-way)                       | an object literal of two or more `vi.fn()`s → `createSpyFromClass` / `createAutoMock`, unless it is a factory's own seed | —       |           red           |
-| [`no-stub-class-double`](/utilities/eslint-rules#no-stub-class-double)                               | a class whose fields are `vi.fn()`s → `createSpyFromClass` / `provideAutoSpy`, the stub class deleted; `warn`            | —       |           red           |
-| [`no-structural-double`](/utilities/eslint-rules#no-structural-double)                               | an object of `vi.fn()`s bound to a name declared `{ load: Mock }` → `createAutoMock<T>()`; `warn`                        | —       |           red           |
-| [`no-shared-module-level-mock`](#a-double-built-once-per-worker-not-once-per-test)                   | an **exported** value holding `vi.fn()`s → export a factory that returns it                                              | —       |          green          |
-| [`no-object-define-property`](#no-object-define-property-%E2%80%94-nothing-puts-the-descriptor-back) | `Object.defineProperty` in a spec → `mockReadonlyProp` / `mockValueProp`                                                 | suggest |          green          |
-| [`no-import-time-spread`](#the-spread-that-only-fails-under-a-bundler)                               | `export const x = [...Imported]` at module scope → a `TypeError` while the bundle loads                                  | suggest | red _(by construction)_ |
+| Rule                                                                                                 | Flags                                                                                                                                         | Fix     |       Without it        |
+| ---------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- | ------- | :---------------------: |
+| [`prefer-create-spy-from-class`](#two-things-these-rules-learned-the-hard-way)                       | an object literal of two or more `vi.fn()`s → `createSpyFromClass` / `createAutoMock`, unless it is a factory's own seed                      | —       |           red           |
+| [`no-stub-class-double`](/utilities/eslint-rules#no-stub-class-double)                               | a class whose fields are `vi.fn()`s → `createSpyFromClass` / `provideAutoSpy`, the stub class deleted; `warn`                                 | —       |           red           |
+| [`no-structural-double`](/utilities/eslint-rules#no-structural-double)                               | an object of `vi.fn()`s bound to a name declared `{ load: Mock }` → `createAutoMock<T>()`; `warn`                                             | —       |           red           |
+| [`no-shared-module-level-mock`](#a-double-built-once-per-worker-not-once-per-test)                   | an **exported** value holding `vi.fn()`s → export a factory that returns it                                                                   | —       |          green          |
+| [`no-object-define-property`](#no-object-define-property-%E2%80%94-nothing-puts-the-descriptor-back) | `Object.defineProperty` in a spec → `mockReadonlyProp` / `mockValueProp`                                                                      | suggest |          green          |
+| [`no-import-time-spread`](#the-spread-that-only-fails-under-a-bundler)                               | `export const x = [...Imported]` at module scope → a `TypeError` while the bundle loads                                                       | suggest | red _(by construction)_ |
 | [`prefer-observer-stub`](#the-observer-stub-everybody-writes-again)                                  | a hand-rolled `IntersectionObserver` / `ResizeObserver` / `MutationObserver` written into a global → `stubIntersectionObserver()` and friends | —       |          green          |
 
 ### Angular DI and the TestBed
 
 The ways a provider — or a spy on the component itself — ends up not being what the spec thinks it registered.
 
-| Rule                                                                                               | Flags                                                                                                                    | Fix     |       Without it        |
-| -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ | ------- | :---------------------: |
-| [`prefer-provide-auto-spy`](#two-things-these-rules-learned-the-hard-way)                          | a hand-rolled `useValue`, `useFactory`, `useClass` or `useExisting`, in a provider or a `TestBed.overrideProvider` → `provideAutoSpy(Class)` / `provideAutoSpyForToken(TOKEN)` | —       |           red           |
-| [`prefer-inject-spy`](#the-three-prefer-rules-%E2%80%94-drift-and-one-line-that-undoes-a-provider) | `vi.spyOn(TestBed.inject(X), 'm')`, inline or via a `const` → `injectSpy(X).m`                                           | suggest |           red           |
-| [`no-unregistered-inject-spy`](#the-spy-that-only-the-compiler-can-see)                            | `injectSpy(X)` for a token this file never registered → the real instance, whose spy helpers exist only for the compiler | —       | red _(by construction)_ |
-| [`prefer-render-shallow`](#the-render-nobody-reads)                                                | `TestBed.createComponent` in a file that never reads the template → `renderShallow(X)`                                  | suggest |          green          |
-| [`no-overridden-provider`](#two-providers-one-token)                                               | two providers for one token in one array, or one a `TestBed.overrideProvider` replaces → the earlier one never runs; the exact duplicate can be deleted | suggest |          green          |
-| [`no-inject-before-override`](#the-trap-this-plugin-s-own-advice-sets)                             | `TestBed.inject()` / `injectSpy()` / `renderShallow()` in a hook, in a suite that still calls `override*`                | —       |           red           |
-| [`no-dead-schemas`](#no-dead-schemas-%E2%80%94-the-charm-that-protects-nobody)                        | `schemas` on a testing module that declares nothing → the schema applies to nothing                                      | —       | green _(by construction)_ |
-| [`no-mistyped-use-value`](/utilities/eslint-rules#no-mistyped-use-value)                           | `{ provide: TOKEN, useValue }` whose value does not fit the primitive `TOKEN` declares — `useValue` is `any`; **type-aware** | —       | green _(by construction)_ |
-| [`no-unknown-use-value-key`](/utilities/eslint-rules#no-unknown-use-value-key)                     | a key of an object `useValue` the provided type (`InjectionToken<T>`'s `T`, a class's instance) does not have — keys only; **type-aware** | —       | green _(by construction)_ |
-| [`no-instance-lifecycle-spy`](/utilities/eslint-rules#no-instance-lifecycle-spy)                   | `vi.spyOn(component, 'ngOnInit')` — Angular calls the hook it read off the prototype, never the instance spy; `warn`     | —       | green _(the stub)_        |
-| [`no-compile-components`](/utilities/eslint-rules#no-compile-components)                           | `compileComponents()` under a builder that inlines `templateUrl` / `styleUrls`; silent until `{ builder: 'inline-resources' }` | suggest | — _(a dead line)_         |
+| Rule                                                                                               | Flags                                                                                                                                                                                | Fix     |        Without it         |
+| -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------- | :-----------------------: |
+| [`prefer-provide-auto-spy`](#two-things-these-rules-learned-the-hard-way)                          | a hand-rolled `useValue`, `useFactory`, `useClass` or `useExisting`, in a provider or a `TestBed.overrideProvider` → `provideAutoSpy(Class)` / `provideAutoSpyForToken(TOKEN)`       | —       |            red            |
+| [`prefer-provide-activated-route`](/utilities/eslint-rules#prefer-provide-activated-route)         | a hand-built `ActivatedRoute` — any slot, and `provideAutoSpy(ActivatedRoute)` too → `provideActivatedRoute({ … })`; the double knows either the streams or the snapshot, never both | —       |            red            |
+| [`prefer-inject-spy`](#the-three-prefer-rules-%E2%80%94-drift-and-one-line-that-undoes-a-provider) | `vi.spyOn(TestBed.inject(X), 'm')`, inline or via a `const` → `injectSpy(X).m`                                                                                                       | suggest |            red            |
+| [`no-unregistered-inject-spy`](#the-spy-that-only-the-compiler-can-see)                            | `injectSpy(X)` for a token this file never registered → the real instance, whose spy helpers exist only for the compiler                                                             | —       |  red _(by construction)_  |
+| [`prefer-render-shallow`](#the-render-nobody-reads)                                                | `TestBed.createComponent` in a file that never reads the template → `renderShallow(X)`                                                                                               | suggest |           green           |
+| [`no-overridden-provider`](#two-providers-one-token)                                               | two providers for one token in one array, or one a `TestBed.overrideProvider` replaces → the earlier one never runs; the exact duplicate can be deleted                              | suggest |           green           |
+| [`no-inject-before-override`](#the-trap-this-plugin-s-own-advice-sets)                             | `TestBed.inject()` / `injectSpy()` / `renderShallow()` in a hook, in a suite that still calls `override*`                                                                            | —       |            red            |
+| [`no-dead-schemas`](#no-dead-schemas-%E2%80%94-the-charm-that-protects-nobody)                     | `schemas` on a testing module that declares nothing → the schema applies to nothing                                                                                                  | —       | green _(by construction)_ |
+| [`no-mistyped-use-value`](/utilities/eslint-rules#no-mistyped-use-value)                           | `{ provide: TOKEN, useValue }` whose value does not fit the primitive `TOKEN` declares — `useValue` is `any`; **type-aware**                                                         | —       | green _(by construction)_ |
+| [`no-unknown-use-value-key`](/utilities/eslint-rules#no-unknown-use-value-key)                     | a key of an object `useValue` the provided type (`InjectionToken<T>`'s `T`, a class's instance) does not have — keys only; **type-aware**                                            | —       | green _(by construction)_ |
+| [`no-instance-lifecycle-spy`](/utilities/eslint-rules#no-instance-lifecycle-spy)                   | `vi.spyOn(component, 'ngOnInit')` — Angular calls the hook it read off the prototype, never the instance spy; `warn`                                                                 | —       |    green _(the stub)_     |
+| [`no-compile-components`](/utilities/eslint-rules#no-compile-components)                           | `compileComponents()` under a builder that inlines `templateUrl` / `styleUrls`; silent until `{ builder: 'inline-resources' }`                                                       | suggest |     — _(a dead line)_     |
+| [`no-sync-testbed-await`](/utilities/eslint-rules#no-sync-testbed-await)                           | `await` on `configureTestingModule` / `override*` / `createComponent` — each answers the TestBed or the fixture, never a promise                                                     | suggest |    — _(a dead await)_     |
 
 ### Reaching past the public surface
 
 One of the three rules that read types, and the only group with a single member.
 
-| Rule                                                                                            | Flags                                                                                                                | Fix |       Without it        |
-| ----------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- | --- | :---------------------: |
+| Rule                                                                                            | Flags                                                                                                                                                  | Fix |        Without it         |
+| ----------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | --- | :-----------------------: |
 | [`no-private-member-access`](#no-private-member-access-%E2%80%94-the-one-rule-that-reads-types) | `instance['privateMember']`, `(instance as any).privateMember` and `vi.spyOn(Object.getPrototypeOf(x), 'm')` → drive the member through the public API | —   | green _(by construction)_ |
 
 ### Types
@@ -319,22 +321,22 @@ One of the three rules that read types, and the only group with a single member.
 Two whose absence the compiler reports — loudly, but in the vocabulary of the class rather than of
 the mistake — and one that switches the compiler off.
 
-| Rule                                       | Flags                                                                                                                                      | Fix               |         Without it          |
-| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------ | ----------------- | :-------------------------: |
-| [`no-mocked-for-spy`](#the-two-type-rules) | `Mocked<T>` in any type position → `Spy<T>`, import and all — a suggestion where the value assigned is not one of this library's factories | `--fix` / suggest |           compile           |
-| [`prefer-as-spy`](#the-two-type-rules)     | `TestBed.inject(X) as Spy<X>` → `asSpy(TestBed.inject(X))`, import and all                                                                 | `--fix`           | compile _(by construction)_ |
-| [`no-ts-expect-error-on-double`](/utilities/eslint-rules#no-ts-expect-error-on-double) | `@ts-expect-error` / `@ts-ignore` above a double's `nextWith`, `mockReturnValue`, `calledWith(…)` → `Spy<X, { overload: { m: 'first' } }>`, or a fixture of the declared shape | — | green |
+| Rule                                                                                   | Flags                                                                                                                                                                          | Fix               |         Without it          |
+| -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------- | :-------------------------: |
+| [`no-mocked-for-spy`](#the-two-type-rules)                                             | `Mocked<T>` in any type position → `Spy<T>`, import and all — a suggestion where the value assigned is not one of this library's factories                                     | `--fix` / suggest |           compile           |
+| [`prefer-as-spy`](#the-two-type-rules)                                                 | `TestBed.inject(X) as Spy<X>` → `asSpy(TestBed.inject(X))`, import and all                                                                                                     | `--fix`           | compile _(by construction)_ |
+| [`no-ts-expect-error-on-double`](/utilities/eslint-rules#no-ts-expect-error-on-double) | `@ts-expect-error` / `@ts-ignore` above a double's `nextWith`, `mockReturnValue`, `calledWith(…)` → `Spy<X, { overload: { m: 'first' } }>`, or a fixture of the declared shape | —                 |            green            |
 
 ### The console
 
 Output a spec leaves behind that no absorbing spy will see — the pair [`setupAutoSpy({ strayConsole })`](/utilities/setup)
 fails at run time, reported where it is written.
 
-| Rule                                                                                  | Flags                                                                                                                | Fix     |       Without it        |
-| ------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- | ------- | :---------------------: |
-| [`no-passthrough-console-spy`](/utilities/eslint-rules#no-passthrough-console-spy) | `vi.spyOn(console, 'error')` nothing gives an implementation — it calls through and prints → `installConsoleSpies()` | suggest | green _(by construction)_ |
-| [`no-console-in-spec`](/utilities/eslint-rules#no-console-in-spec)                 | a spec that calls `console.x(…)`, or replaces a method with `console.x = …`, which nothing puts back                  | —       | green _(by construction)_ |
-| [`no-import-time-console-spies`](/utilities/eslint-rules#no-import-time-console-spies) | an import of `vitest-auto-spy/console` in a file that never calls `installConsoleSpies()` — the import installs once per worker | — | green _(by construction)_ |
+| Rule                                                                                   | Flags                                                                                                                           | Fix     |        Without it         |
+| -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- | ------- | :-----------------------: |
+| [`no-passthrough-console-spy`](/utilities/eslint-rules#no-passthrough-console-spy)     | `vi.spyOn(console, 'error')` nothing gives an implementation — it calls through and prints → `installConsoleSpies()`            | suggest | green _(by construction)_ |
+| [`no-console-in-spec`](/utilities/eslint-rules#no-console-in-spec)                     | a spec that calls `console.x(…)`, or replaces a method with `console.x = …`, which nothing puts back                            | —       | green _(by construction)_ |
+| [`no-import-time-console-spies`](/utilities/eslint-rules#no-import-time-console-spies) | an import of `vitest-auto-spy/console` in a file that never calls `installConsoleSpies()` — the import installs once per worker | —       | green _(by construction)_ |
 
 ### Coming off jasmine
 
@@ -780,7 +782,7 @@ beforeEach(() => {
 });
 ```
 
-— which is how *every* `provideAutoSpy` opportunity in one 170-file shard was written, and which the
+— which is how _every_ `provideAutoSpy` opportunity in one 170-file shard was written, and which the
 rule read as nothing. Both directions had to learn it at once: `no-structural-double` stands on that
 literal and asks where it ends up, so a reading that only looked at the enclosing property made the
 shape above two reports rather than one, recommending two different factories. From the **second**
@@ -980,12 +982,12 @@ hooks and DI all stay.
 How much that saves is not a matter of opinion; `bench-angular/` measures it, and the numbers are
 gated against a committed baseline. Per-test cycle, relative to `TestBed.createComponent`:
 
-| Children the component renders | `renderShallow()`  |
-| ------------------------------ | ------------------ |
-| 0                              | level — see below  |
-| 25                             | 0.57×              |
-| 100                            | 0.24×              |
-| 400                            | 0.05×              |
+| Children the component renders | `renderShallow()` |
+| ------------------------------ | ----------------- |
+| 0                              | level — see below |
+| 25                             | 0.57×             |
+| 100                            | 0.24×             |
+| 400                            | 0.05×             |
 
 **Read the first row before the last one.** At zero children there is nothing to save and the two
 measurements straddle 1.0 — that row is the noisiest in the benchmark (±16 % against ±3 % for the
@@ -1024,8 +1026,8 @@ the import added when the name is free — and deliberately no `--fix`. `renderS
 `configureTestingModule` itself, adds `NO_ERRORS_SCHEMA` and runs the first change detection: the
 right module for a spec that reads no markup, but not the module the file had. `--fix` runs
 unattended across a repository, and a spec that already instantiated the module — any
-`TestBed.inject` above this line — would start throwing *Cannot configure the test module when the
-test module has already been instantiated*. A suggestion is pressed one call at a time, with the
+`TestBed.inject` above this line — would start throwing _Cannot configure the test module when the
+test module has already been instantiated_. A suggestion is pressed one call at a time, with the
 diff in front of you.
 
 It is offered only for `TestBed.createComponent(X)` with the component alone. The two-argument form
@@ -1075,7 +1077,7 @@ double in a `jest-auto-spies` suite, and every one of them fails with `TS2352` u
 
 ## The four jasmine rules
 
-They steer in the opposite direction from the rest of the plugin. The other thirty push a Vitest
+They steer in the opposite direction from the rest of the plugin. The other thirty-two push a Vitest
 suite towards this library's API; these four are about a suite that has not arrived yet — one
 running on [`vitest-auto-spy/jasmine`](/migrating-jasmine), or one that thinks it is.
 
@@ -1175,7 +1177,7 @@ this rule declines. See [Migrating from jasmine-auto-spies](/migrating-jasmine).
 
 ## Which rules fix, and why so few
 
-Three of the thirty-four rewrite the source on their own, ten offer the rewrite as a suggestion, and
+Three of the thirty-six rewrite the source on their own, eleven offer the rewrite as a suggestion, and
 the split is about what a wrong guess costs rather than about how hard the rewrite is.
 
 `no-mocked-for-spy` touches nothing but a **declaration**. Get it wrong and the file stops
@@ -1479,7 +1481,7 @@ line saying the same thing is how a rule gets switched off.
 ### `no-dead-schemas` — the charm that protects nobody
 
 A schema is a property of the module's **`declarations`**. `NO_ERRORS_SCHEMA` tells the compiler to
-stop complaining about unknown elements in the templates of the components this module *declares*; a
+stop complaining about unknown elements in the templates of the components this module _declares_; a
 standalone component brought in through `imports` carries its own dependency scope, and the schema
 never reaches it.
 
@@ -1529,7 +1531,7 @@ signal of a live schema on a standalone component is **any interference with the
 never the module's `declarations`.
 
 A `remove: { imports }` is deliberately not read as "this file declares something" either. In every
-such file the module-level `schemas` was dead *as well*, and removing it left the spec green — so
+such file the module-level `schemas` was dead _as well_, and removing it left the spec green — so
 letting an override silence the whole file would hide exactly the findings the cleanup confirmed.
 
 ::: warning Check the removal with a run, not with a green lint
@@ -1578,7 +1580,7 @@ Without a program the rule reports nothing rather than falling back to the synta
 forms need no types and keep working either way.
 
 **The third form is a cast, and it is the one the checker is most needed for**, because the access
-itself is dotted and therefore *was* visibility-checked — against a type the spec substituted a line
+itself is dotted and therefore _was_ visibility-checked — against a type the spec substituted a line
 earlier:
 
 ```ts

@@ -349,7 +349,7 @@ npx vitest-auto-spy codemod --verify  # after a migration: anything the transfor
 Most of this library's guarantees are type-level, so a green run that does not type-check is not
 done. Report failures with their output rather than describing them as passing.
 
-**After any `eslint --fix` over specs, run `npx tsc --noEmit`.** The thirty-four rules in
+**After any `eslint --fix` over specs, run `npx tsc --noEmit`.** The thirty-six rules in
 `vitest-auto-spy/eslint-plugin` are lint, not typecheck: `no-mocked-for-spy` rewrites a declaration
 to `Spy<T>` and cannot see what the name is assigned two lines below, so a clean lint pass is not
 evidence that the types still hold. Where it cannot prove the rename it downgrades to a suggestion —
@@ -384,7 +384,16 @@ with `createMock<…>()`. A value outside the declared type on purpose keeps the
 `no-constant-expect` reports `expect(true).toBe(true)` and its relatives — assert on what the code
 produced, or `expect.fail(…)` for a branch the test must not reach. `no-compile-components` is silent
 until `['error', { builder: 'inline-resources' }]`; with it, drop `compileComponents()` and the
-`async` it forced.
+`async` it forced — except for a component whose template holds a `@defer` block, which ships async
+class metadata that the call resolves whatever the builder did. Keep that one behind
+`// eslint-disable-next-line vitest-auto-spy/no-compile-components -- @defer: async class metadata`;
+without it the test dies on `has unresolved metadata`. **Never `await` the TestBed itself** —
+`no-sync-testbed-await` reports it: `configureTestingModule`, every `override*`, `resetTestingModule`,
+`createComponent` and `getLastFixture` answer the TestBed or the fixture, never a promise, so the
+`await` waits for nothing and the `async` it forced on the hook awaits nothing either. Drop both; the
+suggestion does. `TestBed.inject(TOKEN)` and `runInInjectionContext(fn)` are not reported, because
+either can genuinely hold a promise, and `compileComponents()` / `whenStable()` /
+`whenRenderingDone()` / `getDeferBlocks()` keep their `await`.
 
 **`prefer-observer-stub` reports an observer global replaced by hand** — `globalThis.IntersectionObserver = class { … }`, `vi.stubGlobal('ResizeObserver', …)`, `vi.spyOn(globalThis, 'MutationObserver')` — and names `stubIntersectionObserver()` / `stubResizeObserver()` / `stubMutationObserver()` instead. Take the `let original = globalThis.X` and the `afterEach` that assigns it back out with the block: the helper installs through `mockValueProp`, so `restoreMockedProps()` already owns the undo, and a restore written inside an `it` never runs once a test above it goes red.
 

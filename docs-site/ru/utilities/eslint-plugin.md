@@ -1,6 +1,6 @@
 ---
 title: ESLint-плагин
-description: Тридцать четыре правила для flat config, которые уводят сюиту на хелперы auto-spy, сгруппированы по темам, каждое по умолчанию error кроме четырёх, которые сообщают про цену или решают по эвристике, с описанными ручками и названными случаями ложных срабатываний.
+description: Тридцать шесть правил для flat config, которые уводят сюиту на хелперы auto-spy, сгруппированы по темам, каждое по умолчанию error кроме четырёх, которые сообщают про цену или решают по эвристике, с описанными ручками и названными случаями ложных срабатываний.
 ---
 
 # ESLint-плагин
@@ -22,7 +22,7 @@ subpath-экспорт этого пакета таким пакетом быт�
 
 **Как устроена эта страница.** [Как подключить](#adding-it-to-your-project) — четыре вещи, нужные
 первому конфигу. [Какие касаются вас](#which-of-the-twenty-apply-to-you) отвечает на вопрос, который
-задаёт проект только на Vitest: четыре из тридцати четырёх — про диалект, на котором вы, возможно, не
+задаёт проект только на Vitest: четыре из тридцати шести — про диалект, на котором вы, возможно, не
 говорите. [Правила](#rules) — справочная таблица в семи группах. [Настройка](#tuning-it-for-your-project) —
 все ручки, включая три правила, которые могут сработать на корректном коде. Всё после этого — _почему_:
 по разделу на правило, на случай, когда сообщение уже прилетело и хочется понять, от чего оно вас
@@ -80,7 +80,7 @@ files: ['**/*.{spec,test}.{ts,tsx}', '**/test/**/*.ts'],  // и то и друг
 
 ### 3. Информация о типах не обязательна, и три правила её хотят {#_3-type-information-is-optional-and-one-rule-wants-it}
 
-Из тридцати четырёх правил синтаксических тридцать одно: они читают собственный AST файла и никогда не
+Из тридцати шести правил синтаксических тридцать три: они читают собственный AST файла и никогда не
 спрашивают тайпчекер. Так что плагин работает при незаданном `parserOptions.project`, ничего заметного
 ко времени линта не добавляет и не требует, чтобы ваши спеки были в `tsconfig`, — а это важно в
 репозиториях, где их там нет.
@@ -123,29 +123,29 @@ npx eslint . --format stylish | tail -30   # в сводке видно, как�
 Всё, что осталось, — это либо настоящая находка, либо правило, которое вы пока не готовы включать в
 силу. Ответы на оба случая ниже.
 
-## Какие из тридцати четырёх касаются вас {#which-of-the-twenty-apply-to-you}
+## Какие из тридцати шести касаются вас {#which-of-the-twenty-apply-to-you}
 
 Резонный вопрос, если вы пришли сразу на Vitest и не написали ни строчки на Jasmine: **четыре из этих
 правил — про диалект, на котором вы не говорите.** Они всё равно включены, и причина не в принципе, а
 в том, что на вашем коде они сработать не могут.
 
-| Вы                                              | Что плагин делает для вас                                                                                    |
-| ----------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| пишете на Vitest, никогда не трогали Jasmine или Jest | тридцать основных правил работают; **четыре jasmine-правила бездействуют** — оставьте их и никогда не увидите |
-| переезжаете с `jest-auto-spies` / Jest          | работу делают основные правила, больше всего — `no-done-callback` и `prefer-as-spy`                            |
-| переезжаете с `jasmine-auto-spies`              | все тридцать четыре, с `prefer-native-spy-api` в `'off'`, пока мост не убран                                          |
+| Вы                                                    | Что плагин делает для вас                                                                                     |
+| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| пишете на Vitest, никогда не трогали Jasmine или Jest | тридцать два основных правила работают; **четыре jasmine-правила бездействуют** — оставьте их и никогда не увидите |
+| переезжаете с `jest-auto-spies` / Jest                | работу делают основные правила, больше всего — `no-done-callback` и `prefer-as-spy`                           |
+| переезжаете с `jasmine-auto-spies`                    | все тридцать шесть, с `prefer-native-spy-api` в `'off'`, пока мост не убран                                  |
 
 ### Если вы никогда не пользовались Jasmine {#if-you-never-used-jasmine}
 
 Каждое из четырёх цепляется за синтаксис, которого в Vitest-сюите нет, так что рапортовать им не о
 чем:
 
-| Правило                           | Цепляется за                                                                     | В вашей сюите                                                                                                        |
-| --------------------------------- | -------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `no-jasmine-globals`              | `jasmine.*` и голые глобалы `spyOn(`, `spyOnProperty(`, `fail(`, `pending(`      | вы пишете `vi.spyOn` и `expect.fail`; голые формы под Vitest — это `ReferenceError`, то есть их не существует         |
-| `jasmine-namespace-without-entry` | `.and` / `.calls` / `.withArgs` **на спае, построенном этой библиотекой**        | вы пишете `.mockReturnValue`, `.mock.calls` и `calledWith`                                                            |
-| `no-save-arguments-by-value`      | `spy.calls.saveArgumentsByValue()`                                               | собственный API jasmine; ни в одной Vitest-сюите такого вызова нет                                                    |
-| `prefer-native-spy-api`           | те же namespace'ы `.and` / `.calls`                                              | то же, что выше                                                                                                      |
+| Правило                           | Цепляется за                                                                | В вашей сюите                                                                                                 |
+| --------------------------------- | --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `no-jasmine-globals`              | `jasmine.*` и голые глобалы `spyOn(`, `spyOnProperty(`, `fail(`, `pending(` | вы пишете `vi.spyOn` и `expect.fail`; голые формы под Vitest — это `ReferenceError`, то есть их не существует |
+| `jasmine-namespace-without-entry` | `.and` / `.calls` / `.withArgs` **на спае, построенном этой библиотекой**   | вы пишете `.mockReturnValue`, `.mock.calls` и `calledWith`                                                    |
+| `no-save-arguments-by-value`      | `spy.calls.saveArgumentsByValue()`                                          | собственный API jasmine; ни в одной Vitest-сюите такого вызова нет                                            |
+| `prefer-native-spy-api`           | те же namespace'ы `.and` / `.calls`                                         | то же, что выше                                                                                               |
 
 Так что выключать их можно, но выигрыша это не даёт никакого измеримого — правило без подходящего узла
 не делает ничего сверх обхода AST, который и так делает каждое правило. Если всё-таки хочется конфиг
@@ -180,16 +180,16 @@ export default [
 ### Если вы приходите из Jest {#if-you-are-coming-from-jest}
 
 Отдельного набора правил для Jest нет, потому что бо́льшая часть того, что Jest-сюите надо разучиться
-делать, уже в основных тридцати — вот те, что несут переезд на себе:
+делать, уже в основных тридцати двух — вот те, что несут переезд на себе:
 
-| Правило                        | Что ловит в Jest-сюите                                                                                                                                                                                                                                        |
-| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `no-done-callback`             | `it('x', (done) => …)`. Vitest передаёт туда вызываемый `TestContext`, так что `done()` бросает — а там, где он стоит в конце колбэка, тест [проходит, выполнив почти ничего из себя](#no-done-callback-%E2%80%94-what-the-first-parameter-actually-is)      |
-| `prefer-as-spy`                | `TestBed.inject(X) as Spy<X>`, написанное по разу на дубль в `jest-auto-spies`-сюите и дающее `TS2352` в этой библиотеке — [самая частая ошибка компиляции у переехавшей Angular-сюиты](/ru/migrating#reading-a-spy-back-out-of-the-container)                |
-| `no-mocked-for-spy`            | объявления `Mocked<T>`, требующие приватных полей, которых у спая нет                                                                                                                                                                                          |
-| `no-shared-module-level-mock`  | экспортированная фикстура `{ save: jest.fn() }` — один объект на **воркер** при `isolate: false`, а не один на тест                                                                                                                                            |
-| `prefer-create-spy-from-class` | дубль в виде объекта из `fn()`-ов, который расходится с классом в тот день, когда у класса появляется метод                                                                                                                                                    |
-| `no-floating-assertion`        | `expect()` в `.then()`, которого никто не дождался                                                                                                                                                                                                             |
+| Правило                        | Что ловит в Jest-сюите                                                                                                                                                                                                                                  |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `no-done-callback`             | `it('x', (done) => …)`. Vitest передаёт туда вызываемый `TestContext`, так что `done()` бросает — а там, где он стоит в конце колбэка, тест [проходит, выполнив почти ничего из себя](#no-done-callback-%E2%80%94-what-the-first-parameter-actually-is) |
+| `prefer-as-spy`                | `TestBed.inject(X) as Spy<X>`, написанное по разу на дубль в `jest-auto-spies`-сюите и дающее `TS2352` в этой библиотеке — [самая частая ошибка компиляции у переехавшей Angular-сюиты](/ru/migrating#reading-a-spy-back-out-of-the-container)          |
+| `no-mocked-for-spy`            | объявления `Mocked<T>`, требующие приватных полей, которых у спая нет                                                                                                                                                                                   |
+| `no-shared-module-level-mock`  | экспортированная фикстура `{ save: jest.fn() }` — один объект на **воркер** при `isolate: false`, а не один на тест                                                                                                                                     |
+| `prefer-create-spy-from-class` | дубль в виде объекта из `fn()`-ов, который расходится с классом в тот день, когда у класса появляется метод                                                                                                                                             |
+| `no-floating-assertion`        | `expect()` в `.then()`, которого никто не дождался                                                                                                                                                                                                      |
 
 `no-jasmine-globals` стоит оставить включённым и здесь, и не по той причине, которую подсказывает имя:
 Jest работал на **jest-jasmine2** вплоть до Jest 27, а тот раннер ставил `spyOn`, `fail` и `pending`
@@ -204,7 +204,7 @@ Jest работал на **jest-jasmine2** вплоть до Jest 27, а тот 
 
 ### Если вы приходите из Jasmine {#if-you-are-coming-from-jasmine}
 
-Касаются все тридцать четыре, а четыре из последней группы написаны прямо для вас. Два — чистая диагностика:
+Касаются все тридцать шесть, а четыре из последней группы написаны прямо для вас. Два — чистая диагностика:
 `no-jasmine-globals` и `no-save-arguments-by-value` называют молчаливые изменения поведения, которые
 переживают переименование, — а `jasmine-namespace-without-entry` ловит спай, построенный до того, как
 поставили слой совместимости. Четвёртое, `prefer-native-spy-api`, рапортует про сам мост, так что это
@@ -236,10 +236,10 @@ Jest работал на **jest-jasmine2** вплоть до Jest 27, а тот 
 [одной строкой](#turn-one-rule-down), которой остальные понижают.
 
 Остальные два, `no-stub-class-double` и `no-structural-double` (5.5.0), градуированы по
-*доказательству*, а не по виду находки. Оба сообщают тот же дрейф, что `prefer-create-spy-from-class`
+_доказательству_, а не по виду находки. Оба сообщают тот же дрейф, что `prefer-create-spy-from-class`
 сообщает на `error` — дубль, чья форма написана руками и может отстать от класса, — но ни у одного
 рядом нет `provide:`, который закрыл бы вопрос, поэтому каждый решает по эвристике: класс, чьи поля
-`vi.fn()`, объект, чей *объявленный тип* — объект из `Mock` Vitest. Ни одно из них не защитить на
+`vi.fn()`, объект, чей _объявленный тип_ — объект из `Mock` Vitest. Ни одно из них не защитить на
 `error`, и это суждение не сдвигается вместе со счётом — сказать об этом стоит, потому что внутри
 этого релиза счёт сдвинулся сильно. На той же сюите из 1759 файлов эти двое начали с 12 отчётов по 8
 файлам и 115 по 74; после того как `prefer-provide-auto-spy` научился идти по имени внутрь `useValue`
@@ -266,53 +266,55 @@ Jest работал на **jest-jasmine2** вплоть до Jest 27, а тот 
 Тест проходит, потому что до ассерта не дошли — поток промолчал, промис никто не дождался, колбэк
 вернулся первым, — или дошли, но упасть он не мог.
 
-| Правило                                                                                         | На что срабатывает                                                                            | Правка   | Без него |
-| ----------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- | -------- | :------: |
-| [`no-expect-in-subscribe`](#no-expect-in-subscribe-reports-one-shape-and-three-different-edits) | `expect()` внутри колбэка `subscribe()` → `expectEmission` / `firstValueFrom`                  | подсказка | зелено  |
-| [`no-floating-assertion`](#an-assertion-in-a-then-nobody-awaits)                                | `expect()` в `.then()`, которого никто не дождался → `expect(await promise)`                   | —        | зелено  |
-| [`no-done-callback`](#a-done-parameter-is-not-a-style-question)                                 | `it('x', (done) => …)` → `async` и дождавшийся ассерт, а `done.fail(…)` — по месту вызова      | —        | зелено  |
-| [`no-bare-called-with`](#no-bare-called-with-%E2%80%94-one-word-two-opposite-meanings)          | `spy.m.calledWith(1);` отдельной инструкцией — заглушка, которую никто не продолжил, без ассерта | —      | зелено  |
-| [`no-constant-expect`](/ru/utilities/eslint-rules#no-constant-expect)                           | `expect(true).toBe(true)` — значение, выписанное в спеке, под матчером, чей ответ оно предрешает | —      | зелено  |
+| Правило                                                                                         | На что срабатывает                                                                               | Правка    | Без него |
+| ----------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ | --------- | :------: |
+| [`no-expect-in-subscribe`](#no-expect-in-subscribe-reports-one-shape-and-three-different-edits) | `expect()` внутри колбэка `subscribe()` → `expectEmission` / `firstValueFrom`                    | подсказка |  зелено  |
+| [`no-floating-assertion`](#an-assertion-in-a-then-nobody-awaits)                                | `expect()` в `.then()`, которого никто не дождался → `expect(await promise)`                     | —         |  зелено  |
+| [`no-done-callback`](#a-done-parameter-is-not-a-style-question)                                 | `it('x', (done) => …)` → `async` и дождавшийся ассерт, а `done.fail(…)` — по месту вызова        | —         |  зелено  |
+| [`no-bare-called-with`](#no-bare-called-with-%E2%80%94-one-word-two-opposite-meanings)          | `spy.m.calledWith(1);` отдельной инструкцией — заглушка, которую никто не продолжил, без ассерта | —         |  зелено  |
+| [`no-constant-expect`](/ru/utilities/eslint-rules#no-constant-expect)                           | `expect(true).toBe(true)` — значение, выписанное в спеке, под матчером, чей ответ оно предрешает | —         |  зелено  |
 
 ### Дубли и модули, которые их держат {#doubles-and-the-modules-that-hold-them}
 
 Не про отдельный тест, а про то, что один файл оставляет следующему.
 
-| Правило                                                                                              | На что срабатывает                                                                                                        | Правка   |     Без него      |
-| ---------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- | -------- | :---------------: |
-| [`prefer-create-spy-from-class`](#two-things-these-rules-learned-the-hard-way)                       | объектный литерал из двух и более `vi.fn()` → `createSpyFromClass` / `createAutoMock`, если это не затравка самой фабрики   | —        |      красно       |
-| [`no-stub-class-double`](/ru/utilities/eslint-rules#no-stub-class-double)                            | класс, чьи поля — `vi.fn()` → `createSpyFromClass` / `provideAutoSpy`, класс-заглушка удаляется; `warn`                     | —        |      красно       |
-| [`no-structural-double`](/ru/utilities/eslint-rules#no-structural-double)                            | объект из `vi.fn()` у имени, объявленного как `{ load: Mock }` → `createAutoMock<T>()`; `warn`                              | —        |      красно       |
-| [`no-shared-module-level-mock`](#a-double-built-once-per-worker-not-once-per-test)                   | **экспортированное** значение, держащее `vi.fn()` → экспортируйте фабрику, которая его возвращает                           | —        |      зелено       |
-| [`no-object-define-property`](#no-object-define-property-%E2%80%94-nothing-puts-the-descriptor-back) | `Object.defineProperty` в спеке → `mockReadonlyProp` / `mockValueProp`                                                      | подсказка |      зелено       |
-| [`no-import-time-spread`](#the-spread-that-only-fails-under-a-bundler)                               | `export const x = [...Imported]` на уровне модуля → `TypeError` во время загрузки бандла                                    | подсказка | красно _(по построению)_ |
-| [`prefer-observer-stub`](#the-observer-stub-everybody-writes-again)                                  | рукописный `IntersectionObserver` / `ResizeObserver` / `MutationObserver`, записанный в глобал → `stubIntersectionObserver()` и соседи | —         |      зелено       |
+| Правило                                                                                              | На что срабатывает                                                                                                                     | Правка    |         Без него         |
+| ---------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- | --------- | :----------------------: |
+| [`prefer-create-spy-from-class`](#two-things-these-rules-learned-the-hard-way)                       | объектный литерал из двух и более `vi.fn()` → `createSpyFromClass` / `createAutoMock`, если это не затравка самой фабрики              | —         |          красно          |
+| [`no-stub-class-double`](/ru/utilities/eslint-rules#no-stub-class-double)                            | класс, чьи поля — `vi.fn()` → `createSpyFromClass` / `provideAutoSpy`, класс-заглушка удаляется; `warn`                                | —         |          красно          |
+| [`no-structural-double`](/ru/utilities/eslint-rules#no-structural-double)                            | объект из `vi.fn()` у имени, объявленного как `{ load: Mock }` → `createAutoMock<T>()`; `warn`                                         | —         |          красно          |
+| [`no-shared-module-level-mock`](#a-double-built-once-per-worker-not-once-per-test)                   | **экспортированное** значение, держащее `vi.fn()` → экспортируйте фабрику, которая его возвращает                                      | —         |          зелено          |
+| [`no-object-define-property`](#no-object-define-property-%E2%80%94-nothing-puts-the-descriptor-back) | `Object.defineProperty` в спеке → `mockReadonlyProp` / `mockValueProp`                                                                 | подсказка |          зелено          |
+| [`no-import-time-spread`](#the-spread-that-only-fails-under-a-bundler)                               | `export const x = [...Imported]` на уровне модуля → `TypeError` во время загрузки бандла                                               | подсказка | красно _(по построению)_ |
+| [`prefer-observer-stub`](#the-observer-stub-everybody-writes-again)                                  | рукописный `IntersectionObserver` / `ResizeObserver` / `MutationObserver`, записанный в глобал → `stubIntersectionObserver()` и соседи | —         |          зелено          |
 
 ### Angular DI и TestBed {#angular-di-and-the-testbed}
 
 Способы, которыми провайдер — или спай на самом компоненте — оказывается не тем, что спека, по её
 мнению, зарегистрировала.
 
-| Правило                                                                                            | На что срабатывает                                                                                                        | Правка   |     Без него      |
-| -------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- | -------- | :---------------: |
-| [`prefer-provide-auto-spy`](#two-things-these-rules-learned-the-hard-way)                          | самодельный `useValue`, `useFactory`, `useClass` или `useExisting`, в провайдере или в `TestBed.overrideProvider` → `provideAutoSpy(Class)` / `provideAutoSpyForToken(TOKEN)` | —        |      красно       |
-| [`prefer-inject-spy`](#the-three-prefer-rules-%E2%80%94-drift-and-one-line-that-undoes-a-provider) | `vi.spyOn(TestBed.inject(X), 'm')`, инлайном или через `const` → `injectSpy(X).m`                                           | подсказка |      красно       |
-| [`no-unregistered-inject-spy`](#the-spy-that-only-the-compiler-can-see)                            | `injectSpy(X)` для токена, который этот файл не регистрировал → настоящий инстанс, чьи спай-хелперы есть только у компилятора | —      | красно _(по построению)_ |
-| [`prefer-render-shallow`](#the-render-nobody-reads)                                                | `TestBed.createComponent` в файле, который ни разу не читает шаблон → `renderShallow(X)`                                    | подсказка |      зелено       |
-| [`no-overridden-provider`](#two-providers-one-token)                                               | два провайдера на один токен в одном массиве или провайдер, которого заменяет `TestBed.overrideProvider` → более ранний не выполняется никогда; точный дубликат можно удалить | подсказка |      зелено       |
-| [`no-inject-before-override`](#the-trap-this-plugin-s-own-advice-sets)                             | `TestBed.inject()` / `injectSpy()` / `renderShallow()` в хуке в сюите, которая всё ещё вызывает `override*`                 | —        |      красно       |
-| [`no-dead-schemas`](#no-dead-schemas-%E2%80%94-the-charm-that-protects-nobody)                      | `schemas` на тестовом модуле, который ничего не объявляет → схеме нечего покрывать                                         | —        |      зелено       |
-| [`no-mistyped-use-value`](/ru/utilities/eslint-rules#no-mistyped-use-value)                         | `{ provide: TOKEN, useValue }`, чьё значение не подходит под примитивный тип, объявленный `TOKEN`, — `useValue` это `any`; **читает типы** | —        | зелено _(по построению)_ |
-| [`no-unknown-use-value-key`](/ru/utilities/eslint-rules#no-unknown-use-value-key)                   | ключ объектного `useValue`, которого нет у предоставляемого типа (`T` у `InjectionToken<T>`, экземпляр класса), — только ключи; **читает типы** | —        | зелено _(по построению)_ |
-| [`no-instance-lifecycle-spy`](/ru/utilities/eslint-rules#no-instance-lifecycle-spy)                 | `vi.spyOn(component, 'ngOnInit')` — Angular зовёт хук, прочитанный с прототипа, а не спай на инстансе; `warn`              | —        | зелено _(заглушка)_ |
-| [`no-compile-components`](/ru/utilities/eslint-rules#no-compile-components)                         | `compileComponents()` под билдером, встраивающим `templateUrl` / `styleUrls`; молчит, пока нет `{ builder: 'inline-resources' }` | подсказка | — _(мёртвая строка)_ |
+| Правило                                                                                            | На что срабатывает                                                                                                                                                                 | Правка    |         Без него         |
+| -------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------- | :----------------------: |
+| [`prefer-provide-auto-spy`](#two-things-these-rules-learned-the-hard-way)                          | самодельный `useValue`, `useFactory`, `useClass` или `useExisting`, в провайдере или в `TestBed.overrideProvider` → `provideAutoSpy(Class)` / `provideAutoSpyForToken(TOKEN)`      | —         |          красно          |
+| [`prefer-provide-activated-route`](/ru/utilities/eslint-rules#prefer-provide-activated-route)      | собранный руками `ActivatedRoute` — любой слот, включая `provideAutoSpy(ActivatedRoute)` → `provideActivatedRoute({ … })`; дубль знает либо стримы, либо snapshot, но не оба сразу | —         |          красно          |
+| [`prefer-inject-spy`](#the-three-prefer-rules-%E2%80%94-drift-and-one-line-that-undoes-a-provider) | `vi.spyOn(TestBed.inject(X), 'm')`, инлайном или через `const` → `injectSpy(X).m`                                                                                                  | подсказка |          красно          |
+| [`no-unregistered-inject-spy`](#the-spy-that-only-the-compiler-can-see)                            | `injectSpy(X)` для токена, который этот файл не регистрировал → настоящий инстанс, чьи спай-хелперы есть только у компилятора                                                      | —         | красно _(по построению)_ |
+| [`prefer-render-shallow`](#the-render-nobody-reads)                                                | `TestBed.createComponent` в файле, который ни разу не читает шаблон → `renderShallow(X)`                                                                                           | подсказка |          зелено          |
+| [`no-overridden-provider`](#two-providers-one-token)                                               | два провайдера на один токен в одном массиве или провайдер, которого заменяет `TestBed.overrideProvider` → более ранний не выполняется никогда; точный дубликат можно удалить      | подсказка |          зелено          |
+| [`no-inject-before-override`](#the-trap-this-plugin-s-own-advice-sets)                             | `TestBed.inject()` / `injectSpy()` / `renderShallow()` в хуке в сюите, которая всё ещё вызывает `override*`                                                                        | —         |          красно          |
+| [`no-dead-schemas`](#no-dead-schemas-%E2%80%94-the-charm-that-protects-nobody)                     | `schemas` на тестовом модуле, который ничего не объявляет → схеме нечего покрывать                                                                                                 | —         |          зелено          |
+| [`no-mistyped-use-value`](/ru/utilities/eslint-rules#no-mistyped-use-value)                        | `{ provide: TOKEN, useValue }`, чьё значение не подходит под примитивный тип, объявленный `TOKEN`, — `useValue` это `any`; **читает типы**                                         | —         | зелено _(по построению)_ |
+| [`no-unknown-use-value-key`](/ru/utilities/eslint-rules#no-unknown-use-value-key)                  | ключ объектного `useValue`, которого нет у предоставляемого типа (`T` у `InjectionToken<T>`, экземпляр класса), — только ключи; **читает типы**                                    | —         | зелено _(по построению)_ |
+| [`no-instance-lifecycle-spy`](/ru/utilities/eslint-rules#no-instance-lifecycle-spy)                | `vi.spyOn(component, 'ngOnInit')` — Angular зовёт хук, прочитанный с прототипа, а не спай на инстансе; `warn`                                                                      | —         |   зелено _(заглушка)_    |
+| [`no-compile-components`](/ru/utilities/eslint-rules#no-compile-components)                        | `compileComponents()` под билдером, встраивающим `templateUrl` / `styleUrls`; молчит, пока нет `{ builder: 'inline-resources' }`                                                   | подсказка |   — _(мёртвая строка)_   |
+| [`no-sync-testbed-await`](/ru/utilities/eslint-rules#no-sync-testbed-await)                        | `await` на `configureTestingModule` / `override*` / `createComponent` — каждый отвечает самим TestBed или фикстурой, а не промисом                                                 | подсказка |   — _(мёртвый await)_    |
 
 ### Доступ мимо публичной поверхности {#reaching-past-the-public-surface}
 
 Одно из трёх правил, которые читают типы, и единственная группа из одного пункта.
 
-| Правило                                                                                         | Отмечает                                                                                                               | Починка | Без него                  |
-| ----------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ | ------- | ------------------------- |
+| Правило                                                                                         | Отмечает                                                                                                                                    | Починка | Без него                 |
+| ----------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | ------- | ------------------------ |
 | [`no-private-member-access`](#no-private-member-access-%E2%80%94-the-one-rule-that-reads-types) | `instance['privateMember']`, `(instance as any).privateMember` и `vi.spyOn(Object.getPrototypeOf(x), 'm')` → вести член через публичный API | —       | зелено _(по построению)_ |
 
 ### Типы {#types}
@@ -320,11 +322,11 @@ Jest работал на **jest-jasmine2** вплоть до Jest 27, а тот 
 Два, чьё отсутствие рапортует компилятор — громко, но словарём класса, а не словарём ошибки, — и
 одно, которое компилятор выключает.
 
-| Правило                                    | На что срабатывает                                                                                                                          | Правка            |        Без него        |
-| ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- | :--------------------: |
-| [`no-mocked-for-spy`](#the-two-type-rules) | `Mocked<T>` в любой типовой позиции → `Spy<T>`, вместе с импортом — подсказка там, где присвоенное значение не пришло из фабрик этой библиотеки | `--fix` / подсказка |       компиляция       |
-| [`prefer-as-spy`](#the-two-type-rules)     | `TestBed.inject(X) as Spy<X>` → `asSpy(TestBed.inject(X))`, вместе с импортом                                                                 | `--fix`           | компиляция _(по построению)_ |
-| [`no-ts-expect-error-on-double`](/ru/utilities/eslint-rules#no-ts-expect-error-on-double) | `@ts-expect-error` / `@ts-ignore` над `nextWith`, `mockReturnValue`, `calledWith(…)` дубля → `Spy<X, { overload: { m: 'first' } }>` или фикстура объявленной формы | — | зелено |
+| Правило                                                                                   | На что срабатывает                                                                                                                                                 | Правка              |           Без него           |
+| ----------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------- | :--------------------------: |
+| [`no-mocked-for-spy`](#the-two-type-rules)                                                | `Mocked<T>` в любой типовой позиции → `Spy<T>`, вместе с импортом — подсказка там, где присвоенное значение не пришло из фабрик этой библиотеки                    | `--fix` / подсказка |          компиляция          |
+| [`prefer-as-spy`](#the-two-type-rules)                                                    | `TestBed.inject(X) as Spy<X>` → `asSpy(TestBed.inject(X))`, вместе с импортом                                                                                      | `--fix`             | компиляция _(по построению)_ |
+| [`no-ts-expect-error-on-double`](/ru/utilities/eslint-rules#no-ts-expect-error-on-double) | `@ts-expect-error` / `@ts-ignore` над `nextWith`, `mockReturnValue`, `calledWith(…)` дубля → `Spy<X, { overload: { m: 'first' } }>` или фикстура объявленной формы | —                   |            зелено            |
 
 ### Консоль {#the-console}
 
@@ -332,11 +334,11 @@ Jest работал на **jest-jasmine2** вплоть до Jest 27, а тот 
 [`setupAutoSpy({ strayConsole })`](/ru/utilities/setup), которая роняет его во время прогона; здесь о
 нём сообщают там, где он написан.
 
-| Правило                                                                                  | На что срабатывает                                                                                                   | Правка    |        Без него        |
-| ---------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- | --------- | :--------------------: |
-| [`no-passthrough-console-spy`](/ru/utilities/eslint-rules#no-passthrough-console-spy) | `vi.spyOn(console, 'error')`, которому ничто не дало реализации, — вызывает оригинал и печатает → `installConsoleSpies()` | подсказка | зелено _(по построению)_ |
-| [`no-console-in-spec`](/ru/utilities/eslint-rules#no-console-in-spec)                 | спека, которая сама вызывает `console.x(…)` или подменяет метод через `console.x = …`, который никто не вернёт            | —         | зелено _(по построению)_ |
-| [`no-import-time-console-spies`](/ru/utilities/eslint-rules#no-import-time-console-spies) | импорт `vitest-auto-spy/console` в файле, который ни разу не зовёт `installConsoleSpies()`, — импорт ставит спаи раз на воркер | — | зелено _(по построению)_ |
+| Правило                                                                                   | На что срабатывает                                                                                                             | Правка    |         Без него         |
+| ----------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ | --------- | :----------------------: |
+| [`no-passthrough-console-spy`](/ru/utilities/eslint-rules#no-passthrough-console-spy)     | `vi.spyOn(console, 'error')`, которому ничто не дало реализации, — вызывает оригинал и печатает → `installConsoleSpies()`      | подсказка | зелено _(по построению)_ |
+| [`no-console-in-spec`](/ru/utilities/eslint-rules#no-console-in-spec)                     | спека, которая сама вызывает `console.x(…)` или подменяет метод через `console.x = …`, который никто не вернёт                 | —         | зелено _(по построению)_ |
+| [`no-import-time-console-spies`](/ru/utilities/eslint-rules#no-import-time-console-spies) | импорт `vitest-auto-spy/console` в файле, который ни разу не зовёт `installConsoleSpies()`, — импорт ставит спаи раз на воркер | —         | зелено _(по построению)_ |
 
 ### Уход с jasmine {#coming-off-jasmine}
 
@@ -344,12 +346,12 @@ Jest работал на **jest-jasmine2** вплоть до Jest 27, а тот 
 [`vitest-auto-spy/jasmine`](/ru/migrating-jasmine) или думающей, что работает. **Бездействуют в сюите,
 которая никогда не пользовалась jasmine**, — см. [какие касаются вас](#if-you-never-used-jasmine).
 
-| Правило                                                                                                         | На что срабатывает                                                                                               | Правка            |         Без него          |
-| --------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ | ----------------- | :-----------------------: |
-| [`no-jasmine-globals`](#no-jasmine-globals-%E2%80%94-the-one-that-pays-for-itself-on-the-first-run)             | `jasmine.*`, голые `spyOn(` / `spyOnProperty(` / `spyOnAllFunctions(` / `fail(` / `pending(` и `.withContext(`      | —                 | зелено _(случай `spyOn`)_ |
-| [`jasmine-namespace-without-entry`](#jasmine-namespace-without-entry-%E2%80%94-the-one-that-needs-setupmodules) | `.and` / `.calls` / `.withArgs` на спае библиотеки в файле, который нигде не ставит слой совместимости               | —                 |  красно _(по построению)_ |
-| [`no-save-arguments-by-value`](#no-save-arguments-by-value-%E2%80%94-the-purest-silent-case-on-this-page)       | `spy.calls.saveArgumentsByValue()` — здесь это no-op, так что спека молча проверяет состояние после мутации          | —                 | зелено _(по построению)_  |
-| [`prefer-native-spy-api`](#prefer-native-spy-api-%E2%80%94-the-one-to-switch-off-while-you-migrate)             | `.and` / `.calls` там, где собственный API спая говорит то же самое, — последняя миля с jasmine-шима                 | `--fix` / подсказка | — _(рапортует рабочий код)_ |
+| Правило                                                                                                         | На что срабатывает                                                                                             | Правка              |          Без него           |
+| --------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- | ------------------- | :-------------------------: |
+| [`no-jasmine-globals`](#no-jasmine-globals-%E2%80%94-the-one-that-pays-for-itself-on-the-first-run)             | `jasmine.*`, голые `spyOn(` / `spyOnProperty(` / `spyOnAllFunctions(` / `fail(` / `pending(` и `.withContext(` | —                   |  зелено _(случай `spyOn`)_  |
+| [`jasmine-namespace-without-entry`](#jasmine-namespace-without-entry-%E2%80%94-the-one-that-needs-setupmodules) | `.and` / `.calls` / `.withArgs` на спае библиотеки в файле, который нигде не ставит слой совместимости         | —                   |  красно _(по построению)_   |
+| [`no-save-arguments-by-value`](#no-save-arguments-by-value-%E2%80%94-the-purest-silent-case-on-this-page)       | `spy.calls.saveArgumentsByValue()` — здесь это no-op, так что спека молча проверяет состояние после мутации    | —                   |  зелено _(по построению)_   |
+| [`prefer-native-spy-api`](#prefer-native-spy-api-%E2%80%94-the-one-to-switch-off-while-you-migrate)             | `.and` / `.calls` там, где собственный API спая говорит то же самое, — последняя миля с jasmine-шима           | `--fix` / подсказка | — _(рапортует рабочий код)_ |
 
 ## Настройка под ваш проект {#tuning-it-for-your-project}
 
@@ -437,11 +439,11 @@ rules: {
 ответить. Они всё равно ошибки — быть неправым насчёт вашего проекта чинится одной строкой, и каждая
 строка ниже, — но если первый прогон вас удивил, смотреть надо в первую очередь на них.
 
-| Правило                           | Когда оно неправо насчёт вас                                                                                                                                               | Строка, которая это чинит                                                       |
+| Правило                           | Когда оно неправо насчёт вас                                                                                                                                              | Строка, которая это чинит                                                      |
 | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
-| `jasmine-namespace-without-entry` | `enableJasmineCompat()` живёт в записи `setupFiles` Vitest, которую не импортирует ни одна спека, так что файл с `.and` выглядит файлом без установленного слоя            | `['error', { setupModules: ['./test-setup'] }]`                                |
-| `no-unregistered-inject-spy`      | файл регистрирует часть дублей в форме, которую правило читает, **и** получает ещё один через хелпер, за которым оно не идёт, — общий `beforeEach`, настраивающий TestBed   | опции нет; локальный `'off'` или отключение на строку                          |
-| `prefer-native-spy-api`           | вы **посреди переезда** с `jasmine-auto-spies`; оно рапортует рабочий код моста, так что в первый день срабатывает на каждой его строке                                     | `'off'`, пока сюита не позеленеет, потом `'error'` и `--fix` на последнюю милю |
+| `jasmine-namespace-without-entry` | `enableJasmineCompat()` живёт в записи `setupFiles` Vitest, которую не импортирует ни одна спека, так что файл с `.and` выглядит файлом без установленного слоя           | `['error', { setupModules: ['./test-setup'] }]`                                |
+| `no-unregistered-inject-spy`      | файл регистрирует часть дублей в форме, которую правило читает, **и** получает ещё один через хелпер, за которым оно не идёт, — общий `beforeEach`, настраивающий TestBed | опции нет; локальный `'off'` или отключение на строку                          |
+| `prefer-native-spy-api`           | вы **посреди переезда** с `jasmine-auto-spies`; оно рапортует рабочий код моста, так что в первый день срабатывает на каждой его строке                                   | `'off'`, пока сюита не позеленеет, потом `'error'` и `--fix` на последнюю милю |
 
 Опция есть только у первого, и там `setupModules` — это и есть починка, а не понижение серьёзности: она
 говорит правилу, где ставится слой, и оно перестаёт гадать. Импорт точки входа, которая _не может_
@@ -783,7 +785,7 @@ beforeEach(() => {
 });
 ```
 
-— именно так были написаны *все* возможности `provideAutoSpy` в одном шарде из 170 файлов, и именно
+— именно так были написаны _все_ возможности `provideAutoSpy` в одном шарде из 170 файлов, и именно
 это правило читало как ничто. Оба направления должны были выучить это одновременно:
 `no-structural-double` стоит на том литерале и спрашивает, куда он попадает, поэтому чтение только по
 объемлющему свойству делало из формы выше два отчёта вместо одного, советуя две разные фабрики. Со
@@ -985,12 +987,12 @@ const route = injectSpy(ActivatedRoute); // ❌ настоящий, со спа�
 Сколько это экономит — вопрос не вкуса; `bench-angular/` это меряет, а числа сверяются с закоммиченным
 базлайном. На цикл теста, относительно `TestBed.createComponent`:
 
-| Детей рендерит компонент | `renderShallow()`   |
-| ------------------------ | ------------------- |
-| 0                        | вровень — см. ниже  |
-| 25                       | 0.57×               |
-| 100                      | 0.24×               |
-| 400                      | 0.05×               |
+| Детей рендерит компонент | `renderShallow()`  |
+| ------------------------ | ------------------ |
+| 0                        | вровень — см. ниже |
+| 25                       | 0.57×              |
+| 100                      | 0.24×              |
+| 400                      | 0.05×              |
 
 **Прочитайте первую строку раньше последней.** При нуле детей экономить нечего, и два измерения ложатся
 по обе стороны от 1,0 — эта строка самая шумная в бенчмарке (±16 % против ±3 % у строки на сто детей), а
@@ -1026,8 +1028,8 @@ const route = injectSpy(ActivatedRoute); // ❌ настоящий, со спа�
 `configureTestingModule`, добавляет `NO_ERRORS_SCHEMA` и запускает первый цикл обнаружения изменений:
 правильный модуль для спеки, которая не читает разметку, но не тот модуль, который был у файла. `--fix`
 работает без присмотра по всему репозиторию, а спека, уже инстанцировавшая модуль — любой
-`TestBed.inject` выше этой строки, — начала бы бросать *Cannot configure the test module when the test
-module has already been instantiated*. Подсказку жмут по одному вызову, с дифом перед глазами.
+`TestBed.inject` выше этой строки, — начала бы бросать _Cannot configure the test module when the test
+module has already been instantiated_. Подсказку жмут по одному вызову, с дифом перед глазами.
 
 Предлагается она только для `TestBed.createComponent(X)` с одним компонентом. Форма с двумя аргументами
 несёт опции, которые `renderShallow` пишет иначе, и переписывание, их потерявшее, было бы молчаливым
@@ -1079,7 +1081,7 @@ module has already been instantiated*. Подсказку жмут по одно
 
 ## Четыре jasmine-правила {#the-four-jasmine-rules}
 
-Они рулят в противоположную сторону от остального плагина. Другие тридцать толкают Vitest-сюиту к API
+Они рулят в противоположную сторону от остального плагина. Другие тридцать два толкают Vitest-сюиту к API
 этой библиотеки; эти четыре — про сюиту, которая ещё не приехала: работающую на
 [`vitest-auto-spy/jasmine`](/ru/migrating-jasmine) или думающую, что работает.
 
@@ -1179,7 +1181,7 @@ setup-файла), глушит файл, а проект может назва�
 
 ## Какие правила чинят и почему их так мало {#which-rules-fix-and-why-so-few}
 
-Три из тридцати четырёх переписывают исходник сами, десять предлагают переписывание подсказкой, и разделение это
+Три из тридцати шести переписывают исходник сами, одиннадцать предлагают переписывание подсказкой, и разделение это
 про цену неверной догадки, а не про сложность переписывания.
 
 `no-mocked-for-spy` трогает только **объявление**. Ошибись оно — и файл перестанет компилироваться, а
@@ -1317,20 +1319,20 @@ export const webosEvents = () => [...BaseEvents];
 `isolate: false`, zone-проект для половины с zone.js, — по одной пробной спеке на правило, и в каждой
 ассерт, который не может быть истинным.
 
-| Правило                        | Без него прогон говорит                                                                                                                                                                                                                                          | Вердикт |
-| ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | :-----: |
-| `no-expect-in-subscribe`       | ничего — [4 формы из 4 зелёные на 4 поведениях потока](/ru/core/observable-assertions#measured-four-forms-against-four-streams)                                                                                                                                   | зелено  |
-| `no-done-callback`             | ничего, когда `done()` сидит в колбэке: тело возвращает `undefined`, тест кончается, ассерт приземляется после него                                                                                                                                               | зелено  |
-| `no-floating-assertion`        | zoneless: `Unhandled Rejection`, код 1, ни один тест не назван. Под zone.js: один из двух реджектов исчезает совсем                                                                                                                                               | зелено  |
-| `no-bare-called-with`          | ничего — спай отвечает `undefined` на эти аргументы, что он делал и до того, а тест, собиравшийся проверить вызов, не проверяет ни одного                                                                                                                        | зелено  |
-| `no-shared-module-level-mock`  | ничего — собственное состояние фикстуры переезжает между файлами при `isolate: false`                                                                                                                                                                             | зелено  |
-| `no-object-define-property`    | ничего в файле, который патчил; **следующий** файл читает пропатченное значение                                                                                                                                                                                   | зелено  |
-| `no-mocked-for-spy`            | `TS2322 … missing the following properties from type 'CartService': http, cache`                                                                                                                                                                                 | компиляция |
-| `prefer-create-spy-from-class` | `TypeError: cart.applyPromo is not a function`                                                                                                                                                                                                                   | красно  |
-| `prefer-provide-auto-spy`      | то же самое, одним прыжком DI дальше                                                                                                                                                                                                                             | красно  |
-| `prefer-inject-spy`            | `spy.getPlans.nextWith is not a function`                                                                                                                                                                                                                        | красно  |
-| `no-inject-before-override`    | `Cannot override provider when the test module has already been instantiated. Make sure you are not using \`inject\` before \`overrideProvider\``                                                                                                                | красно  |
-| `no-overridden-provider`       | ничего — там, где самодельный дубль случайно отвечает: стоящий рядом `provideAutoSpy` мёртв, а ассерты проходят. Прочитайте обратно через `injectSpy` — и станет красно, причём [`injectSpy` объясняет почему](/ru/adapters/angular#injectspy-says-when-it-got-the-real-thing) | зелено  |
+| Правило                        | Без него прогон говорит                                                                                                                                                                                                                                                        |  Вердикт   |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | :--------: |
+| `no-expect-in-subscribe`       | ничего — [4 формы из 4 зелёные на 4 поведениях потока](/ru/core/observable-assertions#measured-four-forms-against-four-streams)                                                                                                                                                |   зелено   |
+| `no-done-callback`             | ничего, когда `done()` сидит в колбэке: тело возвращает `undefined`, тест кончается, ассерт приземляется после него                                                                                                                                                            |   зелено   |
+| `no-floating-assertion`        | zoneless: `Unhandled Rejection`, код 1, ни один тест не назван. Под zone.js: один из двух реджектов исчезает совсем                                                                                                                                                            |   зелено   |
+| `no-bare-called-with`          | ничего — спай отвечает `undefined` на эти аргументы, что он делал и до того, а тест, собиравшийся проверить вызов, не проверяет ни одного                                                                                                                                      |   зелено   |
+| `no-shared-module-level-mock`  | ничего — собственное состояние фикстуры переезжает между файлами при `isolate: false`                                                                                                                                                                                          |   зелено   |
+| `no-object-define-property`    | ничего в файле, который патчил; **следующий** файл читает пропатченное значение                                                                                                                                                                                                |   зелено   |
+| `no-mocked-for-spy`            | `TS2322 … missing the following properties from type 'CartService': http, cache`                                                                                                                                                                                               | компиляция |
+| `prefer-create-spy-from-class` | `TypeError: cart.applyPromo is not a function`                                                                                                                                                                                                                                 |   красно   |
+| `prefer-provide-auto-spy`      | то же самое, одним прыжком DI дальше                                                                                                                                                                                                                                           |   красно   |
+| `prefer-inject-spy`            | `spy.getPlans.nextWith is not a function`                                                                                                                                                                                                                                      |   красно   |
+| `no-inject-before-override`    | `Cannot override provider when the test module has already been instantiated. Make sure you are not using \`inject\` before \`overrideProvider\``                                                                                                                              |   красно   |
+| `no-overridden-provider`       | ничего — там, где самодельный дубль случайно отвечает: стоящий рядом `provideAutoSpy` мёртв, а ассерты проходят. Прочитайте обратно через `injectSpy` — и станет красно, причём [`injectSpy` объясняет почему](/ru/adapters/angular#injectspy-says-when-it-got-the-real-thing) |   зелено   |
 
 Важна последняя колонка. Шесть из одиннадцати проверенных здесь защищают от теста, который **зелёный и
 неправильный**, а это единственный режим отказа, о котором сюита не может отчитаться сама; четыре
@@ -1392,11 +1394,11 @@ it('loads', (done) => {
 Те же два теста — `expect()` в `.then()`, которого никто не дождался, и `async`-хелпер, вызванный без
 `await`, — в трёх конфигурациях:
 
-|                                                     |          тесты           | что рапортует раннер                                          |
-| --------------------------------------------------- | :----------------------: | ------------------------------------------------------------- |
-| zoneless                                            |     **2 прошли**         | 2 `Unhandled Rejection`, код 1, ни один не приписан тесту     |
-| zone.js                                             |     **2 прошли**         | 1 ошибка — второй реджект zone.js слил в `console.error`      |
-| zone.js + `setupAutoSpy({ strayRejections: true })` | **1 упал \| 1 прошёл**   | проглоченный теперь именованное падение на нужном тесте       |
+|                                                     |         тесты          | что рапортует раннер                                      |
+| --------------------------------------------------- | :--------------------: | --------------------------------------------------------- |
+| zoneless                                            |      **2 прошли**      | 2 `Unhandled Rejection`, код 1, ни один не приписан тесту |
+| zone.js                                             |      **2 прошли**      | 1 ошибка — второй реджект zone.js слил в `console.error`  |
+| zone.js + `setupAutoSpy({ strayRejections: true })` | **1 упал \| 1 прошёл** | проглоченный теперь именованное падение на нужном тесте   |
 
 Читайте среднюю колонку сверху вниз: ассерт ложен в каждой строке, а тест зелёный в каждой, кроме
 последней. `strayRejections` — это то, что превращает случай, которого не увидит ни один селектор —
@@ -1480,7 +1482,7 @@ SSR-шим в `apps/web/server`, который лежит вне glob'а спе
 ### `no-dead-schemas` — оберег, который никого не защищает {#no-dead-schemas-—-the-charm-that-protects-nobody}
 
 Схема — свойство **`declarations`** модуля. `NO_ERRORS_SCHEMA` велит компилятору не жаловаться на
-неизвестные элементы в шаблонах компонентов, которые этот модуль *объявляет*; standalone-компонент,
+неизвестные элементы в шаблонах компонентов, которые этот модуль _объявляет_; standalone-компонент,
 приехавший через `imports`, несёт собственный scope, и схема до него не доходит.
 
 ```ts
