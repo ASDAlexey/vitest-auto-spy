@@ -4,14 +4,21 @@
  */
 import { resolve } from 'node:path';
 
-import { flagEnabled, flagValue, parseArgs } from './args';
+import type { ParsedArgs } from './args';
+import { flagEnabled, flagList, flagNumber, flagValue, parseArgs } from './args';
 import { runCodemod } from './codemod/run';
 import { runDoctor } from './doctor';
 import { HELP } from './help';
 import { runInit } from './init';
 import type { InitAction, InitResult } from './init';
+import type { BaselineRequest, GateRequest } from './perf';
 import { renderPerf } from './perf';
-import { readPerfRun } from './perf-run';
+import { BASELINE_DEFAULTS, DEFAULT_BASELINE_FILE } from './perf-baseline';
+import { CASE_FLOOR_MS } from './perf-data';
+import type { GateOptions } from './perf-gate';
+import { GATE_DEFAULTS } from './perf-gate';
+import type { PerfRunOptions } from './perf-run';
+import { perfRemeasure, readPerfRun } from './perf-run';
 import { readProfile } from './profile';
 import { formatFindings, hasFailures, summarize } from './report';
 import { ownVersion } from './self';
@@ -42,11 +49,73 @@ function doctorCommand(cwd: string, io: CliIo): number {
   return hasFailures(findings) ? 1 : 0;
 }
 
+/**
+ * `perf`, including the gate. The options are read here rather than inside the command so that the
+ * profile is scanned once and handed to both the run and the report.
+ *
+ * Every budget is clamped rather than trusted. A zero or a negative one is not a stricter gate, it
+ * is a gate that reports every file in the repository — including the ones that ran nothing — and
+ * the person who typed it would then switch the whole thing off rather than debug the flag.
+ */
+function gateOptions(args: ParsedArgs): GateOptions {
+  return {
+    maxTestMs: Math.max(flagNumber(args, 'max-test-ms') ?? GATE_DEFAULTS.maxTestMs, CASE_FLOOR_MS),
+    maxFileMs: Math.max(flagNumber(args, 'max-file-ms') ?? GATE_DEFAULTS.maxFileMs, 1),
+    factor: Math.max(flagNumber(args, 'factor') ?? GATE_DEFAULTS.factor, 1),
+    maxWallMs: flagNumber(args, 'max-wall-ms'),
+    only: flagList(args, 'gate-only').map((entry) => entry.replace(/^\.\//, '')),
+  };
+}
+
+/**
+ * The baseline is resolved against `--cwd`, not against wherever the shell happens to be.
+ *
+ * It is the repository's file — it is committed and diffed with the suite it describes — so a
+ * `--cwd` run that wrote `perf-baseline.json` next to the caller instead would put one repository's
+ * ratchet in another repository's tree. Which is exactly what it did once, into this package's own
+ * root, during the run that found it.
+ */
+function baselineRequest(args: ParsedArgs, cwd: string): BaselineRequest | undefined {
+  const update = flagEnabled(args, 'update-baseline');
+  const named = flagValue(args, 'baseline') ?? (update ? DEFAULT_BASELINE_FILE : undefined);
+
+  if (named === undefined) {
+    return undefined;
+  }
+
+  return {
+    path: resolve(cwd, named),
+    update,
+    options: {
+      factor: Math.max(flagNumber(args, 'baseline-factor') ?? BASELINE_DEFAULTS.factor, 1),
+      floorMs: Math.max(flagNumber(args, 'baseline-floor-ms') ?? BASELINE_DEFAULTS.floorMs, 1),
+    },
+  };
+}
+
 function perfCommand(cwd: string, argv: readonly string[], io: CliIo): number {
   const args = parseArgs(argv);
-  const source = readPerfRun({ cwd, json: flagValue(args, 'json'), out: flagValue(args, 'out'), paths: args.positionals });
+  const profile = readProfile(cwd);
+  const options: PerfRunOptions = {
+    cwd,
+    profile,
+    json: flagValue(args, 'json'),
+    out: flagValue(args, 'out'),
+    command: flagValue(args, 'command'),
+    paths: args.positionals,
+  };
+  const trustSingle = flagEnabled(args, 'no-confirm');
+  const gate: GateRequest | undefined = flagEnabled(args, 'gate')
+    ? { options: gateOptions(args), remeasure: trustSingle ? undefined : perfRemeasure(options), trustSingle }
+    : undefined;
+  const baseline = baselineRequest(args, cwd);
+  const top = flagNumber(args, 'top');
 
-  return renderPerf(source, cwd, io);
+  return renderPerf(readPerfRun(options), profile, io, {
+    ...(gate === undefined ? {} : { gate }),
+    ...(baseline === undefined ? {} : { baseline }),
+    ...(top === undefined ? {} : { top }),
+  });
 }
 
 function formatAction(action: InitAction): string {

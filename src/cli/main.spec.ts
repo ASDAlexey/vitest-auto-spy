@@ -3,8 +3,10 @@
  * says so by exiting 1 without having changed anything, and `init --check` is the same shape for
  * an instruction block that has drifted from the installed version.
  */
+import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
+import { pathExists, writeTextFile } from './fs-scan';
 import { runCli } from './main';
 import type { CliIo } from './main';
 import { createTempRepo, removeTempRepos } from './temp-repo';
@@ -136,11 +138,116 @@ describe('perf', () => {
     expect(io.stdout.join('\n')).toContain('vitest-auto-spy perf —');
   });
 
-  it('exits 1 when there is no report to read', () => {
+  it('exits 2 when there is no report to read: nothing was judged, which is not the same as passing', () => {
     const io = recorder();
     const root = createTempRepo(HEALTHY);
 
-    expect(runCli(['perf', '--cwd', root, '--json', `${root}/nowhere.json`], io)).toBe(1);
+    expect(runCli(['perf', '--cwd', root, '--json', `${root}/nowhere.json`], io)).toBe(2);
     expect(io.stderr.join('\n')).toContain('Not a perf report');
+  });
+
+  it('gates a report it was handed, and fails only when told one reading is enough', () => {
+    const io = recorder();
+    const root = createTempRepo(HEALTHY);
+    const measured = (name: string, tests: number): Record<string, unknown> => ({
+      file: `${root}/${name}`,
+      environment: 0,
+      prepare: 0,
+      setup: 0,
+      imports: 0,
+      tests,
+      testCount: 4,
+      cases: [],
+    });
+
+    writeTextFile(
+      join(root, 'perf.json'),
+      JSON.stringify({
+        version: 2,
+        root,
+        transform: 0,
+        wall: 1_000,
+        files: [
+          ...Array.from({ length: 9 }, (_unused, index) => measured(`ordinary-${index}.spec.ts`, 100)),
+          measured('slow.spec.ts', 9_000),
+        ],
+      }),
+    );
+
+    expect(runCli(['perf', '--cwd', root, '--json', join(root, 'perf.json'), '--gate'], io)).toBe(0);
+    expect(io.stdout.join('\n')).toContain('warn   perf-gate-slow-file slow.spec.ts');
+
+    const trusted = recorder();
+
+    expect(runCli(['perf', '--cwd', root, '--json', join(root, 'perf.json'), '--gate', '--no-confirm'], trusted)).toBe(1);
+    expect(trusted.stdout.join('\n')).toContain('error  perf-gate-slow-file slow.spec.ts');
+  });
+});
+
+describe('perf flags', () => {
+  const report = (root: string, files: readonly Record<string, unknown>[]): string =>
+    JSON.stringify({ version: 2, root, transform: 0, wall: 1_000, failed: 0, files });
+
+  const measured = (root: string, name: string, tests: number): Record<string, unknown> => ({
+    file: `${root}/${name}`,
+    environment: 0,
+    prepare: 0,
+    setup: 0,
+    imports: 0,
+    tests,
+    testCount: 4,
+    cases: [],
+  });
+
+  const repo = (): { root: string; json: string } => {
+    const root = createTempRepo(HEALTHY);
+    const files = [
+      ...Array.from({ length: 9 }, (_unused, index) => measured(root, `src/ordinary-${index}.spec.ts`, 100)),
+      measured(root, 'src/slow.spec.ts', 9_000),
+    ];
+
+    writeTextFile(join(root, 'perf.json'), report(root, files));
+
+    return { root, json: join(root, 'perf.json') };
+  };
+
+  it('strips a leading ./ from a scope, since a generated list is where that spelling comes from', () => {
+    const { root, json } = repo();
+    const io = recorder();
+
+    expect(runCli(['perf', '--cwd', root, '--json', json, '--gate', '--gate-only', './src', '--no-confirm'], io)).toBe(1);
+    expect(io.stdout.join('\n')).toContain('perf-gate-slow-file src/slow.spec.ts');
+  });
+
+  it('records the baseline next to the repository when --update-baseline names no path', () => {
+    const { root, json } = repo();
+    const io = recorder();
+
+    expect(runCli(['perf', '--cwd', root, '--json', json, '--update-baseline'], io)).toBe(0);
+    expect(io.stdout.join('\n')).toContain('perf-baseline.json');
+    expect(pathExists(join(root, 'perf-baseline.json'))).toBe(true);
+  });
+
+  it('clamps a zero budget off the floor, so a file that ran nothing is never a finding', () => {
+    const root = createTempRepo(HEALTHY);
+
+    writeTextFile(
+      join(root, 'perf.json'),
+      report(root, [measured(root, 'src/ran.spec.ts', 100), { ...measured(root, 'src/empty.spec.ts', 0), testCount: 0 }]),
+    );
+
+    const io = recorder();
+
+    expect(
+      runCli(
+        ['perf', '--cwd', root, '--json', join(root, 'perf.json'), '--gate', '--max-file-ms=0', '--factor=0', '--top=3', '--no-confirm'],
+        io,
+      ),
+    ).toBe(1);
+
+    const out = io.stdout.join('\n');
+
+    expect(out).toContain('perf-gate-slow-file src/ran.spec.ts');
+    expect(out).not.toContain('src/empty.spec.ts');
   });
 });

@@ -13,7 +13,24 @@ export interface ParsedArgs {
 }
 
 /** Flags that take a value; everything else is boolean. */
-const VALUE_FLAGS = new Set(['cwd', 'from', 'json', 'only', 'out', 'skip']);
+const VALUE_FLAGS = new Set([
+  'command',
+  'baseline',
+  'baseline-factor',
+  'baseline-floor-ms',
+  'cwd',
+  'factor',
+  'from',
+  'gate-only',
+  'json',
+  'max-file-ms',
+  'max-test-ms',
+  'max-wall-ms',
+  'only',
+  'out',
+  'skip',
+  'top',
+]);
 
 const ALIASES: Record<string, string> = { h: 'help', v: 'version' };
 
@@ -68,6 +85,31 @@ export function parseArgs(argv: readonly string[]): ParsedArgs {
   }
 
   return { command, positionals, flags };
+}
+
+/**
+ * Reads a value flag as a finite, non-negative number. Anything else — a missing flag, a word, a
+ * negative budget — answers `undefined`, and the caller keeps its default rather than gating on
+ * `NaN`, which compares false against everything and would quietly pass every budget.
+ */
+export function flagNumber(args: ParsedArgs, name: string): number | undefined {
+  const raw = flagValue(args, name);
+
+  if (raw === undefined || raw.trim() === '') {
+    return undefined;
+  }
+
+  const value = Number(raw);
+
+  return Number.isFinite(value) && value >= 0 ? value : undefined;
+}
+
+/** Reads a value flag as a comma-separated list, dropping the empty entries a trailing comma makes. */
+export function flagList(args: ParsedArgs, name: string): string[] {
+  return (flagValue(args, name) ?? '')
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter((entry) => entry !== '');
 }
 
 function splitInline(token: string): [string, string | undefined] {
