@@ -97,20 +97,24 @@ function isStandalone(definition: unknown): definition is object {
   return typeof definition === 'object' && definition !== null && Reflect.get(definition, 'standalone') === true;
 }
 
-/** How a JIT-compiled standalone component stores what it imports. */
-type ImportsFactory = () => Type<unknown>[];
+/** The three shapes a compiled `dependencies` is legally in: the flat list, a factory for it, or nothing. */
+type CompiledImports = Type<unknown>[] | (() => Type<unknown>[]) | null | undefined;
 
 /**
  * Everything a standalone component imports, as the compiler stored it on the definition.
  *
- * JIT — the only mode `TestBed.overrideComponent` can work in, since it recompiles from the
- * decorator — always stores the list behind a factory, already flattened, empty when there is none.
+ * Which shape arrives is not a question of JIT against AOT. JIT always emits the factory; AOT emits
+ * the **array**, and reaches for a factory only to break a cycle between two components, since
+ * deferring the read is the whole point of one. A component that imports nothing carries `null`
+ * (`defineComponent`: `standalone && dependencies || null`). Calling the array was a `TypeError`
+ * under `keepTemplate: true` on every AOT-compiled component whose imports held no cycle.
  */
 function importsOf(definition: object): Type<unknown>[] {
   // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- `ɵcmp` carries no public type, and this shape is the compiler's own output for a standalone component.
-  const dependencies = Reflect.get(definition, 'dependencies') as ImportsFactory;
+  const dependencies = Reflect.get(definition, 'dependencies') as CompiledImports;
+  const resolved = typeof dependencies === 'function' ? dependencies() : dependencies;
 
-  return dependencies();
+  return Array.isArray(resolved) ? resolved : NOTHING;
 }
 
 /** A component import is a piece of the subtree; a directive, a pipe or a module is template vocabulary. */

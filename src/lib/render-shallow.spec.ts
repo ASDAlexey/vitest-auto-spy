@@ -12,6 +12,7 @@ import {
   OnInit,
   Pipe,
   type PipeTransform,
+  type Type,
   inject,
   input,
   makeEnvironmentProviders,
@@ -209,6 +210,77 @@ describe('renderShallow', () => {
 
     expect(component.name).toBe('legacy');
     expect(childInstances).toBe(0);
+  });
+});
+
+/**
+ * The shape `ɵcmp.dependencies` arrives in, forced onto a JIT-compiled definition.
+ *
+ * A suite cannot compile a component AOT, and JIT emits the factory and nothing else — so the array
+ * and the `null` an AOT build produces are reachable here only by writing them onto the definition
+ * the decorator left. The values themselves are the compiler's: the array is what the factory
+ * returns, and `null` is what `defineComponent` stores for a component that imports nothing.
+ */
+function forceDependencyShape(component: Type<unknown>, shape: 'array' | 'none'): () => void {
+  const definition = Reflect.get(component, 'ɵcmp') as Record<string, unknown>;
+  const compiled = definition['dependencies'];
+  const resolved: unknown = typeof compiled === 'function' ? (compiled as () => unknown)() : compiled;
+
+  definition['dependencies'] = shape === 'array' ? resolved : null;
+
+  return () => {
+    definition['dependencies'] = compiled;
+  };
+}
+
+describe('the shapes a compiled `dependencies` comes in', () => {
+  it('keeps the template when the compiler emitted the imports as an array', () => {
+    const restore = forceDependencyShape(HostComponent, 'array');
+
+    try {
+      const { fixture } = renderShallow(HostComponent, { keepTemplate: true });
+
+      expect(fixture.nativeElement.textContent).toContain('real-0');
+      expect(childInstances).toBe(0);
+    } finally {
+      restore();
+    }
+  });
+
+  it('keeps a pipe of the template resolvable when the imports are an array', () => {
+    const restore = forceDependencyShape(WithPipeComponent, 'array');
+
+    try {
+      const { fixture } = renderShallow(WithPipeComponent, { keepTemplate: true });
+
+      expect(fixture.nativeElement.textContent).toBe('hello!');
+    } finally {
+      restore();
+    }
+  });
+
+  it('keeps the template when the component imports nothing and carries no dependencies at all', () => {
+    const restore = forceDependencyShape(BareComponent, 'none');
+
+    try {
+      const { fixture } = renderShallow(BareComponent, { keepTemplate: true });
+
+      expect(fixture.nativeElement.textContent).toBe('bare');
+    } finally {
+      restore();
+    }
+  });
+
+  it('still names the children that were asked for when the imports are an array', () => {
+    const restore = forceDependencyShape(HostComponent, 'array');
+
+    try {
+      renderShallow(HostComponent, { keepTemplate: true, keepChildren: [ChildComponent] });
+
+      expect(childInstances).toBe(1);
+    } finally {
+      restore();
+    }
   });
 });
 
