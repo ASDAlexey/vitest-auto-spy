@@ -199,42 +199,57 @@ function createUrlState(initial: string): UrlState {
 }
 
 /**
- * The navigation in flight follows the events, because that is where the real one comes from and
- * where it goes: Angular puts one up on a `NavigationStart` and drops it once the navigation has
- * ended — "the current navigation becomes null after the NavigationEnd event is emitted". A
- * component that reads it while handling a `NavigationEnd` gets `null` in production too, and a
- * double that kept the navigation would hide exactly that.
+ * A `NavigationStart` puts a navigation up, and the real router does it *before* the event goes out:
+ * `currentNavigation.set({…})` runs in the `switchMap` above `events.next(new NavigationStart(…))`,
+ * so a subscriber handling the start already sees it.
  *
  * @returns the id the event carried, when it started a navigation.
  */
-function followEvent(
+function startEvent(
   event: RouterNavigationEvent,
   inFlight: WritableSignal<Navigation | null>,
   navigationOf: (named: NavigationInit) => Navigation,
 ): number | undefined {
-  if (event instanceof NavigationStart) {
-    inFlight.set(
-      navigationOf({
-        id: event.id,
-        initialUrl: serializer.parse(event.url),
-        extractedUrl: serializer.parse(event.url),
-        trigger: event.navigationTrigger ?? 'imperative',
-      }),
-    );
-
-    return event.id;
+  if (!(event instanceof NavigationStart)) {
+    return undefined;
   }
 
-  if (
+  inFlight.set(
+    navigationOf({
+      id: event.id,
+      initialUrl: serializer.parse(event.url),
+      extractedUrl: serializer.parse(event.url),
+      trigger: event.navigationTrigger ?? 'imperative',
+    }),
+  );
+
+  return event.id;
+}
+
+/**
+ * Whether the event ends the navigation — **after** it has been delivered, which is the half of this
+ * that is easy to get backwards. Angular's own doc comment reads "the current navigation becomes to
+ * null after the NavigationEnd event is emitted", and *after* is literal: the router emits every
+ * terminal event with the navigation still in flight and clears it in the `finalize` of the
+ * transition — `this.events.next(new NavigationEnd(…))` sits in a `tap`, and
+ * `this.currentNavigation.set(null)` in the `finalize` below it (`cancelNavigationTransition` does
+ * not clear it at all). `events` is a Subject, so a synchronous subscriber runs between the two: a
+ * component reading `currentNavigation()` while handling a `NavigationEnd` gets the navigation that
+ * just finished, not `null`. Probed against a real `provideRouter()` on Angular 22 —
+ * `router.navigate(['/probe'], { state })` with a `NavigationEnd` subscriber reads back that
+ * `state` inside the handler and `null` once `navigate()` has resolved.
+ *
+ * Clearing before the emit is what a hand-rolled double does, and it is worse than useless: it turns
+ * the production pattern "read the navigation state when the navigation lands" — which works — into a
+ * test that only passes if the code does not use it.
+ */
+function endsNavigation(event: RouterNavigationEvent): boolean {
+  return (
     event instanceof NavigationEnd ||
     event instanceof NavigationCancel ||
     event instanceof NavigationError ||
     event instanceof NavigationSkipped
-  ) {
-    inFlight.set(null);
-  }
-
-  return undefined;
+  );
 }
 
 /** What the spec did not name comes from where the router stands, the way a real navigation starts. */
@@ -338,8 +353,13 @@ export function createRouterDouble(init: RouterDoubleInit = {}): RouterDouble {
         state.set(next.urlAfterRedirects);
       }
 
-      navigationId = followEvent(next, inFlight, navigationOf) ?? navigationId;
+      navigationId = startEvent(next, inFlight, navigationOf) ?? navigationId;
       events.next(next);
+
+      // Strictly after the emit: see endsNavigation().
+      if (endsNavigation(next)) {
+        inFlight.set(null);
+      }
     },
   };
 

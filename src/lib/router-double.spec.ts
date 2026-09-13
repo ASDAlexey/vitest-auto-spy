@@ -9,6 +9,7 @@ import { toSignal } from '@angular/core/rxjs-interop';
 import { TestBed } from '@angular/core/testing';
 import {
   ActivatedRoute,
+  type Navigation,
   NavigationCancel,
   NavigationEnd,
   NavigationError,
@@ -19,7 +20,7 @@ import {
   Scroll,
   provideRouter,
 } from '@angular/router';
-import { filter, map } from 'rxjs';
+import { filter, map, skip } from 'rxjs';
 import { describe, expect, it } from 'vitest';
 
 import '../angular';
@@ -295,6 +296,65 @@ describe('the navigation in flight', () => {
     emitNavigation('/products/9');
 
     expect(router.currentNavigation()).toBeNull();
+  });
+
+  it('is still in flight while the NavigationEnd is being delivered, the way the real router has it', () => {
+    const { router, emitNavigation, setCurrentNavigation } = createRouterDouble();
+    const seen: (Navigation | null)[] = [];
+
+    setCurrentNavigation({ extras: { state: { from: 'the card' } } });
+    // events is a BehaviorSubject seeded with the NavigationEnd that put the router where it stands,
+    // so skip(1) is the difference between the subscription and the emit under test.
+    router.events
+      .pipe(
+        skip(1),
+        filter((event) => event instanceof NavigationEnd),
+      )
+      .subscribe(() => seen.push(router.currentNavigation()));
+
+    emitNavigation('/products/9');
+
+    // Angular emits the terminal event from a tap and clears the navigation in the finalize below
+    // it, so a synchronous subscriber reads the navigation that just finished — not null.
+    expect(seen).toHaveLength(1);
+    expect(seen[0]?.extras.state).toEqual({ from: 'the card' });
+    expect(router.currentNavigation()).toBeNull();
+  });
+
+  it('is in flight while a cancel, an error or a skip is being delivered too', () => {
+    const { router, emitNavigation, setCurrentNavigation } = createRouterDouble();
+    const seen: (Navigation | null)[] = [];
+
+    router.events.subscribe((event) => {
+      if (event instanceof NavigationCancel || event instanceof NavigationError || event instanceof NavigationSkipped) {
+        seen.push(router.currentNavigation());
+      }
+    });
+
+    setCurrentNavigation();
+    emitNavigation(new NavigationCancel(5, '/products/9', 'a guard said no'));
+
+    setCurrentNavigation();
+    emitNavigation(new NavigationError(6, '/products/9', new Error('a resolver threw')));
+
+    setCurrentNavigation();
+    emitNavigation(new NavigationSkipped(7, '/products/9', 'the URL did not change'));
+
+    expect(seen).toHaveLength(3);
+    expect(seen.every((navigation) => navigation !== null)).toBe(true);
+  });
+
+  it('is already up while the NavigationStart is being delivered', () => {
+    const { router, emitNavigation } = createRouterDouble({ url: '/' });
+    const seen: (Navigation | null)[] = [];
+
+    router.events.pipe(filter((event) => event instanceof NavigationStart)).subscribe(() => seen.push(router.currentNavigation()));
+
+    emitNavigation(new NavigationStart(4, '/products/8', 'popstate'));
+
+    // The real router sets it in the switchMap above events.next(new NavigationStart(…)).
+    expect(seen[0]?.id).toBe(4);
+    expect(seen[0]?.trigger).toBe('popstate');
   });
 
   it('ends on a cancelled navigation too', () => {
