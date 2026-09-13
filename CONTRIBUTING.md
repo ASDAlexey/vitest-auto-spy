@@ -18,7 +18,7 @@ npm ci
 | `npm run test:watch`    | Run tests in watch mode                                                                                                                                                                                                                                                                |
 | `npm run test:coverage` | Run tests with coverage (100% thresholds enforced)                                                                                                                                                                                                                                     |
 | `npm run typecheck`     | Type-check the project with `tsc --noEmit`                                                                                                                                                                                                                                             |
-| `npm run check`         | The full gate CI runs — everything below plus lint, `format:check`, jscpd, the sync checks and every suite                                                                                                                                                                             |
+| `npm run check`         | The full gate CI runs — everything below plus lint, `format:check`, jscpd, the sync checks, every suite, and finally `build` + `cold-import:check`, which reads `dist/` and so has to come after it                                                                                    |
 | `npm run deps:check`    | Fail when `node_modules` drifted from `package-lock.json`, so the gate tests the versions `npm ci` installs                                                                                                                                                                            |
 | `npm run test:types`    | Assert what callers **infer** — `expectTypeOf` cases under `src/type-tests`                                                                                                                                                                                                            |
 | `npm run types:budget`  | Count the type instantiations `Spy<T>` costs `tsc` on a generated fixture; fails past the budget in `scripts/check-type-budget.mjs` (`--measure` prints the numbers, `--print` the fixture)                                                                                            |
@@ -79,23 +79,25 @@ package has more surfaces than most, because half of its audience is a coding ag
 never open the README. **Walk this table on every user-facing change** — the ones with a command
 are checked in CI, the rest are not, and the ones that are not are the ones that rot.
 
-| Surface           | Where                                                                                                                                                                         | Checked by                  |
-| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------- |
-| Changelog         | `CHANGELOG.md`, under `## [Unreleased]`                                                                                                                                       | —                           |
-| README bullet     | the feature list at the top                                                                                                                                                   | —                           |
-| README section    | a `##` section, and its line in the table of contents                                                                                                                         | —                           |
-| Docs page         | `docs-site/<area>/<page>.md`                                                                                                                                                  | —                           |
-| Docs sidebar      | `docs-site/.vitepress/config.mts` — a page missing here is also missing from `llms.txt`                                                                                       | `npm run llms:check`        |
-| Landing           | the `features:` cards in `docs-site/index.md` — prose inside YAML, so no `: ` in an unquoted value                                                                            | `npm run docs:check`        |
-| Landing (Russian) | `docs-site/ru/index.md` — a card-for-card translation of the English landing, same order, same `icon` and `link`; numbers, versions and export names are copied, not restated | `npm run docs:check`        |
-| Agent reference   | `AGENTS.md` — the file an agent reads instead of the README                                                                                                                   | —                           |
-| Claude Code skill | `skills/vitest-auto-spy/SKILL.md`                                                                                                                                             | —                           |
-| Agent guide       | `docs-site/agents.md`, when the change is about how an agent uses the package                                                                                                 | —                           |
-| LLM files         | `docs-site/public/llms.txt`, `llms-full.txt` — regenerate with `npm run llms`                                                                                                 | `npm run llms:check`        |
-| Plugin manifest   | `.claude-plugin/`                                                                                                                                                             | `npm run plugin:sync:check` |
-| Alias package     | `alias/` — a new **entry point** must appear there                                                                                                                            | `npm run alias:sync:check`  |
-| Size badge        | the `minzip` badge, when the main entry grew                                                                                                                                  | `npm run size:badge:check`  |
-| TODO              | `TODO.md` — what is still open; `DECISIONS.md` — what it deliberately did **not** ship, and why                                                                               | —                           |
+| Surface           | Where                                                                                                                                                                         | Checked by                   |
+| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------- |
+| Changelog         | `CHANGELOG.md`, under `## [Unreleased]`                                                                                                                                       | —                            |
+| README bullet     | the feature list at the top                                                                                                                                                   | —                            |
+| README section    | a `##` section, and its line in the table of contents                                                                                                                         | —                            |
+| Docs page         | `docs-site/<area>/<page>.md`                                                                                                                                                  | —                            |
+| Docs sidebar      | `docs-site/.vitepress/config.mts` — a page missing here is also missing from `llms.txt`                                                                                       | `npm run llms:check`         |
+| Landing           | the `features:` cards in `docs-site/index.md` — prose inside YAML, so no `: ` in an unquoted value                                                                            | `npm run docs:check`         |
+| Landing (Russian) | `docs-site/ru/index.md` — a card-for-card translation of the English landing, same order, same `icon` and `link`; numbers, versions and export names are copied, not restated | `npm run docs:check`         |
+| Agent reference   | `AGENTS.md` — the file an agent reads instead of the README                                                                                                                   | —                            |
+| Claude Code skill | `skills/vitest-auto-spy/SKILL.md`                                                                                                                                             | —                            |
+| Agent guide       | `docs-site/agents.md`, when the change is about how an agent uses the package                                                                                                 | —                            |
+| LLM files         | `docs-site/public/llms.txt`, `llms-full.txt` — regenerate with `npm run llms`                                                                                                 | `npm run llms:check`         |
+| Plugin manifest   | `.claude-plugin/`                                                                                                                                                             | `npm run plugin:sync:check`  |
+| Alias package     | `alias/` — a new **entry point** must appear there                                                                                                                            | `npm run alias:sync:check`   |
+| Size badge        | the `minzip` badge, when the main entry grew                                                                                                                                  | `npm run size:badge:check`   |
+| Per-entry size    | `size-entries.json`, when an entry grew — `npm run size:entries:update`                                                                                                       | `npm run size:entries:check` |
+| Module graph      | `cold-import.json`, when an entry pulled in more modules — `npm run cold-import:update`                                                                                       | `npm run cold-import:check`  |
+| TODO              | `TODO.md` — what is still open; `DECISIONS.md` — what it deliberately did **not** ship, and why                                                                               | —                            |
 
 Two habits that keep this cheap:
 
@@ -294,7 +296,7 @@ optional local staging mirror and is not required by the release flow.
 
 1. Fork the repo and create a branch from `master`.
 2. Make your change with tests.
-3. Run `npm run check && npm run build` locally — it is the same gate CI runs.
+3. Run `npm run check` locally — it is the same gate CI runs, and it builds at the end.
 4. Open a pull request describing the change and the motivation.
 
 By contributing you agree that your contributions are licensed under the project's
