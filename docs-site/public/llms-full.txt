@@ -3267,7 +3267,7 @@ weighs, within a rounding error of each other, because that is what they are: `s
 barrel — a `registerMockAdapter` call and `export * from './auto-spy'` — and its own code is seven
 bytes in the bundle. Nobody should go looking for weight in it.
 
-Every figure here is the committed baseline in `size-entries.json` as of 2026-09-12, which is what
+Every figure here is the committed baseline in `size-entries.json` as of 2026-09-13, which is what
 `size:entries:check` and the badge both read; an earlier edition of this table quoted 15.1, 18.7 and
 14.5 kB for the first three rows, taken before the defaults registry, the outside-a-hook report and
 the shadowed-provider check. `/dom-stubs` last moved for `stubWebStorage`, +256 B, and `/angular` for
@@ -3289,9 +3289,10 @@ router's own `DefaultUrlSerializer`, `createUrlTreeFromSnapshot` and `RouterStat
 rather than a structural stand-in guessing at it, which is the whole reason the double cannot
 contradict itself; it then took another 390 B (6411 B → 6801 B, +6.1 %) for the navigation in flight —
 `currentNavigation()`, `setCurrentNavigation()` and the event bookkeeping that ends one.
-`/eslint-plugin` is +1.77 kB for the rules of the previous two releases, and +1122 B
-(31295 B → 32417 B, +3.6 %) for `no-redundant-smoke-test`; it is a lint-time entry point that no
-spec run loads. `/signal-forms` arrives at
+`/eslint-plugin` is +1.77 kB for the rules of the previous two releases, +1122 B
+(31295 B → 32417 B, +3.6 %) for `no-redundant-smoke-test`, and then +371 B in two fixes
+(32417 B → 32788 B, +1.1 %) — the subject the rule weighs and the doubles `prefer-create-spy-from-class`
+exempts; it is a lint-time entry point that no spec run loads. `/signal-forms` arrives at
 1.36 kB — the whole entry is `createForm` and one matcher over Angular's own `form()`, which stays
 in `@angular/forms` where the consumer already has it.
 
