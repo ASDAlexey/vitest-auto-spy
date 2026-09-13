@@ -95,6 +95,11 @@ describe('doctor', () => {
     expect(runCli(['doctor', '--cwd', root, '--min-severity', 'warning'], io)).toBe(0);
     expect(io.stdout.join('\n')).not.toContain('no-agent-instructions');
     expect(io.stdout.join('\n')).toContain('1 note');
+
+    const abbreviated = recorder();
+
+    expect(runCli(['doctor', '--cwd', root, '--min-severity', 'warn'], abbreviated)).toBe(0);
+    expect(abbreviated.stdout.join('\n')).not.toContain('no-agent-instructions');
   });
 
   it('takes an unknown --min-severity as no filter at all, rather than as a stricter one', () => {
@@ -243,6 +248,18 @@ describe('perf flags', () => {
     expect(runCli(['perf', '--cwd', root, '--json', json, '--update-baseline'], io)).toBe(0);
     expect(io.stdout.join('\n')).toContain('perf-baseline.json');
     expect(pathExists(join(root, 'perf-baseline.json'))).toBe(true);
+  });
+
+  it('--min-severity error leaves perf with the tally alone, and the exit code where it was', () => {
+    const { root, json } = repo();
+    const io = recorder();
+
+    expect(runCli(['perf', '--cwd', root, '--json', json, '--gate', '--min-severity', 'error'], io)).toBe(0);
+
+    const out = io.stdout.join('\n');
+
+    expect(out).not.toContain('perf-gate-slow-file');
+    expect(out).toContain('0 errors, 1 warning, 0 notes');
   });
 
   it('clamps a zero budget off the floor, so a file that ran nothing is never a finding', () => {
