@@ -34,7 +34,12 @@ interface CompiledInputs {
  * name of another still resolves to the input that publishes it.
  */
 function inputNames(component: Type<unknown>): Map<string, string> {
-  const definition: CompiledInputs = Reflect.get(component, 'ɵcmp');
+  const definition: CompiledInputs | undefined = typeof component === 'function' ? Reflect.get(component, 'ɵcmp') : undefined;
+
+  if (!definition) {
+    throw missingDefinitionError(component);
+  }
+
   const declared = Object.entries(definition.inputs);
   const names = new Map(declared.map(([publicName, [property]]) => [property, publicName]));
 
@@ -45,6 +50,28 @@ function inputNames(component: Type<unknown>): Map<string, string> {
 
 function quote(names: string[]): string {
   return names.map((name) => `'${name}'`).join(', ');
+}
+
+/**
+ * The refusal for a class that carries no compiled component definition.
+ *
+ * Every other way this helper says no names what was passed and what to do about it; this one read
+ * `ɵcmp` straight into `Object.entries` and died as `Cannot read properties of undefined (reading
+ * 'inputs')`, a message with neither the component in it nor a repair. `createComponentStub` has
+ * said the same thing properly since it shipped, and the two now read alike.
+ */
+function missingDefinitionError(component: unknown): Error {
+  const name = typeof component === 'function' ? component.name : String(component);
+
+  return new Error(
+    withDocs(
+      `[vitest-auto-spy] setInputs: ${name} carries no ɵcmp, so there are no inputs to set. The fixture must be ` +
+        "a @Component's: a @Directive (ɵdir) takes its inputs through the host element that applies it, a @Pipe (ɵpipe) " +
+        'has none, and a class Angular never compiled carries no definition at all. For `undefined`, import the ' +
+        'component from its own file rather than from a barrel.',
+      DOCS_LINKS.angular,
+    ),
+  );
 }
 
 function unknownInputsError(component: Type<unknown>, unknown: string[], declared: string[]): Error {

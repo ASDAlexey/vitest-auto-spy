@@ -43,6 +43,8 @@ class PlainComponent {
   readonly state = signal('idle');
 }
 
+class NotCompiled {}
+
 describe('setInputs', () => {
   it('sets every input it is given', async () => {
     const { fixture, component } = renderShallow(CounterComponent);
@@ -118,5 +120,25 @@ describe('setInputs', () => {
       // @ts-expect-error — a signal the component owns is not an input, and this is where that shows
       setInputs(fixture, { state: 'busy' }),
     ).rejects.toThrow(/PlainComponent declares no input named 'state'\. It declares no inputs at all\./);
+  });
+
+  it('names the class that carries no compiled definition, instead of dying on a missing property', async () => {
+    const { fixture } = renderShallow(CounterComponent);
+    const restore = mockValueProp(fixture.componentRef, 'componentType', NotCompiled);
+
+    await expect(setInputs(fixture, { step: 5 })).rejects.toThrow(
+      /NotCompiled carries no ɵcmp, so there are no inputs to set\..*@Directive \(ɵdir\)/s,
+    );
+
+    restore();
+  });
+
+  it('says so when there is no class at all, which is what a barrel import leaves behind', async () => {
+    const { fixture } = renderShallow(CounterComponent);
+    const restore = mockValueProp(fixture.componentRef, 'componentType', undefined);
+
+    await expect(setInputs(fixture, { step: 5 })).rejects.toThrow(/undefined carries no ɵcmp.*barrel/s);
+
+    restore();
   });
 });
