@@ -1,5 +1,5 @@
 {
-  "measuredOn": "2026-09-12",
+  "measuredOn": "2026-09-13",
   "node": "v24.19.0",
   "tolerance": {
     "ratio": 0.02,
@@ -12,15 +12,15 @@
     },
     "./angular": {
       "modules": 2,
-      "bytes": 162450
+      "bytes": 163219
     },
     "./angular-http": {
       "modules": 3,
-      "bytes": 11445
+      "bytes": 11530
     },
     "./angular-router": {
       "modules": 5,
-      "bytes": 51594
+      "bytes": 51657
     },
     "./bun": {
       "modules": 12,
@@ -28,7 +28,7 @@
     },
     "./bun-angular": {
       "modules": 14,
-      "bytes": 134736
+      "bytes": 135536
     },
     "./console": {
       "modules": 10,
@@ -44,7 +44,7 @@
     },
     "./eslint-plugin": {
       "modules": 2,
-      "bytes": 158190
+      "bytes": 171731
     },
     "./jasmine": {
       "modules": 14,
