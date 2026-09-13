@@ -85,6 +85,7 @@ import {
   isIdentifier,
   isMemberExpression,
 } from './rule-types';
+import { preferSetInputs } from './set-inputs';
 import { noRedundantSmokeTest } from './smoke-test';
 import { noStubClassDouble } from './stub-class';
 import { type EsNamedCall, type SubscribeRepair, enclosingSubscribe, helperAssertions, repairFor } from './subscribe-repair';
@@ -632,5 +633,6 @@ export const rules: Record<string, RuleModule> = {
   'no-compile-components': noCompileComponents,
   'no-sync-testbed-await': noSyncTestbedAwait,
   'no-redundant-smoke-test': noRedundantSmokeTest,
+  'prefer-set-inputs': preferSetInputs,
   ...jasmineRules,
 };

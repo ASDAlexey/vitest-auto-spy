@@ -27,7 +27,8 @@ import {
 
 const HOOKS = new Set(['afterAll', 'afterEach', 'beforeAll', 'beforeEach', 'it', 'test']);
 
-function isHookCallback(callback: EsNode): boolean {
+/** Whether a callback is one the runner owns — the only place a rule may add or drop an `async`. */
+export function isHookCallback(callback: EsNode): boolean {
   const runner = callback.parent;
 
   return isCallExpression(runner) && isIdentifier(runner.callee) && HOOKS.has(runner.callee.name);

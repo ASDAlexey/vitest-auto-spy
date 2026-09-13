@@ -1820,6 +1820,7 @@ describe('the plugin', () => {
       'prefer-inject-spy',
       'prefer-native-spy-api',
       'prefer-render-shallow',
+      'prefer-set-inputs',
     ]);
   });
 
@@ -1835,7 +1836,7 @@ describe('the plugin', () => {
     // itself wherever it cannot read a file's registrations in full, and `prefer-native-spy-api`
     // flags a bridge that is still needed. Documented overrides, not severities.
     //
-    // Four rules are graded, and the reason differs between them.
+    // Five rules are graded, and the reason differs between them.
     //
     // `prefer-render-shallow` is graded on the *kind* of thing it says: the others name something
     // wrong or dead, while this one names a file that could render more cheaply. Moving onto
@@ -1856,6 +1857,12 @@ describe('the plugin', () => {
     // `no-instance-lifecycle-spy` is graded on the evidence too: a spec that calls the hook itself
     // does reach the instance spy, and the syntax cannot tell that spec from one that relies on Angular.
     //
+    // `prefer-set-inputs` is graded on what its repair costs. The finding is a fact in the line —
+    // `setInput` takes a name Angular checks against nothing — but `setInputs` awaits `stable()`,
+    // whose `TestBed.tick()` re-enters the zone's own tick under zone.js: on the same 1771-file
+    // consumer the rule reports 504 times in 140 files, and accepting every suggestion turns 57 of
+    // 105 green files red on NG0101. That makes adoption a migration a project takes file by file.
+    //
     // `off` would be the wrong end of the same mistake in all four cases, so the assertions pin the
     // values rather than allowing "not error".
     expect(new Set(levels)).toEqual(new Set(['error', 'warn']));
@@ -1863,7 +1870,8 @@ describe('the plugin', () => {
     expect(plugin.configs.recommended.rules['vitest-auto-spy/no-stub-class-double']).toBe('warn');
     expect(plugin.configs.recommended.rules['vitest-auto-spy/no-structural-double']).toBe('warn');
     expect(plugin.configs.recommended.rules['vitest-auto-spy/no-instance-lifecycle-spy']).toBe('warn');
-    expect(levels.filter((level) => level !== 'error')).toHaveLength(4);
+    expect(plugin.configs.recommended.rules['vitest-auto-spy/prefer-set-inputs']).toBe('warn');
+    expect(levels.filter((level) => level !== 'error')).toHaveLength(5);
     expect(levels).toHaveLength(Object.keys(rules).length);
   });
 

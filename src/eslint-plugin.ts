@@ -40,7 +40,7 @@ export interface AutoSpyEslintPlugin {
 const PLUGIN_NAME = 'vitest-auto-spy';
 
 /**
- * Every rule, and all but four of them an **error** (4.0.0). Before that the config was a graded
+ * Every rule, and all but five of them an **error** (4.0.0). Before that the config was a graded
  * mix of `error` / `warn` / `off`, which meant the plugin decided how much each project cared.
  *
  * A `warn` is a finding a build does not stop for, so in a repository that does not read lint
@@ -88,6 +88,18 @@ const PLUGIN_NAME = 'vitest-auto-spy';
  * slot the hand-built half arrived in. What it reports is the one double whose halves a green test
  * can keep apart, and the helper it names is a provider, so the repair is a drop-in replacement of
  * the reported line.
+ *
+ * **`prefer-set-inputs` is graded on what its repair costs, not on what it reports** (5.11.0). What it
+ * reports is a fact in the line — `componentRef.setInput('title', value)` hands Angular a name it
+ * checks against nothing, answering an unknown one with an `NG0303` on the console and no change at
+ * all — and the helper it names is this package's own. The repair, though, is not a drop-in
+ * everywhere: `setInputs` awaits `stable()`, which begins with `TestBed.tick()`, and under zone.js
+ * that tick re-enters the one the zone schedules for itself. Measured on the 1771-file consumer, the
+ * rule reports 504 times across 140 files, and accepting every one of its 451 suggestions turns 57
+ * of 105 green files red on `NG0101: ApplicationRef.tick is called recursively`. So adopting it is a
+ * migration a project takes file by file rather than a defect each report names, which is the same
+ * reading that grades `prefer-render-shallow` — and a zoneless suite turns it up to `error` in the
+ * one line everything else here is turned down in.
  *
  * **The three console rules decide on facts, not on a reading of the code**, so they are `error`: on the
  * 1759-file consumer they report 0, 6 in 2 files, and 32 of the 39 files that import `/console`.
@@ -166,6 +178,7 @@ const recommendedRules: Record<string, RuleSeverity> = {
   [`${PLUGIN_NAME}/no-compile-components`]: 'error',
   [`${PLUGIN_NAME}/no-sync-testbed-await`]: 'error',
   [`${PLUGIN_NAME}/no-redundant-smoke-test`]: 'error',
+  [`${PLUGIN_NAME}/prefer-set-inputs`]: 'warn',
   [`${PLUGIN_NAME}/jasmine-namespace-without-entry`]: 'error',
   [`${PLUGIN_NAME}/no-jasmine-globals`]: 'error',
   [`${PLUGIN_NAME}/no-save-arguments-by-value`]: 'error',
