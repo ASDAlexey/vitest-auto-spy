@@ -90,6 +90,111 @@ function testCall(node: EsCallExpression): { skipped: boolean } | undefined {
   return { skipped: SKIPPED_TESTS.has(chain.root) || chain.members.some((member) => SKIPPED_MEMBERS.has(member)) };
 }
 
+/** The builders whose one argument is a DI token rather than input, so the call still only names the subject. */
+const SUBJECT_BUILDERS = new Set(['get', 'inject']);
+
+/** Whether any call hides inside the expression — a member chain that ends in one is not a plain reference. */
+function containsCall(node: EsNode): boolean {
+  let current: EsNode = node;
+
+  while (isMemberExpression(current)) {
+    if (isCallExpression(current.object)) {
+      return true;
+    }
+    current = current.object;
+  }
+
+  return isCallExpression(current);
+}
+
+/**
+ * Whether the subject is a **reference to the thing under test** rather than a value the test went
+ * and computed. The matcher cannot decide this, and that is the whole difficulty: \`toBeTruthy\` reads
+ * the same in \`expect(component)\` and in \`expect(fixture.nativeElement.querySelector('expand-card'))\`
+ * — the first names a subject a sibling test would have failed on first, the second asserts that a
+ * child rendered, which nothing else in the file checks. Reporting the second is not a false
+ * positive about style; it deletes the only coverage of a behaviour.
+ *
+ * So a reference is an identifier, or a member chain with no call in it (\`fixture.componentInstance\`).
+ * A call counts only where it *builds* the subject and takes nothing to do it:
+ * \`expect(createService())\`, and \`TestBed.inject(Token)\` / \`TestBed.get(Token)\`, whose argument is a
+ * token rather than input. Everything else — a call with a value in it, a method or signal read on
+ * the subject, a DOM query, an expression over a collection — is behaviour, and is left alone. A
+ * builder with `toBeInstanceOf` is left alone too: that pairs two names and asserts they resolve to
+ * each other, which is wiring rather than existence.
+ *
+ * Measured on an Angular suite of 1771 spec files: it takes the rule from 581 findings to 548, and
+ * every one of the 33 it drops is a real assertion — \`expect(isChildProfile(FAMILY_ROLE.CHILD))\`,
+ * \`expect(consoleTransport(true))\`, \`expect(component.periodsOffset()).not.toBeNull()\`,
+ * \`expect(createService().resolve(type))\` under an \`it.each\` over seven content types,
+ * \`expect(samples.every((x) => x >= 0 && x <= 100))\`.
+ */
+function namesSubject(subject: EsNode, matcher: string): boolean {
+  if (isIdentifier(subject)) {
+    return true;
+  }
+
+  if (isMemberExpression(subject)) {
+    return !containsCall(subject);
+  }
+
+  if (!isCallExpression(subject)) {
+    return false;
+  }
+
+  // A builder plus `toBeInstanceOf` is not "it exists", it is "this name resolves to that class" —
+  // two different names, and often nothing else in the file connects them. The one that showed this
+  // was the only test that `provideBetaTesters()` wires its token to the service behind it; its
+  // sibling exercised the behaviour and would have passed against any other implementation.
+  if (matcher === 'toBeInstanceOf') {
+    return false;
+  }
+
+  // createService()
+  if (isIdentifier(subject.callee)) {
+    return subject.arguments.length === 0;
+  }
+
+  // TestBed.inject(Token) — one token, and nothing called to produce it.
+  const [token, ...rest] = subject.arguments;
+
+  return (
+    isMemberExpression(subject.callee) &&
+    SUBJECT_BUILDERS.has(memberName(subject.callee) ?? '') &&
+    !containsCall(subject.callee.object) &&
+    rest.length === 0 &&
+    token !== undefined &&
+    (isIdentifier(token) || (isMemberExpression(token) && !containsCall(token)))
+  );
+}
+
+/**
+ * The reference a running sibling has to share for this rule's claim to hold, which is the claim its
+ * message makes out loud: "N other tests under the same setup already run against it".
+ *
+ * For a name or a path it is the **whole** path, not the name it starts with. A barrel spec showed
+ * why: `expect(publicApi.FocusModule).toBeDefined()` beside
+ * `expect(publicApi.smartPlayerSettings).toBeDefined()` shares the root `publicApi` and nothing else
+ * — the sibling would not have failed first, because it never touches `FocusModule`, and removing
+ * the test removed the only check that the symbol is exported at all.
+ *
+ * For a builder call the root identifier is the reference: `createService()` in one test and
+ * `createService().transform(…)` in another do build the same subject.
+ */
+function subjectReference(subject: EsNode, context: RuleContext): string | undefined {
+  if (isIdentifier(subject) || isMemberExpression(subject)) {
+    return context.sourceCode.getText(subject);
+  }
+
+  let current: EsNode = subject;
+
+  while (isCallExpression(current) || isMemberExpression(current)) {
+    current = isCallExpression(current) ? current.callee : current.object;
+  }
+
+  return isIdentifier(current) ? current.name : undefined;
+}
+
 /** The value an assertion asks to exist, or `undefined` for an assertion that asks anything else. */
 function existenceSubject(expression: EsNode): EsNode | undefined {
   if (!isCallExpression(expression) || !isMemberExpression(expression.callee)) {
@@ -111,7 +216,11 @@ function existenceSubject(expression: EsNode): EsNode | undefined {
 
   const [subject] = target.arguments;
 
-  return subject && (negated ? MISSING.has(matcher) : EXISTS.has(matcher)) ? subject : undefined;
+  if (!subject || !(negated ? MISSING.has(matcher) : EXISTS.has(matcher))) {
+    return undefined;
+  }
+
+  return namesSubject(subject, matcher) ? subject : undefined;
 }
 
 /** The value a test body does nothing but assert the existence of — `undefined` as soon as it does anything else. */
@@ -142,10 +251,29 @@ function removal(context: RuleContext, statement: EsNode): FixFunction {
   };
 }
 
+/**
+ * Index a name against every function that encloses it, so a name used inside a nested arrow still
+ * counts for the test containing it.
+ */
+function recordName(names: Map<EsNode, Set<string>>, node: EsNode, context: RuleContext): void {
+  // Indexed by source text rather than by name, because a bare name and the paths built on it are
+  // both references a smoke test can be weighed against — the visitor passes both kinds in.
+  const text = context.sourceCode.getText(node);
+
+  for (let scope = enclosingFunction(node); scope; scope = enclosingFunction(scope.parent)) {
+    const seen = names.get(scope) ?? new Set<string>();
+
+    seen.add(text);
+    names.set(scope, seen);
+  }
+}
+
 /** One block's tests: the ones that only assert existence, and how many of the rest actually run. */
 interface Block {
   below: number;
   proving: number;
+  /** The callbacks of the tests that actually run, so the names they reference can be gathered. */
+  running: EsFunction[];
   smoke: { node: EsCallExpression; subject: EsNode }[];
 }
 
@@ -166,6 +294,7 @@ function countNested(blocks: Map<EsNode | undefined, Block>): void {
 
       if (above) {
         above.below += block.proving;
+        above.running.push(...block.running);
       }
 
       if (current === undefined) {
@@ -174,6 +303,45 @@ function countNested(blocks: Map<EsNode | undefined, Block>): void {
 
       current = enclosingFunction(current.parent);
     }
+  });
+}
+
+/** Report one block's smoke tests — the ones a running sibling in it actually reaches the same way. */
+function reportBlock(context: RuleContext, block: Block, names: Map<EsNode, Set<string>>): void {
+  if (block.below === 0) {
+    return;
+  }
+
+  const referenced = new Set(block.running.flatMap((callback) => [...(names.get(callback) ?? [])]));
+
+  block.smoke.forEach(({ node, subject }) => {
+    const reference = subjectReference(subject, context);
+
+    // The message says "N other tests under the same setup already run against it". Where no running
+    // test reaches the subject the same way, that is simply untrue, and the test is the only thing
+    // checking whatever it holds. Both halves of this came off a 1771-file suite: the tween spec's
+    // only proof that the stream completes reads `expect(completed).toBeTruthy()` while its siblings
+    // read the array of timestamps, and a barrel spec's `expect(publicApi.FocusModule)` shares only
+    // the word `publicApi` with the sibling that checks a different export.
+    if (reference !== undefined && !referenced.has(reference)) {
+      return;
+    }
+
+    const data = {
+      siblings:
+        block.below === 1
+          ? 'another test under the same setup already runs against it'
+          : `${block.below} other tests under the same setup already run against it`,
+      subject: context.sourceCode.getText(subject),
+    };
+    // The suggestion is offered only where the test is a statement of its own: anywhere else — handed
+    // to something, awaited — removing it leaves the expression around it holding nothing.
+    const statement = node.parent;
+    const report = { data, messageId: 'noRedundantSmokeTest', node };
+
+    context.report(
+      isExpressionStatement(statement) ? { ...report, suggest: [{ desc: 'Remove this test', fix: removal(context, statement) }] } : report,
+    );
   });
 }
 
@@ -194,8 +362,12 @@ export const noRedundantSmokeTest = defineRule({
     // module scope — so a smoke test is only ever weighed against the tests that run its setup: its
     // own block's, and the ones the blocks below it declare.
     const blocks = new Map<EsNode | undefined, Block>();
+    /** Every name a function encloses, including through the arrows nested in it. */
+    const names = new Map<EsNode, Set<string>>();
 
     return {
+      Identifier: (node: EsNode): void => recordName(names, node, context),
+      MemberExpression: (node: EsNode): void => recordName(names, node, context),
       CallExpression: (node: EsCallExpression): void => {
         const test = testCall(node);
 
@@ -204,7 +376,7 @@ export const noRedundantSmokeTest = defineRule({
         }
 
         const scope = enclosingFunction(node);
-        const block = blocks.get(scope) ?? { below: 0, proving: 0, smoke: [] };
+        const block = blocks.get(scope) ?? { below: 0, proving: 0, running: [], smoke: [] };
         const callback = node.arguments.find(isFunctionNode);
         const subject = callback && existenceOnly(callback);
 
@@ -212,6 +384,10 @@ export const noRedundantSmokeTest = defineRule({
           block.smoke.push({ node, subject });
         } else if (!test.skipped) {
           block.proving += 1;
+
+          if (callback) {
+            block.running.push(callback);
+          }
         }
 
         blocks.set(scope, block);
@@ -219,32 +395,7 @@ export const noRedundantSmokeTest = defineRule({
       'Program:exit': (): void => {
         countNested(blocks);
 
-        blocks.forEach((block) => {
-          if (block.below === 0) {
-            return;
-          }
-
-          block.smoke.forEach(({ node, subject }) => {
-            const data = {
-              siblings:
-                block.below === 1
-                  ? 'another test under the same setup already runs against it'
-                  : `${block.below} other tests under the same setup already run against it`,
-              subject: context.sourceCode.getText(subject),
-            };
-            // The suggestion is offered only where the test is a statement of its own: anywhere else
-            // — handed to something, awaited — removing it leaves the expression around it holding
-            // nothing.
-            const statement = node.parent;
-            const report = { data, messageId: 'noRedundantSmokeTest', node };
-
-            context.report(
-              isExpressionStatement(statement)
-                ? { ...report, suggest: [{ desc: 'Remove this test', fix: removal(context, statement) }] }
-                : report,
-            );
-          });
-        });
+        blocks.forEach((block) => reportBlock(context, block, names));
       },
     };
   },

@@ -183,4 +183,109 @@ describe(RULE, () => {
 
     expect(subjects(PROVING, ...live)).toEqual([]);
   });
+
+  it('leaves alone a value the test computed, however existence-shaped the matcher looks', () => {
+    // Every one of these was reported before the subject had to be a reference, and every one was
+    // the only check of the behaviour it names — found rolling the rule out over a 1771-file suite.
+    const live = [
+      "it('resolves the type', () => { expect(createService().resolve(type)).toBeTruthy(); });",
+      "it('is a child role', () => { expect(isChildProfile(FAMILY_ROLE.CHILD)).toBeTruthy(); });",
+      "it('builds a transport', () => { expect(consoleTransport(true)).toBeTruthy(); });",
+      "it('offsets the periods', () => { expect(component.periodsOffset()).not.toBeNull(); });",
+      "it('renders the card', () => { expect(fixture.nativeElement.querySelector('expand-card')).toBeTruthy(); });",
+      "it('applies the directive', () => { expect(fixture.debugElement.query(By.directive(Dir))).toBeTruthy(); });",
+      "it('stays in range', () => { expect(samples.every((x) => x >= 0 && x <= 100)).toBeTruthy(); });",
+      "it('holds a ref', () => { expect(component.contentRef()).toBeInstanceOf(ViewContainerRef); });",
+      // A builder with toBeInstanceOf pairs two names and asserts they resolve to each other.
+      "it('wires the token', () => { expect(TestBed.inject(TOKEN)).toBeInstanceOf(RealService); });",
+      "it('wires the token', () => { expect(createService()).toBeInstanceOf(RealService); });",
+    ];
+
+    expect(subjects(PROVING, ...live)).toEqual([]);
+  });
+
+  it('still reports the subject reached through a builder that takes no input', () => {
+    // Each one needs a running sibling reaching the subject through the same name, which is the
+    // condition the message states.
+    expect(
+      subjects(
+        "it('transforms', () => { expect(createService().transform([])).toEqual([]); });",
+        "it('should create', () => { expect(createService()).toBeTruthy(); });",
+      ),
+    ).toEqual(['createService()']);
+
+    expect(
+      subjects(
+        "it('transforms', () => { expect(TestBed.inject(MyService).transform([])).toEqual([]); });",
+        "it('should create', () => { expect(TestBed.inject(MyService)).toBeTruthy(); });",
+      ),
+    ).toEqual(['TestBed.inject(MyService)']);
+
+    expect(
+      subjects(
+        "it('transforms', () => { expect(fixture.componentInstance.transform([])).toEqual([]); });",
+        "it('should create', () => { expect(fixture.componentInstance).toBeTruthy(); });",
+      ),
+    ).toEqual(['fixture.componentInstance']);
+
+    // A token named as a path is still a token, not input the test computed.
+    expect(
+      subjects(
+        "it('transforms', () => { expect(TestBed.inject(TOKENS.beta).transform([])).toEqual([]); });",
+        "it('should create', () => { expect(TestBed.inject(TOKENS.beta)).toBeTruthy(); });",
+      ),
+    ).toEqual(['TestBed.inject(TOKENS.beta)']);
+  });
+
+  it('leaves alone a path that reaches through a call, and a subject that is neither name nor call', () => {
+    const live = [
+      // The call is inside the chain rather than at the end of it, so the path is still computed.
+      "it('should create', () => { expect(getFixture().componentInstance).toBeTruthy(); });",
+      // Neither an identifier, a path, nor a call: nothing here names a subject.
+      "it('should create', () => { expect([]).toBeTruthy(); });",
+      "it('should create', () => { expect(first || second).toBeTruthy(); });",
+    ];
+
+    expect(subjects(PROVING, ...live)).toEqual([]);
+  });
+
+  it('takes a builder only in the exact shape that names a subject', () => {
+    const live = [
+      // The member is computed, so there is no name to match against the builders.
+      "it('should create', () => { expect(TestBed[member](MyService)).toBeTruthy(); });",
+      // The builder is reached through a call, so producing it is itself work the test did.
+      "it('should create', () => { expect(getBed().inject(MyService)).toBeTruthy(); });",
+      // Not one token: neither of these is "inject this and nothing else".
+      "it('should create', () => { expect(TestBed.inject(MyService, optional)).toBeTruthy(); });",
+      "it('should create', () => { expect(TestBed.inject()).toBeTruthy(); });",
+      // The callee is itself a call, so it is neither a name nor a path to weigh anything against.
+      "it('should create', () => { expect(makeInjector()(MyService)).toBeTruthy(); });",
+      // The token is produced by a call, which is work the test did rather than a token it named.
+      "it('should create', () => { expect(TestBed.inject(getTokens().beta)).toBeTruthy(); });",
+    ];
+
+    expect(subjects(PROVING, ...live)).toEqual([]);
+  });
+
+  it('reports a builder whose chain bottoms out in something with no name', () => {
+    // `this.inject(Token)` is the shape: accepted as a builder, but there is no identifier under it
+    // for a sibling to be compared against, so the block's tests cannot rule it out.
+    const smoke = "it('should create', () => { expect(this.inject(MyService)).toBeTruthy(); });";
+
+    expect(subjects(PROVING, smoke)).toEqual(['this.inject(MyService)']);
+  });
+
+  it('leaves alone a name no running test in the block mentions', () => {
+    // The message claims the siblings already run against the subject. Where none of them names it,
+    // the claim is false and the test is the only thing checking whatever the name holds — the flag
+    // a beforeAll set from an observable's complete, an export a barrel spec exists to assert.
+    const orphans = [
+      "it('should complete', () => { expect(completed).toBeTruthy(); });",
+      // The sibling below checks a different export, so it shares only the word `publicApi`.
+      "it('exports the module', () => { expect(publicApi.FocusModule).toBeDefined(); });",
+      "it('exports the settings', () => { expect(typeof publicApi.settings.factory).toBe('function'); });",
+    ];
+
+    expect(subjects(PROVING, ...orphans)).toEqual([]);
+  });
 });
