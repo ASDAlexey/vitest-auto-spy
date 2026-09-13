@@ -392,6 +392,7 @@ reported as drift. `--baseline-factor` (2) and `--baseline-floor-ms` (500) are t
 | `--baseline-factor`   | How many times its recorded share a file has to take before it is a regression. Default 2                                                                         |
 | `--baseline-floor-ms` | The absolute floor under which a grown file is still noise. Default 500                                                                                           |
 | `--top <n>`           | Rows in the "slowest files" and "slowest bodies" tables; `0` turns them off. Default 10                                                                           |
+| `--min-severity`      | The quietest findings the report prints: `error`, `warning` or `info` (default). The tally line still counts what was hidden, and the exit code does not move     |
 
 A positional path (`npx vitest-auto-spy perf src/cli`) is passed through to Vitest as its file
 filter; with none, `perf` measures the whole suite.

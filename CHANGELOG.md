@@ -10,6 +10,17 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+### Added
+
+- **`--min-severity` on `doctor` and `perf`.** A suite that has cleared the errors and warnings still
+  reads a page of notes on every run — the environment advice, the `node` candidates, the unconfirmed
+  gate candidates — and a report nobody reads is a report nobody reads when it does matter.
+  `--min-severity warning` (or `error`) leaves those out of the printed findings. Two things stay
+  where they were on purpose: the tally line still counts what was hidden, so `0 errors, 0 warnings,
+  14 notes` keeps telling the reader the notes exist, and the exit code does not move, because a note
+  never failed a run. An unrecognised word is taken as no filter rather than as a stricter one — the
+  opposite would quietly hide the errors somebody was watching for.
+
 ### Fixed
 
 - **`renderShallow({ keepTemplate: true })` on an AOT-compiled component died as
