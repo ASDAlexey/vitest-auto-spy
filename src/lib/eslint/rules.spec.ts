@@ -363,6 +363,19 @@ describe('prefer-create-spy-from-class', () => {
     expect(firstMessage('const p = { a: vi.fn(), b: vi.fn() };', 'prefer-create-spy-from-class')).toContain('minRunnerFns');
   });
 
+  it('leaves the overrides bag of a built-in double alone — there is no class behind it to read', () => {
+    const calls = [
+      'provideWindowDouble(WINDOW, { history: { back: vi.fn() }, addEventListener: vi.fn(), removeEventListener: vi.fn() });',
+      'provideDocumentDouble({ addEventListener: vi.fn(), removeEventListener: vi.fn() });',
+      "provideRouterDouble({ url: '/', currentNavigation: { abort: vi.fn(), removeAbortListener: vi.fn() } });",
+      'createWindowDouble({ scrollTo: vi.fn(), matchMedia: vi.fn() });',
+    ];
+
+    for (const call of calls) {
+      expect(lint(call, 'prefer-create-spy-from-class')).toEqual([]);
+    }
+  });
+
   it('leaves a vi.mock factory alone — its exports are DI tokens, not a service double', () => {
     expect(lint("vi.mock('@acme/ui', () => ({ DialogRef: vi.fn(), ToastService: vi.fn() }));", 'prefer-create-spy-from-class')).toEqual([]);
     expect(lint("vi.doMock('x', () => ({ A: vi.fn(), B: vi.fn() }));", 'prefer-create-spy-from-class')).toEqual([]);

@@ -205,17 +205,32 @@ export function factoryBody(context: RuleContext, value: EsNode): EsNode {
  * A seed is an object of `vi.fn()`s that has no other form it could take: `createAutoMock<T>({ send:
  * vi.fn() })` is what the rule *asked* for, and flagging it again turns the recommended fix into a
  * violation that only an `eslint-disable` over correct code can clear.
+ *
+ * The built-in doubles are here for the same reason, and it took a report to notice they were not:
+ * `provideWindowDouble(WINDOW, { history: { back: vi.fn() }, addEventListener: vi.fn() })` is an
+ * **overrides bag merged over the real jsdom object**, not a hand-rolled service. There is no class
+ * for `createSpyFromClass` to read there, so the message named a repair that cannot be made, and an
+ * `eslint-disable` over the documented call was the only way out. The route, router and document
+ * doubles take the same kind of bag and are exempt on the same grounds.
  */
 const SPY_FACTORIES = new Set([
   'autoMocked',
+  'createActivatedRoute',
   'createAutoMock',
+  'createDocumentDouble',
   'createMock',
+  'createRouterDouble',
   'createSpyClass',
   'createSpyFromClass',
+  'createWindowDouble',
   'mockConstructor',
   'mockDeep',
+  'provideActivatedRoute',
   'provideAutoSpy',
   'provideAutoSpyForToken',
+  'provideDocumentDouble',
+  'provideRouterDouble',
+  'provideWindowDouble',
 ]);
 
 /** Whether a node is a call of one of those factories. */
