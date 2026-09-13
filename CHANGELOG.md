@@ -8,7 +8,7 @@ The latest released version here must always match the one published on
 [npm](https://www.npmjs.com/package/vitest-auto-spy) and the latest `v*` git tag — see
 [CONTRIBUTING.md → Releasing](./CONTRIBUTING.md#releasing) for how that stays in sync.
 
-## [Unreleased]
+## [5.11.0] - 2026-09-13
 
 ### Added
 
