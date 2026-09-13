@@ -14,7 +14,7 @@
     "./observer-spy": 991,
     "./angular": 25915,
     "./angular-http": 2505,
-    "./angular-router": 6801,
+    "./angular-router": 6807,
     "./signal-forms": 1362,
     "./nestjs": 12543,
     "./react": 17455,
@@ -22,7 +22,7 @@
     "./svelte": 17455,
     "./setup": 17102,
     "./zone": 1072,
-    "./eslint-plugin": 32417
+    "./eslint-plugin": 32788
   },
   "note": "Baseline for scripts/size-entries.mjs: min+gzip bytes per entry point, peers external. Regenerate with `npm run size:entries:update` and explain the diff in the commit."
 }
