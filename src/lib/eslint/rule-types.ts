@@ -95,6 +95,8 @@ export interface EsObjectExpression extends EsNode {
 export interface EsCallExpression extends EsNode {
   callee: EsNode;
   arguments: EsNode[];
+  /** `f<T>(…)` — absent on the ordinary call, and the reason a fix that moves one has to refuse it. */
+  typeArguments?: EsTypeArguments;
 }
 
 /** `await x` — the one expression a rule has to look *through*, to whatever was waited for. */

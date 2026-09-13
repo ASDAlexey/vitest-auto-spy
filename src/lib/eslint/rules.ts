@@ -49,15 +49,7 @@ import { noDeadSchemas } from './dead-schemas';
 import { noStructuralDouble } from './declared-double';
 import { defineRule } from './define-rule';
 import { isFloatingChain, isPromiseCallback } from './floating-assertion';
-import {
-  countRunnerFns,
-  handRolledProvider,
-  insideFactorySeed,
-  insideModuleMock,
-  minRunnerFns,
-  providesToken,
-  substitutesADependency,
-} from './hand-rolled-doubles';
+import { countRunnerFns, insideFactorySeed, insideModuleMock, minRunnerFns, substitutesADependency } from './hand-rolled-doubles';
 import { lazyValueSuggestion, runsAtImportTime, spreadOfImport } from './import-time-spread';
 import { type EsSpyCast, asSpyFixes, assertedValue, injectSpySuggestion, injectedFromVariable, isTestBedInject } from './injected-spy';
 import { jasmineRules } from './jasmine-rules';
@@ -69,7 +61,7 @@ import { noOverriddenProvider } from './overridden-provider';
 import { preferRenderShallow } from './prefer-render-shallow';
 import { noPrivateMemberAccess } from './private-access';
 import { patchKey, propHelperSuggestion } from './prop-helpers';
-import { OVERRIDE_PROVIDER_CALL, overrideDescriptor } from './provider-override';
+import { preferProvideAutoSpy } from './provide-auto-spy';
 import { preferProvideActivatedRoute } from './route-double';
 import {
   type EsArrayExpression,
@@ -88,86 +80,19 @@ import {
   type SuggestionDescriptor,
   buildsRunnerFnAtModuleScope,
   enclosingFunction,
-  findProperty,
   isCallExpression,
   isCallee,
   isIdentifier,
   isMemberExpression,
 } from './rule-types';
 import { noRedundantSmokeTest } from './smoke-test';
-import { noStubClassDouble, stubClassProvider } from './stub-class';
+import { noStubClassDouble } from './stub-class';
 import { type EsNamedCall, type SubscribeRepair, enclosingSubscribe, helperAssertions, repairFor } from './subscribe-repair';
 import { noSyncTestbedAwait } from './testbed-await';
 import { INSTANTIATES_THE_MODULE, breaksAnOverride } from './testbed-order';
 import { noTsExpectErrorOnDouble } from './ts-expect-error-on-double';
 import { noUnknownUseValueKey } from './unknown-use-value-key';
 import { emptyRegistrations, readCall, readProviders, unregisteredInjections } from './unregistered-spy';
-
-/** `{ provide: X, useValue: { a: vi.fn() } }`, `{ provide: X, useClass: XMock }` and `TestBed.overrideProvider(X, …)` → `provideAutoSpy(X)`. */
-const preferProvideAutoSpy = defineRule({
-  anchor: '-a-service-behind-angular-di',
-  description: 'Provide a spied service with provideAutoSpy() instead of a hand-rolled useValue object or stub class',
-  messages: {
-    preferProvideAutoSpy:
-      'This `useValue` object hand-rolls a service mock. `provideAutoSpy(Class)` spies every method of the real class, so the stub cannot drift from it. A member the double must **be** rather than spy on — a config object, a plain field, a stream the spec drives — goes in `{ overrides: … }`, which the class factory takes as well as the token one: `provideAutoSpy(ConfigService, { overrides: { remoteConfig: { theme: "dark" } } })`, seeded last and stored verbatim. For a dependency behind an `InjectionToken` — which has no class to read, and which `provideAutoSpy` therefore cannot take — it is `provideAutoSpyForToken(TOKEN)`, built from the type the token carries.',
-    preferProvideAutoSpyForToken:
-      'This `useValue` object hand-rolls a mock for an `InjectionToken`. `provideAutoSpy` cannot take one: it reads a class prototype and a token has none. `provideAutoSpyForToken(TOKEN)` builds the double from the type the token carries instead. Members the double must *answer* with rather than spy on go in its second argument. A call the code under test chains off is named in the third, and stays a spy: `provideAutoSpyForToken(LOGGER, undefined, { selfReturning: ["channel"] })`, without which `inject(LOGGER).channel("x").debug()` dies on `undefined` inside the constructor. The same second argument is the answer for a **nested** shape — a request, a response, a DOM-ish object — because the bare double is one level deep: every key it is asked for becomes a function spy, so `req.headers` is a spy and `req.headers.get(…)` reads a property off it. Seed the level: `provideAutoSpyForToken(REQUEST, { headers: { get: vi.fn() } })`.',
-    preferProvideAutoSpyOverStubClass:
-      'This provider hands DI a stub class whose fields are `vi.fn()`s — an object of `vi.fn()`s with a `new` in front of it, and the same drift: it only mocks the methods somebody remembered, and the class it stands in for is free to grow one. `provideAutoSpy(Class)` spies every method of the real class instead, so the whole registration becomes `providers: [provideAutoSpy(Class)]` and the stub class can be deleted. The returns the stub was tuned with move to the second argument — a value the double must **be** rather than spy on goes in `{ overrides: … }`, a call the code under test chains off goes in the seed: `provideAutoSpy(CardService, { overrides: { config: { theme: "dark" } } })`. Behind an `InjectionToken`, which has no class prototype to read, it is `provideAutoSpyForToken(TOKEN)`. `useExisting:` reaches this message too: it aliases the token instead of constructing the stub per injector, which changes nothing about the stub being hand-written.',
-    preferProvideAutoSpyInOverride:
-      'This override hands DI a hand-rolled double. `TestBed.overrideProvider(X, provideAutoSpy(X))` is the whole replacement and needs no reshaping: `provideAutoSpy` returns `{ provide, useValue }`, and `overrideProvider` reads the `useValue` off it — behind an `InjectionToken` it is `provideAutoSpyForToken(TOKEN)`, and a stub class in a `useClass:` / `useExisting:` / `new XMock()` goes the same way and can then be deleted. Values the double must **be** rather than spy on go in the second argument (`{ overrides: … }` for the class factory), because there is no later statement inside the call to put them in. If the override exists only because a testing-module provider was losing to nothing, register `provideAutoSpy(X)` in `configureTestingModule` and drop the override; if it exists because the component under test declares its own `providers` — the one case a module-level provider genuinely cannot win — keep the override and only change what it hands over.',
-  },
-  create: (context) => {
-    /**
-     * What a provider descriptor hands over, whichever of the four slots it uses.
-     *
-     * The stub-class arm is read first because the two are disjoint: `useClass` and `useExisting`
-     * are not values the object reading looks at, and a `new StubMock()` in a `useValue` is not an
-     * object literal, so neither spelling can reach `handRolledProvider` at all. Whichever answers
-     * owns the message.
-     */
-    const handedOver = (descriptor: EsObjectExpression): { reported: EsNode; stubClass: boolean } | undefined => {
-      const stubClass = stubClassProvider(context, descriptor);
-      const reported = stubClass ?? handRolledProvider(context, descriptor);
-
-      return reported ? { reported, stubClass: stubClass !== undefined } : undefined;
-    };
-
-    return {
-      ObjectExpression: (node: EsObjectExpression): void => {
-        const provide = findProperty(node, 'provide');
-        const handed = handedOver(node);
-
-        // A `multi: true` registration has no `provideAutoSpy` form — the factory builds one double
-        // for a token and takes no registration mode — so the replacement this rule asks for would
-        // silently turn an accumulating provider into an overriding one. Nothing to recommend, so
-        // nothing said.
-        if (!provide || !handed || findProperty(node, 'multi')) {
-          return;
-        }
-
-        const messageId = handed.stubClass
-          ? 'preferProvideAutoSpyOverStubClass'
-          : providesToken(context, provide.value)
-            ? 'preferProvideAutoSpyForToken'
-            : 'preferProvideAutoSpy';
-
-        context.report({ node: handed.reported, messageId });
-      },
-      // The same substitution from outside the array. One message for all four slots rather than
-      // three more: what differs at this call site is not which factory to reach for but where the
-      // replacement goes, and that paragraph is the same whichever slot the double arrived in.
-      [OVERRIDE_PROVIDER_CALL]: (node: EsCallExpression): void => {
-        const descriptor = overrideDescriptor(node);
-        const handed = descriptor && handedOver(descriptor);
-
-        if (handed) {
-          context.report({ node: handed.reported, messageId: 'preferProvideAutoSpyInOverride' });
-        }
-      },
-    };
-  },
-});
 
 /** `{ a: vi.fn(), b: vi.fn() }` → `createSpyFromClass(X)` / `createAutoMock<T>()`. */
 const preferCreateSpyFromClass = defineRule({

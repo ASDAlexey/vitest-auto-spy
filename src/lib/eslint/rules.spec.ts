@@ -106,7 +106,10 @@ describe('prefer-provide-auto-spy', () => {
   });
 
   it('leaves a spy-backed provider and a computed key alone', () => {
-    expect(lint('const p = { provide: Cart, useValue: createSpyFromClass(Cart) };', 'prefer-provide-auto-spy')).toEqual([]);
+    // A spy read from the class the provider *names* is the long-form arm's business and has its own
+    // file; what is silent here is a factory reading a different class — an abstract token's
+    // implementation, which `provideAutoSpy` on the token itself could not stand in for.
+    expect(lint('const p = { provide: Cart, useValue: createSpyFromClass(BaseCart) };', 'prefer-provide-auto-spy')).toEqual([]);
     // A factory with a seed is the fix this rule recommends; the ` + '`' + `useValue` + '`' + ` is a call, not a literal.
     expect(lint('const p = { provide: Cart, useValue: createAutoMock<Cart>({ total: vi.fn() }) };', 'prefer-provide-auto-spy')).toEqual([]);
     expect(lint("const p = { ['provide']: Cart, useValue: { total: vi.fn() } };", 'prefer-provide-auto-spy')).toEqual([]);
@@ -1796,7 +1799,12 @@ describe('the plugin', () => {
         .sort();
 
     // The README and AGENTS.md tables say the same thing in prose; this is what keeps them honest.
-    expect(named((rule) => rule.meta.fixable !== undefined)).toEqual(['no-mocked-for-spy', 'prefer-as-spy', 'prefer-native-spy-api']);
+    expect(named((rule) => rule.meta.fixable !== undefined)).toEqual([
+      'no-mocked-for-spy',
+      'prefer-as-spy',
+      'prefer-native-spy-api',
+      'prefer-provide-auto-spy',
+    ]);
     // `no-mocked-for-spy` and `prefer-native-spy-api` declare both: the same edit is applied where
     // the file settles it and offered where something outside the file has to agree.
     expect(named((rule) => rule.meta.hasSuggestions !== undefined)).toEqual([
