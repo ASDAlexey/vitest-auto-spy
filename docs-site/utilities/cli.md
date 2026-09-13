@@ -66,6 +66,29 @@ Nine of 152 spec tsconfigs still covered their specs.
 **It never writes.** `doctor` reads the repository and prints; there is no `--fix`. Exit code 1
 when anything above a note was found, 0 otherwise, so it drops into CI as one line.
 
+**`--min-severity` for a suite that has already cleared the errors.** A repository that fixed
+everything still reads the notes on every run — the environment advice, the `jasmine-era-project`
+line, the `no-agent-instructions` one — and a report nobody reads is a report nobody reads when it
+does matter. `--min-severity warning` (or `error`) leaves the quieter findings out of the printed
+report; `info` is the default and prints everything. Two things stay where they were on purpose:
+the tally line still counts what was hidden, so `0 errors, 0 warnings, 14 notes` keeps telling the
+reader the notes exist, and the exit code does not move, because a note never failed a run. A word
+the flag does not recognise is taken as no filter rather than as a stricter one — the opposite
+would quietly hide the errors somebody was watching for. The flag works the same way on `perf`.
+
+```
+$ npx vitest-auto-spy doctor --min-severity warning
+vitest-auto-spy doctor — /work/app
+1 284 files, runner: vitest, entry: vitest-auto-spy/angular
+
+warn   dead-runner-config karma.conf.js
+       Configures karma, which is not installed in this repository.
+       → Delete it. While it stays, every reader — human or agent — treats it as the source of
+         truth for how tests run.
+
+0 errors, 1 warning, 3 notes
+```
+
 Two shapes of pattern are deliberately exempt, because for them "matches nothing" is not evidence
 of anything: a declaration-only glob (`src/**/*.d.ts`, routinely a placeholder for ambient types
 that do not exist yet) and a pattern rooted in a directory the scan never enters (`dist`,

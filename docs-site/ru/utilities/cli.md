@@ -66,6 +66,29 @@ error  tsconfig-glob-matches-nothing libs/users/tsconfig.spec.json
 **Он никогда не пишет.** `doctor` читает репозиторий и печатает; никакого `--fix` нет. Код возврата
 1, когда нашлось что-то выше заметки, иначе 0, — так что он вставляется в CI одной строкой.
 
+**`--min-severity` для сюиты, которая ошибки уже разобрала.** Репозиторий, починивший всё, всё
+равно читает заметки на каждом прогоне — совет про окружение, строку `jasmine-era-project`, строку
+`no-agent-instructions`, — а отчёт, который никто не читает, никто не прочитает и тогда, когда он
+понадобится. `--min-severity warning` (или `error`) оставляет находки потише за пределами печатаемого
+отчёта; `info` — значение по умолчанию, печатает всё. Две вещи сознательно остались на месте:
+строка-итог всё равно считает скрытое, поэтому `0 errors, 0 warnings, 14 notes` по-прежнему говорит
+читателю, что заметки есть, а код возврата не меняется, потому что заметка никогда не роняла
+прогон. Слово, которого флаг не знает, понимается как отсутствие фильтра, а не как более строгий:
+обратное молча спрятало бы ошибки, которых кто-то ждал. На `perf` флаг работает так же.
+
+```
+$ npx vitest-auto-spy doctor --min-severity warning
+vitest-auto-spy doctor — /work/app
+1 284 files, runner: vitest, entry: vitest-auto-spy/angular
+
+warn   dead-runner-config karma.conf.js
+       Configures karma, which is not installed in this repository.
+       → Delete it. While it stays, every reader — human or agent — treats it as the source of
+         truth for how tests run.
+
+0 errors, 1 warning, 3 notes
+```
+
 Два вида паттернов сознательно исключены, потому что для них «ни с чем не совпадает» ничего не
 доказывает: глоб только по декларациям (`src/**/*.d.ts` — рутинная заглушка под ambient-типы,
 которых ещё нет) и паттерн с корнем в директории, куда сканер вообще не заходит (`dist`, `out-tsc`,
