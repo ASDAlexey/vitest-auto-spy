@@ -1,6 +1,6 @@
 ---
 title: ESLint plugin
-description: Thirty-seven flat-config lint rules that steer a suite onto the auto-spy helpers, grouped by subject, every one an error by default bar the four that report a cost or a heuristic, with the dial documented and the false-positive cases named.
+description: Thirty-eight flat-config lint rules that steer a suite onto the auto-spy helpers, grouped by subject, every one an error by default bar the four that report a cost or a heuristic, with the dial documented and the false-positive cases named.
 ---
 
 # ESLint plugin
@@ -22,7 +22,7 @@ which a subpath export of this package can never be.
 
 **How this page is laid out.** [Adding it](#adding-it-to-your-project) is the four things a first
 config needs. [Which apply to you](#which-of-the-twenty-apply-to-you) answers the question a
-Vitest-only project asks — four of the thirty-seven are about a dialect you may not speak.
+Vitest-only project asks — four of the thirty-eight are about a dialect you may not speak.
 [Rules](#rules) is the reference table, in seven groups. [Tuning](#tuning-it-for-your-project) is
 every dial, including the three rules that can report on correct code. Everything after that is
 _why_ — one section per rule, for when a report has arrived and you want to know what it saved you
@@ -80,7 +80,7 @@ need different severities.
 
 ### 3. Type information is optional, and three rules want it {#_3-type-information-is-optional-and-one-rule-wants-it}
 
-Thirty-four of the thirty-seven are syntactic: they read the file's own AST and never ask the type checker.
+Thirty-five of the thirty-eight are syntactic: they read the file's own AST and never ask the type checker.
 So the plugin works with `parserOptions.project` unset, adds nothing measurable to lint time, and
 does not need your specs to be in a `tsconfig` — which matters in the repositories where they are
 not.
@@ -106,13 +106,14 @@ languageOptions: {
 
 ### 4. What the first run looks like
 
-Every rule but four is an `error`, so on an existing suite the first run is likely to be red — that
+Every rule but five is an `error`, so on an existing suite the first run is likely to be red — that
 is the point of the default, not a misconfiguration. The exceptions are
 [`prefer-render-shallow`](#the-render-nobody-reads), which reports a cost rather than a defect, and
 [`no-stub-class-double`](/utilities/eslint-rules#no-stub-class-double),
 [`no-structural-double`](/utilities/eslint-rules#no-structural-double) and
 [`no-instance-lifecycle-spy`](/utilities/eslint-rules#no-instance-lifecycle-spy), which report a
-defect on heuristic evidence; all four show up in the output without holding the build. Two things make the
+defect on heuristic evidence, and [`prefer-set-inputs`](/utilities/eslint-rules#prefer-set-inputs), whose
+repair is a migration rather than a line to swap; all five show up in the output without holding the build. Two things make the
 first pass short:
 
 ```bash
@@ -123,7 +124,7 @@ npx eslint . --format stylish | tail -30   # the summary tells you which rule do
 Whatever is left is either a real finding or a rule you would rather not enforce yet. Both are
 answered below.
 
-## Which of the thirty-seven apply to you {#which-of-the-twenty-apply-to-you}
+## Which of the thirty-eight apply to you {#which-of-the-twenty-apply-to-you}
 
 Reasonable question if you came straight to Vitest and have never written a line of Jasmine: **four
 of these rules are about a dialect you do not speak.** They are still on, and the reason is not
@@ -133,7 +134,7 @@ principle — it is that they cannot fire on your code.
 | ------------------------------------------ | ------------------------------------------------------------------------------------------------------- |
 | writing Vitest, never used Jasmine or Jest | the thirty-two core rules work; **the four jasmine rules are inert** — leave them on and never see them |
 | migrating off `jest-auto-spies` / Jest     | the core rules do the work, `no-done-callback` and `prefer-as-spy` most of it                           |
-| migrating off `jasmine-auto-spies`         | all thirty-seven, with `prefer-native-spy-api` set to `'off'` until the bridge is gone                  |
+| migrating off `jasmine-auto-spies`         | all thirty-eight, with `prefer-native-spy-api` set to `'off'` until the bridge is gone                  |
 
 ### If you never used Jasmine
 
@@ -203,7 +204,7 @@ that file needs). See [Migrating from jest-auto-spies](/migrating).
 
 ### If you are coming from Jasmine
 
-All thirty-seven apply, and the four in the last group are the ones written for you. Two are pure
+All thirty-eight apply, and the four in the last group are the ones written for you. Two are pure
 diagnosis — `no-jasmine-globals` and `no-save-arguments-by-value` name silent behaviour changes that
 survive a rename — and `jasmine-namespace-without-entry` catches the spy built before the layer was
 installed. The fourth, `prefer-native-spy-api`, reports the bridge itself, so it is the one line of
@@ -218,12 +219,12 @@ autofix. See [Migrating from jasmine-auto-spies](/migrating-jasmine).
 
 ## Rules
 
-Every rule is an `error` bar four. Until 4.0.0 this table was a graded mix of `error` / `warn` / `off`,
+Every rule is an `error` bar five. Until 4.0.0 this table was a graded mix of `error` / `warn` / `off`,
 which meant the plugin decided how much each project cared; a `warn` that nothing reads is `off` with
 extra output, and which findings block a merge is a project's call, not a library's. Turning one down
 is [one line](#turn-one-rule-down).
 
-One of the four exceptions is [`prefer-render-shallow`](#the-render-nobody-reads), which ships as a
+One of the five exceptions is [`prefer-render-shallow`](#the-render-nobody-reads), which ships as a
 **`warn`**, and its reason is the kind of thing it says rather than how much it matters. Every other rule in these
 tables names something wrong or dead — a double that drifts from its class, an assertion that never
 runs, a provider the container already dropped, a schema guarding nothing. That one names a file that
@@ -293,21 +294,22 @@ Not about a single test but about what one file leaves behind for the next.
 
 The ways a provider — or a spy on the component itself — ends up not being what the spec thinks it registered.
 
-| Rule                                                                                               | Flags                                                                                                                                                                                | Fix     |        Without it         |
-| -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------- | :-----------------------: |
-| [`prefer-provide-auto-spy`](#two-things-these-rules-learned-the-hard-way)                          | a hand-rolled `useValue`, `useFactory`, `useClass` or `useExisting`, in a provider or a `TestBed.overrideProvider` → `provideAutoSpy(Class)` / `provideAutoSpyForToken(TOKEN)`       | —       |            red            |
-| [`prefer-provide-activated-route`](/utilities/eslint-rules#prefer-provide-activated-route)         | a hand-built `ActivatedRoute` — any slot, and `provideAutoSpy(ActivatedRoute)` too → `provideActivatedRoute({ … })`; the double knows either the streams or the snapshot, never both | —       |            red            |
-| [`prefer-inject-spy`](#the-three-prefer-rules-%E2%80%94-drift-and-one-line-that-undoes-a-provider) | `vi.spyOn(TestBed.inject(X), 'm')`, inline or via a `const` → `injectSpy(X).m`                                                                                                       | suggest |            red            |
-| [`no-unregistered-inject-spy`](#the-spy-that-only-the-compiler-can-see)                            | `injectSpy(X)` for a token this file never registered → the real instance, whose spy helpers exist only for the compiler                                                             | —       |  red _(by construction)_  |
-| [`prefer-render-shallow`](#the-render-nobody-reads)                                                | `TestBed.createComponent` in a file that never reads the template → `renderShallow(X)`                                                                                               | suggest |           green           |
-| [`no-overridden-provider`](#two-providers-one-token)                                               | two providers for one token in one array, or one a `TestBed.overrideProvider` replaces → the earlier one never runs; the exact duplicate can be deleted                              | suggest |           green           |
-| [`no-inject-before-override`](#the-trap-this-plugin-s-own-advice-sets)                             | `TestBed.inject()` / `injectSpy()` / `renderShallow()` in a hook, in a suite that still calls `override*`                                                                            | —       |            red            |
-| [`no-dead-schemas`](#no-dead-schemas-%E2%80%94-the-charm-that-protects-nobody)                     | `schemas` on a testing module that declares nothing → the schema applies to nothing                                                                                                  | —       | green _(by construction)_ |
-| [`no-mistyped-use-value`](/utilities/eslint-rules#no-mistyped-use-value)                           | `{ provide: TOKEN, useValue }` whose value does not fit the primitive `TOKEN` declares — `useValue` is `any`; **type-aware**                                                         | —       | green _(by construction)_ |
-| [`no-unknown-use-value-key`](/utilities/eslint-rules#no-unknown-use-value-key)                     | a key of an object `useValue` the provided type (`InjectionToken<T>`'s `T`, a class's instance) does not have — keys only; **type-aware**                                            | —       | green _(by construction)_ |
-| [`no-instance-lifecycle-spy`](/utilities/eslint-rules#no-instance-lifecycle-spy)                   | `vi.spyOn(component, 'ngOnInit')` — Angular calls the hook it read off the prototype, never the instance spy; `warn`                                                                 | —       |    green _(the stub)_     |
-| [`no-compile-components`](/utilities/eslint-rules#no-compile-components)                           | `compileComponents()` under a builder that inlines `templateUrl` / `styleUrls`; silent until `{ builder: 'inline-resources' }`                                                       | suggest |     — _(a dead line)_     |
-| [`no-sync-testbed-await`](/utilities/eslint-rules#no-sync-testbed-await)                           | `await` on `configureTestingModule` / `override*` / `createComponent` — each answers the TestBed or the fixture, never a promise                                                     | suggest |    — _(a dead await)_     |
+| Rule                                                                                               | Flags                                                                                                                                                                                                                                                                 | Fix     |        Without it         |
+| -------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- | :-----------------------: |
+| [`prefer-provide-auto-spy`](#two-things-these-rules-learned-the-hard-way)                          | a hand-rolled `useValue`, `useFactory`, `useClass` or `useExisting`, in a provider or a `TestBed.overrideProvider` → `provideAutoSpy(Class)` / `provideAutoSpyForToken(TOKEN)`; and `{ provide: X, useValue: createSpyFromClass(X) }`, which is that call written out | fix     |            red            |
+| [`prefer-provide-activated-route`](/utilities/eslint-rules#prefer-provide-activated-route)         | a hand-built `ActivatedRoute` — any slot, and `provideAutoSpy(ActivatedRoute)` too → `provideActivatedRoute({ … })`; the double knows either the streams or the snapshot, never both                                                                                  | —       |            red            |
+| [`prefer-inject-spy`](#the-three-prefer-rules-%E2%80%94-drift-and-one-line-that-undoes-a-provider) | `vi.spyOn(TestBed.inject(X), 'm')`, inline or via a `const` → `injectSpy(X).m`                                                                                                                                                                                        | suggest |            red            |
+| [`no-unregistered-inject-spy`](#the-spy-that-only-the-compiler-can-see)                            | `injectSpy(X)` for a token this file never registered → the real instance, whose spy helpers exist only for the compiler                                                                                                                                              | —       |  red _(by construction)_  |
+| [`prefer-render-shallow`](#the-render-nobody-reads)                                                | `TestBed.createComponent` in a file that never reads the template → `renderShallow(X)`                                                                                                                                                                                | suggest |           green           |
+| [`prefer-set-inputs`](/utilities/eslint-rules#prefer-set-inputs)                                   | `fixture.componentRef.setInput('title', v)` → `await setInputs(fixture, { title: v })`, which resolves the name before it writes and types the value                                                                                                                  | suggest |           green           |
+| [`no-overridden-provider`](#two-providers-one-token)                                               | two providers for one token in one array, or one a `TestBed.overrideProvider` replaces → the earlier one never runs; the exact duplicate can be deleted                                                                                                               | suggest |           green           |
+| [`no-inject-before-override`](#the-trap-this-plugin-s-own-advice-sets)                             | `TestBed.inject()` / `injectSpy()` / `renderShallow()` in a hook, in a suite that still calls `override*`                                                                                                                                                             | —       |            red            |
+| [`no-dead-schemas`](#no-dead-schemas-%E2%80%94-the-charm-that-protects-nobody)                     | `schemas` on a testing module that declares nothing → the schema applies to nothing                                                                                                                                                                                   | —       | green _(by construction)_ |
+| [`no-mistyped-use-value`](/utilities/eslint-rules#no-mistyped-use-value)                           | `{ provide: TOKEN, useValue }` whose value does not fit the primitive `TOKEN` declares — `useValue` is `any`; **type-aware**                                                                                                                                          | —       | green _(by construction)_ |
+| [`no-unknown-use-value-key`](/utilities/eslint-rules#no-unknown-use-value-key)                     | a key of an object `useValue` the provided type (`InjectionToken<T>`'s `T`, a class's instance) does not have — keys only; **type-aware**                                                                                                                             | —       | green _(by construction)_ |
+| [`no-instance-lifecycle-spy`](/utilities/eslint-rules#no-instance-lifecycle-spy)                   | `vi.spyOn(component, 'ngOnInit')` — Angular calls the hook it read off the prototype, never the instance spy; `warn`                                                                                                                                                  | —       |    green _(the stub)_     |
+| [`no-compile-components`](/utilities/eslint-rules#no-compile-components)                           | `compileComponents()` under a builder that inlines `templateUrl` / `styleUrls`; silent until `{ builder: 'inline-resources' }`                                                                                                                                        | suggest |     — _(a dead line)_     |
+| [`no-sync-testbed-await`](/utilities/eslint-rules#no-sync-testbed-await)                           | `await` on `configureTestingModule` / `override*` / `createComponent` — each answers the TestBed or the fixture, never a promise                                                                                                                                      | suggest |    — _(a dead await)_     |
 
 ### Reaching past the public surface
 
@@ -393,8 +395,8 @@ export default [
 ];
 ```
 
-Three rules need no downgrading: `prefer-render-shallow`, `no-stub-class-double` and
-`no-structural-double` are already `warn`, and the first is usually the loudest rule on a component
+Four rules need no downgrading: `prefer-render-shallow`, `no-stub-class-double`,
+`no-structural-double` and `prefer-set-inputs` are already `warn`, and the first is usually the loudest rule on a component
 suite. If the reason you reached for this recipe was the size of the first
 run, check how much of it that one accounts for before downgrading the rest — the rules that survive
 its removal are the ones about a test being wrong, and a red CI is what those are for.
@@ -1178,7 +1180,7 @@ this rule declines. See [Migrating from jasmine-auto-spies](/migrating-jasmine).
 
 ## Which rules fix, and why so few
 
-Three of the thirty-seven rewrite the source on their own, twelve offer the rewrite as a suggestion, and
+Three of the thirty-eight rewrite the source on their own, thirteen offer the rewrite as a suggestion, and
 the split is about what a wrong guess costs rather than about how hard the rewrite is.
 
 `no-mocked-for-spy` touches nothing but a **declaration**. Get it wrong and the file stops
@@ -1337,10 +1339,11 @@ against a red test whose message is already clear; one is a compiler error. That
 _Without it_ column in [Rules](#rules) reports, and it used to be what severity followed too — until
 4.0.0 graded the config `error` / `warn` / `off` along it. It does not any more: how loud a finding
 is belongs to the project, and this table is the evidence for deciding rather than the decision. The
-three severities the config does still grade are not on this axis: `prefer-render-shallow` reports no
-failure mode at all, only a bill, and `no-stub-class-double` and `no-structural-double` report a
+severities the config does still grade are not on this axis: `prefer-render-shallow` reports no
+failure mode at all, only a bill, `no-stub-class-double` and `no-structural-double` report a
 failure mode that is red without them — they are graded on how the evidence is obtained, not on what
-happens without them.
+happens without them — and `prefer-set-inputs` is graded on what its repair costs, which is a
+measurement of the repair rather than of the finding.
 
 The [four jasmine rules](#the-four-jasmine-rules) are not in this table because they were not probed
 the same way — their subject is a migration, not a runner behaviour. Two of them belong on the green

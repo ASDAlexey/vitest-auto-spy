@@ -327,6 +327,14 @@ spec was written, or a plain field mistaken for an input all land there, and the
 follows fails on state nothing moved. Either spelling of an aliased input works: the class field the
 type is keyed by, or the public name Angular binds.
 
+A fixture whose `componentType` carries no `ɵcmp` is refused by name as well: the class is named,
+along with what it would have to be for there to be inputs at all — a `@Directive` takes its inputs
+through the host element that applies it, a `@Pipe` has none, and a class Angular never compiled
+carries no definition. It used to read the definition straight into `Object.entries` and die as
+`Cannot read properties of undefined (reading 'inputs')`, which names neither the component nor a
+repair; `createComponentStub` has answered that question properly since it shipped, and the two now
+read alike.
+
 A `model()` is set here like any other input. Its **output** half emits when the component itself
 moves the value, so subscribe before the call and await after it:
 
@@ -415,8 +423,40 @@ flushEffects(); // the no-fixture half: services, stores, runInInjectionContext 
 `fixture.detectChanges()` runs a single change-detection pass and does **not** flush pending
 effects, so an assertion right after it reads state that has not finished computing. In a zoneless
 app the state that matters is signal-derived and effects are what move it forward. `stable` does
-both, in the right order; `flushEffects` prefers `TestBed.tick()` (Angular ≥ 20) and falls back to
-`ApplicationRef.tick()`.
+both, in the right order; `flushEffects` is `TestBed.tick()`, run inside the `NgZone`.
+
+### Both work under zone.js, and the zone is why the tick is wrapped
+
+The name says zoneless and the helpers are written for it, but nothing in them is: `stable` and
+`setInputs` are the same two lines in a zone-based suite, and since 5.9.0 they are what a zone-based
+suite is being migrated to. So the tick is run inside `TestBed.inject(NgZone)`, which under zoneless
+is a `NoopNgZone` whose `run` is a straight call and costs nothing.
+
+Under zone.js it is the difference between working and not. `TestBed.createComponent` builds the
+component inside `ngZone.run(…)`, so every `effect()` its constructor registers records the zone's
+inner zone as its own. A tick started from a test body runs in the runner's zone instead, so
+`runEffectsInView` hops back — `effect.zone.run(() => effect.run())` — to run a **dirty** effect, and
+leaving that hop takes the zone from unstable to stable. `NgZone.onMicrotaskEmpty` reports that, and
+the subscriber `provideZoneChangeDetection()` installs answers it with `ApplicationRef._tick()`,
+guarded against its own scheduler but not against `ApplicationRef._runningTick`. The tick already on
+the stack is re-entered and Angular throws `NG0101: ApplicationRef.tick is called recursively`.
+
+Three things make it hard to meet and then hard to see. Every ingredient is ordinary — the Angular
+CLI's `@angular/build:unit-test` adds `provideZoneChangeDetection()` to any suite that loads zone.js,
+and a component with one `effect()` is not exotic — but the effect has to be **dirty** at that
+moment, which is why the same call site is fine all day and fatal the first time it drives a
+fixture's first render. And the error is handed to `ErrorHandler` rather than thrown at the call
+site, so a suite that does not fail on console output stays green with the change detection it asked
+for unfinished.
+
+Measured on an Angular 22 suite of 1771 spec files: rewriting 451 `componentRef.setInput` calls to
+`setInputs` turned **57 green files red**, every one of them on `NG0101`, and none of them red any
+more once the tick moved inside the zone.
+
+One thing is genuinely new for a zone-based consumer: leaving the zone reports it stable, so the same
+subscriber ticks once more. Counted on `ApplicationRef.afterTick`, one `flushEffects()` is 1 → 2
+application ticks under zone.js and unchanged under zoneless — the same second pass
+`fixture.detectChanges()` has always caused in this position, and it finds nothing dirty.
 
 ### `autoDetect` is already on under zoneless
 
@@ -443,8 +483,8 @@ Two related deprecations in the same version, both pointing the same way:
 | `autoDetectChanges(autoDetect: boolean)` | `@deprecated` at `types/testing.d.ts:112` — use the no-argument `autoDetectChanges()` at `:121` |
 | `TestBed.flushEffects()`                 | `@deprecated` at `:498` in favour of `TestBed.tick()` at `:506`                                 |
 
-`flushEffects()` from this package already prefers `TestBed.tick()` and falls back to
-`ApplicationRef.tick()` only for Angular < 20, so a suite using it is on the surviving call already.
+`flushEffects()` from this package is `TestBed.tick()` — Angular 20 is the floor here, so the
+`ApplicationRef.tick()` fallback is gone and a suite using it is on the surviving call already.
 
 ### The wait is bounded
 

@@ -1,6 +1,6 @@
 ---
 title: ESLint rules
-description: A reference section for each of the thirty-seven rules — what it reports, what it decides on, why it is in recommended, where it reports working code, and why its severity is what it is.
+description: A reference section for each of the thirty-eight rules — what it reports, what it decides on, why it is in recommended, where it reports working code, and why its severity is what it is.
 ---
 
 # ESLint rules
@@ -31,10 +31,10 @@ Every section answers the same six questions:
 - **Limits** — where it reports working code, and what quiets it.
 - **Severity** — and why that one.
 
-## The thirty-seven rules {#the-twenty-five-rules}
+## The thirty-eight rules {#the-twenty-five-rules}
 
 Grouped by subject, the same grouping the [setup page](/utilities/eslint-plugin) uses. Every rule is
-an `error` except four.
+an `error` except five.
 
 | Rule                                                                  | In `recommended` | Reports                                                                                     |
 | --------------------------------------------------------------------- | ---------------- | ------------------------------------------------------------------------------------------- |
@@ -55,10 +55,11 @@ an `error` except four.
 | [`no-passthrough-console-spy`](#no-passthrough-console-spy)           | `error`          | `vi.spyOn(console, m)` nothing gives an implementation — it calls through and prints        |
 | [`no-console-in-spec`](#no-console-in-spec)                           | `error`          | a spec that calls a console method, or replaces one by assignment                           |
 | [`no-import-time-console-spies`](#no-import-time-console-spies)       | `error`          | an import of `vitest-auto-spy/console` in a file that never calls `installConsoleSpies()`   |
-| [`prefer-provide-auto-spy`](#prefer-provide-auto-spy)                 | `error`          | a provider — or a `TestBed.overrideProvider` — that hand-rolls a service double             |
+| [`prefer-provide-auto-spy`](#prefer-provide-auto-spy)                 | `error`          | a provider that hand-rolls a service double, or spells `provideAutoSpy` out                 |
 | [`prefer-inject-spy`](#prefer-inject-spy)                             | `error`          | `vi.spyOn` over the instance `TestBed.inject` handed back                                   |
 | [`no-unregistered-inject-spy`](#no-unregistered-inject-spy)           | `error`          | `injectSpy(X)` for a token this file never registered as an auto-spy                        |
 | [`prefer-render-shallow`](#prefer-render-shallow)                     | `warn`           | `TestBed.createComponent` in a file that never reads the rendered template                  |
+| [`prefer-set-inputs`](#prefer-set-inputs)                             | `warn`           | a run of `fixture.componentRef.setInput(…)` — a name Angular checks against nothing         |
 | [`no-overridden-provider`](#no-overridden-provider)                   | `error`          | a provider a later one, or a `TestBed.overrideProvider`, replaces                           |
 | [`no-inject-before-override`](#no-inject-before-override)             | `error`          | an injection in a hook, in a suite that still calls `TestBed.override*`                     |
 | [`no-dead-schemas`](#no-dead-schemas)                                 | `error`          | `schemas` on a testing module that declares nothing                                         |
@@ -1127,13 +1128,15 @@ the file installs or removes the spies.
 
 ## prefer-provide-auto-spy
 
-**`error`** · no fix · syntax only
+**`error`** · fix · syntax only
 
 **Reports.** A provider whose `useValue`, `useFactory`, `useClass` or `useExisting` hands DI a
-hand-rolled service double — in a `providers` array, or through `TestBed.overrideProvider`.
+hand-rolled service double — in a `providers` array, or through `TestBed.overrideProvider` — and
+`{ provide: X, useValue: createSpyFromClass(X, config) }`, which is `provideAutoSpy(X, config)`
+written out.
 
 **Decides on.** A `provide` key names the token (or, at an override call, argument 0 does), and the
-double is read one of three ways round — which is the interesting part:
+double is read one of four ways round — which is the interesting part:
 
 - **`useValue` is read up to the function boundary.** The value may be the object literal itself or
   a name, and a name is followed one step to the value the file settles it with — an initialiser
@@ -1150,6 +1153,16 @@ vi.fn() }; })`). Both spellings had to be read, and each was measured on a suite
   holding. Missing that let three layers of fiction hide behind one line —
   `useFactory: vi.fn().mockImplementation(() => ({ isKeyEnabled: vi.fn() }))`, a structural double
   with no relation to the class, and a double cast to make it fit.
+- **A `useValue` that calls `createSpyFromClass`** is read by the class it reads, not by what is in
+  it. `provideAutoSpy(X, config)` returns `{ provide: X, useValue: createSpyFromClass(X,
+config) }` and nothing else, so a literal spelling that out is the factory with the token written
+  twice — and this is the one arm that carries a **fix**: the literal becomes the call, the
+  arguments are carried across as source text, `provideAutoSpy` is imported (into the
+  `vitest-auto-spy/angular` import the file already has, when it has one), and a `createSpyFromClass`
+  import the rewrite orphans is dropped. The fix stands down where the rewrite would not be a
+  transposition: explicit type arguments (`createSpyFromClass<T, Options>` takes two,
+  `provideAutoSpy<T>` one), a third property in the literal, or a `provideAutoSpy` the file declares
+  itself. A spy read from a **different** class is not reported at all — see _Limits_.
 - **`useClass` and `useExisting` are read as a class the linted file declares** (5.5.0), and so is a
   `useValue: new StubMock()` — the same double instantiated by hand, which the object reading could
   never see because it answers for an `ObjectExpression` and a `new` expression is not one. One
@@ -1207,6 +1220,15 @@ providers: [provideAutoSpyForToken(LOGGER, undefined, { selfReturning: ['channel
 read: the failing line is in the component, the double is in the module configuration, and the type
 system said nothing because a `useValue` is typed `any`.
 
+**`{ provide: LocalStorage, useValue: createSpyFromClass(BaseLocalStorage) }` is silent on purpose.**
+The token is an abstract class and the spy reads an implementation of it, because an abstract
+prototype carries none of the methods the double needs — `provideAutoSpy(LocalStorage)` would spy
+nothing at all. There is no shorter spelling of that provider, so there is nothing to report: on the
+suite this arm was measured against it is 51 sites in 41 files, every one of them working code. A
+call parked in a name (`const cart = createSpyFromClass(Cart)`, `useValue: cart`) is left alone for
+a different reason — the double is configured through that name afterwards, so the repair is
+`provideAutoSpy(Cart)` plus an `injectSpy(Cart)` at every use, which is a rewrite of the file.
+
 **Limits.** The token heuristic is a name test, so a class written in SCREAMING_CASE is told to use
 `provideAutoSpyForToken` and a token named like a class is told to use `provideAutoSpy` — both are
 one word wrong in a message rather than a false finding. The `useValue` read follows a name exactly
@@ -1227,7 +1249,9 @@ reports 9 in 9 — and the reason nothing appeared is that the consumer scopes t
 next to the specs wants `['**/*.spec.ts', '**/*.mock.ts']`.
 
 **Severity.** `error`, and it is the loudest rule here on a suite that has never run it: measured on
-one consumer's 1759 spec files, 154 reports across 87 files — 100 `useValue`, 28 of them behind a
+one consumer's 1771 spec files, the long-form arm alone adds **91 reports in 49 files** to a suite
+that was already clean against `recommended` — all 91 fixable, at most 8 in one file, so
+`eslint --fix` clears them in a single run. On that consumer's earlier 1759 spec files, 154 reports across 87 files — 100 `useValue`, 28 of them behind a
 token, 20 stub classes and 6 at an override call. Most of that is the name-following: the same
 doubles were previously reported, at `warn`, by [`no-structural-double`](#no-structural-double),
 whose message recommends `createAutoMock<T>()` — the right answer for a double _without_ DI and the
@@ -1434,6 +1458,81 @@ rather than a defect it has. At `error` the plugin would gate
 that choice: **491 findings across 398 of one consumer's 1759 spec files** — a `recommended` that
 exists to be overridden. `off` would be the wrong end of the same mistake, so the value is pinned
 rather than merely kept below `error`.
+
+## prefer-set-inputs
+
+**`warn`** · suggestion · syntax only
+
+**Reports.** A run of `fixture.componentRef.setInput('name', value)` statements on one fixture — one
+report for the run, on its first call.
+
+**Decides on.** The shape of the call, and nothing outside the file:
+
+- The receiver has to read as a `ComponentFixture`. `<name>.componentRef` carries most of that — a
+  bare `ComponentRef`, which is what `ViewContainerRef.createComponent()` hands back and where
+  `setInputs` does not apply, has no `componentRef` of its own — and the name (`fixture`,
+  `hostFixture`, `newFixture`) or the single value the file gives it (`TestBed.createComponent(X)`,
+  `renderShallow(X).fixture`, `render(X)`) carries the rest. A receiver neither settles is left alone.
+- The input name has to be a string literal. A computed name is not a key a rewrite can spell.
+- The call has to be a statement of its own: a result that goes anywhere is an effect this rule
+  cannot account for.
+- A run continues while the statements are adjacent with no comment between them, on the same
+  fixture, and naming inputs the run has not set yet. **The same input twice ends it** — that is a
+  spec saying "and now it changes", and merging the two into one literal is a duplicate key.
+
+**Finding, and the repair.**
+
+```ts
+it('shows the updated title', async () => {
+  fixture.componentRef.setInput('title', 'Hi'); // ❌ an unknown name is an NG0303 and no change
+  fixture.componentRef.setInput('count', 2);
+  fixture.detectChanges();
+
+  expect(heading().textContent).toBe('Hi (2)');
+});
+
+it('shows the updated title', async () => {
+  await setInputs(fixture, { title: 'Hi', count: 2 }); // ✅ every name resolved before the first write
+
+  expect(heading().textContent).toBe('Hi (2)');
+});
+```
+
+**Why it is recommended.** `componentRef.setInput` answers a name the component does not declare with
+an `NG0303` on the console and **no change at all**, so a typo, an input renamed under the spec, or an
+alias written as its class-field name all end in green `setInput` calls and an assertion that fails
+several lines later, on state nothing moved. `setInputs` resolves every key against the compiled
+definition before it writes the first one, and it types the value: on the Angular suite this was
+measured against, taking the 650 calls it can rewrite turned **72 fixtures that had drifted from the
+model they claim to be into compile errors, across 21 files** — a `{}` for a `CardButtonExtra`, a
+literal still written in the previous shape of an interface, an `imageUrl` for a model whose field is
+`imgUrl`.
+
+**Limits.** Three of them, and the first is the reason the edit is a suggestion rather than a `--fix`:
+
+- **`setInputs` awaits `stable()`, which begins with `TestBed.tick()`**, and under zone.js that tick
+  re-enters the one the zone schedules for itself. Measured on the 1771-file consumer: accepting all
+  451 suggestions rewrites 126 files, 105 of which still type-check — and **57 of those 105 go from
+  green to red**, every one on `NG0101: ApplicationRef.tick is called recursively`. Probed down to two
+  lines there: `componentRef.setInput(…)` followed by a bare `TestBed.tick()`, no helper and no
+  `await`, reproduces it. Whether the repair is a drop-in therefore depends on a fact no spec file
+  shows, so it is offered one call at a time, next to the test that says whether it held.
+- The `await` makes the enclosing callback `async`, which this rule will only write into a callback
+  the runner owns — `it`, `test`, `beforeEach` and the rest, spelled bare. Inside a helper the spec
+  declares, or a `waitForAsync(…)` wrapper, the report arrives without the edit: 53 of the 504
+  findings on that suite.
+- A `detectChanges()` directly under the run goes with it, because `stable()` flushes effects and
+  awaits the fixture, which is strictly more than one change-detection pass. One carrying an argument
+  stays: `detectChanges(false)` skips the check-no-changes assertion, which is not the pass `stable()`
+  runs.
+
+**Severity.** `warn`, and graded on what the repair costs rather than on what the report says. The
+finding itself is a fact in the line — Angular checks that name against nothing — and it has no
+heuristic in it. But the rule reports **504 times across 140 files** on a suite that is green under
+every `error` rule here, and the mechanical repair is the one measured above: adopting it is a
+migration a project takes file by file, which is the same reading that grades
+[`prefer-render-shallow`](#prefer-render-shallow). A zoneless suite turns it up to `'error'` in the
+one line everything else here is turned down in.
 
 ## no-overridden-provider
 

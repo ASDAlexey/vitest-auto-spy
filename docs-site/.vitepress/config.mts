@@ -318,6 +318,7 @@ export default defineConfig({
           'prefer-render-shallow, why is this rule a warning, eslint rule severity vitest spies, ' +
           'should create test is useless, ng generate spec only tests toBeTruthy, delete the default angular spec, ' +
           'no-redundant-smoke-test, test that cannot fail, smoke test asserts nothing, ' +
+          'prefer-set-inputs, componentRef.setInput, setInputs, NG0303, input name not declared, setInput does nothing, ' +
           'createSpyFromClass, createAutoMock, mockDeep, deep mock, createFixture, createFixtureFactory, ' +
           'resolveWith, calledWith, mustBeCalledWith, failWith, mockThrow, throw for specific arguments, nextWithValues, assertMocked, ' +
           'extendWithAutoSpies, test.extend fixtures, TestBed fixtures, vitest 4.1, detect-async-leaks, stray timers, onStrayTimers, no-bare-called-with, ' +
@@ -380,6 +381,7 @@ export default defineConfig({
           'no-ts-expect-error-on-double, ts-expect-error nextWith, HttpEvent overload ts-ignore, ' +
           'no-constant-expect, expect(true).toBe(true), assertion that cannot fail, ' +
           'no-redundant-smoke-test, should create test useless, it should be created delete, smoke test beside real tests, ' +
+          'prefer-set-inputs, setInput after render, change input mid test, NG0303 no such input, setInputs vs setInput, ' +
           'no-compile-components, compileComponents no-op, inline templateUrl, ' +
           'mock ActivatedRoute, ActivatedRoute stub vitest, route.paramMap is undefined in test, snapshot params undefined, ' +
           'setRouteParam alternative, provideActivatedRoute, injectActivatedRoute, createActivatedRoute, ' +

@@ -8,6 +8,85 @@ reason.
 
 Shipped work is not here either — it is in `CHANGELOG.md` and in git history.
 
+## `prefer-set-inputs`, and the `--fix` it does not ship, 2026-09-13
+
+The rule reports a run of `fixture.componentRef.setInput('name', value)` and offers `setInputs` in its
+place — 504 findings across 140 files of a 1771-file suite. What it deliberately does not do:
+
+- [~] **Apply the edit.** It was written as a `--fix` first and measured that way in a copy of that
+  consumer's tree: 451 edits, 122 files rewritten, every one still parsing, 101 of them still
+  type-checking — and **57 of those 101 went from green to red**, all on
+  `NG0101: ApplicationRef.tick is called recursively`. **Half of that was ours and is now fixed**:
+  `stable()` started with a bare `TestBed.tick()`, which under zone.js re-enters itself the moment a
+  dirty view effect makes Angular hop into the `NgZone` to run it. The tick runs inside the zone now,
+  the same 451 edits produce **zero** `NG0101`, and the count is **57 → 20**. The first explanation
+  recorded here was wrong in a way worth keeping: it blamed the project's change-detection mode and
+  claimed `componentRef.setInput(…)` plus a bare `TestBed.tick()` reproduces it on two lines. It does
+  not — that pair is green in a zone-based TestBed until a **dirty `effect()`** is in the view, which
+  is why the first repro attempt in this repository came out green and why 83 pre-existing `setInputs`
+  call sites in the same suite never saw it.
+
+  The remaining 20 are why the edit is still a suggestion at `warn`, and they are not about zones.
+  `setInputs` **renders** where `componentRef.setInput` only writes: 13 of the 20 files never drove
+  change detection at all — they set an input and read a computed off the instance — and the render
+  they now get reports the required input nobody set (`NG0950`, 6 files), the provider nobody
+  registered (`NG0201`), the pipe the testing module never declared (`NG0302`), a strict double's
+  unconfigured method, or a timer the file now leaves scheduled. The other 7 are a run the rule ends
+  early — at a repeated input — rendering between the two halves of one setup.
+
+- [~] **Reading the receiver's type.** The infrastructure exists — `checkerServices` is what the two
+  `useValue` rules use — and it would settle "is this a `ComponentFixture`" exactly. It is not used,
+  because the shape already settles it: a bare `ComponentRef`, which is the one thing that would be
+  mistaken for a fixture and where `setInputs` does not apply, has no `componentRef` of its own. The
+  name, or the single value the file gives it, carries the rest, and a rule that needs no program
+  reports in a project that has wired none.
+- [~] **Merging two writes of the same input.** Adjacent writes of one input are how a spec says "and
+  now it changes" — `setInput('url', first)` then `setInput('url', second)`, asserting the second —
+  and one literal carrying both keys is `TS1117`. Two of them exist in that suite, and the first
+  version of the rule produced exactly that error there; the run now ends at the repeat instead, so
+  the two calls stay two calls.
+- [~] **Reporting a computed name.** `setInput(key, value)` has the same defect — nothing checks
+  `key` — but no rewrite can spell a key it cannot read, and a report whose repair is "work out what
+  this variable holds" is the kind that gets switched off. None of the 777 calls measured spell it
+  that way.
+- [~] **Writing the `async` into a helper.** 53 of the 504 findings sit in a function the spec
+  declares or in a `waitForAsync(…)` wrapper. Making one of those `async` changes a signature whose
+  callers this file cannot see: a caller that does not await it would keep running past the point it
+  used to finish at, and nothing reports that. Those get the report and no edit.
+
+## `prefer-provide-auto-spy` and the long form of its own factory, 2026-09-13
+
+Arming the rule on `{ provide: X, useValue: createSpyFromClass(X, config) }` — the body
+`provideAutoSpy` returns — found 91 providers in 49 files of a 1771-file suite that is otherwise
+clean against `recommended`. What the arm deliberately leaves out:
+
+- [~] **Reporting the provider that reads a _different_ class.**
+  `{ provide: LocalStorage, useValue: createSpyFromClass(BaseLocalStorage) }` is 51 sites in 41 files
+  on the same suite, and every one is working code: the token is an abstract class, the spy is built
+  from an implementation of it, and an abstract prototype carries none of the methods the double
+  needs — `provideAutoSpy(LocalStorage)` would spy nothing at all. There is no shorter spelling to
+  recommend, so a report there would only teach the suite to write an `eslint-disable` over correct
+  code, which is the failure mode 5.10.1 had just finished removing from two other rules. The two
+  names are compared rather than resolved: resolving them would still not say whether two imported
+  names are the same class.
+- [~] **Following a call parked in a name** — `const cart = createSpyFromClass(Cart)` with
+  `useValue: cart` below it, which the object arm of this rule does follow. Not done: the double is
+  configured through that name afterwards, so the honest repair is `provideAutoSpy(Cart)` **plus**
+  an `injectSpy(Cart)` at every use, i.e. a rewrite of the file rather than of the provider. A
+  report with a fix that small would be pointing at the wrong line.
+- [~] **Fixing a call that carries explicit type arguments.** Reported, never rewritten.
+  `createSpyFromClass<T, Options>` takes two type parameters and `provideAutoSpy<T>` one, so a fixer
+  dropping the second would change what the spy's type is. None of the 91 sites spells one — the
+  guard is for the suites that do.
+- **Merging the import instead of adding a line.** `insertImport` puts a new `import` at the top of
+  the file and lets the formatter place it, which is what every other fixer here does. That would
+  have left a second `import … from 'vitest-auto-spy/angular'` in **20 of the 49 files**, reported by
+  `import/no-duplicates` on the line the fixer had just written, so the fix takes the specifier into
+  the import the file already has and only writes its own when there is none (or two).
+- **Extracting the rule into `provide-auto-spy.ts`.** `rules.ts` sat at exactly the 500-line cap, so
+  the arm had nowhere to go; the rule, its four older messages and the long-form reading now live
+  together, and `rules.ts` is back to 450.
+
 ## `no-sync-testbed-await` — which members, which grade, and the stock rules next to it, 2026-09-12
 
 The second half of the `no-compile-components` cleanup. Removing 448 `compileComponents()` calls from
@@ -599,7 +678,6 @@ Did **not** reproduce, and why:
 
   Four ways to make them comparable were considered and all four are worse than the switch that
   already exists:
-
   - **Read the runner's counter.** It is not reachable. Nothing in `@vitest/spy`'s export list
     touches it.
   - **Sample it by calling a throwaway `vi.fn()` on every auto-spy call.** That is a runner-mock

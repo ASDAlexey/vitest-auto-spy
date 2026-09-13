@@ -71,6 +71,8 @@ describe('TaskService', () => {
         provideAutoSpy(NotificationService),
         provideAutoSpy(ProjectStore, { instanceMethodsToSpyOn: ['current'] }), // signals/computed
         provideAutoSpy(NewsFeedService, { observablePropsToSpyOn: ['connected$'] }), // Observable props
+        // NOT { provide: X, useValue: createSpyFromClass(X, config) } — that IS provideAutoSpy(X, config),
+        // and `prefer-provide-auto-spy` rewrites it
       ],
     });
 
@@ -361,7 +363,7 @@ npx vitest-auto-spy codemod --verify  # after a migration: anything the transfor
 Most of this library's guarantees are type-level, so a green run that does not type-check is not
 done. Report failures with their output rather than describing them as passing.
 
-**After any `eslint --fix` over specs, run `npx tsc --noEmit`.** The thirty-seven rules in
+**After any `eslint --fix` over specs, run `npx tsc --noEmit`.** The thirty-eight rules in
 `vitest-auto-spy/eslint-plugin` are lint, not typecheck: `no-mocked-for-spy` rewrites a declaration
 to `Spy<T>` and cannot see what the name is assigned two lines below, so a clean lint pass is not
 evidence that the types still hold. Where it cannot prove the rename it downgrades to a suggestion —
@@ -398,7 +400,15 @@ produced, or `expect.fail(…)` for a branch the test must not reach.
 `no-redundant-smoke-test` reports the generated `it('should create', () => expect(x).toBeTruthy())`
 where the block — its nested `describe`s counted — already has tests that run the same `beforeEach`:
 they fail first on a subject that came back nullish, and say what they were doing. Delete it; keep it
-only where it is the block's one running test, or make it assert the construction itself. `no-compile-components` is silent
+only where it is the block's one running test, or make it assert the construction itself. **Move a rendered component’s inputs with `setInputs(fixture, { name: value })`**, not with
+`fixture.componentRef.setInput('name', value)` — `prefer-set-inputs` (`warn`, suggestion) reports the
+raw call, because Angular answers a name the component does not declare with an `NG0303` on the
+console and no change at all, while `setInputs` resolves every key against the compiled definition
+before the first write and types the value. It awaits the fixture, so the callback becomes `async` and
+a `detectChanges()` directly under the call goes with it. Accept the suggestion per call and run the
+file: `setInputs` **renders** where the raw call only writes, so a spec that never drove change
+detection at all can meet a required input nobody set, a provider nobody registered or a pipe the
+testing module never declared. `no-compile-components` is silent
 until `['error', { builder: 'inline-resources' }]`; with it, drop `compileComponents()` and the
 `async` it forced — except for a component whose template holds a `@defer` block, which ships async
 class metadata that the call resolves whatever the builder did. Keep that one behind

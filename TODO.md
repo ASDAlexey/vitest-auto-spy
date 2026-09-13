@@ -30,6 +30,16 @@ which is where this file's `[~]` entries went on 2026-09-10 — a decision is no
 
 ## Lint rules
 
+- [ ] **`prefer-set-inputs` reports a fixture the file never renders.** `setInputs` **renders** where
+      `componentRef.setInput` only writes, so a file with no `detectChanges()`, `whenStable()`,
+      `stable()` or `autoDetect` anywhere is a file whose author wrote the raw call _because_ it does
+      not render — and the suggestion there meets a required input nobody set (`NG0950`), a provider
+      nobody registered (`NG0201`), a pipe the testing module never declared (`NG0302`) or a strict
+      double's unconfigured method. On the 1771-file suite the rule was measured on, that shape is 42
+      of the 122 rewritten files and carries **13 of the 20** residual failures, so staying silent
+      there removes two thirds of them at the price of declining 29 findings that happen to be fine.
+      It is a whole-file scan rather than a scope walk, which is a different shape from every other
+      guard this rule has; it wants its own measurement before it ships.
 - [ ] **Two forms `no-private-member-access` cannot see.** A member reached through a variable
       holding a **union** of classes, and a `#private` field — the second is unreachable by bracket
       access, by a cast and by `Object.getPrototypeOf` alike, so there is nothing to report for it.
@@ -145,7 +155,7 @@ directory stores third-party plugins under `external_plugins/<name>/` with just
 `.claude-plugin/plugin.json` (plus `.mcp.json` where relevant) and lists them in the root
 `marketplace.json` with `source: "./external_plugins/<name>"`, a `category` and sometimes
 `tags: ["community-managed"]`. Content is copied in by Anthropic — our repo is not referenced as a
-git source, so a directory entry has to be re-synced on every release. **And the shape may not
+git source, so a directory entry has to be re-synced on every release. \*\*And the shape may not
 
 Nothing in the repository asks for support today: no `funding` field in `package.json`, no
 `.github/FUNDING.yml`, no section in the README or on the docs site. The mechanics are a couple of
