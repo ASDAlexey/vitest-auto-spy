@@ -9,6 +9,7 @@ import { DOCS_LINKS, withDocs } from './docs-links';
 import { errorHandler } from './error-handler';
 import type { CalledWithObject, ReturnValueContainer } from './internal-types';
 import { getJasmineSupport } from './jasmine-support';
+import { reportMisconfiguration } from './misconfiguration';
 import { type MockFn, getMockAdapter } from './mock-adapter';
 import { type ObservableStream, getObservableSupport, requireObservableSupport } from './observable-support';
 import { addPromiseHelpersToCalledWithObject, promiseHelpers, storePromiseConfig } from './promise-spy';
@@ -311,6 +312,47 @@ function returnTheCorrectFakeValue(state: SpyState, actualArgs: unknown[], funct
   return unwrapContainer(state.valueContainer);
 }
 
+/** Which argument-matching chain a spec has configured on this spy, when it has configured one. */
+function configuredChain(state: SpyState): 'calledWith' | 'mustBeCalledWith' | undefined {
+  if (state.calledWith) {
+    return 'calledWith';
+  }
+
+  return state.mustBeCalledWith ? 'mustBeCalledWith' : undefined;
+}
+
+/**
+ * The report for the one pair of configurations that cannot both be true.
+ *
+ * `mockReturnValue` and the rest of the host's family install an implementation, and the library's
+ * dispatch — the thing that reads a `calledWith` chain — *is* the implementation they replace. So
+ * whichever of the two is written second wins outright, and the other stops deciding anything: not
+ * for its own arguments, not as a default, and with no failure of its own. That is a spec left green
+ * on a branch nobody configured, which is why the last writer winning is said out loud rather than
+ * left to the reader. Both orders are a mistake and both are reported; the message names the order,
+ * because the repair is the same line in each and it is easier to find when it is pointed at.
+ */
+function dispatchReplacedMessage(name: string, via: string, chain: string, order: 'erased' | 'late'): string {
+  const what =
+    order === 'erased'
+      ? `${via}() replaced the dispatch of '${name}' after ${chain}() was configured on it`
+      : `${chain}() was configured on '${name}' after ${via}() had replaced its dispatch`;
+
+  return withDocs(
+    `[vitest-auto-spy] ${what}, so the ${chain}() decides nothing — every call answers what ${via}() installed. ` +
+      `A fallback the ${chain}() still wins over goes in the spy's own container instead: the 'returns' option where the ` +
+      'double is built, or resolveWith/nextWith/failWith.',
+    DOCS_LINKS.createSpyFromClass,
+  );
+}
+
+/** The other order of the same mistake: a chain opened on a spy whose dispatch is already gone. */
+function reportLateChain(internals: FunctionSpyInternals, chain: string): void {
+  if (internals.replacedBy !== undefined) {
+    reportMisconfiguration(dispatchReplacedMessage(internals.name, internals.replacedBy, chain, 'late'));
+  }
+}
+
 /** Attach `mockReturnValue` (and its `returnValue` alias) plus the promise/observable helpers to a `calledWith` chain. */
 function addMethodsToCalledWith(calledWith: CalledWithObject, calledWithArgs: unknown[]): CalledWithObject {
   const setReturnValue = (value: unknown): void => {
@@ -367,13 +409,48 @@ class FunctionSpyInternals implements MarkHooks {
   readonly host: MockFn;
   readonly dispatch: Func;
   readonly recorder: SettledResultsRecorder;
+  readonly name: string;
+  /** The member that last installed an implementation of the host's own over the dispatch, if any. */
+  replacedBy: string | undefined = undefined;
 
-  constructor(state: SpyState, valueContainer: ReturnValueContainer, host: MockFn, dispatch: Func, recorder: SettledResultsRecorder) {
+  constructor(
+    state: SpyState,
+    valueContainer: ReturnValueContainer,
+    host: MockFn,
+    dispatch: Func,
+    recorder: SettledResultsRecorder,
+    name: string,
+  ) {
     this.state = state;
     this.valueContainer = valueContainer;
     this.host = host;
     this.dispatch = dispatch;
     this.recorder = recorder;
+    this.name = name;
+  }
+
+  /**
+   * A host implementation went in over the dispatch — reported when it silently disables a
+   * `calledWith` chain this spy already carries, and remembered so that a chain configured
+   * afterwards can say the same thing (see {@link SPY_HELPERS}).
+   *
+   * Re-installing the dispatch itself is the opposite move — `resetAutoSpy` and the jasmine
+   * namespace both do it — so it clears the flag instead of raising one.
+   */
+  implementationReplaced(implementation: unknown, via: string): void {
+    if (implementation === this.dispatch) {
+      this.replacedBy = undefined;
+
+      return;
+    }
+
+    this.replacedBy = via;
+
+    const chain = configuredChain(this.state);
+
+    if (chain !== undefined) {
+      reportMisconfiguration(dispatchReplacedMessage(this.name, via, chain, 'erased'));
+    }
   }
 
   /**
@@ -413,6 +490,7 @@ class FunctionSpyInternals implements MarkHooks {
     // Re-install the library dispatch so a bare `spy.method.mockReturnValue(…)`
     // set directly on the host mock is reverted too (mockClear alone can't).
     getMockAdapter().restoreImplementation(this.host, this.dispatch);
+    this.replacedBy = undefined;
   }
 
   /** Empties the polyfilled `settledResults` on `clearAutoSpy` / `resetAutoSpy` (a no-op on Vitest, where the host clears its native array). */
@@ -497,13 +575,18 @@ const SPY_HELPERS = /* @__PURE__ */ Object.assign(
       valueContainer.valuesPerCalls = [];
     },
     calledWith(this: unknown, ...calledWithArgs: unknown[]): CalledWithObject {
-      return addMethodsToCalledWith(ensureCalledWithObject(internalsOf(this, 'calledWith').state, 'calledWith'), calledWithArgs);
+      const internals = internalsOf(this, 'calledWith');
+
+      reportLateChain(internals, 'calledWith');
+
+      return addMethodsToCalledWith(ensureCalledWithObject(internals.state, 'calledWith'), calledWithArgs);
     },
     mustBeCalledWith(this: unknown, ...calledWithArgs: unknown[]): CalledWithObject {
-      return addMethodsToCalledWith(
-        ensureCalledWithObject(internalsOf(this, 'mustBeCalledWith').state, 'mustBeCalledWith'),
-        calledWithArgs,
-      );
+      const internals = internalsOf(this, 'mustBeCalledWith');
+
+      reportLateChain(internals, 'mustBeCalledWith');
+
+      return addMethodsToCalledWith(ensureCalledWithObject(internals.state, 'mustBeCalledWith'), calledWithArgs);
     },
   },
 );
@@ -554,7 +637,7 @@ export function createFunctionSpy<FunctionType extends Func>(
   const recorder = installSettledResultsPolyfill(functionSpy);
   settledResultsRecorder = recorder.record;
 
-  const internals = new FunctionSpyInternals(state, valueContainer, functionSpy, dispatch, recorder);
+  const internals = new FunctionSpyInternals(state, valueContainer, functionSpy, dispatch, recorder, name);
   const spy = attachHelpers(functionSpy, SPY_HELPERS);
 
   getObservableSupport()?.addToFunctionSpy(spy);

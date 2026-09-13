@@ -25,6 +25,13 @@ export const AUTO_SPY_MARK = Symbol.for('vitest-auto-spy.mock');
 export interface MarkHooks {
   reset(): void;
   clear(): void;
+  /**
+   * Told by the spy engine that a whole implementation of the host's own was installed, with the
+   * implementation and the member that installed it. The library dispatch is then out of the loop,
+   * and so is every `calledWith` chain configured on this spy. Optional: only a function spy has a
+   * dispatch to lose.
+   */
+  implementationReplaced?(implementation: unknown, via: string): void;
   /** The rxjs layer's per-spy state, when that layer is loaded — reached through the mark so it costs no property of its own. */
   readonly observable?: ObservableStream | undefined;
 }

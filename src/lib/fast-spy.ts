@@ -19,6 +19,7 @@
  */
 import { DISPOSE } from './dispose-symbol';
 import { type Helpers, setSharedHelperSink } from './spy-decoration';
+import { hooksOf } from './spy-mark';
 import { FAST_SPY_BRAND, isFastSpy, isThenable } from './spy-probe';
 import type { Func } from './types';
 
@@ -468,8 +469,22 @@ definePrototypeMember('getMockImplementation', function getMockImplementation(th
   return config.onceImplementations[0] ?? config.implementation;
 });
 
+/**
+ * Every member that installs a whole implementation goes through here, so the double behind the spy
+ * is told once rather than in six places.
+ *
+ * What it is told about is a replacement that decides the spy's answer on its own: a `calledWith`
+ * chain on the same method then matches nothing, and a chain configured afterwards never runs at
+ * all. The `Once` members are deliberately not here — their queue drains back onto whatever was
+ * installed, so they suspend the dispatch rather than take it away.
+ */
+function replaceImplementation(spy: FastSpy, implementation: Func, via: string): void {
+  hooksOf(spy)?.implementationReplaced?.(implementation, via);
+  configOf(spy).implementation = implementation;
+}
+
 definePrototypeMember('mockImplementation', function mockImplementation(this: unknown, implementation: Func): unknown {
-  configOf(self(this)).implementation = implementation;
+  replaceImplementation(self(this), implementation, 'mockImplementation');
 
   return this;
 });
@@ -513,21 +528,29 @@ definePrototypeMember(
 );
 
 definePrototypeMember('mockReturnThis', function mockReturnThis(this: unknown): unknown {
-  configOf(self(this)).implementation = function returnThis(this: unknown): unknown {
-    return this;
-  };
+  replaceImplementation(
+    self(this),
+    function returnThis(this: unknown): unknown {
+      return this;
+    },
+    'mockReturnThis',
+  );
 
   return this;
 });
 
 definePrototypeMember('mockReturnValue', function mockReturnValue(this: unknown, value: unknown): unknown {
-  configOf(self(this)).implementation = function returnValue(this: unknown): unknown {
-    if (new.target) {
-      throwConstructorError('mockReturnValue');
-    }
+  replaceImplementation(
+    self(this),
+    function returnValue(this: unknown): unknown {
+      if (new.target) {
+        throwConstructorError('mockReturnValue');
+      }
 
-    return value;
-  };
+      return value;
+    },
+    'mockReturnValue',
+  );
 
   return this;
 });
@@ -545,9 +568,13 @@ definePrototypeMember('mockReturnValueOnce', function mockReturnValueOnce(this: 
 });
 
 definePrototypeMember('mockThrow', function mockThrow(this: unknown, value: unknown): unknown {
-  configOf(self(this)).implementation = function throwValue(): never {
-    throw value;
-  };
+  replaceImplementation(
+    self(this),
+    function throwValue(): never {
+      throw value;
+    },
+    'mockThrow',
+  );
 
   return this;
 });
@@ -561,13 +588,17 @@ definePrototypeMember('mockThrowOnce', function mockThrowOnce(this: unknown, val
 });
 
 definePrototypeMember('mockResolvedValue', function mockResolvedValue(this: unknown, value: unknown): unknown {
-  configOf(self(this)).implementation = function resolvedValue(this: unknown): unknown {
-    if (new.target) {
-      throwConstructorError('mockResolvedValue');
-    }
+  replaceImplementation(
+    self(this),
+    function resolvedValue(this: unknown): unknown {
+      if (new.target) {
+        throwConstructorError('mockResolvedValue');
+      }
 
-    return Promise.resolve(value);
-  };
+      return Promise.resolve(value);
+    },
+    'mockResolvedValue',
+  );
 
   return this;
 });
@@ -585,13 +616,17 @@ definePrototypeMember('mockResolvedValueOnce', function mockResolvedValueOnce(th
 });
 
 definePrototypeMember('mockRejectedValue', function mockRejectedValue(this: unknown, value: unknown): unknown {
-  configOf(self(this)).implementation = function rejectedValue(this: unknown): unknown {
-    if (new.target) {
-      throwConstructorError('mockRejectedValue');
-    }
+  replaceImplementation(
+    self(this),
+    function rejectedValue(this: unknown): unknown {
+      if (new.target) {
+        throwConstructorError('mockRejectedValue');
+      }
 
-    return Promise.reject(value);
-  };
+      return Promise.reject(value);
+    },
+    'mockRejectedValue',
+  );
 
   return this;
 });

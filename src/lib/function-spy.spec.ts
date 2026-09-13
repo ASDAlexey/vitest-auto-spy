@@ -4,7 +4,7 @@
  * mock is built from the dispatch. Nothing in the three shipped adapters calls the implementation
  * that early, so the ordering is invisible until one does; this spec is the adapter that does.
  */
-import { afterEach, describe, expect, it } from 'vitest';
+import { type MockInstance, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createFunctionSpy } from './function-spy';
 import { type MockAdapter, type MockFn, registerMockAdapter } from './mock-adapter';
@@ -219,5 +219,110 @@ describe('createFunctionSpy — helpers are methods of their spy', () => {
     resolveWith('value');
 
     await expect(load()).resolves.toBe('value');
+  });
+});
+
+/**
+ * `mockReturnValue` and `calledWith` configure the same thing through two different doors, and the
+ * library's dispatch — the door `calledWith` goes through — *is* the implementation the host family
+ * replaces. Whichever is written second therefore wins outright and the other silently decides
+ * nothing, which is the shape of a test that stays green on a branch nobody configured. The
+ * behaviour is the host's and stays; what is pinned here is that it is said out loud, in both orders.
+ */
+describe('createFunctionSpy — a host implementation over a configured chain', () => {
+  const warnings: string[] = [];
+  let warn: MockInstance<typeof console.warn>;
+
+  beforeEach(() => {
+    warnings.length = 0;
+    warn = vi.spyOn(console, 'warn').mockImplementation((message: unknown) => {
+      warnings.push(String(message));
+    });
+  });
+
+  afterEach(() => {
+    warn.mockRestore();
+  });
+
+  it('reports a mockReturnValue that erased a calledWith already configured', () => {
+    const load = createFunctionSpy<(id: number) => string>('load');
+
+    load.calledWith(1).mockReturnValue('configured');
+    load.mockReturnValue('flat');
+
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain("mockReturnValue() replaced the dispatch of 'load' after calledWith() was configured on it");
+    expect(load(1)).toBe('flat');
+  });
+
+  it('reports a calledWith opened after a mockReturnValue had already replaced the dispatch', () => {
+    const load = createFunctionSpy<(id: number) => string>('load');
+
+    load.mockReturnValue('flat');
+    load.calledWith(1).mockReturnValue('configured');
+
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain("calledWith() was configured on 'load' after mockReturnValue() had replaced its dispatch");
+    expect(load(1)).toBe('flat');
+  });
+
+  it('names mustBeCalledWith, which loses its throw as well as its value', () => {
+    const load = createFunctionSpy<(id: number) => string>('load');
+
+    load.mustBeCalledWith(1).mockReturnValue('configured');
+    load.mockImplementation(() => 'flat');
+
+    expect(warnings[0]).toContain("mockImplementation() replaced the dispatch of 'load' after mustBeCalledWith() was configured on it");
+    expect(load(2)).toBe('flat');
+  });
+
+  it('reports every member of the family that installs a whole implementation', async () => {
+    const promised = createFunctionSpy<() => Promise<string>>('promised');
+
+    promised.calledWith().resolveWith('configured');
+    promised.mockResolvedValue('flat');
+
+    const thrower = createFunctionSpy<() => string>('thrower');
+
+    thrower.calledWith().mockReturnValue('configured');
+    thrower.mockThrow(new Error('flat'));
+
+    expect(warnings).toHaveLength(2);
+    expect(warnings[0]).toContain('mockResolvedValue()');
+    expect(warnings[1]).toContain('mockThrow()');
+    await expect(promised()).resolves.toBe('flat');
+  });
+
+  it('says nothing for a spy that has no chain, whichever order the two are written in', () => {
+    const load = createFunctionSpy<(id: number) => string>('load');
+
+    load.mockReturnValue('first');
+    load.mockReturnValue('second');
+    load.failWith(new Error('container'));
+
+    expect(warnings).toEqual([]);
+  });
+
+  it('says nothing about a `Once` queue, which drains back onto the dispatch instead of taking it away', () => {
+    const load = createFunctionSpy<(id: number) => string>('load');
+
+    load.calledWith(1).mockReturnValue('configured');
+    load.mockReturnValueOnce('once');
+
+    expect(warnings).toEqual([]);
+    expect(load(1)).toBe('once');
+    expect(load(1)).toBe('configured');
+  });
+
+  it('says nothing when the library puts its own dispatch back', () => {
+    const load = createFunctionSpy<(id: number) => string>('load');
+
+    load.mockReturnValue('flat');
+    warnings.length = 0;
+    resetAutoSpy({ load });
+    load.calledWith(1).mockReturnValue('configured');
+
+    expect(warnings).toEqual([]);
+    expect(load(1)).toBe('configured');
   });
 });
