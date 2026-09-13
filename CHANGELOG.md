@@ -10,6 +10,82 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+### Fixed
+
+- **`no-redundant-smoke-test` deleted real tests, because it read the matcher and never the subject.**
+  Shipped in 5.10.0 inside `recommended` at `error`, so it arrives on a dependency bump with no
+  opt-in, and its suggestion is the one thing anybody does with 500 findings. Rolled out over the
+  1771-file suite it was measured on, **59 of its 541 findings were assertions that were the only
+  check of the behaviour they named** — and the removals are mechanical, so nothing would have caught
+  them afterwards. Four things were wrong, each found by auditing what the suggestion actually
+  deleted:
+
+  - **Any expression counted as "the subject existing".** `toBeTruthy` reads the same over a name and
+    over a call, so `expect(isChildProfile(FAMILY_ROLE.CHILD))`, `expect(consoleTransport(true))`,
+    `expect(component.periodsOffset()).not.toBeNull()`,
+    `expect(fixture.nativeElement.querySelector('expand-card'))`,
+    `expect(samples.every((x) => x >= 0 && x <= 100))` and an `it.each` over seven content types
+    asserting `expect(createService().resolve(type))` were all reported as generated smoke tests. The
+    subject must now be a **reference**: an identifier, a member chain with no call in it, or a call
+    that only *builds* the subject and takes nothing to do it — `createService()`,
+    `TestBed.inject(Token)`.
+  - **`toBeInstanceOf` on such a builder is wiring, not existence.** `expect(TestBed.inject(TOKEN)).toBeInstanceOf(RealService)`
+    pairs two names and asserts they resolve to each other; the one that showed this was the only
+    test that a `provide…()` helper maps its token to the service behind it, and its sibling
+    exercised the behaviour and would have passed against any other implementation.
+  - **The message's own claim went unchecked.** It says "N other tests under the same setup already
+    run against it", and nothing verified that any of them touched the subject. A tween spec's only
+    proof that the stream completes reads `expect(completed).toBeTruthy()` against a flag a
+    `beforeAll` sets from the observable's `complete`, while its siblings read the array of
+    timestamps — no sibling would have failed first, and the claim was simply false. A running test
+    in the block must now reach the subject.
+  - **Sharing the root name is not sharing the subject.** `expect(publicApi.FocusModule).toBeDefined()`
+    beside `expect(publicApi.smartPlayerSettings).toBeDefined()` has `publicApi` in common and
+    nothing else; removing it removed the only check that three symbols are exported at all. The
+    reference compared is the whole path.
+
+  On that suite the rule goes **581 findings in 543 files → 482 in 480**, and the shape of what is
+  left is worth the sentence: with the guards in place, applying every suggestion orphans **no**
+  variable and **no** import, where the first version left 43 `no-unused-vars` errors across 34
+  files. That is the same fact from the other side — a `let component` that only the smoke test read
+  means no sibling ran against it, which is now exactly the case the rule declines to report.
+
+- **`prefer-create-spy-from-class` reported the overrides bag of the package's own doubles.**
+  `provideWindowDouble(WINDOW, { history: { back: vi.fn() }, addEventListener: vi.fn() })` holds two
+  `vi.fn()`s, so it tripped the threshold — but it is a bag merged over the real jsdom object, not a
+  hand-rolled service, and there is no class for `createSpyFromClass` to read. The message named a
+  repair that cannot be made, and an `eslint-disable` over the documented call was the only way out.
+  `createWindowDouble`, `provideWindowDouble`, `createDocumentDouble`, `provideDocumentDouble`,
+  `createRouterDouble`, `provideRouterDouble`, `createActivatedRoute` and `provideActivatedRoute`
+  join the factory-seed exemption the spy factories already had. Not a 5.10.0 regression — 5.9.0
+  reports it identically.
+
+- **A terminal router event ended the navigation _before_ it was delivered, which is the opposite of
+  what the real router does.** `emitNavigation(new NavigationEnd(…))` cleared `currentNavigation`
+  and then pushed the event, so a subscriber reading it inside the handler saw `null`. 5.10.0
+  shipped that as deliberate, quoting Angular's own doc comment — "the current navigation becomes to
+  null after the NavigationEnd event is emitted" — and read *after* as "by the time your handler
+  runs". It is the other reading: the router emits every terminal event from a `tap` with the
+  navigation still in flight and clears it in the `finalize` below (`cancelNavigationTransition`
+  never clears it at all), and `events` is a Subject, so a **synchronous subscriber runs between the
+  two**. Probed against a real `provideRouter()` on Angular 22: a `NavigationEnd` subscriber reading
+  `currentNavigation()` after `router.navigate(['/probe'], { state: { probe: 'value' } })` reads
+  back that `state` inside the handler, and `null` only once `navigate()` has resolved. So the
+  double now emits first and clears after, for all four terminal events; `NavigationStart` keeps
+  setting before the emit, which is where the real router sets it too.
+
+  This mattered more than a one-tick detail, because "read the navigation state when the navigation
+  lands" is a working production pattern — found on one suite at two independent sites: a service reads
+  `router.currentNavigation()?.extras.state` inside a `NavigationEnd` handler to recover metrics
+  parameters passed through `navigate(…, { state })`, and a side-menu component reads
+  `currentNavigation()?.trigger` in the same place to tell an imperative navigation from a
+  `popstate`. Against 5.10.0 the faithful double reports
+  that code as broken; against the real router it works. Pinned by three tests that assert what a
+  subscriber sees *during* the delivery — the existing ones all read after it, which is why none of
+  them caught this.
+
+## [5.10.0] - 2026-09-12
+
 ### Added
 
 - **The `Router` double answers `currentNavigation()` and `getCurrentNavigation()`.** They are how a
@@ -24,8 +100,7 @@ The latest released version here must always match the one published on
   it at construction, for the component that reads it in a field initializer. It follows the events
   too: a `NavigationStart` pushed through `emitNavigation()` starts one with that event's id, URL and
   trigger, and a `NavigationEnd`, `NavigationCancel`, `NavigationError` or `NavigationSkipped` ends
-  it — "the current navigation becomes null after the NavigationEnd event is emitted", so a component
-  reading it inside a `NavigationEnd` handler gets `null` here and `null` in production. It costs
+  it. It costs
   390 B min+gzip on `/angular-router` (6411 B → 6801 B, +6.1 %): the event bookkeeping and the
   derived `Navigation`, all of it behind the entry point that already pulls `@angular/router` in.
   Every other entry point, `.` included, is unchanged to the byte.
@@ -5239,7 +5314,8 @@ by hand there, in more than one place, by more than one person.
   `mockAccessorsProp`.
 - Dual ESM + CJS build with type declarations; 100% test coverage.
 
-[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.9.0...HEAD
+[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.10.0...HEAD
+[5.10.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.9.0...v5.10.0
 [5.9.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.8.0...v5.9.0
 [5.8.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.7.0...v5.8.0
 [5.7.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.6.0...v5.7.0

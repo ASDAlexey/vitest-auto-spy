@@ -358,6 +358,20 @@ answer.
   — the same question asked the other way round. One statement that does anything else — a call, a
   local, an `if`, a matcher that reads a value — and the test is left alone. An empty body is not a
   smoke test either.
+- **The value has to be a reference to the subject, not one the test computed.** An identifier, a member
+  chain with no call in it (`fixture.componentInstance`), or a call that only _builds_ the subject and
+  takes nothing to do it — `createService()`, `TestBed.inject(Token)`. A call with a value in it, a
+  method or signal read, a DOM query, an expression over a collection: all left alone, because the
+  matcher cannot tell them apart from a subject and the assertion is the behaviour's only cover.
+  `expect(isChildProfile(FAMILY_ROLE.CHILD)).toBeTruthy()` and
+  `expect(el.querySelector('expand-card')).toBeTruthy()` are not smoke tests. A builder under
+  `toBeInstanceOf` is left alone too: that pairs two names and asserts they resolve to each other,
+  which is wiring.
+- **A running test in the block has to reach the subject the same way** — the claim the message makes
+  out loud. The whole path, not the name it starts with: `expect(publicApi.FocusModule).toBeDefined()`
+  beside a test checking `publicApi.smartPlayerSettings` shares only the word `publicApi`, and the
+  sibling would not have failed first. Likewise a flag a `beforeAll` sets from an observable's
+  `complete` — `expect(completed).toBeTruthy()` — where the siblings read the values it collected.
 - The tests it is weighed against are the ones that run the same setup: the rest of its own block, and
   every test the blocks nested inside it declare. A skipped sibling — `it.skip`, `xit`, `it.todo` —
   proves nothing, so it does not count; a skipped smoke test is still reported.

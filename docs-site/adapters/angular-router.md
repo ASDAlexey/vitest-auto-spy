@@ -291,10 +291,17 @@ It also follows the events, the way the real one does:
 
 - `emitNavigation(new NavigationStart(4, '/products/8', 'popstate'))` puts a navigation in flight
   with that id, URL and trigger.
-- a `NavigationEnd`, `NavigationCancel`, `NavigationError` or `NavigationSkipped` ends it —
-  "the current navigation becomes null after the NavigationEnd event is emitted", so a component
-  that reads it while handling a `NavigationEnd` gets `null` here and `null` in production. A double
-  that kept the navigation would hide exactly that.
+- a `NavigationEnd`, `NavigationCancel`, `NavigationError` or `NavigationSkipped` ends it — but
+  **after** the event has been delivered. Angular's doc comment reads "the current navigation
+  becomes to null after the NavigationEnd event is emitted", and _after_ is literal: the router
+  emits the terminal event from a `tap` with the navigation still in flight and clears it in the
+  `finalize` below it, while `cancelNavigationTransition` never clears it at all. `events` is a
+  Subject, so a synchronous subscriber runs between the two — a component that reads
+  `currentNavigation()` while handling a `NavigationEnd` gets the navigation that just finished,
+  here and in production, and `null` only once `navigate()` has resolved. Probed against a real
+  `provideRouter()` on Angular 22. A double that cleared it before the emit would turn the working
+  production pattern "read the navigation state when the navigation lands" into a test that only
+  passes while nothing uses it.
 
 ### `createRouterDouble(init?)`
 

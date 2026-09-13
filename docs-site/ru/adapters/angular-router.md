@@ -291,10 +291,17 @@ expect(component.origin()).toBe('the card');
 
 - `emitNavigation(new NavigationStart(4, '/products/8', 'popstate'))` ставит в полёт навигацию с этим
   id, URL и триггером.
-- `NavigationEnd`, `NavigationCancel`, `NavigationError` или `NavigationSkipped` её завершает —
-  «the current navigation becomes null after the NavigationEnd event is emitted», поэтому компонент,
-  читающий её при обработке `NavigationEnd`, получит `null` и здесь, и в продакшене. Дубль, который
-  оставил бы навигацию на месте, скрыл бы ровно это.
+- `NavigationEnd`, `NavigationCancel`, `NavigationError` или `NavigationSkipped` её завершает — но
+  **после** того, как событие доставлено. В доке Angular написано «the current navigation becomes to
+  null after the NavigationEnd event is emitted», и «after» тут буквальное: роутер отправляет
+  терминальное событие из `tap`, пока навигация ещё в полёте, а обнуляет её в `finalize` ниже
+  (`cancelNavigationTransition` не обнуляет её вообще). `events` — это Subject, поэтому синхронный
+  подписчик выполняется между этими двумя шагами: компонент, читающий `currentNavigation()` при
+  обработке `NavigationEnd`, получает только что завершившуюся навигацию — и здесь, и в продакшене, —
+  а `null` он увидит лишь после того, как `navigate()` зарезолвится. Проверено на живом
+  `provideRouter()` под Angular 22. Дубль, обнуляющий её до отправки события, превратил бы рабочий
+  продовый приём «прочитать state навигации, когда навигация приземлилась» в тест, который проходит
+  только пока этим приёмом никто не пользуется.
 
 ### `createRouterDouble(init?)` {#createrouterdouble-init}
 

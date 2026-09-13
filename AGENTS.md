@@ -2369,11 +2369,17 @@ Five things to know:
   `provideRouter()` is what tests a navigation.
 - **`emitNavigation()` takes what you have** — nothing, a URL string, or an event you built. A
   `NavigationEnd` moves the URL with it; any other event does not.
-- **The navigation in flight follows the events.** `setCurrentNavigation({ extras: { state } })`
-  puts one up and `setCurrentNavigation(null)` ends it; a `NavigationStart` pushed through
-  `emitNavigation()` starts one with that event's id, URL and trigger, and a `NavigationEnd`,
-  `NavigationCancel`, `NavigationError` or `NavigationSkipped` drops it back to `null` — which is
-  what the real router answers to a component reading it while handling a `NavigationEnd`.
+- **The navigation in flight follows the events, and a terminal event ends it _after_ delivering
+  it.** `setCurrentNavigation({ extras: { state } })` puts one up and `setCurrentNavigation(null)`
+  ends it; a `NavigationStart` pushed through `emitNavigation()` starts one with that event's id,
+  URL and trigger, and a `NavigationEnd`, `NavigationCancel`, `NavigationError` or
+  `NavigationSkipped` drops it back to `null` once its subscribers have run. Angular's doc comment
+  — "the current navigation becomes to null after the NavigationEnd event is emitted" — means
+  _after_ literally: the router emits the terminal event from a `tap` with the navigation still in
+  flight and clears it in the `finalize` below, and `events` is a Subject, so a synchronous
+  subscriber runs between the two. **A component that reads `currentNavigation()` while handling a
+  `NavigationEnd` gets the navigation that just finished**, here and in production; it reads `null`
+  only once `navigate()` has resolved. Probed against a real `provideRouter()` on Angular 22.
 - **Ordering does not matter here.** `Router` is `providedIn: 'root'` and `provideRouter()` does not
   re-provide the token, so the double wins in either order — and a `TestBed` without it hands out a
   real router, which is what `injectRouterDouble()` says by name.
