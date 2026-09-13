@@ -8,7 +8,7 @@
  * 12 000 bodies has a shape, the report already carries it file by file, and until this module
  * nothing put it on the screen.
  *
- * Two decisions are the whole design.
+ * Four decisions are the whole design.
  *
  * **Per-test cost is the column that changes the conversation.** A file whose bodies add up to 6 s
  * is not a defect when 400 tests shared them; the same 6 s over three tests is. Total time sorts the
@@ -21,6 +21,21 @@
  * the only thing these rows can cost is the reader's attention. A suite whose slowest file spent
  * 40 ms in its bodies has no hotspot, and printing its top ten anyway is how a reader learns to skip
  * the section in the reports where it would have mattered.
+ *
+ * **The file names its bodies.** A test's identity is two-part — the file it lives in and its own
+ * name — and one `file › name` column pays for both out of a single width, cutting each into an
+ * ellipsis that answers neither half. The bodies table prints the file once, whole, and its names
+ * under it; a name that still does not fit loses its head, where the suites around the test are,
+ * and keeps the test. A file path is cut in the middle and on segment boundaries: the first segment
+ * names the project, the last names the file, and the middle is directories a reader can
+ * reconstruct — losing the middle reads as a path, losing either end reads as nothing.
+ *
+ * **Color is spent on what has a budget.** The one unconditional number in these tables is the
+ * per-body budget — the same second the gate fails a body for — so a body, or a file's `ms/test`,
+ * at or over it is red. A file's total is not colored, because the file budget is relative to the
+ * run's median and this table does not know it. Headers and the ellipsis of a cut cell are dimmed:
+ * scaffolding, quieter than what it carries. `NO_COLOR` (or `FORCE_COLOR=0`, or `TERM=dumb`) turns
+ * all of it off.
  */
 import type { PerfRun } from '../perf-data';
 import { CASE_FLOOR_MS, formatMs, formatShare } from '../perf-data';
@@ -50,8 +65,10 @@ export interface HotspotOptions {
   readonly limit: number;
   /** The slowest file has to reach this before either table is printed at all. */
   readonly floorMs: number;
-  /** Columns the tables are laid out for. A path wider than its column loses its head, not its tail. */
+  /** Columns the tables are laid out for. A path wider than its column loses its middle, never its ends. */
   readonly width: number;
+  /** Terminal color. Left out, the environment decides: `NO_COLOR`, `FORCE_COLOR=0` and `TERM=dumb` mean no. */
+  readonly colors?: boolean;
 }
 
 /**
@@ -73,6 +90,27 @@ const INDENT = '  ';
 const GAP = 4;
 
 const ELLIPSIS = '…';
+
+const RED = '\u001b[31m';
+const DIM = '\u001b[2m';
+const OFF = '\u001b[0m';
+
+interface Painter {
+  red(text: string): string;
+  dim(text: string): string;
+}
+
+const MONOCHROME: Painter = { red: (text) => text, dim: (text) => text };
+
+const TERMINAL: Painter = {
+  red: (text) => `${RED}${text}${OFF}`,
+  dim: (text) => `${DIM}${text}${OFF}`,
+};
+
+/** Presence of `NO_COLOR` is the convention; `FORCE_COLOR=0` and `TERM=dumb` are the other two ways a terminal says no. */
+function colorWanted(env: NodeJS.ProcessEnv): boolean {
+  return env['NO_COLOR'] === undefined && env['FORCE_COLOR'] !== '0' && env['TERM'] !== 'dumb';
+}
 
 /** The files whose test bodies cost the most, slowest first. */
 export function fileHotspots(run: PerfRun, cwd: string, limit: number): Hotspot[] {
@@ -111,11 +149,56 @@ function totalTestMs(run: PerfRun, cwd: string): number {
 }
 
 /**
- * Keeps the tail. The head of a path is directories a reader already knows they are in, and the head
- * of a test name is the suites around it; the file name and the test itself are at the other end.
+ * Keeps the tail. The head of a test name is the suites around it; the test itself is at the other
+ * end, and it is the half a reader acts on.
  */
-function truncateLeft(text: string, width: number): string {
-  return text.length <= width ? text : `${ELLIPSIS}${text.slice(text.length - width + ELLIPSIS.length)}`;
+function truncateLeft(text: string, width: number, paint: Painter): string {
+  if (text.length <= width) {
+    return text;
+  }
+
+  return `${paint.dim(ELLIPSIS)}${text.slice(text.length - width + ELLIPSIS.length)}`;
+}
+
+/**
+ * Keeps both ends, cutting whole segments out of the middle. `apps/web/…/tv/channel-card.component.spec.ts`
+ * still names the project and the file; `…/src/app/modules/tv/channel-card.component.spec.ts` names
+ * neither. Falls back to a tail cut for the two shapes the middle cannot serve — no separator at
+ * all, or a file name alone wider than what is left.
+ */
+function truncatePath(path: string, width: number, paint: Painter): string {
+  if (path.length <= width) {
+    return path;
+  }
+
+  const first = path.indexOf('/');
+
+  if (first === -1) {
+    return truncateLeft(path, width, paint);
+  }
+
+  const head = path.slice(0, first);
+  const rest = path.slice(first + 1).split('/');
+  const budget = width - head.length - 3; // head + '/' + ellipsis + '/'
+  const tail: string[] = [];
+  let used = 0;
+
+  for (const segment of [...rest].reverse()) {
+    const next = used === 0 ? segment.length : used + 1 + segment.length;
+
+    if (next > budget) {
+      break;
+    }
+
+    tail.unshift(segment);
+    used = next;
+  }
+
+  if (tail.length === 0) {
+    return truncateLeft(path, width, paint);
+  }
+
+  return `${head}/${paint.dim(ELLIPSIS)}/${tail.join('/')}`;
 }
 
 function widthOf(head: string, cells: readonly string[]): number {
@@ -127,31 +210,42 @@ interface Column {
   readonly cells: readonly string[];
 }
 
+/** A cell already padded to its column, and the color it is carried in — width math happens on the raw text. */
+type Decorated = (row: number, column: number, padded: string) => string;
+
 /**
  * One flexible label column, then right-aligned numbers — the padding `formatPhases` does by hand,
  * with the constants taken out, so that a 120-character path cannot push the numbers out of line.
  */
-function table(label: Column, numbers: readonly Column[], width: number): string {
+function table(
+  label: Column,
+  numbers: readonly Column[],
+  width: number,
+  truncate: (cell: string, columnWidth: number) => string,
+  decorate: Decorated,
+): string {
   const spent = numbers.reduce((sum, column) => sum + widthOf(column.head, column.cells) + GAP, 0);
   const labelWidth = Math.max(Math.min(widthOf(label.head, label.cells), width - INDENT.length - spent), label.head.length);
   const laid = [
-    { width: labelWidth, left: true, texts: [label.head, ...label.cells.map((cell) => truncateLeft(cell, labelWidth))] },
+    { width: labelWidth, left: true, texts: [label.head, ...label.cells.map((cell) => truncate(cell, labelWidth))] },
     ...numbers.map((column) => ({ width: widthOf(column.head, column.cells) + GAP, left: false, texts: [column.head, ...column.cells] })),
   ];
 
   return laid
     .reduce<string[]>(
-      (lines, column) =>
+      (lines, column, current) =>
         column.texts.map(
-          (text, index) => `${lines[index] ?? INDENT}${column.left ? text.padEnd(column.width) : text.padStart(column.width)}`,
+          (text, index) =>
+            `${lines[index] ?? INDENT}${decorate(index, current, column.left ? text.padEnd(column.width) : text.padStart(column.width))}`,
         ),
       [],
     )
     .join('\n');
 }
 
-function fileSection(files: readonly Hotspot[], total: number, width: number): string[] {
+function fileSection(files: readonly Hotspot[], total: number, width: number, floorMs: number, paint: Painter): string[] {
   const listed = files.reduce((sum, hotspot) => sum + hotspot.ms, 0);
+  const overBudget = new Set(files.flatMap((hotspot, index) => (hotspot.testCount > 0 && hotspot.perTest >= floorMs ? [index + 1] : [])));
   const drawn = table(
     { head: 'file', cells: files.map((hotspot) => hotspot.file) },
     [
@@ -160,6 +254,8 @@ function fileSection(files: readonly Hotspot[], total: number, width: number): s
       { head: 'share', cells: files.map((hotspot) => formatShare(hotspot.ms / total)) },
     ],
     width,
+    (cell, columnWidth) => truncatePath(cell, columnWidth, paint),
+    (row, column, padded) => (row === 0 ? paint.dim(padded) : column === 2 && overBudget.has(row) ? paint.red(padded) : padded),
   );
   const counted = files.length === 1 ? 'That one file is' : `Those ${files.length} files are`;
   const prose = [
@@ -171,24 +267,47 @@ function fileSection(files: readonly Hotspot[], total: number, width: number): s
   return ['slowest files — what every body in the file cost, and what one of them cost', drawn, prose];
 }
 
-function caseSection(cases: readonly CaseHotspot[], width: number): string[] {
+function caseSection(cases: readonly CaseHotspot[], width: number, floorMs: number, paint: Painter): string[] {
   if (cases.length === 0) {
     return [];
   }
 
+  const timeWidth =
+    widthOf(
+      'time',
+      cases.map((entry) => formatMs(entry.ms)),
+    ) + GAP;
+  const nameWidth = Math.max(width - 2 * INDENT.length - timeWidth, 'test'.length);
+  const groups = new Map<string, CaseHotspot[]>();
+
+  for (const entry of cases) {
+    const bucket = groups.get(entry.file);
+    bucket === undefined ? groups.set(entry.file, [entry]) : bucket.push(entry);
+  }
+
+  const lines: string[] = [];
+
+  for (const [file, entries] of groups) {
+    lines.push(`${INDENT}${truncatePath(file, width - INDENT.length, paint)}`);
+
+    for (const entry of entries) {
+      const time = formatMs(entry.ms).padStart(timeWidth);
+      lines.push(
+        `${INDENT}${INDENT}${truncateLeft(entry.name, nameWidth, paint).padEnd(nameWidth)}${entry.ms >= floorMs ? paint.red(time) : time}`,
+      );
+    }
+  }
+
   return [
     `slowest test bodies — a body under ${formatMs(CASE_FLOOR_MS)} is not in the report at all, so a fast one is absent rather than cheap`,
-    table(
-      { head: 'test', cells: cases.map((entry) => `${entry.file} › ${entry.name}`) },
-      [{ head: 'time', cells: cases.map((entry) => formatMs(entry.ms)) }],
-      width,
-    ),
+    lines.join('\n'),
   ];
 }
 
 /** Both tables, or an empty string when the run is too small for either to be worth printing. */
 export function formatHotspots(run: PerfRun, cwd: string, options: Partial<HotspotOptions> = {}): string {
-  const { limit, floorMs, width } = { ...HOTSPOT_DEFAULTS, ...options };
+  const { limit, floorMs, width, colors } = { ...HOTSPOT_DEFAULTS, ...options };
+  const paint = withColors(colors ?? colorWanted(process.env));
   const files = fileHotspots(run, cwd, limit);
   const [slowest] = files;
 
@@ -196,7 +315,16 @@ export function formatHotspots(run: PerfRun, cwd: string, options: Partial<Hotsp
     return '';
   }
 
-  return [...fileSection(files, totalTestMs(run, cwd), width), ...caseSection(caseHotspots(run, cwd, limit), width)].join('\n\n');
+  const sections = [
+    ...fileSection(files, totalTestMs(run, cwd), width, floorMs, paint),
+    ...caseSection(caseHotspots(run, cwd, limit), width, floorMs, paint),
+  ];
+
+  return sections.join('\n\n');
+}
+
+function withColors(on: boolean): Painter {
+  return on ? TERMINAL : MONOCHROME;
 }
 
 /**

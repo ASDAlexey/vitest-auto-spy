@@ -1,15 +1,17 @@
 /**
- * The two tables, and the four things that decide whether anybody reads them.
+ * The two tables, and the things that decide whether anybody reads them.
  *
  * Order has to be **total**, not merely by time, or two renderings of one report disagree and the
  * tables stop being quotable. The per-test column has to survive a file that finished no body, which
  * is the one input that turns an average into `Infinity`. The floor has to be pinned from **both**
- * sides, because a table that appears for a 40 ms suite teaches the reader to skip the section. And a
- * path wider than its column has to lose its head rather than its tail — the tail is the half that
- * says which file this is.
+ * sides, because a table that appears for a 40 ms suite teaches the reader to skip the section. A
+ * body is named by its file and its own name, and the file has to survive whole — a path cut in the
+ * middle on segment boundaries still names the project and the file, a path cut at either end names
+ * nothing. And color has to be pinned from the test, because the same strings are golden here and
+ * a stray `NO_COLOR` in the environment would otherwise decide what they contain.
  */
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import type { PerfFile, PerfRun } from '../perf-data';
 import { caseHotspots, fileHotspots, formatHotspots, hotspotFloorNote } from './perf-hotspots';
@@ -132,12 +134,12 @@ describe('formatHotspots', () => {
     const quick = run([file('libs/quick.spec.ts', { tests: 40, testCount: 8 })]);
     const slow = run([file('libs/slow.spec.ts', { tests: 1_000, testCount: 8 })]);
 
-    expect(formatHotspots(quick, ROOT)).toBe('');
-    expect(formatHotspots(slow, ROOT)).toContain('libs/slow.spec.ts');
+    expect(formatHotspots(quick, ROOT, { colors: false })).toBe('');
+    expect(formatHotspots(slow, ROOT, { colors: false })).toContain('libs/slow.spec.ts');
   });
 
   it('prints nothing when no file was measured, even with the floor taken away', () => {
-    expect(formatHotspots(run([file('libs/empty.spec.ts')]), ROOT, { floorMs: 0 })).toBe('');
+    expect(formatHotspots(run([file('libs/empty.spec.ts')]), ROOT, { floorMs: 0, colors: false })).toBe('');
   });
 
   it('says why there is no table, in the two ways there can be none', () => {
@@ -148,7 +150,7 @@ describe('formatHotspots', () => {
   });
 
   it('shows the total, the cost of one test and the share of the run side by side, and an em dash for a file that finished none', () => {
-    expect(formatHotspots(suite(), ROOT, { limit: 4 })).toBe(
+    expect(formatHotspots(suite(), ROOT, { limit: 4, colors: false })).toBe(
       [
         'slowest files — what every body in the file cost, and what one of them cost',
         '',
@@ -164,44 +166,123 @@ describe('formatHotspots', () => {
         '',
         'slowest test bodies — a body under 100ms is not in the report at all, so a fast one is absent rather than cheap',
         '',
-        '  test                                                                                            time',
-        '  libs/player/wrapper/src/lib/ads/ads.controller.spec.ts › AdsController > plays the pre-roll    2.90s',
-        '  apps/web/src/app/profile/profile.component.spec.ts › ProfileComponent > uploads an avatar      320ms',
+        '  libs/player/wrapper/src/lib/ads/ads.controller.spec.ts',
+        `    AdsController > plays the pre-roll${' '.repeat(97)}2.90s`,
+        '  apps/web/src/app/profile/profile.component.spec.ts',
+        `    ProfileComponent > uploads an avatar${' '.repeat(95)}320ms`,
       ].join('\n'),
     );
   });
 
   it('takes the share over the whole run, not over the rows it printed', () => {
-    const listed = formatHotspots(suite(), ROOT, { limit: 1 });
+    const listed = formatHotspots(suite(), ROOT, { limit: 1, colors: false });
 
     expect(listed).toContain('7.50s      625ms    31.3%');
     expect(listed).toContain('That one file is 7.50s of the 24.00s');
   });
 
-  it('drops the head of a path too wide for its column and keeps the tail that names the file', () => {
-    expect(formatHotspots(suite(), ROOT, { limit: 2, width: 70 })).toContain(
-      [
-        '  file                                        time    ms/test    share',
-        '  …per/src/lib/ads/ads.controller.spec.ts    7.50s      625ms    31.3%',
-      ].join('\n'),
+  it("groups the bodies of one file under the file, ordered by their file's slowest body", () => {
+    const grouped = run([
+      file('libs/two.spec.ts', {
+        tests: 2_000,
+        testCount: 2,
+        cases: [
+          { name: 'second body', ms: 900 },
+          { name: 'first body', ms: 1_200 },
+        ],
+      }),
+      file('apps/one.spec.ts', { tests: 1_100, testCount: 1, cases: [{ name: 'middle body', ms: 1_000 }] }),
+    ]);
+    const text = formatHotspots(grouped, ROOT, { colors: false });
+    const bodies = text.slice(text.indexOf('slowest test bodies'));
+    const at = (needle: string) => bodies.indexOf(needle);
+
+    expect(text.split('\n').filter((line) => line === '  libs/two.spec.ts')).toHaveLength(1);
+    expect(at('  libs/two.spec.ts')).toBeLessThan(at('first body'));
+    expect(at('first body')).toBeLessThan(at('second body'));
+    expect(at('second body')).toBeLessThan(at('  apps/one.spec.ts'));
+    expect(at('  apps/one.spec.ts')).toBeLessThan(at('middle body'));
+  });
+
+  it('cuts a path too wide for its column in the middle, on segment boundaries, and keeps both ends', () => {
+    expect(formatHotspots(suite(), ROOT, { limit: 2, width: 70, colors: false })).toContain(
+      `  libs/…/lib/ads/ads.controller.spec.ts${' '.repeat(6)}7.50s${' '.repeat(6)}625ms${' '.repeat(4)}31.3%`,
     );
   });
 
-  it('truncates a test the same way, from the left, and keeps the columns aligned to the width', () => {
-    const rows = formatHotspots(suite(), ROOT, { limit: 2, width: 70 }).split('\n');
-    const table = rows.slice(rows.indexOf('  test                                                            time'));
+  it('cuts a body name from the left and keeps the test, aligned to the width it was given', () => {
+    expect(formatHotspots(suite(), ROOT, { limit: 2, width: 40, colors: false })).toContain('    …oller > plays the pre-roll    2.90s');
+  });
 
-    expect(table).toEqual([
-      '  test                                                            time',
-      '  …ds.controller.spec.ts › AdsController > plays the pre-roll    2.90s',
-      '  …e.component.spec.ts › ProfileComponent > uploads an avatar    320ms',
+  it('falls back to a tail cut when even the file name does not fit the column', () => {
+    const giant = run([
+      file(`libs/${'x'.repeat(30)}giant.spec.ts`, { tests: 1_200, testCount: 2, cases: [{ name: 'slow one', ms: 1_100 }] }),
     ]);
+    const rows = formatHotspots(giant, ROOT, { width: 70, colors: false }).split('\n');
+
+    expect(rows.some((row) => row.trimStart().startsWith('…') && row.includes('giant.spec.ts'))).toBe(true);
+  });
+
+  it('falls back to a tail cut when the path has no segment boundary to cut on', () => {
+    const flat = run([file(`${'y'.repeat(40)}root.spec.ts`, { tests: 1_300, testCount: 2, cases: [{ name: 'slow one', ms: 1_100 }] })]);
+    const rows = formatHotspots(flat, ROOT, { width: 50, colors: false }).split('\n');
+
+    expect(rows.some((row) => row.trimStart().startsWith('…') && row.includes('root.spec.ts'))).toBe(true);
   });
 
   it('leaves out the body table rather than printing an empty one when the report has no bodies', () => {
-    const version1 = formatHotspots(run([file('libs/slow.spec.ts', { tests: 7_500, testCount: 12 })], 1), ROOT);
+    const version1 = formatHotspots(run([file('libs/slow.spec.ts', { tests: 7_500, testCount: 12 })], 1), ROOT, { colors: false });
 
     expect(version1).toContain('libs/slow.spec.ts');
     expect(version1).not.toContain('slowest test bodies');
+  });
+});
+
+describe('formatHotspots color', () => {
+  it('carries a body and a per-test cost at or over the budget in red, and nothing under it', () => {
+    const colored = formatHotspots(suite(), ROOT, { limit: 4, colors: true });
+
+    expect(colored).toContain('\u001b[31m      1.63s\u001b[0m');
+    expect(colored).toContain('\u001b[31m    2.90s\u001b[0m');
+    expect(colored).not.toContain('\u001b[31m      625ms');
+    expect(colored).not.toContain('\u001b[31m       7.50s');
+  });
+
+  it('dims the header row of the files table', () => {
+    expect(formatHotspots(suite(), ROOT, { limit: 1, colors: true })).toContain('\u001b[2mfile');
+  });
+
+  it('prints no escape sequence at all when color is off, whatever the environment says', () => {
+    vi.stubEnv('NO_COLOR', '1');
+    vi.stubEnv('FORCE_COLOR', undefined);
+    vi.stubEnv('TERM', 'xterm');
+
+    expect(formatHotspots(suite(), ROOT, { colors: false })).not.toContain('\u001b[31m');
+
+    vi.unstubAllEnvs();
+  });
+
+  it('follows the environment when the caller does not decide', () => {
+    vi.stubEnv('NO_COLOR', '1');
+    vi.stubEnv('FORCE_COLOR', undefined);
+    vi.stubEnv('TERM', 'xterm');
+
+    expect(formatHotspots(suite(), ROOT)).not.toContain('\u001b[31m');
+    expect(formatHotspots(suite(), ROOT).includes('\u001b[2mfile')).toBe(false);
+
+    vi.stubEnv('NO_COLOR', undefined);
+
+    expect(formatHotspots(suite(), ROOT)).toContain('\u001b[2mfile');
+
+    vi.stubEnv('FORCE_COLOR', '0');
+
+    expect(formatHotspots(suite(), ROOT)).not.toContain('\u001b[2mfile');
+
+    vi.stubEnv('FORCE_COLOR', undefined);
+    vi.stubEnv('TERM', 'dumb');
+
+    expect(formatHotspots(suite(), ROOT)).not.toContain('\u001b[2mfile');
+
+    vi.unstubAllEnvs();
   });
 });
