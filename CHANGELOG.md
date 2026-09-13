@@ -8,6 +8,50 @@ The latest released version here must always match the one published on
 [npm](https://www.npmjs.com/package/vitest-auto-spy) and the latest `v*` git tag — see
 [CONTRIBUTING.md → Releasing](./CONTRIBUTING.md#releasing) for how that stays in sync.
 
+## [Unreleased]
+
+### Fixed
+
+- **`renderShallow({ keepTemplate: true })` on an AOT-compiled component died as
+  `TypeError: dependencies is not a function`.** The trim reads the imports the compiler wrote into
+  `ɵcmp` and called them, because JIT — the only compiler a `TestBed.overrideComponent` recompile can
+  run — always stores them behind a factory. AOT does not: `dependencies` is a
+  `TypeOrFactory<DependencyTypeList> | null`, and ngtsc emits the **flat array** unless a cycle
+  between two components forces it to defer the read, which is the only thing a factory is for. A
+  component that imports nothing carries `null` (`defineComponent`: `standalone && dependencies ||
+  null`). So the failure needed all three of a real AOT build, `keepTemplate: true` and a component
+  whose imports happen to hold no cycle — every other combination went through the factory and was
+  green. All three shapes are read now, with a regression on each; anything that is not an array
+  after the factory is resolved is an empty scope rather than a throw.
+
+### Changed
+
+- **`mockReturnValue` erasing a `calledWith` is reported instead of happening quietly.** The two are
+  not layers: `mockReturnValue`, `mockImplementation`, `mockReturnThis`, `mockThrow`,
+  `mockResolvedValue` and `mockRejectedValue` install an implementation on the host mock, and the
+  library's dispatch — the thing that reads a `calledWith` chain — *is* the implementation they
+  replace. Whichever is written second therefore wins outright: a `mockReturnValue` after a chain
+  answers the same value for every argument list, and a chain opened after a `mockReturnValue` is
+  never consulted at all. Nothing failed either way, which is the exact genre this package exists to
+  catch elsewhere — a spec green on a branch nobody configured, found in the field as "the branch is
+  not being called". **The behaviour is the host's and is unchanged** (last writer wins is what every
+  runner does, and the `Once` queue and `mockImplementation` depend on it); what is new is that both
+  orders are reported through `reportMisconfiguration` — a warning by default, a throw under
+  `setupAutoSpy({ misconfiguration: 'throw' })` and the `strict` preset — naming the method, the
+  member that replaced the dispatch, and the repair: put the fallback in the spy's own container
+  (`returns:` where the double is built, or `resolveWith` / `nextWith` / `failWith`), which a
+  `calledWith` still wins over. The `Once` family is deliberately not reported: its queue drains back
+  onto the dispatch, so it suspends a chain for a call rather than taking it away, and re-installing
+  the dispatch itself (`resetAutoSpy`, `.and.callThrough()`) clears the flag rather than raising one.
+  The hook sits in this library's own spy engine — one `Reflect.get` on the configuration path, none
+  on the call path — so it covers Vitest and Rstest; Bun's `mock()` and `node:test`'s `mock.fn()`
+  install their implementation inside the runtime, where nothing here can observe it, and
+  `setSpyEngine('runner')` opts out for the same reason.
+- **`cold-import:check` runs inside `npm run check`.** It reads `dist/`, so it was CI-only — and CI
+  is where it fired: the 5.11.0 release commit went red on a module graph that had grown by 0.8 kB on
+  `/angular` and `/bun-angular` with the baseline not regenerated, which no local gate could have
+  caught. `check` now ends with `build` and that comparison, next to the suites it already runs.
+
 ## [5.11.0] - 2026-09-13
 
 ### Added
@@ -5482,7 +5526,8 @@ by hand there, in more than one place, by more than one person.
   `mockAccessorsProp`.
 - Dual ESM + CJS build with type declarations; 100% test coverage.
 
-[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.10.0...HEAD
+[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.11.0...HEAD
+[5.11.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.10.0...v5.11.0
 [5.10.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.9.0...v5.10.0
 [5.9.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.8.0...v5.9.0
 [5.8.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.7.0...v5.8.0
