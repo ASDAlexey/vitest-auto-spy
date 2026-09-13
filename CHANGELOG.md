@@ -8,7 +8,7 @@ The latest released version here must always match the one published on
 [npm](https://www.npmjs.com/package/vitest-auto-spy) and the latest `v*` git tag — see
 [CONTRIBUTING.md → Releasing](./CONTRIBUTING.md#releasing) for how that stays in sync.
 
-## [Unreleased]
+## [5.10.1] - 2026-09-13
 
 ### Fixed
 
@@ -49,6 +49,8 @@ The latest released version here must always match the one published on
   variable and **no** import, where the first version left 43 `no-unused-vars` errors across 34
   files. That is the same fact from the other side — a `let component` that only the smoke test read
   means no sibling ran against it, which is now exactly the case the rule declines to report.
+  The guards add 302 B min+gzip to `/eslint-plugin` (32417 B → 32719 B) — a lint-time entry point no
+  spec run loads, and nothing outside it moved.
 
 - **`prefer-create-spy-from-class` reported the overrides bag of the package's own doubles.**
   `provideWindowDouble(WINDOW, { history: { back: vi.fn() }, addEventListener: vi.fn() })` holds two
@@ -58,7 +60,7 @@ The latest released version here must always match the one published on
   `createWindowDouble`, `provideWindowDouble`, `createDocumentDouble`, `provideDocumentDouble`,
   `createRouterDouble`, `provideRouterDouble`, `createActivatedRoute` and `provideActivatedRoute`
   join the factory-seed exemption the spy factories already had. Not a 5.10.0 regression — 5.9.0
-  reports it identically.
+  reports it identically. The exemption table adds 69 B more (32719 B → 32788 B).
 
 - **A terminal router event ended the navigation _before_ it was delivered, which is the opposite of
   what the real router does.** `emitNavigation(new NavigationEnd(…))` cleared `currentNavigation`
@@ -82,7 +84,8 @@ The latest released version here must always match the one published on
   `popstate`. Against 5.10.0 the faithful double reports
   that code as broken; against the real router it works. Pinned by three tests that assert what a
   subscriber sees *during* the delivery — the existing ones all read after it, which is why none of
-  them caught this.
+  them caught this. It costs 6 B min+gzip on `/angular-router` (6801 B → 6807 B); every other
+  runtime entry point is unchanged to the byte.
 
 ## [5.10.0] - 2026-09-12
 
