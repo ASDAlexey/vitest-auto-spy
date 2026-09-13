@@ -12546,6 +12546,14 @@ that column is the one that decides whether to open the file: 400 tests sharing 
 3 tests sharing 6 s is a slow one. `--top 0` turns both off; a run whose slowest file is under a
 second prints neither.
 
+A body is named by two things — the file it lives in and its own name — so the bodies table prints
+the file once, whole, and indents its bodies under it rather than paying for both out of one column.
+A name that still does not fit loses its head, where the parent suites are, and keeps the test. A
+path too wide for its column is cut in the middle, on segment boundaries:
+`libs/…/lib/ads/ads.controller.spec.ts` still names the project and the file, where a cut at either
+end names neither. Times at or over the per-body budget are red and the headers are dim; `NO_COLOR`,
+`FORCE_COLOR=0` and `TERM=dumb` turn the color off.
+
 A sharded pipeline writes one report per job, and a rule that compares a file against **the median
 of its own run** then compares it against a quarter of the evidence. `--json` takes a directory or a
 pattern and merges them:
