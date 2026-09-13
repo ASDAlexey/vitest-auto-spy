@@ -27,6 +27,17 @@ _Last released: **v5.9.0** — the git tag, `package.json` and `CHANGELOG.md` ag
   floor was invisible: `--top 15` on a fast suite printed nothing at all. Asked for explicitly, it now
   answers with the number that suppressed it.
 
+### Changed
+
+- **The `perf` hotspot tables name the file before its bodies.** A body's label was one `file › name`
+  column, and a long path ate it from the left: `…ponent.spec.ts › MediaPremiumBenefitsComponent › …`
+  answered neither which file nor which test. The bodies table prints the file once, whole, with its
+  bodies indented under it — a name that still does not fit loses its head, where the suites around
+  the test are, and keeps the test. A path too wide for its column is cut in the middle on segment
+  boundaries, so the first segment (the project) and the last (the file name) always survive. Times
+  at or over the per-body budget are red and the header row is dim; `NO_COLOR`, `FORCE_COLOR=0` and
+  `TERM=dumb` turn all of it off.
+
 ### Fixed
 
 - **`perf` counts a computed `maxWorkers`.** A config passing a value it derived as a shorthand property was
