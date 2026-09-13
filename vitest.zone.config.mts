@@ -1,3 +1,4 @@
+import angular from '@analogjs/vite-plugin-angular';
 import { defineConfig } from 'vitest/config';
 
 // A second, deliberately separate project: the one place in this repository where zone.js is
@@ -7,7 +8,11 @@ import { defineConfig } from 'vitest/config';
 //
 // zone.js is a devDependency and only a devDependency. The published `vitest-auto-spy/zone` entry
 // imports none of it: it reads `globalThis.Zone`, which this project's setup file loads.
+//
+// The Angular plugin is here for the same reason the zone is: `stable()` behaves differently under
+// a real `NgZone`, and only a TestBed that has one can say so.
 export default defineConfig({
+  plugins: [angular({ tsconfig: 'tsconfig.spec.json' })],
   test: {
     // `globals: true` is a requirement of the patch, not a preference: it replaces the runner's
     // globals, and an imported `it` is a module binding nothing can reach.

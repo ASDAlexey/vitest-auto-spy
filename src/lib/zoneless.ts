@@ -8,6 +8,7 @@
  * {@link stable} does both, in the right order; {@link flushEffects} is the no-fixture half for
  * services, stores and `TestBed.runInInjectionContext` code.
  */
+import { NgZone } from '@angular/core';
 import { type ComponentFixture, TestBed } from '@angular/core/testing';
 
 import { DOCS_LINKS, withDocs } from './docs-links';
@@ -27,6 +28,19 @@ const clearTimer: typeof clearTimeout = globalThis.clearTimeout.bind(globalThis)
  * `TestBed.tick()` rather than `ApplicationRef.tick()`: it also refreshes fixture views that were
  * never attached to the `ApplicationRef`. It arrived in Angular 20, which is this package's floor.
  *
+ * **The tick runs inside the `NgZone`, and under zone.js that is the difference between working and
+ * `NG0101`.** `TestBed.createComponent` builds the component inside `ngZone.run(…)`, so every
+ * `effect()` the constructor registers records the zone's inner zone as its own. A tick started from
+ * a test body is in the runner's zone instead, so `runEffectsInView` hops back — `effect.zone.run(…)`
+ * — to run a **dirty** effect, and leaving that hop takes the zone from unstable to stable, which is
+ * what `NgZone.onMicrotaskEmpty` reports. `provideZoneChangeDetection()`, which the Angular CLI's
+ * unit-test builder installs for every zone-based suite, subscribes to that event with
+ * `ApplicationRef._tick()` and guards it against its own scheduler but not against
+ * `ApplicationRef._runningTick` — so the tick already on the stack is re-entered and the run dies on
+ * `NG0101: ApplicationRef.tick is called recursively`. Entering the zone first makes the effect's
+ * zone the current one, the hop does not happen, and nothing reports stability mid-tick. Under
+ * zoneless `NgZone` is a `NoopNgZone` whose `run` is a straight call, so this costs nothing there.
+ *
  * @example
  * ```ts
  * store.filter.set('open');
@@ -34,7 +48,9 @@ const clearTimer: typeof clearTimeout = globalThis.clearTimeout.bind(globalThis)
  * ```
  */
 export function flushEffects(): void {
-  TestBed.tick();
+  TestBed.inject(NgZone).run(() => {
+    TestBed.tick();
+  });
 }
 
 /** Options for {@link stable}. */

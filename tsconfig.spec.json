@@ -1,7 +1,10 @@
 {
-  "extends": "./tsconfig.json",
   "compilerOptions": {
     "types": ["vitest/globals", "node"]
   },
-  "include": ["src/**/*.spec.ts", "src/test-setup.ts", "src/**/*.d.ts"]
+  "extends": "./tsconfig.json",
+  // The zone project's files are in here for the Angular plugin's sake, not the type-checker's: a
+  // file carrying Angular decorators that the program does not know compiles down the plugin's
+  // fallback path, which emits a `_decorate` helper import nothing in this repository resolves.
+  "include": ["src/**/*.spec.ts", "src/test-setup.ts", "src/**/*.d.ts", "src/zone-tests/**/*.ts"]
 }
