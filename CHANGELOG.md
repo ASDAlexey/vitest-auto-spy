@@ -8,6 +8,171 @@ The latest released version here must always match the one published on
 [npm](https://www.npmjs.com/package/vitest-auto-spy) and the latest `v*` git tag — see
 [CONTRIBUTING.md → Releasing](./CONTRIBUTING.md#releasing) for how that stays in sync.
 
+## [Unreleased]
+
+### Added
+
+- **`prefer-set-inputs` — `fixture.componentRef.setInput(…)`, where `setInputs` is the same line
+  checked.** Angular answers a name the component does not declare with an `NG0303` on the console
+  and **no change at all**, so a typo, an input renamed under the spec, or an alias written as its
+  class-field name all end the same way: green `setInput` calls, and an assertion that fails several
+  lines later on state nothing moved. `setInputs(fixture, { name: value })` resolves every key
+  against the compiled definition before it writes the first one, and it types the value — which is
+  the half that pays: rewriting the 650 calls the rule can rewrite on an Angular suite of 1771 spec
+  files turned **72 fixtures that had drifted from the model they claim to be into compile errors,
+  across 21 files** — a `{}` for a `CardButtonExtra`, a literal still written in the previous shape
+  of an interface, an `imageUrl` for a model whose field is `imgUrl`. It reports a **run** rather
+  than a call, because that is the shape of the repair: one `setInputs` carrying every input the run
+  sets, with the `detectChanges()` under it removed, since `stable()` flushes effects and awaits the
+  fixture where one change-detection pass does neither. A run ends where the same input is set twice
+  — `setInput('url', first)` then `setInput('url', second)` is a spec saying "and now it changes",
+  and one literal carrying both keys is `TS1117`; the first version of the rule produced exactly that
+  error on the two files in that suite which write it. Silent on a computed name, on a receiver no
+  reading settles as a `ComponentFixture` (`<name>.componentRef` is most of the evidence — the bare
+  `ComponentRef` that `ViewContainerRef.createComponent()` hands back, and where `setInputs` does not
+  apply, has no `componentRef` of its own), and on a call whose result goes anywhere. On that suite:
+  **504 findings across 140 files**, 53 of them without an edit, in a file set that is green under
+  every `error` rule here.
+
+  **The edit is offered, never applied, and the reason for that changed while this release was being
+  cut.** Written as a `--fix` first and run that way over a throwaway copy of the consumer's tree:
+  451 edits, 122 files rewritten, all of them parsing, 101 still type-checking — and **57 of those
+  101 went from green to red**, every one on `NG0101: ApplicationRef.tick is called recursively`.
+  That read as a reason to withhold the fix, and it was a defect in this package instead: `stable()`
+  drove `TestBed.tick()` from whatever zone the caller stood in, which is the entry below. With that
+  repaired the same 451 edits produce **zero** `NG0101` and **20** red, and those twenty are what the
+  severity now rests on — `setInputs` **renders** where `componentRef.setInput` only writes. Thirteen
+  of them are files that never drove change detection anywhere: they set an input and read a computed
+  off the instance, and the render they now get reports a required input nobody set (`NG0950`), a
+  provider nobody registered (`NG0201`), a pipe the testing module never declared (`NG0302`), a
+  strict double's unconfigured method, or a timer left scheduled. The other seven are a run the rule
+  ends early rendering between the two halves of one setup. None of that is legible from the call
+  site the rule reports, so the edit stays a suggestion and the rule ships at **`warn`**, graded like
+  `prefer-render-shallow` and for the same reason: the finding is a fact in the line, but adopting it
+  is a migration a project takes file by file, and a suite that already renders turns it up to
+  `'error'` in the one line everything else here is turned down in. The guard that would clear
+  thirteen of the twenty — stay silent where the file has no `detectChanges()` / `whenStable()` /
+  `stable()` / `autoDetect` anywhere — costs twenty-nine findings that are fine, and is written up in
+  `TODO.md` rather than shipped, because it is a whole-file scan unlike every other guard this rule
+  has.
+
+- **`prefer-provide-auto-spy` reads the long form of its own factory, and rewrites it.**
+  `provideAutoSpy(X, config)` returns `{ provide: X, useValue: createSpyFromClass(X, config) }` and
+  nothing else, so a provider spelling that out is the factory with the token written twice — and the
+  rule never looked at it: the `useValue` reading answers for an **object literal**, which is the
+  shape a hand-rolled double has, and a call in that slot fell through every arm. A test even pinned
+  that silence as intended. Measured on a suite of 1771 spec files that is otherwise clean against
+  `recommended`, at `error`, with no `eslint-disable` anywhere: **0 reports before, 91 in 49 files
+  after** — all 91 with a fix, at most 8 in one file, so `eslint --fix` clears them in one run.
+  Applied to a throwaway copy of that suite the 49 files lose 147 lines net, `ngc --noEmit` over the
+  whole spec program stays clean and the 356 tests in them stay green.
+
+  The rewrite is a transposition and stands down where it would stop being one: explicit type
+  arguments (`createSpyFromClass<T, Options>` takes two type parameters, `provideAutoSpy<T>` one, so
+  dropping the second would change what the spy's type is), a third property in the literal, a
+  `multi: true` registration, or a `provideAutoSpy` the file declares itself — each is still reported,
+  only not rewritten. The arguments are carried across as source text, so a ten-line configuration
+  object arrives character for character and only its indentation is left to the formatter.
+
+  Two shapes next to it stay silent, and that is the arm's design rather than its limit.
+  `{ provide: LocalStorage, useValue: createSpyFromClass(BaseLocalStorage) }` — 51 sites in 41 files
+  on the same suite — reads an implementation because the abstract token's prototype carries none of
+  the methods the double needs; `provideAutoSpy(LocalStorage)` would spy nothing, so there is nothing
+  shorter to recommend and a report would only teach the suite to disable the rule over working code.
+  A call parked in a name (`const cart = createSpyFromClass(Cart)`, `useValue: cart`) is left alone
+  because the double is configured through that name afterwards: the repair is `provideAutoSpy(Cart)`
+  plus an `injectSpy(Cart)` at every use, which is a rewrite of the file rather than of the provider.
+
+  The fix also stopped writing a duplicate import. Every fixer here puts a new `import` at the top of
+  the file and lets the formatter place it, which would have left a second
+  `import … from 'vitest-auto-spy/angular'` in **20 of those 49 files**, reported by
+  `import/no-duplicates` on the line the fixer had just written; it now takes the specifier into the
+  import the file already has, and writes its own only where there is none. A `createSpyFromClass`
+  import the rewrite orphans is dropped — and dropped when every surviving mention of the factory is
+  a provider this rule rewrites, not only when it is the last one, because ESLint applies as many
+  non-overlapping fixes per pass as it can and a file with three of them would otherwise fix the last
+  two together and leave the import behind with nothing reported to clean it up.
+
+  The rule moved to `src/lib/eslint/provide-auto-spy.ts` on the way: `rules.ts` was at exactly its
+  500-line cap, so the arm had nowhere to go, and the rule's four older messages now sit next to the
+  reading they belong to (450 lines left behind).
+
+### Fixed
+
+- **`stable()` and `flushEffects()` re-entered Angular's own tick under zone.js, and the run stayed
+  green while it happened.** The tick is now `TestBed.tick()` inside `TestBed.inject(NgZone)`; under
+  zoneless that is a `NoopNgZone` whose `run` is a straight call, so nothing changes there.
+
+  Four ordinary things have to line up, which is why it survived three releases.
+  `TestBed.createComponent` builds the component inside `ngZone.run(…)`, so an `effect()` its
+  constructor registers records the zone's inner zone as its own. A tick started from a test body
+  runs in the runner's zone instead, so `runEffectsInView` hops back — `effect.zone.run(() =>
+  effect.run())` — to run a **dirty** effect, and leaving that hop takes the zone from unstable to
+  stable. `NgZone.onMicrotaskEmpty` reports that, and the subscriber `provideZoneChangeDetection()`
+  installs answers it with `ApplicationRef._tick()`, guarded against its own scheduler and not
+  against `ApplicationRef._runningTick` — so the tick already on the stack is re-entered and Angular
+  raises `NG0101: ApplicationRef.tick is called recursively`. Nothing there is exotic:
+  `@angular/build:unit-test` adds `provideZoneChangeDetection()` to every suite in which `Zone` is
+  defined, and a component with one `effect()` is the ordinary case. Angular's own
+  `ComponentFixture.detectChanges()` enters the `NgZone` for exactly this reason; the asymmetry
+  underneath is Angular's, since `ChangeDetectionSchedulerImpl.shouldScheduleTick` checks
+  `appRef._runningTick` and the `onMicrotaskEmpty` subscriber does not.
+
+  **The effect has to be dirty at that moment, and that is the whole of why this reads as
+  intermittent.** The same `setInputs` call is quiet all day against a rendered fixture whose effects
+  nothing re-dirtied, and fatal the first time it drives a fixture's first change detection, where
+  every effect in the view is dirty. It is also invisible by default: Angular hands `NG0101` to
+  `ErrorHandler` rather than throwing it at the call site, so a suite that does not fail on console
+  output reports a pass with the change detection it asked for unfinished.
+
+  Measured on an Angular 22 suite of 1771 spec files, all of it on zone.js. Rewriting 451
+  `fixture.componentRef.setInput(…)` calls into `await setInputs(fixture, { … })` left 122 files
+  rewritten and 101 of them type-checking, of which **57 went from green to red, every one on
+  `NG0101`**, and the run carried 1691 of those lines. With the tick inside the zone the same 451
+  edits produce **zero** `NG0101` and **20** of the 101 red, none of them about zones. That suite's
+  83 pre-existing `setInputs` call sites were green before and after, and the whole suite still
+  reports 1770 passed and 1 skipped.
+
+  The behaviour that is genuinely new for a zone-based consumer is the second pass the zone runs on
+  its way out: leaving `ngZone.run` reports the zone stable, and the same subscriber ticks once more.
+  Counted on `ApplicationRef.afterTick`, one `flushEffects()` is **1 → 2** application ticks under
+  zone.js and unchanged under zoneless. That is what `fixture.detectChanges()` has always done in the
+  same position, and the second pass finds nothing dirty.
+
+  `src/zone-tests/stable.zone-test.ts` is the regression, and the zone project now carries an Angular
+  TestBed of its own, initialised the way the CLI initialises one — `provideZoneChangeDetection()`
+  included, without which a zone-based TestBed never re-enters a tick and the test would be reporting
+  on a stack no consumer runs.
+
+- **`setInputs` died on a bare `TypeError` when the fixture's component carried no definition.** It
+  read `ɵcmp` straight into `Object.entries(definition.inputs)`, so a class Angular never compiled
+  answered `TypeError: Cannot read properties of undefined (reading 'inputs')` — and a
+  `componentType` that is itself `undefined`, which is what a barrel split across chunks leaves
+  behind, answered `TypeError: Reflect.get called on non-object`. Neither message names the
+  component, and neither says what to do. Every other refusal this helper makes does:
+  `setInputs: CounterComponent declares no input named 'steps'. Its inputs are 'step', 'label',
+  'total'.` It now refuses the same way — naming the class, and naming what it would have to be for
+  there to be inputs at all: a `@Directive` takes its inputs through the host element that applies
+  it, a `@Pipe` has none, a class Angular never compiled carries no definition, and for `undefined`
+  the import wants to come from the component's own file rather than from a barrel.
+  `createComponentStub` has answered that question properly since it shipped — it names `ɵcmp`,
+  `ɵdir` and `ɵpipe` — and the two now read alike.
+
+### Size
+
+Four entry points of twenty-three moved; the other nineteen are unchanged to the byte, and the
+figures below are the release total for each rather than any one change's share.
+
+| entry point       | before | after | delta                                                        |
+| ----------------- | ------ | ----- | ------------------------------------------------------------ |
+| `/eslint-plugin`  | 32788  | 34856 | +2068 B (+6.3 %) — `prefer-provide-auto-spy` 710, `prefer-set-inputs` 1358 |
+| `/angular`        | 25915  | 26065 | +150 B — the `NgZone` tick and the `setInputs` guard          |
+| `/bun-angular`    | 20966  | 21133 | +167 B — the same two, through the Angular surface it re-exports |
+| `/angular-http`   | 2505   | 2529  | +24 B — shared code the two pull in                           |
+
+`/eslint-plugin` is a lint-time entry point no test run loads. Every runtime entry point outside the
+Angular surface is unchanged.
+
 ## [5.10.1] - 2026-09-13
 
 ### Fixed
