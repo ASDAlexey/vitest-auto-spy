@@ -52,13 +52,22 @@ function formatOne(finding: Finding): string {
   );
 }
 
-/** Human-readable report. Returns the empty string for an empty list so the caller can skip it. */
-export function formatFindings(findings: readonly Finding[]): string {
-  if (findings.length === 0) {
+/**
+ * Human-readable report. Returns the empty string for an empty list so the caller can skip it.
+ *
+ * `minSeverity` hides the quieter findings *from the report only*: the tally line still counts them,
+ * because a run that says `0 errors, 0 warnings, 14 notes` is telling the reader where to look, and
+ * one that silently drops the number is telling them there is nothing there. Nothing about the exit
+ * code moves either — `info` never failed anything.
+ */
+export function formatFindings(findings: readonly Finding[], minSeverity: Severity = 'info'): string {
+  const reported = findings.filter((finding) => SEVERITY_ORDER[finding.severity] <= SEVERITY_ORDER[minSeverity]);
+
+  if (reported.length === 0) {
     return '';
   }
 
-  return sortFindings(findings).map(formatOne).join('\n\n');
+  return sortFindings(reported).map(formatOne).join('\n\n');
 }
 
 /** One-line tally: `3 errors, 1 warning, 2 notes`. */

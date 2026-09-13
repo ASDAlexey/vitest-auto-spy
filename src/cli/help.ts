@@ -107,6 +107,11 @@ Options
                  perf only. How many times its recorded share a file has to
                  take (2), and the absolute floor under which it is noise
                  (500 ms).
+  --min-severity <error|warning|info>
+                 The quietest findings the report prints. Default info, which
+                 prints everything. The tally line still counts what was hidden,
+                 and nothing about the exit code moves — a note never failed a
+                 run. Works for doctor and for perf.
   --top <n>      perf only. Rows in the "slowest files" and "slowest bodies"
                  tables. 0 turns them off. Asked for explicitly, a run whose
                  slowest file is under the one-second floor says so rather

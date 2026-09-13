@@ -22,8 +22,7 @@ import type { GateCandidate, GateOptions } from './perf-gate';
 import { gateCandidates, gateVerdict, isJudged, measuredFiles, medianFileMs, suspectFiles } from './perf-gate';
 import type { PerfSource, Remeasure } from './perf-run';
 import type { Profile } from './profile';
-import type { Finding } from './report';
-import { formatFindings, summarize } from './report';
+import { type Finding, type Severity, formatFindings, summarize } from './report';
 
 /** The share at which a phase is worth naming files over. Below it the advice would be noise. */
 const DOMINATES = 0.3;
@@ -323,15 +322,25 @@ export function formatPhases(phases: readonly Phase[]): string {
   return [header, ...rows].join('\n');
 }
 
-function reportFindings(analysis: PerfAnalysis, io: CliIo): void {
+function reportFindings(analysis: PerfAnalysis, io: CliIo, minSeverity?: Severity): void {
   if (analysis.findings.length === 0) {
     io.out(`\n${nothingToDo(analysis)}`);
 
     return;
   }
 
-  io.out(`\n${formatFindings(analysis.findings)}`);
-  io.out(`\n${summarize(analysis.findings)}`);
+  reportOrTally(analysis.findings, io, minSeverity);
+}
+
+/** The report, then the tally — and the tally alone when the threshold hid every finding. */
+function reportOrTally(findings: readonly Finding[], io: CliIo, minSeverity?: Severity): void {
+  const report = formatFindings(findings, minSeverity);
+
+  if (report !== '') {
+    io.out(`\n${report}`);
+  }
+
+  io.out(`\n${summarize(findings)}`);
 }
 
 /** A slow suite is not a broken one, so this is the only code that means "your suite is over budget". */
@@ -360,6 +369,8 @@ export interface PerfOptions {
   readonly baseline?: BaselineRequest;
   /** How many rows the hotspot tables print. `0` turns them off. */
   readonly top?: number;
+  /** Findings quieter than this are left out of the report; the tally still counts them. */
+  readonly minSeverity?: Severity;
 }
 
 /**
@@ -447,7 +458,7 @@ function unmatchedScope(run: PerfRun, cwd: string, only: readonly string[]): str
   return only.filter((entry) => !paths.some((path) => isJudged(path, [entry])));
 }
 
-function runGate(run: PerfRun, cwd: string, io: CliIo, gate: GateRequest, extra: readonly GateCandidate[]): number {
+function runGate(run: PerfRun, cwd: string, io: CliIo, gate: GateRequest, extra: readonly GateCandidate[], minSeverity?: Severity): number {
   const unmatched = unmatchedScope(run, cwd, gate.options.only);
 
   if (unmatched.length > 0) {
@@ -470,8 +481,7 @@ function runGate(run: PerfRun, cwd: string, io: CliIo, gate: GateRequest, extra:
 
   const verdict = gateVerdict(candidates, confirmRun(gate, suspectFiles(candidates), cwd, io), cwd, gate.trustSingle);
 
-  io.out(`\n${formatFindings(verdict.findings)}`);
-  io.out(`\n${summarize(verdict.findings)}`);
+  reportOrTally(verdict.findings, io, minSeverity);
 
   return verdict.failed ? PERF_GATE_FAILED : 0;
 }
@@ -585,7 +595,7 @@ export function renderPerf(source: PerfSource, profile: Profile, io: CliIo, opti
   io.out(formatPhases(analysis.phases));
 
   reportHotspots(source.run, profile.cwd, options.top, io);
-  reportFindings(analysis, io);
+  reportFindings(analysis, io, options.minSeverity);
 
   if (options.baseline?.update === true) {
     recordBaseline(source.run, profile.cwd, options.baseline.path, io);
@@ -597,7 +607,7 @@ export function renderPerf(source: PerfSource, profile: Profile, io: CliIo, opti
 
   if (gate === undefined) {
     if (regressions.length > 0) {
-      io.out(`\n${formatFindings(gateVerdict(regressions, undefined, profile.cwd, false).findings)}`);
+      io.out(`\n${formatFindings(gateVerdict(regressions, undefined, profile.cwd, false).findings, options.minSeverity)}`);
     }
 
     return 0;
@@ -611,5 +621,5 @@ export function renderPerf(source: PerfSource, profile: Profile, io: CliIo, opti
     return PERF_NO_MEASUREMENT;
   }
 
-  return runGate(source.run, profile.cwd, io, gate, regressions);
+  return runGate(source.run, profile.cwd, io, gate, regressions, options.minSeverity);
 }

@@ -20,7 +20,7 @@ import { GATE_DEFAULTS } from './perf-gate';
 import type { PerfRunOptions } from './perf-run';
 import { perfRemeasure, readPerfRun } from './perf-run';
 import { readProfile } from './profile';
-import { formatFindings, hasFailures, summarize } from './report';
+import { type Severity, formatFindings, hasFailures, summarize } from './report';
 import { ownVersion } from './self';
 
 export interface CliIo {
@@ -30,7 +30,18 @@ export interface CliIo {
 
 const STATUS_WIDTH = 10;
 
-function doctorCommand(cwd: string, io: CliIo): number {
+/** `--min-severity`: an unknown word is not a stricter filter, so it falls back to printing everything. */
+function minSeverityOf(args: ParsedArgs): Severity | undefined {
+  const raw = flagValue(args, 'min-severity')?.trim().toLowerCase();
+
+  if (raw === 'error' || raw === 'info') {
+    return raw;
+  }
+
+  return raw === 'warning' || raw === 'warn' ? 'warning' : undefined;
+}
+
+function doctorCommand(cwd: string, argv: readonly string[], io: CliIo): number {
   const profile = readProfile(cwd);
   const findings = runDoctor(profile);
 
@@ -43,7 +54,12 @@ function doctorCommand(cwd: string, io: CliIo): number {
     return 0;
   }
 
-  io.out(formatFindings(findings));
+  const report = formatFindings(findings, minSeverityOf(parseArgs(argv)));
+
+  if (report !== '') {
+    io.out(report);
+  }
+
   io.out(`\n${summarize(findings)}`);
 
   return hasFailures(findings) ? 1 : 0;
@@ -110,11 +126,13 @@ function perfCommand(cwd: string, argv: readonly string[], io: CliIo): number {
     : undefined;
   const baseline = baselineRequest(args, cwd);
   const top = flagNumber(args, 'top');
+  const minSeverity = minSeverityOf(args);
 
   return renderPerf(readPerfRun(options), profile, io, {
     ...(gate === undefined ? {} : { gate }),
     ...(baseline === undefined ? {} : { baseline }),
     ...(top === undefined ? {} : { top }),
+    ...(minSeverity === undefined ? {} : { minSeverity }),
   });
 }
 
@@ -193,7 +211,7 @@ export function runCli(argv: readonly string[], io: CliIo): number {
   }
 
   if (args.command === 'doctor') {
-    return doctorCommand(cwd, io);
+    return doctorCommand(cwd, argv, io);
   }
 
   if (args.command === 'init') {

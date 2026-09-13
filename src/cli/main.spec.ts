@@ -87,6 +87,23 @@ describe('doctor', () => {
     expect(runCli(['doctor', '--cwd', root], io)).toBe(0);
     expect(io.stdout.join('\n')).toContain('no-agent-instructions');
   });
+
+  it('--min-severity hides the quieter findings and keeps the tally that counts them', () => {
+    const io = recorder();
+    const root = createTempRepo({ 'package.json': '{}' });
+
+    expect(runCli(['doctor', '--cwd', root, '--min-severity', 'warning'], io)).toBe(0);
+    expect(io.stdout.join('\n')).not.toContain('no-agent-instructions');
+    expect(io.stdout.join('\n')).toContain('1 note');
+  });
+
+  it('takes an unknown --min-severity as no filter at all, rather than as a stricter one', () => {
+    const io = recorder();
+    const root = createTempRepo({ 'package.json': '{}' });
+
+    expect(runCli(['doctor', '--cwd', root, '--min-severity', 'loud'], io)).toBe(0);
+    expect(io.stdout.join('\n')).toContain('no-agent-instructions');
+  });
 });
 
 describe('init', () => {

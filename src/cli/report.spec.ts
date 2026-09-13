@@ -57,6 +57,24 @@ describe('formatFindings', () => {
   it('omits the file when the finding is about the repository', () => {
     expect(formatFindings([finding({ severity: 'info' })])).toContain('info   check\n');
   });
+
+  it('prints only what is at or above the threshold it was given', () => {
+    const findings = [
+      finding({ severity: 'info', check: 'note' }),
+      finding({ severity: 'warning', check: 'warn' }),
+      finding({ check: 'boom' }),
+    ];
+
+    expect(formatFindings(findings, 'warning')).toContain('warn   warn');
+    expect(formatFindings(findings, 'warning')).toContain('error  boom');
+    expect(formatFindings(findings, 'warning')).not.toContain('note');
+    expect(formatFindings(findings, 'error')).not.toContain('warn   warn');
+    expect(formatFindings(findings)).toContain('note');
+  });
+
+  it('is empty when the threshold hid everything, so the caller can print the tally alone', () => {
+    expect(formatFindings([finding({ severity: 'info' })], 'warning')).toBe('');
+  });
 });
 
 describe('hasFailures', () => {

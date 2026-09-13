@@ -26,6 +26,7 @@ const VALUE_FLAGS = new Set([
   'max-file-ms',
   'max-test-ms',
   'max-wall-ms',
+  'min-severity',
   'only',
   'out',
   'skip',
