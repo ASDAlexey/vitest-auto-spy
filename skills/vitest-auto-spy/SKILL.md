@@ -265,6 +265,13 @@ it('loads', async () => {
   `mockResourceProp`'s `reload` or a standalone `createFunctionSpy`, and `mockReturnValue` /
   `mockImplementation` bypass it by replacing the dispatch — while `returns:` is a default a later
   `calledWith` or `resolveWith` builds on.
+- **`mockReturnValue` and `calledWith` on one method do not layer — the later line wins outright.**
+  The family that installs an implementation (`mockImplementation`, `mockReturnValue`,
+  `mockReturnThis`, `mockThrow`, `mockResolvedValue`, `mockRejectedValue`) replaces the very dispatch
+  a chain is read by, so one of the two silently decides nothing and the spec goes green on a branch
+  nobody configured. Both orders are reported (warn, or throw under the `strict` preset). Want a
+  fallback **and** a per-argument value? Put the fallback in the container — `returns:` where the
+  double is built, or `resolveWith` / `nextWith` / `failWith` — which a `calledWith` still wins over.
 - **`calledWith(x);` on its own is a stub, not an assertion.** It configures "answer `undefined`
   for these arguments" and checks nothing, so the test passes whether or not the call happened.
   Vitest 4.1's chai-style `expect(fn).to.have.been.calledWith(x)` is the one that asserts — the same

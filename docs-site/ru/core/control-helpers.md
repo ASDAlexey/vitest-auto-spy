@@ -31,6 +31,33 @@ myService.getName.mustBeCalledWith(1).mockReturnValue('Fake Name');
 expect(() => myService.getName(2)).toThrow();
 ```
 
+::: warning Первая строка и вторая не складываются — выигрывает та, что написана позже
+`mockReturnValue` и его семейство (`mockImplementation`, `mockResolvedValue`, `mockRejectedValue`,
+`mockThrow`, `mockReturnThis`) ставят на мок хоста свою реализацию, а диспетчер, который читает
+цепочку `calledWith`, **и есть** та реализация, которую они заменяют. Поэтому `mockReturnValue`,
+написанный после цепочки, превращает любой вызов в это одно значение, а цепочка, открытая после
+`mockReturnValue`, не читается вообще. Ни то, ни другое не падает — спека остаётся зелёной на ветке,
+которую никто не настраивал, — поэтому оба порядка сообщаются как misconfiguration: предупреждением
+или исключением под [`setupAutoSpy({ misconfiguration: 'throw' })`](/ru/utilities/setup) и пресетом
+`strict`.
+
+Когда нужны оба — одно значение на эти аргументы и другое на всё остальное, — запасное значение
+кладётся в собственный контейнер спая, который цепочка по-прежнему перекрывает: опция
+[`returns`](/ru/core/create-spy-from-class#returns-—-the-value-where-the-spy-is-built) там, где
+собирается дубль, либо `resolveWith` / `nextWith` / `failWith` для промиса, потока или исключения.
+`mockReturnValue` уместен тогда, когда он и должен быть всем ответом.
+
+```ts
+provideAutoSpy(ProductsService, { returns: { find: FALLBACK } });
+injectSpy(ProductsService).find.calledWith(7).mockReturnValue(SPECIFIC); // живут оба
+```
+
+Сообщение приходит из собственного движка спаев, поэтому оно есть на Vitest и Rstest и его нет под
+`setSpyEngine('runner')`, на Bun и на `node:test` — там реализация ставится внутри рантайма, куда
+библиотеке не видно. Семейство `Once` не сообщается никогда: его очередь опустошается обратно в
+диспетчер, то есть приостанавливает цепочку на один вызов, а не забирает её.
+:::
+
 ### Заставить вызов бросить исключение — `failWith` {#making-a-call-throw-—-failwith}
 
 ```ts

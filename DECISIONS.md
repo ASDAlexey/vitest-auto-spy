@@ -8,6 +8,33 @@ reason.
 
 Shipped work is not here either — it is in `CHANGELOG.md` and in git history.
 
+## `mockReturnValue` over a `calledWith`: reported, not repaired, 2026-09-13
+
+Reported from a consumer suite as "the branch is not being called": `spy.m.calledWith(1).mockReturnValue(a)`
+followed by `spy.m.mockReturnValue(b)` answers `b` for every argument list, silently. Three shapes of
+answer were on the table, and only the third shipped:
+
+- [~] **Make `mockReturnValue` write the container instead of the implementation** on a spy this
+  library built, so a `calledWith` would keep winning. It is the fix that makes the reported spec
+  work, and it re-defines a host API from under its users: `mockReturnValue` would then stop winning
+  over a `mockImplementation` written after it, the `Once` queue would sit on a different layer than
+  the value it falls back to, and a spec reading `getMockImplementation()` would see something the
+  runner never installed. The library's rule is that the host's surface behaves as the host's — the
+  double is the thing that is ours.
+- [~] **An ESLint rule.** It would catch both orders statically, cost nothing at run time, and reach
+  Bun and `node:test`, which the runtime report does not. It is also a cross-statement question about
+  one member of one double — `no-structural-double` already cannot see through a factory — so the
+  honest version needs the same reaching the runtime does for free. Left open in `TODO.md`; the
+  runtime report is the half that is exact.
+- The report itself is placed where the replacement happens, in this package's own spy engine, rather
+  than in an `afterEach` sweep over a registry of configured spies: the sweep would need a registry
+  this library deliberately does not keep (see `mock-registry.ts` for what a run-wide `Set` of mocks
+  costs), and it would name the test rather than the line.
+
+What it does not cover, deliberately: the `Once` family (its queue drains back onto the dispatch, so
+it suspends a chain for one call rather than erasing it), `setSpyEngine('runner')`, Bun and
+`node:test` — those install an implementation inside the runtime, with no seam to observe it from.
+
 ## `prefer-set-inputs`, and the `--fix` it does not ship, 2026-09-13
 
 The rule reports a run of `fixture.componentRef.setInput('name', value)` and offers `setInputs` in its

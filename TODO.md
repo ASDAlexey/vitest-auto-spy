@@ -40,6 +40,13 @@ which is where this file's `[~]` entries went on 2026-09-10 — a decision is no
       there removes two thirds of them at the price of declining 29 findings that happen to be fine.
       It is a whole-file scan rather than a scope walk, which is a different shape from every other
       guard this rule has; it wants its own measurement before it ships.
+- [ ] **A rule for `mockReturnValue` written over a `calledWith`.** The runtime now reports both
+      orders, and the report is engine-bound: Bun, `node:test` and `setSpyEngine('runner')` install
+      their implementation inside the runtime and never reach it. A rule would cover all of them and
+      cost nothing at run time — it has to follow one member of one double across statements, which
+      is the reaching `no-structural-double` already declines to do through a factory, so the shape
+      to settle first is how far it tracks before it goes quiet. `DECISIONS.md` carries why the
+      runtime half shipped alone.
 - [ ] **Two forms `no-private-member-access` cannot see.** A member reached through a variable
       holding a **union** of classes, and a `#private` field — the second is unreachable by bracket
       access, by a cast and by `Object.getPrototypeOf` alike, so there is nothing to report for it.

@@ -302,6 +302,14 @@ const { fixture, component } = renderShallow(TaskListComponent, {
 template keeps lifecycle hooks, inputs, signals and DI — everything a spec that asserts on
 TypeScript state actually reads.
 
+`keepTemplate: true` keeps the template's vocabulary by reading the imports the compiler wrote into
+`ɵcmp`, and those arrive in three shapes: the flat array, a factory returning it, or `null` for a
+component that imports nothing. Which one is not a question of JIT against AOT — JIT always emits
+the factory, and AOT emits the array unless a **cycle** between two components forces it to defer
+the read. All three are handled; calling the array unconditionally was a
+`TypeError: dependencies is not a function` on every AOT-compiled standalone component whose imports
+held no cycle, and only under `keepTemplate: true`.
+
 ### Changing an input mid-test
 
 `inputs` covers the first values a component is given. Everything after it is the two lines a spec

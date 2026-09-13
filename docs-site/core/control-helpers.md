@@ -31,6 +31,32 @@ myService.getName.mustBeCalledWith(1).mockReturnValue('Fake Name');
 expect(() => myService.getName(2)).toThrow();
 ```
 
+::: warning The first line and the second do not layer — the later one wins outright
+`mockReturnValue` and its family (`mockImplementation`, `mockResolvedValue`, `mockRejectedValue`,
+`mockThrow`, `mockReturnThis`) install an implementation on the host mock, and the dispatch that
+reads a `calledWith` chain **is** the implementation they replace. So a `mockReturnValue` written
+after a chain turns every call into that one value, and a chain opened after a `mockReturnValue` is
+never consulted. Neither fails, which leaves the spec green on a branch nobody configured, so both
+orders are reported as a misconfiguration — a warning, or a throw under
+[`setupAutoSpy({ misconfiguration: 'throw' })`](/utilities/setup) and the `strict` preset.
+
+Where both are wanted — one value for these arguments, another for everything else — the fallback
+goes in the spy's own container, which a chain still wins over: the
+[`returns`](/core/create-spy-from-class#returns-—-the-value-where-the-spy-is-built) option where the
+double is built, or `resolveWith` / `nextWith` / `failWith` for a promise, a stream or a throw.
+`mockReturnValue` is the right call when it is meant to be the whole answer.
+
+```ts
+provideAutoSpy(ProductsService, { returns: { find: FALLBACK } });
+injectSpy(ProductsService).find.calledWith(7).mockReturnValue(SPECIFIC); // both live
+```
+
+The report comes from the library's own spy engine, so it is there on Vitest and Rstest and not
+under `setSpyEngine('runner')`, on Bun or on `node:test` — those install their implementation inside
+the runtime, where nothing here can see it. The `Once` family is never reported: its queue drains
+back onto the dispatch, so it suspends the chain for a call rather than taking it away.
+:::
+
 ### Making a call throw — `failWith`
 
 ```ts

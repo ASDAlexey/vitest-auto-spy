@@ -23,7 +23,7 @@ faster at suite scale ([benchmarks](#benchmarks)) — and for
 [![downloads per month](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fapi.npmjs.org%2Fdownloads%2Fpoint%2Flast-month%2Fvitest-auto-spy&query=%24.downloads&color=brightgreen&logo=npm&label=downloads%2Fmonth)](https://www.npmjs.com/package/vitest-auto-spy)
 [![downloads over 18 months](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fapi.npmjs.org%2Fdownloads%2Fpoint%2F2026-06-21%3A2030-01-01%2Fvitest-auto-spy&query=%24.downloads&color=brightgreen&logo=npm&label=downloads%2F18mo)](https://www.npmjs.com/package/vitest-auto-spy)
 [![CI](https://github.com/ASDAlexey/vitest-auto-spy/actions/workflows/ci.yml/badge.svg)](https://github.com/ASDAlexey/vitest-auto-spy/actions/workflows/ci.yml)
-[![minzipped size](https://img.shields.io/badge/minzip-17.2%20kB-brightgreen)](#install)
+[![minzipped size](https://img.shields.io/badge/minzip-17.5%20kB-brightgreen)](#install)
 [![types](https://img.shields.io/npm/types/vitest-auto-spy?logo=typescript&logoColor=white)](https://www.npmjs.com/package/vitest-auto-spy)
 [![coverage](https://img.shields.io/badge/coverage-100%25-brightgreen)](https://github.com/ASDAlexey/vitest-auto-spy/actions/workflows/ci.yml)
 [![license](https://img.shields.io/npm/l/vitest-auto-spy?color=blue)](./LICENSE)
@@ -2091,6 +2091,17 @@ myService.getName.mustBeCalledWith(1).mockReturnValue('Fake Name');
 expect(() => myService.getName(2)).toThrow();
 ```
 
+**The first line and the second do not layer.** `mockReturnValue` and its family
+(`mockImplementation`, `mockResolvedValue`, `mockRejectedValue`, `mockThrow`, `mockReturnThis`)
+install an implementation on the host mock, and the dispatch that reads a `calledWith` chain **is**
+the implementation they replace — so the one written later wins outright and the other decides
+nothing, in either order, without failing. Both orders are now reported as a misconfiguration (a
+warning, a throw under the `strict` preset). Where both are wanted, the fallback goes in the spy's
+own container, which a chain still wins over: the `returns` option where the double is built, or
+`resolveWith` / `nextWith` / `failWith`. The report comes from this library's own spy engine — so
+Vitest and Rstest, not Bun or `node:test`, and not under `setSpyEngine('runner')` — and the `Once`
+family is never reported, because its queue drains back onto the dispatch.
+
 The failure prints both sides, because the diagnosis is the comparison rather than either half of
 it — and every configured call when there is more than one, matchers included, so a config that
 never matched is visible instead of inferred:
@@ -2371,8 +2382,14 @@ which shallow rendering touches.
 override keeps the component's own `imports` minus the child _components_, so the template renders
 with its own pipes and directives working while every child component in it resolves to nothing
 under `NO_ERRORS_SCHEMA`. (Before 5.4.0 the whole scope was dropped, which made a pipe in a kept
-template throw `NG0302` and an attribute directive silently never apply.) A child re-exported by an
-imported `NgModule` still renders — the module is kept whole. Reach for it when the spec reads
+template throw `NG0302` and an attribute directive silently never apply.) Those imports are read off
+`ɵcmp`, where the compiler leaves them in one of three shapes — the flat array, a factory returning
+it, or `null` for a component that imports nothing — and which one is not decided by JIT against
+AOT: JIT always emits the factory, AOT emits the array unless a cycle between two components forces
+it to defer the read. All three are handled; calling the array unconditionally was a
+`TypeError: dependencies is not a function` on an AOT-compiled component with no cycle in its
+imports. A child re-exported by an imported `NgModule` still renders — the module is kept whole.
+Reach for it when the spec reads
 something the template creates, and keep `keepChildren` for the handful of children it genuinely
 needs resolvable. Full write-up:
 [Performance](https://asdalexey.github.io/vitest-auto-spy/core/performance#_2-rendering-the-child-subtree).
