@@ -137,6 +137,95 @@ describe('createAutoMock', () => {
   });
 });
 
+describe('createAutoMock — an accessor in the overrides', () => {
+  /** The shape that found this: the member the spec seeds is the one whose *read* is under test. */
+  interface PlatformSupport {
+    readonly transceiver: unknown;
+    draft: string;
+  }
+
+  it('runs a seeded getter at the read, not while the double is built', () => {
+    const read = vi.fn(() => 'RTCRtpTransceiver');
+    const platform = createAutoMock<PlatformSupport>({
+      get transceiver() {
+        return read();
+      },
+    });
+
+    expect(read).not.toHaveBeenCalled();
+    expect(platform.transceiver).toBe('RTCRtpTransceiver');
+    expect(read).toHaveBeenCalledTimes(1);
+  });
+
+  it('lets a seeded getter throw where the code under test reads it', () => {
+    // A getter that refuses is how a spec says "this global is missing here". Evaluated as the
+    // double was assembled, it failed the provider literal instead — three frames from the branch
+    // the test exists for.
+    const platform = createAutoMock<PlatformSupport>({
+      get transceiver(): never {
+        throw new TypeError('RTCRtpTransceiver is not defined');
+      },
+    });
+
+    expect(() => platform.transceiver).toThrow('RTCRtpTransceiver is not defined');
+  });
+
+  it('answers every read afresh, the way the object it stands in for does', () => {
+    let reads = 0;
+    const platform = createAutoMock<PlatformSupport>({
+      get transceiver() {
+        reads += 1;
+
+        return reads;
+      },
+    });
+
+    expect([platform.transceiver, platform.transceiver]).toEqual([1, 2]);
+  });
+
+  it('keeps the key visible without reading it, so a reset or a key walk cannot trigger it', () => {
+    const platform = createAutoMock<PlatformSupport>({
+      get transceiver(): never {
+        throw new TypeError('RTCRtpTransceiver is not defined');
+      },
+    });
+
+    expect('transceiver' in platform).toBe(true);
+    expect(Object.keys(platform)).toContain('transceiver');
+    expect(Object.getOwnPropertyDescriptor(platform, 'transceiver')?.get).toBeInstanceOf(Function);
+    expect(() => resetAutoSpy(platform)).not.toThrow();
+  });
+
+  it('puts a seeded getter back when a patch over it is restored', () => {
+    const platform = createAutoMock<PlatformSupport>({
+      get transceiver() {
+        return 'seeded';
+      },
+    });
+
+    mockValueProp(platform, 'transceiver', 'patched');
+
+    expect(platform.transceiver).toBe('patched');
+
+    restoreMockedProps();
+
+    expect(platform.transceiver).toBe('seeded');
+  });
+
+  it('routes a write into a setter seeded the same way', () => {
+    const writes: string[] = [];
+    const platform = createAutoMock<PlatformSupport>({
+      set draft(value: string) {
+        writes.push(value);
+      },
+    });
+
+    platform.draft = 'first';
+
+    expect(writes).toEqual(['first']);
+  });
+});
+
 describe('autoMocked', () => {
   interface LogMethods {
     err(message: string, error: Error): void;

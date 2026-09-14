@@ -34,12 +34,35 @@ export interface ProxyPropStore {
   deleted: Set<string | symbol>;
 }
 
-/** A store seeded from an `overrides` object, key for key. */
+/**
+ * A store seeded from an `overrides` object, key for key — **descriptor for descriptor**, which is
+ * the part that matters.
+ *
+ * A seed used to be read with `Reflect.get`, so a getter in the overrides ran while the double was
+ * being assembled rather than when the code under test reached the member. The reported case is the
+ * one worth keeping in mind: a spec seeded a member that *throws* — "this global is missing on this
+ * platform" — and the throw came out of the provider literal, failing the TestBed configuration
+ * instead of the branch the test was written for. Kept as a descriptor, the accessor is answered by
+ * `readStoredAccessor` / `writeStoredAccessor` exactly like one installed by `mockAccessorsProp`:
+ * on read, on write, once per access, with the double as `this`.
+ */
 export function createProxyPropStore(seed: object): ProxyPropStore {
   const store: ProxyPropStore = { values: new Map(), accessors: new Map(), deleted: new Set() };
 
   for (const key of Reflect.ownKeys(seed)) {
-    store.values.set(key, Reflect.get(seed, key));
+    // Copied rather than read through a nullable binding: an own key always has a descriptor, and
+    // spreading keeps that true for the type checker without a branch no seed can take.
+    const descriptor: PropertyDescriptor = { ...Reflect.getOwnPropertyDescriptor(seed, key) };
+
+    // `??` and not `||`, for the reason `storeDefinedProp` states: a write-only `{ set }` seed is an
+    // accessor too, and it has no `get` to test.
+    if ((descriptor.get ?? descriptor.set) !== undefined) {
+      store.accessors.set(key, descriptor);
+
+      continue;
+    }
+
+    store.values.set(key, descriptor.value);
   }
 
   return store;

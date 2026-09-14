@@ -23,6 +23,14 @@ The latest released version here must always match the one published on
 
 ### Fixed
 
+- **A getter in `overrides` ran while the double was being built.** `createAutoMock` and `mockDeep`
+  read every seeded key with `Reflect.get` and stored the result, so an accessor in the seed was
+  flattened at construction: a getter written to throw — the way a spec says "this global is missing
+  on this platform" — failed the provider literal during `TestBed.configureTestingModule` instead of
+  at the branch under test, and a `{ set }` seed was dropped entirely. Seeds now keep their
+  descriptor, so an accessor is installed as one and answers reads and writes exactly like a patch
+  from `mockAccessorsProp`. Reading the key's descriptor, `Object.keys` and `in` still do not run it.
+
 - **`renderShallow({ keepTemplate: true })` on an AOT-compiled component died as
   `TypeError: dependencies is not a function`.** The trim reads the imports the compiler wrote into
   `ɵcmp` and called them, because JIT — the only compiler a `TestBed.overrideComponent` recompile can

@@ -40,6 +40,14 @@ _Last released: **v5.9.0** — the git tag, `package.json` and `CHANGELOG.md` ag
 
 ### Fixed
 
+- **A getter in `overrides` ran while the double was being built.** `createAutoMock` and `mockDeep`
+  read every seeded key with `Reflect.get` and stored the result, so an accessor in the seed was
+  flattened at construction: a getter written to throw — the way a spec says "this global is missing
+  on this platform" — failed the provider literal during `TestBed.configureTestingModule` instead of
+  at the branch under test, and a `{ set }` seed was dropped entirely. Seeds now keep their
+  descriptor, so an accessor is installed as one and answers reads and writes exactly like a patch
+  from `mockAccessorsProp`. Reading the key's descriptor, `Object.keys` and `in` still do not run it.
+
 - **`perf` counts a computed `maxWorkers`.** A config passing a value it derived as a shorthand property was
   told it had declared no worker cap.
 

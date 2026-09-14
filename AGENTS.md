@@ -231,6 +231,13 @@ createAutoMock<NavigationService>({ currentFocus: undefined, navRoot: undefined,
 This is the way to say "the member exists and is empty", and it is worth writing even when it looks
 redundant.
 
+**A getter in `overrides` stays a getter.** The seed is kept as a descriptor rather than read once
+while the double is assembled, so it runs at every read, with the double as `this` — and a seed
+written to **throw** ("this global is missing on this platform") fails where the code under test
+reads the member, not where the provider literal is evaluated. A `{ set }` seed is kept the same way
+and takes the write. Both used to be flattened as the double was built, which turned a throwing
+seed into a failure during `TestBed.configureTestingModule`, three frames from the branch under test.
+
 ### What a Proxy-backed double cannot do
 
 `createAutoMock` and `mockDeep` build a Proxy, not an object, and there is one place where the

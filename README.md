@@ -2027,6 +2027,22 @@ expect(svc.apiUrl).toBe('https://api.test'); // or assign: svc.apiUrl = '...'
 > access — an un-seeded property read returns a spy. Seed real property values via `overrides`
 > (or assignment) to get them back verbatim.
 
+**A getter in `overrides` stays a getter.** The seed keeps its descriptor, so an accessor is
+installed as one and runs at the read — once per read, with the double as `this` — and a `{ set }`
+seed takes the write. That is what a seed written to _throw_ needs: "this global is missing on this
+platform" fails where the code under test reads the member, not while the provider literal is being
+evaluated.
+
+```ts
+const platform = createAutoMock<PlatformSupport>({
+  get transceiver(): never {
+    throw new TypeError('RTCRtpTransceiver is not defined');
+  },
+});
+
+expect(() => platform.transceiver).toThrow(); // at the read, not at `TestBed.configureTestingModule`
+```
+
 For a double the code under test only **reads** — a DTO, a route snapshot, a config object — that
 caveat is the wrong trade, and [`createMock<T>()`](#utilities) is the other half of the pair: it
 returns a plain `T` built from the fields you seed, with no spies anywhere.

@@ -80,6 +80,18 @@ describe('mockDeep', () => {
     expect(mock.apiUrl).toBe('https://assigned.test');
   });
 
+  it('runs a getter in the overrides at the read, not while the tree is built', () => {
+    const read = vi.fn(() => 'https://lazy.test');
+    const mock = mockDeep<Root>({
+      get apiUrl() {
+        return read();
+      },
+    });
+
+    expect(read).not.toHaveBeenCalled();
+    expect(mock.apiUrl).toBe('https://lazy.test');
+  });
+
   it('materialises members whose names collide with the function surface', () => {
     const account = mockDeep<Account>();
 

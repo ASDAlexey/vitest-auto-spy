@@ -208,6 +208,28 @@ createAutoMock<NavigationService>({ currentFocus: undefined, navRoot: undefined,
 Write it even when it looks redundant. It is the way to say "the member exists and is empty", and
 on this double it is not the same as saying nothing.
 
+### A getter in `overrides` stays a getter
+
+A seed is kept as its **descriptor**, so an accessor written into `overrides` is installed as one —
+exactly like a patch from `mockAccessorsProp`. It runs at the read, once per read, with the double
+as `this`; a `{ set }` seed takes the write:
+
+```ts
+const platform = createAutoMock<PlatformSupport>({
+  get transceiver(): never {
+    throw new TypeError('RTCRtpTransceiver is not defined');
+  },
+});
+
+expect(() => platform.transceiver).toThrow(); // where the code under test reads it
+```
+
+The seeds used to be flattened to plain values as the double was built, which ran the getter there:
+a seed written to throw — the way a spec says "this global is missing on this platform" — failed the
+provider literal during `TestBed.configureTestingModule`, frames away from the branch it was written
+for. Reading the key's descriptor, `Object.keys` and `in` still do not run the getter, so a reset or
+a snapshot of the double cannot trigger it either.
+
 ### Depth comes from property access, not from calls
 
 This is the one thing to know before reaching for `mockDeep`, and it is invisible in the types.
