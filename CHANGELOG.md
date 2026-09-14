@@ -45,6 +45,27 @@ The latest released version here must always match the one published on
 
 ### Changed
 
+- **`prefer-inject-spy` stops reporting the tokens whose instance has to stay real, and takes
+  `{ ignoreTokens }` for the rest.** The rule shipped with an empty `meta.schema` at `error`, so the
+  only way past a report was a per-line disable — and three of them in one consumer suite were about
+  code with nothing to repair. `ApplicationRef`, `DestroyRef`, `EnvironmentInjector`, `HttpClient`
+  and `Injector` are now exempt whatever is spied on them. `DestroyRef` is the one that is not a
+  judgement call: it carries `__NG_ENV_ID__`, the only class in `@angular/core` that does, and
+  `R3Injector.get()` answers `token[NG_ENV_ID](this)` before it reads its own records — so
+  `{ provide: DestroyRef, useValue }` is accepted, ignored, and the advice the rule was printing
+  could not be followed at all. The other four are self-defeating rather than impossible: a spied
+  `ApplicationRef` has no `injector` for a hand-built `createComponent()` to take a renderer from,
+  `Injector` and `EnvironmentInjector` propagate the substitution to every token resolved after
+  them, and `HttpClient` under `provideHttpClientTesting()` is real on purpose, with the
+  `HttpTestingController` flushing the request a spy on `get` only read the options of. Node-injector
+  tokens (`ElementRef`, `Renderer2`, `ChangeDetectorRef`) are deliberately not on the list:
+  `TestBed.inject()` cannot hand any of them back, so the entry would exempt a line nobody can write.
+  A project names its own with `['error', { ignoreTokens: ['MapRendererService'] }]`; tokens are
+  compared as source text, the way `no-unregistered-inject-spy` compares them, and the option extends
+  the built-in five rather than replacing them. The message now carries the escape hatch and the
+  `DestroyRef` reason, so an aliased import — which source-text comparison cannot recognise — is
+  reported with the answer in it. Severity, suggestion and the shapes it reads are unchanged.
+
 - **The `perf` hotspot tables name the file before its bodies.** A body's label was one `file › name`
   column, and a long path ate it from the left: `…ponent.spec.ts › MediaPremiumBenefitsComponent › …`
   answered neither which file nor which test. The bodies table prints the file once, whole, with its

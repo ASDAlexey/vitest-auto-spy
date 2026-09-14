@@ -558,6 +558,20 @@ const api = mockDeep<Api>({ api: { load: vi.fn(), save: vi.fn() } }); // ✅ и 
 — это вызов, а он всегда смотрел только на объектные литералы; имя, за которым он делает один шаг,
 приводит к тому же вызову и там останавливается.
 
+Есть одна и у `prefer-inject-spy` — она перечисляет токены, чей инстанс спека оставляет настоящим:
+
+```js
+'vitest-auto-spy/prefer-inject-spy': ['error', { ignoreTokens: ['MapRendererService', 'WINDOW_REF'] }],
+```
+
+`ApplicationRef`, `DestroyRef`, `EnvironmentInjector`, `HttpClient` и `Injector` исключены и без
+опции, а `ignoreTokens` этот список расширяет, а не заменяет. Встроенная пятёрка — не поблажка на
+вкус: для каждого из них совет самого правила либо невыполним — `{ provide: DestroyRef, useValue }`
+молча игнорируется, потому что `R3Injector.get()` коротит на `__NG_ENV_ID__` раньше, чем смотрит в
+провайдеры, — либо убирает то, ради чего объект и заинжектили, как в случае `ApplicationRef`, чей
+`injector` выдаёт рендерер. Разбор по токенам — в
+[справочнике правил](./eslint-rules.md#prefer-inject-spy).
+
 ### Выбирать правила руками {#picking-rules-by-hand}
 
 Пропустите `configs.recommended` целиком и перечислите нужные правила — объект плагина экспортируется

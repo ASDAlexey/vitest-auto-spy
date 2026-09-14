@@ -555,6 +555,20 @@ is exempt. `prefer-provide-auto-spy` needs no such exemption: a `useValue` a fac
 call, and it only ever looked at object literals — a name it follows one step lands on that same
 call and stops there.
 
+`prefer-inject-spy` takes one, and it names the tokens whose injected instance a spec keeps real:
+
+```js
+'vitest-auto-spy/prefer-inject-spy': ['error', { ignoreTokens: ['MapRendererService', 'WINDOW_REF'] }],
+```
+
+`ApplicationRef`, `DestroyRef`, `EnvironmentInjector`, `HttpClient` and `Injector` are exempt
+already, and `ignoreTokens` extends that list rather than replacing it. The built-in five are not a
+style allowance: for each of them the rule's own advice either cannot be carried out —
+`{ provide: DestroyRef, useValue }` is silently ignored, because `R3Injector.get()` short-circuits
+on `__NG_ENV_ID__` before it reads its providers — or removes the reason the object was injected, as
+an `ApplicationRef` whose `injector` supplies the renderer does. The per-token argument is in
+[the rule reference](./eslint-rules.md#prefer-inject-spy).
+
 ### Picking rules by hand
 
 Skip `configs.recommended` entirely and name the rules you want — the plugin object is exported on

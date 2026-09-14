@@ -1296,10 +1296,43 @@ method and leaves the rest real, and the method it installs is a plain `vi.fn()`
 per-method helpers the rest of the spec is written against are gone from that one method:
 `TypeError: spy.getPlans.nextWith is not a function`, on a line that reads like ordinary spy setup.
 
+**Tokens it says nothing about.** Five of them, and none is a matter of taste — for each one the
+advice above is either impossible or it deletes the reason the spec injected the object:
+
+- `DestroyRef` cannot be substituted at all. It carries `__NG_ENV_ID__`, and `R3Injector.get()`
+  answers `token[NG_ENV_ID](this)` on its first line — _before_ it reads its own records — so
+  `{ provide: DestroyRef, useValue }` is accepted, ignored, and never mentioned again. It is the
+  only class in `@angular/core` carrying that flag, which is why the rest of this list is argued
+  differently.
+- `ApplicationRef` is the harness. `TestBed` drives change detection through it, and a spec that
+  creates a component by hand reads the renderer out of `ApplicationRef.injector`. The shape that
+  works is the real instance with `attachView` / `detachView` spied, so nothing is attached.
+- `Injector` and `EnvironmentInjector` answer _other_ dependencies. Spied, `get()` returns a spy for
+  every token resolved after it, and the substitution propagates to everything the code under test
+  looks up lazily.
+- `HttpClient` already has a framework double: `provideHttpClientTesting()` swaps the backend and
+  hands the spec a `HttpTestingController`. A spy on `get` there reads the options the caller
+  passed, on the way to a request the controller still flushes.
+
+Node-injector tokens (`ElementRef`, `Renderer2`, `ChangeDetectorRef`) are deliberately absent:
+`TestBed.inject()` cannot hand any of them back, so an entry would exempt a line nobody can write.
+
+**Options.** One, and it extends that list rather than replacing it:
+
+```js
+'vitest-auto-spy/prefer-inject-spy': ['error', { ignoreTokens: ['MapRendererService', 'WINDOW_REF'] }],
+```
+
+Tokens are compared as **source text**, the way [`no-unregistered-inject-spy`](#no-unregistered-inject-spy)
+compares them — a rule that reads one file has no identity to compare. An aliased import
+(`import { DestroyRef as NgDestroyRef }`) therefore misses the built-in list and is reported; naming
+it in `ignoreTokens` settles that.
+
 **Limits.** An ordinary `vi.spyOn` over an object the spec owns is not reported, and neither is one
 over a name the rule cannot prove came from `TestBed.inject`. The reverse case — a spec that
 deliberately spies one method of a real service, having provided the real service on purpose — is
-reported, and there a per-line disable stating that is the honest answer.
+still reported. `ignoreTokens` is the answer when the reason belongs to the token and outlives this
+one line; a per-line disable is the answer when it belongs to this one test.
 
 **Severity.** `error`. Red without the rule, and the message points at the helper rather than at the
 `spyOn` that removed it.

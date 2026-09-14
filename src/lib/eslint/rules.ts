@@ -51,7 +51,16 @@ import { defineRule } from './define-rule';
 import { isFloatingChain, isPromiseCallback } from './floating-assertion';
 import { countRunnerFns, insideFactorySeed, insideModuleMock, minRunnerFns, substitutesADependency } from './hand-rolled-doubles';
 import { lazyValueSuggestion, runsAtImportTime, spreadOfImport } from './import-time-spread';
-import { type EsSpyCast, asSpyFixes, assertedValue, injectSpySuggestion, injectedFromVariable, isTestBedInject } from './injected-spy';
+import {
+  type EsSpyCast,
+  INJECTED_SPY_SCHEMA,
+  asSpyFixes,
+  assertedValue,
+  injectSpySuggestion,
+  injectedFromVariable,
+  isTestBedInject,
+  keepsTheRealInstance,
+} from './injected-spy';
 import { jasmineRules } from './jasmine-rules';
 import { noInstanceLifecycleSpy } from './lifecycle-spy';
 import { noMistypedUseValue } from './mistyped-use-value';
@@ -132,9 +141,10 @@ const preferInjectSpy = defineRule({
   anchor: '-reading-a-spy-back-from-di',
   description: 'Read an already-spied dependency with injectSpy() instead of re-spying a TestBed.inject() result',
   hasSuggestions: true,
+  schema: INJECTED_SPY_SCHEMA,
   messages: {
     preferInjectSpy:
-      'Spying the instance DI just handed you replaces one method and leaves the rest real. Provide it with `provideAutoSpy(X)` and read it back with `injectSpy(X)`.',
+      'Spying the instance DI just handed you replaces one method and leaves the rest real. Provide it with `provideAutoSpy(X)` and read it back with `injectSpy(X)`. When the real instance is what the spec came for — the spy holds one method of an object whose other half has to keep working, or the token cannot be substituted at all, as `DestroyRef` cannot (it carries `__NG_ENV_ID__`, so `R3Injector.get()` answers before it reads its own providers and `{ provide: DestroyRef, useValue }` is silently ignored) — that token belongs in `{ ignoreTokens: [...] }`, which is a statement about the token and survives the next edit, rather than behind a per-line disable.',
   },
   create: (context) => ({
     'CallExpression[callee.object.name="vi"][callee.property.name="spyOn"]': (node: EsCallExpression): void => {
@@ -149,7 +159,10 @@ const preferInjectSpy = defineRule({
       // were found on adjacent lines of the same file, and only the inline one used to be reported.
       const injectCall = isTestBedInject(target) ? target : injectedFromVariable(context, target);
 
-      if (!injectCall) {
+      // The token decides, not the spy: for a handful of framework objects the replacement this
+      // rule advertises is impossible or removes the reason the spec injected them — see
+      // `KEPT_REAL_TOKENS`, which `{ ignoreTokens: [...] }` extends per project.
+      if (!injectCall || keepsTheRealInstance(context, injectCall)) {
         return;
       }
 

@@ -50,6 +50,63 @@ export function injectedFromVariable(context: RuleContext, target: EsNode): EsCa
   return initializer && isTestBedInject(initializer) ? initializer : undefined;
 }
 
+/**
+ * The tokens `prefer-inject-spy` says nothing about, because for these the advice is not a
+ * trade-off — it is either impossible or it deletes the thing the spec came for.
+ *
+ * - `DestroyRef` cannot be substituted at all. It carries `__NG_ENV_ID__`, and `R3Injector.get()`
+ *   answers `token[NG_ENV_ID](this)` on the first line of the method, *before* it reads its own
+ *   records — so `{ provide: DestroyRef, useValue }` is accepted, ignored, and never mentioned
+ *   again. It is the only class in `@angular/core` carrying that flag, which is why the rest of
+ *   this list is argued differently.
+ * - `ApplicationRef` is the harness. `TestBed` drives change detection through it, and a spec that
+ *   creates a component by hand reads the renderer out of `ApplicationRef.injector`; an auto-spy
+ *   answers `undefined` there and the component never comes up. The real shape is the one this
+ *   list was written from: the instance stays real and `attachView` / `detachView` are spied so
+ *   nothing is attached.
+ * - `Injector` and `EnvironmentInjector` answer *other* dependencies. Spied, `get()` returns a
+ *   spy for every token that follows, so the substitution propagates to everything the code under
+ *   test resolves lazily.
+ * - `HttpClient` has a framework-sanctioned double already: `provideHttpClientTesting()` swaps the
+ *   backend and hands the spec a `HttpTestingController`. A spy on `get` there is an assertion
+ *   about the options the caller passed, taken on the way to a request the controller still flushes.
+ *
+ * Node-injector tokens (`ElementRef`, `Renderer2`, `ChangeDetectorRef`) are deliberately absent:
+ * `TestBed.inject()` cannot hand any of them back — there is no such record in an environment
+ * injector — so an entry for them would exempt a line that cannot be written.
+ */
+const KEPT_REAL_TOKENS = ['ApplicationRef', 'DestroyRef', 'EnvironmentInjector', 'HttpClient', 'Injector'];
+
+/** The rule's options: further tokens to leave alone, added to the ones above rather than replacing them. */
+export const INJECTED_SPY_SCHEMA = [
+  {
+    type: 'object',
+    properties: { ignoreTokens: { type: 'array', items: { type: 'string' }, uniqueItems: true } },
+    additionalProperties: false,
+  },
+];
+
+/**
+ * Whether the token this instance was injected with is one the rule stays quiet about.
+ *
+ * Tokens are compared as source text, the same way `no-unregistered-inject-spy` compares them: a
+ * rule that reads one file has no identity to compare, and the text is what a project configuring
+ * `ignoreTokens` can see. An aliased import (`import { DestroyRef as NgDestroyRef }`) therefore
+ * misses this list and is reported — with a message that says what to do about it.
+ */
+export function keepsTheRealInstance(context: RuleContext, injectCall: EsCallExpression): boolean {
+  const [token] = injectCall.arguments;
+
+  if (!token) {
+    return false;
+  }
+
+  const text = context.sourceCode.getText(token);
+  const configured: unknown = Reflect.get(Object(context.options[0]), 'ignoreTokens');
+
+  return KEPT_REAL_TOKENS.includes(text) || (Array.isArray(configured) && configured.includes(text));
+}
+
 /** The string a literal argument spells, when it is one and it can be written after a dot. */
 function memberName(node: EsNode | undefined): string | undefined {
   const value: unknown = node?.type === 'Literal' ? Reflect.get(node, 'value') : undefined;
