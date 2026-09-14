@@ -274,3 +274,32 @@ tree recommends `mockDeep` when the calls chain, and the result then fitted noth
 When only one method chains, `createAutoMock<T>(undefined, { selfReturning: ['channel'] })` is the
 smaller answer: that one method answers the double itself, stays a spy, and counts as configured
 under `strict`.
+
+::: warning `selfReturning: true` chains a factory, not a `return this` builder
+A called node answers _itself_, never the object the method was read off, so every hop of the chain
+moves one level deeper. For an API whose commands all answer the **same** object — tiptap's
+`ChainedCommands`, a query builder, anything written with `mockReturnThis()` — that splits the calls
+across nodes the spec is not holding:
+
+```ts
+const editor = mockDeep<Editor>({}, { selfReturning: true });
+const chain = editor.chain();
+
+chain.focus().insertContent('text').run();
+
+expect(chain.insertContent).toHaveBeenCalled(); // fails: the call landed on `chain.focus.insertContent`
+```
+
+Assert down the path the chain walked (`asSpy<ChainedCommands>(chain.focus()).insertContent`), or
+build the chain object with `createAutoMock`, where `selfReturning` names methods that answer one
+double:
+
+```ts
+const chain = createAutoMock<ChainedCommands>(undefined, { selfReturning: ['focus', 'insertContent'] });
+const editor = createAutoMock<Editor>(undefined, { returns: { chain: asInstance(chain) } });
+
+editor.chain().focus().insertContent('text').run();
+expect(chain.insertContent).toHaveBeenCalledWith('text');
+```
+
+:::

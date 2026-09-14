@@ -274,3 +274,32 @@ boot(asInstance(mockDeep<AppLogger>({}, { selfReturning: true })));
 Когда сцепляется единственный метод, `createAutoMock<T>(undefined, { selfReturning: ['channel'] })` —
 ответ поменьше: этот метод отвечает самим двойником, остаётся спаем и под `strict` считается
 настроенным.
+
+::: warning `selfReturning: true` сцепляет фабрику, а не билдер с `return this`
+Вызванный узел отвечает _самим собой_, а не тем объектом, с которого прочитали метод, поэтому каждое
+звено цепочки уходит на уровень глубже. Для API, где все команды отвечают **одним и тем же** объектом —
+`ChainedCommands` у tiptap, построитель запросов, всё написанное через `mockReturnThis()`, — вызовы
+расходятся по узлам, которых у спеки на руках нет:
+
+```ts
+const editor = mockDeep<Editor>({}, { selfReturning: true });
+const chain = editor.chain();
+
+chain.focus().insertContent('text').run();
+
+expect(chain.insertContent).toHaveBeenCalled(); // падает: вызов ушёл в `chain.focus.insertContent`
+```
+
+Проверяйте по тому пути, который прошла цепочка (`asSpy<ChainedCommands>(chain.focus()).insertContent`),
+либо собирайте объект цепочки через `createAutoMock`, где `selfReturning` перечисляет методы, отвечающие
+одним двойником:
+
+```ts
+const chain = createAutoMock<ChainedCommands>(undefined, { selfReturning: ['focus', 'insertContent'] });
+const editor = createAutoMock<Editor>(undefined, { returns: { chain: asInstance(chain) } });
+
+editor.chain().focus().insertContent('text').run();
+expect(chain.insertContent).toHaveBeenCalledWith('text');
+```
+
+:::

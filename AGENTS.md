@@ -201,6 +201,23 @@ asSpy<AppLogger>(logger.channel('app')).info.mockReturnValue(undefined); // → 
 `asInstance` did not take a deep mock before 3.5.0, which left it with nowhere to go: this tree
 sends you to `mockDeep` when the calls chain, and the result then fitted nothing that expected `T`.
 
+**`selfReturning: true` chains a factory, not a `return this` builder**, and the difference decides
+where the calls are recorded. A called node answers _itself_, not the object the method was read
+off, so every hop moves one level deeper: `editor.chain().focus().insertContent('text')` records
+`insertContent` on `chain.focus`, while the `chain` handle the spec is holding still has none — and
+`expect(chain.insertContent).toHaveBeenCalled()` reports nothing although the chain ran. Either walk
+the same path in the assertion, or, for an API where every command answers the **same** object
+(tiptap's `ChainedCommands`, a query builder, a `mockReturnThis()` chain), build that object with
+`createAutoMock` instead, where `selfReturning` names methods that answer one double:
+
+```ts
+const chain = createAutoMock<ChainedCommands>(undefined, { selfReturning: ['focus', 'insertContent'] });
+const editor = createAutoMock<Editor>(undefined, { returns: { chain: asInstance(chain) } });
+
+editor.chain().focus().insertContent('text').run();
+expect(chain.insertContent).toHaveBeenCalledWith('text'); // one double, so the assertion is the obvious one
+```
+
 **An `abstract class` is a class.** `abstract class LocalStorage extends AbstractStorage {}`,
 provided in production as `{ provide: LocalStorage, useClass: BrowserLocalStorage }`, is the
 standard Angular DI-token idiom, and `provideAutoSpy(LocalStorage)` / `createSpyFromClass(LocalStorage)`

@@ -290,6 +290,13 @@ export interface MockDeepOptions {
    * ```ts
    * asSpy<QueryBuilder>(query.where('id')).limit.mockReturnValue(query);
    * ```
+   *
+   * **A called node answers itself, not its receiver**, which is the difference between a factory
+   * and a `return this` builder. `editor.chain().focus().insertContent('x')` therefore records
+   * `insertContent` on `chain.focus`, while the `chain` handle the spec holds has no calls at all —
+   * the obvious assertion reports nothing although the chain ran. Assert down the path the chain
+   * walked, or build the object with `createAutoMock<T>(undefined, { selfReturning: ['focus', …] })`,
+   * where the named methods answer one double, which is what an API of this shape does.
    */
   selfReturning?: boolean;
 }

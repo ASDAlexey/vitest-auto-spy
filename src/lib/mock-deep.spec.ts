@@ -6,6 +6,7 @@
  */
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 
+import { createAutoMock } from './auto-mock';
 import { registerMockAdapter } from './mock-adapter';
 import { mockDeep } from './mock-deep';
 import { asInstance, asSpy } from './spy-typing';
@@ -233,6 +234,42 @@ describe('mockDeep({ selfReturning: true })', () => {
     logger.channel.calledWith('audit').mockReturnValue(logger);
 
     expect(logger.channel('audit')).toBe(logger);
+  });
+});
+
+describe('mockDeep({ selfReturning: true }) against an API that answers `this`', () => {
+  /** The tiptap shape: every command hands the same chain object back, and the spec asserts on that object. */
+  interface ChainedCommands {
+    focus(): ChainedCommands;
+    insertContent(content: string): ChainedCommands;
+    run(): boolean;
+  }
+
+  interface Editor {
+    chain(): ChainedCommands;
+  }
+
+  it('records every hop one node deeper, so the handle the chain started from stays untouched', () => {
+    const editor = mockDeep<Editor>({}, { selfReturning: true });
+    const chain = editor.chain();
+
+    chain.focus().insertContent('text').run();
+
+    // A called node answers *itself*, never its receiver, so the calls walk the path they were read
+    // along: `chain.focus`, then `chain.focus.insertContent`. The obvious assertion sees nothing —
+    // the option chains a factory (`channel('app').info(…)`), not a `return this` builder.
+    expect(asSpy<ChainedCommands>(chain).insertContent).not.toHaveBeenCalled();
+    expect(asSpy<ChainedCommands>(chain.focus()).insertContent).toHaveBeenCalledWith('text');
+  });
+
+  it('is the difference from `createAutoMock`, where `selfReturning` names methods that answer one double', () => {
+    const chain = createAutoMock<ChainedCommands>(undefined, { selfReturning: ['focus', 'insertContent'] });
+    const editor = createAutoMock<Editor>(undefined, { returns: { chain: asInstance(chain) } });
+
+    editor.chain().focus().insertContent('text').run();
+
+    expect(chain.insertContent).toHaveBeenCalledWith('text');
+    expect(chain.run).toHaveBeenCalled();
   });
 });
 
