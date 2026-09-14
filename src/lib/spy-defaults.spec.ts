@@ -171,6 +171,28 @@ describe('the merge', () => {
     expect(Object.keys(Object(Reflect.get(Object(merged), 'overrides')))).toEqual(['events']);
   });
 
+  it('keeps a seeded accessor an accessor through the merge', () => {
+    registerAutoSpyDefaults(RouterLike, { overrides: { events: of('a') } });
+    let url = '/home';
+
+    const merged = mergeAutoSpyDefaults(RouterLike, {
+      overrides: {
+        get url(): string {
+          return url;
+        },
+      },
+    });
+    url = '/profile';
+
+    // Read once the merge is long over: a spread would have called the getter while merging and
+    // stored '/home'.
+    const overrides = Object(Reflect.get(Object(merged), 'overrides'));
+
+    expect(Reflect.get(overrides, 'url')).toBe('/profile');
+    expect(Object.getOwnPropertyDescriptor(overrides, 'url')?.get).toBeTypeOf('function');
+    expect(Reflect.has(overrides, 'events')).toBe(true);
+  });
+
   it('takes an object key the registration does not have', () => {
     registerAutoSpyDefaults(RouterLike, { gettersToSpyOn: ['url'] });
 

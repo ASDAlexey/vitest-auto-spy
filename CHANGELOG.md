@@ -12,6 +12,18 @@ The latest released version here must always match the one published on
 
 ### Fixed
 
+- **A seeded getter was flattened again by the defaults merge.** 5.15.0 kept an `overrides` seed as
+  a descriptor where the double is built; the merge that puts a `registerAutoSpyDefaults`
+  registration under the call site still copied both sides with a spread, and a spread reads every
+  getter it copies. So the same seed behaved differently depending on something the spec cannot see:
+  live on a class or token the registry has never heard of, flattened on one that carries any
+  registration at all — whether or not the registration names that key. Found on a consumer suite
+  converting `{ provide: NAVIGATION_SERVICE_TOKEN, useValue: { get currentFocus() {…} } }` to
+  `provideAutoSpyForToken`, where the token is registered in the setup file: the directive read the
+  value the variable held while `TestBed.configureTestingModule` was running, which is `undefined`,
+  and the test failed on an assertion three frames away from the cause. The merge copies property
+  descriptors now, on both sides and for every object key it merges (`overrides` and `returns`), so
+  an accessor reaches `createProxyPropStore` as an accessor.
 - **A getter in `overrides` ran while the double was being built.** `createAutoMock` and `mockDeep`
   read every seeded key with `Reflect.get` and stored the result, so an accessor in the seed was
   flattened at construction: a getter written to throw — the way a spec says "this global is missing

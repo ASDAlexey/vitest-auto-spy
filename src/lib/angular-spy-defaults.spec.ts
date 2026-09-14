@@ -100,6 +100,31 @@ describe('registerAutoSpyDefaults with an InjectionToken', () => {
     expect(TestBed.inject(LOGGER).level).toBe('debug');
   });
 
+  it('keeps a seeded getter live on a token that carries a registration', async () => {
+    let row = 0;
+
+    registerAutoSpyDefaults(NAVIGATION, { returns: { setFocus: undefined } });
+
+    TestBed.configureTestingModule({
+      providers: [
+        provideAutoSpyForToken(NAVIGATION, {
+          get activeRow$(): Observable<number> {
+            return of(row);
+          },
+        }),
+      ],
+    });
+
+    const navigation = TestBed.inject(NAVIGATION);
+
+    // Assigned after the provider literal was built: the merge used to spread the seeds, which ran
+    // the getter there and left the double answering 0 for the rest of the test.
+    row = 3;
+
+    await expect(firstValueFrom(navigation.activeRow$)).resolves.toBe(3);
+    expect(navigation.setFocus('x')).toBeUndefined();
+  });
+
   it('keeps a registered return value a default that a later calledWith wins over', () => {
     registerAutoSpyDefaults(NAVIGATION, { returns: { focused: 'default' } });
 

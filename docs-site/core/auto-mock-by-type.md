@@ -230,6 +230,11 @@ provider literal during `TestBed.configureTestingModule`, frames away from the b
 for. Reading the key's descriptor, `Object.keys` and `in` still do not run the getter, so a reset or
 a snapshot of the double cannot trigger it either.
 
+A registration is no exception. `registerAutoSpyDefaults` merges its configuration under the call
+site's, and that merge copied both sides with a spread — so a seeded getter stayed live on a token
+the registry has never heard of and was flattened on one that carries any registration at all,
+whether or not the registration names that key. It copies descriptors now.
+
 ### Depth comes from property access, not from calls
 
 This is the one thing to know before reaching for `mockDeep`, and it is invisible in the types.

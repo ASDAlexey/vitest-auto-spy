@@ -211,6 +211,25 @@ function baseObject(base: unknown): Record<string, unknown> {
 }
 
 /**
+ * Merge two seed objects **descriptor for descriptor**, the call site's keys last.
+ *
+ * A spread would read every getter it copies, which is the defect `createProxyPropStore` closed one
+ * layer down: an `overrides` seed written as an accessor reached the double already flattened, so a
+ * getter over a variable the test reassigns answered whatever that variable held while the provider
+ * literal was being evaluated. It only ever happened to a key whose class or token carries a
+ * registration, since a call site with nothing to merge into is handed back untouched — which is why
+ * the same seed worked on one token and not on the next.
+ */
+function mergeObjects(base: Record<string, unknown>, written: Record<string, unknown>): Record<string, unknown> {
+  const merged: Record<string, unknown> = {};
+
+  Object.defineProperties(merged, Object.getOwnPropertyDescriptors(base));
+  Object.defineProperties(merged, Object.getOwnPropertyDescriptors(written));
+
+  return merged;
+}
+
+/**
  * Merge a class's registration under the configuration written at the call site.
  *
  * Three behaviours, one per kind of key, and each is the one that makes the call site *additive*:
@@ -257,7 +276,7 @@ function mergeInto(defaults: Registration, written: Record<string, unknown>): Re
     if (Array.isArray(value)) {
       merged[key] = [...new Set([...baseList(base), ...value])];
     } else if (isMergeable(value)) {
-      merged[key] = { ...baseObject(base), ...value };
+      merged[key] = mergeObjects(baseObject(base), value);
     } else {
       merged[key] = value;
     }

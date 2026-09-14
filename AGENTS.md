@@ -255,6 +255,12 @@ reads the member, not where the provider literal is evaluated. A `{ set }` seed 
 and takes the write. Both used to be flattened as the double was built, which turned a throwing
 seed into a failure during `TestBed.configureTestingModule`, three frames from the branch under test.
 
+A **registration** is no exception, and it was the half that stayed broken one release longer: the
+merge that puts `registerAutoSpyDefaults` under a call site copied both sides with a spread, so a
+seeded getter was flattened on any class or token the registry knows — whether or not the
+registration names that key — while the same seed stayed live on one it does not. The merge copies
+descriptors now, and the seed behaves the same either way.
+
 ### What a Proxy-backed double cannot do
 
 `createAutoMock` and `mockDeep` build a Proxy, not an object, and there is one place where the

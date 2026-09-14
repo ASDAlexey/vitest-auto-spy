@@ -2043,6 +2043,10 @@ const platform = createAutoMock<PlatformSupport>({
 expect(() => platform.transceiver).toThrow(); // at the read, not at `TestBed.configureTestingModule`
 ```
 
+A class or token registered with `registerAutoSpyDefaults` behaves the same: the merge that puts a
+registration under the call site copies descriptors rather than spreading them, so a seeded getter
+is not flattened by the mere existence of a registration.
+
 For a double the code under test only **reads** — a DTO, a route snapshot, a config object — that
 caveat is the wrong trade, and [`createMock<T>()`](#utilities) is the other half of the pair: it
 returns a plain `T` built from the fields you seed, with no spies anywhere.
