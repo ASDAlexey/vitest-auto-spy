@@ -10,17 +10,6 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
-### Added
-
-- **`--min-severity` on `doctor` and `perf`.** A suite that has cleared the errors and warnings still
-  reads a page of notes on every run — the environment advice, the `node` candidates, the unconfirmed
-  gate candidates — and a report nobody reads is a report nobody reads when it does matter.
-  `--min-severity warning` (or `error`) leaves those out of the printed findings. Two things stay
-  where they were on purpose: the tally line still counts what was hidden, so `0 errors, 0 warnings,
-  14 notes` keeps telling the reader the notes exist, and the exit code does not move, because a note
-  never failed a run. An unrecognised word is taken as no filter rather than as a stricter one — the
-  opposite would quietly hide the errors somebody was watching for.
-
 ### Fixed
 
 - **A getter in `overrides` ran while the double was being built.** `createAutoMock` and `mockDeep`
@@ -30,18 +19,6 @@ The latest released version here must always match the one published on
   at the branch under test, and a `{ set }` seed was dropped entirely. Seeds now keep their
   descriptor, so an accessor is installed as one and answers reads and writes exactly like a patch
   from `mockAccessorsProp`. Reading the key's descriptor, `Object.keys` and `in` still do not run it.
-
-- **`renderShallow({ keepTemplate: true })` on an AOT-compiled component died as
-  `TypeError: dependencies is not a function`.** The trim reads the imports the compiler wrote into
-  `ɵcmp` and called them, because JIT — the only compiler a `TestBed.overrideComponent` recompile can
-  run — always stores them behind a factory. AOT does not: `dependencies` is a
-  `TypeOrFactory<DependencyTypeList> | null`, and ngtsc emits the **flat array** unless a cycle
-  between two components forces it to defer the read, which is the only thing a factory is for. A
-  component that imports nothing carries `null` (`defineComponent`: `standalone && dependencies ||
-  null`). So the failure needed all three of a real AOT build, `keepTemplate: true` and a component
-  whose imports happen to hold no cycle — every other combination went through the factory and was
-  green. All three shapes are read now, with a regression on each; anything that is not an array
-  after the factory is resolved is an empty scope rather than a throw.
 
 ### Changed
 
@@ -66,6 +43,10 @@ The latest released version here must always match the one published on
   `DestroyRef` reason, so an aliased import — which source-text comparison cannot recognise — is
   reported with the answer in it. Severity, suggestion and the shapes it reads are unchanged.
 
+## [5.14.0] - 2026-09-13
+
+### Changed
+
 - **The `perf` hotspot tables name the file before its bodies.** A body's label was one `file › name`
   column, and a long path ate it from the left: `…ponent.spec.ts › MediaPremiumBenefitsComponent › …`
   answered neither which file nor which test. The bodies table prints the file once, whole, with its
@@ -74,6 +55,37 @@ The latest released version here must always match the one published on
   boundaries, so the first segment (the project) and the last (the file name) always survive. Times
   at or over the per-body budget are red and the header row is dim; `NO_COLOR`, `FORCE_COLOR=0` and
   `TERM=dumb` turn all of it off.
+
+## [5.13.0] - 2026-09-13
+
+### Added
+
+- **`--min-severity` on `doctor` and `perf`.** A suite that has cleared the errors and warnings still
+  reads a page of notes on every run — the environment advice, the `node` candidates, the unconfirmed
+  gate candidates — and a report nobody reads is a report nobody reads when it does matter.
+  `--min-severity warning` (or `error`) leaves those out of the printed findings. Two things stay
+  where they were on purpose: the tally line still counts what was hidden, so `0 errors, 0 warnings,
+  14 notes` keeps telling the reader the notes exist, and the exit code does not move, because a note
+  never failed a run. An unrecognised word is taken as no filter rather than as a stricter one — the
+  opposite would quietly hide the errors somebody was watching for.
+
+## [5.12.0] - 2026-09-13
+
+### Fixed
+
+- **`renderShallow({ keepTemplate: true })` on an AOT-compiled component died as
+  `TypeError: dependencies is not a function`.** The trim reads the imports the compiler wrote into
+  `ɵcmp` and called them, because JIT — the only compiler a `TestBed.overrideComponent` recompile can
+  run — always stores them behind a factory. AOT does not: `dependencies` is a
+  `TypeOrFactory<DependencyTypeList> | null`, and ngtsc emits the **flat array** unless a cycle
+  between two components forces it to defer the read, which is the only thing a factory is for. A
+  component that imports nothing carries `null` (`defineComponent`: `standalone && dependencies ||
+  null`). So the failure needed all three of a real AOT build, `keepTemplate: true` and a component
+  whose imports happen to hold no cycle — every other combination went through the factory and was
+  green. All three shapes are read now, with a regression on each; anything that is not an array
+  after the factory is resolved is an empty scope rather than a throw.
+
+### Changed
 
 - **`mockReturnValue` erasing a `calledWith` is reported instead of happening quietly.** The two are
   not layers: `mockReturnValue`, `mockImplementation`, `mockReturnThis`, `mockThrow`,
@@ -5575,7 +5587,10 @@ by hand there, in more than one place, by more than one person.
   `mockAccessorsProp`.
 - Dual ESM + CJS build with type declarations; 100% test coverage.
 
-[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.11.0...HEAD
+[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.14.0...HEAD
+[5.14.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.13.0...v5.14.0
+[5.13.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.12.0...v5.13.0
+[5.12.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.11.0...v5.12.0
 [5.11.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.10.0...v5.11.0
 [5.10.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.9.0...v5.10.0
 [5.9.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.8.0...v5.9.0
