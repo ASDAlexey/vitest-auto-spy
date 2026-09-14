@@ -1637,6 +1637,28 @@ createAutoMock<NavigationService>({ currentFocus: undefined, navRoot: undefined,
 Write it even when it looks redundant. It is the way to say "the member exists and is empty", and
 on this double it is not the same as saying nothing.
 
+### A getter in `overrides` stays a getter
+
+A seed is kept as its **descriptor**, so an accessor written into `overrides` is installed as one —
+exactly like a patch from `mockAccessorsProp`. It runs at the read, once per read, with the double
+as `this`; a `{ set }` seed takes the write:
+
+```ts
+const platform = createAutoMock<PlatformSupport>({
+  get transceiver(): never {
+    throw new TypeError('RTCRtpTransceiver is not defined');
+  },
+});
+
+expect(() => platform.transceiver).toThrow(); // where the code under test reads it
+```
+
+The seeds used to be flattened to plain values as the double was built, which ran the getter there:
+a seed written to throw — the way a spec says "this global is missing on this platform" — failed the
+provider literal during `TestBed.configureTestingModule`, frames away from the branch it was written
+for. Reading the key's descriptor, `Object.keys` and `in` still do not run the getter, so a reset or
+a snapshot of the double cannot trigger it either.
+
 ### Depth comes from property access, not from calls
 
 This is the one thing to know before reaching for `mockDeep`, and it is invisible in the types.
@@ -1681,6 +1703,33 @@ tree recommends `mockDeep` when the calls chain, and the result then fitted noth
 When only one method chains, `createAutoMock<T>(undefined, { selfReturning: ['channel'] })` is the
 smaller answer: that one method answers the double itself, stays a spy, and counts as configured
 under `strict`.
+
+**`selfReturning: true` chains a factory, not a `return this` builder**
+A called node answers _itself_, never the object the method was read off, so every hop of the chain
+moves one level deeper. For an API whose commands all answer the **same** object — tiptap's
+`ChainedCommands`, a query builder, anything written with `mockReturnThis()` — that splits the calls
+across nodes the spec is not holding:
+
+```ts
+const editor = mockDeep<Editor>({}, { selfReturning: true });
+const chain = editor.chain();
+
+chain.focus().insertContent('text').run();
+
+expect(chain.insertContent).toHaveBeenCalled(); // fails: the call landed on `chain.focus.insertContent`
+```
+
+Assert down the path the chain walked (`asSpy<ChainedCommands>(chain.focus()).insertContent`), or
+build the chain object with `createAutoMock`, where `selfReturning` names methods that answer one
+double:
+
+```ts
+const chain = createAutoMock<ChainedCommands>(undefined, { selfReturning: ['focus', 'insertContent'] });
+const editor = createAutoMock<Editor>(undefined, { returns: { chain: asInstance(chain) } });
+
+editor.chain().focus().insertContent('text').run();
+expect(chain.insertContent).toHaveBeenCalledWith('text');
+```
 
 ---
 
@@ -8512,6 +8561,20 @@ is exempt. `prefer-provide-auto-spy` needs no such exemption: a `useValue` a fac
 call, and it only ever looked at object literals — a name it follows one step lands on that same
 call and stops there.
 
+`prefer-inject-spy` takes one, and it names the tokens whose injected instance a spec keeps real:
+
+```js
+'vitest-auto-spy/prefer-inject-spy': ['error', { ignoreTokens: ['MapRendererService', 'WINDOW_REF'] }],
+```
+
+`ApplicationRef`, `DestroyRef`, `EnvironmentInjector`, `HttpClient` and `Injector` are exempt
+already, and `ignoreTokens` extends that list rather than replacing it. The built-in five are not a
+style allowance: for each of them the rule's own advice either cannot be carried out —
+`{ provide: DestroyRef, useValue }` is silently ignored, because `R3Injector.get()` short-circuits
+on `__NG_ENV_ID__` before it reads its providers — or removes the reason the object was injected, as
+an `ApplicationRef` whose `injector` supplies the renderer does. The per-token argument is in
+[the rule reference](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-rules#prefer-inject-spy).
+
 ### Picking rules by hand
 
 Skip `configs.recommended` entirely and name the rules you want — the plugin object is exported on
@@ -10929,10 +10992,43 @@ method and leaves the rest real, and the method it installs is a plain `vi.fn()`
 per-method helpers the rest of the spec is written against are gone from that one method:
 `TypeError: spy.getPlans.nextWith is not a function`, on a line that reads like ordinary spy setup.
 
+**Tokens it says nothing about.** Five of them, and none is a matter of taste — for each one the
+advice above is either impossible or it deletes the reason the spec injected the object:
+
+- `DestroyRef` cannot be substituted at all. It carries `__NG_ENV_ID__`, and `R3Injector.get()`
+  answers `token[NG_ENV_ID](this)` on its first line — _before_ it reads its own records — so
+  `{ provide: DestroyRef, useValue }` is accepted, ignored, and never mentioned again. It is the
+  only class in `@angular/core` carrying that flag, which is why the rest of this list is argued
+  differently.
+- `ApplicationRef` is the harness. `TestBed` drives change detection through it, and a spec that
+  creates a component by hand reads the renderer out of `ApplicationRef.injector`. The shape that
+  works is the real instance with `attachView` / `detachView` spied, so nothing is attached.
+- `Injector` and `EnvironmentInjector` answer _other_ dependencies. Spied, `get()` returns a spy for
+  every token resolved after it, and the substitution propagates to everything the code under test
+  looks up lazily.
+- `HttpClient` already has a framework double: `provideHttpClientTesting()` swaps the backend and
+  hands the spec a `HttpTestingController`. A spy on `get` there reads the options the caller
+  passed, on the way to a request the controller still flushes.
+
+Node-injector tokens (`ElementRef`, `Renderer2`, `ChangeDetectorRef`) are deliberately absent:
+`TestBed.inject()` cannot hand any of them back, so an entry would exempt a line nobody can write.
+
+**Options.** One, and it extends that list rather than replacing it:
+
+```js
+'vitest-auto-spy/prefer-inject-spy': ['error', { ignoreTokens: ['MapRendererService', 'WINDOW_REF'] }],
+```
+
+Tokens are compared as **source text**, the way [`no-unregistered-inject-spy`](#no-unregistered-inject-spy)
+compares them — a rule that reads one file has no identity to compare. An aliased import
+(`import { DestroyRef as NgDestroyRef }`) therefore misses the built-in list and is reported; naming
+it in `ignoreTokens` settles that.
+
 **Limits.** An ordinary `vi.spyOn` over an object the spec owns is not reported, and neither is one
 over a name the rule cannot prove came from `TestBed.inject`. The reverse case — a spec that
 deliberately spies one method of a real service, having provided the real service on purpose — is
-reported, and there a per-line disable stating that is the honest answer.
+still reported. `ignoreTokens` is the answer when the reason belongs to the token and outlives this
+one line; a per-line disable is the answer when it belongs to this one test.
 
 **Severity.** `error`. Red without the rule, and the message points at the helper rather than at the
 `spyOn` that removed it.
