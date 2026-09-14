@@ -3320,19 +3320,19 @@ prune reaches only one and the run dies out of memory.
 
 ## Bundle size
 
-The badge says 17.2 kB min+gzip, and that is the whole core entry bundled together. It is also the
+The badge says 17.5 kB min+gzip, and that is the whole core entry bundled together. It is also the
 largest number a consumer can pay for the core, because entries are separate subpaths and a project
 only pays for the ones it imports:
 
 | Imported                                      |    min+gzip |
 | --------------------------------------------- | ----------: |
-| `.` — the core entry, what the badge measures | **17.2 kB** |
-| `vitest-auto-spy/angular`                     |     25.9 kB |
-| `vitest-auto-spy/react` / `/vue` / `/svelte`  |     17.4 kB |
-| `vitest-auto-spy/node`                        |     16.3 kB |
-| `vitest-auto-spy/dom-stubs`                   |      5.6 kB |
+| `.` — the core entry, what the badge measures | **17.5 kB** |
+| `vitest-auto-spy/angular`                     |     26.4 kB |
+| `vitest-auto-spy/react` / `/vue` / `/svelte`  |     17.8 kB |
+| `vitest-auto-spy/node`                        |     16.6 kB |
+| `vitest-auto-spy/dom-stubs`                   |      5.7 kB |
 | `vitest-auto-spy/rxjs`                        |      2.3 kB |
-| `vitest-auto-spy/angular-router`              |      6.8 kB |
+| `vitest-auto-spy/angular-router`              |      7.1 kB |
 | `vitest-auto-spy/signal-forms`                |      1.4 kB |
 | `vitest-auto-spy/zone`                        |      1.1 kB |
 
@@ -3351,7 +3351,10 @@ and then for the suite-wide settings every bundle now reads off `globalThis` and
 grade, the bounded strict report and the lifecycle-hook exemption, +0.34…0.43 kB, and now for the
 recorder behind `takeStrictViolations` and the swallowed-strict guard, +0.16…0.41 kB, and then for the read-side report — the getter and stream
 trackers and the `unconfiguredReads` ledger, with `selfReturning` in the same commit — +0.37…0.41 kB on the core rows and +0.61 kB on `/setup`, which
-also carries the report, and last for token registrations, +18 B.
+also carries the report, and last for token registrations, +18 B. The dispatch-replacement report
+then rode every runtime entry, +0.28…0.44 kB (`/setup` +85 B), taking the root entry from 17.19 to
+17.50 kB — its hook and message text live in the shared spy engine — with `/angular`, `/bun` and
+`/node` adding the `renderShallow` shape fix on top.
 
 `/angular` then took `setInputs`, the `window` / `document` and Material-dialog doubles, the resource
 double that carries the whole `ResourceRef`, and the recomputation counters — +3.26 kB against
@@ -3362,11 +3365,13 @@ for the `Router` double: it is the
 router's own `DefaultUrlSerializer`, `createUrlTreeFromSnapshot` and `RouterState` doing the URL work
 rather than a structural stand-in guessing at it, which is the whole reason the double cannot
 contradict itself; it then took another 390 B (6411 B → 6801 B, +6.1 %) for the navigation in flight —
-`currentNavigation()`, `setCurrentNavigation()` and the event bookkeeping that ends one.
+`currentNavigation()`, `setCurrentNavigation()` and the event bookkeeping that ends one. The
+dispatch-replacement report added 338 B more (6801 B → 7139 B, +5.0 %) — another runtime row.
 `/eslint-plugin` is +1.77 kB for the rules of the previous two releases, +1122 B
 (31295 B → 32417 B, +3.6 %) for `no-redundant-smoke-test`, and then +371 B in two fixes
 (32417 B → 32788 B, +1.1 %) — the subject the rule weighs and the doubles `prefer-create-spy-from-class`
-exempts; it is a lint-time entry point that no spec run loads. `/signal-forms` arrives at
+exempts; it is a lint-time entry point that no spec run loads. `prefer-provide-auto-spy` and
+`prefer-set-inputs` then took it to 34 856 B, +2068 B together (+6.3 %). `/signal-forms` arrives at
 1.36 kB — the whole entry is `createForm` and one matcher over Angular's own `form()`, which stays
 in `@angular/forms` where the consumer already has it.
 
