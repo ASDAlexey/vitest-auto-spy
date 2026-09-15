@@ -23,6 +23,13 @@
  * Two boundaries are read as "runs later, not now": a function body, and a non-static class field.
  * A `static` field is not one of them — that really does run when the class declaration is
  * evaluated, which is while the module loads.
+ *
+ * **An object spread fails differently, and the difference is the whole reason to say which.**
+ * `[...undefined]` and `f(...undefined)` throw; `{ ...undefined }` is `{}`. So the object form
+ * raises nothing, loads, and leaves a constant whose every key reads `undefined` — a suite that
+ * stays green while the value it was built from is gone. Reported as its own message, because a
+ * reader told to look for `Spread syntax requires …` in an object spread finds no such error and
+ * takes the report for a false positive.
  */
 import { findBinding } from './bindings';
 import {
@@ -34,6 +41,7 @@ import {
   type SuggestionDescriptor,
   isFunctionNode,
   isIdentifier,
+  isObjectExpression,
   isVariableDeclarator,
 } from './rule-types';
 
@@ -51,6 +59,17 @@ export function spreadOfImport(context: RuleContext, node: EsSpreadElement): EsI
   const binding = findBinding(context.sourceCode.getScope(node), argument.name);
 
   return binding?.defs.some((definition) => definition.type === IMPORT_DEFINITION) ? argument : undefined;
+}
+
+/**
+ * How this spread fails when the binding is still `undefined`: loudly, or not at all.
+ *
+ * An object spread ignores `undefined` and contributes nothing, so the module loads and the
+ * constant is silently short of every key it was meant to copy. Everywhere else — an array
+ * literal, an argument list — the operand has to be iterable, and `undefined` is not.
+ */
+export function spreadFailureMode(node: EsSpreadElement): 'iterable' | 'object' {
+  return isObjectExpression(node.parent) ? 'object' : 'iterable';
 }
 
 /** Whether a node's evaluation is deferred past the module's own — a function body, an instance field. */

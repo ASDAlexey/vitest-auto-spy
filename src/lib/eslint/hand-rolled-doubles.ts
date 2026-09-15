@@ -212,11 +212,20 @@ export function factoryBody(context: RuleContext, value: EsNode): EsNode {
  * for `createSpyFromClass` to read there, so the message named a repair that cannot be made, and an
  * `eslint-disable` over the documented call was the only way out. The route, router and document
  * doubles take the same kind of bag and are exempt on the same grounds.
+ *
+ * `createComponentStub` and `createDirectiveHost` were the same omission, found the same way. Their
+ * second arguments are per-instance seeds — `createComponentStub(ChartComponent, { redraw: vi.fn(),
+ * reset: vi.fn() })` seeds two methods the parent calls through a `viewChild` — and the class is
+ * already the **first** argument, so `createSpyFromClass` is not a repair either: it answers a spy
+ * object where a component class has to go. Two seeded members were enough to trip the default
+ * threshold, and the only ways out were deleting a seed the spec needed or disabling the rule.
  */
 const SPY_FACTORIES = new Set([
   'autoMocked',
   'createActivatedRoute',
   'createAutoMock',
+  'createComponentStub',
+  'createDirectiveHost',
   'createDocumentDouble',
   'createMock',
   'createRouterDouble',

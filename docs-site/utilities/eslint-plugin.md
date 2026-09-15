@@ -287,7 +287,7 @@ Not about a single test but about what one file leaves behind for the next.
 | [`no-structural-double`](/utilities/eslint-rules#no-structural-double)                               | an object of `vi.fn()`s bound to a name declared `{ load: Mock }` → `createAutoMock<T>()`; `warn`                                             | —       |           red           |
 | [`no-shared-module-level-mock`](#a-double-built-once-per-worker-not-once-per-test)                   | an **exported** value holding `vi.fn()`s → export a factory that returns it                                                                   | —       |          green          |
 | [`no-object-define-property`](#no-object-define-property-%E2%80%94-nothing-puts-the-descriptor-back) | `Object.defineProperty` in a spec → `mockReadonlyProp` / `mockValueProp`                                                                      | suggest |          green          |
-| [`no-import-time-spread`](#the-spread-that-only-fails-under-a-bundler)                               | `export const x = [...Imported]` at module scope → a `TypeError` while the bundle loads                                                       | suggest | red _(by construction)_ |
+| [`no-import-time-spread`](#the-spread-that-only-fails-under-a-bundler)                               | `export const x = [...Imported]` at module scope → a `TypeError`, or a silently empty object, while the bundle loads                          | suggest | red _(by construction)_ |
 | [`prefer-observer-stub`](#the-observer-stub-everybody-writes-again)                                  | a hand-rolled `IntersectionObserver` / `ResizeObserver` / `MutationObserver` written into a global → `stubIntersectionObserver()` and friends | —       |          green          |
 
 ### Angular DI and the TestBed
@@ -736,6 +736,22 @@ The scan is worth having because the population it finds is small: an AST pass f
 spreads of an imported identifier found exactly **seven** sites in an 8 673-file workspace, two of
 them spreading a workspace barrel. That is small enough to flag at the cursor, and it is decidable
 from the imports in the same file.
+
+An **object** spread is the same bug with no error to go on, and the rule says so in a message of its
+own. `[...undefined]` and `f(...undefined)` throw; `{ ...undefined }` is `{}`. So this one loads
+clean and leaves a constant missing every key it meant to copy:
+
+```ts
+import { ShelfItemTypeEnum } from '@acme/api';
+
+// ❌ nothing throws; `ItemType.COVER` simply reads `undefined` for the rest of the run
+export const ItemType = { ...ShelfItemTypeEnum, ...LocalItemType } as const;
+```
+
+Separating the messages is the point of the rule rather than a detail of it: a reader sent looking
+for `Spread syntax requires …` in an object spread finds no such error in the log, concludes the
+report is a false positive, and leaves the silent one in place. The object message opens by saying
+there is nothing to find.
 
 ::: warning The same message has a second cause the rule cannot see
 `Spread syntax requires ...iterable[Symbol.iterator] to be a function` is also what a spec bundle

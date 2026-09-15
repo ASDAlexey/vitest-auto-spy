@@ -50,7 +50,7 @@ import { noStructuralDouble } from './declared-double';
 import { defineRule } from './define-rule';
 import { isFloatingChain, isPromiseCallback } from './floating-assertion';
 import { countRunnerFns, insideFactorySeed, insideModuleMock, minRunnerFns, substitutesADependency } from './hand-rolled-doubles';
-import { lazyValueSuggestion, runsAtImportTime, spreadOfImport } from './import-time-spread';
+import { lazyValueSuggestion, runsAtImportTime, spreadFailureMode, spreadOfImport } from './import-time-spread';
 import {
   type EsSpyCast,
   INJECTED_SPY_SCHEMA,
@@ -551,7 +551,7 @@ const noBareCalledWith = defineRule({
   }),
 });
 
-/** `export const events = [...BaseEvents]` at module scope → a TypeError while the bundle loads. */
+/** `export const events = [...BaseEvents]` at module scope → a TypeError, or a silently empty object, while the bundle loads. */
 const noImportTimeSpread = defineRule({
   anchor: '-a-double-more-than-one-spec-uses',
   description: 'Do not spread an imported binding at module scope — inside a bundle it can still be undefined',
@@ -559,6 +559,8 @@ const noImportTimeSpread = defineRule({
   messages: {
     noImportTimeSpread:
       'This spreads `{{name}}`, a binding another module owns, while this module is still being evaluated. Under `tsc` and under a browser’s ESM loader that is safe — nothing runs before its dependency. Inside one bundle it is not: the spec bundle emits shared chunks, a chunk can be evaluated while the binding it re-exports is still `undefined`, and `[...undefined]` throws `Spread syntax requires ...iterable[Symbol.iterator] to be a function` before a single test runs — on a tree whose every test passes. Build the value lazily (a function, called where it is read), or inline the constant so nothing has to be imported for this line to work. Nothing inside a function body is reported: that runs later, which is the whole repair.',
+    noImportTimeSpreadObject:
+      'This spreads `{{name}}`, a binding another module owns, into an object literal while this module is still being evaluated. Under `tsc` and under a browser’s ESM loader that is safe — nothing runs before its dependency. Inside one bundle it is not: the spec bundle emits shared chunks, and a chunk can be evaluated while the binding it re-exports is still `undefined`. Do not look for an error — an object spread of `undefined` throws nothing, `{ ...undefined }` is `{}`, so the module loads and every key this line was meant to copy reads `undefined` for the rest of the run, on a tree whose every test passes. Build the value lazily (a function, called where it is read), or write the keys out so nothing has to be imported for this line to work. Nothing inside a function body is reported: that runs later, which is the whole repair.',
   },
   create: (context) => ({
     SpreadElement: (node: EsSpreadElement): void => {
@@ -569,7 +571,8 @@ const noImportTimeSpread = defineRule({
       }
 
       const suggestion = lazyValueSuggestion(context, node);
-      const report = { node, messageId: 'noImportTimeSpread', data: { name: imported.name } };
+      const messageId = spreadFailureMode(node) === 'object' ? 'noImportTimeSpreadObject' : 'noImportTimeSpread';
+      const report = { node, messageId, data: { name: imported.name } };
 
       context.report(suggestion ? { ...report, suggest: [suggestion] } : report);
     },

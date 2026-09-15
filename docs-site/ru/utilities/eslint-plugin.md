@@ -287,7 +287,7 @@ _доказательству_, а не по виду находки. Оба с�
 | [`no-structural-double`](/ru/utilities/eslint-rules#no-structural-double)                            | объект из `vi.fn()` у имени, объявленного как `{ load: Mock }` → `createAutoMock<T>()`; `warn`                                         | —         |          красно          |
 | [`no-shared-module-level-mock`](#a-double-built-once-per-worker-not-once-per-test)                   | **экспортированное** значение, держащее `vi.fn()` → экспортируйте фабрику, которая его возвращает                                      | —         |          зелено          |
 | [`no-object-define-property`](#no-object-define-property-%E2%80%94-nothing-puts-the-descriptor-back) | `Object.defineProperty` в спеке → `mockReadonlyProp` / `mockValueProp`                                                                 | подсказка |          зелено          |
-| [`no-import-time-spread`](#the-spread-that-only-fails-under-a-bundler)                               | `export const x = [...Imported]` на уровне модуля → `TypeError` во время загрузки бандла                                               | подсказка | красно _(по построению)_ |
+| [`no-import-time-spread`](#the-spread-that-only-fails-under-a-bundler)                               | `export const x = [...Imported]` на уровне модуля → `TypeError` или молча пустой объект во время загрузки бандла                       | подсказка | красно _(по построению)_ |
 | [`prefer-observer-stub`](#the-observer-stub-everybody-writes-again)                                  | рукописный `IntersectionObserver` / `ResizeObserver` / `MutationObserver`, записанный в глобал → `stubIntersectionObserver()` и соседи | —         |          зелено          |
 
 ### Angular DI и TestBed {#angular-di-and-the-testbed}
@@ -739,6 +739,22 @@ export const webosEvents = [...BaseEvents]; // ❌ безопасно под tsc
 импортированного идентификатора на уровне модуля нашёл ровно **семь** мест в воркспейсе на 8 673
 файла, два из них разворачивали barrel воркспейса. Этого достаточно мало, чтобы помечать прямо под
 курсором, и это решается по импортам того же файла.
+
+Спред **в объект** — тот же баг, но без ошибки, за которую можно зацепиться, и правило говорит об
+этом отдельным сообщением. `[...undefined]` и `f(...undefined)` бросают; `{ ...undefined }` — это
+`{}`. То есть этот случай загружается чисто и оставляет константу без всех ключей, которые она
+собиралась скопировать:
+
+```ts
+import { ShelfItemTypeEnum } from '@acme/api';
+
+// ❌ ничего не бросается; `ItemType.COVER` просто читается как `undefined` до конца прогона
+export const ItemType = { ...ShelfItemTypeEnum, ...LocalItemType } as const;
+```
+
+Разделение сообщений — это и есть смысл правила, а не деталь: читатель, отправленный искать
+`Spread syntax requires …` в спреде в объект, не находит такой ошибки в логе, заключает, что находка
+ложная, и оставляет тихий случай на месте. Объектное сообщение начинается с того, что искать нечего.
 
 ::: warning У того же сообщения есть вторая причина, которой правило не видит
 `Spread syntax requires ...iterable[Symbol.iterator] to be a function` — это ещё и то, что говорит

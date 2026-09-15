@@ -379,6 +379,17 @@ describe('prefer-create-spy-from-class', () => {
     }
   });
 
+  it('leaves a stub seed alone — the class is the first argument, so the repair it names is not one', () => {
+    const calls = [
+      'const ChartStub = createComponentStub(ChartComponent, { redraw: vi.fn(), reset: vi.fn() });',
+      "const Host = createDirectiveHost({ template: '<div appTruncate></div>', props: { onDone: vi.fn(), onFail: vi.fn() } });",
+    ];
+
+    for (const call of calls) {
+      expect(lint(call, 'prefer-create-spy-from-class')).toEqual([]);
+    }
+  });
+
   it('leaves a vi.mock factory alone — its exports are DI tokens, not a service double', () => {
     expect(lint("vi.mock('@acme/ui', () => ({ DialogRef: vi.fn(), ToastService: vi.fn() }));", 'prefer-create-spy-from-class')).toEqual([]);
     expect(lint("vi.doMock('x', () => ({ A: vi.fn(), B: vi.fn() }));", 'prefer-create-spy-from-class')).toEqual([]);
@@ -1628,11 +1639,31 @@ describe('no-import-time-spread', () => {
     expect(firstMessage(spread, 'no-import-time-spread')).toContain('`BaseEvents`');
   });
 
-  it('reads an object spread and an argument list the same way', () => {
+  it('reads an object spread and an argument list too', () => {
     expect(lint(`${imported}export const config = { ...BaseEvents };`, 'no-import-time-spread')).toHaveLength(1);
     expect(lint(`${imported}register(...BaseEvents);`, 'no-import-time-spread')).toHaveLength(1);
     // A static field is evaluated with the class declaration, which is while the module loads.
     expect(lint(`${imported}class Events { static all = [...BaseEvents]; }`, 'no-import-time-spread')).toHaveLength(1);
+  });
+
+  it('tells an object spread apart, because that one fails without an error', () => {
+    const object = `${imported}export const config = { ...BaseEvents };`;
+    const array = `${imported}export const webosEvents = [...BaseEvents];`;
+    const argumentList = `${imported}register(...BaseEvents);`;
+
+    // `{ ...undefined }` is `{}`, so a reader sent looking for `Spread syntax requires …` finds no
+    // such error and takes the report for a false positive. Both halves are asserted: the symptom
+    // this message must describe, and the one it must not.
+    expect(firstMessage(object, 'no-import-time-spread')).toContain('`{ ...undefined }` is `{}`');
+    expect(firstMessage(object, 'no-import-time-spread')).not.toContain('Spread syntax requires');
+    expect(firstMessage(object, 'no-import-time-spread')).toContain('`BaseEvents`');
+
+    expect(firstMessage(array, 'no-import-time-spread')).toContain('Spread syntax requires');
+    expect(firstMessage(argumentList, 'no-import-time-spread')).toContain('Spread syntax requires');
+    // An array inside an object literal is still an array spread: the operand must be iterable.
+    expect(firstMessage(`${imported}export const c = { all: [...BaseEvents] };`, 'no-import-time-spread')).toContain(
+      'Spread syntax requires',
+    );
   });
 
   it('leaves what runs later, and what this file owns, alone', () => {

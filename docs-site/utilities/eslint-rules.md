@@ -801,6 +801,22 @@ loads, on a tree whose every test passes. It is the same root cause as the barre
 note in the [migration guide](/migrating), but the symptom names neither a module nor a barrel, so
 nothing connects the two.
 
+**An object spread is the quiet half, and gets its own message.** `[...undefined]` and
+`f(...undefined)` throw; `{ ...undefined }` is `{}`. So the object form raises nothing at all — the
+module loads, and the constant it built is silently short of every key it meant to copy:
+
+```ts
+import { ShelfItemTypeEnum } from '@acme/api';
+
+// ❌ `{ ...undefined }` is `{}`, so `ItemType.COVER` reads `undefined` for the rest of the run
+export const ItemType = { ...ShelfItemTypeEnum, ...LocalItemType } as const;
+```
+
+The two are reported separately because the message is what the reader acts on: told to look for
+`Spread syntax requires …` in an object spread, they find no such error anywhere in the log and
+take the report for a false positive. The object message says up front that there is nothing to
+find, and that the damage is a key reading `undefined`.
+
 **Limits.** The population is small — seven sites in an 8 673-file workspace, two of them spreading a
 workspace barrel — and probing all seven cleared them: none was the failure being chased at the
 time. So this is a rule that will mostly report code that has never failed, and the argument for it
