@@ -310,6 +310,20 @@ the read. All three are handled; calling the array unconditionally was a
 `TypeError: dependencies is not a function` on every AOT-compiled standalone component whose imports
 held no cycle, and only under `keepTemplate: true`.
 
+**A dependency an `NgModule` declares is where `keepTemplate: true` stops, and it says so.** JIT
+keeps an imported module in that list and resolves its scope at run time, so the module is kept
+whole and everything it exports stays resolvable. AOT does not: ngtsc resolves the module at compile
+time and flattens its exported declarations into the list, so what arrives is a `standalone: false`
+pipe or directive with no module beside it — and Angular takes only standalone declarations and
+`NgModule`s in `imports`. Left to Angular the failure is
+`The "WhisperPipe" pipe, imported from "ReportComponent", is not standalone. Does the pipe have the standalone: false flag?`,
+which reads as an instruction to go and change that pipe; the pipe is fine, and the same call works
+under JIT. `renderShallow` checks the scope it is about to hand over and throws first, naming the
+declarations and saying the scope cannot be rebuilt from what the definition holds. There are two
+ways on: drop `keepTemplate` when the spec reads TypeScript state only — the case this helper exists
+for — or build the component with `TestBed` directly, which leaves its compiled scope untouched, and
+hold the cost down by seeding the services its children inject instead of by trimming the template.
+
 ### Changing an input mid-test
 
 `inputs` covers the first values a component is given. Everything after it is the two lines a spec

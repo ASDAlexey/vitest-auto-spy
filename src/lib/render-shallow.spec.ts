@@ -9,6 +9,7 @@ import {
   Directive,
   ElementRef,
   Injectable,
+  NgModule,
   OnInit,
   Pipe,
   type PipeTransform,
@@ -94,6 +95,26 @@ class BareComponent {}
   template: '<span appMark>marked</span>',
 })
 class WithDirectiveComponent {}
+
+/** The vocabulary an NgModule owns: legal in a template, illegal in a standalone component's `imports`. */
+@Pipe({ name: 'whisper', standalone: false })
+class WhisperPipe implements PipeTransform {
+  transform(value: string): string {
+    return value.toLowerCase();
+  }
+}
+
+@NgModule({ declarations: [WhisperPipe], exports: [WhisperPipe] })
+class WhisperModule {}
+
+@Component({
+  selector: 'app-with-module-pipe',
+  imports: [WhisperModule],
+  template: '{{ label | whisper }}',
+})
+class WithModulePipeComponent {
+  readonly label = 'HELLO';
+}
 
 beforeEach(() => {
   childInstances = 0;
@@ -278,6 +299,67 @@ describe('the shapes a compiled `dependencies` comes in', () => {
       renderShallow(HostComponent, { keepTemplate: true, keepChildren: [ChildComponent] });
 
       expect(childInstances).toBe(1);
+    } finally {
+      restore();
+    }
+  });
+});
+
+describe('a template dependency an NgModule declares', () => {
+  /**
+   * What ngtsc leaves behind, written onto a JIT definition.
+   *
+   * AOT resolves an imported NgModule at compile time and flattens its exported declarations into
+   * `dependencies`; JIT keeps the module itself and resolves the scope at run time. So the list a
+   * real AOT build hands `keptScope` — a `standalone: false` pipe, with no module beside it — is
+   * reachable in this suite only by writing it.
+   */
+  function forceFlattenedScope(component: Type<unknown>, flattened: Type<unknown>[]): () => void {
+    const definition = Reflect.get(component, 'ɵcmp') as Record<string, unknown>;
+    const compiled = definition['dependencies'];
+
+    definition['dependencies'] = flattened;
+
+    return () => {
+      definition['dependencies'] = compiled;
+    };
+  }
+
+  it('refuses a kept template whose scope Angular would not take, and names the declaration', () => {
+    const restore = forceFlattenedScope(WithModulePipeComponent, [WhisperPipe]);
+
+    try {
+      expect(() => renderShallow(WithModulePipeComponent, { keepTemplate: true })).toThrow(/WhisperPipe/);
+      // The three things the message has to carry, because Angular's own names none of them: whose
+      // call this was, that the declaration is not the thing to change, and what to do instead.
+      expect(() => renderShallow(WithModulePipeComponent, { keepTemplate: true })).toThrow(/renderShallow\(WithModulePipeComponent/);
+      expect(() => renderShallow(WithModulePipeComponent, { keepTemplate: true })).toThrow(/Nothing is wrong with those declarations/);
+      expect(() => renderShallow(WithModulePipeComponent, { keepTemplate: true })).toThrow(/Drop `keepTemplate`/);
+    } finally {
+      restore();
+    }
+  });
+
+  it('says nothing when the module itself is what the list carries', () => {
+    const restore = forceFlattenedScope(WithModulePipeComponent, [WhisperModule]);
+
+    try {
+      // An NgModule belongs in `imports` whatever it declares, so the JIT shape is not refused.
+      const { fixture } = renderShallow(WithModulePipeComponent, { keepTemplate: true });
+
+      expect(fixture.nativeElement.textContent).toBe('hello');
+    } finally {
+      restore();
+    }
+  });
+
+  it('leaves a blanked template alone — nothing is being rebuilt there', () => {
+    const restore = forceFlattenedScope(WithModulePipeComponent, [WhisperPipe]);
+
+    try {
+      const { component } = renderShallow(WithModulePipeComponent);
+
+      expect(component.label).toBe('HELLO');
     } finally {
       restore();
     }
