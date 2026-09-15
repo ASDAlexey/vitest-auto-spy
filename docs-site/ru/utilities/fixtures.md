@@ -88,6 +88,7 @@ import { narrow } from 'vitest-auto-spy';
 const open = narrow(result.link, (link): link is OpenLink => 'params' in link);
 const params = narrow.byKey(result.link, 'params').params;
 const canMatch$ = narrow.observable(guard.canMatch(route, segments));
+const covers = narrow.defined(row.content?.covers);
 ```
 
 Спека сплошь и рядом знает то, чего не знает тип: что `result.link` — та единственная форма из двадцати,
@@ -106,6 +107,16 @@ const canMatch$ = narrow.observable(guard.canMatch(route, segments));
 `narrow.observable` живёт здесь, а не сводится к вызову `isObservable` из rxjs, потому что тот сужает до
 `Observable<unknown>` и теряет тип элемента, так что каждое место вызова руками дописывает
 типовой аргумент обратно. Проверка структурная, поэтому ядро не импортирует rxjs.
+
+`narrow.defined(value, label?)` — то сужение, которое нужно каждому чтению необязательного поля, и
+существует оно потому, что `expect(value).toBeDefined()` и `assert.exists(value)` оба утверждают, но
+не **возвращают**. Под строгим тайпчеком спек это стоит двух инструкций и локальной переменной на
+каждое чтение — `const covers = row.content?.covers; assert.exists(covers); … covers …`, — и
+умножается быстро: один набор наткнулся на эту форму пятнадцать раз в четырёх файлах, а дважды завёл
+вспомогательную функцию на каждый член заглушки только ради сужения. Это не замена `assert.exists`
+там, где само утверждение и есть смысл теста; разница в том, о чём строка: утверждает, что значение
+пришло, или читает то, про которое тест уже знает, что оно пришло. Ложное, но присутствующее значение
+проходит: `0`, `''`, `false` и `NaN` — все определены.
 
 ## `withOverrides(model, overrides?)` — модель, чьи геттеры выживают {#withoverrides-model-overrides-—-a-model-whose-getters-survive}
 

@@ -56,6 +56,34 @@ const narrowValue = defineHelper(<T>(value: T, predicate: (candidate: T) => bool
 });
 
 /**
+ * The narrowing every optional read needs: neither `null` nor `undefined`, handed back.
+ *
+ * ```ts
+ * const covers = narrow.defined(row.content?.covers);
+ *
+ * expect(covers.map((cover) => cover.code)).toEqual(['a', 'b']);
+ * ```
+ *
+ * `expect(value).toBeDefined()` and `assert.exists(value)` both assert this, and neither **returns**
+ * it — so under a strict spec type-check each optional read costs two statements and a local that
+ * exists for the narrowing alone (`const x = obj.member; assert.exists(x); … x …`). That shape
+ * multiplies: one suite hit it fifteen times across four files, and twice it grew a helper function
+ * per member of a stub. This returns the value, so the narrowing sits inside the expression that
+ * needed it.
+ *
+ * It is not a replacement for `assert.exists` where the *assertion* is the point of the test. The
+ * difference is which of the two the line is about: asserting that a value arrived, or reading a
+ * value the test already knows arrived.
+ */
+function defined<T>(value: T, label = 'a value that is neither null nor undefined'): NonNullable<T> {
+  if (value === null || value === undefined) {
+    throw narrowingFailed(label, value);
+  }
+
+  return value;
+}
+
+/**
  * The most common narrowing, without writing the guard: the branch that has this key.
  *
  * ```ts
@@ -101,6 +129,8 @@ interface Narrow {
   <T>(value: T, predicate: (candidate: T) => boolean, label?: string): T;
   /** {@link byKey} */
   byKey: typeof byKey;
+  /** {@link defined} */
+  defined: typeof defined;
   /** {@link observable} */
   observable: typeof observable;
 }
@@ -120,5 +150,6 @@ interface Narrow {
  */
 export const narrow: Narrow = Object.assign(narrowValue, {
   byKey: defineHelper(byKey),
+  defined: defineHelper(defined),
   observable: defineHelper(observable),
 });

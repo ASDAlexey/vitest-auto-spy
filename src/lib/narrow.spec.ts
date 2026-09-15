@@ -89,3 +89,29 @@ describe('narrow.observable', () => {
     expect(() => narrow.observable(true)).toThrow(/expected an Observable, but the value is boolean true/);
   });
 });
+
+describe('narrow.defined', () => {
+  it('hands the value back, so the narrowing sits inside the expression that needed it', () => {
+    const row: { content?: { covers?: string[] } } = { content: { covers: ['a', 'b'] } };
+
+    expect(narrow.defined(row.content?.covers).map((code) => code.toUpperCase())).toEqual(['A', 'B']);
+  });
+
+  it('keeps a falsy value that is neither null nor undefined', () => {
+    expect(narrow.defined(0)).toBe(0);
+    expect(narrow.defined('')).toBe('');
+    expect(narrow.defined(false)).toBe(false);
+    expect(narrow.defined(Number.NaN)).toBeNaN();
+  });
+
+  it('says which of the two it got', () => {
+    const missing: string | undefined = undefined;
+
+    expect(() => narrow.defined(missing)).toThrow(/expected a value that is neither null nor undefined, but the value is undefined/);
+    expect(() => narrow.defined(null)).toThrow(/but the value is null/);
+  });
+
+  it('takes a label, because "a value" says nothing at a site that has several', () => {
+    expect(() => narrow.defined(undefined, "the row's covers")).toThrow(/expected the row's covers, but the value is undefined/);
+  });
+});

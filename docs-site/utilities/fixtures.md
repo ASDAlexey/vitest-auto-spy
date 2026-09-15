@@ -86,6 +86,7 @@ import { narrow } from 'vitest-auto-spy';
 const open = narrow(result.link, (link): link is OpenLink => 'params' in link);
 const params = narrow.byKey(result.link, 'params').params;
 const canMatch$ = narrow.observable(guard.canMatch(route, segments));
+const covers = narrow.defined(row.content?.covers);
 ```
 
 A spec routinely knows something the type does not: that `result.link` is the one form of twenty that
@@ -104,6 +105,15 @@ than the assertion it replaces:
 `narrow.observable` exists here rather than as a call to rxjs's `isObservable` because that one
 narrows to `Observable<unknown>` and drops the element type, so every call site adds a type argument
 back by hand. The check is structural, so nothing in the core imports rxjs.
+
+`narrow.defined(value, label?)` is the one every optional read needs, and it exists because
+`expect(value).toBeDefined()` and `assert.exists(value)` both assert without **returning**. Under a
+strict spec type-check that costs two statements and a local per read — `const covers = row.content?.covers; assert.exists(covers); … covers …` —
+which multiplies fast: one suite hit that shape fifteen times across four files, and twice grew a
+helper function per member of a stub just to carry the narrowing. It is not a replacement for
+`assert.exists` where the assertion _is_ the point of the test; the difference is whether the line
+asserts that a value arrived, or reads one the test already knows arrived. A falsy-but-present value
+passes: `0`, `''`, `false` and `NaN` are all defined.
 
 ## `withOverrides(model, overrides?)` — a model whose getters survive
 

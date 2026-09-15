@@ -8,7 +8,7 @@
  */
 import { describe, expectTypeOf, it } from 'vitest';
 
-import { createFixture, createFixtureFactory } from '../auto-spy';
+import { createFixture, createFixtureFactory, narrow } from '../auto-spy';
 
 interface Article {
   id: string;
@@ -62,5 +62,29 @@ describe('createFixtureFactory', () => {
 
     // @ts-expect-error — `slug` is not on Article
     anArticle({ slug: 'x' });
+  });
+});
+
+describe('narrow.defined', () => {
+  it('strips null and undefined from the returned type, which assert.exists cannot do in an expression', () => {
+    const covers: string[] | null | undefined = ['a'];
+
+    expectTypeOf(narrow.defined(covers)).toEqualTypeOf<string[]>();
+    expectTypeOf(narrow.defined(covers)).not.toEqualTypeOf<string[] | undefined>();
+  });
+
+  it('leaves a type that was never nullish exactly as it was', () => {
+    // Through a function, so the literal is not what `defined` is handed.
+    const count = (): number => 7;
+
+    expectTypeOf(narrow.defined(count())).toEqualTypeOf<number>();
+  });
+
+  it('keeps the members of a union that are merely falsy', () => {
+    // Through a function: a `const` with a literal initialiser is narrowed by control flow before
+    // `defined` ever sees the union, which would prove nothing about the return type.
+    const falsy = (): '' | 0 | false | null => 0;
+
+    expectTypeOf(narrow.defined(falsy())).toEqualTypeOf<'' | 0 | false>();
   });
 });
