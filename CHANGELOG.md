@@ -10,6 +10,8 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+## [5.16.0] - 2026-09-17
+
 ### Added
 
 - **`narrow.defined(value, label?)`** returns the value with `null` and `undefined` stripped, so an
@@ -67,6 +69,10 @@ The latest released version here must always match the one published on
   suggestion, and the exit code are unchanged; the repair for the object form is written out as
   "write the keys out" rather than "inline the constant".
 
+## [5.15.1] - 2026-09-14
+
+### Fixed
+
 - **A seeded getter was flattened again by the defaults merge.** 5.15.0 kept an `overrides` seed as
   a descriptor where the double is built; the merge that puts a `registerAutoSpyDefaults`
   registration under the call site still copied both sides with a spread, and a spread reads every
@@ -79,6 +85,11 @@ The latest released version here must always match the one published on
   and the test failed on an assertion three frames away from the cause. The merge copies property
   descriptors now, on both sides and for every object key it merges (`overrides` and `returns`), so
   an accessor reaches `createProxyPropStore` as an accessor.
+
+## [5.15.0] - 2026-09-14
+
+### Fixed
+
 - **A getter in `overrides` ran while the double was being built.** `createAutoMock` and `mockDeep`
   read every seeded key with `Reflect.get` and stored the result, so an accessor in the seed was
   flattened at construction: a getter written to throw — the way a spec says "this global is missing
@@ -5654,7 +5665,10 @@ by hand there, in more than one place, by more than one person.
   `mockAccessorsProp`.
 - Dual ESM + CJS build with type declarations; 100% test coverage.
 
-[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.14.0...HEAD
+[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.16.0...HEAD
+[5.16.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.15.1...v5.16.0
+[5.15.1]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.15.0...v5.15.1
+[5.15.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.14.0...v5.15.0
 [5.14.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.13.0...v5.14.0
 [5.13.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.12.0...v5.13.0
 [5.12.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.11.0...v5.12.0
