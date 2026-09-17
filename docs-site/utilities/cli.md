@@ -306,12 +306,24 @@ of them smaller by writing better code. `import` is worse to attribute — under
 first file to reach a module pays for all of them, so the bill lands on whichever file the scheduler
 started. `tests` is the one phase that is somebody's code, so `tests` is what the budgets are over.
 
-**A budget is relative first and absolute second.** A file is over budget when it is over
-`--max-file-ms` **and** over `--factor` × the median file of the same run. The median moves with the
-machine, so the verdict survives a change of hardware; the absolute floor stops a fast suite from
-reporting its own fastest outlier as a defect. A suite that is uniformly slow produces no file
-finding at all — there is no outlier in it — which is what `--max-wall-ms` is for, and that one is
-off unless you ask, because wall clock is a property of the runner.
+**A file budget is counted in the run's median test, not in milliseconds.** The median test is the
+median, over the files that finished a test, of each file's bodies divided by its test count. A file
+is over budget when its bodies add up to more than the largest of three numbers: `--max-file-tests`
+(2 000) × the median test, `--factor` (10) × the median test for each test in the file, and
+`--max-file-ms` (5 000). The first two move with the machine — a loaded runner raises every test —
+so the verdict is the same on a laptop and on a runner nine times slower. The third is a floor that
+can only spare a file, never condemn one. A suite that is uniformly slow produces no file finding at
+all — there is no outlier in it — which is what `--max-wall-ms` is for, and that one is off unless
+you ask, because wall clock is a property of the runner.
+
+The rule used to be `--max-file-ms` **and** `--factor` × the median **file**, and on a 2 023-file
+consumer suite that judged file size and runner speed instead of slowness. The median file there is
+8.9 ms and five tests, so ten times it never came near the 5 s floor and the floor decided alone: the
+same report replayed at ×1, ×3, ×6 and ×9 slowdown flagged 0, 4, 8 and 19 files, among them a 209-test
+service spec at 5 ms a test, and one component spec measured 0.96 s on its own on a laptop and 5.62 s
+on its own on CI, green on one and red on the other. Splitting a file passed that gate, too. The same
+report under the per-test rule flags nothing at any slowdown; its heaviest file adds up to 742 median
+tests against the 2 000 it would take.
 
 **Nothing fails on one measurement.** Every candidate is re-measured on its own before it is allowed
 to fail anything, through the same `--command` the first reading came from. A file that is not slow
@@ -320,6 +332,52 @@ because "your test is slow" and "your test shared a worker with four others" are
 statements, and a gate that cannot tell them apart is switched off within a week. Where no
 confirmation is possible the findings are warnings that fail nothing, unless `--no-confirm` says one
 reading is enough.
+
+**A confirmed finding says why.** The confirmation pass runs the suspect files on their own anyway,
+so that is where the reason is measured: `perf` sets `VITEST_AUTO_SPY_PERF_PROFILE`, the reporter adds
+`dist/perf-profiler.js` to every project's `setupFiles` for that pass only, and the profiler records a
+CPU profile of each file through the worker's own `node:inspector` session, sampling every 500 µs.
+`--cpu-prof` records nothing here — a pool worker is terminated rather than allowed to exit, and Node
+writes that profile on exit. The same pass records every test body of those files rather than the
+ones over 100 ms, so the finding can name the slowest of them. Under a confirmed finding the gate
+prints the file's slowest tests, the share spent in hooks against test bodies, and the functions the
+time went to — in the spec, in the project's code under it, by package, and the hottest ones on their
+own:
+
+```
+error  perf-gate-slow-file libs/player/src/lib/vod/vod.component.spec.ts
+       The test bodies in this file add up to 9.20s, over the 5.00s budget (…). Re-measured on its own: 8.70s, still over budget.
+
+       ┌─ measurements ────────────────────────────────────────────────
+       │ first run      9.20s   budget 5.00s   1.8× over
+       │ on its own     8.70s   still over budget
+       │ tests             38   242ms each   20× the median test
+       ├─ slowest tests ───────────────────────────────────────────────
+       │  527ms  focus > moves through the controls
+       │  332ms  chapters > skips the intro
+       │  291ms  chapters > hides the controls after six seconds
+       ├─ where the time went · CPU profile, 8.41s sampled ────────────
+       │ hooks        ███████████░░░░░░░░░ 54%   test bodies 46%
+       │ by package   ██████░░░░░░░░░░░░░░  28%  jsdom
+       │              █████░░░░░░░░░░░░░░░  25%  @angular/core
+       │              ██░░░░░░░░░░░░░░░░░░  10%  zone.js
+       │ in the spec  setUpWith 38%  ·  VodComponent_Template 17%  ·  assertFocus 8%
+       │ your code    FocusCollectionDirective 4%  ·  TimelineComponent_Template 3%  ·  platformFactory 1%
+       │ hottest      (garbage collector) 3%  ·  onScheduleTask (zone.js) 2%  ·  refreshView (@angular/core) 2%
+       ├─ likely cause ────────────────────────────────────────────────
+       │ Most of the time is set-up that every test repeats: 54% is in hooks — setUpWith alone is 38%. Build what does not change once, in a beforeAll, or render less per test.
+       │ The largest single cost is jsdom (28%): rendering and change detection, which grow with the size of the tree each test builds.
+       └───────────────────────────────────────────────────────────────
+
+       → Every test in this file costs many times an ordinary test of the same run. (…)
+```
+
+In a terminal the card is colored: the over-budget numbers and the slowest bodies past `--max-test-ms` in red, the rest of the timings in yellow, a bar per share that turns yellow at 20 % and red at 40 %, and the frame dimmed. The **likely cause** is at most two sentences, each fired by a rule the card states — more than half the time in hooks, one test three times the next, a DOM or framework package over 20 %, garbage collection over 10 % — and it is absent when none fires. The first line of the finding is unchanged and every card line is indented, so a harness that collects a finding as its `error` line plus the indented lines under it relays the whole card. `NO_COLOR` prints it without color.
+
+Every share is of the sampled time with idle ticks left out, and a function is counted once per sample
+however deep it recurses, so inclusive lines add up to more than 100 % — `setUpWith` contains the
+change detection under it. A profile that could not be read leaves the finding without those lines
+rather than failing anything.
 
 ```
 $ npx vitest-auto-spy perf --json out/perf.json --gate --command 'npm test -- {paths:--include=}'
@@ -349,20 +407,25 @@ under `--gate`.
 
 ### The two tables, and the shards they were merged from
 
-Under the phase table `perf` prints the two lists a reader actually opens the report for — **the
-slowest files** and **the slowest test bodies** — because the phase table is a total and the rules
-above it only fire on specific fixable shapes. The file table carries `ms/test` next to `time`, and
-that column is the one that decides whether to open the file: 400 tests sharing 6 s is a large file,
-3 tests sharing 6 s is a slow one. `--top 0` turns both off; a run whose slowest file is under a
-second prints neither.
+At the bottom of the report, after the findings, `perf` prints what would fail `--gate` and nothing
+else: **files over budget**, with `time`, the `budget` it is over, `ms/test` and `vs median test`,
+and **test bodies over budget**, the ones at or over `--max-test-ms`. The rows come from the same
+functions the gate judges with and `--gate-only` narrows them the same way, so the table and the
+verdict under it cannot disagree. They used to be the ten slowest files and bodies of any run, and on
+a 2 023-file consumer suite the top of that list was a 234-test component spec at 8.6 ms a test and a
+209-test service spec at 5 ms — the largest files, which nobody should open. When nothing is over
+budget one line says so; under `--gate` that line is left to the gate's own all-clear. `--top` caps
+the rows and `--top 0` turns both tables off.
 
 A body is named by two things — the file it lives in and its own name — so the bodies table prints
 the file once, whole, and indents its bodies under it rather than paying for both out of one column.
 A name that still does not fit loses its head, where the parent suites are, and keeps the test. A
 path too wide for its column is cut in the middle, on segment boundaries:
 `libs/…/lib/ads/ads.controller.spec.ts` still names the project and the file, where a cut at either
-end names neither. Times at or over the per-body budget are red and the headers are dim; `NO_COLOR`,
-`FORCE_COLOR=0` and `TERM=dumb` turn the color off.
+end names neither. The time of every row is red and the headers are dim; `NO_COLOR`,
+`FORCE_COLOR=0` and `TERM=dumb` turn the color off. Widths are counted on what the terminal shows:
+padding that counted the escape sequence around a cut path's dimmed ellipsis used to pull that row
+eight columns left of its neighbours.
 
 A sharded pipeline writes one report per job, and a rule that compares a file against **the median
 of its own run** then compares it against a quarter of the evidence. `--json` takes a directory or a
@@ -413,8 +476,9 @@ reported as drift. `--baseline-factor` (2) and `--baseline-floor-ms` (500) are t
 | `--command <c>`       | Measure this shell line instead of running Vitest directly; `{paths}` / `{paths:<prefix>}` take the files of a confirmation pass                                  |
 | `--gate`              | Fail the run over a confirmed budget. Exit 1                                                                                                                      |
 | `--max-test-ms`       | Budget for one test body. Default 1000; nothing under 100 ms is recorded, so that is the floor                                                                    |
-| `--max-file-ms`       | Budget for a file's bodies added up. Default 5000, and the file must also be over `--factor` × the run's median                                                   |
-| `--factor <n>`        | How many times the median file a file has to be. Default 10 — this is what makes the verdict machine-independent                                                  |
+| `--max-file-ms`       | A file whose bodies add up to less than this is never a finding. Default 5000                                                                                     |
+| `--max-file-tests`    | How many of the run's median tests a file's bodies have to add up to. Default 2000                                                                                |
+| `--factor <n>`        | How many times the run's median test one test of a file has to cost. Default 10 — counted in the run itself, so the verdict is machine-independent                |
 | `--max-wall-ms`       | A whole-run budget. Off by default: wall clock is a property of the runner, so nothing derives it for you                                                         |
 | `--gate-only`         | Comma-separated paths the gate may judge; the median is still taken over the whole run                                                                            |
 | `--no-confirm`        | Skip the confirmation pass and gate on a single reading                                                                                                           |
@@ -422,7 +486,7 @@ reported as drift. `--baseline-factor` (2) and `--baseline-floor-ms` (500) are t
 | `--update-baseline`   | Record this run into the baseline instead of judging it. Defaults to `perf-baseline.json`                                                                         |
 | `--baseline-factor`   | How many times its recorded share a file has to take before it is a regression. Default 2                                                                         |
 | `--baseline-floor-ms` | The absolute floor under which a grown file is still noise. Default 500                                                                                           |
-| `--top <n>`           | Rows in the "slowest files" and "slowest bodies" tables; `0` turns them off. Default 10                                                                           |
+| `--top <n>`           | Rows in the "files over budget" and "test bodies over budget" tables; `0` turns them off. Default 10                                                              |
 | `--min-severity`      | The quietest findings the report prints: `error`, `warning` or `info` (default). The tally line still counts what was hidden, and the exit code does not move     |
 
 A positional path (`npx vitest-auto-spy perf src/cli`) is passed through to Vitest as its file

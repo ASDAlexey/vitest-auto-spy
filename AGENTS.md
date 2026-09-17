@@ -3729,9 +3729,16 @@ files of a confirmation pass go.
 
 **`--gate` is the only part of this command that fails anything**, and three rules keep it honest.
 It judges the `tests` phase alone, because the other five are the harness and the machine rather than
-anybody's code. A file is over budget only when it is over both an absolute floor and `--factor` ×
-the median file **of the same run**, which is what makes the verdict the same on a loaded CI runner
-and on an idle laptop. And every candidate is re-measured on its own before it may fail anything: a
+anybody's code. A file budget is counted in the median test **of the same run** — the largest of
+`--max-file-tests` (2 000) median tests, `--factor` (10) × the median test for each test in the file,
+and a `--max-file-ms` (5 000) floor that can only spare a file — which is what makes the verdict the
+same on a loaded CI runner and on an idle laptop, and what keeps a large file of ordinary tests out of
+it: the rule it replaced, `--factor` × the median **file**, flagged 0 files of a 2 023-file consumer
+suite at ×1 slowdown and 19 at ×9, a 209-test service spec at 5 ms a test among them. A confirmed finding
+also says why: the confirmation pass records a CPU profile of each suspect file and every one of its
+test bodies, and the gate prints the slowest tests, the share in hooks against bodies, and where the
+time went in the spec, in your code and by package. The report ends in two tables of what is over
+budget and nothing else. And every candidate is re-measured on its own before it may fail anything: a
 file that is fast when it has the machine to itself is reported as _not reproduced_, an `info` rather
 than a finding. Without a way to re-measure, findings are warnings that fail nothing unless
 `--no-confirm` says one reading is enough. Exit `1` is "over budget", exit `2` is "there was nothing
