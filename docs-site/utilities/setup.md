@@ -1,6 +1,6 @@
 ---
 title: Test-run hygiene
-description: setupAutoSpy() — property restore, mock-registry reset, duplicate-copy detection, stray timers, rejections and console output, global-patch guarding and a strict preset in one call.
+description: setupAutoSpy() — property restore, mock-registry reset, duplicate-copy detection, stray timers, rejections and console output, global-patch and shared-document guarding and a strict preset in one call.
 ---
 
 # Test-run hygiene
@@ -862,6 +862,74 @@ own virtual console, which captured the real console before Vitest intercepted i
 through `console.error`, so with `strayRejections` on it is reported twice over; the first failure
 wins, and it is the rejection report.
 
+## 17. An attribute left on the shared document
+
+Opt-in, and on under `preset: 'strict'`. Under `isolate: false` every spec file in a worker renders
+into one jsdom document, and nothing puts it back between files. In the suite this was found in, a
+keyboard component's effect ran `renderer.setAttribute(document.body, 'data-reset-focus', '')` and
+nothing took it off. A navigation service elsewhere returns early whenever
+`document.querySelector('[data-reset-focus]')` matches, so its spec failed 34 of 209 tests — about one
+full run in six, only when the two files landed in the same worker, and never on its own. No other
+guard sees it: nothing was sealed or added to a prototype, no timer, console call or rejection was
+left behind.
+
+```ts
+setupAutoSpy({ documentPollution: 'throw' }); // 'warn' puts the document back and only reports
+```
+
+```text
+[vitest-auto-spy] "KeyboardComponent > renders the layout" (libs/keyboard/src/lib/keyboard.component.spec.ts)
+left the shared document changed:
+  - <body> data-reset-focus="" added
+… The document has been put back. Undo the change where it was made: in the `ngOnDestroy` /
+`DestroyRef.onDestroy` of the component that set it, in an `afterEach` of this spec, or by destroying
+the fixture that owns it.
+```
+
+The attributes of `<html>`, `<head>` and `<body>` are recorded before each test. Every attribute
+added, changed or removed by the end of it is reported with both values and put back, and the test
+fails. A change made in a `beforeAll` and never undone is reported against the file.
+
+**When it looks matters.** Not in an `afterEach`: a setup file registers its hooks after the TestBed's
+(the builder's `init-testbed.js` is its first setup file), `afterEach` hooks run in reverse, and so an
+`afterEach` check would run before the TestBed destroys the fixtures — reporting every attribute a
+component removes on destroy, and every `<style>` and root element Angular removes in the same
+teardown. The test check runs from `onTestFinished`, which Vitest calls after the whole `afterEach`
+chain; the file check from a `beforeAll` cleanup, which runs after every `afterAll`. Measured on a
+zoneless TestBed: at `afterEach` time the component's style, its root element and the attribute its
+`DestroyRef` owned were still there, and at both of these points none was.
+
+| Form                                                          | What it does                                                                                   |
+| ------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `'throw'` / `'warn'` / `'off'`                                | The reaction; `'warn'` writes to stderr and still puts the document back                       |
+| `{ reaction }`                                                | Same, `'throw'` when left out                                                                  |
+| `{ nodes: true }`                                             | Also the child elements of `<head>` and `<body>` — added ones taken out, removed ones put back |
+| `{ ignoreAttributes: ['aria-hidden', /^data-cdk-/] }`         | Attributes left alone, by exact name or tested RegExp                                          |
+| `{ nodes: true, ignoreNodes: 'style, link[rel=stylesheet]' }` | Child elements left alone, as a CSS selector                                                   |
+
+`nodes` is off by default: a library that injects a stylesheet the first time it is imported does so
+once per worker, and a node check would charge that `<style>` to whichever test imported it first.
+What it costs: about 4 µs per test for the attributes, 10 µs with `nodes`.
+
+What it cannot see:
+
+- a write made while the spec file is being **imported** — it happens before any hook of that file,
+  so the baseline already contains it;
+- a fixture kept alive by `teardown: { destroyAfterEach: false }`: the TestBed destroys it in the next
+  test's `beforeEach`, so what its component owns is reported against the test that rendered it —
+  turn `destroyAfterEach` on, or put the owned attribute in `ignoreAttributes`;
+- `document.title`, focus, cookies and `customElements` — none of them an attribute, and a custom
+  element definition cannot be undone.
+
+What an Angular suite should expect it to find: code that decorates `<html>` or `<body>` for the whole
+app — a scroll lock a modal or an overlay left open, a theme or platform class, a `lang` / `dir` an i18n
+service sets, a `data-*` flag a focus manager raises. Each is a real leftover under a shared document;
+the fix is to close or destroy what set it, and `ignoreAttributes` is the last resort for one that is
+set once on purpose.
+
+`guardDocumentPollution(option)` registers the same check on its own. Vitest only, like every guard
+in `/setup`: `bun:test`, `node:test` and Rstest have no setup entry to host it.
+
 ## One grade for everything: `preset: 'strict'` {#one-grade-for-everything-preset-strict}
 
 ```ts
@@ -877,6 +945,7 @@ Starts every guard at its strictest grade. An option passed alongside it still w
 | `propsOutsideHooks`  | `'throw'`                               | `'warn'`           |
 | `guardGlobals`       | `'throw'`                               | `'off'`            |
 | `prototypePollution` | `'throw'`                               | `'throw'`          |
+| `documentPollution`  | `'throw'`                               | `'off'`            |
 | `strayConsole`       | `'throw'`                               | `'off'`            |
 | `misconfiguration`   | `'throw'`                               | `'warn'`           |
 | `strayTimers`        | `true`                                  | `false`            |
@@ -973,32 +1042,33 @@ each test: a stub installed for the previous test is exactly what must not still
 
 ## Options
 
-| Option                | Default   | Notes                                                                                  |
-| --------------------- | --------- | -------------------------------------------------------------------------------------- |
-| `duplicateCopies`     | `'throw'` | `'warn'` to report without failing, `'off'` to skip the check                          |
-| `restoreProps`        | `true`    | `restoreMockedProps()` in a global `afterEach`                                         |
-| `propsOutsideHooks`   | `'warn'`  | Report a `mock*Prop` patch made outside a per-test hook — see below                    |
-| `restoreMocks`        | `false`   | `vi.restoreAllMocks()` in a global `afterEach` — turn on for `isolate: false`          |
-| `strayTimers`         | `false`   | Track and cancel timeouts, intervals and frames that outlive their file                |
-| `onStrayTimers`       | —         | Takes the per-file count and each stray's origin, instead of the stderr warning        |
-| `strayRejections`     | `false`   | Fail the test a rejection zone.js swallowed surfaced in — needs zone.js                |
-| `blockNetwork`        | `false`   | Close every network channel the environment has — `true`, or a narrowing object        |
-| `guardGlobals`        | `'off'`   | Report a test that redefines a global property as non-configurable                     |
-| `prototypePollution`  | `'throw'` | Sweep and report an enumerable key a test left on a built-in prototype                 |
-| `strayConsole`        | `'off'`   | Fail a test (or file) that wrote to the console without absorbing it — section 16      |
-| `misconfiguration`    | `'warn'`  | `'throw'` fails the library's own misuse reports at the call site                      |
-| `preset`              | —         | `'strict'` starts every guard at its strictest grade — see above                       |
-| `globalFakeTimers`    | `false`   | Fake timers for every test **and between them** — see below                            |
-| `restoreTimerGlobals` | `true`    | Put back timer globals that uninstalling the fakes deleted                             |
-| `restoreWebStorage`   | `true`    | Give the run a `localStorage` / `sessionStorage` that work — see section 14            |
-| `pruneMockRegistry`   | `false`   | Keep @vitest/spy's ever-growing mock registry to the mocks that outlive a file         |
-| `hookTimeoutHint`     | `true`    | Explain a hook that ran out of `hookTimeout` while `testTimeout` is larger             |
-| `frozenClockHint`     | `true`    | Explain a timeout that happened because nothing advanced the fake clock                |
-| `angularBuildHint`    | `true`    | Say once per worker that `@angular/build` builds the test bundle unsplit               |
-| `strict`              | `false`   | Every double built afterwards throws on a method nobody configured                     |
-| `onUnstubbedCall`     | —         | The general form of `strict` — its return value becomes the call's result              |
-| `unconfiguredReads`   | `'off'`   | Report a strict double's getter read, or stream subscribed to, that nothing configured |
-| `onUnstubbedRead`     | —         | Takes those findings instead of the report, from every double — for a survey           |
+| Option                | Default   | Notes                                                                                       |
+| --------------------- | --------- | ------------------------------------------------------------------------------------------- |
+| `duplicateCopies`     | `'throw'` | `'warn'` to report without failing, `'off'` to skip the check                               |
+| `restoreProps`        | `true`    | `restoreMockedProps()` in a global `afterEach`                                              |
+| `propsOutsideHooks`   | `'warn'`  | Report a `mock*Prop` patch made outside a per-test hook — see below                         |
+| `restoreMocks`        | `false`   | `vi.restoreAllMocks()` in a global `afterEach` — turn on for `isolate: false`               |
+| `strayTimers`         | `false`   | Track and cancel timeouts, intervals and frames that outlive their file                     |
+| `onStrayTimers`       | —         | Takes the per-file count and each stray's origin, instead of the stderr warning             |
+| `strayRejections`     | `false`   | Fail the test a rejection zone.js swallowed surfaced in — needs zone.js                     |
+| `blockNetwork`        | `false`   | Close every network channel the environment has — `true`, or a narrowing object             |
+| `guardGlobals`        | `'off'`   | Report a test that redefines a global property as non-configurable                          |
+| `prototypePollution`  | `'throw'` | Sweep and report an enumerable key a test left on a built-in prototype                      |
+| `documentPollution`   | `'off'`   | Put back and report an attribute a test left on `<html>` / `<head>` / `<body>` — section 17 |
+| `strayConsole`        | `'off'`   | Fail a test (or file) that wrote to the console without absorbing it — section 16           |
+| `misconfiguration`    | `'warn'`  | `'throw'` fails the library's own misuse reports at the call site                           |
+| `preset`              | —         | `'strict'` starts every guard at its strictest grade — see above                            |
+| `globalFakeTimers`    | `false`   | Fake timers for every test **and between them** — see below                                 |
+| `restoreTimerGlobals` | `true`    | Put back timer globals that uninstalling the fakes deleted                                  |
+| `restoreWebStorage`   | `true`    | Give the run a `localStorage` / `sessionStorage` that work — see section 14                 |
+| `pruneMockRegistry`   | `false`   | Keep @vitest/spy's ever-growing mock registry to the mocks that outlive a file              |
+| `hookTimeoutHint`     | `true`    | Explain a hook that ran out of `hookTimeout` while `testTimeout` is larger                  |
+| `frozenClockHint`     | `true`    | Explain a timeout that happened because nothing advanced the fake clock                     |
+| `angularBuildHint`    | `true`    | Say once per worker that `@angular/build` builds the test bundle unsplit                    |
+| `strict`              | `false`   | Every double built afterwards throws on a method nobody configured                          |
+| `onUnstubbedCall`     | —         | The general form of `strict` — its return value becomes the call's result                   |
+| `unconfiguredReads`   | `'off'`   | Report a strict double's getter read, or stream subscribed to, that nothing configured      |
+| `onUnstubbedRead`     | —         | Takes those findings instead of the report, from every double — for a survey                |
 
 `restoreMocks` is off by default because it also drops `vi.spyOn` stubs a suite installed in
 `beforeAll`; it is the knob to reach for when the run shares one environment across files.

@@ -348,6 +348,7 @@ export default defineConfig({
           'spy provided but real service used, no-private-member-access, no-dead-schemas, ' +
           'Spread syntax requires ...iterable[Symbol.iterator] to be a function, failed suites with no stack, ' +
           'test files failed but 0 tests failed, files fail to collect isolate false, Object.prototype pollution vitest, ' +
+          'test passes alone fails in full run, attribute left on body between tests, jsdom document shared between test files, document.body attribute leak vitest, guardDocumentPollution, documentPollution, ' +
           'guardPrototypePollution, prototypePollution, hand written class double, no-stub-class-double, no-structural-double, ' +
           'not assignable to parameter of type HttpEvent, overloaded method mock wrong signature, ' +
           'prefer-render-shallow, TestBed.createComponent slow, angular component test slow, ' +

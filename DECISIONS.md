@@ -8,6 +8,45 @@ reason.
 
 Shipped work is not here either — it is in `CHANGELOG.md` and in git history.
 
+## `documentPollution` — what the shared-document guard does not do, 2026-09-17
+
+Asked for after a consumer suite lost 34 tests, one full run in six, to a `data-reset-focus` attribute
+another spec file left on `<body>`. What shipped is in `CHANGELOG.md`; what was weighed and left out is
+here.
+
+- [~] **Checking in the shared `afterEach`**, as `prototypePollution` does. Not done, and measured
+  rather than assumed: the builder's `init-testbed.js` and Analog's `setupTestBed` register the TestBed
+  cleanup before the project's setup file runs, `afterEach` hooks run in reverse, so the check would
+  come before the fixtures are destroyed. On a zoneless TestBed that point still had the component's
+  `<style>`, its root element and an attribute its `DestroyRef` removes. `onTestFinished` and a
+  `beforeAll` cleanup both run after every such hook whatever `sequence.hooks` says.
+- [~] **`'throw'` by default.** Not done. `prototypePollution` could default to failing in 5.5.0
+  because one key kills collection for the rest of the worker; a leftover attribute breaks only code
+  that reads it, and a suite that has lived with a few harmless ones must not go red on a minor
+  upgrade. The strict preset carries it at `'throw'`, as it took `swallowedStrictCalls` in 5.7.0.
+- [~] **Nodes by default.** Off: a library that injects a stylesheet on first import does so once per
+  worker, and the check would charge it to whichever test imported it first. Angular's own teardown
+  leaves nothing in `<head>` or `<body>` when `destroyAfterEach` is on, so an Angular-only suite can turn
+  it on.
+- [~] **The whole tree, through a `MutationObserver`.** Not done. Records arrive in a microtask, so
+  attribution to a test needs a flush the runner does not give, and everything under a fixture's root
+  belongs to the TestBed, which removes it. The three elements every file shares are where a leftover
+  outlives its file.
+- [~] **`document.title`, focus, cookies, `adoptedStyleSheets`, `customElements`.** Not watched. None
+  is an attribute; a custom element definition cannot be undone, so the guard could name it but never
+  repair it, and an unrepaired report repeats in every later file.
+- [~] **A write made while the spec file is imported.** Unreachable from any hook of that file, like
+  the import-time case of `prototypePollution`. Taking the baseline when `setupAutoSpy()` runs instead
+  of in `beforeAll` would see it, and would also report every attribute a later setup file sets, once
+  per file.
+- [~] **`bun:test`, `node:test`, Rstest.** No `/setup` entry exists on them to host a guard; the
+  `/bun-angular` preload resets the TestBed but carries no guards.
+- [~] **Recognising module-scope registrations at collection** — `A metric with the name … has already
+been registered` from `prom-client`, `customElements.define` twice. Under `@angular/build:unit-test`
+  with `isolate: false` a workspace module can run its module scope once per spec file while an
+  external registry lives once per worker. The error is thrown while the file is imported, before any
+  hook, so there is no seam to add a hint from; it is documented as a row of the error table instead.
+
 ## `mockReturnValue` over a `calledWith`: reported, not repaired, 2026-09-13
 
 Reported from a consumer suite as "the branch is not being called": `spy.m.calledWith(1).mockReturnValue(a)`
