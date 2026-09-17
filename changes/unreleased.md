@@ -5,7 +5,7 @@
 > Conventional Commits only when a version has no section there yet), so nothing here is pasted
 > anywhere. See `CONTRIBUTING.md` → "Releasing".
 
-_Last released: **v5.16.0** — the git tag, `package.json` and `CHANGELOG.md` agree._
+_Last released: **v5.17.1** — the git tag, `package.json` and `CHANGELOG.md` agree._
 
 ## Staged for the next release
 
@@ -13,43 +13,49 @@ _Last released: **v5.16.0** — the git tag, `package.json` and `CHANGELOG.md` a
 
 ### Added
 
-- **`documentPollution` — the attribute a test leaves on `<body>`, named and put back.** Under
-  `isolate: false` a worker's spec files share one jsdom document. On a consumer suite a keyboard
-  component's `effect` ran `renderer.setAttribute(document.body, 'data-reset-focus', '')` and nothing
-  took it off; a navigation service elsewhere returns early whenever
-  `document.querySelector('[data-reset-focus]')` matches, so its spec failed 34 of 209 tests — about one
-  full run in six, only when the two files shared a worker, never on its own — and the same run showed
-  a second spec leaving `data-visited` behind. No guard saw it: nothing reached a prototype or sealed a
-  global, and no timer, console call or rejection was left over. `setupAutoSpy({ documentPollution })`
-  records the attributes of `<html>`, `<head>` and `<body>` before each test, and after it reports
-  every one added, changed or removed with both values, puts the old state back and fails that test
-  (`'throw'`), or only reports it on stderr (`'warn'`). A change made in a `beforeAll` and never undone
-  fails the file. `{ nodes: true }` watches the child elements of `<head>` and `<body>` as well, with
-  `ignoreAttributes` (names or RegExps) and `ignoreNodes` (a CSS selector) for what a project sets on
-  purpose. The check runs from `onTestFinished` and from a `beforeAll` cleanup rather than an
-  `afterEach`: a setup file's `afterEach` runs **before** the TestBed's own teardown, and measured on a
-  zoneless TestBed it would have reported the component style, the root element and an attribute a
-  `DestroyRef` removes, every one of which is gone by the time these run. About 4 µs per test, 10 µs
-  with `nodes`. `'off'` by default, `'throw'` under `preset: 'strict'` — the precedent
-  `swallowedStrictCalls` set in 5.7.0: a new failing grade reaches only suites that asked for every
-  guard at its failing grade, while `prototypePollution` could default to `'throw'` because what it
-  catches kills collection outright, and a leftover attribute breaks only the code that reads it.
-  `guardDocumentPollution(option)` from `/setup` registers the same check on its own. Vitest only, like
-  every `/setup` guard. +1.0 kB min+gzip on `/setup`, nothing on any other entry.
+- **A confirmed perf gate finding says why the file is slow.** The confirmation pass already runs each
+  suspect file on its own, so that is where the reason is measured: `perf` sets
+  `VITEST_AUTO_SPY_PERF_PROFILE`, the reporter adds `dist/perf-profiler.js` to every project's
+  `setupFiles` for that pass only, and the profiler records a CPU profile per file through the worker's
+  own `node:inspector` session at a 500 µs sampling interval — `--cpu-prof` records nothing, because a
+  pool worker is terminated rather than allowed to exit. The pass also records every test body of those
+  files instead of the ones over 100 ms. Under a confirmed finding the gate prints the file's slowest
+  tests, the share spent in hooks against test bodies, and where the time went: in the spec, in your
+  code, by package, and the hottest functions. An ordinary run never loads the profiler.
+  They come as a card under the finding, one row per number in a fixed order — the two readings against
+  the budget, the test count and its multiple of the median test, the slowest bodies, a bar per share —
+  and a **likely cause** of at most two sentences, each fired by a rule it names (over half the time in
+  hooks, one test three times the next, a DOM or framework package over 20 %, garbage collection over
+  10 %). Colored in a terminal, plain under `NO_COLOR`; the finding keeps its `error` first line and
+  every card line is indented, so a harness relaying findings by that shape carries the whole card.
+- **`--max-file-tests <n>`** (default 2000): how many of the run's median tests a file's bodies have to
+  add up to before the file is judged. See the gate fix below.
+
+### Changed
+
+- **`perf` ends in what would fail `--gate`, and nothing else.** The "slowest files" and "slowest test
+  bodies" top-ten tables are replaced by **files over budget** (`time`, `budget`, `ms/test`,
+  `vs median test`) and **test bodies over budget** (at or over `--max-test-ms`), printed after the
+  findings and built from the gate's own budget functions, `--gate-only` included. On a 2 023-file
+  consumer suite the old top of the list was a 234-test component spec at 8.6 ms a test and a 209-test
+  service spec at 5 ms — the largest files, which nobody should open. Nothing over budget prints one
+  line, left to the gate's all-clear under `--gate`. `--top` still caps the rows and `--top 0` turns
+  the tables off.
 
 ### Fixed
 
-- **`documentPollution` failed a test for a `class=""` that nothing can observe.** `classList.add('x')`
-  and a later `classList.remove('x')` — or Renderer2's `addClass` / `removeClass`, or a `style.overflow`
-  set and then cleared — do not take the attribute back off: `<body>` ends the test with `class=""` or
-  `style=""` where it started with no attribute at all. No selector, `classList.contains`, `className`
-  truthiness check or computed style tells the two apart, yet the guard reported
-  `<body> class="" added` and, under `'throw'`, failed a test that had cleaned up after itself.
-  Rolled out on a consumer suite, this was 9 of the 32 failures, across 5 files — an onboarding banner, an overlay, a profile
-  page and the player's fullscreen mode, each removing exactly the class it added — and the other 23
-  were real leftovers (`data-reset-focus`, a platform class, a scroll lock). An empty `class` or `style`
-  now reads as the attribute being absent, in both directions: absent → `""` and `""` → absent are no
-  change, and the repair leaves the empty attribute where it is instead of churning the DOM for nothing.
-  Only those two: their empty value is defined to mean no classes and no declarations, whereas an empty
-  `data-reset-focus=""` is a present flag that `[data-reset-focus]` matches, and it is still reported —
-  the case the guard was written for.
+- **The perf gate's file rule judged file size and runner speed instead of slowness.** A file was over
+  budget when it was over `--max-file-ms` and `--factor` × the median **file**. On a 2 023-file consumer
+  suite the median file is 8.9 ms and five tests, so ten times it never came near the 5 s floor and the
+  floor decided alone: the same report replayed at ×1, ×3, ×6 and ×9 slowdown flagged 0, 4, 8 and 19
+  files — a 209-test service spec at 5 ms a test among them — and one component spec measured 0.96 s on
+  its own on a laptop and 5.62 s on its own on CI, green on one and red on the other. Splitting a file
+  passed the gate. A file budget is now counted in the run's median test — the median over files of
+  bodies divided by test count — as the largest of `--max-file-tests` (2000) median tests, `--factor`
+  (10) × the median test for each test in the file, and `--max-file-ms` (5000), which is now only a
+  floor that can spare a file and never condemn one. The same report flags nothing at any slowdown; its
+  heaviest file adds up to 742 median tests against the 2000 it would take. `--factor` means per test
+  now, not per file.
+- **A hotspot row with a cut path sat eight columns left of its neighbours.** Padding counted the
+  escape sequence around the dimmed ellipsis as visible width; widths are now counted on what the
+  terminal shows.

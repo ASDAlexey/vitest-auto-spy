@@ -12,32 +12,6 @@ The latest released version here must always match the one published on
 
 ### Added
 
-- **`documentPollution` — the attribute a test leaves on `<body>`, named and put back.** Under
-  `isolate: false` a worker's spec files share one jsdom document. On a consumer suite a keyboard
-  component's `effect` ran `renderer.setAttribute(document.body, 'data-reset-focus', '')` and nothing
-  took it off; a navigation service elsewhere returns early whenever
-  `document.querySelector('[data-reset-focus]')` matches, so its spec failed 34 of 209 tests — about one
-  full run in six, only when the two files shared a worker, never on its own — and the same run showed
-  a second spec leaving `data-visited` behind. No guard saw it: nothing reached a prototype or sealed a
-  global, and no timer, console call or rejection was left over. `setupAutoSpy({ documentPollution })`
-  records the attributes of `<html>`, `<head>` and `<body>` before each test, and after it reports
-  every one added, changed or removed with both values, puts the old state back and fails that test
-  (`'throw'`), or only reports it on stderr (`'warn'`). A change made in a `beforeAll` and never undone
-  fails the file. `{ nodes: true }` watches the child elements of `<head>` and `<body>` as well, with
-  `ignoreAttributes` (names or RegExps) and `ignoreNodes` (a CSS selector) for what a project sets on
-  purpose. The check runs from `onTestFinished` and from a `beforeAll` cleanup rather than an
-  `afterEach`: a setup file's `afterEach` runs **before** the TestBed's own teardown, and measured on a
-  zoneless TestBed it would have reported the component style, the root element and an attribute a
-  `DestroyRef` removes, every one of which is gone by the time these run. About 4 µs per test, 10 µs
-  with `nodes`. `'off'` by default, `'throw'` under `preset: 'strict'` — the precedent
-  `swallowedStrictCalls` set in 5.7.0: a new failing grade reaches only suites that asked for every
-  guard at its failing grade, while `prototypePollution` could default to `'throw'` because what it
-  catches kills collection outright, and a leftover attribute breaks only the code that reads it.
-  `guardDocumentPollution(option)` from `/setup` registers the same check on its own. Vitest only, like
-  every `/setup` guard. +1.0 kB min+gzip on `/setup`, nothing on any other entry.
-
-### Added
-
 - **A confirmed perf gate finding says why the file is slow.** The confirmation pass already runs each
   suspect file on its own, so that is where the reason is measured: `perf` sets
   `VITEST_AUTO_SPY_PERF_PROFILE`, the reporter adds `dist/perf-profiler.js` to every project's
@@ -84,6 +58,11 @@ The latest released version here must always match the one published on
 - **A hotspot row with a cut path sat eight columns left of its neighbours.** Padding counted the
   escape sequence around the dimmed ellipsis as visible width; widths are now counted on what the
   terminal shows.
+
+## [5.17.1] - 2026-09-17
+
+### Fixed
+
 - **`documentPollution` failed a test for a `class=""` that nothing can observe.** `classList.add('x')`
   and a later `classList.remove('x')` — or Renderer2's `addClass` / `removeClass`, or a `style.overflow`
   set and then cleared — do not take the attribute back off: `<body>` ends the test with `class=""` or
@@ -98,6 +77,34 @@ The latest released version here must always match the one published on
   Only those two: their empty value is defined to mean no classes and no declarations, whereas an empty
   `data-reset-focus=""` is a present flag that `[data-reset-focus]` matches, and it is still reported —
   the case the guard was written for.
+
+## [5.17.0] - 2026-09-17
+
+### Added
+
+- **`documentPollution` — the attribute a test leaves on `<body>`, named and put back.** Under
+  `isolate: false` a worker's spec files share one jsdom document. On a consumer suite a keyboard
+  component's `effect` ran `renderer.setAttribute(document.body, 'data-reset-focus', '')` and nothing
+  took it off; a navigation service elsewhere returns early whenever
+  `document.querySelector('[data-reset-focus]')` matches, so its spec failed 34 of 209 tests — about one
+  full run in six, only when the two files shared a worker, never on its own — and the same run showed
+  a second spec leaving `data-visited` behind. No guard saw it: nothing reached a prototype or sealed a
+  global, and no timer, console call or rejection was left over. `setupAutoSpy({ documentPollution })`
+  records the attributes of `<html>`, `<head>` and `<body>` before each test, and after it reports
+  every one added, changed or removed with both values, puts the old state back and fails that test
+  (`'throw'`), or only reports it on stderr (`'warn'`). A change made in a `beforeAll` and never undone
+  fails the file. `{ nodes: true }` watches the child elements of `<head>` and `<body>` as well, with
+  `ignoreAttributes` (names or RegExps) and `ignoreNodes` (a CSS selector) for what a project sets on
+  purpose. The check runs from `onTestFinished` and from a `beforeAll` cleanup rather than an
+  `afterEach`: a setup file's `afterEach` runs **before** the TestBed's own teardown, and measured on a
+  zoneless TestBed it would have reported the component style, the root element and an attribute a
+  `DestroyRef` removes, every one of which is gone by the time these run. About 4 µs per test, 10 µs
+  with `nodes`. `'off'` by default, `'throw'` under `preset: 'strict'` — the precedent
+  `swallowedStrictCalls` set in 5.7.0: a new failing grade reaches only suites that asked for every
+  guard at its failing grade, while `prototypePollution` could default to `'throw'` because what it
+  catches kills collection outright, and a leftover attribute breaks only the code that reads it.
+  `guardDocumentPollution(option)` from `/setup` registers the same check on its own. Vitest only, like
+  every `/setup` guard. +1.0 kB min+gzip on `/setup`, nothing on any other entry.
 
 ## [5.16.0] - 2026-09-17
 
@@ -5754,7 +5761,9 @@ by hand there, in more than one place, by more than one person.
   `mockAccessorsProp`.
 - Dual ESM + CJS build with type declarations; 100% test coverage.
 
-[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.16.0...HEAD
+[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.17.1...HEAD
+[5.17.1]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.17.0...v5.17.1
+[5.17.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.16.0...v5.17.0
 [5.16.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.15.1...v5.16.0
 [5.15.1]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.15.0...v5.15.1
 [5.15.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.14.0...v5.15.0
