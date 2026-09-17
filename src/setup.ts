@@ -37,6 +37,7 @@ export { guardStrayConsole, type StrayConsoleOptions, type StrayConsoleReaction 
 export { getSpyEngine, setSpyEngine, type SpyEngine } from './lib/vitest-adapter';
 export { guardGlobalPatches, type GlobalPatchReaction } from './lib/global-patch-guard';
 export { guardPrototypePollution, type PrototypePollutionReaction } from './lib/prototype-guard';
+export { guardDocumentPollution, type DocumentPollutionOptions, type DocumentPollutionReaction } from './lib/document-guard';
 export { installPerTest, type PerTestHandle } from './lib/install-per-test';
 export {
   mockNow,

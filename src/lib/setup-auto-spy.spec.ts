@@ -991,6 +991,7 @@ describe('applyPreset', () => {
         propsOutsideHooks: 'throw',
         guardGlobals: 'warn',
         prototypePollution: 'throw',
+        documentPollution: 'throw',
         strayConsole: 'throw',
         misconfiguration: 'throw',
         swallowedStrictCalls: 'throw',

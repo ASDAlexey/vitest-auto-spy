@@ -16,6 +16,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, onTestFinished, vi } from '
 
 import { noticeAngularBuildSplitting } from './angular-build-notice';
 import { DOCS_LINKS, withDocs } from './docs-links';
+import { type DocumentPollutionOptions, type DocumentPollutionReaction, guardDocumentPollution } from './document-guard';
 import { type FakeTimersConfig, setupFakeTimers } from './fake-timers';
 import { annotateFrozenClockTimeout, readFrozenClock } from './frozen-clock';
 import { setDefaultStrictMode, takeStrictViolations } from './function-spy';
@@ -174,6 +175,18 @@ export interface SetupAutoSpyOptions {
    * {@link guardPrototypePollution}.
    */
   prototypePollution?: PrototypePollutionReaction;
+  /**
+   * Report — and put back — an attribute a test leaves added, changed or removed on `<html>`, `<head>`
+   * or `<body>`; with `{ nodes: true }`, a child element of `<head>` or `<body>` as well. Default
+   * `'off'`; `'throw'` under `preset: 'strict'`.
+   *
+   * Under `isolate: false` every file in a worker shares one document, so a `data-*` attribute or a
+   * class a component set on `<body>` and never took off changes the branch some later file's code
+   * takes — a failure in a file that never touched it, only when the two share a worker. Checked after
+   * the TestBed's own teardown, so what a destroyed component cleans up is never reported. See
+   * {@link guardDocumentPollution}.
+   */
+  documentPollution?: DocumentPollutionOptions | DocumentPollutionReaction;
   /**
    * Put back timer globals that uninstalling the fakes removed rather than restored. Default `true`:
    * it only ever replaces a global that has gone missing, so it cannot overwrite anything a spec
@@ -838,6 +851,7 @@ export function applyPreset(options: SetupAutoSpyOptions): SetupAutoSpyOptions {
     propsOutsideHooks: options.propsOutsideHooks ?? 'throw',
     guardGlobals: options.guardGlobals ?? 'throw',
     prototypePollution: options.prototypePollution ?? 'throw',
+    documentPollution: options.documentPollution ?? 'throw',
     strayConsole: options.strayConsole ?? 'throw',
     misconfiguration: options.misconfiguration ?? 'throw',
     swallowedStrictCalls: options.swallowedStrictCalls ?? 'throw',
@@ -925,6 +939,8 @@ export function setupAutoSpy(input: SetupAutoSpyOptions = {}): void {
   armStrictMode(options);
   armUnconfiguredReads(options);
   armMisconfiguration(options.misconfiguration);
+  // Not a teardown step: it has to look after the TestBed's own teardown, which an `afterEach` here precedes.
+  guardDocumentPollution(options.documentPollution ?? 'off');
 
   if (options.globalFakeTimers) {
     setupFakeTimers(options.globalFakeTimers === true ? undefined : options.globalFakeTimers, { betweenTests: true });
