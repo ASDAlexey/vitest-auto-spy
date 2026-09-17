@@ -462,10 +462,12 @@ cost 2.8 % of wall clock and about 2 GB less on a 16-core machine.
 
 **`--gate` is the half that may fail a pipeline**, and it is built so that it only ever fails over
 somebody's code. It judges the `tests` phase alone — the other five are the harness and the machine
-— it asks for both an absolute budget and a multiple of the median file **of the same run**, so the
-verdict survives a change of hardware, and it re-measures every candidate on its own before failing
-anything. A file that is not slow when it has the machine to itself is reported as _not reproduced_
-rather than as a defect.
+— it counts a file's budget in the median test **of the same run** (2 000 of them, or 10× that
+median for each test in the file, whichever is larger), so the verdict survives a change of hardware
+and a large file of ordinary tests never fails it, and it re-measures every candidate on its own
+before failing anything. A file that is not slow when it has the machine to itself is reported as
+_not reproduced_ rather than as a defect; one that is gets a card saying why — its slowest tests,
+hooks against bodies, and where the CPU profile says the time went.
 
 ```bash
 npx vitest-auto-spy perf --command 'npm test -- {paths:--include=}' --gate
