@@ -190,7 +190,7 @@ describe('perf', () => {
         transform: 0,
         wall: 1_000,
         files: [
-          ...Array.from({ length: 9 }, (_unused, index) => measured(`ordinary-${index}.spec.ts`, 100)),
+          ...Array.from({ length: 9 }, (_unused, index) => ({ ...measured(`ordinary-${index}.spec.ts`, 100), testCount: 40 })),
           measured('slow.spec.ts', 9_000),
         ],
       }),
@@ -224,7 +224,7 @@ describe('perf flags', () => {
   const repo = (): { root: string; json: string } => {
     const root = createTempRepo(HEALTHY);
     const files = [
-      ...Array.from({ length: 9 }, (_unused, index) => measured(root, `src/ordinary-${index}.spec.ts`, 100)),
+      ...Array.from({ length: 9 }, (_unused, index) => ({ ...measured(root, `src/ordinary-${index}.spec.ts`, 100), testCount: 40 })),
       measured(root, 'src/slow.spec.ts', 9_000),
     ];
 
@@ -274,7 +274,19 @@ describe('perf flags', () => {
 
     expect(
       runCli(
-        ['perf', '--cwd', root, '--json', join(root, 'perf.json'), '--gate', '--max-file-ms=0', '--factor=0', '--top=3', '--no-confirm'],
+        [
+          'perf',
+          '--cwd',
+          root,
+          '--json',
+          join(root, 'perf.json'),
+          '--gate',
+          '--max-file-ms=0',
+          '--max-file-tests=0',
+          '--factor=0',
+          '--top=3',
+          '--no-confirm',
+        ],
         io,
       ),
     ).toBe(1);

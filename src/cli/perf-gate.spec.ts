@@ -11,7 +11,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import type { PerfCase, PerfFile, PerfRun } from './perf-data';
-import { GATE_DEFAULTS, gateCandidates, gateVerdict, isJudged, measuredFiles, medianFileMs, suspectFiles } from './perf-gate';
+import { GATE_DEFAULTS, gateCandidates, gateVerdict, isJudged, measuredFiles, medianFileMs, medianTestMs, suspectFiles } from './perf-gate';
 
 const ROOT = '/repo';
 
@@ -29,8 +29,9 @@ const file = (path: string, over: Partial<PerfFile> = {}): PerfFile => ({
 
 const run = (files: readonly PerfFile[], wall = 1_000): PerfRun => ({ version: 2, root: ROOT, transform: 0, wall, failed: 0, files });
 
-/** Nine ordinary files, so the median is a median of something. */
-const ordinary = (): PerfFile[] => Array.from({ length: 9 }, (_unused, index) => file(`src/ordinary-${index}.spec.ts`, { tests: 100 }));
+/** Nine ordinary files of forty 2.5 ms tests, so the median test is a median of something. */
+const ordinary = (): PerfFile[] =>
+  Array.from({ length: 9 }, (_unused, index) => file(`src/ordinary-${index}.spec.ts`, { tests: 100, testCount: 40 }));
 
 const slowBody = (name: string, ms: number): PerfCase[] => [{ name, ms }];
 
@@ -68,6 +69,23 @@ describe('medianFileMs', () => {
   });
 });
 
+describe('medianTestMs', () => {
+  it("is the middle of every file's cost per test, so one large file does not outvote the small ones", () => {
+    expect(
+      medianTestMs([
+        file('a', { tests: 10, testCount: 10 }),
+        file('b', { tests: 60, testCount: 20 }),
+        file('c', { tests: 5_000, testCount: 1_000 }),
+      ]),
+    ).toBe(3);
+  });
+
+  it('ignores a file that finished no test, which has no cost per test to offer', () => {
+    expect(medianTestMs([file('a', { tests: 10, testCount: 10 }), file('b', { tests: 400, testCount: 0 })])).toBe(1);
+    expect(medianTestMs([])).toBe(0);
+  });
+});
+
 describe('gateCandidates', () => {
   it('finds a body over the budget and names the test rather than the file', () => {
     const subject = file('src/slow.spec.ts', { tests: 4_000, cases: slowBody('suite > waits', 3_500) });
@@ -89,6 +107,23 @@ describe('gateCandidates', () => {
     const even = Array.from({ length: 10 }, (_unused, index) => file(`src/even-${index}.spec.ts`, { tests: 6_000 }));
 
     expect(gateCandidates(run(even), ROOT, GATE_DEFAULTS)).toEqual([]);
+  });
+
+  it('says nothing about a large file of ordinary tests, however long it adds up to', () => {
+    const large = file('src/large.spec.ts', { tests: 30_000, testCount: 4_000 });
+
+    expect(gateCandidates(run([...ordinary(), large]), ROOT, GATE_DEFAULTS)).toEqual([]);
+  });
+
+  it('gives the same verdict on a machine nine times slower, because every limit is counted in the run itself', () => {
+    const slower = (files: readonly PerfFile[], by: number): PerfFile[] => files.map((entry) => ({ ...entry, tests: entry.tests * by }));
+    const heavyButSmall = file('src/heavy-small.spec.ts', { tests: 1_800, testCount: 38 });
+    const heavyAndBig = file('src/heavy-big.spec.ts', { tests: 6_000, testCount: 60 });
+    const verdict = (by: number): string[] =>
+      suspectFiles(gateCandidates(run(slower([...ordinary(), heavyButSmall, heavyAndBig], by)), ROOT, GATE_DEFAULTS));
+
+    expect(verdict(1)).toEqual(['src/heavy-big.spec.ts']);
+    expect(verdict(9)).toEqual(['src/heavy-big.spec.ts']);
   });
 
   it('applies the absolute floor when the median is tiny, and never below it', () => {
@@ -189,7 +224,7 @@ describe('gateVerdict', () => {
     const whole = gateVerdict(candidatesFor(file('src/b.spec.ts', { tests: 9_000 })), undefined, ROOT, true);
 
     expect(body.findings[0]?.fix).toContain('vi.useFakeTimers()');
-    expect(whole.findings[0]?.fix).toContain('Splitting the file changes nothing');
+    expect(whole.findings[0]?.fix).toContain('the cost is per test');
   });
 });
 

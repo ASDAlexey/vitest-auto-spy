@@ -86,10 +86,14 @@ Options
   --gate         perf only. Fail the run over a confirmed budget. Exit 1.
   --max-test-ms  perf only. Budget for one test body. Default 1000; the report
                  records no body under 100 ms, so that is the floor.
-  --max-file-ms  perf only. Budget for a file's bodies added up. Default 5000,
-                 and a file must also be over --factor × the run's median.
-  --factor <n>   perf only. How many times the median file a file has to be.
-                 Default 10, which is what keeps the verdict the same on a
+  --max-file-ms  perf only. A file whose bodies add up to less than this is
+                 never a finding. Default 5000.
+  --max-file-tests
+                 perf only. How many of the run's median tests a file's
+                 bodies have to add up to. Default 2000.
+  --factor <n>   perf only. How many times the run's median test one test of
+                 a file has to cost. Default 10. Both are counted in the
+                 run's own median, which keeps the verdict the same on a
                  loaded runner and on an idle laptop.
   --max-wall-ms  perf only. A whole-run budget. Off by default: wall clock is
                  a property of the machine, so nothing derives it for you.

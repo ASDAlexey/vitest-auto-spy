@@ -15,11 +15,14 @@
  * is somebody's code: a real timer nobody advanced, an unmocked request, a fixture rebuilt per
  * case. So `tests` is what the budgets are over.
  *
- * **A budget is relative first and absolute second.** A file is slow when it is both over an
- * absolute floor and far over the median of the run it is in. The median moves with the machine —
- * a loaded CI runner raises every file — so the ratio survives a change of hardware in a way a
- * millisecond count does not, and the floor stops a fast suite from reporting its own fastest
- * outlier as a defect.
+ * **A file budget is counted in the run's median test, not in milliseconds.** A file is slow when
+ * each of its tests costs `factor` × the median test of the run **and** the file adds up to
+ * `maxFileTests` median tests. Both move with the machine — a loaded CI runner raises every test —
+ * so the verdict is the same on a laptop and on a runner nine times slower. It used to be a
+ * millisecond floor against the median *file*, and that judged file size and runner speed instead:
+ * the median file holds a handful of tests, so `factor` × it never exceeded the floor, and a
+ * 209-test file of 5 ms services crossed 5 s on a slow runner while it never did on a laptop.
+ * `maxFileMs` is still honoured, as a floor that can only spare a file, never condemn one.
  *
  * **Nothing fails on one measurement.** A candidate is re-measured on its own before it is allowed
  * to fail anything, and a file that is not slow when it has the machine to itself is reported as
@@ -40,9 +43,11 @@ export const GATE_DOCS = 'https://asdalexey.github.io/vitest-auto-spy/utilities/
 export interface GateOptions {
   /** A single test body over this, confirmed, fails the run. */
   readonly maxTestMs: number;
-  /** A file whose bodies add up to more than this, and more than `factor` × the median, fails it. */
+  /** A file under this many milliseconds is never a finding, whatever its ratios. */
   readonly maxFileMs: number;
-  /** How many times the run's median file a file has to be before its absolute budget applies. */
+  /** How many of the run's median tests a file's bodies have to add up to before it is judged. */
+  readonly maxFileTests: number;
+  /** How many times the run's median test one test of the file has to cost, on average. */
   readonly factor: number;
   /** `--max-wall-ms`: an explicit whole-run budget. Off unless asked for — it is machine-dependent. */
   readonly maxWallMs: number | undefined;
@@ -53,6 +58,7 @@ export interface GateOptions {
 export const GATE_DEFAULTS: GateOptions = {
   maxTestMs: 1_000,
   maxFileMs: 5_000,
+  maxFileTests: 2_000,
   factor: 10,
   maxWallMs: undefined,
   only: [],
@@ -164,6 +170,20 @@ export function medianFileMs(files: Iterable<PerfFile>): number {
   return medianOf(ran.map((file) => file.tests));
 }
 
+/**
+ * What one test costs in the middle of the run: the median, over the files that ran a test, of each
+ * file's bodies divided by its test count. Per file rather than per test, so a 400-test file does
+ * not outvote four hundred one-test files about what an ordinary test costs.
+ */
+export function medianTestMs(files: Iterable<PerfFile>): number {
+  return medianOf([...files].filter((file) => file.testCount > 0).map((file) => file.tests / file.testCount));
+}
+
+/** The largest of the three limits, so a file has to be over every one of them to be a finding. */
+export function fileBudget(file: PerfFile, medianTest: number, options: GateOptions): number {
+  return Math.max(options.maxFileMs, options.maxFileTests * medianTest, options.factor * medianTest * file.testCount);
+}
+
 function slowTests(path: string, file: PerfFile, options: GateOptions): TestCandidate[] {
   return file.cases
     .filter((entry) => entry.ms >= options.maxTestMs)
@@ -177,7 +197,9 @@ function slowTests(path: string, file: PerfFile, options: GateOptions): TestCand
     }));
 }
 
-function slowFile(path: string, file: PerfFile, budget: number, options: GateOptions): FileTotalCandidate[] {
+function slowFile(path: string, file: PerfFile, medianTest: number, options: GateOptions): FileTotalCandidate[] {
+  const budget = fileBudget(file, medianTest, options);
+
   if (file.tests < budget) {
     return [];
   }
@@ -188,7 +210,7 @@ function slowFile(path: string, file: PerfFile, budget: number, options: GateOpt
       file: path,
       ms: file.tests,
       budget,
-      budgetNote: `the larger of --max-file-ms ${Math.round(options.maxFileMs)} and ${options.factor}× the median file of this run`,
+      budgetNote: `the largest of --max-file-ms ${Math.round(options.maxFileMs)}, --max-file-tests ${options.maxFileTests} × the median test of this run (${formatMs(medianTest)}), and ${options.factor}× that median for each of its ${file.testCount} tests`,
     },
   ];
 }
@@ -201,7 +223,7 @@ function slowFile(path: string, file: PerfFile, budget: number, options: GateOpt
  */
 export function gateCandidates(run: PerfRun, cwd: string, options: GateOptions): GateCandidate[] {
   const measured = measuredFiles(run, cwd);
-  const fileBudget = Math.max(options.maxFileMs, medianFileMs(measured.values()) * options.factor);
+  const medianTest = medianTestMs(measured.values());
   const candidates: GateCandidate[] = [];
 
   for (const [path, file] of [...measured].sort(([a], [b]) => a.localeCompare(b))) {
@@ -216,7 +238,7 @@ export function gateCandidates(run: PerfRun, cwd: string, options: GateOptions):
      * candidate, the body did not reproduce, and the 60-second file nobody had judged passed the
      * gate.
      */
-    candidates.push(...slowTests(path, file, options), ...slowFile(path, file, fileBudget, options));
+    candidates.push(...slowTests(path, file, options), ...slowFile(path, file, medianTest, options));
   }
 
   if (options.maxWallMs !== undefined && run.wall > options.maxWallMs) {
@@ -261,8 +283,8 @@ const SLOW_TEST_FIX = [
 ].join(' ');
 
 const SLOW_FILE_FIX = [
-  'Look at what every test in the file pays before it asserts anything: a `beforeEach` that builds the whole module graph, a real clock, a fixture',
-  'the file could build once. Splitting the file changes nothing — the same seconds move to two files.',
+  'Every test in this file costs many times an ordinary test of the same run. Look at what each one pays before it asserts anything: a `beforeEach`',
+  'that builds the whole module graph, a real clock, a fixture the file could build once. Splitting the file does not help — the cost is per test.',
   `Background: ${GATE_DOCS}`,
 ].join(' ');
 

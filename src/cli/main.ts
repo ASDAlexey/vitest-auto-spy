@@ -77,6 +77,7 @@ function gateOptions(args: ParsedArgs): GateOptions {
   return {
     maxTestMs: Math.max(flagNumber(args, 'max-test-ms') ?? GATE_DEFAULTS.maxTestMs, CASE_FLOOR_MS),
     maxFileMs: Math.max(flagNumber(args, 'max-file-ms') ?? GATE_DEFAULTS.maxFileMs, 1),
+    maxFileTests: Math.max(flagNumber(args, 'max-file-tests') ?? GATE_DEFAULTS.maxFileTests, 0),
     factor: Math.max(flagNumber(args, 'factor') ?? GATE_DEFAULTS.factor, 1),
     maxWallMs: flagNumber(args, 'max-wall-ms'),
     only: flagList(args, 'gate-only').map((entry) => entry.replace(/^\.\//, '')),

@@ -24,6 +24,7 @@ const VALUE_FLAGS = new Set([
   'gate-only',
   'json',
   'max-file-ms',
+  'max-file-tests',
   'max-test-ms',
   'max-wall-ms',
   'min-severity',
