@@ -45,7 +45,7 @@ const RU_LABEL: Record<string, string> = {
   'Waiting and the clock': 'Ожидание и часы',
   'ESLint plugin': 'Плагин ESLint',
   'ESLint rules': 'Правила ESLint',
-  'CLI — doctor & init': 'CLI — doctor и init',
+  'CLI — doctor, perf & init': 'CLI — doctor, perf и init',
   'CLI — the codemod': 'CLI — кодмод',
   'Editor diagnostics': 'Диагностика в редакторе',
 
@@ -121,7 +121,7 @@ const SIDEBAR = [
       { text: 'Waiting and the clock', link: '/utilities/event-loop' },
       { text: 'ESLint plugin', link: '/utilities/eslint-plugin' },
       { text: 'ESLint rules', link: '/utilities/eslint-rules' },
-      { text: 'CLI — doctor & init', link: '/utilities/cli' },
+      { text: 'CLI — doctor, perf & init', link: '/utilities/cli' },
       { text: 'CLI — the codemod', link: '/utilities/codemod' },
       { text: 'Editor diagnostics', link: '/utilities/editor-diagnostics' },
     ],
@@ -330,6 +330,9 @@ export default defineConfig({
           'strict mode, onUnstubbedCall, unstubbed call, fallbackMockImplementation, Symbol.dispose, using declaration, ' +
           'lazySpies, JavaScript heap out of memory, vitest out of memory, jest worker ran out of memory, ' +
           'mock memory leak, wide generated client, orval, ng-openapi-gen, ' +
+          'which vitest test is slow, why is my vitest suite slow, find slow test files vitest, why is this spec slow, ' +
+          'slowTestThreshold, vitest cpu profile per test file, profile a vitest test, fail ci on slow tests, perf gate, ' +
+          'test slow on ci fast locally, beforeEach too slow, jsdom slow tests, angular TestBed slow tests, ' +
           'vitest coverage slow, coverage.include slow, isIncluded, picomatch, custom coverage provider, ' +
           'customProviderModule, cobertura too large, gitlab coverage not showing, ' +
           'bun test, bun 1.4, angular on bun, node:test, angular testing, renderShallow, shallow rendering, zoneless, signal testing, ' +

@@ -53,6 +53,9 @@ features:
   - title: Failures nothing else reports
     details: 'A mock*Prop patch left in a describe body stops applying after the first test, a component whose own providers shadow the spy quietly runs the real service, and one key left on Object.prototype stops every later file in the worker from collecting while Vitest 5.0 still prints zero failing tests and no stack — silent under every runner, named here by the property, the token or the file. Console output nothing absorbed fails the test that wrote it, with a code frame at the line; the onConsoleLog hook of Vitest 5.0 can only drop a line, never fail a test. An attribute a component set on <body> and never took off turns a later file red about one run in six, only when the two share a worker; documentPollution names the test that left it and puts the document back, where no runner compares the document between files. One strict preset turns every guard to its failing grade.'
     link: /utilities/setup
+  - title: Which test is slow, and why
+    details: 'npx vitest-auto-spy perf --gate fails CI over a file whose tests each cost many times the median test of the same run, so a laptop and a runner nine times slower reach the same verdict. Every suspect is re-measured on its own before it fails anything, and a confirmed one comes with a CPU profile card — its slowest tests, hooks against test bodies, the share by package and in your own code, and a likely cause in two sentences. An ordinary run never loads the profiler. Vitest 5.0 marks a test over a fixed slowTestThreshold of 300 ms, the same number on every machine, and says nothing about where the time went.'
+    link: /utilities/cli#the-gate
 ---
 
 <div class="vas-section">
@@ -132,7 +135,52 @@ from a type or an interface.
 
 <div class="vas-section">
 
-<p class="vas-eyebrow">03 / Where to go next</p>
+<p class="vas-eyebrow">03 / Slow tests</p>
+
+## Which test is slow, and why
+
+Vitest prints one `Duration` line for the whole run. `perf` turns it into the files that are actually
+slow, re-measures each of them on its own so a busy runner cannot frame one, and prints where the CPU
+time went. One command, locally or in CI:
+
+```bash
+npx vitest-auto-spy perf --gate
+```
+
+```
+error  perf-gate-slow-file libs/player/src/lib/vod/vod.component.spec.ts
+       The test bodies in this file add up to 9.20s, over the 5.00s budget (…). Re-measured on its own: 8.70s, still over budget.
+
+       ┌─ measurements ────────────────────────────────────────────────
+       │ tests             38   242ms each   20× the median test
+       ├─ slowest tests ───────────────────────────────────────────────
+       │  527ms  focus > moves through the controls
+       ├─ where the time went · CPU profile, 8.41s sampled ────────────
+       │ hooks        ███████████░░░░░░░░░ 54%   test bodies 46%
+       │ by package   ██████░░░░░░░░░░░░░░  28%  jsdom
+       │ in the spec  setUpWith 38%  ·  VodComponent_Template 17%  ·  assertFocus 8%
+       ├─ likely cause ────────────────────────────────────────────────
+       │ Most of the time is set-up that every test repeats: 54% is in hooks — setUpWith alone is 38%.
+       └───────────────────────────────────────────────────────────────
+```
+
+The budget is counted in the median test **of the same run**, so a laptop and a runner nine times
+slower give the same verdict, and a large file of ordinary tests never fails it — on a 2 023-file
+consumer suite the rule it replaced flagged 0 files at ×1 slowdown and 19 at ×9, and this one flags
+none at either. A file that is fast with the machine to itself is reported as _not reproduced_, not
+as a defect. The profiler is loaded only for that re-measurement; an ordinary run pays nothing. On an Angular spec the
+card also splits the time into TestBed set-up, component creation, change detection and JIT
+compilation, and `--code-quality` puts every finding into the GitLab merge request widget without a
+network or a token.
+
+[The gate](/utilities/cli#the-gate) · [`perf` in full](/utilities/cli#perf-—-where-the-cpu-time-actually-goes) ·
+[In CI](/utilities/cli#in-ci)
+
+</div>
+
+<div class="vas-section">
+
+<p class="vas-eyebrow">04 / Where to go next</p>
 
 ## Start where you already are
 
@@ -207,7 +255,7 @@ from a type or an interface.
 
 <div class="vas-section">
 
-<p class="vas-eyebrow">04 / Already have one</p>
+<p class="vas-eyebrow">05 / Already have one</p>
 
 ## If a spy library is already in the repo
 

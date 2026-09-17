@@ -70,6 +70,7 @@ faster at suite scale ([benchmarks](#benchmarks)) — and for
 - 🪆 NestJS units from their own DI metadata — `createNestUnit(Target, { expose, providers })`, the solitary / sociable model of `@suites/unit` with the real prototype behind every spy and no `@nestjs` dependency
 - 🧱 The providers a testing module cannot reach — `overrideComponentProvider` (which verifies the override actually applied), `provideAutoSpyForToken`, `assertNgModuleScopes`, `assertComponentDefIntact`, `createDirectiveHost`, and `createComponentStub` for a child whose selector and inputs are read off the real one, so the stub cannot drift
 - 🚨 Failures that used to be silence — `enableAngularDiagnostics()` for dead NgModule imports, dead `schemas`, an unspied provider and unflushed HTTP requests; `trackInjections` for which collaborators the code actually asked for. `injectSpy` already warns once per token when DI handed back a real instance, naming the token and the missing `provideAutoSpy` — where Spectator's `inject<T>(token): SpyObject<T>` types **every** token as a spy whether it was mocked or not, so the compiler hides the same mistake
+- 🐢 Which test is slow, and why — [`npx vitest-auto-spy perf --gate`](#perf--where-the-cpu-time-actually-goes) fails CI over a file whose tests each cost many times the median test of the same run, so a laptop and a runner nine times slower agree; it re-measures every suspect on its own first, and a confirmed one comes with a CPU profile card: the slowest tests, hooks against bodies, the time by package and in your own code, and a likely cause. Vitest 5.0 marks a test over a fixed `slowTestThreshold` of 300 ms and says nothing about where the time went
 - 🔒 [Strict doubles](#strict-doubles--fail-on-a-method-nobody-configured) — `strict: true` / `onUnstubbedCall` fail on a method nobody configured, naming the class, the method and the arguments instead of answering `undefined`; `unconfiguredReads` reports the getter and the stream nobody configured once the test is over
 - ♻️ `using spy = createSpyFromClass(X)` — every double carries `[Symbol.dispose]`, so the `afterEach` that only reset one spy can go
 - 📡 Observable assertions that fail on silence — `expectEmission` / `expectEmissions` / `expectNoEmission` / `expectCompletion` / `expectError`, no rxjs required, Angular `output()` included
@@ -345,7 +346,7 @@ The package ships one executable, with no dependencies and nothing to configure:
 
 ```bash
 npx vitest-auto-spy doctor   # read-only. Exits 1 when it finds something
-npx vitest-auto-spy perf     # where the suite's CPU time goes. --gate fails a budget
+npx vitest-auto-spy perf     # where the suite's CPU time goes. --gate fails a budget and says why
 npx vitest-auto-spy codemod  # prints the migration diff. Writes nothing without --write
 npx vitest-auto-spy init     # writes the agent instructions pointer
 ```
@@ -470,8 +471,38 @@ _not reproduced_ rather than as a defect; one that is gets a card saying why —
 hooks against bodies, and where the CPU profile says the time went.
 
 ```bash
-npx vitest-auto-spy perf --command 'npm test -- {paths:--include=}' --gate
+npx vitest-auto-spy perf --gate                                              # a plain Vitest suite
+npx vitest-auto-spy perf --command 'npm test -- {paths:--include=}' --gate   # a suite behind a script
 ```
+
+```
+error  perf-gate-slow-file libs/player/src/lib/vod/vod.component.spec.ts
+       The test bodies in this file add up to 9.20s, over the 5.00s budget (…). Re-measured on its own: 8.70s, still over budget.
+
+       ┌─ measurements ────────────────────────────────────────────────
+       │ tests             38   242ms each   20× the median test
+       ├─ slowest tests ───────────────────────────────────────────────
+       │  527ms  focus > moves through the controls
+       ├─ where the time went · CPU profile, 8.41s sampled ────────────
+       │ hooks        ███████████░░░░░░░░░ 54%   test bodies 46%
+       │ by package   ██████░░░░░░░░░░░░░░  28%  jsdom
+       │ in the spec  setUpWith 38%  ·  VodComponent_Template 17%  ·  assertFocus 8%
+       ├─ likely cause ────────────────────────────────────────────────
+       │ Most of the time is set-up that every test repeats: 54% is in hooks — setUpWith alone is 38%.
+       └───────────────────────────────────────────────────────────────
+```
+
+The profiler behind the card is loaded only for the confirmation pass; an ordinary run never pays
+for it. The whole card, and the rule the budget is counted by, are in
+[the CLI docs](https://asdalexey.github.io/vitest-auto-spy/utilities/cli#the-gate).
+
+On an Angular spec the card adds a row of Angular's own costs — TestBed set-up, component creation,
+change detection, JIT compilation, computed styles — and the likely cause reads it first; on Vitest
+4.1+ it also lists the spec's heaviest imports. Three things need no network in CI: `--baseline
+perf-history.jsonl` keeps the last 30 runs in a cache and fails a file only past twice its mean share
+and above every share it was recorded at; `--fail-on-flaky` fails a test that passed only on a retry;
+and `--code-quality <path>`, on `perf` and on `doctor`, writes the findings for the GitLab merge
+request widget.
 
 `--command` is also the answer to a bare `vitest run` not being your suite at all: where the suite is
 built by an Angular builder, an Nx target or a script, there is no root config, the defaults sweep up

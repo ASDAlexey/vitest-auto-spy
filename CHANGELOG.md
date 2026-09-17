@@ -29,6 +29,24 @@ The latest released version here must always match the one published on
   every card line is indented, so a harness relaying findings by that shape carries the whole card.
 - **`--max-file-tests <n>`** (default 2000): how many of the run's median tests a file's bodies have to
   add up to before the file is judged. See the gate fix below.
+- **The perf card names Angular's own costs.** A row under the hooks splits the profile into TestBed
+  set-up, component creation, change detection, JIT compilation and jsdom computed styles, recognised by
+  frame name too, since `@angular/build:unit-test` bundles the packages into chunks. Four likely causes
+  read it before the generic ones: TestBed set-up and creation at 30 % (in place of the hooks sentence),
+  the JIT compiler at 15 %, change detection at 30 %, computed styles at 15 %.
+- **The perf card lists the spec's slowest imports.** On Vitest 4.1+ the confirmation pass raises
+  `experimental.importDurations.limit` for its own run and records the spec's heaviest direct imports
+  with everything under them.
+- **`--baseline <path>.jsonl` keeps a history instead of a snapshot.** `--update-baseline` appends one
+  line per run and keeps the last 30; a file regresses only when its share is `--baseline-factor` × its
+  mean over at least three recorded runs **and** above every share it was recorded at. The file can live
+  in a CI cache rather than in the repository.
+- **`perf-flaky` and `--fail-on-flaky`.** A test that passed only on a retry is named as a warning on
+  every run, and fails the run with exit 1 under `--fail-on-flaky`. The report format is version 3 and
+  also carries the heap after each file, which `perf-heap` lists when the run recorded it; a bare run
+  now passes `--logHeapUsage`.
+- **`--code-quality <path>` on `doctor` and `perf`** writes the findings as a GitLab Code Quality report,
+  with fingerprints that survive a re-run, for the merge request widget.
 
 ### Changed
 

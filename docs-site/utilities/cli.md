@@ -1,6 +1,6 @@
 ---
-title: The CLI — doctor and init
-description: npx vitest-auto-spy doctor finds suite-level defects that never fail a run — a tsconfig include pattern matching no file, a spec another file imports, a foreign runner's pragma, config for a runner that is gone, a helper imported from the wrong entry point, an expectEmission nobody awaited. npx vitest-auto-spy init writes the pointer every AI coding agent in the repository actually reads.
+title: The CLI — doctor, perf and init
+description: npx vitest-auto-spy doctor finds suite-level defects that never fail a run — a tsconfig include pattern matching no file, a spec another file imports, a foreign runner's pragma, config for a runner that is gone, a helper imported from the wrong entry point, an expectEmission nobody awaited. npx vitest-auto-spy perf --gate fails CI over the test files that are slow against the rest of the same run, re-measures each on its own, and says why from a CPU profile — the slowest tests, hooks against bodies, the time by package and in your own code. npx vitest-auto-spy init writes the pointer every AI coding agent in the repository actually reads.
 ---
 
 # The CLI
@@ -89,6 +89,25 @@ warn   dead-runner-config karma.conf.js
 0 errors, 1 warning, 3 notes
 ```
 
+**`--code-quality <path>` for the merge request.** The same findings, written as a
+[GitLab Code Quality](https://docs.gitlab.com/ci/testing/code_quality/) report: point
+`artifacts:reports:codequality` at the file and the merge request widget lists what is new and what
+was resolved against the target branch. The widget is on every GitLab tier, self-managed included,
+and needs no token and no outside service. A finding about a file is filed under that file; one about
+the whole repository under `package.json`. The file is written even when there is nothing in it,
+because an empty report is how the widget learns that last run's issues are gone, and it follows
+`--min-severity`. The flag works the same way on `perf`, where it carries the advice, the gate and
+the flaky tests.
+
+```yaml
+doctor:
+  script: npx vitest-auto-spy doctor --code-quality gl-code-quality.json
+  artifacts:
+    when: always
+    reports:
+      codequality: gl-code-quality.json
+```
+
 Two shapes of pattern are deliberately exempt, because for them "matches nothing" is not evidence
 of anything: a declaration-only glob (`src/**/*.d.ts`, routinely a placeholder for ambient types
 that do not exist yet) and a pattern rooted in a directory the scan never enters (`dist`,
@@ -143,7 +162,14 @@ npx vitest-auto-spy perf              # run the whole suite once and report
 npx vitest-auto-spy perf src/cli      # path passed through to Vitest as a file filter
 npx vitest-auto-spy perf --json out/perf.json   # re-analyse a report instead of running Vitest
 npx vitest-auto-spy perf --out out/perf.json    # keep the JSON this run writes
+npx vitest-auto-spy perf --gate                 # fail over a slow file or test, and say why
 ```
+
+**If you add one line to CI, add `perf --gate`.** It fails only over a file or a test body that is
+slow against the rest of the same run, re-measures it on its own first, and prints under a confirmed
+finding a card of what the CPU profile saw — the slowest tests, hooks against bodies, where the time
+went by package and in your own code, and a likely cause. [The gate](#the-gate) shows a whole card
+and the rule behind the budget; the rest of this section is the advice `perf` prints on every run.
 
 ```
 $ npx vitest-auto-spy perf src/cli
@@ -252,6 +278,23 @@ so it never fails a CI job on its own. It exits `1` only when it has nothing to 
 installed in `--cwd`, the package's own `dist/perf-reporter.js` missing, the Vitest run itself
 producing no report, or a `--json` file that does not parse as one. If the suite ran but failed,
 `perf` still reports the timings it measured, with a warning that the run itself did not pass.
+
+### Flaky tests and the heap
+
+Two findings are made on every run, however cheap it was, because neither is about the phases.
+
+**`perf-flaky`** names every file with a test that passed only on a retry — Vitest's own
+`TestCase.diagnostic().flaky` — and the tests by name. It is a warning, and the run stays green. Its
+failed attempts are counted in the file's time, so the gate also judges such a file slower than it is.
+`--fail-on-flaky` makes it an error and exits 1, the way Playwright's `failOnFlakyTests` and nextest's
+`flaky-result = "fail"` do: a retry that hides a real race is a test that will fail on somebody else's
+merge request.
+
+**`perf-heap`** lists the five files with the most heap used after them, in megabytes, whenever the run
+recorded heap. A bare run passes `--logHeapUsage` itself; a `--command` run needs `logHeapUsage: true`
+in the configuration it reaches. It is a note and says what it cannot tell: under `isolate: false` the
+number after a file also carries every file that ran before it in the same worker, so a file that stays
+high with isolation on is the one that allocates.
 
 ### When a bare run is not your suite
 
@@ -374,6 +417,32 @@ error  perf-gate-slow-file libs/player/src/lib/vod/vod.component.spec.ts
 
 In a terminal the card is colored: the over-budget numbers and the slowest bodies past `--max-test-ms` in red, the rest of the timings in yellow, a bar per share that turns yellow at 20 % and red at 40 %, and the frame dimmed. The **likely cause** is at most two sentences, each fired by a rule the card states — more than half the time in hooks, one test three times the next, a DOM or framework package over 20 %, garbage collection over 10 % — and it is absent when none fires. The first line of the finding is unchanged and every card line is indented, so a harness that collects a finding as its `error` line plus the indented lines under it relays the whole card. `NO_COLOR` prints it without color.
 
+**On an Angular spec the card names Angular's own costs.** A row under the hooks, `angular`, splits the
+profile into TestBed set-up (`configureTestingModule`, `compileComponents`, `resetTestingModule`, the
+`override*` calls), component creation, change detection (`refreshView`), JIT compilation (time inside
+`@angular/compiler`) and computed styles (`getComputedStyle` in jsdom). The frames that only Angular
+has are recognised wherever they come from, because `@angular/build:unit-test` bundles the packages into
+chunks and the `node_modules` path is gone. Four more likely causes read that row, and they come before
+the generic ones: TestBed set-up and creation together at 30 % or more (it replaces the hooks sentence,
+since it says what the hooks are doing), the JIT compiler at 15 %, change detection at 30 %, computed
+styles at 15 %.
+
+```
+       │ hooks        ███████████░░░░░░░░░ 54%   test bodies 46%
+       │ angular      TestBed set-up 31%  ·  change detection 22%  ·  component creation 9%
+       ├─ slowest imports · with everything under them ────────────────
+       │   1.24s  @angular/material
+       │   310ms  src/app/player/player.component.ts
+       ├─ likely cause ────────────────────────────────────────────────
+       │ TestBed rebuilds the testing module and the component for every test: 40% is TestBed set-up and component creation. (…)
+```
+
+**The slowest imports come from Vitest.** On Vitest 4.1 and newer the confirmation pass raises
+`experimental.importDurations.limit` for its own run only, and the card lists the spec's heaviest
+direct imports with everything they pulled in: a package by its name, a module by its path. A module
+another file imported first was paid for there and is not listed. An older Vitest, or a harness whose
+spec is a bundled chunk, leaves the section out.
+
 Every share is of the sampled time with idle ticks left out, and a function is counted once per sample
 however deep it recurses, so inclusive lines add up to more than 100 % — `setUpWith` contains the
 change detection under it. A profile that could not be read leaves the finding without those lines
@@ -466,28 +535,50 @@ the screen can be checked against a clock. Files the baseline does not know are 
 that this run did not measure were somebody else's shard, and neither is a finding: both are
 reported as drift. `--baseline-factor` (2) and `--baseline-floor-ms` (500) are the two thresholds.
 
+**A `.jsonl` path is a history instead of a snapshot.** One committed snapshot is one measurement, and
+a file whose share of the run swings between 2× and 5× the median trips a 2× ratchet on an ordinary day.
+Point `--baseline` at a JSON Lines file and `--update-baseline` appends one line per run — the same
+per-file shares, when, and the commit from `CI_COMMIT_SHA` or `GITHUB_SHA` — and keeps the last 30.
+A file regresses only when its share is both `--baseline-factor` × its **mean** over the recorded runs
+and above **every** share it was recorded at, which is the rule Datadog Test Optimization applies
+against the default branch; a file needs three recorded runs before it can regress at all. The file
+does not have to be committed: keep it in the CI cache, record from the default branch, judge on
+merge requests.
+
+```yaml
+perf:
+  cache:
+    key: perf-history
+    paths: [perf-history.jsonl]
+  script:
+    - npx vitest-auto-spy perf --json out/perf.json --gate --baseline perf-history.jsonl
+    - if [ "$CI_COMMIT_BRANCH" = "$CI_DEFAULT_BRANCH" ]; then npx vitest-auto-spy perf --json out/perf.json --baseline perf-history.jsonl --update-baseline; fi
+```
+
 ### Flags
 
-| Flag                  | Effect                                                                                                                                                            |
-| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `--cwd <dir>`         | Run against another directory instead of the current one (shared with the other commands)                                                                         |
-| `--json <path>`       | Read reports instead of running Vitest: one file, a directory, or a pattern such as `coverage/**/perf-*.json`, which merges every report a sharded pipeline wrote |
-| `--out <path>`        | Keep the JSON report at this path. Without it, the report is written under `node_modules/.cache` and deleted once read                                            |
-| `--command <c>`       | Measure this shell line instead of running Vitest directly; `{paths}` / `{paths:<prefix>}` take the files of a confirmation pass                                  |
-| `--gate`              | Fail the run over a confirmed budget. Exit 1                                                                                                                      |
-| `--max-test-ms`       | Budget for one test body. Default 1000; nothing under 100 ms is recorded, so that is the floor                                                                    |
-| `--max-file-ms`       | A file whose bodies add up to less than this is never a finding. Default 5000                                                                                     |
-| `--max-file-tests`    | How many of the run's median tests a file's bodies have to add up to. Default 2000                                                                                |
-| `--factor <n>`        | How many times the run's median test one test of a file has to cost. Default 10 — counted in the run itself, so the verdict is machine-independent                |
-| `--max-wall-ms`       | A whole-run budget. Off by default: wall clock is a property of the runner, so nothing derives it for you                                                         |
-| `--gate-only`         | Comma-separated paths the gate may judge; the median is still taken over the whole run                                                                            |
-| `--no-confirm`        | Skip the confirmation pass and gate on a single reading                                                                                                           |
-| `--baseline <p>`      | Compare against a committed baseline and fail on what grew; recorded as a ratio to the run's median file, so a slower machine is not a regression                 |
-| `--update-baseline`   | Record this run into the baseline instead of judging it. Defaults to `perf-baseline.json`                                                                         |
-| `--baseline-factor`   | How many times its recorded share a file has to take before it is a regression. Default 2                                                                         |
-| `--baseline-floor-ms` | The absolute floor under which a grown file is still noise. Default 500                                                                                           |
-| `--top <n>`           | Rows in the "files over budget" and "test bodies over budget" tables; `0` turns them off. Default 10                                                              |
-| `--min-severity`      | The quietest findings the report prints: `error`, `warning` or `info` (default). The tally line still counts what was hidden, and the exit code does not move     |
+| Flag                  | Effect                                                                                                                                                                                  |
+| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--cwd <dir>`         | Run against another directory instead of the current one (shared with the other commands)                                                                                               |
+| `--json <path>`       | Read reports instead of running Vitest: one file, a directory, or a pattern such as `coverage/**/perf-*.json`, which merges every report a sharded pipeline wrote                       |
+| `--out <path>`        | Keep the JSON report at this path. Without it, the report is written under `node_modules/.cache` and deleted once read                                                                  |
+| `--command <c>`       | Measure this shell line instead of running Vitest directly; `{paths}` / `{paths:<prefix>}` take the files of a confirmation pass                                                        |
+| `--gate`              | Fail the run over a confirmed budget. Exit 1                                                                                                                                            |
+| `--max-test-ms`       | Budget for one test body. Default 1000; nothing under 100 ms is recorded, so that is the floor                                                                                          |
+| `--max-file-ms`       | A file whose bodies add up to less than this is never a finding. Default 5000                                                                                                           |
+| `--max-file-tests`    | How many of the run's median tests a file's bodies have to add up to. Default 2000                                                                                                      |
+| `--factor <n>`        | How many times the run's median test one test of a file has to cost. Default 10 — counted in the run itself, so the verdict is machine-independent                                      |
+| `--max-wall-ms`       | A whole-run budget. Off by default: wall clock is a property of the runner, so nothing derives it for you                                                                               |
+| `--gate-only`         | Comma-separated paths the gate may judge; the median is still taken over the whole run                                                                                                  |
+| `--no-confirm`        | Skip the confirmation pass and gate on a single reading                                                                                                                                 |
+| `--baseline <p>`      | Compare against a committed baseline and fail on what grew; recorded as a ratio to the run's median file, so a slower machine is not a regression. A `.jsonl` path is a history of runs |
+| `--update-baseline`   | Record this run into the baseline instead of judging it, or append it to a `.jsonl` history that keeps 30 runs. Defaults to `perf-baseline.json`                                        |
+| `--fail-on-flaky`     | A test that passed only on a retry fails the run, exit 1. Without it, a warning                                                                                                         |
+| `--code-quality <p>`  | Also write the findings as a GitLab Code Quality report. Shared with `doctor`                                                                                                           |
+| `--baseline-factor`   | How many times its recorded share a file has to take before it is a regression. Default 2                                                                                               |
+| `--baseline-floor-ms` | The absolute floor under which a grown file is still noise. Default 500                                                                                                                 |
+| `--top <n>`           | Rows in the "files over budget" and "test bodies over budget" tables; `0` turns them off. Default 10                                                                                    |
+| `--min-severity`      | The quietest findings the report prints: `error`, `warning` or `info` (default). The tally line still counts what was hidden, and the exit code does not move                           |
 
 A positional path (`npx vitest-auto-spy perf src/cli`) is passed through to Vitest as its file
 filter; with none, `perf` measures the whole suite.
@@ -577,6 +668,8 @@ changed the advice.
 - run: npx vitest-auto-spy init --check
 - run: npx vitest-auto-spy codemod --verify # on a suite that has been migrated
 - run: npx vitest-auto-spy perf --out perf.json # always exits 0 — not a gate, an artifact to keep
+- run: npx vitest-auto-spy perf --gate # exit 1 over a confirmed slow file or test, with the reason under it
+- run: npx vitest-auto-spy doctor --code-quality gl-code-quality.json # the same findings in the GitLab merge request widget
 ```
 
 None of them need a network, a config file, or a token. The CLI ships with the package, has no
