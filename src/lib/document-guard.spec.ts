@@ -119,6 +119,51 @@ describe('checkDocumentPollution — attributes', () => {
     expect(() => checkDocumentPollution(snapshot, 'the test')).not.toThrow();
   });
 
+  it('reads an empty class or style left by add-then-remove as the absent attribute, and does not touch it', () => {
+    const doc = freshDocument();
+    const snapshot = snapshotDocument(THROW, doc);
+
+    doc.body.classList.add('scroll-hidden');
+    doc.body.classList.remove('scroll-hidden');
+    doc.documentElement.setAttribute('style', 'overflow: hidden');
+    doc.documentElement.setAttribute('style', '');
+
+    expect(doc.body.getAttribute('class')).toBe('');
+    expect(doc.documentElement.getAttribute('style')).toBe('');
+    expect(() => checkDocumentPollution(snapshot, 'the test')).not.toThrow();
+    expect(doc.body.getAttribute('class')).toBe('');
+    expect(doc.documentElement.getAttribute('style')).toBe('');
+  });
+
+  it('reads an empty class or style that went away as no change either', () => {
+    const doc = freshDocument();
+
+    doc.body.setAttribute('class', '');
+    doc.body.setAttribute('style', '');
+
+    const snapshot = snapshotDocument(THROW, doc);
+
+    doc.body.removeAttribute('class');
+    doc.body.removeAttribute('style');
+
+    expect(() => checkDocumentPollution(snapshot, 'the test')).not.toThrow();
+    expect(doc.body.hasAttribute('class')).toBe(false);
+    expect(doc.body.hasAttribute('style')).toBe(false);
+  });
+
+  it('still names a class that kept a value, and any other attribute left empty', () => {
+    const doc = freshDocument();
+    const snapshot = snapshotDocument(THROW, doc);
+
+    doc.body.classList.add('platform-tv');
+    doc.body.setAttribute('data-reset-focus', '');
+
+    const message = failureOf(snapshot);
+
+    expect(message).toContain('<body> class="platform-tv" added');
+    expect(message).toContain('<body> data-reset-focus="" added');
+  });
+
   it('reports a leftover once: the repair makes the next check clean', () => {
     const doc = freshDocument();
     const snapshot = snapshotDocument(THROW, doc);

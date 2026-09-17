@@ -6374,6 +6374,12 @@ The attributes of `<html>`, `<head>` and `<body>` are recorded before each test.
 added, changed or removed by the end of it is reported with both values and put back, and the test
 fails. A change made in a `beforeAll` and never undone is reported against the file.
 
+An empty `class` or `style` counts as no attribute at all. `classList.add` followed by `classList.remove`
+(or Renderer2 `addClass` / `removeClass`, or a style set and cleared) leaves `class=""` behind where there
+was none, and nothing can tell the two apart — on a consumer suite that artifact was 9 of the first 32
+failures. Every other empty value is still a change: `data-reset-focus=""` is a flag
+`[data-reset-focus]` matches.
+
 **When it looks matters.** Not in an `afterEach`: a setup file registers its hooks after the TestBed's
 (the builder's `init-testbed.js` is its first setup file), `afterEach` hooks run in reverse, and so an
 `afterEach` check would run before the TestBed destroys the fixtures — reporting every attribute a

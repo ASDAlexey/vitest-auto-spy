@@ -36,6 +36,23 @@ The latest released version here must always match the one published on
   `guardDocumentPollution(option)` from `/setup` registers the same check on its own. Vitest only, like
   every `/setup` guard. +1.0 kB min+gzip on `/setup`, nothing on any other entry.
 
+### Fixed
+
+- **`documentPollution` failed a test for a `class=""` that nothing can observe.** `classList.add('x')`
+  and a later `classList.remove('x')` — or Renderer2's `addClass` / `removeClass`, or a `style.overflow`
+  set and then cleared — do not take the attribute back off: `<body>` ends the test with `class=""` or
+  `style=""` where it started with no attribute at all. No selector, `classList.contains`, `className`
+  truthiness check or computed style tells the two apart, yet the guard reported
+  `<body> class="" added` and, under `'throw'`, failed a test that had cleaned up after itself.
+  Rolled out on a consumer suite, this was 9 of the 32 failures, across 5 files — an onboarding banner, an overlay, a profile
+  page and the player's fullscreen mode, each removing exactly the class it added — and the other 23
+  were real leftovers (`data-reset-focus`, a platform class, a scroll lock). An empty `class` or `style`
+  now reads as the attribute being absent, in both directions: absent → `""` and `""` → absent are no
+  change, and the repair leaves the empty attribute where it is instead of churning the DOM for nothing.
+  Only those two: their empty value is defined to mean no classes and no declarations, whereas an empty
+  `data-reset-focus=""` is a present flag that `[data-reset-focus]` matches, and it is still reported —
+  the case the guard was written for.
+
 ## [5.16.0] - 2026-09-17
 
 ### Added

@@ -98,8 +98,20 @@ function isIgnoredAttribute(name: string, ignore: readonly (RegExp | string)[]):
   return ignore.some((pattern) => (typeof pattern === 'string' ? pattern === name : pattern.test(name)));
 }
 
+// `classList.add` then `remove` leaves `class=""` where there was no attribute, and `style` does the same;
+// neither is observable, so an empty one reads as absent. Any other empty value — `data-reset-focus=""` — counts.
+const EMPTY_MEANS_ABSENT: ReadonlySet<string> = new Set(['class', 'style']);
+
+function isEmptyMeansAbsent({ name, value }: Attr): boolean {
+  return value === '' && EMPTY_MEANS_ABSENT.has(name);
+}
+
 function readAttributes(element: Element, ignore: readonly (RegExp | string)[]): Map<string, string> {
-  return new Map([...element.attributes].filter(({ name }) => !isIgnoredAttribute(name, ignore)).map(({ name, value }) => [name, value]));
+  return new Map(
+    [...element.attributes]
+      .filter((attribute) => !isIgnoredAttribute(attribute.name, ignore) && !isEmptyMeansAbsent(attribute))
+      .map(({ name, value }) => [name, value]),
+  );
 }
 
 function readChildren(element: Element, options: ResolvedDocumentPollution): Element[] | undefined {
