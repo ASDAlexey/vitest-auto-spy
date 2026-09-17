@@ -629,16 +629,16 @@ prune reaches only one and the run dies out of memory.
 
 ## Bundle size
 
-The badge says 17.5 kB min+gzip, and that is the whole core entry bundled together. It is also the
+The badge says 17.6 kB min+gzip, and that is the whole core entry bundled together. It is also the
 largest number a consumer can pay for the core, because entries are separate subpaths and a project
 only pays for the ones it imports:
 
 | Imported                                      |    min+gzip |
 | --------------------------------------------- | ----------: |
-| `.` — the core entry, what the badge measures | **17.5 kB** |
-| `vitest-auto-spy/angular`                     |     26.4 kB |
-| `vitest-auto-spy/react` / `/vue` / `/svelte`  |     17.8 kB |
-| `vitest-auto-spy/node`                        |     16.6 kB |
+| `.` — the core entry, what the badge measures | **17.6 kB** |
+| `vitest-auto-spy/angular`                     |     26.9 kB |
+| `vitest-auto-spy/react` / `/vue` / `/svelte`  |     17.9 kB |
+| `vitest-auto-spy/node`                        |     16.7 kB |
 | `vitest-auto-spy/dom-stubs`                   |      5.7 kB |
 | `vitest-auto-spy/rxjs`                        |      2.3 kB |
 | `vitest-auto-spy/angular-router`              |      7.1 kB |
@@ -650,7 +650,7 @@ weighs, within a rounding error of each other, because that is what they are: `s
 barrel — a `registerMockAdapter` call and `export * from './auto-spy'` — and its own code is seven
 bytes in the bundle. Nobody should go looking for weight in it.
 
-Every figure here is the committed baseline in `size-entries.json` as of 2026-09-13, which is what
+Every figure here is the committed baseline in `size-entries.json` as of 2026-09-17, which is what
 `size:entries:check` and the badge both read; an earlier edition of this table quoted 15.1, 18.7 and
 14.5 kB for the first three rows, taken before the defaults registry, the outside-a-hook report and
 the shadowed-provider check. `/dom-stubs` last moved for `stubWebStorage`, +256 B, and `/angular` for
@@ -683,6 +683,12 @@ exempts; it is a lint-time entry point that no spec run loads. `prefer-provide-a
 `prefer-set-inputs` then took it to 34 856 B, +2068 B together (+6.3 %). `/signal-forms` arrives at
 1.36 kB — the whole entry is `createForm` and one matcher over Angular's own `form()`, which stays
 in `@angular/forms` where the consumer already has it.
+
+After v5.15.1 `/angular` moved +452 B and `/bun-angular` +508 B (21 429 B → 21 937 B, +2.4 %) for the
+guard that refuses an AOT scope `renderShallow` cannot rebuild — nearly all of it the error text, which
+names the declarations and both ways on instead of Angular's message aimed at the pipe's author. The
+other runtime rows took +53…112 B for `narrow.defined`, and `/eslint-plugin` +501 B for the separate
+object-spread message and the stub-factory exemption.
 
 `npm run size:entries` prints all twenty-three and compares them against a committed baseline, so an entry
 that quietly gains a second copy of the core fails a check instead of being noticed a release later.

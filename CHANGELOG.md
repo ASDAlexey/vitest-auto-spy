@@ -21,7 +21,8 @@ The latest released version here must always match the one published on
   replacement for `assert.exists` where the assertion is the point of the test; the difference is
   whether the line asserts that a value arrived or reads one the test already knows arrived. A
   falsy-but-present value passes: `0`, `''`, `false` and `NaN` are all defined. Failure prints the
-  shape the value had, like every other `narrow` helper.
+  shape the value had, like every other `narrow` helper. +53…112 B min+gzip on the runtime entry
+  points.
 
 ### Fixed
 
@@ -48,7 +49,9 @@ The latest released version here must always match the one published on
   now checks what it is about to hand over and throws first, naming the declarations, saying they
   are not the thing to change, and giving the two ways on: drop `keepTemplate` when the spec reads
   TypeScript state only, or build the component with `TestBed` directly and seed the services its
-  children inject. A list that still carries the `NgModule` itself — every JIT run — is unchanged.
+  children inject. A list that still carries the `NgModule` itself — every JIT run — is unchanged. The
+  guard costs +452 B min+gzip on `/angular` and +508 B on `/bun-angular` (+2.4 %), nearly all of it
+  the message: the alternative is Angular's own, which sends the reader to the wrong file.
 
 - **`no-import-time-spread` described a `TypeError` an object spread never raises.** The rule
   reported `{ ...Imported }` at module scope with the same message as `[...Imported]` — "…and
