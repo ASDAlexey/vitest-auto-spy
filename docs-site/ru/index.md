@@ -24,7 +24,7 @@ features:
     details: 'createSpyFromClass читает прототип, поэтому у дубля те же методы, перегрузки и сигнатуры, что у класса, — а вызов, который отвергает настоящий метод, не скомпилируется и на дубле.'
     link: /ru/core/create-spy-from-class
   - title: Хелперы, которые следуют за типом возврата
-    details: 'Метод, возвращающий Promise, получает resolveWith и rejectWith, возвращающий Observable — nextWith и throwWith, а каждый метод получает calledWith, mustBeCalledWith и failWith.'
+    details: 'Метод, возвращающий Promise, получает resolveWith и rejectWith, возвращающий Observable — nextWith и throwWith, а каждый метод получает calledWith, mustBeCalledWith и failWith. При чтении значения обратно narrow.defined возвращает его без null и undefined прямо внутри выражения, которому оно нужно; toBeDefined() в Vitest 5.0 ничего не сужает, а assert.exists сужает, но ничего не возвращает, и каждое необязательное чтение стоит лишней инструкции и локальной переменной.'
     link: /ru/core/control-helpers
   - title: Настройки спая живут рядом с классом
     details: 'registerAutoSpyDefaults(Router, config) один раз в setup-файле — и каждый provideAutoSpy или createSpyFromClass стартует с них, сливая с тем, что добавил вызов, а не заменяя. В одной Angular-сюите один и тот же класс собрал 23 разные конфигурации в 109 файлах спек; десяток классов заезжает одной таблицей, и каждая строка проверяется по своему классу, а InjectionToken регистрируется так же, через vitest-auto-spy/angular, и одна строка снимается через clearAutoSpyDefaults.'

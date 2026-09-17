@@ -24,7 +24,7 @@ features:
     details: 'createSpyFromClass reads the prototype, so the double carries the class own methods, overloads and signatures — and a call the real method rejects will not compile on the double either.'
     link: /core/create-spy-from-class
   - title: Helpers that follow the return type
-    details: 'A method returning a Promise gets resolveWith and rejectWith, one returning an Observable gets nextWith and throwWith, and every method gets calledWith, mustBeCalledWith and failWith.'
+    details: 'A method returning a Promise gets resolveWith and rejectWith, one returning an Observable gets nextWith and throwWith, and every method gets calledWith, mustBeCalledWith and failWith. Reading a value back, narrow.defined returns it with null and undefined stripped inside the expression that needs it; toBeDefined() in Vitest 5.0 narrows nothing, and assert.exists narrows but returns nothing, so every optional read costs a statement and a local.'
     link: /core/control-helpers
   - title: Spy defaults that live with the class
     details: 'registerAutoSpyDefaults(Router, config) once in a setup file and every provideAutoSpy or createSpyFromClass starts from it — merged with what the call site adds, not replaced. One Angular suite carried 23 different configurations of the same class across 109 spec files; a dozen classes go in as one table, each row checked against its own class, and an InjectionToken registers the same way from vitest-auto-spy/angular, clearAutoSpyDefaults taking one row back.'

@@ -319,6 +319,7 @@ export default defineConfig({
           'should create test is useless, ng generate spec only tests toBeTruthy, delete the default angular spec, ' +
           'no-redundant-smoke-test, test that cannot fail, smoke test asserts nothing, ' +
           'prefer-set-inputs, componentRef.setInput, setInputs, NG0303, input name not declared, setInput does nothing, ' +
+          'toBeDefined does not narrow type, object is possibly undefined in test, TS18048 in spec, non-null assertion in test, narrow.defined, ' +
           'createSpyFromClass, createAutoMock, mockDeep, deep mock, createFixture, createFixtureFactory, ' +
           'resolveWith, calledWith, mustBeCalledWith, failWith, mockThrow, throw for specific arguments, nextWithValues, assertMocked, ' +
           'extendWithAutoSpies, test.extend fixtures, TestBed fixtures, vitest 4.1, detect-async-leaks, stray timers, onStrayTimers, no-bare-called-with, ' +
@@ -417,7 +418,10 @@ export default defineConfig({
     ['meta', { property: 'og:image', content: OG_IMAGE }],
     ['meta', { property: 'og:image:width', content: '1200' }],
     ['meta', { property: 'og:image:height', content: '630' }],
-    ['meta', { property: 'og:image:alt', content: 'vitest-auto-spy — fully-typed test spies from a class, on Vitest, Bun, node:test and Rstest' }],
+    [
+      'meta',
+      { property: 'og:image:alt', content: 'vitest-auto-spy — fully-typed test spies from a class, on Vitest, Bun, node:test and Rstest' },
+    ],
     ['meta', { name: 'twitter:card', content: 'summary_large_image' }],
     ['meta', { name: 'twitter:image', content: OG_IMAGE }],
     ['link', { rel: 'icon', href: '/vitest-auto-spy/favicon.svg', type: 'image/svg+xml' }],
