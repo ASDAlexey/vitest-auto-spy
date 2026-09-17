@@ -19,6 +19,8 @@ export interface Finding {
   readonly message: string;
   /** What to do about it. Every finding names its own fix — that is the point of the tool. */
   readonly fix: string;
+  /** Evidence printed between the message and the fix, one line each: what the gate measured about the file. */
+  readonly details?: readonly string[];
 }
 
 const SEVERITY_ORDER: Record<Severity, number> = { error: 0, warning: 1, info: 2 };
@@ -47,9 +49,12 @@ export function hasFailures(findings: readonly Finding[]): boolean {
 function formatOne(finding: Finding): string {
   const where = finding.file === undefined ? '' : ` ${finding.file}`;
 
-  return [`${SEVERITY_LABEL[finding.severity]}  ${finding.check}${where}`, `       ${finding.message}`, `       → ${finding.fix}`].join(
-    '\n',
-  );
+  return [
+    `${SEVERITY_LABEL[finding.severity]}  ${finding.check}${where}`,
+    `       ${finding.message}`,
+    ...(finding.details ?? []).map((line) => `       ${line}`),
+    `       → ${finding.fix}`,
+  ].join('\n');
 }
 
 /**

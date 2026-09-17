@@ -18,6 +18,12 @@ export const PERF_OUTPUT_ENV = 'VITEST_AUTO_SPY_PERF_OUT';
  */
 export const PERF_REPORTER_ENV = 'VITEST_AUTO_SPY_PERF_REPORTER';
 
+/**
+ * Where a confirmation pass wants CPU profiles left. Set, the reporter adds `dist/perf-profiler.js`
+ * to every project's `setupFiles` and records every test body of the file rather than the slow ones.
+ */
+export const PERF_PROFILE_ENV = 'VITEST_AUTO_SPY_PERF_PROFILE';
+
 /** The page every message from this command points at. Deep links are anchors on it. */
 export const PERF_DOCS = 'https://asdalexey.github.io/vitest-auto-spy/core/performance';
 

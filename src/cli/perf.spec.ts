@@ -948,7 +948,7 @@ describe('renderPerf --gate', () => {
       root,
       wall,
       files: [
-        ...Array.from({ length: 9 }, (_unused, index) => file(join(root, `src/ordinary-${index}.spec.ts`), { tests: 100, testCount: 4 })),
+        ...Array.from({ length: 9 }, (_unused, index) => file(join(root, `src/ordinary-${index}.spec.ts`), { tests: 100, testCount: 40 })),
         ...files,
       ],
     });
@@ -1130,7 +1130,9 @@ describe('renderPerf, the wording of the two plurals', () => {
   it('counts the re-measured files in the plural', () => {
     const root = cleanRepo(1);
     const io = recorder();
-    const ordinary = Array.from({ length: 9 }, (_unused, index) => file(join(root, `src/ordinary-${index}.spec.ts`), { tests: 100 }));
+    const ordinary = Array.from({ length: 9 }, (_unused, index) =>
+      file(join(root, `src/ordinary-${index}.spec.ts`), { tests: 100, testCount: 40 }),
+    );
     const slow = ['src/a.spec.ts', 'src/b.spec.ts'].map((path) => file(join(root, path), { tests: 9_000 }));
     const source: PerfSource = { ok: true, run: run({ root, files: [...ordinary, ...slow] }), runFailed: false };
     const remeasure = (): PerfSource => ({ ok: true, run: run({ root, files: slow }), runFailed: false });
@@ -1220,7 +1222,7 @@ describe('renderPerf --gate, the scope and the confirmation it was given', () =>
   const runWith = (root: string, files: readonly PerfFile[]): PerfRun => run({ root, wall: 1_000, files });
 
   const ordinary = (root: string): PerfFile[] =>
-    Array.from({ length: 9 }, (_unused, index) => file(join(root, `src/ordinary-${index}.spec.ts`), { tests: 100 }));
+    Array.from({ length: 9 }, (_unused, index) => file(join(root, `src/ordinary-${index}.spec.ts`), { tests: 100, testCount: 40 }));
 
   it('refuses a --gate-only that matches nothing this run measured', () => {
     const root = cleanRepo(1);
@@ -1266,39 +1268,47 @@ describe('renderPerf, the tables and the notes around the phases', () => {
       wall: 20_000,
       files: [
         ...Array.from({ length: 9 }, (_unused, index) => file(join(root, `src/ordinary-${index}.spec.ts`), { tests: 200, testCount: 10 })),
-        file(join(root, 'src/case-0.spec.ts'), { tests: 4_000, testCount: 8, cases: [{ name: 'suite > waits', ms: 900 }] }),
+        file(join(root, 'src/case-0.spec.ts'), { tests: 45_000, testCount: 8, cases: [{ name: 'suite > waits', ms: 1_200 }] }),
       ],
     });
 
-  it('prints the hotspot tables after the phase table, and drops them when asked for no rows', () => {
+  it('prints only what is over budget, at the bottom of the report, and drops it when asked for no rows', () => {
     const root = cleanRepo(1);
     const shown = recorder();
     const hidden = recorder();
     const source: PerfSource = { ok: true, run: bigRun(root), runFailed: false };
 
     expect(renderPerf(source, readProfile(root), shown)).toBe(0);
-    expect(shown.stdout.join('\n')).toContain('slowest files');
-    expect(shown.stdout.join('\n')).toContain('src/case-0.spec.ts');
+
+    const out = shown.stdout.join('\n');
+
+    expect(out).toContain('files over budget');
+    expect(out).toContain('test bodies over budget');
+    expect(out).not.toContain('src/ordinary-0.spec.ts');
+    expect(out.indexOf('files over budget')).toBeGreaterThan(out.indexOf('phase'));
 
     expect(renderPerf(source, readProfile(root), hidden, { top: 0 })).toBe(0);
-    expect(hidden.stdout.join('\n')).not.toContain('slowest files');
+    expect(hidden.stdout.join('\n')).not.toContain('over budget');
   });
 
-  it('says why a run asked for rows got none, and stays quiet about it when nobody asked', () => {
+  it('says in one line that nothing is over budget, and leaves that line to the gate under --gate', () => {
     const root = cleanRepo(1);
-    const asked = recorder();
-    const silent = recorder();
+    const plain = recorder();
+    const gated = recorder();
     const quick: PerfSource = {
       ok: true,
       run: run({ root, wall: 900, files: [file(join(root, 'src/quick.spec.ts'), { tests: 40, testCount: 8 })] }),
       runFailed: false,
     };
 
-    expect(renderPerf(quick, readProfile(root), asked, { top: 15 })).toBe(0);
-    expect(asked.stdout.join('\n')).toContain('No hotspot tables: the slowest file spent 40ms');
+    expect(renderPerf(quick, readProfile(root), plain)).toBe(0);
+    expect(plain.stdout.join('\n')).toContain('Nothing over budget: no file over its budget and no test body over 1.00s');
 
-    expect(renderPerf(quick, readProfile(root), silent)).toBe(0);
-    expect(silent.stdout.join('\n')).not.toContain('No hotspot tables');
+    expect(
+      renderPerf(quick, readProfile(root), gated, { gate: { options: GATE_DEFAULTS, remeasure: undefined, trustSingle: false } }),
+    ).toBe(0);
+    expect(gated.stdout.join('\n')).not.toContain('Nothing over budget:');
+    expect(gated.stdout.join('\n')).toContain('perf gate: nothing over budget');
   });
 
   it('prints what the source had to say about itself, when it had something', () => {

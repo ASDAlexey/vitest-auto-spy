@@ -7,20 +7,37 @@
  * files, from the measurement and the repository's own import graph, and states the rule it used —
  * advice a reader cannot check is advice a reader has to trust.
  */
+import { relative } from 'node:path';
+
 import { findBarrelImports } from './checks/barrels';
 import { DOM_FREE_RULE, findDomFreeSpecs } from './checks/dom-free';
 import type { SourceGraph } from './checks/graph';
 import { buildGraph } from './checks/graph';
-import { formatHotspots, hotspotFloorNote } from './checks/perf-hotspots';
+import { formatHotspots, nothingOverBudgetNote } from './checks/perf-hotspots';
 import { isolationFromAngularBuilder } from './checks/runner-isolation';
+import { toPosix } from './fs-scan';
 import type { CliIo } from './main';
+import { painterFor } from './paint';
 import type { BaselineOptions } from './perf-baseline';
 import { baselineDrift, baselineRegressions, buildBaseline, readBaseline, writeBaseline } from './perf-baseline';
 import type { PerfFile, PerfRun, Phase } from './perf-data';
 import { PERF_DOCS, formatMs, formatShare, measuredNothing, phasesOf, shareOf, testsRunOf, totalOf } from './perf-data';
+import { formatEvidence } from './perf-evidence';
 import type { GateCandidate, GateOptions } from './perf-gate';
-import { gateCandidates, gateVerdict, isJudged, measuredFiles, medianFileMs, suspectFiles } from './perf-gate';
-import type { PerfSource, Remeasure } from './perf-run';
+import {
+  GATE_DEFAULTS,
+  fileBudget,
+  gateCandidates,
+  gateVerdict,
+  isJudged,
+  measuredFiles,
+  medianFileMs,
+  medianTestMs,
+  suspectFiles,
+} from './perf-gate';
+import type { CpuProfile } from './perf-profile';
+import { summariseProfile } from './perf-profile';
+import type { PerfMeasured, PerfSource, Remeasure } from './perf-run';
 import type { Profile } from './profile';
 import { type Finding, type Severity, formatFindings, summarize } from './report';
 
@@ -415,7 +432,7 @@ function describeForeignRoot(run: PerfRun, cwd: string): string {
  * and returns the same contended number, which the gate would then print as "re-measured on its
  * own". It is not, and a gate that says so once is a gate nobody believes again.
  */
-function confirmRun(gate: GateRequest, suspects: readonly string[], cwd: string, io: CliIo): PerfRun | undefined {
+function confirmRun(gate: GateRequest, suspects: readonly string[], cwd: string, io: CliIo): PerfMeasured | undefined {
   if (gate.remeasure === undefined || suspects.length === 0) {
     return undefined;
   }
@@ -448,7 +465,46 @@ function confirmRun(gate: GateRequest, suspects: readonly string[], cwd: string,
     return undefined;
   }
 
-  return second.run;
+  return second;
+}
+
+/**
+ * A confirmed finding, with the card of what the confirmation pass saw inside the file: the two
+ * readings against the budget, its slowest bodies, and where the profile says the time went. A
+ * finding that was not confirmed carries nothing — the second reading did not agree with it, so its
+ * profile explains a file that was not slow.
+ */
+function withEvidence(finding: Finding, first: PerfRun, second: PerfMeasured | undefined, cwd: string, options: GateOptions): Finding {
+  const firstFiles = measuredFiles(first, cwd);
+  const before = finding.file === undefined ? undefined : firstFiles.get(finding.file);
+  const after = finding.file === undefined || second === undefined ? undefined : measuredFiles(second.run, cwd).get(finding.file);
+
+  if (finding.severity !== 'error' || before === undefined || after === undefined) {
+    return finding;
+  }
+
+  const medianTest = medianTestMs(firstFiles.values());
+  const slowest = [...after.cases]
+    .sort((a, b) => b.ms - a.ms || a.name.localeCompare(b.name))
+    .slice(0, 5)
+    // The last two levels of a full name: the `describe` a reader searches for and the `it` inside it.
+    .map((entry) => ({ name: entry.name.split(' > ').slice(-2).join(' > '), ms: entry.ms }));
+  const profile = [...(second?.profiles ?? new Map<string, CpuProfile>())].find(([path]) => toPosix(relative(cwd, path)) === finding.file);
+  const details = formatEvidence(
+    {
+      ms: before.tests,
+      budget: fileBudget(before, medianTest, options),
+      again: after.tests,
+      testCount: before.testCount,
+      medianTest,
+      slowest,
+      maxTestMs: options.maxTestMs,
+      summary: profile === undefined ? undefined : summariseProfile(profile[1], profile[0], cwd),
+    },
+    painterFor(undefined),
+  );
+
+  return { ...finding, details };
 }
 
 /** The `--gate-only` entries that matched no measured file. A list that matches nothing judges nothing. */
@@ -472,16 +528,19 @@ function runGate(run: PerfRun, cwd: string, io: CliIo, gate: GateRequest, extra:
   const candidates = [...gateCandidates(run, cwd, gate.options), ...extra];
 
   if (candidates.length === 0) {
-    io.out(
-      `\nperf gate: nothing over budget — no test body over ${formatMs(gate.options.maxTestMs)}, no file over ${formatMs(gate.options.maxFileMs)}.`,
-    );
+    io.out(`\nperf gate: nothing over budget — no test body over ${formatMs(gate.options.maxTestMs)}, no file over its budget.`);
 
     return 0;
   }
 
-  const verdict = gateVerdict(candidates, confirmRun(gate, suspectFiles(candidates), cwd, io), cwd, gate.trustSingle);
+  const second = confirmRun(gate, suspectFiles(candidates), cwd, io);
+  const verdict = gateVerdict(candidates, second?.run, cwd, gate.trustSingle);
 
-  reportOrTally(verdict.findings, io, minSeverity);
+  reportOrTally(
+    verdict.findings.map((finding) => withEvidence(finding, run, second, cwd, gate.options)),
+    io,
+    minSeverity,
+  );
 
   return verdict.failed ? PERF_GATE_FAILED : 0;
 }
@@ -532,20 +591,21 @@ function recordBaseline(run: PerfRun, cwd: string, path: string, io: CliIo): voi
 }
 
 /**
- * The two tables, or — when `--top` asked for rows the floor then suppressed — the reason there are
- * none. A flag that answers with nothing reads as a broken flag.
+ * The files and bodies over budget, or one line saying there are none. Under `--gate` that line is
+ * left to the gate, which prints its own all-clear a few lines further down.
  */
-function reportHotspots(run: PerfRun, cwd: string, top: number | undefined, io: CliIo): void {
-  const hotspots = formatHotspots(run, cwd, top === undefined ? {} : { limit: top });
-
-  if (hotspots !== '') {
-    io.out(`\n${hotspots}`);
-
+function reportHotspots(run: PerfRun, cwd: string, options: PerfOptions, io: CliIo): void {
+  if (options.top === 0) {
     return;
   }
 
-  if (top !== undefined && top > 0) {
-    io.out(`\n${hotspotFloorNote(run, cwd)}`);
+  const gate = options.gate?.options ?? GATE_DEFAULTS;
+  const hotspots = formatHotspots(run, cwd, options.top === undefined ? { gate } : { gate, limit: options.top });
+
+  if (hotspots !== '') {
+    io.out(`\n${hotspots}`);
+  } else if (options.gate === undefined) {
+    io.out(`\n${nothingOverBudgetNote(gate)}`);
   }
 }
 
@@ -594,8 +654,8 @@ export function renderPerf(source: PerfSource, profile: Profile, io: CliIo, opti
 
   io.out(formatPhases(analysis.phases));
 
-  reportHotspots(source.run, profile.cwd, options.top, io);
   reportFindings(analysis, io, options.minSeverity);
+  reportHotspots(source.run, profile.cwd, options, io);
 
   if (options.baseline?.update === true) {
     recordBaseline(source.run, profile.cwd, options.baseline.path, io);

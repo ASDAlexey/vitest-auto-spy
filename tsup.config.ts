@@ -300,7 +300,7 @@ export default defineConfig([
     // because it must not carry the `#!` banner of the one above, and a file rather than an
     // `exports` subpath because the CLI hands Vitest an absolute path — nobody imports it by name,
     // so a subpath would be a public API with no reader.
-    entry: { 'perf-reporter': 'src/cli/perf-reporter.ts' },
+    entry: { 'perf-reporter': 'src/cli/perf-reporter.ts', 'perf-profiler': 'src/perf-profiler.ts' },
     format: ['esm'] as const,
     splitting: false,
     dts: false,

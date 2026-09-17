@@ -1,20 +1,19 @@
 /**
  * The two tables, and the things that decide whether anybody reads them.
  *
- * Order has to be **total**, not merely by time, or two renderings of one report disagree and the
- * tables stop being quotable. The per-test column has to survive a file that finished no body, which
- * is the one input that turns an average into `Infinity`. The floor has to be pinned from **both**
- * sides, because a table that appears for a 40 ms suite teaches the reader to skip the section. A
- * body is named by its file and its own name, and the file has to survive whole — a path cut in the
- * middle on segment boundaries still names the project and the file, a path cut at either end names
- * nothing. And color has to be pinned from the test, because the same strings are golden here and
- * a stray `NO_COLOR` in the environment would otherwise decide what they contain.
+ * A row has to be exactly what the gate would take as a candidate — a table that lists a large file
+ * of ordinary tests, which the gate never fails, is the noise these tables used to be. Order has to be
+ * **total**, or two renderings of one report disagree. The per-test columns have to survive a file
+ * that finished no body. A cut path has to stay in its column with color on, which is where padding
+ * used to count the escape sequence around the ellipsis. And color has to be pinned from the test,
+ * because the same strings are golden here and a stray `NO_COLOR` would otherwise decide them.
  */
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { PerfFile, PerfRun } from '../perf-data';
-import { caseHotspots, fileHotspots, formatHotspots, hotspotFloorNote } from './perf-hotspots';
+import { GATE_DEFAULTS } from '../perf-gate';
+import { bodiesOverBudget, filesOverBudget, formatHotspots, nothingOverBudgetNote } from './perf-hotspots';
 
 const ROOT = '/repo';
 
@@ -32,9 +31,14 @@ const file = (path: string, over: Partial<PerfFile> = {}): PerfFile => ({
 
 const run = (files: readonly PerfFile[], version = 2): PerfRun => ({ version, root: ROOT, transform: 0, wall: 10_000, failed: 0, files });
 
-/** Five files, 24.00s of bodies between them, one of which finished nothing. */
+/** Nine files of forty 2.5 ms tests: the median test of every run below, and a 5.00s floor with the defaults. */
+const ordinary = (): PerfFile[] =>
+  Array.from({ length: 9 }, (_unused, index) => file(`libs/ordinary/o-${index}.spec.ts`, { tests: 100, testCount: 40 }));
+
+/** Three files over budget, one large file of ordinary tests that is not, and one that is merely small. */
 const suite = (): PerfRun =>
   run([
+    ...ordinary(),
     file('libs/player/wrapper/src/lib/ads/ads.controller.spec.ts', {
       tests: 7_500,
       testCount: 12,
@@ -45,140 +49,152 @@ const suite = (): PerfRun =>
       testCount: 240,
       cases: [{ name: 'ProfileComponent > uploads an avatar', ms: 320 }],
     }),
-    file('libs/api/src/lib/catalog.service.spec.ts', { tests: 4_900, testCount: 3 }),
-    file('libs/shared/retry.interceptor.spec.ts', { tests: 3_800, testCount: 0 }),
+    file('libs/api/src/lib/catalog.service.spec.ts', { tests: 6_000, testCount: 3 }),
+    file('libs/shared/retry.interceptor.spec.ts', { tests: 5_200, testCount: 0 }),
     file('libs/misc/small.spec.ts', { tests: 2_300, testCount: 20 }),
   ]);
 
-describe('fileHotspots', () => {
-  it('ranks the files by what their bodies cost, the most expensive first', () => {
-    expect(fileHotspots(suite(), ROOT, 3).map((hotspot) => hotspot.file)).toEqual([
+const plain = { colors: false } as const;
+
+describe('filesOverBudget', () => {
+  it('lists exactly the files the gate would take, the most expensive first', () => {
+    expect(filesOverBudget(suite(), ROOT, GATE_DEFAULTS, 10).map((entry) => entry.file)).toEqual([
       'libs/player/wrapper/src/lib/ads/ads.controller.spec.ts',
-      'apps/web/src/app/profile/profile.component.spec.ts',
       'libs/api/src/lib/catalog.service.spec.ts',
+      'libs/shared/retry.interceptor.spec.ts',
     ]);
   });
 
-  it('breaks a tie on the path, so two readings of one report print the same table', () => {
-    const tied = run([file('libs/b.spec.ts', { tests: 500, testCount: 1 }), file('libs/a.spec.ts', { tests: 500, testCount: 1 })]);
+  it('leaves out a large file of ordinary tests, however long it adds up to', () => {
+    const large = run([...ordinary(), file('libs/large.spec.ts', { tests: 40_000, testCount: 4_000 })]);
 
-    expect(fileHotspots(tied, ROOT, 5).map((hotspot) => hotspot.file)).toEqual(['libs/a.spec.ts', 'libs/b.spec.ts']);
+    expect(filesOverBudget(large, ROOT, GATE_DEFAULTS, 10)).toEqual([]);
   });
 
-  it('leaves out a file that spent nothing in its bodies and a file outside the repository', () => {
+  it('carries the budget, the cost of one test and its multiple of the median test', () => {
+    const [ads] = filesOverBudget(suite(), ROOT, GATE_DEFAULTS, 1);
+
+    expect(ads).toEqual({
+      file: 'libs/player/wrapper/src/lib/ads/ads.controller.spec.ts',
+      ms: 7_500,
+      budget: 5_000,
+      testCount: 12,
+      perTest: 625,
+      timesMedian: 250,
+    });
+  });
+
+  it('reports no average for a file that finished no body, and no multiple for a run with no median', () => {
+    const [none] = filesOverBudget(suite(), ROOT, GATE_DEFAULTS, 10).slice(-1);
+    const [alone] = filesOverBudget(run([file('libs/none.spec.ts', { tests: 6_000 })]), ROOT, GATE_DEFAULTS, 10);
+
+    expect(none).toMatchObject({ testCount: 0, perTest: 0, timesMedian: 0 });
+    expect(alone).toMatchObject({ file: 'libs/none.spec.ts', perTest: 0, timesMedian: 0 });
+  });
+
+  it('breaks a tie on the path, and leaves out a file outside the repository or one the gate does not judge', () => {
     const mixed = run([
-      file('libs/ran.spec.ts', { tests: 500, testCount: 2 }),
-      file('libs/empty.spec.ts'),
+      ...ordinary(),
+      file('libs/b.spec.ts', { tests: 6_000, testCount: 2 }),
+      file('libs/a.spec.ts', { tests: 6_000, testCount: 2 }),
+      file('apps/c.spec.ts', { tests: 6_000, testCount: 2 }),
       { ...file('ignored'), file: '/elsewhere/other.spec.ts', tests: 9_000, testCount: 3 },
     ]);
 
-    expect(fileHotspots(mixed, ROOT, 5).map((hotspot) => hotspot.file)).toEqual(['libs/ran.spec.ts']);
-  });
-
-  it('divides by the bodies that finished, and reports no average for a file that finished none', () => {
-    const [slow, unfinished] = fileHotspots(
-      run([file('libs/slow.spec.ts', { tests: 4_800, testCount: 12 }), file('libs/none.spec.ts', { tests: 3_800, testCount: 0 })]),
-      ROOT,
-      5,
-    );
-
-    expect(slow).toEqual({ file: 'libs/slow.spec.ts', ms: 4_800, testCount: 12, perTest: 400 });
-    expect(unfinished).toEqual({ file: 'libs/none.spec.ts', ms: 3_800, testCount: 0, perTest: 0 });
-  });
-
-  it('takes nothing at all when the limit is zero or below it', () => {
-    expect(fileHotspots(suite(), ROOT, 0)).toEqual([]);
-    expect(fileHotspots(suite(), ROOT, -3)).toEqual([]);
-  });
-});
-
-describe('caseHotspots', () => {
-  it('ranks the bodies of every file together, the slowest first', () => {
-    expect(caseHotspots(suite(), ROOT, 5)).toEqual([
-      { file: 'libs/player/wrapper/src/lib/ads/ads.controller.spec.ts', name: 'AdsController > plays the pre-roll', ms: 2_900 },
-      { file: 'apps/web/src/app/profile/profile.component.spec.ts', name: 'ProfileComponent > uploads an avatar', ms: 320 },
+    expect(filesOverBudget(mixed, ROOT, { ...GATE_DEFAULTS, only: ['libs'] }, 10).map((entry) => entry.file)).toEqual([
+      'libs/a.spec.ts',
+      'libs/b.spec.ts',
     ]);
   });
 
-  it('breaks a tie on the path first and the test name second', () => {
+  it('takes nothing at all when the limit is zero or below it', () => {
+    expect(filesOverBudget(suite(), ROOT, GATE_DEFAULTS, 0)).toEqual([]);
+    expect(filesOverBudget(suite(), ROOT, GATE_DEFAULTS, -3)).toEqual([]);
+  });
+});
+
+describe('bodiesOverBudget', () => {
+  it('lists the bodies at or over --max-test-ms and nothing under it', () => {
+    expect(bodiesOverBudget(suite(), ROOT, GATE_DEFAULTS, 10)).toEqual([
+      { file: 'libs/player/wrapper/src/lib/ads/ads.controller.spec.ts', name: 'AdsController > plays the pre-roll', ms: 2_900 },
+    ]);
+    expect(bodiesOverBudget(suite(), ROOT, { ...GATE_DEFAULTS, maxTestMs: 300 }, 10)).toHaveLength(2);
+  });
+
+  it('breaks a tie on the path first and the test name second, and stops at the limit', () => {
     const tied = run([
-      file('libs/b.spec.ts', { tests: 900, testCount: 2, cases: [{ name: 'zeta', ms: 450 }] }),
+      file('libs/b.spec.ts', { tests: 900, testCount: 2, cases: [{ name: 'zeta', ms: 1_450 }] }),
       file('libs/a.spec.ts', {
         tests: 900,
         testCount: 2,
         cases: [
-          { name: 'beta', ms: 450 },
-          { name: 'alpha', ms: 450 },
+          { name: 'beta', ms: 1_450 },
+          { name: 'alpha', ms: 1_450 },
         ],
       }),
     ]);
 
-    expect(caseHotspots(tied, ROOT, 5).map((entry) => `${entry.file} ${entry.name}`)).toEqual([
+    expect(bodiesOverBudget(tied, ROOT, GATE_DEFAULTS, 5).map((entry) => `${entry.file} ${entry.name}`)).toEqual([
       'libs/a.spec.ts alpha',
       'libs/a.spec.ts beta',
       'libs/b.spec.ts zeta',
     ]);
+    expect(bodiesOverBudget(tied, ROOT, GATE_DEFAULTS, 1)).toHaveLength(1);
   });
 
-  it('carries nothing when the report carries no bodies, which is every version 1 report', () => {
-    expect(caseHotspots(run([file('libs/slow.spec.ts', { tests: 7_500, testCount: 12 })], 1), ROOT, 5)).toEqual([]);
-  });
-
-  it('stops at the limit', () => {
-    expect(caseHotspots(suite(), ROOT, 1).map((entry) => entry.ms)).toEqual([2_900]);
+  it('judges only the paths the gate judges, and carries nothing from a version 1 report', () => {
+    expect(bodiesOverBudget(suite(), ROOT, { ...GATE_DEFAULTS, only: ['apps'] }, 10)).toEqual([]);
+    expect(bodiesOverBudget(run([file('libs/slow.spec.ts', { tests: 7_500, testCount: 12 })], 1), ROOT, GATE_DEFAULTS, 5)).toEqual([]);
   });
 });
 
 describe('formatHotspots', () => {
-  it('prints nothing for a suite whose slowest file is below the floor, and a table once it reaches it', () => {
-    const quick = run([file('libs/quick.spec.ts', { tests: 40, testCount: 8 })]);
-    const slow = run([file('libs/slow.spec.ts', { tests: 1_000, testCount: 8 })]);
-
-    expect(formatHotspots(quick, ROOT, { colors: false })).toBe('');
-    expect(formatHotspots(slow, ROOT, { colors: false })).toContain('libs/slow.spec.ts');
+  it('prints nothing when nothing is over budget, and a one-line note says so instead', () => {
+    expect(formatHotspots(run([...ordinary(), file('libs/misc/small.spec.ts', { tests: 2_300, testCount: 20 })]), ROOT, plain)).toBe('');
+    expect(nothingOverBudgetNote()).toBe(
+      'Nothing over budget: no file over its budget and no test body over 1.00s. Nothing here would fail --gate.',
+    );
   });
 
-  it('prints nothing when no file was measured, even with the floor taken away', () => {
-    expect(formatHotspots(run([file('libs/empty.spec.ts')]), ROOT, { floorMs: 0, colors: false })).toBe('');
-  });
-
-  it('says why there is no table, in the two ways there can be none', () => {
-    const quick = hotspotFloorNote(run([file('libs/quick.spec.ts', { tests: 40, testCount: 8 })]), ROOT);
-
-    expect(quick).toContain('the slowest file spent 40ms in its test bodies, under the 1.00s floor');
-    expect(hotspotFloorNote(run([file('libs/empty.spec.ts')]), ROOT)).toContain('no file in this run finished a test body');
-  });
-
-  it('shows the total, the cost of one test and the share of the run side by side, and an em dash for a file that finished none', () => {
-    expect(formatHotspots(suite(), ROOT, { limit: 4, colors: false })).toBe(
+  it('shows each file with the budget it is over, and an em dash for a file that finished no test', () => {
+    expect(formatHotspots(suite(), ROOT, plain)).toBe(
       [
-        'slowest files — what every body in the file cost, and what one of them cost',
+        'files over budget — the ones the gate re-measures and fails on',
         '',
-        '  file                                                       time    ms/test    share',
-        '  libs/player/wrapper/src/lib/ads/ads.controller.spec.ts    7.50s      625ms    31.3%',
-        '  apps/web/src/app/profile/profile.component.spec.ts        5.50s       23ms    22.9%',
-        '  libs/api/src/lib/catalog.service.spec.ts                  4.90s      1.63s    20.4%',
-        '  libs/shared/retry.interceptor.spec.ts                     3.80s          —    15.8%',
+        '  file                                                       time    budget    ms/test    vs median test',
+        '  libs/player/wrapper/src/lib/ads/ads.controller.spec.ts    7.50s     5.00s      625ms              250×',
+        '  libs/api/src/lib/catalog.service.spec.ts                  6.00s     5.00s      2.00s              800×',
+        '  libs/shared/retry.interceptor.spec.ts                     5.20s     5.00s          —                 —',
         '',
-        '  Those 4 files are 21.70s of the 24.00s this run spent in test bodies — 90.4% of it.',
-        '  `time` is what the file costs, `ms/test` what one test in it costs, and the second is the one that says whether to open the file:',
-        '  400 tests sharing 6.00s is a large file, 3 tests sharing 6.00s is a slow one. A file that finished no test shows —.',
+        '  `budget` is the largest of --max-file-ms 5.00s, --max-file-tests 2000 × the median test of this run (3ms),',
+        '  and --factor 10 × that median for each test in the file. A large file of ordinary tests is never here.',
         '',
-        'slowest test bodies — a body under 100ms is not in the report at all, so a fast one is absent rather than cheap',
+        'test bodies over budget — each one over --max-test-ms 1.00s',
         '',
         '  libs/player/wrapper/src/lib/ads/ads.controller.spec.ts',
         `    AdsController > plays the pre-roll${' '.repeat(97)}2.90s`,
-        '  apps/web/src/app/profile/profile.component.spec.ts',
-        `    ProfileComponent > uploads an avatar${' '.repeat(95)}320ms`,
       ].join('\n'),
     );
   });
 
-  it('takes the share over the whole run, not over the rows it printed', () => {
-    const listed = formatHotspots(suite(), ROOT, { limit: 1, colors: false });
+  it('says "the one" for a single file, and prints a multiple under ten with a decimal', () => {
+    const gate = { ...GATE_DEFAULTS, factor: 1 };
+    const single = formatHotspots(run([...ordinary(), file('libs/one.spec.ts', { tests: 5_000, testCount: 400 })]), ROOT, {
+      ...plain,
+      gate,
+    });
 
-    expect(listed).toContain('7.50s      625ms    31.3%');
-    expect(listed).toContain('That one file is 7.50s of the 24.00s');
+    expect(single).toContain('the one the gate re-measures');
+    expect(single).toContain('5.0×');
+  });
+
+  it('prints the bodies alone when no file is over budget, and the files alone when the report has no bodies', () => {
+    const bodyOnly = run([...ordinary(), file('libs/b.spec.ts', { tests: 1_200, testCount: 40, cases: [{ name: 'waits', ms: 1_100 }] })]);
+    const version1 = formatHotspots(run([...ordinary(), file('libs/slow.spec.ts', { tests: 7_500, testCount: 12 })], 1), ROOT, plain);
+
+    expect(formatHotspots(bodyOnly, ROOT, plain).startsWith('test bodies over budget')).toBe(true);
+    expect(version1).toContain('libs/slow.spec.ts');
+    expect(version1).not.toContain('test bodies over budget');
   });
 
   it("groups the bodies of one file under the file, ordered by their file's slowest body", () => {
@@ -187,15 +203,14 @@ describe('formatHotspots', () => {
         tests: 2_000,
         testCount: 2,
         cases: [
-          { name: 'second body', ms: 900 },
-          { name: 'first body', ms: 1_200 },
+          { name: 'second body', ms: 1_100 },
+          { name: 'first body', ms: 1_300 },
         ],
       }),
-      file('apps/one.spec.ts', { tests: 1_100, testCount: 1, cases: [{ name: 'middle body', ms: 1_000 }] }),
+      file('apps/one.spec.ts', { tests: 1_100, testCount: 1, cases: [{ name: 'middle body', ms: 1_200 }] }),
     ]);
-    const text = formatHotspots(grouped, ROOT, { colors: false });
-    const bodies = text.slice(text.indexOf('slowest test bodies'));
-    const at = (needle: string) => bodies.indexOf(needle);
+    const text = formatHotspots(grouped, ROOT, plain);
+    const at = (needle: string) => text.indexOf(needle);
 
     expect(text.split('\n').filter((line) => line === '  libs/two.spec.ts')).toHaveLength(1);
     expect(at('  libs/two.spec.ts')).toBeLessThan(at('first body'));
@@ -205,59 +220,54 @@ describe('formatHotspots', () => {
   });
 
   it('cuts a path too wide for its column in the middle, on segment boundaries, and keeps both ends', () => {
-    expect(formatHotspots(suite(), ROOT, { limit: 2, width: 70, colors: false })).toContain(
-      `  libs/…/lib/ads/ads.controller.spec.ts${' '.repeat(6)}7.50s${' '.repeat(6)}625ms${' '.repeat(4)}31.3%`,
-    );
+    expect(formatHotspots(suite(), ROOT, { ...plain, limit: 1, width: 90 })).toContain('  libs/…/lib/ads/ads.controller.spec.ts');
+  });
+
+  it('keeps a cut row in its column with color on, counting what the terminal shows rather than the escape codes', () => {
+    const rows = formatHotspots(suite(), ROOT, { width: 90, colors: true })
+      .split('\n')
+      // eslint-disable-next-line no-control-regex -- stripping the escapes the module wrote
+      .map((row) => row.replace(/\u001b\[[\d;]*m/g, ''))
+      .filter((row) => row.includes('.spec.ts') && row.includes('5.00s'));
+
+    expect(rows).toHaveLength(3);
+    expect(new Set(rows.map((row) => row.indexOf('5.00s'))).size).toBe(1);
+    expect(rows.some((row) => row.includes('…'))).toBe(true);
   });
 
   it('cuts a body name from the left and keeps the test, aligned to the width it was given', () => {
-    expect(formatHotspots(suite(), ROOT, { limit: 2, width: 40, colors: false })).toContain('    …oller > plays the pre-roll    2.90s');
+    expect(formatHotspots(suite(), ROOT, { ...plain, width: 40 })).toContain('    …oller > plays the pre-roll    2.90s');
   });
 
-  it('falls back to a tail cut when even the file name does not fit the column', () => {
+  it('falls back to a tail cut when even the file name does not fit, or the path has no segment boundary', () => {
     const giant = run([
       file(`libs/${'x'.repeat(30)}giant.spec.ts`, { tests: 1_200, testCount: 2, cases: [{ name: 'slow one', ms: 1_100 }] }),
     ]);
-    const rows = formatHotspots(giant, ROOT, { width: 70, colors: false }).split('\n');
-
-    expect(rows.some((row) => row.trimStart().startsWith('…') && row.includes('giant.spec.ts'))).toBe(true);
-  });
-
-  it('falls back to a tail cut when the path has no segment boundary to cut on', () => {
     const flat = run([file(`${'y'.repeat(40)}root.spec.ts`, { tests: 1_300, testCount: 2, cases: [{ name: 'slow one', ms: 1_100 }] })]);
-    const rows = formatHotspots(flat, ROOT, { width: 50, colors: false }).split('\n');
+    const cut = (text: string, name: string): boolean =>
+      text.split('\n').some((row) => row.trimStart().startsWith('…') && row.includes(name));
 
-    expect(rows.some((row) => row.trimStart().startsWith('…') && row.includes('root.spec.ts'))).toBe(true);
-  });
-
-  it('leaves out the body table rather than printing an empty one when the report has no bodies', () => {
-    const version1 = formatHotspots(run([file('libs/slow.spec.ts', { tests: 7_500, testCount: 12 })], 1), ROOT, { colors: false });
-
-    expect(version1).toContain('libs/slow.spec.ts');
-    expect(version1).not.toContain('slowest test bodies');
+    expect(cut(formatHotspots(giant, ROOT, { ...plain, width: 30 }), 'giant.spec.ts')).toBe(true);
+    expect(cut(formatHotspots(flat, ROOT, { ...plain, width: 30 }), 'root.spec.ts')).toBe(true);
   });
 });
 
 describe('formatHotspots color', () => {
-  it('carries a body and a per-test cost at or over the budget in red, and nothing under it', () => {
-    const colored = formatHotspots(suite(), ROOT, { limit: 4, colors: true });
+  it('carries the time of every row in red, and dims the header', () => {
+    const colored = formatHotspots(suite(), ROOT, { colors: true });
 
-    expect(colored).toContain('\u001b[31m      1.63s\u001b[0m');
+    expect(colored).toContain('\u001b[31m    7.50s\u001b[0m');
     expect(colored).toContain('\u001b[31m    2.90s\u001b[0m');
-    expect(colored).not.toContain('\u001b[31m      625ms');
-    expect(colored).not.toContain('\u001b[31m       7.50s');
-  });
-
-  it('dims the header row of the files table', () => {
-    expect(formatHotspots(suite(), ROOT, { limit: 1, colors: true })).toContain('\u001b[2mfile');
+    expect(colored).not.toContain('\u001b[31m     5.00s');
+    expect(colored).toContain('\u001b[2mfile');
   });
 
   it('prints no escape sequence at all when color is off, whatever the environment says', () => {
-    vi.stubEnv('NO_COLOR', '1');
+    vi.stubEnv('NO_COLOR', undefined);
     vi.stubEnv('FORCE_COLOR', undefined);
     vi.stubEnv('TERM', 'xterm');
 
-    expect(formatHotspots(suite(), ROOT, { colors: false })).not.toContain('\u001b[31m');
+    expect(formatHotspots(suite(), ROOT, plain)).not.toContain('\u001b[');
 
     vi.unstubAllEnvs();
   });
@@ -267,8 +277,7 @@ describe('formatHotspots color', () => {
     vi.stubEnv('FORCE_COLOR', undefined);
     vi.stubEnv('TERM', 'xterm');
 
-    expect(formatHotspots(suite(), ROOT)).not.toContain('\u001b[31m');
-    expect(formatHotspots(suite(), ROOT).includes('\u001b[2mfile')).toBe(false);
+    expect(formatHotspots(suite(), ROOT)).not.toContain('\u001b[2mfile');
 
     vi.stubEnv('NO_COLOR', undefined);
 

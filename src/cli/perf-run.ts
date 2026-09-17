@@ -17,8 +17,10 @@ import { join } from 'node:path';
 import { bareRunWouldMeasureSomethingElse } from './checks/perf-harness';
 import { pathExists, readTextFile, removeFile } from './fs-scan';
 import type { PerfRun } from './perf-data';
-import { PERF_DOCS, PERF_FORMAT_VERSION, PERF_OUTPUT_ENV, PERF_REPORTER_ENV, parsePerfRun } from './perf-data';
+import { PERF_DOCS, PERF_FORMAT_VERSION, PERF_OUTPUT_ENV, PERF_PROFILE_ENV, PERF_REPORTER_ENV, parsePerfRun } from './perf-data';
 import { describeMerge, mergeRuns, readRuns, resolveReportPaths } from './perf-merge';
+import type { CpuProfile } from './perf-profile';
+import { takeProfiles } from './perf-profiler';
 import type { Profile } from './profile';
 import { ownPackageRoot } from './self';
 
@@ -61,6 +63,8 @@ export interface PerfRunOptions {
   readonly command: string | undefined;
   /** Passed through to Vitest as its file filter, or substituted into `{paths}` of a command. */
   readonly paths: readonly string[];
+  /** Where the run leaves a CPU profile per spec file. Only the confirmation pass asks for one. */
+  readonly profileDir?: string;
 }
 
 export interface PerfMeasured {
@@ -70,6 +74,8 @@ export interface PerfMeasured {
   readonly note?: string;
   /** The suite itself exited non-zero. The timings are still real, so the report is still printed. */
   readonly runFailed: boolean;
+  /** CPU profiles by the absolute path of their spec file, when the run was asked for them. */
+  readonly profiles?: ReadonlyMap<string, CpuProfile>;
 }
 
 export interface PerfUnavailable {
@@ -126,6 +132,10 @@ export function withPaths(command: string, paths: readonly string[]): string {
   );
 }
 
+function profileEnv(options: PerfRunOptions): Record<string, string> {
+  return options.profileDir === undefined ? {} : { [PERF_PROFILE_ENV]: options.profileDir };
+}
+
 function failed(error: string): PerfUnavailable {
   return { ok: false, error };
 }
@@ -157,8 +167,9 @@ function fromFile(value: string, cwd: string): PerfSource {
 }
 
 /** The report a run left behind, or the reason there is nothing to read. Shared by both runners. */
-function collect(target: string, keep: boolean, outcome: SpawnOutcome, missing: string): PerfSource {
+function collect(target: string, keep: boolean, outcome: SpawnOutcome, missing: string, profileDir?: string): PerfSource {
   const text = readTextFile(target);
+  const profiles = profileDir === undefined ? undefined : takeProfiles(profileDir);
 
   if (!keep) {
     removeFile(target);
@@ -170,7 +181,7 @@ function collect(target: string, keep: boolean, outcome: SpawnOutcome, missing: 
     return failed(`${missing.replace('{status}', String(outcome.status))}\nDocs: ${PERF_DOCS}`);
   }
 
-  return { ok: true, run, runFailed: outcome.status !== 0 };
+  return { ok: true, run, runFailed: outcome.status !== 0, ...(profiles === undefined ? {} : { profiles }) };
 }
 
 /**
@@ -210,7 +221,7 @@ function fromRun(options: PerfRunOptions, spawn: Spawn, packageRoot: string | un
     command: process.execPath,
     args: [entry, 'run', '--reporter=default', `--reporter=${reporter}`, ...options.paths],
     cwd: options.cwd,
-    env: { [PERF_OUTPUT_ENV]: target, [PERF_REPORTER_ENV]: reporter },
+    env: { [PERF_OUTPUT_ENV]: target, [PERF_REPORTER_ENV]: reporter, ...profileEnv(options) },
     shell: false,
   });
 
@@ -219,6 +230,7 @@ function fromRun(options: PerfRunOptions, spawn: Spawn, packageRoot: string | un
     options.out !== undefined,
     outcome,
     'The Vitest run exited {status} and wrote no perf report. Fix the run first, then measure it.',
+    options.profileDir,
   );
 }
 
@@ -254,7 +266,7 @@ function fromCommand(options: PerfRunOptions, command: string, spawn: Spawn, pac
     command: withPaths(command, options.paths),
     args: [],
     cwd: options.cwd,
-    env: { [PERF_OUTPUT_ENV]: target, [PERF_REPORTER_ENV]: reporter },
+    env: { [PERF_OUTPUT_ENV]: target, [PERF_REPORTER_ENV]: reporter, ...profileEnv(options) },
     shell: true,
   });
 
@@ -263,6 +275,7 @@ function fromCommand(options: PerfRunOptions, command: string, spawn: Spawn, pac
     options.out !== undefined,
     outcome,
     `The command exited {status} and wrote no perf report. Its Vitest configuration has to attach the reporter, which is two lines wherever its \`reporters\` are declared:\n  const perf = process.env['${PERF_REPORTER_ENV}'];\n  reporters: perf === undefined ? ['default'] : ['default', perf],`,
+    options.profileDir,
   );
 }
 
@@ -299,5 +312,7 @@ export function perfRemeasure(
     return undefined;
   }
 
-  return (paths) => readPerfRun({ ...options, json: undefined, out: undefined, paths }, spawn, packageRoot);
+  const profileDir = join(options.cwd, 'node_modules', '.cache', 'vitest-auto-spy', `profiles-${process.pid}`);
+
+  return (paths) => readPerfRun({ ...options, json: undefined, out: undefined, paths, profileDir }, spawn, packageRoot);
 }

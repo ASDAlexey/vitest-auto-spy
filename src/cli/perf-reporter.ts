@@ -11,9 +11,12 @@
  * per-test rows the gate judges, which is a smaller report rather than a crash inside somebody's
  * suite.
  */
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
 import { writeTextFile } from './fs-scan';
 import type { PerfCase, PerfFile, PerfRun } from './perf-data';
-import { CASES_PER_FILE, CASE_FLOOR_MS, PERF_FORMAT_VERSION, PERF_OUTPUT_ENV } from './perf-data';
+import { CASES_PER_FILE, CASE_FLOOR_MS, PERF_FORMAT_VERSION, PERF_OUTPUT_ENV, PERF_PROFILE_ENV } from './perf-data';
 
 export interface PerfDiagnostic {
   readonly environmentSetupDuration: number;
@@ -46,9 +49,21 @@ export interface PerfTestModule {
   ok?(): boolean;
 }
 
+/** A project whose `setupFiles` the profiler is added to. The array is Vitest's own, read when a worker starts. */
+export interface PerfProject {
+  readonly config: { readonly setupFiles: string[] };
+}
+
 export interface PerfVitest {
   readonly config: { readonly root: string };
   readonly state: { readonly transformTime: number };
+  readonly projects?: readonly PerfProject[];
+}
+
+function profiling(): boolean {
+  const dir = process.env[PERF_PROFILE_ENV];
+
+  return dir !== undefined && dir !== '';
 }
 
 interface Bodies {
@@ -63,7 +78,7 @@ interface Bodies {
  * — and is not counted. That is what makes `testCount` the honest answer to "did this measure
  * anything", which the whole `measuredNothing` guard rests on.
  */
-function bodiesOf(module: PerfTestModule): Bodies {
+function bodiesOf(module: PerfTestModule, floorMs: number): Bodies {
   const tests = module.children?.allTests?.();
 
   if (tests === undefined) {
@@ -82,7 +97,7 @@ function bodiesOf(module: PerfTestModule): Bodies {
 
     count += 1;
 
-    if (duration >= CASE_FLOOR_MS) {
+    if (duration >= floorMs) {
       cases.push({ name: test.fullName ?? test.name ?? '(unnamed test)', ms: duration });
     }
   }
@@ -116,7 +131,8 @@ function slowestByName(cases: readonly PerfCase[]): PerfCase[] {
 
 function toPerfFile(module: PerfTestModule): PerfFile {
   const diagnostic = module.diagnostic();
-  const bodies = bodiesOf(module);
+  // A profiled pass is a few suspect files, and the reader wants their slowest bodies whatever they cost.
+  const bodies = bodiesOf(module, profiling() ? 0 : CASE_FLOOR_MS);
 
   return {
     file: module.moduleId,
@@ -138,6 +154,14 @@ export default class PerfReporter {
   onInit(vitest: PerfVitest): void {
     this.#vitest = vitest;
     this.#start = Date.now();
+
+    if (profiling()) {
+      const profiler = join(dirname(fileURLToPath(import.meta.url)), 'perf-profiler.js');
+
+      for (const project of vitest.projects ?? []) {
+        project.config.setupFiles.push(profiler);
+      }
+    }
   }
 
   /**

@@ -34,7 +34,9 @@ const DIST = 'dist';
 const CLI_BUNDLE = 'cli.js';
 // `perf-reporter.js` is the fourth: it is the reporter `vitest-auto-spy perf` attaches to a
 // consumer's run, and writing the measurement to a file is the whole of what it does.
-const FILESYSTEM_ALLOWED = new Set([CLI_BUNDLE, 'bun-angular.js', 'setup.js', 'perf-reporter.js']);
+// `perf-profiler.js` is the fifth: the setup file that reporter adds to a confirmation pass, which writes
+// one CPU profile per spec file and is never loaded by an ordinary run.
+const FILESYSTEM_ALLOWED = new Set([CLI_BUNDLE, 'bun-angular.js', 'setup.js', 'perf-reporter.js', 'perf-profiler.js']);
 // `rxjs` is the entry that *is* the observable layer; `observer-spy` is the `@hirez_io/observer-spy`
 // port, which has no meaning without it. Both are opt-in subpaths nobody reaches without rxjs.
 const RXJS_TYPES_ALLOWED = new Set(['rxjs', 'observer-spy']);
