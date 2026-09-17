@@ -59,7 +59,8 @@ describe('mergeRuns', () => {
 
   it('is only as rich as its poorest input, so the version is the minimum of the reports', () => {
     expect(mergeRuns([input('one.json', { version: 2 }), input('two.json', { version: 1 })]).run.version).toBe(1);
-    expect(mergeRuns([input('one.json', { version: 2 }), input('two.json', { version: 2 })]).run.version).toBe(PERF_FORMAT_VERSION);
+    expect(mergeRuns([input('one.json', { version: 3 }), input('two.json', { version: 2 })]).run.version).toBe(2);
+    expect(mergeRuns([input('one.json', { version: 3 }), input('two.json', { version: 3 })]).run.version).toBe(PERF_FORMAT_VERSION);
   });
 
   it('collects the files of every report, sorted by path', () => {

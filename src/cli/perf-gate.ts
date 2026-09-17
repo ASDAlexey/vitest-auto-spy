@@ -101,6 +101,8 @@ export interface RegressionCandidate extends CandidateBase {
   readonly file: string;
   /** How many times its recorded share of the run the file now takes. */
   readonly grewBy: number;
+  /** A history compares against the mean of many runs; a baseline against one. */
+  readonly against?: 'history';
 }
 
 /** A finding about one spec file, which is the only kind a confirmation pass can re-measure. */
@@ -303,6 +305,10 @@ function describe(candidate: GateCandidate): string {
 
   if (candidate.check === 'perf-gate-slow-test') {
     return `\`${candidate.name}\` spent ${formatMs(candidate.ms)} in its body, over the ${formatMs(candidate.budget)} budget (${candidate.budgetNote}).`;
+  }
+
+  if (candidate.check === 'perf-gate-regression' && candidate.against === 'history') {
+    return `The test bodies in this file take ${candidate.grewBy.toFixed(1)}× their mean share of the run in the recorded history, and more than in any run of it — ${formatMs(candidate.ms)} against the ${formatMs(candidate.budget)} that is worth here (${candidate.budgetNote}).`;
   }
 
   if (candidate.check === 'perf-gate-regression') {

@@ -6,6 +6,7 @@ import { resolve } from 'node:path';
 
 import type { ParsedArgs } from './args';
 import { flagEnabled, flagList, flagNumber, flagValue, parseArgs } from './args';
+import { writeCodeQuality } from './code-quality';
 import { runCodemod } from './codemod/run';
 import { runDoctor } from './doctor';
 import { HELP } from './help';
@@ -48,13 +49,21 @@ function doctorCommand(cwd: string, argv: readonly string[], io: CliIo): number 
   io.out(`vitest-auto-spy doctor — ${cwd}`);
   io.out(`${profile.files.length} files, runner: ${profile.runner}, entry: ${profile.entry}\n`);
 
+  const args = parseArgs(argv);
+  const minSeverity = minSeverityOf(args);
+  const codeQuality = flagValue(args, 'code-quality');
+
+  if (codeQuality !== undefined) {
+    writeCodeQuality(resolve(cwd, codeQuality), findings, minSeverity);
+  }
+
   if (findings.length === 0) {
     io.out('No problems found.');
 
     return 0;
   }
 
-  const report = formatFindings(findings, minSeverityOf(parseArgs(argv)));
+  const report = formatFindings(findings, minSeverity);
 
   if (report !== '') {
     io.out(report);
@@ -128,12 +137,15 @@ function perfCommand(cwd: string, argv: readonly string[], io: CliIo): number {
   const baseline = baselineRequest(args, cwd);
   const top = flagNumber(args, 'top');
   const minSeverity = minSeverityOf(args);
+  const codeQuality = flagValue(args, 'code-quality');
 
   return renderPerf(readPerfRun(options), profile, io, {
     ...(gate === undefined ? {} : { gate }),
     ...(baseline === undefined ? {} : { baseline }),
     ...(top === undefined ? {} : { top }),
     ...(minSeverity === undefined ? {} : { minSeverity }),
+    ...(codeQuality === undefined ? {} : { codeQuality: resolve(cwd, codeQuality) }),
+    ...(flagEnabled(args, 'fail-on-flaky') ? { failOnFlaky: true } : {}),
   });
 }
 

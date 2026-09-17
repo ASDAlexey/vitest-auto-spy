@@ -15,7 +15,7 @@
 import type { Painter } from './paint';
 import { padEnd, padStart } from './paint';
 import { formatMs } from './perf-data';
-import type { ProfileSummary, Share } from './perf-profile';
+import type { AngularCost, ProfileSummary, Share } from './perf-profile';
 
 export interface Evidence {
   /** What the first reading put in the file's bodies. */
@@ -30,6 +30,8 @@ export interface Evidence {
   readonly slowest: readonly { readonly name: string; readonly ms: number }[];
   readonly maxTestMs: number;
   readonly summary: ProfileSummary | undefined;
+  /** The spec's heaviest direct imports in the confirmation pass, already named for a reader. */
+  readonly imports?: readonly { readonly name: string; readonly ms: number }[];
 }
 
 const RULE_WIDTH = 64;
@@ -100,6 +102,12 @@ function slowestTests(evidence: Evidence, paint: Painter): string[] {
   });
 }
 
+function slowestImports(imports: readonly { readonly name: string; readonly ms: number }[], paint: Painter): string[] {
+  const width = Math.max(...imports.map((entry) => formatMs(entry.ms).length));
+
+  return imports.map((entry) => `${paint.dim('│')}   ${paint.yellow(padStart(formatMs(entry.ms), width))}  ${entry.name}`);
+}
+
 function profileRows(summary: ProfileSummary, paint: Painter): string[] {
   const lines: string[] = [];
 
@@ -107,6 +115,12 @@ function profileRows(summary: ProfileSummary, paint: Painter): string[] {
     lines.push(
       row('hooks', `${bar(summary.hooks, paint)} ${paint.bold(percent(summary.hooks))}   test bodies ${percent(1 - summary.hooks)}`, paint),
     );
+  }
+
+  const angular = summary.angular.filter((entry) => entry.share >= 0.01);
+
+  if (angular.length > 0) {
+    lines.push(row('angular', shares(angular, paint), paint));
   }
 
   for (const entry of summary.packages) {
@@ -140,11 +154,12 @@ function profileRows(summary: ProfileSummary, paint: Painter): string[] {
  * a reader cannot check.
  */
 export function likelyCause(evidence: Evidence): string[] {
-  const causes: string[] = [];
   const summary = evidence.summary;
+  const angular = angularCauses(summary);
+  const causes = [...angular.causes];
   const [first, second] = evidence.slowest;
 
-  if (summary?.hooks !== undefined && summary.hooks >= 0.5) {
+  if (!angular.explainsHooks && summary?.hooks !== undefined && summary.hooks >= 0.5) {
     const where = summary.spec[0] === undefined ? '' : ` — ${summary.spec[0].name} alone is ${percent(summary.spec[0].share)}`;
 
     causes.push(
@@ -177,12 +192,65 @@ export function likelyCause(evidence: Evidence): string[] {
   return causes.slice(0, 2);
 }
 
+interface AngularCauses {
+  readonly causes: readonly string[];
+  /** The TestBed sentence already says what the hooks share means, so the generic one stands aside. */
+  readonly explainsHooks: boolean;
+}
+
+function costOf(summary: ProfileSummary, name: AngularCost): number {
+  return summary.angular.find((entry) => entry.name === name)?.share ?? 0;
+}
+
+function angularCauses(summary: ProfileSummary | undefined): AngularCauses {
+  if (summary === undefined) {
+    return { causes: [], explainsHooks: false };
+  }
+
+  const causes: string[] = [];
+  const testBed = costOf(summary, 'TestBed set-up') + costOf(summary, 'component creation');
+  const jit = costOf(summary, 'JIT compilation');
+  const detection = costOf(summary, 'change detection');
+  const styles = costOf(summary, 'computed styles');
+  const explainsHooks = testBed >= 0.3;
+
+  if (explainsHooks) {
+    causes.push(
+      `TestBed rebuilds the testing module and the component for every test: ${percent(testBed)} is TestBed set-up and component creation. Configure less per test — provide doubles instead of importing whole feature modules, and leave child components out of the template under test.`,
+    );
+  }
+
+  if (jit >= 0.15) {
+    causes.push(
+      `${percent(jit)} is the Angular JIT compiler: components are compiled while the tests run, and every TestBed.override* of a component compiles it again for that test. Override less, or import fewer declarations into the testing module.`,
+    );
+  }
+
+  if (detection >= 0.3) {
+    causes.push(
+      `${percent(detection)} is change detection: detectChanges runs more often than the assertions need, or each run re-renders a large tree. Arrange the state first and detect changes once.`,
+    );
+  }
+
+  if (styles >= 0.15) {
+    causes.push(
+      `${percent(styles)} is jsdom computing styles (getComputedStyle), which it does slowly: usually a component library or an animation measuring layout. Disable animations in the testing module, or stub the measurement.`,
+    );
+  }
+
+  return { causes, explainsHooks };
+}
+
 /** The card, one string per line, for `Finding.details`. */
 export function formatEvidence(evidence: Evidence, paint: Painter): string[] {
   const lines = ['', section('measurements', paint, true), ...measurements(evidence, paint)];
 
   if (evidence.slowest.length > 0) {
     lines.push(section('slowest tests', paint, false), ...slowestTests(evidence, paint));
+  }
+
+  if (evidence.imports !== undefined && evidence.imports.length > 0) {
+    lines.push(section('slowest imports · with everything under them', paint, false), ...slowestImports(evidence.imports, paint));
   }
 
   if (evidence.summary !== undefined && evidence.summary.sampledMs > 0) {

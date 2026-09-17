@@ -138,7 +138,7 @@ describe('parsePerfRun', () => {
   it('refuses anything that is not a report of the version it understands', () => {
     expect(parsePerfRun('not json')).toBeUndefined();
     expect(parsePerfRun('[]')).toBeUndefined();
-    expect(parsePerfRun('{"version":3,"files":[]}')).toBeUndefined();
+    expect(parsePerfRun('{"version":4,"files":[]}')).toBeUndefined();
     expect(parsePerfRun('{"version":1}')).toBeUndefined();
     expect(parsePerfRun('{"version":"1","files":[]}')).toBeUndefined();
     expect(parsePerfRun('{"version":1e999,"files":[]}')).toBeUndefined();
@@ -407,6 +407,7 @@ describe('readPerfRun', () => {
       'run',
       '--reporter=default',
       `--reporter=${join(root, 'dist', 'perf-reporter.js')}`,
+      '--logHeapUsage',
       'src/a.spec.ts',
     ]);
     expect(seen?.env[PERF_REPORTER_ENV]).toBe(join(root, 'dist', 'perf-reporter.js'));

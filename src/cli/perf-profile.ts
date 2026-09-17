@@ -48,6 +48,8 @@ export interface ProfileSummary {
   readonly project: readonly Share[];
   readonly packages: readonly Share[];
   readonly hottest: readonly Share[];
+  /** Angular's own costs by kind, largest first; empty when no Angular frame was sampled. */
+  readonly angular: readonly Share[];
 }
 
 /** Ticks that are not anybody's code. Garbage collection stays: an allocation-heavy fixture pays it. */
@@ -89,12 +91,28 @@ function isProfilerOverhead(frame: CpuCallFrame): boolean {
 
 const RUNNER_PACKAGES = new Set(['vitest', 'tinypool', 'tinyspy']);
 
+export type AngularCost = 'change detection' | 'component creation' | 'computed styles' | 'JIT compilation' | 'TestBed set-up';
+
+/** Names unique to Angular count wherever the frame comes from — the unit-test builder bundles packages into chunks. */
+const ANGULAR_FRAMES: ReadonlyMap<string, AngularCost> = new Map([
+  ['configureTestingModule', 'TestBed set-up'],
+  ['compileComponents', 'TestBed set-up'],
+  ['resetTestingModule', 'TestBed set-up'],
+  ['initTestEnvironment', 'TestBed set-up'],
+  ['overrideComponent', 'TestBed set-up'],
+  ['overrideModule', 'TestBed set-up'],
+  ['overrideTemplateUsingTestingModule', 'TestBed set-up'],
+  ['detectChangesInternal', 'change detection'],
+  ['detectChangesInViewWhileDirty', 'change detection'],
+  ['refreshView', 'change detection'],
+]);
+
 function pathOf(url: string): string {
   return url.startsWith('file://') ? decodeURIComponent(url.slice('file://'.length)) : url;
 }
 
 /** `@scope/name` or `name` of the last `node_modules` segment, and `vitest` for the runner's own packages. */
-function packageOf(path: string): string | undefined {
+export function packageOf(path: string): string | undefined {
   const at = path.lastIndexOf('/node_modules/');
 
   if (at === -1) {
@@ -144,6 +162,10 @@ function topOf(totals: ReadonlyMap<string, number>, sampledMs: number): Share[] 
     .map(([name, ms]) => ({ name, ms, share: ms / sampledMs }));
 }
 
+function angularShares(totals: ReadonlyMap<string, number>, sampledMs: number): Share[] {
+  return [...totals].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([name, ms]) => ({ name, ms, share: ms / sampledMs }));
+}
+
 /** Self time per sample node: `timeDeltas[i]` is the gap before `samples[i]`, in microseconds. */
 function selfTimes(profile: CpuProfile): Map<number, number> {
   const self = new Map<number, number>();
@@ -185,12 +207,31 @@ function packageLabel(origin: Origin): string {
   return origin.kind === 'spec' ? 'the spec' : origin.kind === 'project' ? 'your code' : 'node';
 }
 
+function angularCostOf(frame: CpuCallFrame, origin: Origin): AngularCost | undefined {
+  const named = ANGULAR_FRAMES.get(frame.functionName);
+
+  if (named !== undefined) {
+    return named;
+  }
+
+  if (origin.kind !== 'package') {
+    return undefined;
+  }
+
+  if (origin.name === '@angular/core' && frame.functionName === 'createComponent') {
+    return 'component creation';
+  }
+
+  return origin.name === 'jsdom' && frame.functionName === 'getComputedStyle' ? 'computed styles' : undefined;
+}
+
 interface Inclusive {
   readonly spec: Map<string, number>;
   readonly project: Map<string, number>;
+  readonly angular: Map<string, number>;
 }
 
-/** Adds one sample to every spec and project function on its stack, once each; answers whether a hook was on it. */
+/** Adds one sample to every spec, project and Angular cost on its stack, once each; answers whether a hook was on it. */
 function addInclusive(stack: readonly CpuNode[], ms: number, totals: Inclusive, specPath: string, cwd: string): boolean {
   const seen = new Set<string>();
   let inHook = false;
@@ -198,11 +239,17 @@ function addInclusive(stack: readonly CpuNode[], ms: number, totals: Inclusive, 
   for (const { callFrame: frame } of stack) {
     const origin = originOf(frame, specPath, cwd);
     const key = `${origin.kind}:${labelOf(frame)}`;
+    const cost = angularCostOf(frame, origin);
 
     inHook = inHook || frame.functionName === HOOK_FRAME;
 
     if (!seen.has(key) && (origin.kind === 'spec' || origin.kind === 'project')) {
       add(totals[origin.kind], labelOf(frame), ms);
+    }
+
+    if (cost !== undefined && !seen.has(`angular:${cost}`)) {
+      add(totals.angular, cost, ms);
+      seen.add(`angular:${cost}`);
     }
 
     seen.add(key);
@@ -218,6 +265,7 @@ export function summariseProfile(profile: CpuProfile, specPath: string, cwd: str
   const project = new Map<string, number>();
   const packages = new Map<string, number>();
   const hottest = new Map<string, number>();
+  const angular = new Map<string, number>();
   let sampledMs = 0;
   let hookMs = 0;
   let sawRunner = false;
@@ -233,7 +281,11 @@ export function summariseProfile(profile: CpuProfile, specPath: string, cwd: str
     sampledMs += ms;
 
     const leafOrigin = originOf(leaf.callFrame, specPath, cwd);
-    const inHook = addInclusive(stack, ms, { spec, project }, specPath, cwd);
+    const inHook = addInclusive(stack, ms, { spec, project, angular }, specPath, cwd);
+
+    if (leafOrigin.kind === 'package' && leafOrigin.name === '@angular/compiler') {
+      add(angular, 'JIT compilation', ms);
+    }
 
     add(packages, packageLabel(leafOrigin), ms);
     add(hottest, `${labelOf(leaf.callFrame)}${leafOrigin.kind === 'package' ? ` (${leafOrigin.name})` : ''}`, ms);
@@ -242,7 +294,7 @@ export function summariseProfile(profile: CpuProfile, specPath: string, cwd: str
   }
 
   return sampledMs === 0
-    ? { sampledMs: 0, hooks: undefined, spec: [], project: [], packages: [], hottest: [] }
+    ? { sampledMs: 0, hooks: undefined, spec: [], project: [], packages: [], hottest: [], angular: [] }
     : {
         sampledMs,
         hooks: sawRunner ? hookMs / sampledMs : undefined,
@@ -250,5 +302,6 @@ export function summariseProfile(profile: CpuProfile, specPath: string, cwd: str
         project: topOf(project, sampledMs),
         packages: topOf(packages, sampledMs),
         hottest: topOf(hottest, sampledMs),
+        angular: angularShares(angular, sampledMs),
       };
 }

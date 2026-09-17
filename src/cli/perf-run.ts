@@ -219,7 +219,7 @@ function fromRun(options: PerfRunOptions, spawn: Spawn, packageRoot: string | un
 
   const outcome = spawn({
     command: process.execPath,
-    args: [entry, 'run', '--reporter=default', `--reporter=${reporter}`, ...options.paths],
+    args: [entry, 'run', '--reporter=default', `--reporter=${reporter}`, '--logHeapUsage', ...options.paths],
     cwd: options.cwd,
     env: { [PERF_OUTPUT_ENV]: target, [PERF_REPORTER_ENV]: reporter, ...profileEnv(options) },
     shell: false,

@@ -15,8 +15,11 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { writeTextFile } from './fs-scan';
-import type { PerfCase, PerfFile, PerfRun } from './perf-data';
+import type { PerfCase, PerfFile, PerfImport, PerfRun } from './perf-data';
 import { CASES_PER_FILE, CASE_FLOOR_MS, PERF_FORMAT_VERSION, PERF_OUTPUT_ENV, PERF_PROFILE_ENV } from './perf-data';
+
+/** Vitest keeps the slowest modules of the whole worker; this many leaves room for the spec's own imports among them. */
+const IMPORT_LIMIT = 200;
 
 export interface PerfDiagnostic {
   readonly environmentSetupDuration: number;
@@ -24,11 +27,22 @@ export interface PerfDiagnostic {
   readonly collectDuration: number;
   readonly setupDuration: number;
   readonly duration: number;
+  /** Bytes, and only under `logHeapUsage`. */
+  readonly heap?: number | undefined;
+  /** Vitest 4.1+, and empty unless `experimental.importDurations` collects anything. */
+  readonly importDurations?: Readonly<Record<string, PerfImportDuration>>;
+}
+
+export interface PerfImportDuration {
+  readonly totalTime: number;
+  readonly importer?: string | undefined;
 }
 
 /** What a finished test body reports. `undefined` from `diagnostic()` means it never ran. */
 export interface PerfTestDiagnostic {
   readonly duration?: number;
+  /** Passed only on a retry. */
+  readonly flaky?: boolean;
 }
 
 export interface PerfTestCase {
@@ -51,7 +65,10 @@ export interface PerfTestModule {
 
 /** A project whose `setupFiles` the profiler is added to. The array is Vitest's own, read when a worker starts. */
 export interface PerfProject {
-  readonly config: { readonly setupFiles: string[] };
+  readonly config: {
+    readonly setupFiles: string[];
+    readonly experimental?: { readonly importDurations?: { limit?: number } };
+  };
 }
 
 export interface PerfVitest {
@@ -69,6 +86,7 @@ function profiling(): boolean {
 interface Bodies {
   readonly count: number;
   readonly cases: readonly PerfCase[];
+  readonly flaky: readonly string[];
 }
 
 /**
@@ -82,27 +100,35 @@ function bodiesOf(module: PerfTestModule, floorMs: number): Bodies {
   const tests = module.children?.allTests?.();
 
   if (tests === undefined) {
-    return { count: 0, cases: [] };
+    return { count: 0, cases: [], flaky: [] };
   }
 
   const cases: PerfCase[] = [];
+  const flaky = new Set<string>();
   let count = 0;
 
   for (const test of tests) {
-    const duration = test.diagnostic?.()?.duration;
+    const diagnostic = test.diagnostic?.();
+    const duration = diagnostic?.duration;
 
     if (duration === undefined) {
       continue;
     }
 
+    const name = test.fullName ?? test.name ?? '(unnamed test)';
+
     count += 1;
 
     if (duration >= floorMs) {
-      cases.push({ name: test.fullName ?? test.name ?? '(unnamed test)', ms: duration });
+      cases.push({ name, ms: duration });
+    }
+
+    if (diagnostic?.flaky === true) {
+      flaky.add(name);
     }
   }
 
-  return { count, cases: slowestByName(cases) };
+  return { count, cases: slowestByName(cases), flaky: [...flaky].sort() };
 }
 
 /**
@@ -129,10 +155,20 @@ function slowestByName(cases: readonly PerfCase[]): PerfCase[] {
   return [...slowest.values()].sort((a, b) => b.ms - a.ms || a.name.localeCompare(b.name)).slice(0, CASES_PER_FILE);
 }
 
+/** The spec's own imports, heaviest first. A module another file imported first was paid for there. */
+function slowestImports(module: PerfTestModule, durations: Readonly<Record<string, PerfImportDuration>> | undefined): PerfImport[] {
+  return Object.entries(durations ?? {})
+    .filter(([, duration]) => duration.importer === module.moduleId)
+    .map(([path, duration]) => ({ module: path, ms: duration.totalTime }))
+    .sort((a, b) => b.ms - a.ms || a.module.localeCompare(b.module))
+    .slice(0, CASES_PER_FILE);
+}
+
 function toPerfFile(module: PerfTestModule): PerfFile {
   const diagnostic = module.diagnostic();
   // A profiled pass is a few suspect files, and the reader wants their slowest bodies whatever they cost.
   const bodies = bodiesOf(module, profiling() ? 0 : CASE_FLOOR_MS);
+  const imports = slowestImports(module, diagnostic.importDurations);
 
   return {
     file: module.moduleId,
@@ -143,6 +179,9 @@ function toPerfFile(module: PerfTestModule): PerfFile {
     tests: diagnostic.duration,
     testCount: bodies.count,
     cases: bodies.cases,
+    ...(bodies.flaky.length === 0 ? {} : { flaky: bodies.flaky }),
+    ...(diagnostic.heap === undefined ? {} : { heap: diagnostic.heap }),
+    ...(imports.length === 0 ? {} : { slowImports: imports }),
   };
 }
 
@@ -160,6 +199,12 @@ export default class PerfReporter {
 
       for (const project of vitest.projects ?? []) {
         project.config.setupFiles.push(profiler);
+
+        const importDurations = project.config.experimental?.importDurations;
+
+        if (importDurations !== undefined && (importDurations.limit ?? 0) < IMPORT_LIMIT) {
+          importDurations.limit = IMPORT_LIMIT;
+        }
       }
     }
   }

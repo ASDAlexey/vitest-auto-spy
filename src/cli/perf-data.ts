@@ -27,13 +27,14 @@ export const PERF_PROFILE_ENV = 'VITEST_AUTO_SPY_PERF_PROFILE';
 /** The page every message from this command points at. Deep links are anchors on it. */
 export const PERF_DOCS = 'https://asdalexey.github.io/vitest-auto-spy/core/performance';
 
-export const PERF_FORMAT_VERSION = 2;
+export const PERF_FORMAT_VERSION = 3;
 
 /**
- * Every version this build reads. Version 2 added the per-test data the gate judges; a version 1
- * report simply carries none, which is a report with fewer findings in it rather than a bad one.
+ * Every version this build reads. Version 2 added the per-test data the gate judges, version 3 the
+ * flaky tests and the heap; an older report simply carries none of it, which is a report with fewer
+ * findings in it rather than a bad one.
  */
-const READABLE_VERSIONS: readonly number[] = [1, 2];
+const READABLE_VERSIONS: readonly number[] = [1, 2, 3];
 
 /**
  * Below this, a test body is not evidence of anything: 40 ms is the machine rather than somebody's
@@ -48,6 +49,13 @@ export const CASES_PER_FILE = 5;
 /** One test body, named and timed. `name` is Vitest's `fullName`: every parent suite, then the test. */
 export interface PerfCase {
   readonly name: string;
+  readonly ms: number;
+}
+
+/** A module the spec imported itself, with everything under it. */
+export interface PerfImport {
+  /** Absolute path, as Vitest resolved it. */
+  readonly module: string;
   readonly ms: number;
 }
 
@@ -67,6 +75,12 @@ export interface PerfFile {
   readonly testCount: number;
   /** The slowest bodies in the file, over `CASE_FLOOR_MS`, longest first. */
   readonly cases: readonly PerfCase[];
+  /** Tests that passed only on a retry, by full name. Absent when there were none. */
+  readonly flaky?: readonly string[];
+  /** Heap used after the file, in bytes. Only a run with `logHeapUsage` records it. */
+  readonly heap?: number;
+  /** The spec's heaviest direct imports. Only a run that collects import durations records them. */
+  readonly slowImports?: readonly PerfImport[];
 }
 
 export interface PerfRun {
@@ -129,10 +143,28 @@ function parseCases(value: unknown): PerfCase[] {
   return cases;
 }
 
+function parseImports(value: unknown): PerfImport[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .filter((entry): entry is Record<string, unknown> => isRecord(entry) && typeof entry['module'] === 'string')
+    .map((entry) => ({ module: String(entry['module']), ms: numberAt(entry, 'ms') ?? 0 }));
+}
+
+function parseNames(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string') : [];
+}
+
 function parseFile(value: unknown): PerfFile | undefined {
   if (!isRecord(value) || typeof value['file'] !== 'string') {
     return undefined;
   }
+
+  const flaky = parseNames(value['flaky']);
+  const heap = numberAt(value, 'heap');
+  const slowImports = parseImports(value['slowImports']);
 
   return {
     file: value['file'],
@@ -143,6 +175,9 @@ function parseFile(value: unknown): PerfFile | undefined {
     tests: numberAt(value, 'tests') ?? 0,
     testCount: numberAt(value, 'testCount') ?? 0,
     cases: parseCases(value['cases']),
+    ...(flaky.length === 0 ? {} : { flaky }),
+    ...(heap === undefined ? {} : { heap }),
+    ...(slowImports.length === 0 ? {} : { slowImports }),
   };
 }
 

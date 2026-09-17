@@ -13,8 +13,10 @@ import { findBarrelImports } from './checks/barrels';
 import { DOM_FREE_RULE, findDomFreeSpecs } from './checks/dom-free';
 import type { SourceGraph } from './checks/graph';
 import { buildGraph } from './checks/graph';
+import { flakyFindings, heapFindings } from './checks/perf-flaky';
 import { formatHotspots, nothingOverBudgetNote } from './checks/perf-hotspots';
 import { isolationFromAngularBuilder } from './checks/runner-isolation';
+import { writeCodeQuality } from './code-quality';
 import { toPosix } from './fs-scan';
 import type { CliIo } from './main';
 import { painterFor } from './paint';
@@ -35,8 +37,9 @@ import {
   medianTestMs,
   suspectFiles,
 } from './perf-gate';
+import { HISTORY_LIMIT, appendHistory, historyCandidates, historyEntry, isHistoryPath } from './perf-history';
 import type { CpuProfile } from './perf-profile';
-import { summariseProfile } from './perf-profile';
+import { packageOf, summariseProfile } from './perf-profile';
 import type { PerfMeasured, PerfSource, Remeasure } from './perf-run';
 import type { Profile } from './profile';
 import { type Finding, type Severity, formatFindings, summarize } from './report';
@@ -296,21 +299,23 @@ function isolationFindings(phases: readonly Phase[], graph: SourceGraph, cwd: st
   ];
 }
 
-export function analysePerf(run: PerfRun, profile: Profile): PerfAnalysis {
+export function analysePerf(run: PerfRun, profile: Profile, failOnFlaky = false): PerfAnalysis {
   const phases = phasesOf(run);
   const total = totalOf(phases);
   const base = { phases, total, fileCount: run.files.length };
+  const measured = measuredFiles(run, profile.cwd);
+  const always = [...flakyFindings(measured, failOnFlaky), ...heapFindings(measured)];
 
   if (total < QUIET_MS) {
-    return { ...base, findings: [] };
+    return { ...base, findings: always };
   }
 
   const graph = buildGraph(profile);
-  const measured = measuredFiles(run, profile.cwd);
 
   return {
     ...base,
     findings: [
+      ...always,
       ...environmentFindings(phases, profile, graph, measured),
       ...domEngineFindings(phases, graph),
       ...importFindings(phases, graph),
@@ -388,6 +393,10 @@ export interface PerfOptions {
   readonly top?: number;
   /** Findings quieter than this are left out of the report; the tally still counts them. */
   readonly minSeverity?: Severity;
+  /** `--code-quality`: also write every finding of this run as a GitLab Code Quality report here. */
+  readonly codeQuality?: string;
+  /** `--fail-on-flaky`: a test that passed only on a retry fails the run like a gate finding. */
+  readonly failOnFlaky?: boolean;
 }
 
 /**
@@ -490,6 +499,10 @@ function withEvidence(finding: Finding, first: PerfRun, second: PerfMeasured | u
     // The last two levels of a full name: the `describe` a reader searches for and the `it` inside it.
     .map((entry) => ({ name: entry.name.split(' > ').slice(-2).join(' > '), ms: entry.ms }));
   const profile = [...(second?.profiles ?? new Map<string, CpuProfile>())].find(([path]) => toPosix(relative(cwd, path)) === finding.file);
+  const imports = (after.slowImports ?? []).map((entry) => ({
+    name: packageOf(entry.module) ?? toPosix(relative(cwd, entry.module)),
+    ms: entry.ms,
+  }));
   const details = formatEvidence(
     {
       ms: before.tests,
@@ -500,6 +513,7 @@ function withEvidence(finding: Finding, first: PerfRun, second: PerfMeasured | u
       slowest,
       maxTestMs: options.maxTestMs,
       summary: profile === undefined ? undefined : summariseProfile(profile[1], profile[0], cwd),
+      imports,
     },
     painterFor(undefined),
   );
@@ -514,7 +528,15 @@ function unmatchedScope(run: PerfRun, cwd: string, only: readonly string[]): str
   return only.filter((entry) => !paths.some((path) => isJudged(path, [entry])));
 }
 
-function runGate(run: PerfRun, cwd: string, io: CliIo, gate: GateRequest, extra: readonly GateCandidate[], minSeverity?: Severity): number {
+function runGate(
+  run: PerfRun,
+  cwd: string,
+  io: CliIo,
+  gate: GateRequest,
+  extra: readonly GateCandidate[],
+  reported: Finding[],
+  minSeverity?: Severity,
+): number {
   const unmatched = unmatchedScope(run, cwd, gate.options.only);
 
   if (unmatched.length > 0) {
@@ -535,12 +557,10 @@ function runGate(run: PerfRun, cwd: string, io: CliIo, gate: GateRequest, extra:
 
   const second = confirmRun(gate, suspectFiles(candidates), cwd, io);
   const verdict = gateVerdict(candidates, second?.run, cwd, gate.trustSingle);
+  const findings = verdict.findings.map((finding) => withEvidence(finding, run, second, cwd, gate.options));
 
-  reportOrTally(
-    verdict.findings.map((finding) => withEvidence(finding, run, second, cwd, gate.options)),
-    io,
-    minSeverity,
-  );
+  reported.push(...findings);
+  reportOrTally(findings, io, minSeverity);
 
   return verdict.failed ? PERF_GATE_FAILED : 0;
 }
@@ -554,6 +574,10 @@ function runGate(run: PerfRun, cwd: string, io: CliIo, gate: GateRequest, extra:
  * file` is what the recorded share is worth here, and a file over that is a file that grew.
  */
 function baselineCandidates(run: PerfRun, cwd: string, request: BaselineRequest, io: CliIo): GateCandidate[] {
+  if (isHistoryPath(request.path)) {
+    return historyCandidates(run, cwd, request.path, request.options, io);
+  }
+
   const baseline = readBaseline(request.path);
 
   if (baseline === undefined) {
@@ -582,6 +606,17 @@ function baselineCandidates(run: PerfRun, cwd: string, request: BaselineRequest,
 }
 
 function recordBaseline(run: PerfRun, cwd: string, path: string, io: CliIo): void {
+  if (isHistoryPath(path)) {
+    const entry = historyEntry(run, cwd, new Date(), process.env);
+    const runs = appendHistory(path, entry);
+
+    io.out(
+      `\nperf history: recorded ${Object.keys(entry.files).length} files at a median of ${formatMs(entry.median)} into ${path}, which now holds ${runs} of the last ${HISTORY_LIMIT} runs. Keep it in the CI cache or an artifact; record only from the default branch.`,
+    );
+
+    return;
+  }
+
   const baseline = buildBaseline(run, cwd);
 
   writeBaseline(path, baseline);
@@ -617,8 +652,6 @@ function reportHotspots(run: PerfRun, cwd: string, options: PerfOptions, io: Cli
  * failing (1) and there being nothing to judge (2).
  */
 export function renderPerf(source: PerfSource, profile: Profile, io: CliIo, options: PerfOptions = {}): number {
-  const gate = options.gate;
-
   if (!source.ok) {
     io.err(source.error);
 
@@ -641,8 +674,20 @@ export function renderPerf(source: PerfSource, profile: Profile, io: CliIo, opti
     io.err('warning  The suite did not pass. The timings below are still what the run measured.\n');
   }
 
-  const analysis = analysePerf(source.run, profile);
+  const reported: Finding[] = [];
+  const code = reportMeasured(source, profile, io, options, reported);
 
+  if (options.codeQuality !== undefined) {
+    writeCodeQuality(options.codeQuality, reported, options.minSeverity);
+  }
+
+  return code;
+}
+
+function reportMeasured(source: PerfMeasured, profile: Profile, io: CliIo, options: PerfOptions, reported: Finding[]): number {
+  const analysis = analysePerf(source.run, profile, options.failOnFlaky === true);
+
+  reported.push(...analysis.findings);
   io.out(`vitest-auto-spy perf — ${profile.cwd}`);
   io.out(
     `${analysis.fileCount} test files, ${formatMs(source.run.wall)} wall clock, ${formatMs(analysis.total)} of CPU time summed over the workers\n`,
@@ -657,6 +702,16 @@ export function renderPerf(source: PerfSource, profile: Profile, io: CliIo, opti
   reportFindings(analysis, io, options.minSeverity);
   reportHotspots(source.run, profile.cwd, options, io);
 
+  const code = judgeMeasured(source, profile, io, options, reported);
+
+  return code === 0 && analysis.findings.some((finding) => finding.check === 'perf-flaky' && finding.severity === 'error')
+    ? PERF_GATE_FAILED
+    : code;
+}
+
+function judgeMeasured(source: PerfMeasured, profile: Profile, io: CliIo, options: PerfOptions, reported: Finding[]): number {
+  const gate = options.gate;
+
   if (options.baseline?.update === true) {
     recordBaseline(source.run, profile.cwd, options.baseline.path, io);
 
@@ -667,7 +722,10 @@ export function renderPerf(source: PerfSource, profile: Profile, io: CliIo, opti
 
   if (gate === undefined) {
     if (regressions.length > 0) {
-      io.out(`\n${formatFindings(gateVerdict(regressions, undefined, profile.cwd, false).findings, options.minSeverity)}`);
+      const findings = gateVerdict(regressions, undefined, profile.cwd, false).findings;
+
+      reported.push(...findings);
+      io.out(`\n${formatFindings(findings, options.minSeverity)}`);
     }
 
     return 0;
@@ -681,5 +739,5 @@ export function renderPerf(source: PerfSource, profile: Profile, io: CliIo, opti
     return PERF_NO_MEASUREMENT;
   }
 
-  return runGate(source.run, profile.cwd, io, gate, regressions, options.minSeverity);
+  return runGate(source.run, profile.cwd, io, gate, regressions, reported, options.minSeverity);
 }

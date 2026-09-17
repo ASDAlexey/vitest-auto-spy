@@ -28,6 +28,7 @@ const summaryOf = (over: Partial<ProfileSummary> = {}): ProfileSummary => ({
     { name: 'zone.js', ms: 66, share: 0.09 },
   ],
   hottest: [{ name: '(garbage collector)', ms: 22, share: 0.03 }],
+  angular: [],
   ...over,
 });
 
@@ -219,7 +220,66 @@ describe('likelyCause', () => {
     ).toEqual([]);
   });
 
+  it('prints the Angular costs over 1 % on a row of their own, under the hooks', () => {
+    const lines = formatEvidence(
+      evidenceOf({
+        summary: summaryOf({
+          angular: [
+            { name: 'TestBed set-up', ms: 1, share: 0.12 },
+            { name: 'computed styles', ms: 1, share: 0.009 },
+          ],
+        }),
+      }),
+      MONOCHROME,
+    );
+
+    expect(lines[lines.findIndex((line) => line.startsWith('│ hooks')) + 1]).toBe('│ angular      TestBed set-up 12%');
+  });
+
   it('is empty without a profile and without a dominating test', () => {
     expect(likelyCause(evidenceOf({ slowest: [], summary: undefined }))).toEqual([]);
+  });
+
+  describe('on an Angular profile', () => {
+    const angularOf = (costs: Record<string, number>, over: Partial<ProfileSummary> = {}): Evidence =>
+      evidenceOf({
+        slowest: [],
+        summary: summaryOf({
+          packages: [],
+          hottest: [],
+          angular: Object.entries(costs).map(([name, share]) => ({ name, ms: 1, share })),
+          ...over,
+        }),
+      });
+
+    it('names TestBed from 30 % of set-up and creation together, in place of the generic hooks sentence', () => {
+      expect(likelyCause(angularOf({ 'TestBed set-up': 0.2, 'component creation': 0.1 }))).toEqual([
+        'TestBed rebuilds the testing module and the component for every test: 30% is TestBed set-up and component creation. Configure less per test — provide doubles instead of importing whole feature modules, and leave child components out of the template under test.',
+      ]);
+      expect(likelyCause(angularOf({ 'TestBed set-up': 0.29 }))[0]).toContain('set-up that every test repeats');
+    });
+
+    it('names the JIT compiler from 15 %, change detection from 30 % and computed styles from 15 %', () => {
+      expect(likelyCause(angularOf({ 'JIT compilation': 0.15 }, { hooks: 0.1 }))).toEqual([
+        '15% is the Angular JIT compiler: components are compiled while the tests run, and every TestBed.override* of a component compiles it again for that test. Override less, or import fewer declarations into the testing module.',
+      ]);
+      expect(likelyCause(angularOf({ 'change detection': 0.3 }, { hooks: 0.1 }))).toEqual([
+        '30% is change detection: detectChanges runs more often than the assertions need, or each run re-renders a large tree. Arrange the state first and detect changes once.',
+      ]);
+      expect(likelyCause(angularOf({ 'computed styles': 0.15 }, { hooks: 0.1 }))).toEqual([
+        '15% is jsdom computing styles (getComputedStyle), which it does slowly: usually a component library or an animation measuring layout. Disable animations in the testing module, or stub the measurement.',
+      ]);
+      expect(
+        likelyCause(angularOf({ 'JIT compilation': 0.14, 'change detection': 0.29, 'computed styles': 0.14 }, { hooks: 0.1 })),
+      ).toEqual([]);
+    });
+
+    it('puts the Angular sentences before the generic ones and still keeps two', () => {
+      const causes = likelyCause(angularOf({ 'JIT compilation': 0.2, 'change detection': 0.4 }));
+
+      expect(causes).toHaveLength(2);
+      expect(causes[0]).toContain('JIT compiler');
+      expect(causes[1]).toContain('change detection');
+    });
   });
 });

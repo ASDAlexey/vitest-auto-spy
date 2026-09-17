@@ -167,7 +167,39 @@ describe('renderPerf --gate, why a confirmed file is slow', () => {
 
     expect(out).toContain('       │   70ms  waits');
     expect(out).not.toContain('where the time went');
+    expect(out).not.toContain('slowest imports');
     expect(out).not.toContain('fine');
+  });
+
+  it('prints the heaviest imports of the spec, a package by its name and a module by its path', () => {
+    const root = createTempRepo({ 'package.json': '{}' });
+    const slowPath = join(root, 'src/slow.spec.ts');
+    const source: PerfSource = {
+      ok: true,
+      run: run(root, [...ordinary(root), file(slowPath, { tests: 9_000, testCount: 30 })]),
+      runFailed: false,
+    };
+    const remeasure = (): PerfSource => ({
+      ok: true,
+      runFailed: false,
+      run: run(root, [
+        file(slowPath, {
+          tests: 8_000,
+          testCount: 30,
+          slowImports: [
+            { module: join(root, 'node_modules/@angular/material/fesm2022/table.mjs'), ms: 1_240 },
+            { module: join(root, 'src/player/player.component.ts'), ms: 310 },
+          ],
+        }),
+      ]),
+    });
+    const io = recorder();
+
+    renderPerf(source, readProfile(root), io, { gate: { options: GATE_DEFAULTS, remeasure, trustSingle: false } });
+
+    expect(io.stdout.join('\n')).toContain(
+      '       ├─ slowest imports · with everything under them ────────────────\n       │   1.24s  @angular/material\n       │   310ms  src/player/player.component.ts',
+    );
   });
 
   it('prints the measurements alone for a confirmed finding whose file the pass reported no body for', () => {

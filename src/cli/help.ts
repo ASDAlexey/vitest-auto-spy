@@ -103,14 +103,24 @@ Options
                  reading.
   --baseline <p> perf only. Compare against a committed baseline and fail on
                  what grew. Recorded as a ratio to the median file of the run,
-                 so a slower machine does not read as a regression.
+                 so a slower machine does not read as a regression. A .jsonl
+                 path is a history instead: one line per recorded run, and a
+                 file regresses only past factor × its mean share and above
+                 every share it was recorded at.
   --update-baseline
                  perf only. Record this run into the baseline instead of
-                 judging it. Defaults to perf-baseline.json.
+                 judging it — or append it to a .jsonl history, which keeps
+                 the last 30 runs. Defaults to perf-baseline.json.
   --baseline-factor / --baseline-floor-ms
                  perf only. How many times its recorded share a file has to
                  take (2), and the absolute floor under which it is noise
                  (500 ms).
+  --fail-on-flaky
+                 perf only. A test that passed only on a retry fails the run,
+                 exit 1. Without it such a test is a warning.
+  --code-quality <path>
+                 Also write the findings as a GitLab Code Quality report, for
+                 the merge request widget. Works for doctor and for perf.
   --min-severity <error|warning|info>
                  The quietest findings the report prints. Default info, which
                  prints everything. The tally line still counts what was hidden,

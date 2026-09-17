@@ -57,7 +57,7 @@ const profileOf = (samples: readonly Sample[]): CpuProfile => {
   return { nodes: shaped, samples: ids, timeDeltas: samples.map((sample) => sample.ms * 1_000) };
 };
 
-const names = (summary: ProfileSummary, key: 'hottest' | 'packages' | 'project' | 'spec'): string[] =>
+const names = (summary: ProfileSummary, key: 'angular' | 'hottest' | 'packages' | 'project' | 'spec'): string[] =>
   summary[key].map((entry) => `${entry.name} ${Math.round(entry.share * 100)}`);
 
 describe('summariseProfile, attribution', () => {
@@ -223,6 +223,7 @@ describe('summariseProfile, counting', () => {
       project: [],
       packages: [],
       hottest: [],
+      angular: [],
     });
   });
 });
@@ -243,5 +244,45 @@ describe('summariseProfile, hooks', () => {
 
   it('reports no hooks share at all when the runner frame never appeared', () => {
     expect(summariseProfile(profileOf([{ stack: [frame('body', SPEC)], ms: 25 }]), SPEC, CWD).hooks).toBeUndefined();
+  });
+});
+
+describe('summariseProfile, Angular costs', () => {
+  const CORE = '/repo/node_modules/@angular/core/fesm2022/testing.mjs';
+
+  it('names each cost once per sample, by the frame or by the package it came from, largest first', () => {
+    const summary = summariseProfile(
+      profileOf([
+        { stack: [frame('configureTestingModule', CORE), frame('compileComponents', CORE)], ms: 30 },
+        { stack: [frame('createComponent', CORE), frame('refreshView', 'file:///bundle/chunk-1.js')], ms: 20 },
+        { stack: [frame('detectChangesInternal', CORE), frame('refreshView', CORE)], ms: 10 },
+        { stack: [frame('compileComponent', '/repo/node_modules/@angular/compiler/fesm2022/compiler.mjs')], ms: 25 },
+        { stack: [frame('getComputedStyle', '/repo/node_modules/jsdom/lib/Window.js')], ms: 15 },
+      ]),
+      SPEC,
+      CWD,
+    );
+
+    expect(names(summary, 'angular')).toEqual([
+      'change detection 30',
+      'TestBed set-up 30',
+      'JIT compilation 25',
+      'component creation 20',
+      'computed styles 15',
+    ]);
+  });
+
+  it('does not take a function of the same name from anywhere else for an Angular cost', () => {
+    const summary = summariseProfile(
+      profileOf([
+        { stack: [frame('createComponent', SPEC)], ms: 10 },
+        { stack: [frame('getComputedStyle', '/repo/node_modules/happy-dom/lib/Window.js')], ms: 10 },
+        { stack: [frame('compileComponent', '/repo/src/compiler.ts')], ms: 10 },
+      ]),
+      SPEC,
+      CWD,
+    );
+
+    expect(summary.angular).toEqual([]);
   });
 });

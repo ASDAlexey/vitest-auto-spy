@@ -83,7 +83,7 @@ export const BASELINE_DEFAULTS: BaselineOptions = {
 };
 
 /** Whether the file executed anything at all. A collected-but-skipped file is not evidence of speed. */
-function hasRun(file: PerfFile): boolean {
+export function hasRun(file: PerfFile): boolean {
   return file.testCount > 0 || file.tests > 0;
 }
 

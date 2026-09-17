@@ -65,8 +65,12 @@ function formatOne(finding: Finding): string {
  * one that silently drops the number is telling them there is nothing there. Nothing about the exit
  * code moves either — `info` never failed anything.
  */
+export function filterBySeverity(findings: readonly Finding[], minSeverity: Severity = 'info'): Finding[] {
+  return findings.filter((finding) => SEVERITY_ORDER[finding.severity] <= SEVERITY_ORDER[minSeverity]);
+}
+
 export function formatFindings(findings: readonly Finding[], minSeverity: Severity = 'info'): string {
-  const reported = findings.filter((finding) => SEVERITY_ORDER[finding.severity] <= SEVERITY_ORDER[minSeverity]);
+  const reported = filterBySeverity(findings, minSeverity);
 
   if (reported.length === 0) {
     return '';

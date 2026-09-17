@@ -18,6 +18,7 @@ const VALUE_FLAGS = new Set([
   'baseline',
   'baseline-factor',
   'baseline-floor-ms',
+  'code-quality',
   'cwd',
   'factor',
   'from',

@@ -18,7 +18,9 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 
-const project = (): PerfProject => ({ config: { setupFiles: ['/repo/setup.ts'] } });
+const project = (limit?: number): PerfProject => ({
+  config: { setupFiles: ['/repo/setup.ts'], ...(limit === undefined ? {} : { experimental: { importDurations: { limit } } }) },
+});
 
 const moduleWith = (durations: readonly number[]): PerfTestModule => ({
   moduleId: '/repo/a.spec.ts',
@@ -41,6 +43,42 @@ describe('PerfReporter, a profiled pass', () => {
     }
   });
 
+  it('makes Vitest collect import durations for the pass, and never lowers a limit already set higher', () => {
+    vi.stubEnv(PERF_PROFILE_ENV, '/tmp/profiles');
+
+    const unset: PerfProject = { config: { setupFiles: [], experimental: { importDurations: {} } } };
+    const projects = [project(0), project(500), project(), unset];
+
+    new PerfReporter().onInit({ config: { root: '/repo' }, state: { transformTime: 0 }, projects });
+
+    expect(projects.map((each) => each.config.experimental?.importDurations?.limit)).toEqual([200, 500, undefined, 200]);
+  });
+
+  it('records the heaviest imports the spec made itself, and none another module made', () => {
+    const module: PerfTestModule = {
+      ...moduleWith([]),
+      diagnostic: () => ({
+        environmentSetupDuration: 0,
+        prepareDuration: 0,
+        collectDuration: 0,
+        setupDuration: 0,
+        duration: 100,
+        importDurations: {
+          '/repo/b.ts': { totalTime: 40, importer: '/repo/a.spec.ts' },
+          '/repo/a.ts': { totalTime: 40, importer: '/repo/a.spec.ts' },
+          '/repo/c.ts': { totalTime: 90, importer: '/repo/b.ts' },
+          '/repo/d.ts': { totalTime: 10 },
+        },
+      }),
+    };
+
+    expect(new PerfReporter().report([module]).files[0]?.slowImports).toEqual([
+      { module: '/repo/a.ts', ms: 40 },
+      { module: '/repo/b.ts', ms: 40 },
+    ]);
+    expect(new PerfReporter().report([moduleWith([])]).files[0]).not.toHaveProperty('slowImports');
+  });
+
   it('tolerates a Vitest that exposes no projects', () => {
     vi.stubEnv(PERF_PROFILE_ENV, '/tmp/profiles');
 
@@ -58,8 +96,8 @@ describe('PerfReporter, a profiled pass', () => {
 });
 
 describe('PerfReporter, an ordinary run', () => {
-  it('adds nothing to any setup files, whether the variable is unset or empty', () => {
-    const projects = [project()];
+  it('adds nothing to any setup files and collects no imports, whether the variable is unset or empty', () => {
+    const projects = [project(0)];
 
     vi.stubEnv(PERF_PROFILE_ENV, undefined);
     new PerfReporter().onInit({ config: { root: '/repo' }, state: { transformTime: 0 }, projects });
@@ -67,6 +105,7 @@ describe('PerfReporter, an ordinary run', () => {
     new PerfReporter().onInit({ config: { root: '/repo' }, state: { transformTime: 0 }, projects });
 
     expect(projects[0]?.config.setupFiles).toEqual(['/repo/setup.ts']);
+    expect(projects[0]?.config.experimental?.importDurations?.limit).toBe(0);
   });
 
   it('keeps the floor under what it records', () => {
