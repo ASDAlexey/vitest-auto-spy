@@ -1676,7 +1676,10 @@ share a worker and never alone. The guard records the attributes of `<html>`, `<
 before each test and compares them from `onTestFinished` — **after** the TestBed destroyed the
 fixtures in its own `afterEach`, so what a component removes in `ngOnDestroy` / `DestroyRef.onDestroy`
 is never reported. Every attribute added, changed or removed is named with both values, put back,
-and fails that test. A change made in a `beforeAll` and never undone fails the file, checked from a
+and fails that test. An empty `class` or `style` reads as the attribute being absent, in both
+directions — `classList.add` followed by `remove` leaves `class=""` where there was none and nothing
+observable changed; any other empty value, `data-reset-focus=""` included, is still reported.
+A change made in a `beforeAll` and never undone fails the file, checked from a
 `beforeAll` cleanup after every `afterAll`. `nodes: true` also watches the child elements of `<head>`
 and `<body>`; it is off by default because a module that injects a stylesheet on first import does
 so once per worker. Blind spots: a write made while the spec file is imported, and a fixture kept
