@@ -156,6 +156,29 @@ spy.load.nextWith(account); // jest-auto-spies и здесь
 `Observable` — `nextWith` и остальные, и только после того, как где-то отработал
 `import 'vitest-auto-spy/rxjs'`, как и на любой другой точке входа.
 
+### У трёх стратегий `withArgs` нет формы с областью по аргументам {#three-withargs-strategies-have-no-argument-scoped-form}
+
+`.withArgs(…)` сужает настройку до одного списка аргументов, а `stub()`, `throwError(e)` и
+`resolveTo(v)` говорят, что вызов должен **ответить**, — и сужаются вместе с ним. `callFake(fn)`,
+`callThrough()` и `returnValues(a, b)` ставят _реализацию_, а реализация отвечает на каждый вызов,
+каковы бы ни были его аргументы, — «но только для этих аргументов» сюда ставить нечего.
+
+Они существуют и бросают ошибку, а не отсутствуют: спека, дошедшая до одной из них, иначе падает
+с `… is not a function` на строке настройки и не говорит, что написать вместо неё:
+
+```text
+[vitest-auto-spy] load.withArgs(…).and.callFake() is not supported: it installs an implementation,
+and an implementation answers every call rather than one argument list. Configure the value for
+these arguments — `.withArgs(…).and.returnValue(v)`, `.throwError(e)`, `.resolveTo(v)` — or take
+the whole spy with `load.and.callFake(…)`, which is what jasmine's own strategy does to every call
+anyway.
+```
+
+`withArgs` — метод спаев **этой библиотеки**, и на прокладке, и после неё. У `vi.spyOn(obj, 'm')`
+нет `calledWith`, на который его можно было бы переименовать, поэтому `spyOn(obj, 'm').withArgs(1)`
+придётся переписать руками: разветвиться по аргументам внутри одного `mockImplementation` или
+заменить дубль на `createSpyFromClass` / `createAutoMock` — у методов этих фабрик `calledWith` есть.
+
 ## Собственные глобалы jasmine {#jasmine-s-own-globals}
 
 Они встречаются в файлах, которые к auto-spies отношения не имеют, их никто не импортирует, и после
@@ -297,6 +320,39 @@ test: {
 Падение, которое это предотвращает, записывается не на тот счёт: `beforeEach`, вышедший за бюджет,
 приписывается **тесту**, длительность теста прибивается к лимиту, и в логе значится
 `× should create 10045ms` про тело, которое ни разу не выполнялось.
+
+### `clock().install()` оставляет `Date` настоящим {#clock-install-leaves-date-real}
+
+`install()` в jasmine подменяет планировщики и только их; `Date` там отдельная опция под именем
+`mockDate()`. `useFakeTimers()` в Vitest подменяет `Date` по умолчанию, поэтому спека, писавшаяся
+под jasmin-разделение — часы поставить, а истекшее время мерить реальное, — видела `Date.now()`
+замороженным и двигающимся только на `tick(ms)`: TTL-кэш, который никогда не истекал,
+`expect(Date.now() - start)`, дающий `0`, и ни слова про часы в выводе.
+
+Поэтому `jasmine.clock().install()` здесь не трогает `Date`, как не трогает его jasmine. Каждый
+таймер, который Vitest подменяет по умолчанию, остаётся подменённым, не считая часов;
+`process.nextTick` и `queueMicrotask` остаются настоящими, как и в собственном умолчании Vitest.
+
+```ts
+jasmine.clock().install();
+jasmine.clock().mockDate(new Date('2026-01-01')); // именно это забирает Date под себя
+```
+
+`mockDate()` ставит полный набор, потому что `vi.setSystemTime` двигает фейковые часы, которые
+никто не читает, пока `Date` вне подменённого набора. Повторная установка теряет всё, что уже было
+запланировано, чего собственный `mockDate` jasmine не делает, — поэтому, вызванный после того, как
+кто-то поставил таймер, он сообщает об этом, а не оставляет потерю ждать, пока её найдут:
+
+```text
+[vitest-auto-spy] jasmine.clock().mockDate() took Date over after 2 callback(s) had already been
+scheduled, and re-installing the fake clock dropped them. Call mockDate() right after install(),
+before anything schedules a timer — jasmine.clock().install() leaves Date real on purpose, as
+jasmine does.
+```
+
+Сразу после `install()` — а именно туда перенесённая спека его и ставит — терять нечего и ничего
+не печатается. `mockDate()` без `install()` остаётся как был: он ставит фейки только для `Date`
+и оставляет таймеры настоящими.
 
 ## Два места, где мы сознательно расходимся с оригиналом {#two-places-where-this-is-deliberately-not-upstream}
 

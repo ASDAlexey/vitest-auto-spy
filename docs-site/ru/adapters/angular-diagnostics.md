@@ -36,6 +36,24 @@ enableAngularDiagnostics({ pendingRequests: false }); // или выборочн
 снова предупреждает вместо падения. Инструментацию таймингов `TestBed` она оставляет на месте — ею
 может пользоваться `enableTestBedDiagnostics`, а убирает её `disableTestBedDiagnostics()`.
 
+## Видны оба способа добраться до `TestBed` {#both-ways-of-reaching-the-testbed-are-seen}
+
+Спека настраивает свой модуль через экспортированный класс `TestBed` или через `getTestBed()`, и это
+один и тот же объект: каждый статический метод — однострочная делегация к инстансу. Поэтому хуки
+ставятся на **инстанс**, и сюита, написанная вторым способом, проверяется как любая другая:
+
+```ts
+getTestBed().configureTestingModule({ imports: [CatalogPageComponent] }); // разбирается
+const fixture = getTestBed().createComponent(CatalogPageComponent); // и это тоже
+```
+
+Это покрывает `ngModuleScopes`, `deadSchemas`, `shadowedProviders` и [проверку
+`overrideComponentProvider`](/ru/adapters/angular-overrides) — все они раньше видели только
+статическую форму и не сообщали ничего о сюите, которая ею не пользовалась. Каждый вызов считается
+один раз — обёртка стоит только на инстансе, никогда на обоих, — а `TestBed.overrideTemplate`,
+который Angular проводит через `overrideComponent`, теперь входит в замеряемое
+[время `TestBed`](/ru/adapters/angular), а не невидим для него.
+
 ## Вызывайте _после_ настройки тестового окружения Angular {#call-it-after-the-angular-test-environment-is-set-up}
 
 Vitest выполняет хуки `afterEach` в **обратном порядке регистрации**. Хук `pendingRequests`,

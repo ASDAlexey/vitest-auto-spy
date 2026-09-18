@@ -94,6 +94,25 @@ const Widget = stubConstructor(window, 'MTSPay', (params: PayParams) => ({ rende
 [Заглушки обсерверов](./observer-stubs). `mockConstructor`, `stubConstructor` и `createSpyClass`
 остались в корне: они про `new`, а не про DOM.
 
+### Конструктор — член дубля {#a-constructor-that-is-a-member-of-a-double}
+
+Ни один из трёх не нужен, когда до класса добираются **через зависимость**, которую спека уже
+удваивает, — `new this.sdk.Client(key)`, `new deps.Session()`. Заспайленный член отвечает на `new`:
+конструкция записывается как любой другой вызов, а тестируемый код получает свежий экземпляр — или
+объект, которым этот список аргументов настроили отвечать.
+
+```ts
+const sdk = createAutoMock<Sdk>();
+
+service.connect(); // `new this.sdk.Client(key)` inside
+
+expect(sdk.Client).toHaveBeenCalledWith(key);
+```
+
+Три хелпера выше — про конструктор, до которого тестируемый код добирается **напрямую**: глобал,
+который он называет, импорт, который он вызывает, настоящий класс, чьи экземпляры должны быть
+авто-спаями.
+
 ## `stubAbortController()` {#stubabortcontroller}
 
 `element.addEventListener('pointerdown', handler, { signal })` — рекомендованный с Angular 16 способ

@@ -59,6 +59,41 @@ WorkerSpy.instances[0].postMessage.mockReturnValue(undefined);
 [`createSpyFromClass`](./create-spy-from-class), так что каждый экземпляр настраивается обычным
 способом.
 
+### Статика класса — `{ statics: true }` {#the-class-s-statics-—-statics-true}
+
+Дубль-конструктор обычно заменяет настоящий класс там, где его видит код под тестом, а продакшен-код
+читает статику с этого имени не реже, чем зовёт на нём `new`: проверка фичи `Worker.isSupported()`,
+фабрика `Client.create()`, константа `VERSION`. Без них подмена теряет ровно ту половину, которую
+`new` не покрывает, и падение — `SpyClass.isSupported is not a function` — приземляется внутри
+продакшен-кода. Третий аргумент переносит статику:
+
+```ts
+const SdkSpy = createSpyClass(Sdk, undefined, { statics: true }) as unknown as typeof Sdk;
+
+expect(SdkSpy.VERSION).toBe('2.1.0'); // данные, скопированные как есть
+expect(vi.isMockFunction(SdkSpy.create)).toBe(true); // статика базового класса, заспаянная как собственная
+```
+
+Статические **функции** становятся спаями — и собственные у класса, и унаследованные от базовых;
+статические **данные** копируются как есть: строку `VERSION` код под тестом рассчитывает там найти,
+а не спай, отвечающий `undefined`; статические **аксессоры** пропускаются, а не читаются, потому что
+геттер — это код, которым владеет класс, и гонять его, пока собирается дубль, — побочный эффект,
+которого никто не просил. Собственные `calls` и `instances` дубля никогда не перезаписываются,
+поэтому класс со статикой под одним из этих имён остаётся рабочим спаем-конструктором.
+
+По умолчанию выключено — опция добавляет члены на дубль. Объект настроек именуем в собственном
+хелпере потребителя как `SpyClassOptions`, экспортированный из корня пакета.
+
+**У статической стороны типов пока нет.** `ConstructorSpy<T>` описывает экземпляры, поэтому за
+статикой приходится лезть через каст, а чтобы её настроить, нужен второй каст, — класс типизирует
+этот член как настоящую функцию:
+
+```ts
+(SdkSpy.isSupported as unknown as { mockReturnValue(value: boolean): void }).mockReturnValue(false);
+
+expect(SdkSpy.isSupported()).toBe(false);
+```
+
 ## Какая ошибка про какое направление {#which-error-means-which-direction}
 
 Компилятор сообщает о несовпадении `Spy<T>` / `T` четырьмя разными способами, и ни в одном из них нет
@@ -267,6 +302,46 @@ posters.getPosters.calledWith('shelf-1').mockReturnValue(42); // ❌ — это 
 раннер требует аргумент у метода, весь смысл которого в том, что он ничего не возвращает. И
 `mockRejectedValue` по-прежнему принимает `unknown`, потому что отказ — это не возвращаемый тип
 метода.
+
+## Метод, возвращающий `any`, сохраняет все наборы хелперов {#a-method-returning-any-keeps-every-bundle}
+
+`[any] extends [Promise<infer P>]` — это **истина**, поэтому член, объявленный как `any`, —
+легаси-сервис, обёртка над JavaScript-пакетом, дубль, перенесённый с `jest-auto-spies`, — выглядит
+методом, возвращающим промис, и только. `any` проверяется первым, поэтому такой член сохраняет и
+`mockReturnValue` в своей цепочке `calledWith`, и промис-хелперы, и observable-хелперы — ровно на всё
+это он и отвечает в рантайме:
+
+```ts
+const legacy = createAutoMock<LegacyApi>(); // request(id: number): any
+
+legacy.request.calledWith(1).mockReturnValue({ ok: true }); // ✅
+legacy.request.calledWith(2).resolveWith({ ok: false }); // ✅ — на месте
+```
+
+Ничего не сужается: член, чей тип говорит `any`, настраивается так, как этот тип позволяет
+использовать его вызывающему. Если это слишком много свободы — чинить надо объявление члена, а не
+дубль.
+
+## `accessorSpies` типизирован по члену, который замещает {#accessorspies-is-typed-against-the-member-it-stands-for}
+
+Каждая половина мешка несёт тип подменяемого ею члена: `Mock<() => T[K]>` у геттера,
+`Mock<(value: T[K]) => void>` у сеттера:
+
+```ts
+const settings = createSpyFromClass(SettingsService, { gettersToSpyOn: ['count'] }); // get count(): number
+
+settings.accessorSpies.getters.count.mockReturnValue(3); // ✅
+settings.accessorSpies.getters.count.mockReturnValue('three'); // ❌ TS2345
+```
+
+Голый `Mock` — это `Mock<Procedure>`, то есть `(...args: any[]) => any`, поэтому вторая строка
+раньше компилировалась, и дубль потом отвечал `string` там, где класс обещает `number`, — со стороны
+чтения это тот же провал, который поверхность методов закрыла, взяв `MockInstance<Method>`. Спека,
+заглушившая геттер значением другого типа, узнаёт об этом здесь, на строке, которая это делает.
+
+Это `Mock<…>`, а не `MockInstance<…>`, — намеренно: мешок всегда был вызываемым, поэтому
+`accessorSpies.setters.theme('dark')` и `accessorSpies.getters.theme()` компилируются ровно как
+прежде.
 
 ## `readonly` доезжает до дубля, и ответ на это — `mockValueProp` {#readonly-survives-onto-the-double-and-mockvalueprop-is-the-answer}
 

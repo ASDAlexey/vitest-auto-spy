@@ -92,6 +92,30 @@ observers.last; // самый свежий — обычный случай, ко
 observers.last.emit([intersectionEntry(first, false), intersectionEntry(second, true)]);
 ```
 
+## Observer, который передают в колбэк {#the-observer-the-callback-is-handed}
+
+Второй аргумент колбэка — тот объект, который вернул `new IntersectionObserver(…)`, — тот, что
+сохранил код под тестом, а не запись, о которой шла речь выше. Продакшн-код до него тянется:
+
+```ts
+new IntersectionObserver((entries, observer) => {
+  observer.disconnect(); // или observer.takeRecords(), или `if (observer !== this.observer) return;`
+});
+```
+
+поэтому `takeRecords()` на нём — спай, отвечающий пустым списком, а `root`, `rootMargin` и
+`thresholds` читаются обратно из init, который передали конструктору, а не остаются пустыми, —
+директива, которая строит по observer-у на каждый root margin, ассертит именно их. `rootMargin` по
+умолчанию `'0px 0px 0px 0px'`, а `thresholds` — `[0]`, как у платформы, и `threshold`, переданный
+одним числом, приезжает одноэлементным массивом.
+
+`instances[i].host` (и `last.host`) — тот же объект, для спеки, которая сравнивает его с
+observer-ом, который держит компонент:
+
+```ts
+expect(observers.last.host).toBe(component.observer);
+```
+
 ## Построение entries {#building-entries}
 
 `intersectionEntry(target, isIntersecting, overrides?)` заполняет поля, которые никто не читает.

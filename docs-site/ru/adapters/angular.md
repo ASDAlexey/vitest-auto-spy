@@ -1896,3 +1896,32 @@ auto-spy. Register it with provideAutoSpy(DeviceRegistryService) …
 Провайдер, который спека забыла зарегистрировать, иначе обнаруживается много позже — когда
 `.mockReturnValue(…)` вызывают на настоящем методе, а если у класса нет приватных членов, из-за
 которых типы разошлись бы, то и никогда. Предупреждение печатается один раз на токен.
+
+## Когда внутренняя структура Angular переезжает {#when-an-angular-internal-moves}
+
+Несколько хелперов на этой странице отвечают на вопросы, для которых Angular не публикует API:
+какие запросы тестирующий модуль ещё держит, как скомпилированный компонент называет свои входы,
+читал ли кто-нибудь уже сигнал. Peer-диапазон — `>=20` без верхней границы, так что вопрос,
+о котором стоит подумать заранее, — не приватны ли эти структуры, а что случится, когда одна
+из них переедет.
+
+Оставленная на самотёк, каждая ломается **молча**. Переименованное поле читается как `undefined`,
+проверка, которая на него полагалась, решает, что сообщать нечего, и сюита продолжает проходить
+с одним ассертом меньше, чем полагает её автор. Поэтому структуры вместо этого проверяются — по
+разу на воркер, лениво, с первого хелпера, которому они нужны, — и переехавшая структура падает
+громко, называя версию Angular и проверку, которая перестаёт работать:
+
+```text
+[vitest-auto-spy] @angular/core 23.0.0 no longer carries ReactiveNode#consumers / #kind, which this
+package reads.
+`mockSignalProp()` can no longer see whether a signal has been read, nor write through a read-only
+one, so a patch applied after the first read would be accepted and quietly change nothing.
+Nothing here is fixable from a spec: report the Angular version above, and pin the previous one
+until a release of this package reads the new shape.
+```
+
+Вызывать ничего не нужно и настраивать нечего: `mockSignalProp`, `enableAngularDiagnostics()` и
+`provideHttpTesting()` прогоняют проверку по пути, а сюита, которая не пользуется ни одним из них,
+не платит ничего. Две структуры нельзя проверить заранее — скомпилированному определению нужен
+компонент, а компилятор может быть вовсе не загружен, — поэтому `setInputs`, `renderShallow` и
+`createComponentStub` поднимают ту же ошибку, как только находят неверную.

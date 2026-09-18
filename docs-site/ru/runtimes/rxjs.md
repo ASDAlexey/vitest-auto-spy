@@ -158,6 +158,39 @@ beforeEach(() => {
 терминальный вызов. `nextWithValues([{ errorValue: e }])` остаётся способом собрать поток, который падает
 при подписке независимо от того, что было до него.
 
+## `nextWith` пишет в общий subject; `nextWithValues` публикует новый {#nextwith-pushes-nextwithvalues-republishes}
+
+Оба выглядят взаимозаменяемыми, но это не так, и разница видна только на observable-**свойстве** — на
+том, на которое компонент подписывается один раз, в `ngOnInit`.
+
+| Хелпер                                                    | Что делает с потоком                      | Подписчик, который уже на нём |
+| --------------------------------------------------------- | ----------------------------------------- | ----------------------------- |
+| `nextWith` / `nextOneTimeWith` / `throwWith` / `complete` | кладёт в subject, общий для всех          | получает значение             |
+| `nextWithValues`                                          | публикует **новый** поток поверх свойства | остаётся на старом            |
+
+Поток свойства читается в момент подписки, поэтому компонент, подписавшийся в `ngOnInit`, держит
+поток, опубликованный в тот момент. `nextWithValues` после этого строит свою последовательность
+рядом с ним, а не в него — ни ошибки, ни таймаута, вообще ничего, если спека заодно не ждёт эмиссию.
+Вместо этого свойство один раз сообщает об этом:
+
+```
+[vitest-auto-spy] nextWithValues() on an observable property publishes a new stream, and the
+subscriber already attached to this property stays on the old one — so these values never reach it.
+Configure the property before the code under test subscribes, or push into the live stream with
+nextWith() / returnSubject().
+```
+
+Обе починки — по одной строке. Настройте свойство на шаге arrange, до сборки фикстуры — именно это
+большинство спек и имело в виду, — или ведите живой поток:
+
+```ts
+service.items$.nextWith(['a']); // доходит до компонента, подписавшегося в ngOnInit
+service.items$.returnSubject().error(new Error('offline')); // и это тоже
+```
+
+У спая метода такой проблемы нет: его поток читается на каждый вызов, поэтому следующий вызов
+получает новый.
+
 ## Отдельный конструктор observable {#standalone-observable-builder}
 
 ```ts

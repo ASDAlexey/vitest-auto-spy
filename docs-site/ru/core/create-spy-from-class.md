@@ -310,7 +310,7 @@ spy.getName.mockReturnValue('Ada'); // getName строится здесь, пр
 аксессором, поэтому у ни разу не тронутого спая нет записанных вызовов (ровно поэтому
 `resetAutoSpy` может его пропустить).
 
-### `lazySpies: 'proxy'` — для классов, широких настолько, что убивают CI-джобу {#lazyspies-proxy-—-for-classes-wide-enough-to-end-a-ci-job}
+### `lazySpies: 'proxy'` — для классов, широких настолько, что убивают CI-джобу {#lazyspies-proxy-—-one-trap-object-instead-of-a-placeholder-per-method}
 
 `lazySpies: true` всё равно обязан _что-то положить_ на дубль для каждого метода: по одному аксессору
 через `Object.defineProperty`. На широком классе эта заглушка — не мелочь, а почти всё, что нетронутый
