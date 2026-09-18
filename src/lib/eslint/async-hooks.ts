@@ -19,7 +19,7 @@ import {
   type EsFixer,
   type EsNode,
   type RuleContext,
-  countInSubtree,
+  anyInSubtree,
   enclosingFunction,
   isCallExpression,
   isIdentifier,
@@ -35,7 +35,7 @@ export function isHookCallback(callback: EsNode): boolean {
 }
 
 /** The hook or test callback whose `async` only existed for this `await`, when there is one. */
-export function asyncOnlyFor(awaited: EsNode): EsNode | undefined {
+export function asyncOnlyFor(context: RuleContext, awaited: EsNode): EsNode | undefined {
   // The innermost function around an `await` is async by construction; only a top-level await has none.
   const callback = enclosingFunction(awaited);
 
@@ -46,7 +46,7 @@ export function asyncOnlyFor(awaited: EsNode): EsNode | undefined {
   const awaitsElse = (node: EsNode): boolean =>
     (node.type === 'AwaitExpression' && node !== awaited) || Reflect.get(node, 'await') === true;
 
-  return countInSubtree(Reflect.get(callback, 'body'), awaitsElse, false) === 0 ? callback : undefined;
+  return anyInSubtree(context, Reflect.get(callback, 'body'), awaitsElse, false) ? undefined : callback;
 }
 
 /**

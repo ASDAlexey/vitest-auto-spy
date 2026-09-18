@@ -7,7 +7,8 @@ import {
   type EsCallExpression,
   type EsComment,
   type EsNode,
-  countInSubtree,
+  type RuleContext,
+  anyInSubtree,
   isCallExpression,
   isFunctionNode,
   isMemberExpression,
@@ -61,10 +62,10 @@ function configurationOf(call: EsCallExpression): Configuration | undefined {
 }
 
 /** Whether the directive's line lies in the call itself, rather than inside a callback handed to it. */
-function suppresses({ call }: Configuration, line: number): boolean {
+function suppresses(context: RuleContext, { call }: Configuration, line: number): boolean {
   const withinCallback = (node: EsNode): boolean => isFunctionNode(node) && node.loc.start.line < line && line <= node.loc.end.line;
 
-  return call.loc.start.line <= line && line <= call.loc.end.line && countInSubtree(call, withinCallback, true) === 0;
+  return call.loc.start.line <= line && line <= call.loc.end.line && !anyInSubtree(context, call, withinCallback, true);
 }
 
 function directiveOf(comment: EsComment): string | undefined {
@@ -98,7 +99,7 @@ export const noTsExpectErrorOnDouble = defineRule({
       'Program:exit': (): void => {
         context.sourceCode.getAllComments().forEach((comment) => {
           const directive = directiveOf(comment);
-          const target = configurations.find((candidate) => suppresses(candidate, comment.loc.end.line + 1));
+          const target = configurations.find((candidate) => suppresses(context, candidate, comment.loc.end.line + 1));
 
           if (directive && target) {
             context.report({

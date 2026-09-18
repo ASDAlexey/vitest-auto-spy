@@ -275,6 +275,15 @@ export interface EsSourceCode {
    * than guess.
    */
   readonly parserServices: ParserServices;
+  /**
+   * The child keys of every node type, as ESLint's own traversal uses them.
+   *
+   * The table the parser ships merged over ESLint's; a downward walk that reads it visits the
+   * children and nothing else, where enumerating a node's own properties also pays for `range`,
+   * `loc`, the type annotations a TypeScript node carries and the `parent` back-reference on each
+   * of them.
+   */
+  readonly visitorKeys: Readonly<Record<string, readonly string[]>>;
 }
 
 /**
@@ -573,8 +582,8 @@ function isNode(value: unknown): value is EsNode {
  * along with the problem. Generic over the node shape rather than selector-based, because "not
  * inside a function" is not something an esquery selector can say.
  */
-export function buildsRunnerFnAtModuleScope(node: EsNode): boolean {
-  return buildsRunnerFn(node, false);
+export function buildsRunnerFnAtModuleScope(context: RuleContext, node: EsNode): boolean {
+  return buildsRunnerFn(context, node, false);
 }
 
 /**
@@ -586,42 +595,102 @@ export function buildsRunnerFnAtModuleScope(node: EsNode): boolean {
  * `useFactory` the function *is* the value: everything it builds is what DI hands over, so stopping
  * at the boundary means never looking at the double at all.
  */
-export function buildsRunnerFn(node: EsNode, throughFunctions: boolean): boolean {
-  return countInSubtree(node, isRunnerFnCall, throughFunctions) > 0;
+export function buildsRunnerFn(context: RuleContext, node: EsNode, throughFunctions: boolean): boolean {
+  return anyInSubtree(context, node, isRunnerFnCall, throughFunctions);
+}
+
+/**
+ * The keys a walk never follows on a node type the visitor-key table does not list.
+ *
+ * `parent` points back up the tree, and following it would walk the whole program and then some;
+ * the other three carry positions and the type name, never a child.
+ */
+const NON_CHILD_KEYS = new Set(['parent', 'range', 'loc', 'type']);
+
+/** Push the children of `node` onto `pending`, by the parser's own table where it knows the type. */
+function pushChildren(node: EsNode, visitorKeys: EsSourceCode['visitorKeys'], pending: EsNode[]): void {
+  // Enumeration is the fallback ESLint's own traverser keeps for a node type no table lists — a
+  // custom parser's, or one a newer syntax added — and it answers the same question, slower.
+  const keys = visitorKeys[node.type] ?? Object.keys(node).filter((key) => !NON_CHILD_KEYS.has(key));
+
+  for (const key of keys) {
+    const value: unknown = Reflect.get(node, key);
+
+    if (Array.isArray(value)) {
+      value.forEach((item: unknown) => {
+        if (isNode(item)) {
+          pending.push(item);
+        }
+      });
+    } else if (isNode(value)) {
+      pending.push(value);
+    }
+  }
+}
+
+/**
+ * The walk both questions below are asked of, iterative and driven by the parser's visitor keys.
+ *
+ * Pruned at every match — a match's own children are not searched again — and, unless
+ * `throughFunctions`, at every function boundary. `stopAtFirst` is the whole difference between the
+ * two: a question that only needs to know *whether* leaves the rest of the subtree unwalked, which
+ * on a suite-sized file is the difference between a rule that costs a second and one that does not.
+ */
+function walkSubtree(
+  context: RuleContext,
+  node: EsNode,
+  matches: (candidate: EsNode) => boolean,
+  throughFunctions: boolean,
+  stopAtFirst: boolean,
+): number {
+  const { visitorKeys } = context.sourceCode;
+  const pending = [node];
+  let found = 0;
+
+  for (let current = pending.pop(); current; current = pending.pop()) {
+    if (!throughFunctions && FUNCTION_TYPES.has(current.type)) {
+      continue;
+    }
+
+    if (matches(current)) {
+      found += 1;
+
+      if (stopAtFirst) {
+        return found;
+      }
+
+      continue;
+    }
+
+    pushChildren(current, visitorKeys, pending);
+  }
+
+  return found;
+}
+
+/** Whether any node below `node` — `node` itself included — satisfies `matches`. */
+export function anyInSubtree(
+  context: RuleContext,
+  node: EsNode,
+  matches: (candidate: EsNode) => boolean,
+  throughFunctions: boolean,
+): boolean {
+  return walkSubtree(context, node, matches, throughFunctions, true) > 0;
 }
 
 /**
  * How many nodes below `node` a predicate accepts.
  *
- * Pruned at every match — a match's own children are not searched again — and, unless
- * `throughFunctions`, at every function boundary. Both callers want the same walk over a different
- * predicate, which is the only reason it is spelled generically: a second copy of a tree walk is a
- * second place for the `parent` back-reference to be forgotten.
+ * The count is only worth walking the whole subtree for where the number itself is reported; every
+ * other caller asks {@link anyInSubtree}, which stops at the first match.
  */
-export function countInSubtree(node: EsNode, matches: (candidate: EsNode) => boolean, throughFunctions: boolean): number {
-  if (!throughFunctions && FUNCTION_TYPES.has(node.type)) {
-    return 0;
-  }
-
-  if (matches(node)) {
-    return 1;
-  }
-
-  return Object.entries(node).reduce((total, [key, value]) => {
-    // `parent` points back up the tree; following it would walk the whole program, twice.
-    if (key === 'parent') {
-      return total;
-    }
-
-    if (Array.isArray(value)) {
-      return value.reduce<number>(
-        (sum, item: unknown) => (isNode(item) ? sum + countInSubtree(item, matches, throughFunctions) : sum),
-        total,
-      );
-    }
-
-    return isNode(value) ? total + countInSubtree(value, matches, throughFunctions) : total;
-  }, 0);
+export function countInSubtree(
+  context: RuleContext,
+  node: EsNode,
+  matches: (candidate: EsNode) => boolean,
+  throughFunctions: boolean,
+): number {
+  return walkSubtree(context, node, matches, throughFunctions, false);
 }
 
 /**

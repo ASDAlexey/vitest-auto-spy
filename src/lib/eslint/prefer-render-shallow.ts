@@ -3,7 +3,7 @@
  * counts every rule it still defines inline against its own line budget.
  */
 import { defineRule } from './define-rule';
-import { RENDER_MESSAGES, buildsDirectiveHarness, readsRenderedTemplate, renderShallowSuggestion, templatePolicy } from './dom-reads';
+import { RENDER_MESSAGES, renderShallowSuggestion, rendersOnlyWhatIsRead, templatePolicy } from './dom-reads';
 import type { EsCallExpression, EsNode, RuleModule } from './rule-types';
 
 export const preferRenderShallow: RuleModule = defineRule({
@@ -12,30 +12,32 @@ export const preferRenderShallow: RuleModule = defineRule({
   hasSuggestions: true,
   schema: [{ type: 'object', properties: { templates: { enum: ['as-needed', 'never'] } }, additionalProperties: false }],
   messages: RENDER_MESSAGES,
-  create: (context) => ({
-    'CallExpression[callee.object.name="TestBed"][callee.property.name="createComponent"]': (node: EsCallExpression): void => {
-      // Asked of the whole file, not of this fixture: see `readsRenderedTemplate`. Under
-      // `{ templates: 'never' }` the question is not asked at all — no spec renders a template,
-      // except the harness a directive has no way to be reached without.
-      const source = context.sourceCode.getText();
-      const policy = templatePolicy(context);
+  create: (context) => {
+    // The exemption is about the whole file, and the file does not change while it is being linted:
+    // a spec with forty `TestBed.createComponent` calls used to re-read all 1.7 MB of it forty times.
+    let exempt: boolean | undefined;
 
-      if (policy === 'as-needed' ? readsRenderedTemplate(source) : buildsDirectiveHarness(source)) {
-        return;
-      }
+    return {
+      'CallExpression[callee.object.name="TestBed"][callee.property.name="createComponent"]': (node: EsCallExpression): void => {
+        exempt ??= rendersOnlyWhatIsRead(context);
 
-      // Two findings, not one wording: `as-needed` reports a render nobody reads and may say so,
-      // while `never` reports the policy and knows nothing about the reads — under it the file that
-      // gets reported is usually the one that reads the template hardest.
-      const messageId = policy === 'never' ? 'templatesNever' : 'preferRenderShallow';
-      const suggestion = renderShallowSuggestion(context, node);
+        if (exempt) {
+          return;
+        }
 
-      context.report(suggestion ? { node, messageId, suggest: [suggestion] } : { node, messageId });
-    },
-    'Property[key.name="keepTemplate"][value.value=true]': (node: EsNode): void => {
-      if (templatePolicy(context) === 'never') {
-        context.report({ node, messageId: 'keepTemplate' });
-      }
-    },
-  }),
+        // Two findings, not one wording: `as-needed` reports a render nobody reads and may say so,
+        // while `never` reports the policy and knows nothing about the reads — under it the file
+        // that gets reported is usually the one that reads the template hardest.
+        const messageId = templatePolicy(context) === 'never' ? 'templatesNever' : 'preferRenderShallow';
+        const suggestion = renderShallowSuggestion(context, node);
+
+        context.report(suggestion ? { node, messageId, suggest: [suggestion] } : { node, messageId });
+      },
+      'Property[key.name="keepTemplate"][value.value=true]': (node: EsNode): void => {
+        if (templatePolicy(context) === 'never') {
+          context.report({ node, messageId: 'keepTemplate' });
+        }
+      },
+    };
+  },
 });

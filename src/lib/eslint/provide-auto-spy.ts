@@ -30,6 +30,7 @@ import { PACKAGE, bindingState, dropNamedImport, findBinding, importNamed } from
 import { defineRule } from './define-rule';
 import { handRolledProvider, providesToken } from './hand-rolled-doubles';
 import { OVERRIDE_PROVIDER_CALL, overrideDescriptor } from './provider-override';
+import { namesActivatedRoute } from './route-double';
 import {
   type EsCallExpression,
   type EsFix,
@@ -78,6 +79,37 @@ function longFormAutoSpy(descriptor: EsObjectExpression): EsCallExpression | und
   const [read] = call.arguments;
 
   return read && isIdentifier(read) && isIdentifier(token) && token.name === read.name ? call : undefined;
+}
+
+/** The provider that spells the factory out instead of calling it — fixed where the rewrite is exact. */
+function reportLongForm(context: RuleContext, descriptor: EsObjectExpression): void {
+  const call = longFormAutoSpy(descriptor);
+
+  if (!call) {
+    return;
+  }
+
+  const messageId = 'preferProvideAutoSpyOverLongForm';
+
+  context.report(
+    isLongFormFixable(context, descriptor, call)
+      ? { node: descriptor, messageId, fix: (fixer: EsFixer): EsFix[] => longFormFixes(context, fixer, descriptor, call) }
+      : { node: descriptor, messageId },
+  );
+}
+
+/**
+ * The report for `ActivatedRoute`, wherever the double for it is written.
+ *
+ * Drawn only where the rule would have said something anyway — a hand-rolled double, or the long
+ * form of the factory — so the token changes the advice rather than widening the rule.
+ */
+function reportRouteToken(context: RuleContext, descriptor: EsObjectExpression, reported: EsNode | undefined): void {
+  const node = reported ?? (longFormAutoSpy(descriptor) ? descriptor : undefined);
+
+  if (node) {
+    context.report({ node, messageId: 'preferProvideActivatedRoute' });
+  }
 }
 
 /**
@@ -165,6 +197,8 @@ export const preferProvideAutoSpy: RuleModule = defineRule({
       'This `useValue` object hand-rolls a mock for an `InjectionToken`. `provideAutoSpy` cannot take one: it reads a class prototype and a token has none. `provideAutoSpyForToken(TOKEN)` builds the double from the type the token carries instead. Members the double must *answer* with rather than spy on go in its second argument. A call the code under test chains off is named in the third, and stays a spy: `provideAutoSpyForToken(LOGGER, undefined, { selfReturning: ["channel"] })`, without which `inject(LOGGER).channel("x").debug()` dies on `undefined` inside the constructor. The same second argument is the answer for a **nested** shape — a request, a response, a DOM-ish object — because the bare double is one level deep: every key it is asked for becomes a function spy, so `req.headers` is a spy and `req.headers.get(…)` reads a property off it. Seed the level: `provideAutoSpyForToken(REQUEST, { headers: { get: vi.fn() } })`.',
     preferProvideAutoSpyOverStubClass:
       'This provider hands DI a stub class whose fields are `vi.fn()`s — an object of `vi.fn()`s with a `new` in front of it, and the same drift: it only mocks the methods somebody remembered, and the class it stands in for is free to grow one. `provideAutoSpy(Class)` spies every method of the real class instead, so the whole registration becomes `providers: [provideAutoSpy(Class)]` and the stub class can be deleted. The returns the stub was tuned with move to the second argument — a value the double must **be** rather than spy on goes in `{ overrides: … }`, a call the code under test chains off goes in the seed: `provideAutoSpy(CardService, { overrides: { config: { theme: "dark" } } })`. Behind an `InjectionToken`, which has no class prototype to read, it is `provideAutoSpyForToken(TOKEN)`. `useExisting:` reaches this message too: it aliases the token instead of constructing the stub per injector, which changes nothing about the stub being hand-written.',
+    preferProvideActivatedRoute:
+      "`ActivatedRoute` is the one token whose replacement is not `provideAutoSpy`. The class keeps `snapshot`, `params`, `queryParams`, `data`, `fragment` and `url` in **instance** fields, so a spy built from its prototype has none of them and every read is `undefined` until the spec seeds it one by one — the same half-route a hand-written `useValue` is. `provideActivatedRoute({ params: { id: '1' } })` from `vitest-auto-spy/angular-router` builds Angular's own `ActivatedRoute` over one state record, so the streams and the snapshot cannot disagree, and `injectActivatedRoute().setParams({ id: '2' })` moves both mid-test the way a navigation does.",
     preferProvideAutoSpyInOverride:
       'This override hands DI a hand-rolled double. `TestBed.overrideProvider(X, provideAutoSpy(X))` is the whole replacement and needs no reshaping: `provideAutoSpy` returns `{ provide, useValue }`, and `overrideProvider` reads the `useValue` off it — behind an `InjectionToken` it is `provideAutoSpyForToken(TOKEN)`, and a stub class in a `useClass:` / `useExisting:` / `new XMock()` goes the same way and can then be deleted. Values the double must **be** rather than spy on go in the second argument (`{ overrides: … }` for the class factory), because there is no later statement inside the call to put them in. If the override exists only because a testing-module provider was losing to nothing, register `provideAutoSpy(X)` in `configureTestingModule` and drop the override; if it exists because the component under test declares its own `providers` — the one case a module-level provider genuinely cannot win — keep the override and only change what it hands over.',
   },
@@ -184,23 +218,6 @@ export const preferProvideAutoSpy: RuleModule = defineRule({
       return reported ? { reported, stubClass: stubClass !== undefined } : undefined;
     };
 
-    /** The provider that spells the factory out instead of calling it — fixed where the rewrite is exact. */
-    const reportLongForm = (descriptor: EsObjectExpression): void => {
-      const call = longFormAutoSpy(descriptor);
-
-      if (!call) {
-        return;
-      }
-
-      const messageId = 'preferProvideAutoSpyOverLongForm';
-
-      context.report(
-        isLongFormFixable(context, descriptor, call)
-          ? { node: descriptor, messageId, fix: (fixer: EsFixer): EsFix[] => longFormFixes(context, fixer, descriptor, call) }
-          : { node: descriptor, messageId },
-      );
-    };
-
     return {
       ObjectExpression: (node: EsObjectExpression): void => {
         const provide = findProperty(node, 'provide');
@@ -214,8 +231,14 @@ export const preferProvideAutoSpy: RuleModule = defineRule({
           return;
         }
 
+        if (namesActivatedRoute(propertyValue(provide))) {
+          reportRouteToken(context, node, handed?.reported);
+
+          return;
+        }
+
         if (!handed) {
-          reportLongForm(node);
+          reportLongForm(context, node);
 
           return;
         }
@@ -236,7 +259,10 @@ export const preferProvideAutoSpy: RuleModule = defineRule({
         const handed = descriptor && handedOver(descriptor);
 
         if (handed) {
-          context.report({ node: handed.reported, messageId: 'preferProvideAutoSpyInOverride' });
+          const [token] = node.arguments;
+          const messageId = namesActivatedRoute(token) ? 'preferProvideActivatedRoute' : 'preferProvideAutoSpyInOverride';
+
+          context.report({ node: handed.reported, messageId });
         }
       },
     };

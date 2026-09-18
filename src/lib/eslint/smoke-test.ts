@@ -252,20 +252,45 @@ function removal(context: RuleContext, statement: EsNode): FixFunction {
 }
 
 /**
- * Index a name against every function that encloses it, so a name used inside a nested arrow still
- * counts for the test containing it.
+ * Index a name against every enclosing test callback `wanted` names, so a name used inside a nested
+ * arrow still counts for the test containing it.
+ *
+ * Only those callbacks, and only once the file is over: the index is read by
+ * {@link reportBlock} alone, which needs it for the running tests of a block that has a smoke test
+ * to weigh — and the overwhelming majority of spec files have none. Building a string per identifier
+ * and per member path of every file, times the nesting depth, was the plugin's single biggest cost
+ * over this repository's own specs at 44 % of its time, all of it for an index nothing read.
  */
-function recordName(names: Map<EsNode, Set<string>>, node: EsNode, context: RuleContext): void {
+function recordName(names: Map<EsNode, Set<string>>, node: EsNode, context: RuleContext, wanted: ReadonlySet<EsNode>): void {
   // Indexed by source text rather than by name, because a bare name and the paths built on it are
   // both references a smoke test can be weighed against — the visitor passes both kinds in.
-  const text = context.sourceCode.getText(node);
+  let text: string | undefined;
 
   for (let scope = enclosingFunction(node); scope; scope = enclosingFunction(scope.parent)) {
+    if (!wanted.has(scope)) {
+      continue;
+    }
+
+    text ??= context.sourceCode.getText(node);
+
     const seen = names.get(scope) ?? new Set<string>();
 
     seen.add(text);
     names.set(scope, seen);
   }
+}
+
+/** The callbacks whose names decide a report: the running tests of every block with a smoke test in it. */
+function weighedAgainst(blocks: Map<EsNode | undefined, Block>): Set<EsNode> {
+  const wanted = new Set<EsNode>();
+
+  blocks.forEach((block) => {
+    if (block.below > 0 && block.smoke.length > 0) {
+      block.running.forEach((callback) => wanted.add(callback));
+    }
+  });
+
+  return wanted;
 }
 
 /** One block's tests: the ones that only assert existence, and how many of the rest actually run. */
@@ -364,10 +389,16 @@ export const noRedundantSmokeTest = defineRule({
     const blocks = new Map<EsNode | undefined, Block>();
     /** Every name a function encloses, including through the arrows nested in it. */
     const names = new Map<EsNode, Set<string>>();
+    /** The nodes those names are read off, kept as nodes until it is known which of them matter. */
+    const mentions: EsNode[] = [];
 
     return {
-      Identifier: (node: EsNode): void => recordName(names, node, context),
-      MemberExpression: (node: EsNode): void => recordName(names, node, context),
+      Identifier: (node: EsNode): void => {
+        mentions.push(node);
+      },
+      MemberExpression: (node: EsNode): void => {
+        mentions.push(node);
+      },
       CallExpression: (node: EsCallExpression): void => {
         const test = testCall(node);
 
@@ -394,6 +425,12 @@ export const noRedundantSmokeTest = defineRule({
       },
       'Program:exit': (): void => {
         countNested(blocks);
+
+        const wanted = weighedAgainst(blocks);
+
+        if (wanted.size > 0) {
+          mentions.forEach((node) => recordName(names, node, context, wanted));
+        }
 
         blocks.forEach((block) => reportBlock(context, block, names));
       },

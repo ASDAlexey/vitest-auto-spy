@@ -38,8 +38,8 @@ import {
  * that says it is configuration. The walk stops at every function boundary, so a factory *returning*
  * spies — the shape these rules steer towards — is not mistaken for a hand-rolled double.
  */
-export function looksLikeHandRolledMock(object: EsObjectExpression): boolean {
-  return buildsRunnerFnAtModuleScope(object);
+export function looksLikeHandRolledMock(context: RuleContext, object: EsObjectExpression): boolean {
+  return buildsRunnerFnAtModuleScope(context, object);
 }
 
 /**
@@ -183,12 +183,12 @@ export function handRolledProvider(context: RuleContext, descriptor: EsObjectExp
   if (useValue) {
     const double = providedDouble(context, useValue.value);
 
-    return double && looksLikeHandRolledMock(double) ? useValue : undefined;
+    return double && looksLikeHandRolledMock(context, double) ? useValue : undefined;
   }
 
   const useFactory = findProperty(descriptor, 'useFactory');
 
-  return useFactory && buildsRunnerFn(factoryBody(context, useFactory.value), true) ? useFactory : undefined;
+  return useFactory && buildsRunnerFn(context, factoryBody(context, useFactory.value), true) ? useFactory : undefined;
 }
 
 /** The factory itself, or the value a name was bound to — one step, the same as `providedDouble` takes. */

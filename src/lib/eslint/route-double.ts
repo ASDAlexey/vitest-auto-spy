@@ -34,6 +34,7 @@ import {
   type EsObjectExpression,
   type RuleContext,
   type RuleModule,
+  anyInSubtree,
   findProperty,
   isCallExpression,
   isIdentifier,
@@ -44,36 +45,31 @@ import {
 /** The slot a hand-built route arrives in, for the message to name. */
 const SLOTS = ['useValue', 'useClass', 'useFactory', 'useExisting'] as const;
 
-/** Whether a `provide:` value names Angular's route class. */
-function namesActivatedRoute(provide: EsNode | undefined): provide is EsIdentifier {
+/**
+ * Whether a `provide:` value names Angular's route class.
+ *
+ * Exported because `prefer-provide-auto-spy` asks the same question before it recommends anything:
+ * the replacement for this token is `provideActivatedRoute()`, not a spy of a class whose every
+ * field is an instance one.
+ */
+export function namesActivatedRoute(provide: EsNode | undefined): provide is EsIdentifier {
   return provide !== undefined && isIdentifier(provide) && provide.name === 'ActivatedRoute';
 }
 
-/** An ESLint node, as opposed to the metadata every node also carries. */
-function isEsNode(value: unknown): value is EsNode {
-  return typeof value === 'object' && value !== null && 'type' in value && typeof value.type === 'string';
+/** The call the exemption is looking for — the standalone factory, wherever in the subtree it sits. */
+function isRouteFactoryCall(node: EsNode): boolean {
+  return isCallExpression(node) && isIdentifier(node.callee) && node.callee.name === 'createActivatedRoute';
 }
 
 /**
  * Whether `createActivatedRoute(…)` is anywhere in a subtree — the standalone factory, so the
  * descriptor is the library's own spelling of the route rather than a hand-built half.
  *
- * Walked by hand because the walk has to go *down* — `hasAncestor` answers up — and skipping
- * `parent` on every step, which is the one key that would otherwise walk the whole file and then
- * some.
+ * Downward, because `hasAncestor` answers the other way round, and through function boundaries: a
+ * `useFactory` builds the route inside its own body.
  */
-function mentionsRouteFactory(node: EsNode): boolean {
-  if (isCallExpression(node) && isIdentifier(node.callee) && node.callee.name === 'createActivatedRoute') {
-    return true;
-  }
-
-  return Object.entries(node)
-    .filter(([key]) => key !== 'parent')
-    .some(([, value]) =>
-      Array.isArray(value)
-        ? value.some((item) => isEsNode(item) && mentionsRouteFactory(item))
-        : isEsNode(value) && mentionsRouteFactory(value),
-    );
+function mentionsRouteFactory(context: RuleContext, node: EsNode): boolean {
+  return anyInSubtree(context, node, isRouteFactoryCall, true);
 }
 
 /**
@@ -88,7 +84,7 @@ function mentionsRouteFactory(node: EsNode): boolean {
  * silent whatever run order would do.
  */
 function exemptDescriptor(context: RuleContext, descriptor: EsObjectExpression): boolean {
-  if (mentionsRouteFactory(descriptor)) {
+  if (mentionsRouteFactory(context, descriptor)) {
     return true;
   }
 
@@ -113,7 +109,7 @@ function exemptDescriptor(context: RuleContext, descriptor: EsObjectExpression):
     binding?.defs.flatMap((definition) => (isVariableDeclarator(definition.node) && definition.node.init ? [definition.node.init] : [])) ??
     [];
 
-  return [...written, ...declared].some(mentionsRouteFactory);
+  return [...written, ...declared].some((node) => mentionsRouteFactory(context, node));
 }
 
 /** The slot the report names: the key the descriptor actually carries, `value` when it carries none. */

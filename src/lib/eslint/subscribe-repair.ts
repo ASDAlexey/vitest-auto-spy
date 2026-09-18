@@ -150,7 +150,7 @@ export function helperAssertions(context: RuleContext, call: EsNamedCall, subscr
     return 0;
   }
 
-  return countInSubtree(body, isExpectCall, true);
+  return countInSubtree(context, body, isExpectCall, true);
 }
 
 /** Pick the repair, worst-understood first. */

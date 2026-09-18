@@ -1174,6 +1174,26 @@ describe('no-done-callback', () => {
     expect(lint("it('works', () => expect(1).toBe(1));", 'no-done-callback')).toEqual([]);
     expect(lint("it('works', async () => expect(1).toBe(1));", 'no-done-callback')).toEqual([]);
   });
+
+  // Vitest passes the context whether or not it is destructured, and `(ctx) => ctx.skip()` is its
+  // own documentation's example — a name read through a member is the context being used, not a
+  // callback carried over from Jest.
+  it.each([
+    ['ctx.skip()', "it('skips', (ctx) => ctx.skip());"],
+    ['a member read of the context', "it('names', (ctx) => { expect(ctx.task.name).toBe('names'); });"],
+    ['a hook taking the context whole', 'beforeEach((ctx) => { ctx.onTestFinished(reset); });'],
+  ])('leaves an undestructured TestContext used through %s alone', (_label, code) => {
+    expect(lint(code, 'no-done-callback')).toEqual([]);
+  });
+
+  it.each([
+    ['a parameter that is called', "it('emits', (done) => { done(); });"],
+    ['a parameter handed to something that calls it', "it('emits', (done) => source$.subscribe(done));"],
+    ['a parameter nothing in the body uses', "it('emits', (done) => { expect(1).toBe(1); });"],
+    ['a parameter whose only member is jasmine’s fail', "it('emits', (done) => { source$.subscribe({ error: () => done.fail() }); });"],
+  ])('still reports %s', (_label, code) => {
+    expect(lint(code, 'no-done-callback')).toContain('vitest-auto-spy/no-done-callback');
+  });
 });
 
 /**

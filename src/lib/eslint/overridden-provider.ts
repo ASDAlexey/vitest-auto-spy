@@ -61,6 +61,7 @@ import {
   isIdentifier,
   isObjectExpression,
 } from './rule-types';
+import { RESETS_THE_MODULE } from './testbed-order';
 
 /** The library's own provider factories, whose first argument is the token. */
 const PROVIDER_FACTORIES = new Set(['provideAutoSpy', 'provideAutoSpyForToken']);
@@ -287,6 +288,9 @@ export const noOverriddenProvider: RuleModule = defineRule({
     // after it — and either can be written first.
     const registrations: Registration[] = [];
     const overrides: ProviderOverride[] = [];
+    // The exemption is a call anywhere in the suite, so it is collected as it is passed rather than
+    // looked for per registration — the walk that looked for it read the file once per registration.
+    const resets: EsNode[] = [];
 
     return {
       ArrayExpression: (node: EsArrayExpression): void => {
@@ -304,6 +308,9 @@ export const noOverriddenProvider: RuleModule = defineRule({
           registrations.push(...survivingRegistrations(context, node));
         }
       },
+      [RESETS_THE_MODULE]: (node: EsNode): void => {
+        resets.push(node);
+      },
       [OVERRIDE_PROVIDER_CALL]: (node: EsCallExpression): void => {
         const override = providerOverride(context, node);
 
@@ -312,7 +319,7 @@ export const noOverriddenProvider: RuleModule = defineRule({
         }
       },
       'Program:exit': (): void => {
-        buriedRegistrations(registrations, overrides).forEach(({ element, token, override }) => {
+        buriedRegistrations(registrations, overrides, resets).forEach(({ element, token, override }) => {
           context.report({
             node: element,
             messageId: 'overriddenByTestBedOverride',

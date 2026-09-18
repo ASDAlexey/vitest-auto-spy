@@ -124,7 +124,7 @@ function answerOf(member: string): string {
 
 /** Drop the `await`, and the `async` of a hook that awaits nothing else. */
 function removal(context: RuleContext, awaited: EsAwaitExpression, answers: string): SuggestionDescriptor {
-  const callback = asyncOnlyFor(awaited);
+  const callback = asyncOnlyFor(context, awaited);
 
   return {
     desc: `Remove the await — the TestBed call answers ${answers}, not a promise`,

@@ -79,6 +79,7 @@ import {
   type EsFix,
   type EsFixer,
   type EsFunction,
+  type EsIdentifier,
   type EsMemberExpression,
   type EsNode,
   type EsObjectExpression,
@@ -93,13 +94,14 @@ import {
   isCallee,
   isIdentifier,
   isMemberExpression,
+  memberName,
 } from './rule-types';
 import { preferSetInputs } from './set-inputs';
 import { noRedundantSmokeTest } from './smoke-test';
 import { noStubClassDouble } from './stub-class';
 import { type EsNamedCall, type SubscribeRepair, enclosingSubscribe, helperAssertions, repairFor } from './subscribe-repair';
 import { noSyncTestbedAwait } from './testbed-await';
-import { INSTANTIATES_THE_MODULE, breaksAnOverride } from './testbed-order';
+import { INSTANTIATES_THE_MODULE, OVERRIDES_THE_MODULE, RESETS_THE_MODULE, type TestBedOrdering, breaksAnOverride } from './testbed-order';
 import { noTsExpectErrorOnDouble } from './ts-expect-error-on-double';
 import { noUnknownUseValueKey } from './unknown-use-value-key';
 import { emptyRegistrations, readCall, readProviders, unregisteredInjections } from './unregistered-spy';
@@ -226,13 +228,32 @@ const noInjectBeforeOverride = defineRule({
     noInjectBeforeOverride:
       'This instantiates the testing module, and this suite overrides something: every `TestBed.override*` that runs afterwards — in a test, or in a `createComponent` helper written above this line — throws `Cannot override provider when the test module has already been instantiated`. The trap is one that migrating *to* `provideAutoSpy` creates: a hand-rolled `useValue` configured its return values in the literal, and the replacement has nowhere to put them, so the line lands in `beforeEach`. Configure the double after every override instead — `injectSpy(X)` inside the test — or keep the access lazy (`const api = () => injectSpy(Api)`), which moves instantiation into the first test, after the overrides have run.',
   },
-  create: (context) => ({
-    [INSTANTIATES_THE_MODULE]: (node: EsNode): void => {
-      if (breaksAnOverride(node)) {
-        context.report({ node, messageId: 'noInjectBeforeOverride' });
-      }
-    },
-  }),
+  create: (context) => {
+    // Collected first, decided at the end: an `override*` runs whenever its suite calls it, so the
+    // question is about the whole file and asking it per injection re-read the file once per
+    // injection — 96 % of the plugin's time on a spec with fifteen of them in one hook.
+    const ordering: TestBedOrdering = { overrides: [], resets: [] };
+    const injections: EsNode[] = [];
+
+    return {
+      [OVERRIDES_THE_MODULE]: (node: EsNode): void => {
+        ordering.overrides.push(node);
+      },
+      [RESETS_THE_MODULE]: (node: EsNode): void => {
+        ordering.resets.push(node);
+      },
+      [INSTANTIATES_THE_MODULE]: (node: EsNode): void => {
+        injections.push(node);
+      },
+      'Program:exit': (): void => {
+        injections.forEach((node) => {
+          if (breaksAnOverride(node, ordering)) {
+            context.report({ node, messageId: 'noInjectBeforeOverride' });
+          }
+        });
+      },
+    };
+  },
 });
 
 /** `source$.subscribe(v => expect(v)…)` → `await expectEmission(source$)`. */
@@ -312,7 +333,7 @@ const noSharedModuleLevelMock = defineRule({
   },
   create: (context) => ({
     'ExportNamedDeclaration > VariableDeclaration > VariableDeclarator': (node: EsVariableDeclarator): void => {
-      if (node.init && buildsRunnerFnAtModuleScope(node.init)) {
+      if (node.init && buildsRunnerFnAtModuleScope(context, node.init)) {
         context.report({ node, messageId: 'noSharedModuleLevelMock' });
       }
     },
@@ -439,6 +460,32 @@ function isTestCallbackParameter(context: RuleContext, node: EsNode, callbacks: 
   return Boolean(binding?.defs.some((definition) => definition.type === 'Parameter' && callbacks.has(definition.node)));
 }
 
+/**
+ * Whether every mention of the parameter reads it the way a `TestContext` is read.
+ *
+ * Vitest passes the context as the first argument whether or not it is destructured, and
+ * `it('x', (ctx) => ctx.skip())` is its own documentation's example — so a name is only a `done`
+ * carried over from Jest where it is *called* (`done()`), handed to something that will call it
+ * (`.subscribe(done)`, `setTimeout(done)`) or never used at all. A member read is the context being
+ * used: `ctx.task`, `ctx.expect`, `ctx.onTestFinished`. Except `fail`, which the context has no
+ * member for — that one is jasmine's failure channel and this rule's second message.
+ */
+function readsTheTestContext(context: RuleContext, callback: EsFunction, parameter: EsIdentifier): boolean {
+  // The callback's own scope, not the chain above it: the parameter is declared right here, and a
+  // name the scope manager does not know at all is a name nothing in the body mentions.
+  const scope = context.sourceCode.getScope(callback);
+  const references = scope.variables.flatMap((variable) => (variable.name === parameter.name ? variable.references : []));
+
+  return (
+    references.length > 0 &&
+    references.every(({ identifier }) => {
+      const member = identifier.parent;
+
+      return isMemberExpression(member) && member.object === identifier && memberName(member) !== 'fail';
+    })
+  );
+}
+
 /** `it('x', (done) => …)` → `async` + an awaited assertion. */
 const noDoneCallback = defineRule({
   anchor: '-an-observable',
@@ -458,12 +505,17 @@ const noDoneCallback = defineRule({
     return {
       'CallExpression[callee.name=/^(it|test|beforeAll|beforeEach|afterAll|afterEach)$/] > :matches(ArrowFunctionExpression, FunctionExpression)':
         (node: EsFunction): void => {
-          // An identifier parameter, not a destructuring pattern: Vitest's own fixtures must be
-          // destructured, so a plain name here is a `done` carried over from Jest.
-          if (node.params[0]?.type === 'Identifier') {
-            callbacks.add(node);
-            context.report({ node: node.params[0], messageId: 'noDoneCallback' });
+          // An identifier parameter, not a destructuring pattern: a `test.extend` fixture has to be
+          // destructured, so a plain name here is either a `done` carried over from Jest or the
+          // `TestContext` taken whole — and what the body does with it is what tells the two apart.
+          const [parameter] = node.params;
+
+          if (!parameter || !isIdentifier(parameter) || readsTheTestContext(context, node, parameter)) {
+            return;
           }
+
+          callbacks.add(node);
+          context.report({ node: parameter, messageId: 'noDoneCallback' });
         },
       'MemberExpression[property.name="fail"]': (node: EsMemberExpression): void => {
         if (isCallee(node) && isTestCallbackParameter(context, node.object, callbacks)) {

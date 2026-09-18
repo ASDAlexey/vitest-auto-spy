@@ -204,3 +204,33 @@ describe('prefer-provide-auto-spy — the long-form arm', () => {
     expect(message('const p = { provide: Cart, useValue: { total: vi.fn() } };')).toContain('hand-rolls a service mock');
   });
 });
+
+/**
+ * `ActivatedRoute` is the one token whose double is not a spy of the class.
+ *
+ * Every field a component reads off a route is an instance field, so a spy built from the prototype
+ * has none of them — which is why the message for this token names `provideActivatedRoute()` from
+ * `vitest-auto-spy/angular-router` rather than the factory the rest of the rule recommends.
+ */
+describe('prefer-provide-auto-spy — the ActivatedRoute token', () => {
+  it('names provideActivatedRoute for a hand-built route, not provideAutoSpy', () => {
+    const code = 'const p = { provide: ActivatedRoute, useValue: { snapshot: { params: vi.fn() } } };';
+
+    expect(count(code)).toBe(1);
+    expect(message(code)).toContain('provideActivatedRoute');
+    expect(message(code)).toContain('vitest-auto-spy/angular-router');
+    expect(message(code)).not.toContain('provideAutoSpy(Class)');
+  });
+
+  it('names it for the long form and for an override of the same token', () => {
+    expect(message('const p = { provide: ActivatedRoute, useValue: createSpyFromClass(ActivatedRoute) };')).toContain(
+      'provideActivatedRoute',
+    );
+    expect(message('TestBed.overrideProvider(ActivatedRoute, { useValue: { snapshot: vi.fn() } });')).toContain('provideActivatedRoute');
+  });
+
+  it('says nothing more than it used to about a route descriptor that hands over no double', () => {
+    expect(count('const p = { provide: ActivatedRoute, useValue: route };')).toBe(0);
+    expect(count('const p = { provide: Cart, useValue: { total: vi.fn() } };')).toBe(1);
+  });
+});

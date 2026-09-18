@@ -94,9 +94,30 @@ export function buildsDirectiveHarness(source: string): boolean {
  */
 const DOCUMENT_DELEGATION = /\b(\w+)\s*:\s*document\s*\.\s*\1\b/g;
 
-/** Whether `source` reads the rendered template anywhere. */
+/**
+ * Whether `source` reads the rendered template anywhere.
+ *
+ * The delegation is stripped once rather than inside the search: rebuilding the whole file per
+ * member — fourteen times per `createComponent`, and again for the next one — was 77 % of the
+ * plugin's time on a 1.7 MB spec. The answer is about the file, so the caller asks it once.
+ */
 export function readsRenderedTemplate(source: string): boolean {
-  return TEMPLATE_READS.some((member) => source.replace(DOCUMENT_DELEGATION, '').includes(member));
+  const read = source.replace(DOCUMENT_DELEGATION, '');
+
+  return TEMPLATE_READS.some((member) => read.includes(member));
+}
+
+/**
+ * Whether this file may render a template the rule would otherwise report.
+ *
+ * The two policies ask different questions of the same text — "is the template read back" against
+ * "is this a directive harness" — and both are about the file, which is why the caller asks this
+ * once and keeps the answer.
+ */
+export function rendersOnlyWhatIsRead(context: RuleContext): boolean {
+  const source = context.sourceCode.getText();
+
+  return templatePolicy(context) === 'as-needed' ? readsRenderedTemplate(source) : buildsDirectiveHarness(source);
 }
 
 /**

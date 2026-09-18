@@ -38,7 +38,7 @@ function removal(context: RuleContext, call: EsCallExpression): SuggestionDescri
   }
 
   const receiver = call.callee.object;
-  const callback = awaited === call ? undefined : asyncOnlyFor(awaited);
+  const callback = awaited === call ? undefined : asyncOnlyFor(context, awaited);
 
   return {
     desc: 'Remove the compileComponents() call — keep it when the component template has a @defer block',

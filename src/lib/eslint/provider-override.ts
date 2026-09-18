@@ -122,6 +122,7 @@ export interface BuriedRegistration {
 export function buriedRegistrations(
   registrations: { element: EsNode; token: string }[],
   overrides: ProviderOverride[],
+  resets: readonly EsNode[],
 ): BuriedRegistration[] {
   return registrations.flatMap((registration) => {
     const suite = enclosingSuite(registration.element);
@@ -130,7 +131,7 @@ export function buriedRegistrations(
         candidate.token === registration.token && enclosingSuite(candidate.call) === suite && runsBeforeEveryTest(candidate.call),
     );
 
-    if (!override || resetsTheTestingModule(suite)) {
+    if (!override || resetsTheTestingModule(resets, suite)) {
       return [];
     }
 

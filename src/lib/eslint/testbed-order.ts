@@ -33,7 +33,7 @@
  * "does this suite override at all", with the one exemption that can be read off the source: an
  * `override*` that sits in the same hook body *before* the injection really does run first.
  */
-import { type EsNode, countInSubtree, enclosingFunction, isCallExpression, isIdentifier, isMemberCall } from './rule-types';
+import { type EsNode, enclosingFunction, isCallExpression, isIdentifier } from './rule-types';
 
 /**
  * Every spelling that instantiates the testing module, as one esquery selector list.
@@ -60,7 +60,28 @@ const OVERRIDES = new Set([
 /** The one call that puts the module back into a state where overriding is legal again. */
 const RESETS = new Set(['resetTestingModule']);
 
-const TEST_BED = new Set(['TestBed']);
+/** A `TestBed.…()` call of any of `members`, as an esquery selector. */
+function testBedCall(members: ReadonlySet<string>): string {
+  return `CallExpression[callee.object.name="TestBed"][callee.property.name=/^(${[...members].join('|')})$/]`;
+}
+
+/**
+ * The two `TestBed` calls the ordering rules read, as selectors, so each is collected once per file.
+ *
+ * Asking "does this suite override at all" by walking the suite answers the same question, and
+ * answers it again for every injection in the file: on a 2700-line spec with fifteen of them in one
+ * `beforeEach`, that walk was 96 % of the plugin's time. Collected in a visitor and decided by
+ * range in `Program:exit`, the same rule reads the file once.
+ */
+export const OVERRIDES_THE_MODULE = testBedCall(OVERRIDES);
+
+/** The reset, whose presence in a suite exempts a suite from both ordering rules. */
+export const RESETS_THE_MODULE = testBedCall(RESETS);
+
+/** Whether `node` sits inside `container` — the range test that replaces a walk of the container. */
+function within(node: EsNode, container: EsNode): boolean {
+  return node.range[0] >= container.range[0] && node.range[1] <= container.range[1];
+}
 
 /** The hooks that run before a test, where an eager injection does its damage. */
 const HOOKS = new Set(['beforeAll', 'beforeEach']);
@@ -133,15 +154,13 @@ export function runsBeforeEveryTest(node: EsNode): boolean {
  * override, and a registration an override replaces — so a suite that uses it has already thought
  * about the ordering and is exempt from each.
  */
-export function resetsTheTestingModule(suite: EsNode): boolean {
-  return countInSubtree(suite, (node) => isMemberCall(node, TEST_BED, RESETS), true) > 0;
+export function resetsTheTestingModule(resets: readonly EsNode[], suite: EsNode): boolean {
+  return resets.some((reset) => within(reset, suite));
 }
 
 /** Whether an override is written in the same hook, ahead of the injection — the one order that works. */
 function runsFirst(override: EsNode, injection: EsNode, hook: EsNode): boolean {
-  const insideHook = override.range[0] >= hook.range[0] && override.range[1] <= hook.range[1];
-
-  return insideHook && override.range[1] < injection.range[0];
+  return within(override, hook) && override.range[1] < injection.range[0];
 }
 
 /**
@@ -150,7 +169,7 @@ function runsFirst(override: EsNode, injection: EsNode, hook: EsNode): boolean {
  * A suite that calls `TestBed.resetTestingModule()` is exempt outright: that is the documented way
  * to put the module back, and a spec that uses it has already thought about this.
  */
-export function breaksAnOverride(injection: EsNode): boolean {
+export function breaksAnOverride(injection: EsNode, { overrides, resets }: TestBedOrdering): boolean {
   const hook = enclosingCallOf(injection, HOOKS);
 
   if (!hook) {
@@ -159,9 +178,15 @@ export function breaksAnOverride(injection: EsNode): boolean {
 
   const suite = enclosingSuite(injection);
 
-  if (resetsTheTestingModule(suite)) {
+  if (resetsTheTestingModule(resets, suite)) {
     return false;
   }
 
-  return countInSubtree(suite, (node) => isMemberCall(node, TEST_BED, OVERRIDES) && !runsFirst(node, injection, hook), true) > 0;
+  return overrides.some((override) => within(override, suite) && !runsFirst(override, injection, hook));
+}
+
+/** The `TestBed` calls of one file, collected as they are visited and read once the file is over. */
+export interface TestBedOrdering {
+  overrides: EsNode[];
+  resets: EsNode[];
 }
