@@ -9,7 +9,7 @@
  *
  * It is opt-in and self-contained: one call in a setup file, no reporter plugin to install.
  */
-import { TestBed } from '@angular/core/testing';
+import { TestBed, getTestBed } from '@angular/core/testing';
 import { afterAll, beforeAll, expect } from 'vitest';
 
 /** What one spec file cost. */
@@ -65,12 +65,16 @@ export function verifyOnTeardown(check: () => void): void {
 }
 
 /**
- * Read a `TestBed` method structurally, so a version that does not have it is a `undefined` rather
- * than a `TypeError`. Shared with `angular-overrides`, which wraps `createComponent` for a check of
- * its own.
+ * Read a method off the `TestBed` **instance**, so a version that does not have it is `undefined`
+ * rather than a `TypeError`.
+ *
+ * The instance and not the exported class, because every static is a one-line delegate to
+ * `TestBedImpl.INSTANCE` — so one wrapper there covers `TestBed.x`, `getTestBed().x` and
+ * `withModule(...)`, where a static wrapper saw only the first. Wrapping both would count every
+ * call twice. Shared with `angular-overrides`, which reads the same seam for a check of its own.
  */
 export function readTestBedMethod(method: string): LooseTestBedMethod | undefined {
-  const candidate: unknown = Reflect.get(TestBed, method);
+  const candidate: unknown = Reflect.get(getTestBed(), method);
 
   // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- narrowing a `TestBed` member to the loose call shape this module wraps; only `apply` is ever used on it.
   return typeof candidate === 'function' ? (candidate as LooseTestBedMethod) : undefined;
@@ -137,7 +141,7 @@ function instrument(method: string, counter: 'components' | 'configurations' | u
   }
 
   originals.set(method, original);
-  Reflect.set(TestBed, method, function instrumented(this: unknown, ...args: unknown[]): unknown {
+  Reflect.set(getTestBed(), method, function instrumented(this: unknown, ...args: unknown[]): unknown {
     const startedAt = now();
 
     if (counter) {
@@ -163,7 +167,8 @@ function instrument(method: string, counter: 'components' | 'configurations' | u
 }
 
 /**
- * Wrap the `TestBed` entry points. Idempotent, and safe on Angular versions missing one of them.
+ * Wrap the `TestBed` entry points — on the instance, which every static delegates to. Idempotent,
+ * and safe on Angular versions missing one of them.
  *
  * @example
  * ```ts
@@ -183,7 +188,12 @@ export function instrumentTestBed(): void {
  * ```
  */
 export function disableTestBedDiagnostics(): void {
-  originals.forEach((original, method) => Reflect.set(TestBed, method, original));
+  const testBed = getTestBed();
+
+  // Deleted rather than written back: the method lives on the prototype and the wrapper is an *own*
+  // property, so assigning the original would leave one behind for the next `instrumentTestBed()`
+  // to mistake for the real method — and wrap it a second time.
+  originals.forEach((_original, method) => Reflect.deleteProperty(testBed, method));
   originals.clear();
 }
 

@@ -32,6 +32,11 @@ class LabelService {
   }
 }
 
+@Component({ selector: 'app-aliased', template: '' })
+class AliasedComponent {
+  readonly heading = input('draft', { alias: 'title' });
+}
+
 let childInstances = 0;
 
 @Component({ selector: 'app-child', template: '<p>child</p>' })
@@ -135,6 +140,21 @@ describe('renderShallow', () => {
 
     expect(component.id()).toBe(42);
     expect(component.label()).toBe('real-42');
+  });
+
+  it('sets an aliased input by its class-field name, which is how the type is keyed', () => {
+    // Angular answers the field name with an `NG0303` on the console and no value at all, so this
+    // used to render the default — silently, and invisibly under a console stub.
+    const { component } = renderShallow(AliasedComponent, { inputs: { heading: 'shipped' } });
+
+    expect(component.heading()).toBe('shipped');
+  });
+
+  it('refuses an input the component does not declare, instead of setting nothing', () => {
+    expect(() =>
+      // @ts-expect-error — the type rejects it too; this is the runtime half, for a key built dynamically
+      renderShallow(AliasedComponent, { inputs: { headingg: 'typo' } }),
+    ).toThrow(/renderShallow: AliasedComponent declares no input named 'headingg'/);
   });
 
   it('skips the first change detection on request, leaving ngOnInit unrun', () => {

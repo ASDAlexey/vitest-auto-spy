@@ -86,3 +86,33 @@ describe('a module built in beforeAll', () => {
     expect(http.verifyNoPendingRequests).toThrow(/GET \/api\/before-all/);
   });
 });
+
+describe('a runner that does not say which test is running', () => {
+  it('says so once, instead of arming nothing in silence', () => {
+    const workerKey: PropertyKey = '__vitest_worker__';
+    const written: string[] = [];
+    const stderrKey: PropertyKey = 'write';
+    const restoreStderr = mockValueProp(process.stderr, stderrKey, (line: string): boolean => {
+      written.push(line);
+
+      return true;
+    });
+    const restoreWorker = mockValueProp(globalThis, workerKey, undefined);
+
+    try {
+      TestBed.configureTestingModule({ providers: [...http.provideHttpTesting()] });
+      // Building the module is what runs the initializer that arms the check.
+      TestBed.inject(HttpClient);
+      TestBed.resetTestingModule();
+      TestBed.configureTestingModule({ providers: [...http.provideHttpTesting()] });
+      TestBed.inject(HttpClient);
+    } finally {
+      restoreWorker();
+      restoreStderr();
+    }
+
+    // Once per worker: a line per module built would be a line per test of the run.
+    expect(written).toHaveLength(1);
+    expect(written[0]).toContain('globalThis.__vitest_worker__ is not there');
+  });
+});

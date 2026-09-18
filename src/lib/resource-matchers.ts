@@ -67,12 +67,15 @@ function isResourceLike(received: unknown): received is ResourceLike {
  * Worth its own message rather than a `TypeError` out of the call, because the two ways to get here
  * are both common and both silent — passing the *value* (`products.value()`) instead of the
  * resource, and passing a service property that was never a resource in the first place.
+ *
+ * **Thrown, not returned as `{ pass: false }`.** A wrong argument is not a failed assertion: under
+ * `.not` a returned `false` is a pass, so `expect(products.value()).not.toBeLoading()` reported
+ * success about an object that was never asked anything.
  */
-function notAResource(received: unknown, printReceived: (value: unknown) => string): MatcherResult {
-  return {
-    pass: false,
-    message: (): string => `expected a resource (an object with \`status()\` and \`value()\`), received ${printReceived(received)}`,
-  };
+function assertResource(received: unknown, printReceived: (value: unknown) => string): asserts received is ResourceLike {
+  if (!isResourceLike(received)) {
+    throw new Error(`expected a resource (an object with \`status()\` and \`value()\`), received ${printReceived(received)}`);
+  }
 }
 
 /** Renders the error side of a resource for a failure message. */
@@ -99,9 +102,7 @@ interface MatcherContext {
 
 /** The resource is still in flight — `status()` is `'loading'` or `'reloading'`. */
 function toBeLoading(this: MatcherContext, received: unknown): MatcherResult {
-  if (!isResourceLike(received)) {
-    return notAResource(received, this.utils.printReceived);
-  }
+  assertResource(received, this.utils.printReceived);
 
   const status = received.status();
   const pass = LOADING_STATUSES.has(status);
@@ -114,9 +115,7 @@ function toBeLoading(this: MatcherContext, received: unknown): MatcherResult {
 
 /** The resource has resolved *and* its value deep-equals the expected one. */
 function toHaveResourceValue(this: MatcherContext, received: unknown, expected: unknown): MatcherResult {
-  if (!isResourceLike(received)) {
-    return notAResource(received, this.utils.printReceived);
-  }
+  assertResource(received, this.utils.printReceived);
 
   const status = received.status();
 
@@ -146,9 +145,7 @@ function toHaveResourceValue(this: MatcherContext, received: unknown, expected: 
 
 /** The resource has failed; with an argument, its error message matches too. */
 function toHaveResourceError(this: MatcherContext, received: unknown, expected?: RegExp | string): MatcherResult {
-  if (!isResourceLike(received)) {
-    return notAResource(received, this.utils.printReceived);
-  }
+  assertResource(received, this.utils.printReceived);
 
   const status = received.status();
 

@@ -35,9 +35,11 @@ import { type EnvironmentProviders, type Provider, provideEnvironmentInitializer
 import { TestBed, getTestBed } from '@angular/core/testing';
 import { onTestFinished } from 'vitest';
 
+import { assertAngularInternals } from './angular-internals';
 import { DOCS_LINKS, withDocs } from './docs-links';
 import { verifyOnTeardown } from './testbed-diagnostics';
 import { beforeTestBedReset } from './testbed-reset';
+import { writeWarning } from './write-warning';
 import { flushEffects } from './zoneless';
 
 /** How a request is named: a URL, a pattern, or a question asked of the request itself. */
@@ -120,15 +122,46 @@ function snapshotOnReset(): void {
   });
 }
 
+/** Said once per worker: without the runner's own state there is no test to attach the check to. */
+let warnedAboutRunnerState = false;
+
+/**
+ * The test that is running, as the runner itself reports it.
+ *
+ * `__vitest_worker__.current` is the one thing here that is not Angular's, and its absence is the
+ * silent kind of failure: the check simply never arms, and a suite keeps passing with its unflushed
+ * requests unreported. So a missing global says so once, rather than nothing ever.
+ */
+function runningTest(): unknown {
+  const worker: unknown = Reflect.get(globalThis, '__vitest_worker__');
+
+  if (worker === undefined) {
+    if (!warnedAboutRunnerState) {
+      warnedAboutRunnerState = true;
+      writeWarning(
+        '[vitest-auto-spy] provideHttpTesting(): globalThis.__vitest_worker__ is not there, so the runner does not say ' +
+          'which test is running and the end-of-test check cannot arm. Call `verifyNoPendingRequests()` yourself, or ' +
+          'report the runner and version — under bun:test and node:test this entry has no hook to use.',
+      );
+    }
+
+    return undefined;
+  }
+
+  const current: unknown = Reflect.get(Object(worker), 'current');
+
+  // Only a running test can take an `onTestFinished`; a module built in `beforeAll` has no test to fail.
+  return Reflect.get(Object(current), 'type') === 'test' ? current : undefined;
+}
+
 /**
  * Arm the end-of-test check from the module's own initializer, so it reaches every test that builds one —
  * in every spec file of a worker, and from a provider list hoisted to a constant.
  */
 function armVerification(): void {
-  const current: unknown = Reflect.get(Object(Reflect.get(globalThis, '__vitest_worker__')), 'current');
+  const current = runningTest();
 
-  // Only a running test can take an `onTestFinished`; a module built in `beforeAll` has no test to fail.
-  if (Reflect.get(Object(current), 'type') !== 'test' || current === armedTest) {
+  if (current === undefined || current === armedTest) {
     return;
   }
 
@@ -153,6 +186,8 @@ function armVerification(): void {
  * `provideHttpClientTesting()` after it.
  */
 export function provideHttpTesting(options: HttpTestingOptions = {}): (EnvironmentProviders | Provider)[] {
+  assertAngularInternals();
+
   const providers = [provideHttpClient(), provideHttpClientTesting()];
 
   return options.verifyOnTeardown === false ? providers : [...providers, provideEnvironmentInitializer(armVerification)];

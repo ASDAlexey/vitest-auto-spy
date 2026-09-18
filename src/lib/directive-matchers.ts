@@ -77,11 +77,10 @@ function diagnose(directive: Type<unknown>, selector: string | undefined, root: 
 function directiveResult(received: unknown, directive: Type<unknown>, selector?: string): MatcherResult {
   const root = rootOf(received);
 
+  // Thrown rather than answered with `{ pass: false }`: a `nativeElement` or an `undefined` handed
+  // over by mistake is not a failed assertion, and under `.not` a returned `false` passed.
   if (!root) {
-    return {
-      pass: false,
-      message: (): string => `expected a ComponentFixture or a DebugElement, received ${typeof received}.`,
-    };
+    throw new Error(`expected a ComponentFixture or a DebugElement, received ${typeof received}.`);
   }
 
   const withDirective = root.queryAll(By.directive(directive));

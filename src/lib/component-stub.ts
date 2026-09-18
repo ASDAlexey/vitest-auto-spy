@@ -15,6 +15,7 @@
  */
 import { Component, Directive, EventEmitter, Input, Output, Pipe, type Type, input, model } from '@angular/core';
 
+import { angularInternalsError } from './angular-internals';
 import { DOCS_LINKS, withDocs } from './docs-links';
 
 /** `SelectorFlags` from Angular's selector matcher: what the entries after a flag describe. */
@@ -77,6 +78,8 @@ export interface ComponentStubOptions {
  * `EventEmitter` (a model's change event is the model itself), `exportAs`, and for a pipe its name
  * and purity. Nothing else is: no template, no host bindings, no providers, no lifecycle hooks, no
  * queries — a stub renders only the content projected into it and answers nothing it was not given.
+ * `hostDirectives` are not copied either, so an input the real child exposes through one is *not* on
+ * the stub and a parent binding to it answers `NG0303` — that child is one to keep rather than stub.
  *
  * With `renderShallow`, keep the parent's template and name the stub as the child to keep:
  * `renderShallow(DashboardComponent, { keepTemplate: true, keepChildren: [ChartStub] })`.
@@ -150,7 +153,18 @@ interface StubMember {
 function membersOf(directive: CompiledDirective): StubMember[] {
   const members = new Map<string, StubMember>();
 
-  Object.entries(directive.inputs).forEach(([alias, [property, flags, transform]]) => {
+  Object.entries(directive.inputs).forEach(([alias, entry]) => {
+    // Loudly, because the alternative is silent and wrong: destructuring a string entry gives its
+    // first *character* as the property, and the stub would declare an input nobody can bind to.
+    if (!Array.isArray(entry)) {
+      throw angularInternalsError(
+        'ɵcmp.inputs as [field, flags, transform] tuples',
+        'A stub built from a definition of another shape would carry an input named after one character of the real name, ' +
+          'so every binding the parent writes to it answers NG0303.',
+      );
+    }
+
+    const [property, flags, transform] = entry;
     const kind = (flags & SIGNAL_BASED) === 0 ? 'property' : 'signal';
 
     members.set(property, { property, kind, inputAlias: alias, ...(transform ? { transform } : {}) });

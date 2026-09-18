@@ -95,6 +95,65 @@ describe('mockResourceProp', () => {
     expect(service.products.error()).toBe(cause);
   });
 
+  it('value() throws once it has failed, exactly as a real resource does', () => {
+    const service = new ProductService();
+    const products = mockResourceProp(service, 'products', ['a']);
+    const cause = new Error('offline');
+
+    products.fail(cause);
+
+    // The failure a double that kept the value readable hid: component code reading `value()`
+    // without `hasValue()` passes in the test and dies in the application.
+    expect(() => service.products.value()).toThrow(/value\(\) was read while the resource is in the error state/);
+    expect(() => service.products.value()).toThrow(/branch on hasValue\(\) or status\(\)/);
+
+    try {
+      service.products.value();
+    } catch (error) {
+      expect(error).toBeInstanceOf(Error);
+      expect((error as Error).constructor.name).toBe('ResourceValueError');
+      expect((error as Error).cause).toBe(cause);
+    }
+
+    // Everything a spec asserts on a failed resource still reads.
+    expect(service.products.hasValue()).toBe(false);
+    expect(service.products.snapshot()).toEqual({ status: 'error', error: cause });
+    expect(service.products.error()).toBe(cause);
+  });
+
+  it('keeps the value it had once the spec resolves it again', () => {
+    const service = new ProductService();
+    const products = mockResourceProp(service, 'products', ['a']);
+
+    products.set(['a', 'b']);
+    products.fail('offline');
+    products.loading();
+
+    // `fail()` and `loading()` leave the value alone; only `idle()` goes back to the initial one.
+    expect(service.products.value()).toEqual(['a', 'b']);
+  });
+
+  it('answers reload() the way Angular does: false while there is nothing to re-issue', () => {
+    const service = new ProductService();
+    const products = mockResourceProp(service, 'products', [], { status: 'idle' });
+
+    // A real `reload()` refuses in `idle` and `loading`, and a spec branching on the result was
+    // branching on a constant.
+    expect(service.products.reload()).toBe(false);
+
+    products.loading();
+
+    expect(service.products.reload()).toBe(false);
+
+    products.set(['a']);
+
+    expect(service.products.reload()).toBe(true);
+
+    products.fail('offline');
+
+    expect(service.products.reload()).toBe(true);
+  });
+
   it('loading() puts it back in flight and clears the error', () => {
     const service = new ProductService();
     const products = mockResourceProp(service, 'products', ['a']);
@@ -226,6 +285,16 @@ describe('mockResourceProp', () => {
 
       expect(service.products.value()).toEqual(['a', 'b']);
       expect(service.products.status()).toBe('local');
+    });
+
+    it('hands back a readonly view of the value, the way Angular assembles one', () => {
+      const service = new ProductService();
+
+      mockResourceProp(service, 'products', ['a']);
+
+      // `BaseWritableResource` puts `set`, `update` and `asReadonly` on its own `value` computation;
+      // a service exposing `products.value.asReadonly()` calls this before the spec starts.
+      expect(service.products.value.asReadonly()()).toEqual(['a']);
     });
 
     it('asReadonly() hands back the same double', () => {

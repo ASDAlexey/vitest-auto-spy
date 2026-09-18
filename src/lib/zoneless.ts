@@ -12,15 +12,7 @@ import { NgZone } from '@angular/core';
 import { type ComponentFixture, TestBed } from '@angular/core/testing';
 
 import { DOCS_LINKS, withDocs } from './docs-links';
-
-/**
- * The real timers, captured at import time, for the same reason `expect-emission.ts` captures them:
- * a watchdog the code under test can stop is not a watchdog. `vi.useFakeTimers()` replaces
- * `setTimeout`, and a faked one never fires — the wait would then hang to the runner's own file
- * timeout, which is precisely the failure this timeout exists to replace.
- */
-const setTimer: typeof setTimeout = globalThis.setTimeout.bind(globalThis);
-const clearTimer: typeof clearTimeout = globalThis.clearTimeout.bind(globalThis);
+import { unpatchedClearTimeout as clearTimer, unpatchedSetTimeout as setTimer } from './unpatched-timers';
 
 /**
  * Run every pending effect and change-detection pass synchronously.

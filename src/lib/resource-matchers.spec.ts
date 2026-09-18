@@ -110,11 +110,19 @@ describe('toHaveResourceError', () => {
 });
 
 describe('every matcher, given something that is not a resource', () => {
-  it('says so rather than throwing a TypeError', () => {
-    const message = /expected a resource \(an object with `status\(\)` and `value\(\)`\)/;
+  const message = /expected a resource \(an object with `status\(\)` and `value\(\)`\)/;
 
+  it('says so rather than throwing a TypeError', () => {
     expect(() => expect([1, 2]).toBeLoading()).toThrow(message);
     expect(() => expect(null).toHaveResourceValue(1)).toThrow(message);
     expect(() => expect({ status: 'resolved' }).toHaveResourceError()).toThrow(message);
+  });
+
+  it('says so under `.not` as well, where a failed assertion would have read as a pass', () => {
+    // The argument is wrong, not the assertion: answered with `{ pass: false }` this was green, and
+    // `expect(products.value()).not.toBeLoading()` reported success about a plain array.
+    expect(() => expect([1, 2]).not.toBeLoading()).toThrow(message);
+    expect(() => expect(null).not.toHaveResourceValue(1)).toThrow(message);
+    expect(() => expect({ status: 'resolved' }).not.toHaveResourceError()).toThrow(message);
   });
 });

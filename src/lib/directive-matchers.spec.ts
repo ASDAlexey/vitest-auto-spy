@@ -81,6 +81,12 @@ describe('toHaveDirectiveApplied', () => {
     );
   });
 
+  it('refuses something that is not a fixture under `.not` as well', () => {
+    // `{ pass: false }` for a wrong argument is a pass under `.not`: `expect(undefined)` then
+    // reported that the directive is not applied, about nothing at all.
+    expect(() => expect(undefined).not.toHaveDirectiveApplied(HighlightDirective)).toThrow(/expected a ComponentFixture or a DebugElement/);
+  });
+
   it('reports the negated case when the directive is there', () => {
     const Host = createDirectiveHost({ template: '<div appHighlight></div>', scope: [HighlightModule] });
 

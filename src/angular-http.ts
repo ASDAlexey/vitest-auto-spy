@@ -22,8 +22,9 @@
  * Unlike the other subpaths this one does **not** re-export the core: it is a companion to
  * `vitest-auto-spy/angular`, which stays the import for spies, `TestBed` helpers and `settleResource`.
  *
- * Importing it registers one `afterEach` per spec file, which does nothing unless that test called
- * `provideHttpTesting()` — see `provideHttpTesting({ verifyOnTeardown })`.
+ * Importing it registers nothing. `provideHttpTesting()` arms the end-of-test check from the testing
+ * module's own environment initializer, once per test that builds one — see
+ * `provideHttpTesting({ verifyOnTeardown })`.
  */
 export {
   expectNoRequest,

@@ -45,6 +45,13 @@ describe('toHaveFocus', () => {
     expect(() => expect('button').toHaveFocus()).toThrow(/a non-element \(string\)/);
   });
 
+  it('refuses a query that found nothing under `.not` too, instead of passing', () => {
+    // The most common cause of all, and under `.not` a `{ pass: false }` answer was a green test
+    // about an element that does not exist.
+    expect(() => expect(null).not.toHaveFocus()).toThrow(/A query that found nothing/);
+    expect(() => expect(document.querySelector('.absent')).not.toHaveFocus()).toThrow(/received null/);
+  });
+
   it('supports the negated form', () => {
     const button = document.createElement('button');
 

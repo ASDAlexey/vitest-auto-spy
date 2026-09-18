@@ -14,7 +14,12 @@ export function beforeTestBedReset(wrapped: WeakSet<object>, beforeReset: () => 
 
   wrapped.add(testBed);
   Reflect.set(testBed, 'resetTestingModule', function snapshotting(this: unknown, ...args: unknown[]): unknown {
-    beforeReset();
+    try {
+      beforeReset();
+    } catch {
+      // A snapshot is best-effort; the reset it precedes is not — a throw here used to skip the
+      // reset and fail the *next* test with "the test module has already been instantiated".
+    }
 
     return Reflect.apply(original, this, args);
   });

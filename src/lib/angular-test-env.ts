@@ -32,6 +32,7 @@
  * (`@analogjs/vitest-angular`, `jest-preset-angular`, a hand-written `initTestEnvironment`) are not
  * dependencies of it.
  */
+import { type PlatformRef } from '@angular/core';
 import { getTestBed } from '@angular/core/testing';
 import { beforeAll, expect } from 'vitest';
 
@@ -65,7 +66,7 @@ export function installAngularTestEnv(options: AngularTestEnvOptions, installed:
   const testPath = expect.getState().testPath ?? '';
   const wanted: AngularTestEnvMode = options.zoneless(testPath) ? 'zoneless' : 'zone';
 
-  if (installed === wanted) {
+  if (installed === wanted && platformIsUp()) {
     return installed;
   }
 
@@ -85,18 +86,49 @@ export function installAngularTestEnv(options: AngularTestEnvOptions, installed:
 }
 
 /**
+ * Whether an environment is standing at all.
+ *
+ * The mode alone is not enough: nothing promises this helper is the only thing that calls
+ * `resetTestEnvironment()`, and a remembered mode over a torn-down platform serves no fixture.
+ * Annotated because Angular types the getter as never-null, which it plainly is after a reset.
+ */
+function platformIsUp(): boolean {
+  const platform: PlatformRef | null = getTestBed().platform;
+
+  return platform !== null;
+}
+
+/**
+ * Where the installed mode is remembered: on the global, keyed by a shared symbol.
+ *
+ * Not a variable of the {@link setupAngularTestEnv} call. Under `isolate: false` the setup file is
+ * executed once per spec **file** while the platform lives for the whole worker, so a call-local
+ * flag was `undefined` again on every file — and the "one initialisation, no resets" this helper
+ * promises became a `resetTestEnvironment()` plus the consumer's own initialiser per file.
+ */
+const INSTALLED = Symbol.for('vitest-auto-spy:angular-test-env');
+
+/** The mode this worker has installed, as far as this helper knows. */
+function readInstalledMode(): AngularTestEnvMode | undefined {
+  const remembered: unknown = Reflect.get(globalThis, INSTALLED);
+
+  return remembered === 'zone' || remembered === 'zoneless' ? remembered : undefined;
+}
+
+/**
  * Install the Angular testing environment each spec file needs, switching platforms when it changes.
  *
  * Call it from the project's setup file, in place of the single `setupZoneTestEnv()` /
  * `setupZonelessTestEnv()` that a one-mode repository has.
+ *
+ * The mode is remembered per **worker**, not per file: under `isolate: false` the second and every
+ * later file of a run in the same mode costs nothing at all.
  */
 export function setupAngularTestEnv(options: AngularTestEnvOptions): void {
-  let installed: AngularTestEnvMode | undefined;
-
   // `beforeAll`, not `beforeEach`: the decision is made from `expect.getState().testPath`, which is
   // the file — it cannot change between two tests of that file, so asking again before every one of
   // them re-ran the caller's predicate for an answer that was already known.
   beforeAll(() => {
-    installed = installAngularTestEnv(options, installed);
+    Reflect.set(globalThis, INSTALLED, installAngularTestEnv(options, readInstalledMode()));
   });
 }

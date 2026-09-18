@@ -23,6 +23,7 @@
  */
 import { type Signal, type WritableSignal, computed, signal, untracked } from '@angular/core';
 
+import { DOCS_LINKS, withDocs } from './docs-links';
 import { createFunctionSpy } from './function-spy';
 import { mockReadonlyProp } from './prop-mock';
 import type { AddSpyMethodsByReturnTypes } from './types';
@@ -57,7 +58,12 @@ export type ResourceDoubleSnapshot<TValue> =
  * typed as the real thing and the compiler has nothing to say.
  */
 export interface ResourceDouble<TValue> {
-  /** The current value. Writable, and a write through it goes `'local'`, exactly as Angular's does. */
+  /**
+   * The current value. Writable, and a write through it goes `'local'`, exactly as Angular's does.
+   *
+   * **Reading it in the `'error'` state throws**, also exactly as Angular's does: a real `value()` is
+   * a computation that rethrows the failure instead of handing back the last good value.
+   */
   value: WritableSignal<TValue>;
   /** `'resolved'` unless the spec moved it — see {@link MockedResource} and {@link MockResourceOptions}. */
   status: Signal<ResourceDoubleStatus>;
@@ -77,7 +83,10 @@ export interface ResourceDouble<TValue> {
   asReadonly(): ResourceDouble<TValue>;
   /** Back to `'idle'` at the initial value, after which a write from the code under test does nothing. */
   destroy(): void;
-  /** Spied, and inert: a double has no request to re-issue, so the spec asserts the call instead. */
+  /**
+   * Spied, and inert: a double has no request to re-issue, so the spec asserts the call instead. The
+   * answer is Angular's — `false` while the resource is `'idle'` or `'loading'`, `true` otherwise.
+   */
   reload: AddSpyMethodsByReturnTypes<() => boolean>;
 }
 
@@ -85,7 +94,7 @@ export interface ResourceDouble<TValue> {
 export interface MockedResource<TValue> {
   /** Resolve the resource with a value — status `'resolved'`, error cleared. */
   set(value: TValue): void;
-  /** Fail the resource — status `'error'`, `error()` set, `hasValue()` false. */
+  /** Fail the resource — status `'error'`, `error()` set, `hasValue()` false, `value()` throwing. */
   fail(error: Error | string): void;
   /** Put the resource back in flight — status `'loading'`, the value left where it was. */
   loading(): void;
@@ -109,6 +118,32 @@ export interface MockResourceOptions {
 
 /** The statuses that mean work is in flight — the same pair {@link settleResource} waits on. */
 const LOADING_STATUSES: ReadonlySet<ResourceDoubleStatus> = new Set<ResourceDoubleStatus>(['loading', 'reloading']);
+
+/** The statuses in which Angular's own `reload()` answers `false`: there is nothing to re-issue. */
+const UNRELOADABLE_STATUSES: ReadonlySet<ResourceDoubleStatus> = new Set<ResourceDoubleStatus>(['idle', 'loading']);
+
+/**
+ * What a real resource throws from `value()` once it has failed.
+ *
+ * Angular builds `value` as a `computed` that rethrows the failure rather than handing out the last
+ * value, so component code reading `products.value()` without `hasValue()` dies in the application
+ * and *passed* against a double that kept the value readable — the one direction a test double must
+ * never take. Named after Angular's own class so a spec can recognise it; the message is this
+ * package's, because the cause is worth naming at the line that reads it.
+ */
+class ResourceValueError extends Error {
+  constructor(name: string, failure: Error | undefined) {
+    super(
+      withDocs(
+        `[vitest-auto-spy] ${name}.value() was read while the resource is in the error state: ${failure}.\n` +
+          'A real resource throws here too — branch on hasValue() or status() first, ' +
+          'or assert with `expect(resource).toHaveResourceError()`.',
+        DOCS_LINKS.angular,
+      ),
+      { cause: failure },
+    );
+  }
+}
 
 /**
  * Replace a resource-valued property with a double the spec drives directly.
@@ -166,10 +201,60 @@ function createSnapshot<TValue>(
   });
 }
 
-/** The double, plus the write the spec's half of this file needs and the code under test must not have. */
+/** The double, plus the reads and writes the spec's half of this file needs and the code under test must not have. */
 interface BuiltDouble<TValue> {
   resource: ResourceDouble<TValue>;
   arrange(status: ResourceDoubleStatus, value: TValue, failure?: Error): void;
+  /** The stored value, read without the error state's throw — `resource.value()` is for the code under test. */
+  stored(): TValue;
+}
+
+/**
+ * The value as the code under test sees it: the stored one, or the failure rethrown.
+ *
+ * A `computed` over the state rather than the state itself, exactly as `ResourceImpl` builds it, so
+ * that a read in the error state throws instead of answering with whatever was last resolved. The
+ * writable half is assigned onto it afterwards, which is what Angular's `BaseWritableResource` does
+ * to its own `value` — a resource's value is writable *and* derived.
+ */
+function createValue<TValue>(
+  name: string,
+  state: Signal<TValue>,
+  status: Signal<ResourceDoubleStatus>,
+  error: Signal<Error | undefined>,
+): Signal<TValue> {
+  return computed<TValue>(() => {
+    if (status() === 'error') {
+      throw new ResourceValueError(name, error());
+    }
+
+    return state();
+  });
+}
+
+/**
+ * `WritableSignal` minus the brand Angular declares and never exports as a value.
+ *
+ * The brand is a `unique symbol` with no value binding, so a resource's value cannot be *built* as a
+ * `WritableSignal` — Angular's own `BaseWritableResource` assembles it exactly this way and asserts
+ * the same step.
+ */
+type WritableComputed<TValue> = Signal<TValue> & {
+  asReadonly(): Signal<TValue>;
+  set(value: TValue): void;
+  update(updater: (value: TValue) => TValue): void;
+};
+
+/** The value the code under test holds: derived, and writable, the way a real resource's is. */
+function writableValue<TValue>(
+  read: Signal<TValue>,
+  set: (value: TValue) => void,
+  update: (updater: (value: TValue) => TValue) => void,
+): WritableSignal<TValue> {
+  const value: WritableComputed<TValue> = Object.assign(read, { asReadonly: (): Signal<TValue> => read, set, update });
+
+  // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- `WritableSignal` carries a brand Angular declares but never exports as a value; the three members above are the whole of what it adds to a signal.
+  return value as WritableSignal<TValue>;
 }
 
 /**
@@ -177,22 +262,20 @@ interface BuiltDouble<TValue> {
  *
  * The two writes are deliberately different: `arrange` is the spec saying what state the resource
  * is in, and `setLocal` is the code under test writing a value, which in Angular means `'local'`
- * and nothing else. Both go through `writeValue`, captured before `value.set` is rewired, because
- * after the rewiring the signal's own setter *is* the `'local'` one.
+ * and nothing else. Both go through the private `state` signal, which is also what keeps the spec's
+ * own writes out of the `value` computation the code under test reads.
  */
 function buildResourceDouble<TValue>(name: string, initialValue: TValue, options: MockResourceOptions): BuiltDouble<TValue> {
-  const value: WritableSignal<TValue> = signal(initialValue);
+  const state: WritableSignal<TValue> = signal(initialValue);
   const status: WritableSignal<ResourceDoubleStatus> = signal<ResourceDoubleStatus>(options.status ?? 'resolved');
   const error: WritableSignal<Error | undefined> = signal<Error | undefined>(undefined);
+  const read = createValue(name, state, status, error);
 
-  // Kept before `value.set` is rewired below, because the spec's half of this file has to be able
-  // to write the value without the `'local'` status a write from the code under test means.
-  const writeValue = value.set;
   let destroyed = false;
 
   const arrange = (nextStatus: ResourceDoubleStatus, nextValue: TValue, failure?: Error): void => {
     destroyed = false;
-    writeValue(nextValue);
+    state.set(nextValue);
     error.set(failure);
     status.set(nextStatus);
   };
@@ -202,45 +285,44 @@ function buildResourceDouble<TValue>(name: string, initialValue: TValue, options
       return;
     }
 
-    writeValue(next);
+    state.set(next);
     error.set(undefined);
     status.set('local');
   };
 
   const updateLocal = (updater: (current: TValue) => TValue): void => {
-    setLocal(updater(untracked(value)));
+    setLocal(updater(untracked(read)));
   };
 
-  value.set = setLocal;
-  value.update = updateLocal;
+  const value = writableValue(read, setLocal, updateLocal);
 
-  const valueIsDefined = computed(() => status() !== 'error' && value() !== undefined);
+  const valueIsDefined = computed(() => status() !== 'error' && state() !== undefined);
   const reload = createFunctionSpy<() => boolean>(`${name}.reload`);
 
-  // A real `reload()` answers `false` for "no reload was needed", so a spec that branches on the
-  // result would otherwise be branching on an unconfigured `undefined`.
-  reload.mockReturnValue(true);
+  // A real `reload()` answers `false` when there is nothing to re-issue — a resource that never ran
+  // or is still running — so a spec branching on the result was branching on a constant `true`.
+  reload.mockImplementation(() => !UNRELOADABLE_STATUSES.has(untracked(status)));
 
   const resource: ResourceDouble<TValue> = {
     value,
     status,
     error,
     isLoading: computed(() => LOADING_STATUSES.has(status())),
-    snapshot: createSnapshot(status, value, error),
+    snapshot: createSnapshot(status, state, error),
     hasValue: (): boolean => valueIsDefined(),
     set: setLocal,
     update: updateLocal,
     asReadonly: (): ResourceDouble<TValue> => resource,
     destroy: (): void => {
       destroyed = true;
-      writeValue(initialValue);
+      state.set(initialValue);
       error.set(undefined);
       status.set('idle');
     },
     reload,
   };
 
-  return { arrange, resource };
+  return { arrange, resource, stored: (): TValue => untracked(state) };
 }
 
 /**
@@ -257,8 +339,9 @@ function installResourceDouble<TValue>(
   initialValue: TValue,
   options: MockResourceOptions,
 ): MockedResource<TValue> {
-  const { arrange, resource } = buildResourceDouble(String(property), initialValue, options);
-  const value = resource.value;
+  // `stored()` and not `resource.value()`: reading that one in the error state throws, which is the
+  // point of it, and `fail()` on an already-failed resource would then die inside this helper.
+  const { arrange, resource, stored } = buildResourceDouble(String(property), initialValue, options);
 
   mockReadonlyProp(object, property, resource);
 
@@ -267,10 +350,10 @@ function installResourceDouble<TValue>(
       arrange('resolved', next);
     },
     fail: (reason: Error | string): void => {
-      arrange('error', untracked(value), typeof reason === 'string' ? new Error(reason) : reason);
+      arrange('error', stored(), typeof reason === 'string' ? new Error(reason) : reason);
     },
     loading: (): void => {
-      arrange('loading', untracked(value));
+      arrange('loading', stored());
     },
     idle: (): void => {
       arrange('idle', initialValue);

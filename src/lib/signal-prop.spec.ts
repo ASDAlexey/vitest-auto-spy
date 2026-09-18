@@ -7,6 +7,7 @@ import {
   computed,
   effect,
   input,
+  isSignal,
   linkedSignal,
   model,
   signal,
@@ -50,6 +51,15 @@ class FilterComponent {
 class TotalComponent {
   readonly count = signal(2);
   readonly total: Signal<number> = computed(() => this.count() * 10);
+}
+
+@Component({
+  selector: 'vas-view',
+  template: '[{{ filter() }}]',
+})
+class ViewComponent {
+  readonly #filter = signal('all');
+  readonly filter: Signal<string> = this.#filter.asReadonly();
 }
 
 @Component({
@@ -224,6 +234,56 @@ describe('mockSignalProp', () => {
 
     expect(() => mockSignalProp(component, 'total', 7)).toThrow(/already read/);
     expect(() => mockSignalProp(component, 'total', 7)).toThrow(/Patch before the first detectChanges\(\)/);
+  });
+
+  it('writes through a read-only view of a signal, reaching a computed that is not live', () => {
+    // The shape a service publishes: `readonly count = this.#count.asReadonly()`. The view shares the
+    // writable half's node, so a `computed` that has already read it stays wired to the right one —
+    // and a non-live consumer is invisible to the live-consumer check, which is what made the old
+    // swap pass and then silently return a cached value for the rest of the test.
+    const service = { count: signal(0).asReadonly() };
+    const label = computed(() => `${service.count()} items`);
+
+    expect(label()).toBe('0 items');
+
+    const count = mockSignalProp(service, 'count', 5);
+
+    expect(label()).toBe('5 items');
+    expect(service.count()).toBe(5);
+
+    count.set(7);
+
+    expect(label()).toBe('7 items');
+    expect(service.count).toBe(count.asReadonly());
+  });
+
+  it('hands back a handle that reads, updates and stays the member the object published', () => {
+    const published = signal(1).asReadonly();
+    const service = { count: published };
+    const count = mockSignalProp(service, 'count', 2);
+
+    count.update((value) => value + 3);
+
+    expect(count()).toBe(5);
+    expect(service.count).toBe(published);
+    expect(isSignal(count)).toBe(true);
+  });
+
+  it('reaches a rendered template through a read-only view, where a swap could not', async () => {
+    const fixture = render(ViewComponent);
+
+    expect(textOf(fixture)).toBe('[all]');
+
+    const filter = mockSignalProp(fixture.componentInstance, 'filter', 'open');
+
+    await stable(fixture);
+
+    expect(textOf(fixture)).toBe('[open]');
+
+    filter.set('closed');
+    await stable(fixture);
+
+    expect(textOf(fixture)).toBe('[closed]');
   });
 
   it('is undone by restoreMockedProps where it patched the property', () => {

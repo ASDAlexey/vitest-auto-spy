@@ -248,6 +248,30 @@ describe('installProxyZonePatch', () => {
     undoPerCallback();
   });
 
+  it('leaves a global it has already replaced alone, instead of wrapping its own wrapper', () => {
+    const zone = fakeZone();
+    zone.install();
+
+    const globals = fakeGlobals();
+    const undoFirst = installProxyZonePatch();
+    const patched: (...args: unknown[]) => unknown = Reflect.get(globalThis, 'it');
+
+    // What a setup file does under `isolate: false`: Vitest registers its globals once per worker,
+    // the setup file runs per spec file, and a second layer per file is 200 of them at 200 files.
+    const undoSecond = installProxyZonePatch();
+
+    expect(Reflect.get(globalThis, 'it')).toBe(patched);
+
+    patched('runs', vi.fn());
+    runRecorded(globals);
+
+    // One layer, so one fork — two would mean the callback travelled through two proxies.
+    expect(zone.forks).toBe(1);
+
+    undoSecond();
+    undoFirst();
+  });
+
   it('passes a non-callable member through untouched', () => {
     fakeZone().install();
     fakeGlobals();

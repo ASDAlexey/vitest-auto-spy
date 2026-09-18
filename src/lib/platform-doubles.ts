@@ -23,7 +23,8 @@
  * object has them, but they are Web IDL methods: called with anything but the real instance as
  * `this` they throw `'querySelector' called on an object that is not a valid instance of Document`.
  * The proxy hands each method out bound to the real object, which is the only shape that answers
- * both.
+ * both — every method, but no constructor: `win.Date`, `win.Event` and `win.Promise` are handed out
+ * untouched, because a bound function carries none of its target's own members.
  *
  * **Why the window helper takes a token and the document helper does not.** Angular ships
  * `DOCUMENT` — since v20 from `@angular/core` itself, which is what this entry imports, so
@@ -118,10 +119,23 @@ function readSlice(view: View, key: string | symbol, override: Slots): unknown {
   return slice;
 }
 
+/**
+ * Whether a function is a constructor rather than a method — `Date`, `Event`, `Promise`, a class.
+ *
+ * A bound function keeps none of its target's own properties, so binding one of these takes
+ * `win.Date.now`, `win.Promise.resolve` and `win.Object.keys` with it and leaves `win.Event` a
+ * different function from `window.Event`. A constructor needs no binding anyway: its `this` is the
+ * instance being built. Told apart by the writability of `prototype`, which is `false` for a class
+ * and for every native constructor and `true` for an ordinary function.
+ */
+function isConstructor(value: object): boolean {
+  return Reflect.getOwnPropertyDescriptor(value, 'prototype')?.writable === false;
+}
+
 function readReal(view: View, key: string | symbol): unknown {
   const actual: unknown = Reflect.get(view.real, key, view.real);
 
-  if (typeof actual !== 'function') {
+  if (typeof actual !== 'function' || isConstructor(actual)) {
     return actual;
   }
 

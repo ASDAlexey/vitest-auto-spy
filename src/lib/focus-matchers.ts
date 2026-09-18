@@ -53,15 +53,22 @@ function describeNode(node: unknown): string {
   return `${node.tagName.toLowerCase()}${id}${classes}`;
 }
 
-function focusResult(received: unknown): MatcherResult {
+/**
+ * Thrown rather than answered with `{ pass: false }`: a query that found nothing is not a failed
+ * assertion, and under `.not` a returned `false` passed — the very case this matcher's own message
+ * calls the most common one.
+ */
+function assertElement(received: unknown): asserts received is Element {
   if (!(received instanceof Element)) {
-    return {
-      pass: false,
-      message: (): string =>
-        `expected an element to have focus, received ${describeNode(received)}.\n` +
+    throw new Error(
+      `expected an element to have focus, received ${describeNode(received)}.\n` +
         'A query that found nothing is the most common cause — assert the element exists before asserting on focus.',
-    };
+    );
   }
+}
+
+function focusResult(received: unknown): MatcherResult {
+  assertElement(received);
 
   const active = received.ownerDocument.activeElement;
   const pass = active === received;

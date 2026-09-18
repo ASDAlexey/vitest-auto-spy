@@ -24,6 +24,7 @@ import {
 } from '@angular/core';
 import { type ComponentFixture, TestBed } from '@angular/core/testing';
 
+import { resolveInputs } from './angular-inputs';
 import { DOCS_LINKS, withDocs } from './docs-links';
 
 /**
@@ -61,7 +62,11 @@ export interface RenderShallowOptions<T> {
   providers?: (EnvironmentProviders | Provider)[];
   /** Extra imports for the testing module (a routing stub, an `NgModule` the component needs). */
   imports?: unknown[];
-  /** Inputs to set through `componentRef.setInput` before the first change detection. */
+  /**
+   * Inputs to set through `componentRef.setInput` before the first change detection. Keyed by the
+   * class field or by the public name, both resolve; a name the component does not declare is
+   * refused here rather than answered with an `NG0303` nobody sees.
+   */
   inputs?: ComponentInputs<T>;
   /**
    * Keep the real template instead of blanking it — for `viewChild`, content projection, host
@@ -220,12 +225,23 @@ function buildOverride<T>(component: Type<unknown>, definition: unknown, options
   return override;
 }
 
+/**
+ * The first values, through the same name resolution `setInputs` uses.
+ *
+ * `ComponentInputs<T>` is keyed by the class **field** and `setInput` answers to the **public**
+ * name, so `heading = input('', { alias: 'title' })` passed straight through produced an `NG0303`
+ * on the console and no value at all — invisible under a console stub, and a spec then asserting on
+ * the default. A key no component declares was the same silence; it is a refusal now, as it has
+ * always been one line away in `setInputs`.
+ */
 function applyInputs<T>(fixture: ComponentFixture<T>, inputs: ComponentInputs<T> | undefined): void {
   if (inputs === undefined) {
     return;
   }
 
-  Object.entries(inputs).forEach(([name, value]) => fixture.componentRef.setInput(name, value));
+  resolveInputs('renderShallow', fixture.componentRef.componentType, inputs).forEach(([name, value]) =>
+    fixture.componentRef.setInput(name, value),
+  );
 }
 
 /**

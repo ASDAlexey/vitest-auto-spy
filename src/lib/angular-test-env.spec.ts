@@ -70,6 +70,19 @@ describe('installAngularTestEnv', () => {
     expect(initZone).not.toHaveBeenCalled();
   });
 
+  it('initialises again when the platform is gone, whoever tore it down', () => {
+    const platformKey: PropertyKey = 'platform';
+    const restore = mockValueProp(getTestBed(), platformKey, null);
+    const installed = installAngularTestEnv(options(false), 'zone');
+
+    restore();
+
+    // A remembered mode over a torn-down platform is the one case where the mode matching is not
+    // enough: nothing promises this helper is the only caller of `resetTestEnvironment()`.
+    expect(installed).toBe('zone');
+    expect(initZone).toHaveBeenCalledTimes(1);
+  });
+
   it('tears the platform down before initialising the other one', () => {
     expect(installAngularTestEnv(options(true), 'zone')).toBe('zoneless');
     expect(reset).toHaveBeenCalledTimes(1);
@@ -122,5 +135,29 @@ describe('setupAngularTestEnv, installed for this file', () => {
     // The whole of the change: `testPath` is the file, so a second test of it has nothing to decide.
     expect(seenPaths).toHaveLength(1);
     expect(initZoneCalls).toBe(1);
+  });
+});
+
+describe('setupAngularTestEnv, called again in the same worker', () => {
+  const seenPaths: string[] = [];
+
+  // What the second spec file of a worker does under `isolate: false`: the setup file runs again, so
+  // this is a second call — and the mode it finds installed must be the first one's.
+  setupAngularTestEnv(options(false, seenPaths));
+
+  afterAll(() => {
+    Reflect.deleteProperty(globalThis, Symbol.for('vitest-auto-spy:angular-test-env'));
+  });
+
+  it('remembers the mode per worker, so it tears nothing down and initialises nothing', () => {
+    expect(seenPaths).toEqual([expect.getState().testPath]);
+    // Both still from the first installation. A flag living in the call's own closure was `undefined`
+    // here, and every file of the run paid for a `resetTestEnvironment()` plus the caller's initialiser.
+    expect(initZoneCalls).toBe(1);
+    expect(resetCalls).toBe(1);
+  });
+
+  it('remembers the mode on the global rather than in the call', () => {
+    expect(Reflect.get(globalThis, Symbol.for('vitest-auto-spy:angular-test-env'))).toBe('zone');
   });
 });

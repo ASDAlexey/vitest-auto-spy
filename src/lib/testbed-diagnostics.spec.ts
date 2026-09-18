@@ -5,7 +5,7 @@
  * twice must not wrap a wrapper.
  */
 import { Component } from '@angular/core';
-import { TestBed } from '@angular/core/testing';
+import { TestBed, getTestBed } from '@angular/core/testing';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 
 import { mockValueProp } from './prop-mock';
@@ -77,24 +77,49 @@ describe('enableTestBedDiagnostics', () => {
   });
 
   it('does not wrap an already-wrapped TestBed method', () => {
-    const wrapped = TestBed.createComponent;
+    const wrapped: unknown = Reflect.get(getTestBed(), 'createComponent');
 
     instrumentTestBed();
 
-    expect(TestBed.createComponent).toBe(wrapped);
+    expect(Reflect.get(getTestBed(), 'createComponent')).toBe(wrapped);
+  });
+
+  it('counts a call made through the instance, and counts it once', () => {
+    const before = getTestBedTiming();
+
+    // Every `TestBed` static is a one-line delegate to this instance, so a spec written either way
+    // reaches the same wrapper — `getTestBed().configureTestingModule(…)` used to reach none, and
+    // wrapping both would have counted the plain `TestBed.` call twice.
+    getTestBed().configureTestingModule({});
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({});
+
+    expect(getTestBedTiming().configurations).toBe(before.configurations + 2);
   });
 
   it('leaves alone a TestBed method the running Angular version does not have', () => {
     disableTestBedDiagnostics();
 
-    const original = TestBed.compileComponents;
     const compileComponents: PropertyKey = 'compileComponents';
-    const restore = mockValueProp(TestBed, compileComponents, undefined);
+    const restore = mockValueProp(getTestBed(), compileComponents, undefined);
 
     instrumentTestBed();
     restore();
 
-    expect(TestBed.compileComponents).toBe(original);
+    expect(Object.hasOwn(getTestBed(), 'compileComponents')).toBe(false);
+  });
+
+  it('gives the prototype method back, rather than leaving an own property behind', () => {
+    instrumentTestBed();
+
+    expect(Object.hasOwn(getTestBed(), 'createComponent')).toBe(true);
+
+    disableTestBedDiagnostics();
+
+    // Written back rather than deleted, the "original" left on the instance would be the wrapper
+    // itself, and the next `instrumentTestBed()` would wrap it a second time.
+    expect(Object.hasOwn(getTestBed(), 'createComponent')).toBe(false);
+    expect(typeof getTestBed().createComponent).toBe('function');
   });
 });
 

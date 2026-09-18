@@ -262,5 +262,17 @@ describe('createComponentStub', () => {
     it('a directive with no selector', () => {
       expect(() => createComponentStub(AbstractBaseDirective)).toThrow(/AbstractBaseDirective has no selector/);
     });
+
+    it('a definition whose inputs are not tuples, naming the Angular version', () => {
+      const Renamed = class {};
+
+      Object.defineProperty(Renamed, 'ɵdir', {
+        value: { selectors: [['x']], inputs: { heading: 'heading' }, outputs: {}, exportAs: null },
+      });
+
+      // Destructured, a string entry would give `'h'` as the property: a stub with an input nobody
+      // can bind to, and nothing at all to say so.
+      expect(() => createComponentStub(Renamed)).toThrow(/no longer carries ɵcmp\.inputs/);
+    });
   });
 });

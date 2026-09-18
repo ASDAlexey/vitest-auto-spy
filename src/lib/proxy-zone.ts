@@ -162,6 +162,30 @@ function inProxyZone(callback: Callable, scope: ProxyZoneScope): Callable {
 let proxyCache = new WeakMap<Callable, Callable>();
 
 /**
+ * Every view this patch has ever handed out, on the global so two copies of the module agree.
+ *
+ * Vitest registers its globals once per worker while a setup file runs per spec **file**, so an
+ * explicit `installProxyZonePatch()` there used to wrap the wrapper: one more Proxy layer on every
+ * `it` per file, 200 layers deep at 200 files. Correctness survived it (a callback carries
+ * {@link ALREADY_WRAPPED}, so the zones never nested) — the cost did not.
+ */
+const PRODUCED = Symbol.for('vitest-auto-spy.proxy-zone.produced');
+
+function producedProxies(): WeakSet<object> {
+  const existing: unknown = Reflect.get(globalThis, PRODUCED);
+
+  if (existing instanceof WeakSet) {
+    return existing;
+  }
+
+  const fresh = new WeakSet<object>();
+
+  Reflect.set(globalThis, PRODUCED, fresh);
+
+  return fresh;
+}
+
+/**
  * A view of `target` whose calls run their callbacks in a proxy zone, and whose sub-APIs do too.
  *
  * A Proxy rather than a copy, because the runner's `it` is a callable object with a dozen members
@@ -196,6 +220,7 @@ function proxyCallable(target: Callable, scope: ProxyZoneScope): Callable {
   });
 
   proxyCache.set(target, proxied);
+  producedProxies().add(proxied);
 
   return proxied;
 }
@@ -249,7 +274,11 @@ export function installProxyZonePatch({ scope = 'shared' }: ProxyZonePatchOption
     throw new Error(MISSING_GLOBALS);
   }
 
-  patchable.forEach(({ name, value }) => Reflect.set(globalThis, name, proxyCallable(value, scope)));
+  // A global this patch already replaced is left alone: re-installing over it would stack another
+  // Proxy layer on every call, and the undo of the installation that put it there still applies.
+  patchable
+    .filter(({ value }) => !producedProxies().has(value))
+    .forEach(({ name, value }) => Reflect.set(globalThis, name, proxyCallable(value, scope)));
 
   return () => {
     originals.forEach(({ name, value }) => Reflect.set(globalThis, name, value));

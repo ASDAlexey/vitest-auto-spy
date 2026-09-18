@@ -42,6 +42,16 @@ class AnchorComponent {
   readonly created = this.doc.createElement('section').tagName;
 }
 
+/** The realm's own constructors, which lib.dom declares on `typeof globalThis` rather than on `Window`. */
+interface RealmGlobals {
+  Array: ArrayConstructor;
+  Date: DateConstructor;
+  Event: typeof Event;
+  Number: NumberConstructor;
+  Object: ObjectConstructor;
+  Promise: PromiseConstructor;
+}
+
 describe('createWindowDouble', () => {
   it('answers the overridden member and leaves its neighbours to the real window', () => {
     const win = createWindowDouble({ innerWidth: 375 });
@@ -92,6 +102,23 @@ describe('createWindowDouble', () => {
 
     expect(win.getComputedStyle(globalThis.document.body).display).toBe('block');
     expect(win.addEventListener).toBe(win.addEventListener);
+  });
+
+  it('hands out a constructor untouched, statics and identity included', () => {
+    // The intersection is what lib.dom leaves out: `Date` and friends live on `typeof globalThis`,
+    // not on `Window`, and naming the six this reads keeps the mapped override type small.
+    const win = createWindowDouble<Window & RealmGlobals>({ innerWidth: 375 });
+
+    // Bound, these were all gone: a bound function keeps none of its target's own properties, so
+    // `this.win.Date.now()` in code that injects the window died with "not a function" — in the
+    // test only.
+    expect(win.Date.now()).toBeGreaterThan(0);
+    expect(typeof win.Promise.resolve).toBe('function');
+    expect(win.Object.keys({ a: 1 })).toEqual(['a']);
+    expect(win.Array.isArray([])).toBe(true);
+    expect(win.Number.isFinite(1)).toBe(true);
+    expect(win.Event).toBe(globalThis.window.Event);
+    expect(new win.Event('click')).toBeInstanceOf(Event);
   });
 
   it('keeps a write off the real window', () => {
