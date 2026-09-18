@@ -281,3 +281,44 @@ describe('createSpyFromInstance — giving the object back', () => {
     expect(client.refund('7')).toBeUndefined();
   });
 });
+
+describe('createSpyFromInstance — symbol-keyed members', () => {
+  const RENDER = Symbol('render');
+
+  it('spies a method the object carries under a symbol', () => {
+    const widget = { [RENDER]: (): string => 'real' };
+
+    const spy = createSpyFromInstance(widget);
+    spy[RENDER].mockReturnValue('stubbed');
+
+    expect(widget[RENDER]()).toBe('stubbed');
+  });
+});
+
+describe('createSpyFromInstance — an object with no Object.prototype above it', () => {
+  it('spies the methods of a null-prototype dictionary', () => {
+    const registry = Object.create(null) as { send(payload: string): string };
+    registry.send = (): string => 'real';
+
+    const spy = createSpyFromInstance(registry);
+    spy.send.mockReturnValue('stubbed');
+
+    expect(registry.send('x')).toBe('stubbed');
+    expect(vi.isMockFunction(registry.send)).toBe(true);
+  });
+
+  it('leaves the members of a foreign realm Object.prototype alone', () => {
+    const alienObjectPrototype = Object.create(null) as Record<string, unknown>;
+    alienObjectPrototype['hasOwnProperty'] = function hasOwnProperty(): boolean {
+      return false;
+    };
+
+    const instance = Object.create(alienObjectPrototype) as { own(): string };
+    instance.own = (): string => 'real';
+
+    createSpyFromInstance(instance);
+
+    expect(vi.isMockFunction(instance.own)).toBe(true);
+    expect(vi.isMockFunction(alienObjectPrototype['hasOwnProperty'])).toBe(false);
+  });
+});

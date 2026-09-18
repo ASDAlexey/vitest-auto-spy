@@ -270,6 +270,25 @@ export interface AddCalledWithSpyMethods<Method extends Func> {
   mustBeCalledWith(...args: Parameters<Method>): WithMockReturnValue<Method>;
 }
 
+/**
+ * Argument-matching helpers for a method whose return type is `any`, where every bundle is honest.
+ *
+ * `[any] extends [Promise<infer P>]` is **true**, so such a method used to be typed as a promise
+ * spy and nothing else: `calledWith(1).mockReturnValue(…)` did not compile — the chain offered
+ * `resolveWith` / `rejectWith` instead — on a member that at runtime answers to all of them. A
+ * legacy service and a JavaScript wrapper are where `any` comes from, which is to say a migration
+ * off `jest-auto-spies`, where the same line compiled.
+ */
+export type AddCalledWithAny<Method extends Func> = {
+  /** Argument-matched and lenient on a miss — see {@link AddCalledWithSpyMethods.calledWith}. */
+  calledWith(...args: Parameters<Method>): AnyReturnHelpers & WithMockReturnValue<Method>;
+  mustBeCalledWith(...args: Parameters<Method>): AnyReturnHelpers & WithMockReturnValue<Method>;
+};
+
+/** Every value-shaped bundle at once — what a member typed `any` can legitimately be told to answer. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- the member's own return type is `any`; narrowing the helpers here would reject configuration the runtime accepts.
+export type AnyReturnHelpers = AddObservableSpyMethods<any> & AddPromiseSpyMethods<any>;
+
 /** Argument-matching helpers that resolve to observable helpers. */
 export type AddCalledWithObservable<Method extends Func, O> = {
   /** Argument-matched and lenient on a miss — see {@link AddCalledWithSpyMethods.calledWith}. */
@@ -342,19 +361,25 @@ export interface AddVoidReturnHelpers {
  *    because a spy that does not reject a wrong stub reads as a spy that is not typed at all.
  *    Cost: 274 type instantiations on the `types:budget` fixture, 9044 → 9318 of a budget of
  *    11 000.
+ * 5. **`any` is answered first**, by `0 extends ReturnType & 1` — the one test that tells `any` from
+ *    every other type. Without it `[any] extends [Promise<infer P>]` is true, so a method a legacy
+ *    service declares as `any` was typed as a promise spy and lost `mockReturnValue` on its
+ *    `calledWith` chain. See {@link AddCalledWithAny}.
  */
 export type AddSpyMethodsByReturnTypes<Method extends Func> = AddThrowHelper &
   Method &
   MockInstance<Method> &
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the `(...args: any[]) => infer ReturnType` conditional only extracts the return type; the parameter shape is irrelevant here and a narrower signature would fail to match arbitrary methods.
   (Method extends (...args: any[]) => infer ReturnType
-    ? [ReturnType] extends [Promise<infer P>]
-      ? AddCalledWithPromise<Method, P> & AddPromiseSpyMethods<P>
-      : [ReturnType] extends [ObservableLike<infer O>]
-        ? AddCalledWithObservable<Method, O> & AddObservableSpyMethods<O>
-        : [ReturnType] extends [void]
-          ? AddCalledWithSpyMethods<Method> & AddVoidReturnHelpers
-          : AddCalledWithSpyMethods<Method>
+    ? 0 extends ReturnType & 1
+      ? AddCalledWithAny<Method> & AnyReturnHelpers
+      : [ReturnType] extends [Promise<infer P>]
+        ? AddCalledWithPromise<Method, P> & AddPromiseSpyMethods<P>
+        : [ReturnType] extends [ObservableLike<infer O>]
+          ? AddCalledWithObservable<Method, O> & AddObservableSpyMethods<O>
+          : [ReturnType] extends [void]
+            ? AddCalledWithSpyMethods<Method> & AddVoidReturnHelpers
+            : AddCalledWithSpyMethods<Method>
     : AddCalledWithSpyMethods<Method>);
 
 // ---------------------------------------------------------------------------
@@ -465,11 +490,20 @@ export type SpyDisposable = {
   [Symbol.dispose](): void;
 };
 
-/** The `accessorSpies` bag added to every auto-spy. */
+/**
+ * The `accessorSpies` bag added to every auto-spy.
+ *
+ * Each half is typed against the member it stands for, not as a bare `Mock`: `Mock` is
+ * `Mock<Procedure>`, so `accessorSpies.getters.count.mockReturnValue('not a number')` compiled on
+ * `get count(): number` — the read-side twin of the hole the method surface closed by taking
+ * `MockInstance<Method>` (see {@link AddSpyMethodsByReturnTypes}). `Mock<…>` rather than
+ * `MockInstance<…>` keeps the call signature the bag has always had, so a spec that invokes the
+ * accessor spy directly still compiles.
+ */
 export type AddAccessorsSpies<T> = {
   accessorSpies: {
-    getters: { [K in keyof T]: Mock };
-    setters: { [K in keyof T]: Mock };
+    getters: { [K in keyof T]: Mock<() => T[K]> };
+    setters: { [K in keyof T]: Mock<(value: T[K]) => void> };
   };
 };
 

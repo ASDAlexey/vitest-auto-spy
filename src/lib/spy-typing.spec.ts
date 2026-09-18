@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { createSpyFromClass } from './create-spy-from-class';
 import { registerMockAdapter } from './mock-adapter';
@@ -45,6 +45,28 @@ describe('asInstances', () => {
   });
 });
 
+class BaseSdk {
+  static create(): string {
+    return 'real';
+  }
+}
+
+class Sdk extends BaseSdk {
+  static readonly VERSION = '2.1.0';
+
+  static isSupported(): boolean {
+    return true;
+  }
+
+  static get probe(): string {
+    throw new Error('a static getter must not be read while the double is built');
+  }
+
+  send(payload: string): string {
+    return payload;
+  }
+}
+
 describe('createSpyClass', () => {
   it('is construction-compatible and records every construction', () => {
     const WorkerSpy = createSpyClass(BackgroundWorker);
@@ -55,6 +77,34 @@ describe('createSpyClass', () => {
     expect(WorkerSpy.calls).toEqual([['task.js'], []]);
     expect(WorkerSpy.instances).toEqual([first, second]);
     expect(first).not.toBe(second);
+  });
+
+  it('leaves the statics off the double by default', () => {
+    const SdkSpy = createSpyClass(Sdk);
+
+    expect('isSupported' in SdkSpy).toBe(false);
+  });
+
+  it("carries the statics, its own and its base class', when asked", () => {
+    const SdkSpy = createSpyClass(Sdk, undefined, { statics: true }) as unknown as typeof Sdk;
+
+    (SdkSpy.isSupported as unknown as { mockReturnValue(value: boolean): void }).mockReturnValue(false);
+
+    expect(SdkSpy.isSupported()).toBe(false);
+    expect(SdkSpy.VERSION).toBe('2.1.0');
+    expect(vi.isMockFunction(SdkSpy.create)).toBe(true);
+    expect(Object.getOwnPropertyDescriptor(SdkSpy, 'probe')).toBeUndefined();
+    expect(new SdkSpy().send).toBeDefined();
+  });
+
+  it('keeps its own members when a static is named like one of them', () => {
+    class Collides {
+      static instances = ['real'];
+    }
+
+    const CollidesSpy = createSpyClass(Collides, undefined, { statics: true });
+
+    expect(CollidesSpy.instances).toEqual([]);
   });
 
   it('hands out full auto-spies, honouring the spy configuration', () => {

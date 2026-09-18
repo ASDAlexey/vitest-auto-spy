@@ -80,30 +80,77 @@ const EMPTY_CONFIGURATION: ResolvedSpyConfiguration = {
  * same one-sided filter is why `jasmine-auto-spies` has the identical defect.)
  *
  * A name is a method when the prototype descriptor carries a value, which is what this now asks.
+ *
+ * **Symbol-keyed methods count**, with the language's own symbols left out — see
+ * {@link isProtocolSymbol}. A class that declares `[SERIALIZE]()` or `[Symbol.for('app.render')]()`
+ * used to walk out of discovery entirely, so `Spy<T>` typed the member and the double did not have
+ * it; the read answered `undefined` and the failure landed inside the code under test.
  */
-function extractMethodsFromObject(obj: object): string[] {
-  const descriptors = Object.getOwnPropertyDescriptors(obj);
+function extractMethodsFromObject(obj: object): PropertyKey[] {
+  return Reflect.ownKeys(obj).filter((key) => {
+    if (key === 'constructor' || isProtocolSymbol(key)) {
+      return false;
+    }
 
-  return Object.keys(descriptors).filter((name) => name !== 'constructor' && !descriptors[name]?.get && !descriptors[name]?.set);
+    const descriptor = Object.getOwnPropertyDescriptor(obj, key);
+
+    return !descriptor?.get && !descriptor?.set;
+  });
 }
 
 /**
- * Visit every prototype in the chain that has a parent — i.e. everything up to
- * but not including `Object.prototype` (whose parent is `null`). Shared by the
- * method- and accessor-name collectors so both stop before `Object`'s own
- * members (`__proto__`, `hasOwnProperty`, …).
+ * Whether a key is one of the runtime's own symbols rather than a member of the type being doubled.
+ *
+ * Spying these is not an extra spy, it is a broken object: a spy at `Symbol.iterator` makes
+ * `[...double]` throw where the class is iterable, one at `Symbol.toPrimitive` breaks every string
+ * conversion, and one at `nodejs.util.inspect.custom` breaks the failure message that was about to
+ * explain something else. `Symbol.dispose` is in the list for a second reason — `resetAutoSpy`
+ * already owns that key on every double. The list is the same judgement `fillMissing` makes about
+ * protocol keys, and it is derived rather than written out, so a symbol a future runtime adds to
+ * `Symbol` is covered without an edit here.
+ */
+const PROTOCOL_SYMBOLS = new Set<PropertyKey>([
+  ...Object.getOwnPropertyNames(Symbol)
+    .map((name) => Reflect.get(Symbol, name))
+    .filter((value): value is symbol => typeof value === 'symbol'),
+  Symbol.for('nodejs.util.inspect.custom'),
+]);
+
+function isProtocolSymbol(key: PropertyKey): boolean {
+  return PROTOCOL_SYMBOLS.has(key);
+}
+
+/**
+ * Whether a level of the chain is `Object.prototype` itself — the one level whose members
+ * (`hasOwnProperty`, `__proto__`, `toString`) belong to the language rather than to the type being
+ * doubled.
+ *
+ * Asked by identity rather than by "has no parent", which is what a null prototype otherwise looks
+ * like: `Object.create(null)` — a dictionary of handlers, an ngrx-style registry, a class built on a
+ * null-prototype base — *is* the root of its own chain, so the "no parent" reading skipped the only
+ * level that carried anything and `createSpyFromInstance` handed back an object with no spies on it
+ * at all. The second half is the cross-realm case, where `Object.prototype` from another realm is
+ * not this realm's: a parentless level that answers `hasOwnProperty` is one.
+ */
+function isObjectPrototype(level: object): boolean {
+  return (
+    level === Object.prototype || (Object.getPrototypeOf(level) === null && typeof Reflect.get(level, 'hasOwnProperty') === 'function')
+  );
+}
+
+/**
+ * Visit every prototype in the chain up to but not including `Object.prototype`, so both the
+ * method- and the accessor-name collector stop before `Object`'s own members.
  */
 function walkOwnPrototypes(prototype: object, visit: (obj: object) => void): void {
   let current: object | null = prototype;
 
   while (current) {
-    const parent: object | null = Object.getPrototypeOf(current);
-
-    if (parent) {
+    if (!isObjectPrototype(current)) {
       visit(current);
     }
 
-    current = parent;
+    current = Object.getPrototypeOf(current);
   }
 }
 
@@ -116,13 +163,17 @@ function walkOwnPrototypes(prototype: object, visit: (obj: object) => void): voi
  * field would otherwise be spied over as if it were a method, and an accessor drops out for free by
  * having no `value` at all.
  */
-export function getCallableMemberNames(target: object): string[] {
-  const names = new Set<string>();
+export function getCallableMemberNames(target: object): PropertyKey[] {
+  const names = new Set<PropertyKey>();
 
   walkOwnPrototypes(target, (obj) => {
-    for (const [name, descriptor] of Object.entries(Object.getOwnPropertyDescriptors(obj))) {
-      if (name !== 'constructor' && typeof descriptor.value === 'function') {
-        names.add(name);
+    for (const key of Reflect.ownKeys(obj)) {
+      if (key === 'constructor' || isProtocolSymbol(key)) {
+        continue;
+      }
+
+      if (typeof Object.getOwnPropertyDescriptor(obj, key)?.value === 'function') {
+        names.add(key);
       }
     }
   });
@@ -133,17 +184,17 @@ export function getCallableMemberNames(target: object): string[] {
 // A class's method set is immutable for a run, but the same class is typically
 // spied once per `beforeEach` — caching by prototype avoids re-walking the chain
 // on every spy. `WeakMap` keeps this GC-safe (no retention of unused classes).
-const methodNamesCache = new WeakMap<object, string[]>();
+const methodNamesCache = new WeakMap<object, PropertyKey[]>();
 
 /** Walk the prototype chain and collect every method name (de-duplicated), including inherited ones. Cached per prototype. */
-function getAllMethodNames(prototype: object): string[] {
+function getAllMethodNames(prototype: object): PropertyKey[] {
   const cached = methodNamesCache.get(prototype);
 
   if (cached) {
     return cached;
   }
 
-  const methods = new Set<string>();
+  const methods = new Set<PropertyKey>();
   walkOwnPrototypes(prototype, (obj) => extractMethodsFromObject(obj).forEach((name) => methods.add(name)));
 
   const result = [...methods];
@@ -240,7 +291,7 @@ export function resolveAccessors(prototype: object, config: ResolvedSpyConfigura
  * lists — `methodsToSpyOn` and `instanceMethodsToSpyOn` — behave identically and differ only in what
  * their names tell a reader, so they are merged without ceremony.
  */
-function resolveMethodNames<T>(ObjectClass: ClassType<T>, config: ResolvedSpyConfiguration): string[] {
+function resolveMethodNames<T>(ObjectClass: ClassType<T>, config: ResolvedSpyConfiguration): PropertyKey[] {
   return mergeMethodNames(
     config.onlyMethodsToSpyOn.length > 0 ? config.onlyMethodsToSpyOn : getAllMethodNames(ObjectClass.prototype),
     config,
@@ -248,7 +299,7 @@ function resolveMethodNames<T>(ObjectClass: ClassType<T>, config: ResolvedSpyCon
 }
 
 /** Fold the two additive lists into whatever discovery produced. */
-export function mergeMethodNames(base: string[], config: ResolvedSpyConfiguration): string[] {
+export function mergeMethodNames(base: PropertyKey[], config: ResolvedSpyConfiguration): PropertyKey[] {
   // The overwhelmingly common call is `provideAutoSpy(Service)` with no lists at all, once per
   // `beforeEach`. Returning the cached array untouched keeps that path allocation-free — building a
   // `Set` to merge two empty arrays would undo the per-prototype cache it just read from.
@@ -256,7 +307,7 @@ export function mergeMethodNames(base: string[], config: ResolvedSpyConfiguratio
     return base;
   }
 
-  return [...new Set([...base, ...config.methodsToSpyOn, ...config.instanceMethodsToSpyOn])];
+  return [...new Set<PropertyKey>([...base, ...config.methodsToSpyOn, ...config.instanceMethodsToSpyOn])];
 }
 
 /**
@@ -383,9 +434,122 @@ export function applyConfiguredReturns(
   applyReturns(double, factory, config.returns);
 }
 
+/**
+ * The probe that takes a double off the property map it shares with every other double of its
+ * class, and the set of doubles already taken off it.
+ *
+ * Sharing one accessor pair per method name is what makes an untouched double cost ~70 B instead of
+ * ~25 kB — and it is also what makes the *first* materialisation expensive on V8: every double of
+ * the class is then on the same fast-mode map, and turning one accessor into a data property
+ * rewrites that map rather than updating a hash. Measured on a 300-method class it is the
+ * difference between 31 µs and 1.5 ms to materialise the lot. Defining and deleting one property
+ * drops the object into dictionary mode, where the reconfiguration is a hash update again; doing it
+ * on the first materialisation rather than at build keeps the untouched double — the one whose size
+ * decides whether a suite survives `isolate: false` — on the shared map.
+ */
+const PLACEHOLDER_PROBE = Symbol('vitest-auto-spy.placeholderProbe');
+
+const dictionaryDoubles = new WeakSet<object>();
+
+function dropSharedPropertyMap(autoSpy: object): void {
+  if (dictionaryDoubles.has(autoSpy)) {
+    return;
+  }
+
+  dictionaryDoubles.add(autoSpy);
+  Object.defineProperty(autoSpy, PLACEHOLDER_PROBE, { configurable: true, value: true });
+  Reflect.deleteProperty(autoSpy, PLACEHOLDER_PROBE);
+}
+
 /** Replace the accessor placeholder with the plain, writable data property the spy ends up as. */
-function materializeMethodSpy(autoSpy: Record<string, unknown>, methodName: string, value: unknown): void {
+function materializeMethodSpy(autoSpy: object, methodName: PropertyKey, value: unknown): void {
+  if (Object.isExtensible(autoSpy)) {
+    dropSharedPropertyMap(autoSpy);
+  } else if (!Object.getOwnPropertyDescriptor(autoSpy, methodName)?.configurable) {
+    membersOfSealedDouble(autoSpy).set(methodName, value);
+
+    return;
+  }
+
   Object.defineProperty(autoSpy, methodName, { configurable: true, enumerable: true, writable: true, value });
+}
+
+/**
+ * The spies of a double that was frozen or sealed before its methods were read.
+ *
+ * A placeholder materialises by redefining itself, and a frozen double refuses that — so the first
+ * read of any method threw `Cannot redefine property`, from inside a getter, on a double that had
+ * done nothing wrong. Deep-freezing fixtures and dev-mode state guards do this to whatever they are
+ * handed, and `lazySpies: 'proxy'` already survives it (its `preventExtensions` trap materialises
+ * everything first). Keeping the spy beside the double preserves the one thing the read has to
+ * guarantee — the same method answers the same spy every time — without writing to an object whose
+ * owner asked for it not to be written to.
+ */
+const sealedDoubleMembers = new WeakMap<object, Map<PropertyKey, unknown>>();
+
+function membersOfSealedDouble(autoSpy: object): Map<PropertyKey, unknown> {
+  let members = sealedDoubleMembers.get(autoSpy);
+
+  if (!members) {
+    members = new Map<PropertyKey, unknown>();
+    sealedDoubleMembers.set(autoSpy, members);
+  }
+
+  return members;
+}
+
+/**
+ * The strict-mode guard of a double whose method spies do not exist yet.
+ *
+ * Off the double rather than on it: the placeholders below are shared between every double of every
+ * class, so the guard cannot travel in their closures any more — and a symbol property would put it
+ * on the double itself, where `Reflect.ownKeys` and every copy of the double would carry it. Only a
+ * strict double has an entry.
+ */
+const lazyGuards = new WeakMap<object, UnstubbedGuard>();
+
+/**
+ * One `get`/`set` pair per method *name*, shared by every double that has a method of that name.
+ *
+ * The pair used to be minted per method per double, and on a wide class that is what an untouched
+ * double retained: distinct accessor functions per key mean a property map per double, 25.6 kB of
+ * it for a 100-method class against 70 B for a shared pair — the figure that decides whether a
+ * suite survives `isolate: false`, and the reason `lazySpies: 'proxy'` exists at all.
+ *
+ * Reading the double through `this` is what makes the sharing possible, and it is also the whole of
+ * the behaviour change: `Object.create(double).method` materialises on the heir rather than on the
+ * double. Nothing in the library reads a double through a heir, and a test that does has said so.
+ */
+const lazyAccessors = new Map<PropertyKey, PropertyDescriptor>();
+
+function lazyAccessorFor(methodName: PropertyKey): PropertyDescriptor {
+  let accessor = lazyAccessors.get(methodName);
+
+  if (!accessor) {
+    accessor = {
+      configurable: true,
+      enumerable: true,
+      get(this: object): unknown {
+        const sealed = Object.isExtensible(this) ? undefined : membersOfSealedDouble(this);
+
+        if (sealed?.has(methodName)) {
+          return sealed.get(methodName);
+        }
+
+        const spy = createFunctionSpy(String(methodName), lazyGuards.get(this));
+        materializeMethodSpy(this, methodName, spy);
+
+        return spy;
+      },
+      set(this: object, value: unknown): void {
+        materializeMethodSpy(this, methodName, value);
+      },
+    };
+
+    lazyAccessors.set(methodName, accessor);
+  }
+
+  return accessor;
 }
 
 /**
@@ -396,21 +560,16 @@ function materializeMethodSpy(autoSpy: Record<string, unknown>, methodName: stri
  * spy its implementation — keeps working. Without it the assignment would hit a getter-only
  * property and throw `TypeError: Cannot set property … which has only a getter` in strict mode,
  * which is how every ES module runs.
+ *
+ * The pair itself is shared per name — see {@link lazyAccessorFor} — so the guard is registered
+ * beside the double rather than captured in it.
  */
-function defineLazyMethodSpy(autoSpy: Record<string, unknown>, methodName: string, unstubbed: UnstubbedGuard | undefined): void {
-  Object.defineProperty(autoSpy, methodName, {
-    configurable: true,
-    enumerable: true,
-    get(): unknown {
-      const spy = createFunctionSpy(methodName, unstubbed);
-      materializeMethodSpy(autoSpy, methodName, spy);
+function defineLazyMethodSpy(autoSpy: object, methodName: PropertyKey, unstubbed: UnstubbedGuard | undefined): void {
+  if (unstubbed) {
+    lazyGuards.set(autoSpy, unstubbed);
+  }
 
-      return spy;
-    },
-    set(value: unknown): void {
-      materializeMethodSpy(autoSpy, methodName, value);
-    },
-  });
+  Object.defineProperty(autoSpy, methodName, lazyAccessorFor(methodName));
 }
 
 /** Normalize the overloaded second argument into a single flat configuration. */
@@ -493,7 +652,12 @@ export function createSpyFromClass<T, Options extends SpyOptions = SpyOptions>(
 function applyOverrides(autoSpy: object, overrides: object): void {
   for (const key of Reflect.ownKeys(overrides)) {
     const value: unknown = Reflect.get(overrides, key);
-    const getterSpy: unknown = Reflect.get(Object(Reflect.get(Object(Reflect.get(autoSpy, 'accessorSpies')), 'getters')), key);
+    // The bag through its descriptor, never through a read: on the `createAutoMock` proxy the
+    // abstract-class fallback returns, reading a key *mints* a spy for it — so asking for
+    // `accessorSpies` there put a function spy nobody wanted into `ownKeys`, into every spread and
+    // into `explainSpy`. A proxy has no descriptor for it, which is the right answer.
+    const bag: unknown = Object.getOwnPropertyDescriptor(autoSpy, 'accessorSpies')?.value;
+    const getterSpy: unknown = Reflect.get(Object(Reflect.get(Object(bag), 'getters')), key);
 
     // A spied getter (`gettersToSpyOn`, or a class default that names one) swallows an assignment
     // into its setter and keeps answering `undefined`, so the seed becomes what the getter returns.
@@ -575,21 +739,39 @@ function assembleSpy<T, Options extends SpyOptions>(ObjectClass: ClassType<T>, c
   // `'proxy'` defines nothing at all for the methods — one trap object answers all of them, so what
   // an untouched double retains stops scaling with the width of the class. The names are handed to
   // the wrapper below instead of being defined here.
-  if (config.lazySpies !== 'proxy') {
-    methodNames.forEach((methodName) => {
-      if (config.lazySpies) {
-        defineLazyMethodSpy(autoSpy, methodName, unstubbed);
-      } else {
-        autoSpy[methodName] = createFunctionSpy(methodName, unstubbed);
-      }
-    });
-  }
+  //
+  // A **symbol-keyed** method is defined on the record in every mode, `'proxy'` included: the trap
+  // object answers string names, and reporting a symbol from `ownKeys` that the target does not have
+  // is what a Proxy may not do. There are never many of them, so nothing scales with this.
+  methodNames.forEach((methodName) => {
+    if (config.lazySpies === 'proxy' && typeof methodName === 'string') {
+      return;
+    }
+
+    if (config.lazySpies) {
+      defineLazyMethodSpy(autoSpy, methodName, unstubbed);
+    } else {
+      Object.defineProperty(autoSpy, methodName, {
+        value: createFunctionSpy(String(methodName), unstubbed),
+        writable: true,
+        enumerable: true,
+        configurable: true,
+      });
+    }
+  });
 
   attachDispose(autoSpy);
 
   // Wrapped after `attachDispose`, so the dispose symbol is on the record the traps forward to
   // rather than on a key the proxy has to special-case.
-  const assembled = config.lazySpies === 'proxy' ? createLazySpyProxy(autoSpy, methodNames, unstubbed) : autoSpy;
+  const assembled =
+    config.lazySpies === 'proxy'
+      ? createLazySpyProxy(
+          autoSpy,
+          methodNames.filter((name): name is string => typeof name === 'string'),
+          unstubbed,
+        )
+      : autoSpy;
 
   // `autoSpy` is assembled key-by-key from the runtime method/accessor names;
   // its concrete `Spy<T>` shape only exists structurally after assembly.

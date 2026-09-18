@@ -66,26 +66,26 @@ function collectKeys(value: object): Set<PropertyKey> {
  */
 const BARE_FUNCTION_KEYS = collectKeys(mockDeep);
 
-let spySurfaceKeys: Set<PropertyKey> | undefined;
-
 /**
- * The keys a real function spy carries — every helper the spy factory and the active
- * {@link MockAdapter} put on it, own or inherited — minus the ones (`length`, `name`, `prototype`,
- * `call`, `bind`, …) that any function carries regardless.
+ * Whether `key` is part of the spy's own surface — a helper the spy factory or the active
+ * {@link MockAdapter} put on the node's spy, own or inherited — rather than a member of the type
+ * being mocked.
  *
- * Read off a live probe spy instead of listed by hand: the surface differs per adapter (Vitest,
- * Bun, `node:test`) and grows with every helper the factory attaches, so a hand-written list would
- * drift from all three at once. The subtraction is the part that fixes the bug — those three are
- * own properties of *every* function, so keeping them made `mockDeep<Api>().name` answer with the
- * mock's name rather than materialise the `name` member of the mocked API.
+ * Asked of the node's own spy on each read, and deliberately not cached from a probe spy built
+ * once. The surface **grows during a run**: `/rxjs` and `/jasmine` add their helpers when they are
+ * imported, and `setSpyEngine` swaps the whole prototype — so a set captured at the first property
+ * access of the first `mockDeep` in the worker was wrong for every double built after a later
+ * import, and wrong silently. `deep.feed.items.nextWith(1)` became a *child node*: callable,
+ * recorded, emitting nothing. Under `isolate: false` all it takes is one spec file that reads a
+ * deep mock before another file imports `/rxjs`.
  *
- * Derived on first property access rather than at import: building a spy needs a registered mock
- * adapter, and an entry registers one while this module is still being imported.
+ * The subtraction is what keeps a mocked member from being swallowed: `length`, `name`,
+ * `prototype`, `call`, `bind`, `constructor`, `toString` are own or inherited properties of *every*
+ * function, so without it `mockDeep<Api>().name` answered with the mock's name instead of
+ * materialising the `name` member of the mocked API.
  */
-function getSpySurfaceKeys(): Set<PropertyKey> {
-  spySurfaceKeys ??= new Set([...collectKeys(createFunctionSpy<Func>('mockDeep.probe'))].filter((key) => !BARE_FUNCTION_KEYS.has(key)));
-
-  return spySurfaceKeys;
+function isSpySurfaceKey(spy: Func, key: PropertyKey): boolean {
+  return !BARE_FUNCTION_KEYS.has(key) && key in spy;
 }
 
 /**
@@ -168,10 +168,10 @@ function readNodeMember(state: DeepNodeState, target: Func, key: string | symbol
   }
 
   // Real spy surface (calledWith / mock / mockReturnValue / …) wins over a child — and nothing
-  // beyond it. The test used to be `key in target`, which also covers everything a function
-  // carries anyway, so a mocked member named `name`, `length`, `call`, `bind`, `apply`,
-  // `constructor` or `toString` never materialised at all.
-  if (getSpySurfaceKeys().has(key)) {
+  // beyond it. A bare `key in target` also covers everything a function carries anyway, so a mocked
+  // member named `name`, `length`, `call`, `bind`, `apply`, `constructor` or `toString` never
+  // materialised at all; see `isSpySurfaceKey`.
+  if (isSpySurfaceKey(target, key)) {
     return readSpyMember(target, key, state.boundSpyMethods);
   }
 

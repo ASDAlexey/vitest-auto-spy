@@ -8,7 +8,8 @@
  * a named, documented view instead of an assertion scattered through the suite.
  */
 import { createSpyFromClass } from './create-spy-from-class';
-import type { ClassSpyConfiguration, ClassType, DeepMockProxy, Spy, SpyOptions } from './types';
+import { createFunctionSpy } from './function-spy';
+import type { ClassSpyConfiguration, ClassType, DeepMockProxy, Func, Spy, SpyOptions } from './types';
 
 /**
  * View a spy as the class it stands for, for APIs typed against `T`.
@@ -127,6 +128,52 @@ export interface ConstructorSpy<T> {
   instances: Spy<T>[];
 }
 
+/** What {@link createSpyClass} can do beyond building the instances. */
+export interface SpyClassOptions {
+  /**
+   * Carry the class's **static** members onto the double.
+   *
+   * A constructor double usually replaces the real class where the code under test can see it —
+   * `mockValueProp(globalThis, 'Worker', createSpyClass(Worker))` — and production code reads
+   * statics off that name too: a `Worker.isSupported()` feature check, a `Client.create()` factory,
+   * a `VERSION` constant. Without them the replacement is missing exactly the half `new` does not
+   * cover, and the failure is `SpyClass.isSupported is not a function` inside production code.
+   *
+   * Off by default, because it *adds* members to the double: a static named like one of this
+   * helper's own (`calls`, `instances`) would otherwise be shadowed by it.
+   */
+  statics?: boolean;
+}
+
+/** Keys a function has by itself, plus the two this helper owns — none of them is a member of the class. */
+const NON_STATIC_KEYS = new Set<PropertyKey>(['prototype', 'length', 'name', 'caller', 'arguments', 'calls', 'instances']);
+
+/**
+ * Put a spy (or a copy) on the double for every static member the class declares, inherited statics
+ * included — a base class's `create()` is reached through the subclass at runtime.
+ *
+ * Read from descriptors, never by reading the member: a static **getter** is code the class owns and
+ * calling it during setup is a side effect nobody asked for, so an accessor is left out rather than
+ * evaluated. Data members are copied as they are — a `VERSION` string is what the code under test
+ * expects to find, not a spy that answers `undefined`.
+ */
+function copyStaticSpies(SpyClass: object, ObjectClass: object): void {
+  for (let level: object | null = ObjectClass; level && level !== Function.prototype; level = Object.getPrototypeOf(level)) {
+    for (const key of Reflect.ownKeys(level)) {
+      const descriptor = Object.getOwnPropertyDescriptor(level, key);
+
+      if (NON_STATIC_KEYS.has(key) || Object.prototype.hasOwnProperty.call(SpyClass, key) || !descriptor || !('value' in descriptor)) {
+        continue;
+      }
+
+      const declared: unknown = descriptor.value;
+      const value: unknown = typeof declared === 'function' ? createFunctionSpy<Func>(String(key)) : declared;
+
+      Object.defineProperty(SpyClass, key, { value, writable: true, configurable: true, enumerable: descriptor.enumerable === true });
+    }
+  }
+}
+
 /**
  * A spy that can be called with `new`.
  *
@@ -143,7 +190,11 @@ export interface ConstructorSpy<T> {
  * WorkerSpy.instances[0].postMessage.mockReturnValue(undefined);
  * ```
  */
-export function createSpyClass<T>(ObjectClass: ClassType<T>, config?: ClassSpyConfiguration<T>): ConstructorSpy<T> {
+export function createSpyClass<T>(
+  ObjectClass: ClassType<T>,
+  config?: ClassSpyConfiguration<T>,
+  options?: SpyClassOptions,
+): ConstructorSpy<T> {
   const calls: unknown[][] = [];
   const instances: Spy<T>[] = [];
 
@@ -160,6 +211,10 @@ export function createSpyClass<T>(ObjectClass: ClassType<T>, config?: ClassSpyCo
 
   SpyClass.calls = calls;
   SpyClass.instances = instances;
+
+  if (options?.statics) {
+    copyStaticSpies(SpyClass, ObjectClass);
+  }
 
   // A plain function that returns an object *is* construction-compatible at runtime, but TypeScript
   // models callable and `new`-able as unrelated shapes, so the two views only meet through `object`.

@@ -145,7 +145,7 @@ export { mockDeep, type MockDeepOptions } from './lib/mock-deep';
 export { createFunctionSpy } from './lib/function-spy';
 
 // Taking hold of an argument the code under test built, rather than describing its shape
-export { captureArg, type ArgCaptor } from './lib/capture-arg';
+export { captureArg, type ArgCaptor, type CaptureArgOptions } from './lib/capture-arg';
 
 // Reset helpers
 export { clearAutoSpy, resetAutoSpy } from './lib/reset-auto-spy';
@@ -186,7 +186,15 @@ export {
 } from './lib/expect-emission';
 
 // Type bridges between `Spy<T>` and `T`, plus a construction-compatible spy
-export { asInstance, asInstances, asSpy, createSpyClass, type AsInstances, type ConstructorSpy } from './lib/spy-typing';
+export {
+  asInstance,
+  asInstances,
+  asSpy,
+  createSpyClass,
+  type AsInstances,
+  type ConstructorSpy,
+  type SpyClassOptions,
+} from './lib/spy-typing';
 
 // Saying which branch of a union a test got, so the failure names the shape it actually had
 export { narrow } from './lib/narrow';

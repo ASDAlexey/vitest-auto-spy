@@ -12,6 +12,7 @@ import { createSpyFromClass } from './create-spy-from-class';
 import { registerMockAdapter } from './mock-adapter';
 import { mockDeep } from './mock-deep';
 import { clearAutoSpy, resetAutoSpy } from './reset-auto-spy';
+import { asInstance } from './spy-typing';
 import { vitestMockAdapter } from './vitest-adapter';
 
 beforeAll(() => {
@@ -147,5 +148,48 @@ describe('resetAutoSpy', () => {
 
     expect(api.repo.load).toHaveBeenCalledTimes(0);
     expect(api.repo.load()).toBe('cached');
+  });
+});
+
+describe('resetAutoSpy — configuration the host mock holds', () => {
+  it('drops a pending mockReturnValueOnce, as vi.resetAllMocks() does', () => {
+    const spy = createSpyFromClass(Svc);
+    spy.a.mockReturnValueOnce('once');
+
+    resetAutoSpy(spy);
+
+    expect(spy.a(1)).toBeUndefined();
+  });
+
+  it('drops what an accessor spy was configured with', () => {
+    const spy = createSpyFromClass(Svc, { gettersToSpyOn: ['g'] });
+    spy.accessorSpies.getters.g.mockReturnValue('configured');
+
+    expect(asInstance(spy).g).toBe('configured');
+
+    resetAutoSpy(spy);
+
+    expect(spy.accessorSpies.getters.g).toHaveBeenCalledTimes(0);
+    expect(asInstance(spy).g).toBeUndefined();
+  });
+
+  it('leaves a getter spy usable after the reset', () => {
+    const spy = createSpyFromClass(Svc, { gettersToSpyOn: ['g'] });
+
+    resetAutoSpy(spy);
+    spy.accessorSpies.getters.g.mockReturnValue('after');
+
+    expect(asInstance(spy).g).toBe('after');
+  });
+
+  it('leaves a method spy answering its library dispatch, so calledWith still configures it', () => {
+    const spy = createSpyFromClass(Svc);
+    spy.a.calledWith(1).mockReturnValue('before');
+
+    resetAutoSpy(spy);
+    spy.a.calledWith(2).mockReturnValue('after');
+
+    expect(spy.a(1)).toBeUndefined();
+    expect(spy.a(2)).toBe('after');
   });
 });

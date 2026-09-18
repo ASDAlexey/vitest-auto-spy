@@ -42,7 +42,11 @@ function collectAccessorMocks(spy: object): MockFn[] {
 function collectOwnMocks(spy: object): MockFn[] {
   const mocks: MockFn[] = [];
 
-  Object.keys(spy).forEach((key) => {
+  // `Reflect.ownKeys`, so a **symbol-keyed** method spy is reset with the rest of the double: a
+  // class that declares `[SERIALIZE]()` gets a spy on that key like any other member, and the
+  // string-only walk left it holding the previous test's calls. The double's own symbols — the mock
+  // brand, `Symbol.dispose` — are not marked mocks, so they drop out on the same test as before.
+  Reflect.ownKeys(spy).forEach((key) => {
     const descriptor = Object.getOwnPropertyDescriptor(spy, key);
 
     // Skip live accessors — a getter/setter, or a not-yet-materialized lazy
@@ -129,8 +133,17 @@ export function resetAutoSpy(spy: object): void {
   const adapter = getMockAdapter();
 
   collectMocks(spy).forEach((mock) => {
-    adapter.clear(mock);
+    // The host's own reset, not a clear, and that is the difference between "reverts the
+    // configuration" and "reverts the configuration this library knows about". Two things live
+    // inside the host mock where a `clear` cannot reach them: a `mockReturnValueOnce` queue, which
+    // used to answer the first call *after* the reset, and everything an accessor spy was
+    // configured with — `accessorSpies.getters.x.mockReturnValue(…)` has no library-side container
+    // at all, so a spied getter kept answering what the previous test told it to.
+    // `vi.resetAllMocks()` drops both, and this is documented as the per-double form of it.
+    adapter.reset(mock);
     runClearHook(mock);
+    // After the host reset, never before: a function spy's hook re-installs the library dispatch,
+    // which the reset above has just replaced with whatever the spy was created with.
     runConfigReset(mock);
   });
 }

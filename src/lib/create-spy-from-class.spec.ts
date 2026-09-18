@@ -12,6 +12,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { applyReturns, createSpyFromClass } from './create-spy-from-class';
 import { setDefaultStrictMode, takeStrictViolations } from './function-spy';
 import { registerMockAdapter } from './mock-adapter';
+import { resetAutoSpy } from './reset-auto-spy';
 import { clearAutoSpyDefaults, registerAutoSpyDefaults } from './spy-defaults';
 import { vitestMockAdapter } from './vitest-adapter';
 
@@ -296,5 +297,151 @@ describe('createSpyFromClass — selfReturning', () => {
 
     expect(warn).toHaveBeenCalledWith(expect.stringContaining("createSpyFromClass(QueryBuilder): selfReturning names 'where'"));
     warn.mockRestore();
+  });
+});
+
+describe('createSpyFromClass — lazy placeholders', () => {
+  it('shares one accessor pair between every double of the class, and still mints a spy per double', () => {
+    const first = createSpyFromClass(Cart);
+    const second = createSpyFromClass(Cart);
+
+    const firstPlaceholder = Object.getOwnPropertyDescriptor(first, 'total');
+    const secondPlaceholder = Object.getOwnPropertyDescriptor(second, 'total');
+
+    expect(firstPlaceholder?.get).toBe(secondPlaceholder?.get);
+
+    first.total.mockReturnValue(1);
+
+    expect(first.total).not.toBe(second.total);
+    expect(second.total()).toBeUndefined();
+    expect(first.total()).toBe(1);
+  });
+
+  it('gives each double its own strict guard, materialised or not', () => {
+    takeStrictViolations();
+    const strict = createSpyFromClass(Cart, { strict: true });
+    const lenient = createSpyFromClass(Cart);
+
+    expect(lenient.total()).toBeUndefined();
+    expect(() => strict.total()).toThrow('Nothing configured Cart.total');
+    expect(takeStrictViolations()).toHaveLength(1);
+  });
+
+  it('materialises a method of a frozen double instead of throwing "Cannot redefine property"', () => {
+    const cart = createSpyFromClass(Cart);
+    Object.freeze(cart);
+
+    const total = cart.total;
+
+    expect(vi.isMockFunction(total)).toBe(true);
+    expect(cart.total).toBe(total);
+
+    cart.total.mockReturnValue(3);
+
+    expect(cart.total()).toBe(3);
+    expect(cart.total).toHaveBeenCalledTimes(1);
+  });
+
+  it('still writes the spy onto a double that is only non-extensible', () => {
+    const cart = createSpyFromClass(Cart);
+    Object.preventExtensions(cart);
+
+    const total = cart.total;
+
+    expect(vi.isMockFunction(total)).toBe(true);
+    expect(Object.getOwnPropertyDescriptor(cart, 'total')?.value).toBe(total);
+  });
+
+  it('keeps an assignment to a sealed double reaching the member it names', () => {
+    const cart = createSpyFromClass(Cart);
+    Object.seal(cart);
+    const replacement = vi.fn(() => 5);
+
+    cart.total = replacement as unknown as typeof cart.total;
+
+    expect(cart.total).toBe(replacement);
+  });
+});
+
+describe('createSpyFromClass — prototypes the chain used to stop short of', () => {
+  class NullRooted {}
+  Object.setPrototypeOf(NullRooted.prototype, null);
+  Object.defineProperty(NullRooted.prototype, 'send', { value: (): string => 'real', writable: true, configurable: true });
+
+  it('spies the methods of a class whose prototype chain has no Object.prototype', () => {
+    const spy = createSpyFromClass(NullRooted as unknown as new () => { send(): string });
+
+    spy.send.mockReturnValue('stubbed');
+
+    expect(spy.send()).toBe('stubbed');
+  });
+
+  it('still leaves Object.prototype members alone', () => {
+    const cart = createSpyFromClass(Cart);
+
+    expect(Object.keys(cart)).not.toContain('hasOwnProperty');
+    expect(vi.isMockFunction(cart.hasOwnProperty)).toBe(false);
+  });
+});
+
+const SERIALIZE = Symbol('serialize');
+
+class Envelope {
+  [SERIALIZE](): string {
+    return 'real';
+  }
+
+  *[Symbol.iterator](): Generator<number> {
+    yield 1;
+  }
+
+  size(): number {
+    return 1;
+  }
+}
+
+describe('createSpyFromClass — symbol-keyed methods', () => {
+  it('spies a method the class declares under a symbol', () => {
+    const envelope = createSpyFromClass(Envelope);
+
+    envelope[SERIALIZE].mockReturnValue('stubbed');
+
+    expect(envelope[SERIALIZE]()).toBe('stubbed');
+    expect(envelope[SERIALIZE]).toHaveBeenCalledTimes(1);
+  });
+
+  it('resets it with the rest of the double', () => {
+    const envelope = createSpyFromClass(Envelope);
+    envelope[SERIALIZE].mockReturnValueOnce('once');
+    envelope[SERIALIZE]();
+
+    resetAutoSpy(envelope);
+
+    expect(envelope[SERIALIZE]).toHaveBeenCalledTimes(0);
+    expect(envelope[SERIALIZE]()).toBeUndefined();
+  });
+
+  it('leaves the runtime own symbols to the runtime', () => {
+    const envelope = createSpyFromClass(Envelope);
+
+    expect(Object.getOwnPropertyDescriptor(envelope, Symbol.iterator)).toBeUndefined();
+  });
+
+  it('answers it eagerly as well, and in proxy mode', () => {
+    const eager = createSpyFromClass(Envelope, { lazySpies: false });
+    const proxied = createSpyFromClass(Envelope, { lazySpies: 'proxy' });
+
+    expect(vi.isMockFunction(eager[SERIALIZE])).toBe(true);
+    expect(vi.isMockFunction(proxied[SERIALIZE])).toBe(true);
+    expect(vi.isMockFunction(proxied.size)).toBe(true);
+  });
+});
+
+describe('createSpyFromClass — overrides on the abstract-class fallback', () => {
+  it('seeds the member without materialising an accessorSpies member beside it', () => {
+    const storage = createSpyFromClass(Storage, { overrides: { read: () => 'seeded' } });
+
+    expect(storage.read('key')).toBe('seeded');
+    expect(Reflect.ownKeys(storage)).not.toContain('accessorSpies');
   });
 });

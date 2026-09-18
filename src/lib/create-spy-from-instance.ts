@@ -161,7 +161,7 @@ export function createSpyFromInstance<T extends object, Options extends SpyOptio
     config,
   );
 
-  methodNames.forEach((name) => installMember(instance, name, createFunctionSpy(name, unstubbed), restores));
+  methodNames.forEach((name) => installMember(instance, name, createFunctionSpy(String(name), unstubbed), restores));
   config.observablePropsToSpyOn.forEach((name) => installMember(instance, name, createTrackedPropSpy(name, reads), restores));
 
   installAccessorSpies(instance, config, restores, reads);
