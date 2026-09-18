@@ -42,6 +42,12 @@ function entrySources(packageJson) {
   const entries = new Map();
 
   for (const [subpath, value] of Object.entries(packageJson.exports)) {
+    // `./package.json` is exported for tools that resolve the manifest — there is no barrel behind
+    // it and no export list to read.
+    if (typeof value === 'string') {
+      continue;
+    }
+
     const types = typeof value.types === 'string' ? value.types : value.import?.types;
 
     if (typeof types !== 'string') {

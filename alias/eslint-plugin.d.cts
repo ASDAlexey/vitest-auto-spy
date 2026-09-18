@@ -1,2 +1,3 @@
-export * from 'vitest-auto-spy/eslint-plugin';
-export { default } from 'vitest-auto-spy/eslint-plugin';
+import entry = require('vitest-auto-spy/eslint-plugin');
+
+export = entry;

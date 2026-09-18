@@ -3,36 +3,9 @@ import { rmSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { defineConfig } from 'tsup';
 
-const EXTERNAL = [
-  // The three specifiers of the optional second peer. `vitest-auto-spy/angular-http` is the only
-  // entry that reaches them, and bundling `@angular/common` would both bloat the entry and defeat
-  // the point of keeping the peer optional.
-  '@angular/common',
-  '@angular/common/http',
-  '@angular/common/http/testing',
-  '@angular/compiler',
-  '@angular/core',
-  '@angular/core/testing',
-  // Both, not only `/testing`: `By` (from the root entry) is what a directive matcher queries with,
-  // and bundling it would inline the whole of `@angular/platform-browser` into `dist/angular.js` —
-  // a package every Angular consumer already has.
-  '@angular/platform-browser',
-  '@angular/platform-browser/testing',
-  // The optional forms peer, reached only by `vitest-auto-spy/signal-forms`.
-  '@angular/forms',
-  '@angular/forms/signals',
-  // The optional router peer, reached only by `vitest-auto-spy/angular-router`.
-  '@angular/router',
-  '@happy-dom/global-registrator',
-  '@rstest/core',
-  'bun',
-  'bun:test',
-  'jsdom',
-  'node:test',
-  'rxjs',
-  'rxjs/operators',
-  'vitest',
-];
+// One list, shared with the scripts that measure this build — see scripts/externals.mjs for why it
+// is not four hand-copied arrays any more.
+import { PEER_EXTERNALS } from './scripts/externals.mjs';
 
 // Ship no sourcemaps, and do NOT minify — not even whitespace. Two separate reasons, and the second
 // one is the expensive one to rediscover:
@@ -56,7 +29,7 @@ const SHARED = {
   sourcemap: false,
   minify: false,
   treeshake: true,
-  external: EXTERNAL,
+  external: PEER_EXTERNALS,
   // tsup strips the `node:` prefix by default, but `node:test` has no unprefixed form —
   // `import … from 'test'` would break at runtime. Keep the prefix.
   removeNodeProtocol: false,
@@ -64,13 +37,12 @@ const SHARED = {
 
 const OUT_DIR = 'dist';
 
-// Every ESM entry except the two below, built together so they share the emitted chunks.
+// Every ESM entry except the solo ones below, built together so they share the emitted chunks.
 const CHUNKED_ENTRIES = [
   'src/angular-http.ts',
   'src/angular-router.ts',
   'src/bun.ts',
   'src/bun-angular.ts',
-  'src/node.ts',
   'src/rstest.ts',
   'src/rxjs.ts',
   'src/console.ts',
@@ -78,10 +50,6 @@ const CHUNKED_ENTRIES = [
   'src/jasmine-compat.ts',
   'src/observer-spy.ts',
   'src/nestjs.ts',
-  'src/react.ts',
-  'src/vue.ts',
-  'src/svelte.ts',
-  'src/setup.ts',
   'src/signal-forms.ts',
   'src/zone.ts',
 ];
@@ -93,9 +61,20 @@ const CHUNKED_ENTRIES = [
 // interop gives an ESM importer, so the wrapper is total.
 const WRAPPED_CJS_ENTRIES = ['src/eslint-plugin.ts'];
 
-// The two entries built as one file each. Every consumer imports the root on every spec, and every
-// Angular consumer imports both.
-const SOLO_ENTRIES = ['src/index.ts', 'src/angular.ts', 'src/dom-stubs.ts', 'src/diagnostics.ts'];
+// The entries built as one file each. Every consumer imports the root on every spec, every Angular
+// consumer imports the root and `/angular`, and every project with a setup file loads `/setup` in
+// every spec file on top of that.
+const SOLO_ENTRIES = [
+  'src/index.ts',
+  'src/angular.ts',
+  'src/dom-stubs.ts',
+  'src/diagnostics.ts',
+  'src/setup.ts',
+  'src/node.ts',
+  'src/react.ts',
+  'src/vue.ts',
+  'src/svelte.ts',
+];
 
 // tsup runs the array below with `Promise.all`, so `clean: true` on any one pass is a race against
 // every other pass's output — and the passes here are no longer independent: three of them emit
@@ -218,7 +197,7 @@ export default defineConfig([
   },
   {
     ...SHARED,
-    // `index` and `angular`, each one file plus `shared-state.js`.
+    // The solo entries, each one file plus `shared-state.js`.
     //
     // The cost of importing an entry is module count, not code volume: the same 58.8 kB bundled into
     // a single module costs 0.1 ms. The root reached the loader as 8 files and `angular` as 10, and
@@ -234,8 +213,19 @@ export default defineConfig([
     // reproduced here and is not claimed. The trade is +120 kB of `dist` in a dev-only dependency
     // that never reaches a production bundle.
     //
-    // Only these two: full de-chunking of every entry costs +429 kB and duplicates the
-    // registries. Every other entry keeps the shared chunks.
+    // `/setup`, `/node`, `/react`, `/vue` and `/svelte` joined them on the same evidence, measured
+    // the same way (a fresh process per sample, `vitest` loaded before the timer, 25 runs, median):
+    // `/setup` 5.57 → 3.05 ms, root + `/setup` — what a Vitest project with a setup file loads in
+    // **every** spec file — 7.03 → 4.93 ms, `/react` (and `/vue`, `/svelte`) 5.46 → 3.09 ms,
+    // `/node` 3.37 → 1.65 ms, root + `/angular` + `/setup` 7.74 → 5.85 ms. `/setup` is the one that
+    // compounds: a setup file is evaluated per spec file beside the root entry, so before this it
+    // loaded a solo core *and* a twelve-module chunked one.
+    //
+    // What used to rule this out was not the bytes but the registries, and that argument expired
+    // when the five stateful modules moved into `dist/shared-state.js`: `useSharedState()` below
+    // keeps every entry — solo or chunked — pointing at the one copy, and `smoke:dist` asserts it
+    // across `index`+`setup`, `index`+`angular`+`setup` and `index`+`vue`. The remaining entries
+    // stay chunked because nobody loads them per spec file.
     entry: SOLO_ENTRIES,
     format: ['esm'] as const,
     splitting: false,

@@ -22,12 +22,14 @@ import { build } from 'esbuild';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { gzipSync } from 'node:zlib';
 
+import { externalizeBareImports } from './externals.mjs';
+
 const ENTRY = 'dist/index.js';
 const README = 'README.md';
 
-// Peer/runtime deps a consumer already has — same list as tsup's `external`.
-// Bundling them in would inflate the number with code we never ship.
-const EXTERNAL = ['@angular/core', '@angular/core/testing', 'bun:test', 'node:test', 'rxjs', 'rxjs/operators', 'vitest'];
+// Peer/runtime deps a consumer already has are excluded by the one rule the
+// other measuring scripts use (scripts/externals.mjs). Bundling them in would
+// inflate the number with code we never ship.
 
 // Matches the shields.io badge, capturing everything around the size so the
 // label, colour and link survive a rewrite untouched.
@@ -40,7 +42,7 @@ async function measure() {
     minify: true,
     format: 'esm',
     platform: 'neutral',
-    external: EXTERNAL,
+    plugins: [externalizeBareImports],
     write: false,
     logLevel: 'silent',
   });

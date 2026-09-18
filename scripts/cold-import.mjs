@@ -29,33 +29,10 @@ import { argv, execPath, exit, stderr, stdout, version } from 'node:process';
 import { fileURLToPath } from 'node:url';
 
 import { renderHeading, renderTable, styleFor } from './bench-table.mjs';
+import { externalizeBareImports } from './externals.mjs';
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const BASELINE = join(REPO, 'cold-import.json');
-
-// tsup's `external`, in full — scripts/size-badge.mjs carries the subset the main entry can reach,
-// and the adapters reach the rest. Anything here is a peer the consumer already has, so counting it
-// would measure Angular's module graph instead of ours.
-const EXTERNAL = [
-  '@angular/common',
-  '@angular/common/http',
-  '@angular/common/http/testing',
-  '@angular/compiler',
-  '@angular/core',
-  '@angular/core/testing',
-  '@angular/platform-browser',
-  '@angular/platform-browser/testing',
-  '@angular/router',
-  '@happy-dom/global-registrator',
-  '@rstest/core',
-  'bun',
-  'bun:test',
-  'jsdom',
-  'node:test',
-  'rxjs',
-  'rxjs/operators',
-  'vitest',
-];
 
 // Growth over the baseline that still passes: 2 % of the recorded value, but never less than one
 // module — a graph of eight modules has no meaningful percentage.
@@ -75,15 +52,23 @@ function fail(message) {
   exit(1);
 }
 
-/** Every subpath in `exports`, in the order the package declares them, with the file each resolves to. */
+/**
+ * Every subpath in `exports`, in the order the package declares them, with the file each resolves
+ * to. `./package.json` is exported for tools that resolve it (and for `doctor`'s own version read),
+ * and it is a manifest rather than a module — there is no module graph to weigh.
+ */
 function readEntries() {
   const pkg = JSON.parse(readFileSync(join(REPO, 'package.json'), 'utf8'));
 
-  return Object.entries(pkg.exports ?? {}).map(([subpath, condition]) => {
-    const target = condition.import?.default ?? condition.import ?? condition.default;
+  return Object.entries(pkg.exports ?? {}).flatMap(([subpath, condition]) => {
+    const target = typeof condition === 'string' ? condition : (condition.import?.default ?? condition.import ?? condition.default);
 
     if (typeof target !== 'string') {
       fail(`no ESM target for the "${subpath}" export — has the exports map changed shape?`);
+    }
+
+    if (!target.endsWith('.js')) {
+      return [];
     }
 
     return {
@@ -105,7 +90,10 @@ async function measureGraph(entry) {
     // `node`, not `neutral`: builtins are external here rather than unresolvable, which is what a
     // consumer's graph looks like too.
     platform: 'node',
-    external: EXTERNAL,
+    // Every bare specifier is somebody else's code — this package ships no runtime dependencies —
+    // so the graph left is this package's own. A hand-listed `external` drifted: `@angular/forms`
+    // was missing, and 268 kB of it sat inside the `/signal-forms` baseline.
+    plugins: [externalizeBareImports],
     logLevel: 'silent',
   });
 

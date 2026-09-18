@@ -11,3 +11,13 @@ updates:
       interval: monthly
     commit-message:
       prefix: chore
+
+  # Every `uses:` is pinned to a commit sha, which is the only pin a mutable tag cannot be moved
+  # under — and a sha nobody updates is a sha that ages. Dependabot understands the
+  # `sha # vX.Y.Z` form and rewrites both halves, so the pinning and the updating arrive together.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: ci

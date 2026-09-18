@@ -1,6 +1,6 @@
 name: Auto Release
 
-# Runs on every push to master (i.e. after a PR is merged).
+# Runs after CI passes on master (i.e. after a PR is merged and the whole gate is green).
 # Determines the version bump from Conventional Commits since the last tag,
 # then bumps package.json, tags, publishes to npm and creates a GitHub Release.
 #
@@ -10,9 +10,17 @@ name: Auto Release
 #   - `fix:`                                               -> patch
 #   - anything else (chore/docs/refactor/ci/test/...)      -> no release
 #
+# Why `workflow_run` and not `push`: this workflow used to fire on the same push CI did, with
+# nothing linking the two. It ran `typecheck`, `test` and `build` — not `test:coverage`,
+# `smoke:dist`, `test:node`, `test:bun*`, `test:types`, `export-map:check`, `cold-import:check`,
+# lint, or the Angular range job — and published while those were still running, or already red.
+# At least six releases went out that way, 5.2.0 and 5.3.0 with the `node:test` lane failing. The
+# whole verdict now comes from one place: the CI run for this exact sha has to have concluded
+# `success` before anything here starts, and the release path re-runs none of it.
+#
 # Publishing authenticates with npm Trusted Publishing (OIDC) — no npm token is
 # stored in this repository. GitHub Actions mints a short-lived OIDC token from
-# the `id-token: write` permission below and npm exchanges it for a publish
+# the `id-token: write` permission on the `publish` job below and npm exchanges it for a publish
 # credential. Provenance is attached automatically (public package, public repo),
 # so `--provenance` is not passed.
 #
@@ -21,7 +29,8 @@ name: Auto Release
 # owner `ASDAlexey`, repository `vitest-auto-spy`, workflow `auto-release.yml`,
 # environment left empty. A package can only have one trusted publisher, which is
 # why `release.yml` no longer publishes — it only creates the GitHub Release for a
-# manually pushed tag.
+# manually pushed tag. npm validates the workflow *file*, not the job inside it, so splitting the
+# work into two jobs below changes nothing about the trusted-publisher configuration.
 #
 # Two things the OIDC handshake is fragile about:
 #   - `actions/setup-node` must NOT be given `registry-url`. It then writes
@@ -30,6 +39,14 @@ name: Auto Release
 #     the token exchange, and the publish dies with E404/ENEEDAUTH. Fixed only in
 #     actions/setup-node@v7; v4-v6 all still write the placeholder.
 #   - npm must be >= 11.5.1 and Node >= 22.14, hence the pins below.
+#
+# Why two jobs: `npm ci` runs the install scripts of every dev dependency and their transitive tree,
+# and `npm test` runs that code again. None of it has any business being in a process that can mint
+# an npm publishing credential — `ACTIONS_ID_TOKEN_REQUEST_URL` and its token are plain environment
+# variables in every step of a job that declares `id-token: write`. So `build` installs, builds and
+# packs with `contents: read` and nothing else, and hands `publish` a tarball and two patches. The
+# privileged job installs nothing: it publishes the tarball npm packed in the other job and uses git
+# and `gh`, both preinstalled on the runner.
 #
 # The `vitest-auto-spies` alias package publishes over OIDC too, from
 # publish-alias.yml — but npm validates the *entry point* workflow, not the reusable
@@ -43,7 +60,9 @@ name: Auto Release
 # re-trigger workflows, so there is no release loop.
 
 on:
-  push:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
     branches: [master, main]
   workflow_dispatch:
     inputs:
@@ -56,33 +75,65 @@ on:
         required: false
         default: ''
 
-permissions:
-  contents: write # push the bump commit/tag and create the GitHub Release
-  id-token: write # the OIDC token npm exchanges for a publish credential
-
 # Never run two releases at once.
 concurrency:
   group: auto-release
   cancel-in-progress: false
 
 jobs:
-  release:
-    # An `alias_ref` dispatch is the alias-only path — skip the whole canonical release.
-    if: inputs.alias_ref == ''
+  # Everything that runs third-party code. No `id-token`, no write access: the worst a compromised
+  # dependency can do here is fail the job.
+  build:
+    # An `alias_ref` dispatch is the alias-only path — skip the whole canonical release. A
+    # `workflow_run` start also has to carry a green verdict from a push; a CI run for a pull
+    # request never releases anything.
+    if: >-
+      inputs.alias_ref == ''
+      && (github.event_name == 'workflow_dispatch'
+      || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'))
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read # read the CI run's conclusion for this sha
     outputs:
       bump: ${{ steps.bump.outputs.bump }}
       version: ${{ steps.version.outputs.version }}
+      sha: ${{ steps.base.outputs.sha }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
+          # The commit CI ran on, not the branch tip: a release describes a verdict, and the verdict
+          # belongs to one sha.
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
           fetch-depth: 0 # full history + tags for commit analysis
+
+      - name: The commit being released
+        id: base
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      # Belt and braces for the manual path: a `workflow_dispatch` with no `alias_ref` carries no CI
+      # verdict of its own, so the verdict is looked up. On the `workflow_run` path this only
+      # confirms what the `if` above already required.
+      - name: CI is green for this commit
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SHA: ${{ steps.base.outputs.sha }}
+        run: |
+          CONCLUSIONS="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?head_sha=${SHA}&status=completed" \
+            --jq '.workflow_runs[].conclusion')"
+
+          if ! printf '%s\n' "$CONCLUSIONS" | grep -qx success; then
+            echo "::error::No successful CI run for ${SHA} (${CONCLUSIONS:-none found}). Nothing is published from a commit the gate has not passed."
+            exit 1
+          fi
+
+          echo "CI passed for ${SHA}."
 
       # No `registry-url` on purpose — see the header. It would write a placeholder
       # `_authToken` into ~/.npmrc and npm would skip the OIDC exchange. The default
       # registry is registry.npmjs.org anyway, and package.json carries
       # `publishConfig.access: public`.
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 24 # >= 22.14, the floor for trusted publishing
           cache: npm
@@ -129,15 +180,14 @@ jobs:
             echo "bump=${BUMP}" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Type-check + test + build
+      # The suite is not re-run here — CI ran all of it on this sha. The build is, because the
+      # tarball has to contain a `dist/` somebody watched being produced, and `npm pack` runs no
+      # `prepublishOnly`.
+      - name: Build the package
         if: steps.bump.outputs.bump != 'none'
-        run: |
-          npm run typecheck
-          npm run test
-          npm run build
+        run: npm run build
 
-      # Must run after the build (it measures the fresh dist/) and before
-      # `npm version`, which refuses to run on a dirty working tree. Committing
+      # Must run after the build (it measures the fresh dist/) and before the bump. Committing
       # here also means the README published to npm carries the correct number.
       - name: Sync the minzip badge with the fresh build
         if: steps.bump.outputs.bump != 'none'
@@ -157,9 +207,9 @@ jobs:
         run: |
           git config user.name "Alexey Popov"
           git config user.email "asdalexey@yandex.ru"
-          # `npm version` updates package.json, creates a commit and a v* tag.
-          # [skip ci] is belt-and-suspenders; GITHUB_TOKEN pushes don't trigger
-          # workflows anyway.
+          # `npm version` updates package.json, creates a commit and a v* tag — locally. Nothing is
+          # pushed from this job; the commits travel to the privileged job as patches.
+          # [skip ci] is belt-and-suspenders; GITHUB_TOKEN pushes don't trigger workflows anyway.
           #
           # Do NOT capture its stdout. This package defines a `version` lifecycle script, so npm
           # prints that script's banner (`> vitest-auto-spy@x.y.z version`) before the tag name —
@@ -172,20 +222,112 @@ jobs:
           NEW_VERSION="v$(node -p "require('./package.json').version")"
           echo "version=${NEW_VERSION}" >> "$GITHUB_OUTPUT"
 
-      # Authenticated over OIDC — no NODE_AUTH_TOKEN, and no `--provenance`: npm
-      # attaches provenance by itself when it publishes a public package from a
-      # public repo through trusted publishing.
-      - name: Publish to npm (skip if version already exists)
+      # The tarball is what goes to npm, so it is built here and never rebuilt: the job that
+      # publishes it runs no install and no lifecycle script.
+      - name: Pack the tarball and the release commits
         if: steps.bump.outputs.bump != 'none'
+        env:
+          BASE_SHA: ${{ steps.base.outputs.sha }}
         run: |
-          VERSION="$(node -p "require('./package.json').version")"
-          if npm view "vitest-auto-spy@${VERSION}" version >/dev/null 2>&1; then
-            echo "vitest-auto-spy@${VERSION} is already published — skipping."
-          else
-            npm publish --access public
+          mkdir -p "${RUNNER_TEMP}/release"
+          npm pack --pack-destination "${RUNNER_TEMP}/release"
+          # `git am` on the other side replays these with their messages and authorship intact, so
+          # the published history is the one this job composed — no second place computing it.
+          git format-patch --binary "${BASE_SHA}..HEAD" -o "${RUNNER_TEMP}/release/patches"
+          node -p "JSON.stringify({ version: require('./package.json').version, sha: process.env.BASE_SHA })" \
+            > "${RUNNER_TEMP}/release/release.json"
+          ls -l "${RUNNER_TEMP}/release" "${RUNNER_TEMP}/release/patches"
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: steps.bump.outputs.bump != 'none'
+        with:
+          name: release
+          path: ${{ runner.temp }}/release
+          retention-days: 7
+          if-no-files-found: error
+
+  # The privileged half: it holds the OIDC token and write access to the repository, and it runs no
+  # third-party code at all — no `npm ci`, no build, no test.
+  publish:
+    needs: build
+    if: needs.build.outputs.bump != 'none'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # push the bump commit/tag and create the GitHub Release
+      id-token: write # the OIDC token npm exchanges for a publish credential
+    outputs:
+      version: ${{ needs.build.outputs.version }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ needs.build.outputs.sha }}
+          fetch-depth: 0
+
+      # No `registry-url`, for the reason in the header.
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24 # >= 22.14, the floor for trusted publishing
+
+      - name: Pin npm
+        run: npm i -g npm@11.19.1
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: release
+          path: ${{ runner.temp }}/release
+
+      # The publish happens before the push (see the step below for why), so between this job's
+      # checkout and its push `master` can move — and then npm holds a tarball built from commit A
+      # while the tag ends up on top of commit B, with the GitHub Release listing changes the
+      # published tarball does not contain. Cheaper to refuse: the next push to master starts a CI
+      # run of its own, and that run releases.
+      - name: The release branch has not moved since the build
+        env:
+          BASE_SHA: ${{ needs.build.outputs.sha }}
+          BRANCH: ${{ github.event.workflow_run.head_branch || github.ref_name }}
+        run: |
+          REMOTE="$(git ls-remote origin "refs/heads/${BRANCH}" | cut -f1)"
+
+          if [ "$REMOTE" != "$BASE_SHA" ]; then
+            echo "::error::${BRANCH} is at ${REMOTE}, the release was built from ${BASE_SHA}. Refusing to publish a tarball the tag could not describe."
+            exit 1
           fi
 
-      # After the publish, never before it. The commit and the tag exist only on the runner until
+          echo "${BRANCH} is still at ${BASE_SHA}."
+
+      # Authenticated over OIDC — no NODE_AUTH_TOKEN, and no `--provenance`: npm
+      # attaches provenance by itself when it publishes a public package from a
+      # public repo through trusted publishing. The tarball is the one packed in the
+      # unprivileged job, so publishing runs no lifecycle script of this package either.
+      - name: Publish to npm (skip if version already exists)
+        env:
+          BASE_SHA: ${{ needs.build.outputs.sha }}
+        run: |
+          VERSION="$(node -p "require('${RUNNER_TEMP}/release/release.json').version")"
+          TARBALL="${RUNNER_TEMP}/release/vitest-auto-spy-${VERSION}.tgz"
+
+          if [ ! -f "$TARBALL" ]; then
+            echo "::error::${TARBALL} is missing from the build artifact."
+            exit 1
+          fi
+
+          if npm view "vitest-auto-spy@${VERSION}" version >/dev/null 2>&1; then
+            # A retry of a run that published and then failed to push is expected and safe. A
+            # version already on npm from a *different* commit is not: it means this run would tag
+            # something else with the same number.
+            PUBLISHED_SHA="$(npm view "vitest-auto-spy@${VERSION}" gitHead 2>/dev/null || true)"
+
+            if [ -n "$PUBLISHED_SHA" ] && [ "$PUBLISHED_SHA" != "$BASE_SHA" ]; then
+              echo "::error::vitest-auto-spy@${VERSION} is on npm from ${PUBLISHED_SHA}, this run is releasing ${BASE_SHA}. Refusing to tag a version whose tarball came from another commit."
+              exit 1
+            fi
+
+            echo "vitest-auto-spy@${VERSION} is already published — skipping."
+          else
+            npm publish "$TARBALL" --access public
+          fi
+
+      # After the publish, never before it. The commits and the tag exist only in the artifact until
       # this step, so a publish that fails leaves the remote exactly as it was and the next run
       # recomputes the same bump and retries. Pushing first is what produced v1.13.0, v2.0.0, v2.0.1
       # and v3.9.0 — tags on GitHub for versions npm never received. v3.9.0 also showed why that
@@ -194,13 +336,21 @@ jobs:
       # re-running the failed job publishes nothing. The inverse order can only fail the other way —
       # npm ahead of the tag — which the "already published" guard above makes safe to retry.
       - name: Push the release commit and its tag
-        if: steps.bump.outputs.bump != 'none'
-        run: git push --follow-tags
+        env:
+          TAG: ${{ needs.build.outputs.version }}
+          BRANCH: ${{ github.event.workflow_run.head_branch || github.ref_name }}
+        run: |
+          git config user.name "Alexey Popov"
+          git config user.email "asdalexey@yandex.ru"
+          git am --3way "${RUNNER_TEMP}"/release/patches/*.patch
+          git tag -a "$TAG" -m "chore(release): ${TAG#v} [skip ci]"
+          git push --follow-tags origin "HEAD:${BRANCH}"
 
       - name: Create GitHub Release
-        if: steps.bump.outputs.bump != 'none'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.build.outputs.version }}
         run: |
-          TAG="${{ steps.version.outputs.version }}"
           if gh release view "$TAG" >/dev/null 2>&1; then
             echo "Release ${TAG} already exists — skipping."
           else
@@ -211,8 +361,6 @@ jobs:
             node scripts/release-notes.mjs "$TAG" --out "${RUNNER_TEMP}/release-notes.md"
             gh release create "$TAG" --title "$TAG" --notes-file "${RUNNER_TEMP}/release-notes.md" --latest
           fi
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   # The `vitest-auto-spies` alias is a second npm package, generated from this one — see
   # .github/workflows/publish-alias.yml. It goes out after the canonical package is on npm, because
@@ -225,7 +373,7 @@ jobs:
   # ref npm does not trust. No secrets are passed: the child mints its own OIDC token from the
   # `id-token: write` permission it declares.
   #
-  # `always()` because the `release` job is deliberately skipped on the alias-only dispatch, and a
+  # `always()` because the `publish` job is deliberately skipped on the alias-only dispatch, and a
   # skipped dependency would otherwise skip this job with it.
   #
   # TEMPORARILY OFF on the automatic path (2026-09-03). The npm name `vitest-auto-spies` is held by
@@ -234,12 +382,12 @@ jobs:
   # cannot go out. Until npm Support frees the name, the alias only publishes when someone asks for
   # it by hand (Actions -> Auto Release -> Run workflow with `alias_ref`), which is also how to test
   # whether access is back. To restore the automatic publish, put the second clause back:
-  #     || (needs.release.result == 'success' && needs.release.outputs.bump != 'none')
+  #     || (needs.publish.result == 'success' && needs.build.outputs.bump != 'none')
   publish-alias:
-    needs: release
+    needs: [build, publish]
     if: >-
       always()
       && inputs.alias_ref != ''
     uses: ./.github/workflows/publish-alias.yml
     with:
-      ref: ${{ inputs.alias_ref || needs.release.outputs.version }}
+      ref: ${{ inputs.alias_ref || needs.build.outputs.version }}

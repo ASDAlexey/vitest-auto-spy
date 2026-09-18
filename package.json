@@ -196,7 +196,8 @@
         "types": "./dist/eslint-plugin.d.cts",
         "default": "./dist/eslint-plugin.cjs"
       }
-    }
+    },
+    "./package.json": "./package.json"
   },
   "files": [
     "dist",
@@ -207,6 +208,7 @@
     "LICENSE"
   ],
   "sideEffects": [
+    "**/chunk-*.js",
     "**/index.js",
     "**/bun.js",
     "**/bun-angular.js",
@@ -236,7 +238,7 @@
     "access": "public"
   },
   "scripts": {
-    "build": "tsup && node scripts/thin-node-cts.mjs && node scripts/check-dist.mjs",
+    "build": "tsup && node scripts/thin-node-cts.mjs && node scripts/eslint-plugin-cts.mjs && node scripts/check-dist.mjs",
     "size:badge": "node scripts/size-badge.mjs",
     "size:badge:check": "node scripts/size-badge.mjs --check",
     "size:entries": "node scripts/size-entries.mjs",
@@ -321,6 +323,9 @@
       "optional": true
     },
     "rxjs": {
+      "optional": true
+    },
+    "vitest": {
       "optional": true
     }
   },

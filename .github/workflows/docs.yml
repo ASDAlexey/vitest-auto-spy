@@ -9,11 +9,9 @@ on:
       - '.github/workflows/docs.yml'
   workflow_dispatch:
 
-# Allow this workflow to publish to GitHub Pages.
-permissions:
-  contents: read
-  pages: write
-  id-token: write
+# Per job, never workflow-wide: `pages: write` and `id-token: write` belong to the deploy, and the
+# build job runs `bun install` — the install scripts of the docs site's whole dependency tree — so
+# it gets the read access it needs and nothing that can publish anything.
 
 # Only one concurrent deployment; don't cancel an in-progress production deploy.
 concurrency:
@@ -23,17 +21,22 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: read # `configure-pages` reads the site's settings; enabling it is the deploy job's business
     defaults:
       run:
         working-directory: docs-site
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0 # needed for lastUpdated timestamps
 
-      - uses: oven-sh/setup-bun@v2
+      # Pinned, not `latest`: the docs are built by whatever `bun-version` resolves to, and a
+      # runtime that changes under the site is one more way a deploy goes red without a commit.
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
-          bun-version: latest
+          bun-version: 1.4.0
 
       - name: Install dependencies
         run: bun install
@@ -41,15 +44,18 @@ jobs:
       - name: Build VitePress site
         run: bun run build
 
-      - uses: actions/configure-pages@v5
+      - uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5.0.0
 
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3.0.1
         with:
           path: docs-site/.vitepress/dist
 
   deploy:
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
@@ -58,7 +64,7 @@ jobs:
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4.0.5
 
   # Tell the engines that pull from IndexNow — Yandex, Bing, Seznam, Naver — that the pages changed,
   # instead of waiting for a crawl. Google does not participate; its route is the sitemap submitted
@@ -70,9 +76,11 @@ jobs:
   indexnow:
     needs: deploy
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Submit every documented URL to IndexNow
         run: |

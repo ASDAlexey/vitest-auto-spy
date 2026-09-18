@@ -43,12 +43,16 @@ function targetOf(subpath) {
  * ESM-only, and a `.cjs` stub for it would resolve to an ESM file and throw `ERR_REQUIRE_ESM` on
  * every Node that does not load ESM from `require` — which is every Node below 22.12.
  */
-const entries = Object.entries(root.exports).map(([subpath, conditions]) => ({
-  subpath,
-  stem: stemOf(subpath),
-  target: targetOf(subpath),
-  dual: typeof conditions === 'object' && conditions !== null && 'require' in conditions,
-}));
+const entries = Object.entries(root.exports)
+  // `./package.json` is exported so tools can resolve the manifest. The alias has one of its own,
+  // so it re-exports nothing — it only repeats the export.
+  .filter(([, conditions]) => typeof conditions === 'object' && conditions !== null)
+  .map(([subpath, conditions]) => ({
+    subpath,
+    stem: stemOf(subpath),
+    target: targetOf(subpath),
+    dual: 'require' in conditions,
+  }));
 
 /**
  * `export * from` does **not** carry the default export, so an entry that has one needs a second
@@ -68,14 +72,23 @@ function hasDefaultExport(stem) {
 const files = new Map();
 
 for (const { stem, target, dual } of entries) {
-  const reexport = `export * from '${target}';\n` + (hasDefaultExport(stem) ? `export { default } from '${target}';\n` : '');
+  const hasDefault = hasDefaultExport(stem);
+  const reexport = `export * from '${target}';\n` + (hasDefault ? `export { default } from '${target}';\n` : '');
 
   files.set(`${stem}.js`, reexport);
   files.set(`${stem}.d.ts`, reexport);
 
   if (dual) {
     files.set(`${stem}.cjs`, `module.exports = require('${target}');\n`);
-    files.set(`${stem}.d.cts`, reexport);
+    // `module.exports = require(…)` hands back exactly what the canonical entry's `require`
+    // condition returns. For an entry whose only export is a default, tsup emits
+    // `module.exports = plugin` there, so the stub returns the plugin object itself and the
+    // declaration has to be an `export =` — a `default` on it is the masquerading-default bug this
+    // package already shipped once.
+    files.set(
+      `${stem}.d.cts`,
+      hasDefault ? `import entry = require('${target}');\n\nexport = entry;\n` : reexport,
+    );
   }
 }
 
@@ -88,6 +101,12 @@ for (const { subpath, stem, dual } of entries) {
         require: { types: `./${stem}.d.cts`, default: `./${stem}.cjs` },
       }
     : { types: `./${stem}.d.ts`, import: `./${stem}.js`, default: `./${stem}.js` };
+}
+
+// Repeated rather than re-exported: a consumer resolving `vitest-auto-spies/package.json` wants the
+// manifest it is installing, not the canonical one behind it.
+if ('./package.json' in root.exports) {
+  exportsMap['./package.json'] = './package.json';
 }
 
 const alias = JSON.parse(readFileSync(join(ALIAS_DIR, 'package.json'), 'utf8'));

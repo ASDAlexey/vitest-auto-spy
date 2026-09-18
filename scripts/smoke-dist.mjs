@@ -427,6 +427,43 @@ const CROSS_ENTRY = [
       assert(report.includes("close('saved')"), 'the recorded call is missing from the report: ' + report);
     `,
   },
+  // `/react`, `/svelte`, `/vue`, `/setup` and `/node` each became a standalone bundle in 5.19: they
+  // are the entries a consumer loads per spec file, and the chunked build made every one of them
+  // load a second copy of the core. Standalone means one more copy of the spy factories — so the
+  // marks and the registries have to keep crossing the boundary, which is exactly what went dead in
+  // 5.0.0 when `ArgsMap` was inlined twice.
+  {
+    name: 'a double built by /react is understood by the root entry, and /setup records a strict throw from /svelte',
+    entries: ['.', './react', './svelte', './setup'],
+    body: `
+      const { resetAutoSpy } = await import(INDEX);
+      const react = await import(REACT);
+      const svelte = await import(SVELTE);
+      const { takeStrictViolations } = await import(SETUP);
+
+      class Cart {
+        total(_id) { return 0; }
+      }
+
+      const fromReact = react.createSpyFromClass(Cart);
+      fromReact.total.calledWith(1).mockReturnValue(7);
+      assert(fromReact.total(1) === 7, 'calledWith did not match on a double built by /react');
+
+      resetAutoSpy(fromReact);
+      assert(fromReact.total(1) === undefined, 'resetAutoSpy from the root entry did not reach a double built by /react');
+
+      takeStrictViolations();
+
+      const fromSvelte = svelte.createSpyFromClass(Cart, { strict: true });
+      try {
+        fromSvelte.total(1);
+      } catch {
+        // swallowed on purpose: the recorder in ./setup is what is under test
+      }
+
+      assert(takeStrictViolations().length === 1, 'a strict throw from /svelte was not recorded where ./setup reads it');
+    `,
+  },
   // `dist/index.js` carries its own `fast-spy`, the framework entries share another, and 5.4.0 put
   // the helper bundle on the wrong copy's prototype: whichever entry loaded first built spies with no
   // `calledWith`. Both load orders, because the claim record has to hold in either.

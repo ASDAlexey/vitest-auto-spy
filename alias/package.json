@@ -158,7 +158,8 @@
         "types": "./eslint-plugin.d.cts",
         "default": "./eslint-plugin.cjs"
       }
-    }
+    },
+    "./package.json": "./package.json"
   },
   "files": [
     "*.js",
@@ -196,6 +197,9 @@
       "optional": true
     },
     "rxjs": {
+      "optional": true
+    },
+    "vitest": {
       "optional": true
     }
   },

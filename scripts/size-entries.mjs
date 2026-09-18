@@ -27,24 +27,16 @@ import { fileURLToPath } from 'node:url';
 import { gzipSync } from 'node:zlib';
 
 import { renderTable, styleFor } from './bench-table.mjs';
+import { externalizeBareImports } from './externals.mjs';
 
 const repoRoot = fileURLToPath(new URL('..', import.meta.url));
 const BASELINE = join(repoRoot, 'size-entries.json');
 const DIST = join(repoRoot, 'dist');
 
-// Peer/runtime deps a consumer already has — same list as tsup's `external` and as size-badge.mjs.
-const EXTERNAL = ['@angular/core', '@angular/core/testing', 'bun:test', 'node:test', 'rxjs', 'rxjs/operators', 'vitest'];
-
-// The subpaths past the main entry reach further than that list: `node:fs`, `bun`, `jsdom`,
-// `@happy-dom/global-registrator`. The package ships zero runtime dependencies (check-dist.mjs
-// enforces it), so every bare specifier left in dist/ is somebody else's code and none of it is
-// weight this gate is measuring.
-const externalizeBareImports = {
-  name: 'externalize-bare-imports',
-  setup(pluginBuild) {
-    pluginBuild.onResolve({ filter: /^[^./]/ }, (args) => (args.kind === 'entry-point' ? undefined : { external: true }));
-  },
-};
+// Peers and host runtimes a consumer already has are excluded by one rule rather than by a list —
+// see scripts/externals.mjs. The package ships zero runtime dependencies (check-dist.mjs enforces
+// it), so every bare specifier left in dist/ is somebody else's code and none of it is weight this
+// gate is measuring.
 
 // Growth (or a shrink) smaller than both of these is noise from a minifier or a Node bump.
 const TOLERANCE_RATIO = 0.02;
@@ -101,6 +93,12 @@ function readEntries() {
       fail(`\`exports["${name}"]\` has no import condition — this script cannot weigh it.`);
     }
 
+    // `./package.json` is exported so tools can resolve the manifest; it is not a module and has no
+    // bundled weight.
+    if (!file.endsWith('.js')) {
+      continue;
+    }
+
     entries.push({ name, file, path: join(repoRoot, file) });
   }
 
@@ -118,7 +116,6 @@ async function measure(entry) {
     minify: true,
     format: 'esm',
     platform: 'neutral',
-    external: EXTERNAL,
     plugins: [externalizeBareImports],
     write: false,
     logLevel: 'silent',

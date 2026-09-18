@@ -5,9 +5,6 @@ on:
     branches: [master, main]
   pull_request:
 
-permissions:
-  contents: read
-
 # Three pushes in a row queue three full matrices, and only the last of them can still be true.
 # `master` is the exception: every commit there is what a release gets cut from, so it keeps its own
 # verdict — grouping those runs by sha is what stops them from queueing behind each other instead.
@@ -22,6 +19,10 @@ jobs:
   test:
     name: Test (Node ${{ matrix.node }}, ${{ matrix.lane }})
     runs-on: ubuntu-latest
+    # Per job rather than workflow-wide, so a job added later has to name what it needs. Every job
+    # here only reads the repository.
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -29,9 +30,9 @@ jobs:
         node: [22, 24, 26]
         lane: [coverage, shared-env, dom-and-runners]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: ${{ matrix.node }}
           cache: npm
@@ -134,14 +135,16 @@ jobs:
   static:
     name: Static checks (${{ matrix.half }})
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
         half: [types, files]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 24
           cache: npm
@@ -234,21 +237,23 @@ jobs:
   bun:
     name: Test (Bun ${{ matrix.bun }})
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
         # the floor this package supports, and whatever ships today
         bun: ['1.4.0', 'latest']
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: ${{ matrix.bun }}
 
       # Dependencies still come from the npm lockfile — Bun is the runtime under test here, not the
       # package manager, and a second lockfile would be a second dependency tree to keep honest.
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 24
           cache: npm
@@ -287,15 +292,17 @@ jobs:
   angular-range:
     name: Angular ${{ matrix.angular }} (link + types)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
         # the declared floor, and every major published since
         angular: ['20', '21', '22']
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 24
           cache: npm
@@ -321,6 +328,7 @@ jobs:
             "@angular/core@${{ matrix.angular }}" \
             "@angular/common@${{ matrix.angular }}" \
             "@angular/compiler@${{ matrix.angular }}" \
+            "@angular/forms@${{ matrix.angular }}" \
             "@angular/platform-browser@${{ matrix.angular }}" \
             "@angular/router@${{ matrix.angular }}" \
             rxjs vitest typescript @types/node \
@@ -362,6 +370,25 @@ jobs:
           TS
           npx vitest run link.test.ts
 
+      # `/signal-forms` is the one entry the link-check above cannot carry on every major: it needs
+      # `@angular/forms/signals`, which the declared peer floor puts at Angular 22. Same failure
+      # mode as the rest — a missing named export takes the whole entry down — so the same shape of
+      # check, on the majors that have it.
+      - name: Link-check the signal-forms entry
+        if: matrix.angular == '22'
+        working-directory: ${{ runner.temp }}/consumer
+        run: |
+          cat > signal-forms.test.ts <<'TS'
+          import { expect, test } from 'vitest';
+
+          test('the signal-forms entry links', async () => {
+            const entry = await import('vitest-auto-spy/signal-forms');
+
+            expect(typeof entry.createForm).toBe('function');
+          });
+          TS
+          npx vitest run signal-forms.test.ts
+
       # Types move between majors without any runtime symptom — `InputSignalWithTransform` and
       # `ModelSignal` (`lib/render-shallow.ts`) are the ones this package already depends on.
       # `skipLibCheck` stays off so the shipped declarations are checked too, and `@types/node` is
@@ -397,6 +424,186 @@ jobs:
               "skipLibCheck": false,
               "types": ["node"],
               "experimentalDecorators": true
+            },
+            "files": ["probe.ts"]
+          }
+          JSON
+          npx tsc -p tsconfig.json
+
+  # The peer ranges are a claim too, and the matrixes above install exactly one Vitest and one rxjs:
+  # whatever the lockfile resolves, which today is Vitest 5 and rxjs 7.8. `peerDependencies` promise
+  # `vitest >=2.1.0` and `rxjs >=7.2.0`, and the README promises one install spanning Vitest 2.1
+  # through 5.x — a promise that has so far held by luck. Vitest 5 already changed what
+  # `vi.clearAllMocks()` walks (`DIRTY_MOCK_STATES`, which a sweep empties), and the next change of
+  # that kind on 2.x or 3.x would reach consumers before it reached this repository.
+  #
+  # A real install of the packed tarball into a scratch consumer, so resolution is part of what is
+  # being tested, and one spec that touches the surface a version bump can move: the spy factories,
+  # `calledWith` / `resolveWith`, a getter spy, `settledResults`, the runner-wide sweeps and
+  # `setupAutoSpy()`.
+  peer-floor:
+    name: Peers (vitest ${{ matrix.vitest }}, rxjs ${{ matrix.rxjs }})
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # the declared floor of both peers, together
+          - vitest: '2.1'
+            rxjs: '7.2'
+          - vitest: '3'
+            rxjs: '7.8'
+          - vitest: '4'
+            rxjs: '7.8'
+          # whatever ships today, which is also what the lockfile pins
+          - vitest: latest
+            rxjs: latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24
+          cache: npm
+
+      # Node 24 bundles npm 11, the version the lockfile is generated with.
+      - run: npm ci --no-audit --no-fund
+
+      - name: Build
+        run: npm run build
+
+      - name: Pack
+        run: npm pack --pack-destination "$RUNNER_TEMP"
+
+      - name: Install into a scratch consumer
+        working-directory: ${{ runner.temp }}
+        run: |
+          mkdir -p peers && cd peers
+          npm init -y >/dev/null
+          npm i --no-audit --no-fund \
+            "vitest@${{ matrix.vitest }}" \
+            "rxjs@${{ matrix.rxjs }}" \
+            typescript @types/node \
+            ../vitest-auto-spy-*.tgz
+          node -p "'vitest ' + require('vitest/package.json').version + ', rxjs ' + require('rxjs/package.json').version"
+
+      - name: Run the compatibility spec against the installed peers
+        working-directory: ${{ runner.temp }}/peers
+        run: |
+          cat > compat.test.ts <<'TS'
+          import { describe, expect, it, vi } from 'vitest';
+          import { createAutoMock, createSpyFromClass, mockValueProp, resetAutoSpy, restoreMockedProps } from 'vitest-auto-spy';
+          import { setupAutoSpy } from 'vitest-auto-spy/setup';
+          import { firstValueFrom } from 'rxjs';
+
+          import 'vitest-auto-spy/rxjs';
+
+          setupAutoSpy();
+
+          class Api {
+            get token(): string {
+              return 'real';
+            }
+
+            load(id: number): Promise<string> {
+              return Promise.resolve(String(id));
+            }
+
+            sum(a: number, b: number): number {
+              return a + b;
+            }
+
+            items(): unknown {
+              return undefined;
+            }
+          }
+
+          describe('a spy behaves the same across the declared peer range', () => {
+            it('configures by argument, by promise and by getter', async () => {
+              const api = createSpyFromClass(Api, { gettersToSpyOn: ['token'] });
+
+              api.sum.calledWith(1, 2).mockReturnValue(7);
+              api.load.resolveWith('x');
+              api.accessorSpies.getters.token.mockReturnValue('fake');
+
+              expect(api.sum(1, 2)).toBe(7);
+              expect(await api.load(1)).toBe('x');
+              expect(api.token).toBe('fake');
+              expect(api.sum).toHaveBeenCalledWith(1, 2);
+            });
+
+            it('answers the runner-wide sweeps', () => {
+              const api = createSpyFromClass(Api);
+
+              api.sum(1, 1);
+              expect(api.sum).toHaveBeenCalledTimes(1);
+
+              vi.clearAllMocks();
+              expect(api.sum).toHaveBeenCalledTimes(0);
+
+              api.sum.mockReturnValue(5);
+              vi.resetAllMocks();
+              expect(api.sum(1, 1)).toBeUndefined();
+
+              resetAutoSpy(api);
+            });
+
+            it('emits through an observable method', async () => {
+              const api = createSpyFromClass(Api);
+
+              api.items.nextWith([1, 2]);
+
+              await expect(firstValueFrom(api.items())).resolves.toEqual([1, 2]);
+            });
+
+            it('builds a double from a type and patches a property back', () => {
+              const mock = createAutoMock<{ f(value: number): number }>();
+
+              mock.f.mockReturnValue(3);
+              expect(mock.f(1)).toBe(3);
+
+              const target = { v: 1 };
+
+              mockValueProp(target, 'v', 2);
+              expect(target.v).toBe(2);
+
+              restoreMockedProps();
+              expect(target.v).toBe(1);
+            });
+          });
+          TS
+          npx vitest run compat.test.ts
+
+      # The declarations are shipped, so an old Vitest whose `Mock` / `MockInstance` moved would show
+      # up here rather than in a consumer's editor. `skipLibCheck` stays on: this job is about this
+      # package's types against that version of the peer, not about the peer's own declarations.
+      - name: Type-check against the installed peers
+        working-directory: ${{ runner.temp }}/peers
+        run: |
+          cat > probe.ts <<'TS'
+          import { createSpyFromClass, type Spy } from 'vitest-auto-spy';
+
+          class Service {
+            load(id: string): Promise<string> {
+              return Promise.resolve(id);
+            }
+          }
+
+          export const service: Spy<Service> = createSpyFromClass(Service);
+          export const loaded = service.load.resolveWith('ok');
+          TS
+          cat > tsconfig.json <<'JSON'
+          {
+            "compilerOptions": {
+              "module": "nodenext",
+              "moduleResolution": "nodenext",
+              "target": "es2022",
+              "strict": true,
+              "noEmit": true,
+              "skipLibCheck": true,
+              "types": ["node"]
             },
             "files": ["probe.ts"]
           }
