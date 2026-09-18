@@ -8,7 +8,537 @@ The latest released version here must always match the one published on
 [npm](https://www.npmjs.com/package/vitest-auto-spy) and the latest `v*` git tag — see
 [CONTRIBUTING.md → Releasing](./CONTRIBUTING.md#releasing) for how that stays in sync.
 
-## [Unreleased]
+## [5.19.0] - 2026-09-17
+
+An audit of the whole library — the spy core and argument matching, async, RxJS and timers, Angular,
+`/setup` and the environment guards, the CLI, the codemod and the lint rules, packaging and the
+release path — and the round of repairs it produced. Most of what it found was silent: a matcher that
+matched nothing, one key shared by two different values, a guard watching the wrong seam, a release
+that never waited for CI. The handful of entries that change what a green spec does are marked
+**behaviour change**.
+
+### Added
+
+- **Symbol-keyed methods are discovered and spied.** `createSpyFromClass` and
+  `createSpyFromInstance` walk `Reflect.ownKeys`, so a method held behind a `Symbol('refresh')` key
+  is a spy like any other, in the eager, lazy and `lazySpies: 'proxy'` modes alike, and
+  `resetAutoSpy` sweeps it with the rest. The runtime's own protocol symbols are deliberately left
+  alone — every symbol held as a value on `Symbol` itself, plus
+  `Symbol.for('nodejs.util.inspect.custom')`: a spy there is not an extra spy but a broken object,
+  where `[...double]` stops working, `Symbol.toPrimitive` breaks string coercion, a failure message
+  loses its inspector, and `Symbol.dispose` is already `resetAutoSpy`'s. In the proxy mode a symbol
+  member is defined on the record itself, because a proxy cannot report from `ownKeys` a key its
+  target does not have.
+
+- **`createSpyClass(Class, config, { statics: true })` carries the class's static members.** Static
+  functions become function spies, static data is copied as it stands — a `VERSION` is still the
+  string it was — and static accessors are skipped, so assembling the double never evaluates a getter
+  of the class. Base classes are walked too, and the double's own `calls` / `instances` are never
+  overwritten. Off by default, because the option adds members to the double. The static side is not
+  typed yet, so a spec that reads it needs a cast; that half is in `TODO.md`.
+
+- **`captureArg({ where })` — a filter that decides the match itself.** With it, `.values` is the
+  list of matches. Without it, `.values` and `.captured` hold every candidate the runner offered the
+  matcher, which is not the same thing: a captor in the last position only ever sees the calls that
+  matched every position before it, and a captor in the first sees calls the assertion went on to
+  reject. That is what their documentation says now, too.
+
+- **The codemod parses what it wrote.** Every rewritten file is transpiled with the consumer
+  repository's own `typescript` and its syntax diagnostics compared with the input's; a file the run
+  would have broken is reported as `codemod-broke-syntax`, left exactly as it was, and the run exits
+  1. Where `typescript` cannot be resolved the check is skipped in silence and nothing else changes.
+
+- **`compareTestRuns` counts duplicate test names.** `TestRunSummary` carries `counts` beside
+  `names`, so two same-named tests no longer collapse into one: a partial loss prints
+  `name (×2 → ×1)` and a name that ran more often than before is reported as added.
+
+- **An Angular internal that moved is named instead of crashing.** One lazy, memoised check per
+  worker pins the private shapes this package reads — `_testModuleRef` on the `TestBed` instance, and
+  `kind` / `consumers` on a signal node — and the two tuple reads that cannot be checked in advance
+  (`ɵcmp.inputs`, `ɵdir.inputs`) fail through the same error. It names the `@angular/core` version,
+  the shape and which check stops working, rather than throwing a `TypeError` from inside the
+  library. Armed from `mockSignalProp`, `enableAngularDiagnostics()` and `provideHttpTesting()`.
+
+- **`test.concurrent` earns one warning per worker naming what the per-test guards cannot promise.**
+  The document snapshot, the stray-console window and the unconfigured-read counter may attribute a
+  finding to the neighbouring test; every rollback still happens. The teardown net now remembers per
+  test rather than per file, so a concurrent neighbour no longer cancels its sibling's net.
+
+- **`nextWithValues` says when it cannot reach the subscriber it already has.** On an observable
+  property whose subject somebody has already subscribed to, replacing the published stream reaches
+  nobody at all. It now warns once per property and points at `nextWith()` / `returnSubject()`, or at
+  configuring the property before anybody subscribes.
+
+- **`./package.json` is in the export map.** A tool resolving `vitest-auto-spy/package.json` — a
+  Storybook builder, an Nx plugin, a dependency helper — no longer gets
+  `ERR_PACKAGE_PATH_NOT_EXPORTED`.
+
+- **`vitest` is an optional peer.** A `/bun` or `/node` consumer no longer installs the runner it
+  never loads. Nothing else moves: the range is still `>=2.1.0`, and a Vitest consumer that has it
+  installed is unaffected.
+
+- **`prefer-provide-auto-spy` points an `ActivatedRoute` provider at `provideActivatedRoute()`.**
+  `ActivatedRoute` is the one token whose replacement is not `provideAutoSpy`: it keeps `snapshot`,
+  `params`, `queryParams`, `data`, `fragment` and `url` in instance fields, so a spy built from its
+  prototype has none of them and every read is `undefined` until the spec seeds it one by one. The
+  descriptor forms and `TestBed.overrideProvider(ActivatedRoute, …)` now recommend
+  `provideActivatedRoute()` from `vitest-auto-spy/angular-router`; what is reported is unchanged,
+  only the advice. It also ends the disagreement where two rules looking at one descriptor advised
+  opposite things.
+
+### Changed
+
+- **`calledWith` matches an asymmetric matcher wherever it sits, and stops treating different values
+  as one.** A config is matched structurally when a string key cannot express it — a matcher or a
+  function at any depth — so `calledWith({ id: expect.any(Number) })` and
+  `calledWith([expect.any(String)])` match the call they describe, where they used to serialize the
+  matcher as data and match nothing at all while `mustBeCalledWith` threw on the _correct_ call. In
+  that path `Map` and `Set` compare without regard to order, `Date` by time, `Error` by name and
+  message, functions by identity, and symbol keys count. **Behaviour change**, and the direction is
+  worth knowing before upgrading: a spec that was green for the wrong reason can now go red. Six
+  collisions the string key used to hide are closed — two functions of one name (two anonymous
+  callbacks answered for each other), two `Error`s differing only in message, an object key forged to
+  look like a key list (`{ 'a:1,b': 2 }` against `{ a: 1, b: 2 }`), symbol-keyed fields, a `Set` or
+  `Map` built in another order, and `expect.any(A)` against `expect.any(B)` for two classes of the
+  same name, where the second config used to overwrite the first.
+
+- **`resetAutoSpy` drops a pending `mockReturnValueOnce` and an accessor spy's configuration.** It
+  now resets the host mock rather than only clearing it, which is what its documentation always
+  promised — `vi.resetAllMocks()` behaviour. **Behaviour change**: a spec that leaned on a `Once`
+  value surviving the reset will see `undefined`, and a `accessorSpies.getters.x.mockReturnValue(…)`
+  set before the reset no longer answers after it. The getter spy stays usable, and `calledWith` is
+  still configurable afterwards.
+
+- **`setupFakeTimers(config)` installs the config it was given.** The outer configuration used to
+  win, so a nested block, a global-plus-local pair and a suite that had only faked `Date` all got
+  something other than what they asked for. The helper now recognises the fakes it installed itself
+  by identity, defers only where there is no config to install, and takes the clock over where a
+  `Date`-only set is in place. `advanceTimers()` throws when only `Date` is faked, instead of passing
+  the `isFakeTimers()` check and silently advancing nothing.
+
+- **The emission helpers subscribe as a subscriber, so a synchronous source is stopped at the value
+  that settles the wait.** `expectEmission`, `expectEmissions` and `expectNoEmission` hand RxJS an
+  observer it drives as a subscriber and hold it before `subscribe` returns, which is the only way to
+  stop a producer that emits synchronously. `of(1).pipe(repeat())` no longer hangs the worker.
+  **Behaviour change**: a `tap`, `finalize` or `defer` spy after the accepted value is no longer
+  called — where a `toHaveBeenCalledTimes(1)` used to be wrong in the other direction.
+
+- **`expectEmissions(source$, 0)` throws, naming `expectNoEmission`.** Potentially breaking for code
+  that wrote `expectEmissions(s, expected.length)` with an empty expectation and read the pass as
+  proof of silence.
+
+- **`renderShallow` resolves inputs by the same names `setInputs` does.** Both now go through one
+  resolver: an aliased input passed by its class-field name is set instead of being answered with an
+  invisible `NG0303`, an input exposed by a `hostDirectives` entry is accepted rather than refused
+  with "It declares no inputs at all", and a name the component does not declare fails at the call
+  naming the helper. **Behaviour change**: a spec that passed a wrong key used to pass.
+
+- **The resource double is no longer more forgiving than a real resource.** `value()` in the error
+  state throws a `ResourceValueError` carrying the original on `cause`, the way Angular's does, and
+  the value survives a later resolve; `reload()` answers `false` while the resource is `idle` or
+  `loading`, because there is nothing to re-issue. **Behaviour change**: a spec that read `value()`
+  after `fail()` now fails.
+
+- **A wrong argument to the resource, focus and directive matchers throws instead of failing.**
+  `expect(products.value()).not.toBeLoading()`, `expect(missingEl).not.toHaveFocus()` and
+  `expect(undefined).not.toHaveDirectiveApplied(X)` used to pass under `.not` — the shape check
+  reported `{ pass: false }`, which `.not` inverts into a green assertion.
+
+- **`accessorSpies.getters` and `.setters` are typed against the member they stand for** —
+  `Mock<() => T[K]>` and `Mock<(value: T[K]) => void>`, keeping the call signature the bag always
+  had. **Behaviour change for a type-check**: a consumer putting a wrong-typed value into a getter
+  spy now gets an error where the bag used to be a bare `Mock`.
+
+- **An unknown flag on a known command is an error with exit code 2**, refused before anything is
+  written: `init --dryrun` used to write the files, and `perf --gat` used to pass with no gate at all.
+  A `codemod` path that names no file is exit 2 as well, instead of "Nothing left to migrate"; `--list`
+  keeps its old behaviour. Absolute and `./`-style paths now resolve against `--cwd`, and
+  `*.spec.js` / `*.test.jsx` suites are visited, so a Jest suite written in JavaScript is no longer
+  invisible.
+
+- **`jasmine.clock().install()` leaves `Date` real, as jasmine does.** `mockDate()` is what takes it
+  over, and it warns when re-installing the clock would drop callbacks that were already scheduled —
+  jasmine keeps that schedule.
+
+- **`/setup`, `/node`, `/react`, `/vue` and `/svelte` ship as standalone bundles.** One module per
+  entry instead of eleven to fourteen: `/setup` 5.57 → 3.05 ms, root + `/setup` — what a Vitest
+  project with a setup file loads in _every_ spec file — 7.03 → 4.93 ms, `/react` 5.46 → 3.09 ms,
+  `/node` 3.37 → 1.65 ms, root + `/angular` + `/setup` 7.74 → 5.85 ms (Node 24, a fresh process per
+  sample with the peers loaded before the timer, 25 runs, median). On a 700–950-file suite that is
+  ~1.5–2.0 s a run from `/setup` alone. What used to rule this out was the mock registry, not the
+  bytes, and that argument expired when the stateful modules moved into `dist/shared-state.js`; the
+  cost is in **Size and memory** below, and the reversal is recorded in `DECISIONS.md`.
+
+- **The Angular testing environment is remembered per worker.** Under `isolate: false` a setup file
+  runs for every spec file, and `setupAngularTestEnv` used to pay `resetTestEnvironment()` plus the
+  consumer's initialiser each time. A matching mode is now a no-op — unless the platform is gone,
+  which is checked rather than assumed — so "one initialisation, no resets" is finally true.
+
+- **`installProxyZonePatch()` no longer stacks a Proxy layer per spec file.** An explicit call from a
+  setup file under `isolate: false` wrapped its own wrapper: 200 layers at 200 files. A re-install is
+  a no-op now, and so is its undo.
+
+### Fixed
+
+- **Serializing the argument of a call could take a quarter of a second.** A memoised subtree that
+  had emitted a back edge was un-memoised for the rest of the walk, so a graph with back edges —
+  which is every Angular component graph, every parent-child pair of records — was rendered
+  exponentially. A depth-18 graph cost **276 ms → 0.29 ms**; without back edges the same shape was
+  1.89 ms for a **10.7 MB** key and is 0.15 ms for an **84 kB** one, because repeated subtrees are now
+  budgeted (50 000 characters, charged only for renderings taken from the cache) and a repeat past the
+  budget prints as `ClassName{…N}`. An argument nobody shares spends nothing of that budget and is
+  rendered whole. The map also remembers, per arity, which positions ever hold an object, so a call
+  carrying a component where every config of that arity has a primitive is a miss after one `typeof`
+  per argument.
+
+- **One actual argument was serialized once per configured matcher.** A lookup now renders each
+  position at most once and asks the matcher positions first, so the cost stopped growing with the
+  number of configs: a 200-field record against a refusing matcher went 636 µs → 0.4 µs at eight
+  configs (78 µs → 0.3 µs at one), and a depth-12 graph with a back edge 31.7 ms → 1.8 µs at eight.
+  The price on the hot path is +10 % on the key of an object argument — about six of those ten points
+  are the `getOwnPropertySymbols` that symbol keys cost, the rest the budget check and key quoting —
+  and +20 ns on a config holding a matcher. A single primitive argument is unchanged, and
+  `bench:vs:fast` still leads every row (`calledWith dispatch` 0.17 µs, 3.01× ahead of the nearest
+  third party).
+
+- **`calledWith` handed back a shared chain, so a stored handle configured the wrong call.**
+  `const one = spy.load.calledWith(1); const two = spy.load.calledWith(2)` overwrote each other —
+  both handles configured the arguments of the latest call. Each `calledWith` / `mustBeCalledWith`
+  hands back its own handle now; only the argument map is shared, so `resolveWith`, `nextWith`,
+  `failWith` and jasmine's `withArgs` are unaffected.
+
+- **`diffByField` reported a match between plainly different elements.** Only a plain record is
+  compared key by key now; a `Date`, a `Map`, a `Set`, a `URL` or a class instance is compared whole
+  as "the element", and two records differing only in a symbol-keyed field are reported instead of
+  passing. `expect(diffByField(sent, expected)).toBeUndefined()` used to pass on a changed timestamp.
+
+- **`new spy.method()` threw with the library's own source in the message.** The dispatcher was an
+  arrow function, so construction failed with
+  `TypeError: (...actualArgs) => {…} is not a constructor`. It is an ordinary function now: an SDK
+  factory double (`new sdk.Client()`) yields the instance, or the object a
+  `calledWith(...).mockReturnValue(...)` configured. Checked on both spy engines.
+
+- **A lazy double held its placeholders in closures, one pair per method per double.** One accessor
+  pair per method name is shared across every double of the class and reads through `this`; the first
+  materialisation puts that double into dictionary mode with a probe property, without which sharing
+  reproduces exactly the regression recorded in `DECISIONS.md`. An untouched 100-method double
+  retains **215 B instead of 25 593 B**, and a 300-method one **284 B instead of 70 165 B**; a double
+  with three methods called retains 11 883 B instead of 30 535 B. Materialising every method of a
+  300-method double is 195 → 144 µs; building one costs 28 % more (33.3 → 42.7 µs), and at 10 to 100
+  methods building is inside the noise. A warm read is unchanged — a data property either way.
+
+- **A frozen or sealed double threw on the first read of any method.** Deep-frozen fixtures and
+  dev-mode state guards made `materializeMethodSpy` fail with `Cannot redefine property`; the spy is
+  kept in a side table for a non-configurable key now, identity holds (`double.load === double.load`)
+  and calls are recorded. An object that only had `preventExtensions` called on it still gets an
+  ordinary data property.
+
+- **`mockDeep` cached the spy's surface at the first read.** The set of helper names was computed
+  once per module, so importing `/rxjs` or `/jasmine` — or calling `setSpyEngine` — after the first
+  deep mock was read turned `nextWith` into a child mock rather than a helper. The question is asked
+  of the node's own spy on every read now, which is also cheaper than building the set was. Worth
+  knowing under `isolate: false`, where the module lives for the whole worker.
+
+- **`overrides` on an abstract class materialised an `accessorSpies` member nobody asked for.** It
+  showed up in `Reflect.ownKeys`, in a spread, in snapshots and in `explainSpy`. The bag is read
+  through its descriptor now, as the reset and explain paths already did, so the fallback proxy never
+  creates it.
+
+- **A null-prototype object was walked as if it had no methods.** `createSpyFromInstance(Object.create(null))`
+  and a class built on a null-prototype base are discovered now; the walk stops at `Object.prototype`
+  by identity, plus a cross-realm check, so a foreign realm's `Object.prototype` is still left alone.
+  `narrow()` no longer throws a `TypeError` on such a value either — it reads the constructor through
+  the prototype and labels an unnamed one `Object`.
+
+- **A method typed `any` lost `mockReturnValue` from its `calledWith` chain.** The return type
+  matched the promise branch first, so the chain offered `resolveWith` and nothing to set a plain
+  value with. `any` has its own branch now and carries both, which is what the runtime always did.
+
+- **`promisify(setTimeout)` threw under `trackStrayTimers`.** The wrapper did not carry
+  `Symbol.for('nodejs.util.promisify.custom')` from the original, so a NestJS or Node backend hitting
+  the promise-returning twin died with `The "callback" argument must be of type function` — under
+  `preset: 'strict'`, which is where the tracker is on. `setInterval` has no such symbol, so the
+  check costs nothing.
+
+- **A timer handle cancelled behind the wrappers' back stayed a stray.** `clearTimeout(+handle)`,
+  `clearInterval` by number and `handle.close()` all left a false report; cancellation by number and
+  by object now find each other, and a handle Node has already destroyed is dropped on read. A
+  partial installation of the tracker rolls back completely, so `trackStrayTimers` stays idempotent
+  even if one wrapper failed to go on.
+
+- **`withSystemTime` and `mockSystemTime` did not put the clock back under fakes the suite had
+  installed.** The undo was a no-op there; it now restores the time the block started from, carrying
+  whatever the spec advanced inside it, is idempotent, and does nothing when the block took the fakes
+  off itself.
+
+- **The emission watchdog joined the virtual clock under zone.js.** Inside `fakeAsync` a `tick(1500)`
+  could reject a wait on `debounceTime(2000)` it was in the middle of advancing; the watchdog takes
+  `__zone_symbol__setTimeout` where zone.js left it. `zoneless.stable()` does the same, so a `tick()`
+  past its timeout can no longer fail the wait.
+
+- **`{ timeout: Infinity }` failed after 1 ms**, and `setEmissionTimeout` accepted a `NaN` that
+  silently disabled every watchdog. A non-finite timeout now means "no watchdog", the delay is clamped
+  to the platform maximum, and `NaN` or a negative default throws.
+
+- **A source that cannot be subscribed to, and an `advance` callback that throws, are reported.** The
+  first used to be a raw `TypeError`; it is a named failure now, with a separate hint for a promise,
+  raised before anything subscribes so no watchdog is left armed. The second used to leave the
+  subscription and the watchdog behind — it now tears the subscription down and rejects naming the
+  callback, with the original on `cause`.
+
+- **The failure anchor formatted a stack on every call.** Frames are captured and formatted only once
+  a failure asks for them: 3.6 → 2.3 µs per helper call at depth 0, 4.6 → 3.2 µs at depth 25, against
+  +0.7 µs on the path that does fail. Acceptance is also decided once per emission — `skip` and
+  `until` no longer re-scan the buffer (six emissions ask the predicate exactly six times, where they
+  used to ask 21 times plus a final pass) — and `expectCompletion` / `expectError` count emissions
+  instead of retaining them.
+
+- **`returnSubject().complete()` did not mark the stream closed**, so the next `nextWith` emitted
+  into a subject nobody could hear. A subject handed to a spec now reports its own `complete` and
+  `error` back to the target, which starts a new stream on the next configuration. `ObserverSpy`'s
+  `onComplete()` / `onError()` promises reject when the stream ended the other way instead of hanging
+  until the file timeout, and a promise rejected with `undefined` is unwrapped rather than printed as
+  `[object Object]`. Retained rejection reasons are capped at 100 while the count stays exact.
+
+- **A reset snapshot that threw cancelled `resetTestingModule`.** A diagnostic failing while it read
+  a destroyed injector skipped the reset, and the _next_ test failed with "the test module has
+  already been instantiated". The hook is guarded now and the original reset always runs.
+
+- **`mockSignalProp` swapped a read-only signal instead of writing through it.** For a
+  `signal().asReadonly()` member the value is written through the node (`signalSetFn`) and the handle
+  reads the same node, so a `computed()` that has already read the member — live or not — sees the new
+  value, and a rendered template follows. The swap, and the "already read" refusal, are now only for
+  `computed()`.
+
+- **`deadSchemas` judged one call of `configureTestingModule` rather than the configuration Angular
+  ends up with.** Schemas, declarations and standalone imports are tallied across the test, so a
+  schema added in a second call next to a component declared in the first is no longer reported, and
+  the reverse order no longer passes in silence.
+
+- **`pendingRequests` did not find the `HttpTestingController` inside a nested testing module.** The
+  token is looked up recursively through `ɵinj.imports`, so the usual
+  `imports: [SharedTestingModule]` shape works, and a test that resets twice now reports the requests
+  of every module it built rather than only the last.
+
+- **The Angular diagnostics saw only the static `TestBed`.** Every static is a one-line delegate to
+  the instance, so the configure inspectors (`deadSchemas`, `ngModuleScopes`, the `pendingRequests`
+  token read, `shadowedProviders`), the `overrideComponentProvider` verification and the
+  `overrideComponent` counter all missed `getTestBed().configureTestingModule(…)` and
+  `getTestBed().createComponent(X)`. The instrumentation is on the instance now — once, not twice, so
+  nothing is double-counted, and it is removed by deleting the own property rather than writing the
+  method back. `overrideTemplate` is counted too. Closes the `TODO.md` entry.
+
+- **`provideHttpTesting()` armed nothing in silence** when the runner state it reads is missing; it
+  says so once, on stderr, and names `verifyNoPendingRequests()` as the way to check by hand.
+
+- **`createWindowDouble` bound the constructors it handed out.** `win.Date.now`,
+  `win.Promise.resolve`, `win.Object.keys`, `win.Array.isArray` and `win.Number.isFinite` work again,
+  `win.Event === window.Event`, and `new win.Event(...)` constructs. Only methods are bound.
+
+- **`createComponentStub` read `'h'` where the input was `'heading'`.** An `ɵcmp.inputs` entry that
+  is not the `[property, flags, transform]` tuple this package expects now fails loudly, naming the
+  Angular version, instead of indexing a string.
+
+- **`prototypePollution` never saw a key an earlier spec file left behind.** A write made while
+  another file was imported, collected or torn down was invisible to every hook of the file that
+  tripped over it. The check now runs where `setupAutoSpy()` is executed — the one seam before the
+  next file is collected — takes the key back off, reports on stderr and never fails the innocent
+  file; a key that cannot be deleted is recorded once rather than reported to every file after it. The
+  file's own baseline is taken in `beforeAll` and checked after every `afterAll`, so a write made in a
+  `beforeAll` or an `afterAll` of the file itself is reported too.
+
+- **The environment guards snapshotted once per test where once per file would do.** `guardGlobals`
+  costs **90 → 59 µs a test**, `preset: 'strict'` **95 → 67 µs**, `documentPollution` **29 → 23 µs**
+  and the default `setupAutoSpy()` 20 → 19 µs (happy-dom, 10 000 empty tests). `documentPollution`
+  shares the `onTestFinished` the teardown net registers anyway instead of adding a second one.
+
+- **`documentPollution: { nodes: true }` walked a live `HTMLCollection`.** A `<head>` of 1 000
+  children cost **7.09 ms a test and now costs 0.19 ms** (8.4 → 0.8 ms with `ignoreNodes`, whose
+  selector answers are remembered for the test); the walk is `firstElementChild` /
+  `nextElementSibling` and the diff a `Set`.
+
+- **The library's own warnings failed the test they were advising.** Under
+  `strayConsole: 'throw'` a report from `guardGlobals`, `prototypePollution`, `unconfiguredReads`,
+  `swallowedStrictCalls`, the duplicate-install check, the skipped-teardown net, the misconfiguration
+  reporter or the DOM-globals copier counted as stray output and failed the test. They write past the
+  guard's own sentinel now, while a `vi.spyOn(console, 'warn')` a test installed still absorbs them —
+  so suites that assert on warnings are unaffected.
+
+- **`guardGlobals` could not see the patches a Jest-era setup file makes.** `location`, `screen` and
+  the prototypes of `Element`, `HTMLElement`, `HTMLCanvasElement`, `HTMLMediaElement`, `Node` and
+  `EventTarget` are candidates now, and keys are read with `Reflect.ownKeys`, so symbol keys are seen.
+  It still cannot see an **existing** name redefined with `configurable: false`; that is documented
+  rather than fixed — a descriptor read per name per test costs more than the rest of the guard
+  together.
+
+- **An observer stub's callback received the library's internal record.** The second argument is the
+  observer the code under test constructed, with `takeRecords()` on it, and `root`, `rootMargin` and
+  `thresholds` read back off the `init` (`rootMargin` defaulting to `'0px 0px 0px 0px'`);
+  `instances[i].host` exposes the same object to the spec.
+
+- **`stubMediaElement().set({ ended: true })` left the element playing.** It pauses and fires `pause`
+  before `ended` now, and each install starts its elements from its own state, so an element that
+  outlives a test takes the new `duration` instead of the previous install's.
+
+- **`moduleNamespace({ default: fn })` replaced the `default` the factory spelled out** with the
+  namespace, so a dependency's `mod.default ?? mod` interop probe got the wrong object. The explicit
+  `default` is kept, and the type says so.
+
+- **`blockNetwork({ xhr })` called twice answered with the first caller's mode**, so a spec asking
+  for the failure branch was served the setup file's empty 200. The last caller wins now. The stubs
+  are also no longer re-journalled once installed, so `restoreProps: false` stops growing the restore
+  journal for the whole run.
+
+- **The console spies did not survive `vi.resetModules()`.** A new copy of the module took the
+  previous copy's spy for the real `console` method, and `restoreConsole()` then installed a dead spy
+  for the rest of the worker. The real methods are remembered in a per-worker registry and the spies
+  are branded.
+
+- **jasmine compatibility: `withArgs(…).and`, `mapContaining`, the clock and `createSpyObj`.**
+  `spy.withArgs(…).and` carries `stub()`, `throwError()` and `resolveTo()`, and `callFake()`,
+  `callThrough()` and `returnValues()` throw a message naming the alternative instead of
+  `… is not a function` — an argument-bound implementation answers every call, which is not what the
+  chain means. `jasmine.mapContaining` compares keys with the runner's equality, as jasmine-core does,
+  so an object key and a `jasmine.any(String)` key both work. `jasmine.createSpyObj`'s third argument
+  builds spied accessors reachable through `Object.getOwnPropertyDescriptor(obj, name).get`, as
+  jasmine documents.
+
+- **Importing `/react`, `/svelte`, `/vue` or `/nestjs` replaced a mock adapter another entry had
+  already registered.** They register only when there is none, as `/console` and `/dom-stubs` already
+  did. Those entries still import `vitest` and so still do not load on `bun:test` or `node:test` — a
+  Nest unit there needs a runner-agnostic entry, which is in `TODO.md`.
+
+- **The codemod read the words of a line comment as imported names.** An import clause carrying
+  `// …` was split on the comment's commas, so names nobody imported were "bound", an added name
+  landed _inside_ the comment, and dropping one specifier rebuilt the clause and lost aliases and line
+  breaks. Clauses are split on the mask now: a new name goes before the comment, and a removed
+  specifier takes its own comma and its own trailing comment and nothing else.
+
+- **JSX looked like a regular expression.** The `/` of a self-closing tag opened a literal span that
+  ran to the next tag's slash, hiding whatever was between them from every transform and from
+  `--verify` — a `.tsx` spec was migrated halfway and reported as clean.
+
+- **More of the codemod's reading of the source.** `jest.Mock<() => T>` from `@jest/globals` is
+  renamed rather than transposed a second time, and `jest.fn<R, [A]>()` / `jest.spyOn<…>()` report
+  `jest-mock-type-arguments` instead of carrying the list across in silence. `spyOnProperty(o, 'p')`
+  gains the `'get'` jasmine defaulted to, so `vi.spyOn` no longer dies with "can only spy on a
+  function", and `.withArgs()` on a `spyOn` chain is reported (`jasmine-with-args-on-spy-on`) rather
+  than renamed onto a method that does not exist. `fail`, `fit` and `xit` are rewritten only where
+  they are calls, so a function or method of the same name is left alone and `--verify` stops
+  reporting it forever. A `>` comparison no longer swallows the argument after it,
+  `throwError(variable)` is wrapped the way jasmine does it and an argument that would have to be
+  evaluated twice is declined, `expect()` with nothing in it is left for a person, a file starting
+  with a byte-order mark migrates, and a new import goes on its own line in a CRLF file and after a
+  trailing comment.
+
+- **Building the codemod's lexical mask was quadratic in the number of divisions.** Deciding whether
+  a `/` opens a regular expression scanned the whole prefix; it walks the word backwards now. On the
+  audit's input: 50 kB 96.1 → 0.5 ms, 200 kB 1 541 → 0.5 ms, 1 MB 38 785 → 2.6 ms, with the whole
+  mask of that 1 MB file built in 1.3 ms.
+
+- **The repository scan descended into git worktrees and nested clones**, counting another branch's
+  working copy as duplicates and offering `codemod --write` files that do not belong to this branch.
+  On this repository `doctor` went from 2 240 to 1 213 files and `codemod --verify` from 420 to 193.
+
+- **`init --check` went red on every version bump.** The managed block is compared without the
+  version stamp now, so an upgrade that changed nothing else passes a consumer's CI; a plain `init`
+  still refreshes the stamp.
+
+- **Two parametrised cases whose names differ only in a number shared one Code Quality
+  fingerprint.** Digits inside backticks are kept, so `returns 200` and `returns 404` stay two
+  findings while `3.90s` is still normalised.
+
+- **Piping the CLI into `head` ended in an unhandled `EPIPE` stack trace.** A closed pipe is a quiet
+  exit with the code already computed; anything else still throws.
+
+- **The lint rules walked the file once per node they were asked about.** `no-inject-before-override`
+  and `no-overridden-provider` collect the overrides and resets in one pass and decide by range —
+  **1 028 → 0.13 ms** on a 249 kB spec and 500 → 0.15 ms on a 1.7 MB one; `prefer-render-shallow`
+  answers the template-read question once per file (2 528 → 12.8 ms on that 1.7 MB spec);
+  `no-redundant-smoke-test` indexes identifiers only where a smoke test needs them (46 → 9.7 ms over
+  this repository's 173 specs, where it used to be 44 % of the plugin's time). The whole plugin costs
+  **93 → 56 ms** over those 173 specs and **3 263 → 68 ms** on the 1.7 MB spec. Reports are unchanged
+  — the JSON output was compared before and after on the same sources, with no differing position.
+
+- **`no-done-callback` reported an undestructured `TestContext`.** `it('x', (ctx) => ctx.skip())` and
+  `beforeEach((ctx) => ctx.task.meta…)` are legal Vitest and are left alone; the report stays where
+  the parameter is called, passed on as an argument or unused, and for `done.fail`.
+
+- **`require('vitest-auto-spy/eslint-plugin')` was typed as having a `default`.** The CJS build ends
+  in `module.exports = plugin` and the shipped `.d.cts` said otherwise, so `eslint.config.cts` and
+  `eslint.config.cjs` type-checked the call that throws and rejected the one that works. The
+  declaration is `export =` now (9 762 → 669 B), the same fix reached the `vitest-auto-spies` alias,
+  and `check-dist` fails the build if a `.cjs` ending in `module.exports =` ever ships a `.d.cts`
+  without it.
+
+- **A bundler honouring `sideEffects` could drop the Bun adapter's registration.** `dist/bun.js` and
+  `dist/bun-angular.js` reach it through a bare `import` of a shared chunk whose name carries a build
+  hash, which no `sideEffects` entry covered — every Bun spec would then fail with "No mock adapter
+  registered". `**/chunk-*.js` covers it, and `check-dist` now walks each ESM entry's graph and fails
+  when a file reached only by a bare import falls outside every `sideEffects` glob.
+
+- **The module-graph gate measured `@angular/forms` as this package's weight.** `/signal-forms` was
+  baselined at 274 233 B against 5 682 B of actual entry, so its 2 % tolerance was 5 kB of slack. The
+  peer lists the build and the three measuring scripts each kept a copy of are one module now
+  (`scripts/externals.mjs`), which is also what made `@angular/core/primitives/signals` external —
+  a bundled copy would have brought its own reactive graph, and the gate would not have noticed,
+  because it runs on sources.
+
+### Size and memory
+
+**`dist` grows 1 551 840 → 2 190 731 B (+639 kB, +41 %) and the tarball 642.7 → 818.1 kB (+27 %),
+unpacked 2.35 → 3.1 MB, in 84 files instead of 85.** The five standalone entries account for +442 kB
+of that, measured in isolation — same sources, two builds; the rest is the repair round's code, which
+every runtime row now carries. All of it sits in a dev-only dependency that never reaches a
+production bundle, against −2.5 ms per spec
+file on `/setup` and −2.1 ms on the root-plus-`/setup` pair every spec file of a Vitest project
+loads. What a consumer's bundler sees moves the other way for the emission change alone, because the
+cross-chunk import wiring is
+gone: `/setup` min+gzip **18 266 → 17 111 B (−6.3 %)**, `/react` and `/svelte` −253 B, `/vue` −241 B,
+`/node` −239 B, while `./bun` gains 348 B and `./bun-angular` 333 B — fewer entries are left in the
+chunked pass to share with. The repair round's code adds +2.4…3.6 kB to the solo rows on top, so
+across all entries this release lands at 283.6 → 317.0 kB and the badge moves 17 614 → 20 085 B. The
+module graph is what the time came out of: `/setup` 13 → 2 modules (−37.9 kB),
+`/react`, `/vue` and `/svelte` 14 → 2, `/node` 11 → 2. The emission change alone leaves declarations
+byte-identical; the type surface this release adds is the two option types above, and `types:budget`
+and `test:types` stay green.
+
+**Memory, per double**: an untouched 100-method lazy double retains 215 B instead of 25 593 B and a
+300-method one 284 B instead of 70 165 B; with three methods called, 11 883 B instead of 30 535 B.
+`lazySpies: 'proxy'` now retains 19× the default at 100 methods (4 090 B against 215 B) and taxes
+every read (53 ns against 7 ns), which leaves it nothing but build time — see `TODO.md`.
+
+### Internal
+
+- **A release can no longer go out ahead of CI.** `auto-release.yml` starts from a `workflow_run`
+  completion of CI rather than from `push`, checks out the run's `head_sha` so the verdict belongs to
+  one commit, and asks `gh api` for a successful CI run on that sha — which also covers a manual
+  dispatch, whose own verdict does not exist. The typecheck and test steps are gone from the release
+  path: CI ran them on that sha.
+
+- **The publishing job runs no third-party code.** `build` (`contents: read`) does `npm ci`, the
+  build, the version bump, `npm pack` and `git format-patch`; `publish` (`contents: write`,
+  `id-token: write`) takes the tarball and the patches from an artifact and does nothing but publish,
+  tag, push and cut the release — and `npm publish <tarball>` runs no lifecycle script. Before
+  publishing it checks that the branch has not moved since the build, and that a version already on
+  npm was published from this very commit (`npm view … gitHead`) rather than tagging someone else's.
+  The OIDC configuration is untouched: npm validates the workflow _file_, which is still
+  `auto-release.yml`.
+
+- **Every action is pinned by commit sha** — all 26 `uses:` across the seven workflows — with
+  Dependabot watching `github-actions` monthly so the pins cannot quietly age. Permissions moved from
+  the workflow to the jobs everywhere, so the docs site's `bun install` no longer runs with rights
+  that can publish Pages, and `bun-version` is pinned in `docs.yml` (the CI matrix keeps `latest`,
+  where it is the thing under test).
+
+- **A `peer-floor` lane exercises the bottom of the peer ranges** — `vitest` 2.1 with `rxjs` 7.2,
+  then 3 and 4 with 7.8, then both latest — by installing the packed tarball into a scratch consumer,
+  running a compatibility spec across the class spy, `calledWith`, `resolveWith`, getter spies, the
+  sweep, `nextWith`, `createAutoMock`, the prop mockers and `setupAutoSpy()`, and type-checking the
+  published declarations. `angular-range` installs `@angular/forms` and link-checks the
+  `/signal-forms` entry on Angular 22, its floor.
+
+## [5.18.0] - 2026-09-17
 
 ### Added
 
@@ -5779,7 +6309,8 @@ by hand there, in more than one place, by more than one person.
   `mockAccessorsProp`.
 - Dual ESM + CJS build with type declarations; 100% test coverage.
 
-[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.17.1...HEAD
+[5.19.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.18.0...v5.19.0
+[5.18.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.17.1...v5.18.0
 [5.17.1]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.17.0...v5.17.1
 [5.17.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.16.0...v5.17.0
 [5.16.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.15.1...v5.16.0

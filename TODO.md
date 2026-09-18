@@ -20,13 +20,96 @@ which is where this file's `[~]` entries went on 2026-09-10 — a decision is no
       `isMockFn` on `MockAdapter` and four implementations — see the entry in `DECISIONS.md` that
       declined it for `createAutoMock`.
 
-## Angular diagnostics
+- [ ] **`lazySpies: 'proxy'` has nothing left to offer — deprecate it, or say what it is for.** The
+      mode existed for the memory of a wide, barely-touched double, and the shared-placeholder work
+      of 2026-09-17 took that argument away: measured after it, a 100-method proxy double retains
+      **4 090 B against the default's 215 B** (300 methods: 11 769 B against 284 B), a warm read
+      costs **53 ns against 7 ns**, and materialising every method is 54.5 µs against 48.7. The one
+      thing it still wins is building the double — 2.0 µs against 12.6 at 100 methods — which
+      matters only for a class nobody calls. It is a public option, so the choices are a
+      `@deprecated` tag with a message naming the numbers (a minor), removing it (a major), or
+      keeping it documented as the build-time-only mode. The measurement is done; what is left is
+      the decision and, if it is deprecation, the doc pass on every surface.
 
-- [ ] **`enableAngularDiagnostics` sees only the static `TestBed.configureTestingModule`.** Its
-      configure inspectors (`deadSchemas`, `ngModuleScopes`, the `pendingRequests` token read,
-      `shadowedProviders` collection) are reached through the wrapped static method, so a spec that
-      calls `getTestBed().configureTestingModule(…)` bypasses all four. Wrap the instance, as the
-      reset snapshot now does.
+- [ ] **The static side of `createSpyClass(Class, config, { statics: true })` is untyped.** The
+      runtime carries the statics; `ConstructorSpy<T>` knows nothing about them, so a spec that
+      reads one needs `as unknown as typeof Klass`. Typing it means taking the class itself as the
+      type parameter instead of `ClassType<T>` — a change to a published signature, and one that
+      spends type-instantiation budget on every consumer that touches the factory, so it wants a
+      `types:budget` measurement before it is written rather than after.
+
+## Types
+
+- [ ] **Structural types in place of Vitest's `Mock` / `MockInstance` — the breaking half of making
+      `vitest` an optional peer.** The non-breaking half shipped:
+      `peerDependenciesMeta.vitest.optional` is set, so a `/bun` or `/node` consumer no longer
+      installs the runner, and `check-dist` reports a declaration file that names `vitest`. The
+      report is a warning because `dist/bun.d.ts` still carries `import { Mock } from 'vitest'`,
+      from `src/lib/types.ts`, `src/lib/jasmine-types.ts` and `src/lib/constructor-spy.ts`. Writing
+      the call, `mock*` and `calls` surfaces out structurally would let `/bun` and `/node` stop
+      naming Vitest at all — and it is breaking for everyone who assigns a spy into a `Mock` or a
+      `MockInstance` annotation, which is the ordinary way to hold one in a variable. So it is a
+      major, it needs the type tests rewritten on both sides of the boundary, and it has to stay
+      inside `types:budget`. The last line of it is already written: flipping
+      `reportVitestInTheTypes()` in `scripts/check-dist.mjs` from a warning to a failure.
+
+## Entry points
+
+- [ ] **A Nest unit on `bun:test` and `node:test` needs a runner-agnostic entry.** `/nestjs`,
+      `/react`, `/vue` and `/svelte` no longer overwrite an adapter another entry registered, but
+      they still `import 'vitest'`, so on Bun they die in `src/lib/vitest-adapter.ts` with
+      `TypeError: Attempted to assign to readonly property` on the module-scope sweep sentinel —
+      a Nest project on Bun cannot load `createNestUnit` at all. Two shapes, and they cost
+      differently. A separate entry (`/nest-unit`, on the pattern `/jasmine-compat` set) re-exporting
+      `createNestUnit`, `provideAutoSpy` and `trackInjections` from `src/lib/nest-unit.ts` without
+      registering an adapter is packaging work — `exports`, `tsup.config.ts`, the export map,
+      `size-entries`, `cold-import`, the docs on both language sides — and touches no behaviour.
+      Making the sentinel lazy instead is one file, and it changes what `pruneMockRegistry` and
+      `clearAllMocks` do, which is the half that needs measuring.
+
+## Async and timers
+
+- [ ] **`countStrayTimers()` is blind under fake timers, and cannot cheaply be made to see.**
+      `vi.useFakeTimers()` assigns its own `setTimeout` over the tracker's wrapper, so everything the
+      fake clock hands out is created past the tracking and the count is vacuum-true: zero, however
+      many timers the test left behind. `strayTimers` and `globalFakeTimers` therefore do not
+      compose, and the fake clock's own backlog is `vi.getTimerCount()`. What shipped is the
+      docblock and the documentation saying so. Seeing them means either installing the wrapper
+      after the fakes on every install — a hook into a foreign lifecycle — or reading Vitest's
+      internal clock, which is exactly the private-API dependency the Angular canary exists to
+      contain.
+
+- [ ] **`nextWithValues` on an observable property, for subscribers that are already on.** The
+      warning shipped; the semantics did not. Reaching a current subscriber means the property target
+      has to replay its configured values into the subject it published instead of swapping in a new
+      stream — and that changes what a _late_ subscriber sees: today it gets the whole sequence,
+      afterwards only what the `ReplaySubject(1)` holds. It is not obviously an improvement in every
+      shape, so the likely answer is a second, opt-in path rather than a replacement; whichever way
+      it goes, it is a documented behaviour change that needs the observable pages on both language
+      sides.
+
+## Guards under `test.concurrent`
+
+- [ ] **The console guard has one slot, and `unconfigured-reads` clears every entry.** The teardown
+      net now keys off `context.task`, so a concurrent neighbour cannot cancel its sibling's, and a
+      warning names what the rest cannot promise. Two ledgers are still single-slot.
+      `stray-console.ts` keeps one `guard.test` / `guard.inTest` pair, and it cannot be keyed by task
+      at all without an async context: the output arrives through the global `console`, carrying
+      nothing that says which test wrote it. `unconfigured-reads.ts` is the tractable one —
+      `openReadWindow()` calls `entries.clear()`, so the second parallel test erases the first's
+      reads and `unconfiguredReads` answers with a false negative; keying it
+      `WeakMap<Task, Map<object, ReadEntry>>` the way `createTeardownLedger` does is the shape, and
+      the work is in the paths that read the ledger back out. The document snapshot stays shared
+      whatever happens: there is one document.
+
+## Diagnostics
+
+- [ ] **`explainSpy` cannot see a symbol-keyed method.** Methods behind a symbol key are spied and
+      reset now, but the report enumerates string keys, so they are missing from the one place a
+      reader goes to ask what a double is configured with. The change is small and local to
+      `explain-spy.ts`; what it needs is a decision on how a symbol prints in that report — its
+      description is not unique, and two symbols of one description have to stay distinguishable in
+      the output — and a test on the format.
 
 ## Lint rules
 
@@ -51,10 +134,6 @@ which is where this file's `[~]` entries went on 2026-09-10 — a decision is no
       holding a **union** of classes, and a `#private` field — the second is unreachable by bracket
       access, by a cast and by `Object.getPrototypeOf` alike, so there is nothing to report for it.
       The union case is the one worth building, and it is worth building when a suite produces it.
-- [ ] **`prefer-provide-auto-spy` still recommends `provideAutoSpy(ActivatedRoute)`.** For
-      `{ provide: ActivatedRoute, useValue: … }` the better replacement is `provideActivatedRoute()`
-      from `/angular-router`, whose double carries the streams and the snapshot the spy lacks. A
-      token-specific message is the change; the rule already reads the `provide` value.
 
 ## `doctor` — the catalogue is a fifth built
 

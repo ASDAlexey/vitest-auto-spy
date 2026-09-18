@@ -8,6 +8,95 @@ reason.
 
 Shipped work is not here either — it is in `CHANGELOG.md` and in git history.
 
+## Three trades the audit round settled, 2026-09-17
+
+Two of them reverse an entry further down this file, which is why they are written here rather than
+left in the changelog: the old reasoning is still worth reading, and the reason it expired is not
+guessable from the code.
+
+- **De-chunking is reversed for five more entries — `/setup`, `/node`, `/react`, `/vue` and
+  `/svelte` now build as one file each.** This supersedes **"Full de-chunking of all 14 entries"** in
+  the performance pass below, which refused the move on two grounds. The second one — that it breaks
+  the single-registry invariant — expired when the stateful modules moved into
+  `dist/shared-state.js`: `useSharedState()` now runs over the solo pass as well as the chunked one,
+  so a solo entry imports the one copy of `mock-adapter`, `observable-support`, `jasmine-support`,
+  `package-identity` and `emission-timeout` rather than inlining its own. That is asserted, not
+  assumed: `smoke:dist` gained a case where a double built by `/react` is understood by the root
+  entry and `/setup` sees a strict throw raised by a spy from `/svelte`, in one process, alongside
+  the existing `index`+`setup`, `index`+`angular`+`setup` and `index`+`vue` pairs. The first ground,
+  the bytes, was measured rather than re-derived, as that entry demands: a fresh process per sample
+  with the peers loaded before the timer, 25 runs, median, Node 24 on darwin arm64 — `/setup`
+  **5.57 → 3.05 ms**, root + `/setup` **7.03 → 4.93 ms**, `/react` 5.46 → 3.09, `/node`
+  3.37 → 1.65, root + `/angular` + `/setup` **7.74 → 5.85 ms**, against `dist` **+442 kB** and a
+  tarball of **642.7 → 751.2 kB (+16.9 %)**. The pair that decides it is the second one: a setup file
+  is evaluated beside the root entry in _every_ spec file, so before this a Vitest project paid for a
+  solo core **and** a twelve-module chunked `/setup` on each of them. The old item's own +429 kB
+  figure is not the same quantity and must not be quoted next to this one — it was for all fourteen
+  entries, against a baseline that has moved four times since.
+  - [~] `bun` and `bun-angular` stay chunked. Nobody loads them per spec file, and their shared
+    adapter chunk is the one the `sideEffects` fix is about.
+  - [~] The remaining opt-in subpaths stay chunked for the same reason. The rule this pass leaves
+    behind is not "solo is better" but "solo for what a spec file loads every time".
+
+- **Structural matching replaces the serialized key wherever a string cannot carry the question, and
+  +10 % on the key of an object argument is accepted for it.** The exact map keyed by a serialized
+  string is still the fast path and still flat; what changed is which configs are allowed into it.
+  A config holding an asymmetric matcher or a function at any depth now goes to the predicate path
+  and is compared structurally — matchers apply wherever they sit, `Map` and `Set` compare without
+  order, `Date` by time, `Error` by name and message, functions by identity, symbol keys count, and
+  the prototype is deliberately **not** compared, which is what the runner's own `equals` does. The
+  alternative was to keep serializing and make the key finer, and it is not available: a matcher
+  serialized as data matches nothing while `mustBeCalledWith` throws on the correct call, and the
+  key's collisions — two functions of one name, two `Error`s, an object key forged to look like a
+  key list, symbol-keyed fields, a `Set` built in another order, `expect.any(A)` against
+  `expect.any(B)` for two same-named classes — are silent wrong answers, the expensive kind. The
+  price is on the hot path and was measured before it was accepted: a single primitive argument is
+  unchanged, a config holding a matcher costs +20 ns, and the key of an object argument costs
+  **+10 %**, roughly six of those ten points being the `getOwnPropertySymbols` that symbol keys
+  require and the rest the repeat budget and key quoting. Taken, because the same pass turns a
+  depth-18 graph with back edges from **276 ms into 0.29 ms** per call and an eight-config lookup
+  against a 200-field record from **636 µs into 0.4 µs** — the tenth is paid on the one shape that
+  was never the problem — and `bench:vs:fast` still leads every row (`calledWith dispatch` 0.17 µs,
+  3.01× ahead).
+  - A memoised subtree that emitted a back edge is no longer un-memoised for the rest of the walk,
+    which is what made the render exponential. The spec that pinned the old behaviour was rewritten
+    deliberately: the key has to be deterministic **for the structure**, not describe the path taken
+    to reach it, and traversal order is fixed by sorting keys, so two isomorphic graphs render
+    identically. Repeats — subtrees taken from the cache — are charged against a 50 000-character
+    budget and print as `ClassName{…N}` past it.
+  - [~] A huge argument that is shared with nothing is still rendered whole, and its key is still
+    linear in its size. Truncating it would risk a false match, and a false match is the failure
+    mode this whole item exists to remove.
+  - [~] Two symbols of one description are still one key — the same behaviour a top-level symbol
+    argument has had since the 2026-09-06 audit; and two opaque instances with no own enumerable
+    fields (`URL`, `ArrayBuffer`) still match each other, though no longer a different class's.
+    Separating either needs special cases on `toString`.
+
+- **One lazy placeholder per method name, shared across every double of the class, with a
+  dictionary-mode probe at the first materialisation.** This re-opens **"Cheaper lazy-spy creation by
+  sharing the accessor descriptors across spies"** in _Tried and rejected_ below, and that entry was
+  right about the mechanism: plain sharing reproduced exactly the regression it records —
+  materialising every method went **45 → 223 µs** at 100 methods and **195 → 1 733 µs** at 300,
+  because V8 keeps doubles whose accessors came from one descriptor pair on a shared fast-mode map
+  and turning an accessor into a data property there rewrites it. What the old entry measured as the
+  cure and rejected — forcing dictionary mode with a probe property and a `delete` — is taken here
+  with one change that makes the arithmetic work: the probe is installed at the **first
+  materialisation**, not when the double is built, so an untouched double, which is the case the
+  whole item exists for, never leaves the shared map. With it, materialising every method is 48.7 µs
+  at 100 and **144 µs at 300, below the 195 µs baseline**, while an untouched 100-method double
+  retains **215 B instead of 25 593 B**. Building a 300-method double costs 28 % more (33.3 → 42.7 µs)
+  and is inside the noise up to 100.
+  - JSC has no such pathology, so there the probe cures nothing and costs about 50 ns per
+    materialised method (Bun 1.4, shapes measured without the library: an untouched 100-method double
+    15.8 → 4.5 kB, materialising three methods 0.3 → 1.0 µs, all hundred 6.2 → 11.0 µs). Taken as it
+    is: the memory win is real on both engines, and "a hundred-method double nobody touched" is a V8
+    problem, under `isolate: false`, where the doubles of a worker accumulate.
+  - [~] Accessors on a shared prototype — still no, for the reason the old entry gives: it changes
+    what `Object.keys` and `{ ...spy }` report, which is observable.
+  - The strict-mode guard moved off the closure it shared with the placeholder into a
+    `WeakMap<double, …>` rather than a symbol on the double, on the same grounds: a symbol key would
+    show up in every spread and every snapshot.
+
 ## `documentPollution` — what the shared-document guard does not do, 2026-09-17
 
 Asked for after a consumer suite lost 34 tests, one full run in six, to a `data-reset-focus` attribute
@@ -1141,9 +1230,15 @@ import cost.
   smaller. Do not re-derive the delta from the two figures above without re-measuring both: the
   baseline moved twice again on 2026-09-03 (−20.3 kB from the subpath split, −162 kB from
   `minifyWhitespace` + `minifySyntax`), so `dist` is **572 742 B** now and both figures below predate
-  all of it.
+  all of it. **Partly superseded on 2026-09-17 — see "Three trades the audit round settled" at the
+  top of this file.** `/setup`, `/node`, `/react`, `/vue` and `/svelte` went standalone: the
+  single-registry objection expired with `dist/shared-state.js`, and the five entries were measured
+  rather than derived from the numbers above. The rest of this item stands — the remaining entries
+  stay chunked, and the rule is "solo for what a spec file loads every time".
 - [~] **Optimising the `ArgsMap` exact map** — already optimal (flat 186–237 ns from 1 to 100
-  configs; the `#arities` guard is the best thing in the file).
+  configs; the `#arities` guard is the best thing in the file). Still true of the exact map itself;
+  what changed on 2026-09-17 is which configs may enter it, and it gained a per-arity shape check
+  that answers a miss without serializing at all — see the top of this file.
 
 - [~] **Dropping `AGENTS.md` from `files`.** `README.md` + `AGENTS.md` are 187 847 B raw /
   57 908 B gzip = **29.3% of every install**, and dropping `AGENTS.md` alone is −12.6%. Measured
@@ -1481,6 +1576,10 @@ descriptors)` behaves the same way. Forcing dictionary mode with a probe propert
   placeholders before the accessors are deterministic on both engines and land exactly at the
   baseline. The only real cut is accessors on a shared prototype, which changes what `Object.keys`
   and `{ ...spy }` report — observable, so no. Measured 2026-09-02, Node 24.19 / Bun 1.4.0.
+  **Re-opened and shipped on 2026-09-17 — see "Three trades the audit round settled" at the top of
+  this file.** Everything measured here reproduced; what makes the trade work is installing the
+  probe at the first materialisation rather than at build time, so the untouched double the item is
+  about never leaves the shared map. The shared prototype is still no, for the reason above.
 
 - **`aroundEach` / `aroundAll` do not replace the proxy-zone patch.** Vitest 4.1 added hooks that
   wrap a test (`aroundEach((runTest) => …)`) and a suite, and on paper they are exactly what
