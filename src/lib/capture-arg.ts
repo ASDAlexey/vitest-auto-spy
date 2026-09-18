@@ -35,15 +35,26 @@ import { DOCS_LINKS, withDocs } from './docs-links';
 /** A captor: matches any argument in its position, and keeps what it saw. */
 export interface ArgCaptor<T> {
   /**
-   * Every value this captor has matched, oldest first.
+   * Every value this captor was offered, oldest first — **candidates**, not matches.
    *
-   * A captor placed in an assertion that runs against several calls collects one entry per call,
-   * which is the difference between "the last handler" and "the handler from the second call".
+   * The runner tries an assertion's expectation against each recorded call until one passes, and it
+   * compares positions left to right, stopping at the first that disagrees. A captor matches
+   * everything, so it never stops that walk: in `toHaveBeenCalledWith(captor, 3)` it is offered the
+   * first argument of *every* call the runner tried, including the ones the `3` went on to reject.
+   * A captor in the last position is offered only the calls that agreed on everything before it,
+   * and a captor given a `where` filter records only what its filter accepts — which is the way to
+   * make this list say "matched".
    */
   readonly values: readonly T[];
   /** The most recent captured value. Throws when nothing has been captured yet. */
   readonly value: T;
-  /** Whether anything has been captured — for asserting the negative without triggering the throw. */
+  /**
+   * Whether anything has been captured — for reading the list without triggering the throw.
+   *
+   * It says the captor was *offered* a value, which is not the same as the assertion having passed:
+   * a failing `expect(spy).not.toHaveBeenCalledWith(captor, 99)` still offers it every call's first
+   * argument. Assert on the expectation, not on this.
+   */
   readonly captured: boolean;
   /** Forget everything seen so far, so one captor can serve two phases of a test. */
   reset(): void;
@@ -88,11 +99,16 @@ export interface ArgCaptor<T> {
  * without being read.
  */
 class Captor<T> implements ArgCaptor<T> {
+  readonly #where: ((value: unknown) => boolean) | undefined;
   readonly #values: T[] = [];
   // The last capture, boxed. `#values[#values.length - 1]` is `T | undefined` to the compiler no
   // matter what the length guard above it proved, and the two ways out of that are a non-null
   // assertion or this — a box that narrows honestly, for one object per captured argument.
   #latest: { value: T } | undefined = undefined;
+
+  constructor(where?: (value: unknown) => boolean) {
+    this.#where = where;
+  }
 
   get values(): readonly T[] {
     return this.#values;
@@ -126,6 +142,10 @@ class Captor<T> implements ArgCaptor<T> {
   }
 
   asymmetricMatch(actual: unknown): boolean {
+    if (this.#where && !this.#where(actual)) {
+      return false;
+    }
+
     // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- `T` is the test author's claim about this argument position, not something a captor can check: it matches every value by design, and the alternative is the same assertion made at every `.value` read instead of once here.
     const captured = actual as T;
 
@@ -142,6 +162,15 @@ class Captor<T> implements ArgCaptor<T> {
   toAsymmetricMatcher(): string {
     return `captureArg<${this.#values.length} captured>`;
   }
+}
+
+/** How a captor may narrow what it matches — see {@link captureArg}. */
+export interface CaptureArgOptions {
+  /**
+   * Which values this captor accepts. Without one it matches everything, and is offered every call
+   * the runner tries.
+   */
+  where(value: unknown): boolean;
 }
 
 /**
@@ -162,10 +191,23 @@ class Captor<T> implements ArgCaptor<T> {
  * literal, or `expect.objectContaining`, whenever the assertion can state what it expects, because
  * a captor that matches everything moves the check from the expectation to the lines after it.
  *
+ * Matching everything is also why `.values` is a list of candidates rather than of matches: the
+ * runner offers the captor one argument per call it tries, and a captor to the left of a position
+ * that rejects the call has already recorded it. A `where` filter is the way to say which calls
+ * count, and the captor then records only those:
+ *
+ * ```ts
+ * const post = captureArg<RequestInit>({ where: (value) => (value as RequestInit).method === 'POST' });
+ *
+ * expect(fetchSpy).toHaveBeenCalledWith('/api/save', post);
+ * expect(post.values).toHaveLength(1);
+ * ```
+ *
+ * @param options `where` narrows what the captor matches; without it, it matches every value.
  * @typeParam T What the captured argument is. Unchecked at run time — a captor matches any value —
  *   so this is the test author's claim about the position, exactly like a cast at `mock.calls`, but
  *   made once and read everywhere the captor is used.
  */
-export function captureArg<T = unknown>(): ArgCaptor<T> {
-  return new Captor<T>();
+export function captureArg<T = unknown>(options?: CaptureArgOptions): ArgCaptor<T> {
+  return new Captor<T>(options?.where);
 }

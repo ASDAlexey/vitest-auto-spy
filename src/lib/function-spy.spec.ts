@@ -9,6 +9,7 @@ import { type MockInstance, afterEach, beforeEach, describe, expect, it, vi } fr
 import { createFunctionSpy } from './function-spy';
 import { type MockAdapter, type MockFn, registerMockAdapter } from './mock-adapter';
 import { resetAutoSpy } from './reset-auto-spy';
+import { setSpyEngine } from './spy-engine';
 import type { Func, UnstubbedCall } from './types';
 import { vitestMockAdapter } from './vitest-adapter';
 
@@ -324,5 +325,97 @@ describe('createFunctionSpy — a host implementation over a configured chain', 
 
     expect(warnings).toEqual([]);
     expect(load(1)).toBe('configured');
+  });
+});
+
+/**
+ * Each `calledWith(…)` hands back a handle of its own.
+ *
+ * The chain object used to be one per spy, decorated in place with helpers closed over the latest
+ * argument list — so a handle held in a variable configured whatever the *next* `calledWith` was
+ * called with, and the configuration written through it was lost without a word.
+ */
+describe('createFunctionSpy — calledWith hands back a handle per call', () => {
+  it('keeps a stored handle bound to the arguments it was taken for', () => {
+    const load = createFunctionSpy<(id: number) => string>('load');
+    const one = load.calledWith(1);
+    const two = load.calledWith(2);
+
+    one.mockReturnValue('one');
+    two.mockReturnValue('two');
+
+    expect(load(1)).toBe('one');
+    expect(load(2)).toBe('two');
+  });
+
+  it('keeps the promise helpers of a stored handle bound too', async () => {
+    const load = createFunctionSpy<(id: number) => Promise<string>>('load');
+    const one = load.calledWith(1);
+
+    load.calledWith(2).resolveWith('two');
+    one.resolveWith('one');
+
+    await expect(load(1)).resolves.toBe('one');
+    await expect(load(2)).resolves.toBe('two');
+  });
+
+  it('shares one argument map between the handles of a chain', () => {
+    const load = createFunctionSpy<(id: number) => string>('load');
+    const mapOf = (handle: object): unknown => Reflect.get(handle, 'argsToValuesMap');
+
+    expect(mapOf(load.calledWith(1))).toBe(mapOf(load.calledWith(2)));
+  });
+
+  it('keeps mustBeCalledWith handles apart the same way', () => {
+    const load = createFunctionSpy<(id: number) => string>('load');
+    const one = load.mustBeCalledWith(1);
+
+    load.mustBeCalledWith(2).mockReturnValue('two');
+    one.mockReturnValue('one');
+
+    expect(load(1)).toBe('one');
+    expect(load(2)).toBe('two');
+  });
+});
+
+/**
+ * `new` on a method spy — the shape a spied SDK factory (`new sdk.Client()`) produces.
+ *
+ * The dispatch used to be an arrow, which has no `[[Construct]]`, so every such call failed with
+ * `(...actualArgs) => {…} is not a constructor`: a message quoting this library's own source and
+ * naming neither the method nor what to do about it.
+ */
+describe('createFunctionSpy — construction', () => {
+  it('constructs an instance when nothing is configured', () => {
+    const Client = createFunctionSpy<() => object>('Client');
+
+    const instance = new (Client as unknown as new () => object)();
+
+    expect(instance).toBeInstanceOf(Object);
+    expect(Client).toHaveBeenCalledTimes(1);
+  });
+
+  it('hands back the configured object as the instance', () => {
+    const Client = createFunctionSpy<() => object>('Client');
+    const configured = { id: 1 };
+
+    Client.calledWith().mockReturnValue(configured);
+
+    expect(new (Client as unknown as new () => object)()).toBe(configured);
+  });
+
+  it('constructs the same way on the runner engine', () => {
+    setSpyEngine('runner');
+
+    try {
+      const Client = createFunctionSpy<() => object>('Client');
+      const configured = { id: 1 };
+
+      Client.calledWith().mockReturnValue(configured);
+
+      expect(new (Client as unknown as new () => object)()).toBe(configured);
+    } finally {
+      setSpyEngine('auto-spy');
+    }
   });
 });

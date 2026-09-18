@@ -53,4 +53,33 @@ describe('diffByField', () => {
     expect(report).toContain('`id` differs');
     expect(report).toContain('`at` differs');
   });
+
+  it('compares a Date, a Map and a Set whole rather than by their (empty) key set', () => {
+    // `Object.keys` is empty for all three, so the union of fields was empty, nothing was compared
+    // and two plainly different elements were reported as matching.
+    expect(diffByField([new Date(1)], [new Date(2)])).toContain('`the element` differs');
+    expect(diffByField([new Map([[1, 1]])], [new Map([[1, 2]])])).toContain('`the element` differs');
+    expect(diffByField([new Set([1])], [new Set([2])])).toContain('`the element` differs');
+    expect(diffByField([new Date(1)], [new Date(1)])).toBeUndefined();
+  });
+
+  it('compares a class instance whole, and says so once per element', () => {
+    class Money {
+      constructor(private readonly amount: number) {}
+
+      get formatted(): string {
+        return `${this.amount}`;
+      }
+    }
+
+    expect(diffByField([new Money(1)], [new Money(2)])).toContain('`the element` differs');
+    expect(diffByField([new Money(1)], [new Money(1)])).toBeUndefined();
+  });
+
+  it('reports two records that differ only in a symbol-keyed field', () => {
+    const key = Symbol('flag');
+
+    expect(diffByField([{ [key]: 1 }], [{ [key]: 2 }])).toContain('`the element` differs');
+    expect(diffByField([{ [key]: 1 }], [{ [key]: 1 }])).toBeUndefined();
+  });
 });

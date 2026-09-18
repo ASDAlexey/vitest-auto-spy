@@ -37,6 +37,7 @@
  * | Unnamed fields | `undefined` at runtime | the default's value |
  * | Use it for | a shape read shallowly, once | a model many specs build, read deeply, and mutate |
  */
+import { isPlainRecord } from './plain-record';
 import type { DeepPartial } from './types';
 
 /** Stamps out one fixture per call. What {@link createFixtureFactory} returns. */
@@ -47,24 +48,6 @@ export type FixtureFactory<T> = (overrides?: DeepPartial<T>) => T;
  * instead of adding a field, so a fixture carrying it would rewrite the shape of its own copy.
  */
 const FORBIDDEN_KEY = '__proto__';
-
-/**
- * Whether a value is a literal-shaped record, as opposed to something with behaviour of its own.
- *
- * The distinction decides both halves of this module — what gets copied and what gets merged — and
- * it is drawn at the prototype rather than at `typeof`, because that is the only test that tells a
- * `{ … }` literal apart from a `Date`, a `Map`, an `HTMLElement` or a model instance while still
- * accepting an object built with `Object.create(null)`.
- */
-function isPlainRecord(value: unknown): value is Record<string, unknown> {
-  if (typeof value !== 'object' || value === null) {
-    return false;
-  }
-
-  const prototype: unknown = Object.getPrototypeOf(value);
-
-  return prototype === Object.prototype || prototype === null;
-}
 
 /** Copy the records and arrays, carry everything else across as it is. */
 function copyValue(value: unknown): unknown {

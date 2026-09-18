@@ -100,4 +100,44 @@ describe('captureArg', () => {
 
     expect(vi.fn()).not.toHaveBeenCalledWith(captor);
   });
+
+  it('records every candidate the runner tried, which is not the same as every match', () => {
+    // The runner compares positions left to right and stops at the first that disagrees, so a
+    // captor in the first position is offered the arguments of calls the assertion goes on to
+    // reject. Documented, because the list reads as "matched" and is not.
+    const send = vi.fn();
+    const id = captureArg<string>();
+
+    send('a', 1);
+    send('b', 2);
+    send('c', 3);
+
+    expect(send).toHaveBeenCalledWith(id, 3);
+
+    expect(id.values).toEqual(['a', 'b', 'c']);
+  });
+
+  it('records only what its `where` filter accepts', () => {
+    const send = vi.fn();
+    const id = captureArg<string>({ where: (value) => value === 'c' });
+
+    send('a', 1);
+    send('b', 2);
+    send('c', 3);
+
+    expect(send).toHaveBeenCalledWith(id, 3);
+
+    expect(id.values).toEqual(['c']);
+    expect(id.value).toBe('c');
+  });
+
+  it('a filter that accepts nothing fails the assertion and captures nothing', () => {
+    const send = vi.fn();
+    const missing = captureArg<string>({ where: (value) => value === 'z' });
+
+    send('a', 1);
+
+    expect(send).not.toHaveBeenCalledWith(missing, 1);
+    expect(missing.captured).toBe(false);
+  });
 });

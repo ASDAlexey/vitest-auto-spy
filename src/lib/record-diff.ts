@@ -21,6 +21,7 @@
  * because it is reached for *after* a failure — wrap the assertion the moment it goes red, keep it
  * or drop it afterwards.
  */
+import { isPlainRecord } from './plain-record';
 import { serializeValue } from './serialize-args';
 
 /** One field that did not match, and where. */
@@ -34,13 +35,12 @@ interface FieldDifference {
 /** How many example values one line of the report shows before it gives up on listing them. */
 const MAX_EXAMPLES = 6;
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-/** Both elements as records, when both are — the only case in which per-field comparison means anything. */
+/**
+ * Both elements as records, when both are — the only case in which per-field comparison means
+ * anything. Anything else is compared whole instead, as `the element`.
+ */
 function recordPair(actual: unknown, expected: unknown): [Record<string, unknown>, Record<string, unknown>] | undefined {
-  return isRecord(actual) && isRecord(expected) ? [actual, expected] : undefined;
+  return isPlainRecord(actual) && isPlainRecord(expected) ? [actual, expected] : undefined;
 }
 
 function differs(actual: unknown, expected: unknown): boolean {
@@ -62,11 +62,18 @@ function collectDifferences(actual: readonly unknown[], expected: readonly unkno
     }
 
     const [actualRecord, expectedRecord] = pair;
-
     // Every key either side has, so a field missing from one of them is still compared.
-    [...new Set([...Object.keys(actualRecord), ...Object.keys(expectedRecord)])].forEach((field) =>
-      addDifference(byField, field, index, actualRecord[field], expectedRecord[field]),
-    );
+    const fields = [...new Set([...Object.keys(actualRecord), ...Object.keys(expectedRecord)])];
+
+    if (fields.length === 0) {
+      // Two records with no string keys between them still differ if either carries a symbol-keyed
+      // field — and with nothing to compare per field, the element is the only thing to report.
+      addDifference(byField, 'the element', index, actualElement, expectedElement);
+
+      return;
+    }
+
+    fields.forEach((field) => addDifference(byField, field, index, actualRecord[field], expectedRecord[field]));
   });
 
   return [...byField.values()];

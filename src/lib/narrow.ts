@@ -33,7 +33,13 @@ function describe(value: unknown): string {
   const keys = Object.keys(value);
   const shown = keys.slice(0, 12).join(', ');
 
-  return `${value.constructor.name} { ${keys.length > 12 ? `${shown}, …` : shown} }`;
+  // Through the prototype rather than `value.constructor`: a `Object.create(null)` dictionary has
+  // no `constructor` at all, and reading `.name` off it turned the one line that explains the
+  // failure into a second, unrelated `TypeError` — the same trap the primitive branch above avoids.
+  const constructor: unknown = Reflect.get(Object(Object.getPrototypeOf(value)), 'constructor');
+  const label = typeof constructor === 'function' && constructor.name ? constructor.name : 'Object';
+
+  return `${label} { ${keys.length > 12 ? `${shown}, …` : shown} }`;
 }
 
 function narrowingFailed(label: string, value: unknown): Error {

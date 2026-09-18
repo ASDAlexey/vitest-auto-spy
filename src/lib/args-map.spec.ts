@@ -259,14 +259,162 @@ describe('ArgsMap', () => {
     const map = new ArgsMap();
     map.set([expect.any(Number), configArg], 'hit');
 
-    expect(configReads).toBe(1);
+    // Two walks at registration: one to decide whether the position needs a structural match, one
+    // to render its key.
+    expect(configReads).toBe(2);
 
     expect(map.get([5, { id: 1 }])).toBe('hit');
     expect(map.get([6, { id: 1 }])).toBe('hit');
     expect(map.get([7, { id: 2 }])).toBeUndefined();
 
-    // Still 1: three lookups, and the config side was never walked again.
-    expect(configReads).toBe(1);
+    // Still 2: three lookups, and the config side was never walked again.
+    expect(configReads).toBe(2);
+  });
+
+  it('renders each actual argument once per lookup, however many configs consult it', () => {
+    // K configs used to re-render the same actual argument K times, on every call of the spy.
+    let actualReads = 0;
+    const actual = {
+      get id(): number {
+        actualReads += 1;
+
+        return 9;
+      },
+    };
+
+    const map = new ArgsMap();
+
+    for (let index = 0; index < 4; index += 1) {
+      map.set([{ literal: index }, expect.any(Number)], index);
+    }
+
+    expect(map.get([actual, 1])).toBeUndefined();
+    expect(actualReads).toBe(1);
+  });
+
+  it('decides the matcher positions before it renders the literal ones', () => {
+    // The matcher rejects every call here, so the literal position — the expensive one — is never
+    // serialized at all.
+    const map = new ArgsMap();
+    map.set([{ id: 1 }, expect.any(Number)], 'hit');
+
+    const unserializable = {
+      get boom(): never {
+        throw new Error('serialized an argument a matcher had already rejected');
+      },
+    };
+
+    expect(map.get([unserializable, 'not a number'])).toBeUndefined();
+  });
+
+  it('skips the exact map for a call holding an object where no config of that arity does', () => {
+    const map = new ArgsMap();
+    map.set([1, 'a'], 'exact');
+
+    const unserializable = {
+      get boom(): never {
+        throw new Error('serialized an argument list that cannot match');
+      },
+    };
+
+    expect(map.get([unserializable, 'a'])).toBeUndefined();
+    // The position does hold objects once a config puts one there, and the lookup goes back through
+    // the serializer.
+    map.set([{ id: 1 }, 'a'], 'object');
+
+    expect(map.get([{ id: 1 }, 'a'])).toBe('object');
+  });
+
+  describe('structural configs', () => {
+    it('matches an asymmetric matcher nested inside an object or an array', () => {
+      const map = new ArgsMap();
+      map.set([{ id: expect.any(Number) }], 'object');
+      map.set([[expect.any(String)]], 'array');
+
+      expect(map.get([{ id: 1 }])).toBe('object');
+      expect(map.get([{ id: 'x' }])).toBeUndefined();
+      expect(map.get([['a']])).toBe('array');
+      expect(map.get([[1]])).toBeUndefined();
+    });
+
+    it('matches a matcher nested inside a Map or a Set', () => {
+      const map = new ArgsMap();
+      map.set([new Map([['id', expect.any(Number)]])], 'map');
+      map.set([new Set([expect.any(String)])], 'set');
+
+      expect(map.get([new Map([['id', 4]])])).toBe('map');
+      expect(map.get([new Map([['id', 'four']])])).toBeUndefined();
+      expect(map.get([new Set(['a'])])).toBe('set');
+    });
+
+    it('describes a nested matcher the way the runner prints it', () => {
+      const map = new ArgsMap();
+      map.set([{ id: expect.any(Number), name: 'a' }], 'hit');
+
+      expect(map.configured()).toEqual(["[{id:Any<Number>,name:'a'}]"]);
+    });
+
+    it('overrides a nested-matcher config registered with an equivalent one', () => {
+      const map = new ArgsMap();
+      map.set([{ id: expect.any(Number) }], 'first');
+      map.set([{ id: expect.any(Number) }], 'second');
+      map.set([{ id: expect.any(String) }], 'string');
+
+      expect(map.get([{ id: 1 }])).toBe('second');
+      expect(map.get([{ id: 'x' }])).toBe('string');
+      expect(map.configured()).toHaveLength(2);
+    });
+
+    it('tells two functions of one name apart', () => {
+      // Both serialize as `[Function: handler]`, so the exact map answered one config for the
+      // other's calls.
+      const first = function handler(): string {
+        return 'first';
+      };
+      const second = function handler(): string {
+        return 'second';
+      };
+
+      const map = new ArgsMap();
+      map.set(['click', first], 'first');
+      map.set(['click', second], 'second');
+
+      expect(map.get(['click', first])).toBe('first');
+      expect(map.get(['click', second])).toBe('second');
+      expect(map.get(['click', () => 'third'])).toBeUndefined();
+    });
+
+    it('keeps Errors with different messages apart and matches an equal one', () => {
+      const map = new ArgsMap();
+      map.set([new Error('a')], 'a');
+      map.set([new Error('b')], 'b');
+
+      expect(map.get([new Error('a')])).toBe('a');
+      expect(map.get([new Error('b')])).toBe('b');
+      expect(map.get([new Error('c')])).toBeUndefined();
+    });
+
+    it('answers a Set built in the other order', () => {
+      const map = new ArgsMap();
+      map.set([new Set([1, 2])], 'set');
+
+      expect(map.get([new Set([2, 1])])).toBe('set');
+    });
+
+    it('keeps two matchers of one-named classes apart', () => {
+      // `expect.any(A)` and `expect.any(B)` hold different classes whose `name` is the same, so
+      // comparing their rendered state made the second config replace the first.
+      const First = (() => class Model {})();
+      const Second = (() => class Model {})();
+
+      const map = new ArgsMap();
+      map.set([expect.any(First)], 'first');
+      map.set([expect.any(Second)], 'second');
+
+      expect(map.get([new First()])).toBe('first');
+      expect(map.get([new Second()])).toBe('second');
+      expect(map.configured()).toHaveLength(2);
+    });
   });
   it('hands out one addressable entry per config, exact configs before the asymmetric ones', () => {
     const map = new ArgsMap();

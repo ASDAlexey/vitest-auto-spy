@@ -353,8 +353,19 @@ function reportLateChain(internals: FunctionSpyInternals, chain: string): void {
   }
 }
 
-/** Attach `mockReturnValue` (and its `returnValue` alias) plus the promise/observable helpers to a `calledWith` chain. */
-function addMethodsToCalledWith(calledWith: CalledWithObject, calledWithArgs: unknown[]): CalledWithObject {
+/**
+ * The handle one `calledWith(…)` call hands back: the chain's argument map, plus every helper that
+ * configures *these* arguments.
+ *
+ * A handle per call, not the chain itself. The helpers close over the argument list, so decorating
+ * the one shared chain object meant the second `calledWith` re-pointed the first one's helpers:
+ * `const one = spy.load.calledWith(1); const two = spy.load.calledWith(2); one.mockReturnValue('one')`
+ * configured the answer for `2`, and the configuration for `1` was silently lost. Holding the chain
+ * handle in a variable is the ordinary way to configure several outcomes for one argument list, so
+ * this is not an exotic shape.
+ */
+function addMethodsToCalledWith(chain: CalledWithObject, calledWithArgs: unknown[]): CalledWithObject {
+  const calledWith: CalledWithObject = { argsToValuesMap: chain.argsToValuesMap };
   const setReturnValue = (value: unknown): void => {
     calledWith.argsToValuesMap.set(calledWithArgs, { value });
   };
@@ -623,7 +634,14 @@ export function createFunctionSpy<FunctionType extends Func>(
   // The library's dispatch: pick the configured value for the call, then record
   // its settled outcome. Kept in the internals so `resetAutoSpy` can re-install it,
   // discarding any host-level `mockReturnValue`/`mockImplementation` a test set.
-  const dispatch = (...actualArgs: unknown[]): unknown => {
+  //
+  // A `function` and not an arrow, because an arrow has no `[[Construct]]`: `new sdk.Client()` on a
+  // spy of a factory member — the shape `createAutoMock<{ Worker: typeof Worker }>()` and `mockDeep`
+  // produce — failed with `(...actualArgs) => {…} is not a constructor`, a message showing this
+  // file's own source and naming neither the method nor the mistake. Constructed, the configured
+  // value is the instance when it is an object, and the fresh instance otherwise — the language's
+  // own rule for what a constructor returns, so there is nothing to decide here.
+  const dispatch = function dispatch(...actualArgs: unknown[]): unknown {
     const returned = returnTheCorrectFakeValue(state, actualArgs, name, unstubbed);
 
     return settledResultsRecorder ? settledResultsRecorder(returned) : returned;

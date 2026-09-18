@@ -115,3 +115,21 @@ describe('narrow.defined', () => {
     expect(() => narrow.defined(undefined, "the row's covers")).toThrow(/expected the row's covers, but the value is undefined/);
   });
 });
+
+describe('narrow — a value with no constructor', () => {
+  it('names a null-prototype object instead of failing on its missing constructor', () => {
+    const dictionary: Record<string, unknown> = Object.create(null) as Record<string, unknown>;
+    dictionary['id'] = 7;
+
+    expect(() => narrow(dictionary, () => false, 'a route')).toThrow(/expected a route, but the value is Object \{ id \}/);
+  });
+
+  it('falls back to Object for a class that has no name', () => {
+    const Anonymous = class {
+      readonly id = 1;
+    };
+    Object.defineProperty(Anonymous, 'name', { value: '' });
+
+    expect(() => narrow(new Anonymous(), () => false, 'a route')).toThrow(/but the value is Object \{ id \}/);
+  });
+});

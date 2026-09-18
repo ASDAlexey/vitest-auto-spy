@@ -115,15 +115,133 @@ describe('serializeValue', () => {
     expect(Date.now() - startedAt).toBeLessThan(20);
   });
 
-  it('does not reuse a rendering that depended on the path that produced it', () => {
+  it('reuses a rendering that emitted a back-edge, and stays deterministic for the structure', () => {
     // `first` and `second` reference each other, so whichever is reached first renders the other
-    // with `[Circular]` — a rendering that is correct only for that path. Reached from `second`,
-    // `first` must render in full again rather than come back from the cache.
-    const first: Record<string, unknown> = {};
-    const second: Record<string, unknown> = { first };
-    first['second'] = second;
+    // with `[Circular]`. That rendering is reused on the second path rather than recomputed: it is
+    // the walk order — fixed by sorted keys — that decides the text, so a second graph of the same
+    // shape produces the same key, which is the only property matching needs.
+    const build = (): Record<string, unknown> => {
+      const first: Record<string, unknown> = {};
+      const second: Record<string, unknown> = { first };
+      first['second'] = second;
 
-    expect(serializeValue({ a: first, b: second })).toBe('{a:{second:{first:[Circular]}},b:{first:{second:[Circular]}}}');
+      return { a: first, b: second };
+    };
+
+    expect(serializeValue(build())).toBe('{a:{second:{first:[Circular]}},b:{first:[Circular]}}');
+    expect(serializeValue(build())).toBe(serializeValue(build()));
+  });
+
+  it('stays linear on a graph whose every node points back at the root', () => {
+    // The shape every Angular double carries — a component that reaches its injector, a node that
+    // reaches its root. Leaving back-edge subtrees out of the cache made this 2^depth again: 276 ms
+    // at depth 18, against 1.9 ms for the same graph without the back-edges.
+    const root: Record<string, unknown> = { id: 'root' };
+    let current = root;
+
+    for (let index = 0; index < 18; index += 1) {
+      const next: Record<string, unknown> = { id: index, root };
+
+      current['left'] = { next };
+      current['right'] = { next };
+      current = next;
+    }
+
+    const startedAt = Date.now();
+    serializeValue(root);
+
+    expect(Date.now() - startedAt).toBeLessThan(50);
+  });
+
+  it('renders an Error by name and message, own fields included', () => {
+    // `name` and `message` are not enumerable, so every error used to render as `{}` and
+    // `calledWith(new Error('a'))` answered a call made with `new Error('b')`.
+    expect(serializeValue(new Error('boom'))).toBe("new Error('boom')");
+    expect(serializeValue(new TypeError('boom'))).not.toBe(serializeValue(new Error('boom')));
+    expect(serializeValue(new Error('a'))).not.toBe(serializeValue(new Error('b')));
+
+    const withStatus = Object.assign(new Error('failed'), { status: 500 });
+
+    expect(serializeValue(withStatus)).toBe("new Error('failed'){status:500}");
+  });
+
+  it('quotes an object key that could otherwise forge another object', () => {
+    expect(serializeValue({ 'a:1,b': 2 })).not.toBe(serializeValue({ a: 1, b: 2 }));
+    expect(serializeValue({ 'needs-quotes': 1 })).toBe("{'needs-quotes':1}");
+  });
+
+  it('renders symbol-keyed entries rather than dropping them', () => {
+    const key = Symbol('flag');
+
+    expect(serializeValue({ [key]: 1 })).toBe('{Symbol(flag):1}');
+    expect(serializeValue({ [key]: 1 })).not.toBe(serializeValue({ [key]: 2 }));
+    // A non-enumerable own property is not part of the value a literal describes.
+    const hidden = {};
+    Object.defineProperty(hidden, Symbol('hidden'), { value: 1, enumerable: false });
+
+    expect(serializeValue(hidden)).toBe('{}');
+  });
+
+  it('sorts symbol-keyed entries too, so insertion order does not make two keys', () => {
+    const first = Symbol('a');
+    const second = Symbol('b');
+
+    expect(serializeValue({ [second]: 2, [first]: 1 })).toBe('{Symbol(a):1,Symbol(b):2}');
+    expect(serializeValue({ [first]: 1, [second]: 2 })).toBe(serializeValue({ [second]: 2, [first]: 1 }));
+  });
+
+  it('keys a Map and a Set by content rather than by insertion order', () => {
+    expect(serializeValue(new Set([2, 1]))).toBe(serializeValue(new Set([1, 2])));
+    expect(
+      serializeValue(
+        new Map([
+          ['b', 2],
+          ['a', 1],
+        ]),
+      ),
+    ).toBe(
+      serializeValue(
+        new Map([
+          ['a', 1],
+          ['b', 2],
+        ]),
+      ),
+    );
+    expect(serializeValue(new Set([1]))).not.toBe(serializeValue(new Set([2])));
+  });
+
+  it('names the class of an instance that has nothing enumerable to show', () => {
+    class Empty {
+      get value(): number {
+        return 1;
+      }
+    }
+
+    expect(serializeValue(new Empty())).toBe('Empty{}');
+    expect(serializeValue(new Empty())).not.toBe(serializeValue({}));
+    expect(serializeValue(Object.create(null))).toBe('{}');
+    expect(serializeValue(Object.create(Object.create(null)))).toBe('Object{}');
+  });
+
+  it('stops expanding a key past the budget, keeping the shape that tells two apart', () => {
+    const wide = (fill: string): Record<string, unknown> =>
+      Object.fromEntries(Array.from({ length: 400 }, (_, index) => [`f${index}`, { value: fill.repeat(20), index }]));
+    const shared = { deep: wide('a') };
+    const huge = Object.fromEntries(Array.from({ length: 40 }, (_, index) => [`n${index}`, shared]));
+
+    const rendered = serializeValue(huge);
+
+    expect(rendered).toContain('…');
+    expect(rendered.length).toBeLessThan(200_000);
+    // Two arguments of that size are still told apart by the shape the summary keeps.
+    expect(serializeValue([huge])).not.toBe(serializeValue([Object.assign({ extra: 1 }, huge)]));
+  });
+
+  it('summarises an array past the budget by its length', () => {
+    const wide = Array.from({ length: 600 }, (_, index) => ({ value: 'a'.repeat(100), index }));
+    const rendered = serializeValue(Array.from({ length: 40 }, () => wide));
+
+    expect(rendered).toContain('[…600]');
   });
 });
 

@@ -6,51 +6,41 @@
  *  - **exact:** most configs are keyed by a total string serialization and looked
  *    up in O(1) (a prototype-less backing map, so a `__proto__` arg is a plain key
  *    and never touches the object prototype chain).
- *  - **asymmetric:** a config whose args include an asymmetric matcher
- *    (`expect.any(String)`, `expect.objectContaining({…})`, …) can't be a static
- *    string — it's stored as a predicate and evaluated against the actual args on
- *    lookup, after the exact map misses.
+ *  - **structural:** a config whose args carry an asymmetric matcher
+ *    (`expect.any(String)`, `expect.objectContaining({…})`, …) at any depth, or a function —
+ *    neither of which a string key can stand for — is stored as a predicate and evaluated against
+ *    the actual args on lookup, after the exact map misses. See `structural-equals`.
  */
 import { isDeepValue, serializePrimitive, serializeValue } from './serialize-args';
+import { describeWithMatchers, isAsymmetricMatcher, matchesStructurally, needsStructuralMatch, sameExpectation } from './structural-equals';
 
 type SerializedArgs = string;
 
-/** The minimal shape of a Vitest/Jest asymmetric matcher (`expect.any(...)`, etc.). */
-interface AsymmetricMatcher {
-  asymmetricMatch(value: unknown): boolean;
-  /**
-   * The matcher's own rendering — `Any<Number>`, `StringContaining "a"` — which is what the runner
-   * prints for it in a diff. Optional because a hand-rolled matcher only has to answer
-   * `asymmetricMatch`; there the class name (`String(matcher)`) is the best available description.
-   */
-  toAsymmetricMatcher?: () => string;
-  /**
-   * The brand the runner stamps on its own matcher instances — see {@link ASYMMETRIC_MATCHER_BRAND}.
-   * Optional because a hand-rolled matcher carries none, which is exactly what the check is for.
-   */
-  $$typeof?: unknown;
-}
-
 /**
- * A `calledWith` config whose args contain at least one asymmetric matcher.
+ * A `calledWith` config that cannot be a string key — see the note at the top of this file.
  *
  * `serialized` is the per-position serialization of the *config* args, computed once at
  * `set()` time. A config arg never changes after it is registered, so re-rendering it on
  * every call was pure waste: an asymmetric config whose other arg is a large object paid
- * two `serializeValue` walks per invocation where one is enough. Positions holding an
- * asymmetric matcher are `undefined` here — they dispatch to `asymmetricMatch` and are
- * never serialized at all.
+ * two `serializeValue` walks per invocation where one is enough. Positions compared
+ * structurally are `undefined` here — they never go through the serializer at all.
  *
  * `described` is the same args rendered for a human: the bare form of `serialized`, with the
- * matcher positions filled in by the matcher itself. It is built in the same pass because that is
- * the only place the matcher is narrowed to something that can describe itself.
+ * structural positions rendered by {@link describeWithMatchers}. It is built in the same pass
+ * because that is the only place the matcher is narrowed to something that can describe itself.
  */
 interface MatcherConfig {
   args: unknown[];
   serialized: (string | undefined)[];
   described: string[];
+  /** Whether the config has any position of that kind, so a match can skip the pass that has none. */
+  hasStructural: boolean;
+  hasLiterals: boolean;
   value: unknown;
 }
+
+/** The actual arguments' serializations, filled in as a lookup needs them and shared across configs. */
+type Rendered = (string | undefined)[];
 
 /**
  * Whether these are the args of a call that {@link ArgsMap} can look up by value: exactly one
@@ -73,55 +63,27 @@ function isSinglePrimitiveArgs(args: unknown[]): boolean {
   return !Object.is(argument, -0);
 }
 
-/** Whether `value` is an asymmetric matcher (exposes an `asymmetricMatch` method). */
-function isAsymmetricMatcher(value: unknown): value is AsymmetricMatcher {
-  return typeof value === 'object' && value !== null && 'asymmetricMatch' in value && typeof value.asymmetricMatch === 'function';
-}
-
-/** Whether any element of an args array is an asymmetric matcher (forces predicate storage). */
-function hasAsymmetricMatcher(args: unknown[]): boolean {
-  return args.some(isAsymmetricMatcher);
+/** Whether any element of an args array has to be matched structurally (forces predicate storage). */
+function hasStructuralArg(args: unknown[]): boolean {
+  return args.some((arg) => needsStructuralMatch(arg));
 }
 
 /**
- * The brand every Vitest/Jest asymmetric matcher instance carries. It is what makes a matcher's own
- * state a faithful description of it: such an instance is one of the runner's matcher classes, and
- * everything that decides its verdict — `sample`, `inverse`, `precision` — lives in enumerable own
- * fields. A hand-rolled `{ asymmetricMatch }` object carries no brand and no such guarantee: two of
- * them holding different closures serialize identically, so they are only ever compared by
- * reference.
+ * Match one structural position. A top-level matcher is dispatched here rather than left to
+ * `matchesStructurally`, which would reach the same call one frame and one guard later: it is the
+ * common shape and it is on the call path.
  */
-const ASYMMETRIC_MATCHER_BRAND = Symbol.for('jest.asymmetricMatcher');
-
-/**
- * Whether two config args denote the same expectation, so that registering the second overrides the
- * first rather than being shadowed by it.
- *
- * `expect.anything()` builds a fresh instance per call, so reference equality alone would make
- * `calledWith(1, expect.anything())` unoverridable. Two branded matchers of the same class whose
- * own state serializes alike are interchangeable — they accept exactly the same values — and the
- * class has to be compared as well as the state, because `expect.stringContaining('a')` and
- * `expect.stringMatching('a')` differ in behaviour and not in fields.
- */
-function isSameMatcher(configArg: AsymmetricMatcher, candidateArg: unknown): boolean {
-  if (configArg === candidateArg) {
-    return true;
+function matchValue(configArg: unknown, actualArg: unknown): boolean {
+  if (isAsymmetricMatcher(configArg)) {
+    return configArg.asymmetricMatch(actualArg);
   }
 
-  if (!isAsymmetricMatcher(candidateArg) || !isBrandedMatcher(configArg) || !isBrandedMatcher(candidateArg)) {
-    return false;
-  }
-
-  if (Object.getPrototypeOf(configArg) !== Object.getPrototypeOf(candidateArg)) {
-    return false;
-  }
-
-  return serializeValue(configArg) === serializeValue(candidateArg);
+  return matchesStructurally(configArg, actualArg);
 }
 
-/** Whether a matcher is one the runner built, and so describes itself through its own fields. */
-function isBrandedMatcher(matcher: AsymmetricMatcher): boolean {
-  return matcher.$$typeof === ASYMMETRIC_MATCHER_BRAND;
+/** The key of an argument list of only primitives — no cycle bookkeeping, no deep walk. */
+function serializePrimitiveArgs(args: unknown[]): string {
+  return `[${args.map((arg) => serializePrimitive(arg)).join(',')}]`;
 }
 
 /**
@@ -166,13 +128,25 @@ export class ArgsMap {
   // plain own property, never walking or polluting the object prototype chain.
   readonly #map: Record<SerializedArgs, unknown> = Object.create(null);
   readonly #matcherConfigs: MatcherConfig[] = [];
-  // Argument counts present in the exact map. A call with a count nobody configured cannot be in
-  // that map — two arg lists of different lengths never serialize to the same string — so the
-  // serialization can be skipped outright. That matters because the map is consulted on *every*
-  // invocation of a spy that has any `calledWith` config: without this, `service.load(component)`
-  // on a spy configured with `calledWith(1)` walks and stringifies the whole component graph to
-  // build a key that provably cannot match, and throws it away one line later.
-  readonly #arities = new Set<number>();
+  /**
+   * The shape of the exact configs, by argument count: for each position, whether any config of
+   * that arity holds an object there.
+   *
+   * A call whose count nobody configured cannot be in the exact map — two arg lists of different
+   * lengths never serialize to the same string — so the serialization can be skipped outright. That
+   * matters because the map is consulted on *every* invocation of a spy that has any `calledWith`
+   * config: without this, `service.load(component)` on a spy configured with `calledWith(1)` walks
+   * and stringifies the whole component graph to build a key that provably cannot match, and throws
+   * it away one line later.
+   *
+   * The positions carry the same argument one step further, and it is the step that matters for
+   * Angular: an object and a primitive never serialize alike (a primitive renders as a quoted
+   * string, a number, a symbol or `[Function: …]`, none of which a `{`, `[`, `new …(` or `/…/`
+   * rendering can equal), so a call that arrives with a component where every config of that arity
+   * holds a number is a miss that costs one `typeof` per argument instead of a walk of the
+   * component tree.
+   */
+  readonly #exactShapes = new Map<number, boolean[]>();
   /**
    * The configs of exactly one primitive argument, keyed by the argument itself.
    *
@@ -190,14 +164,14 @@ export class ArgsMap {
   readonly #exactSinglePrimitive = new Map<unknown, unknown>();
 
   set(key: unknown, value: unknown): void {
-    if (Array.isArray(key) && hasAsymmetricMatcher(key)) {
+    if (Array.isArray(key) && hasStructuralArg(key)) {
       this.#setMatcherConfig(this.#buildMatcherConfig(key, value));
 
       return;
     }
 
     if (Array.isArray(key)) {
-      this.#arities.add(key.length);
+      this.#recordShape(key);
 
       if (isSinglePrimitiveArgs(key)) {
         this.#exactSinglePrimitive.set(key[0], value);
@@ -208,17 +182,41 @@ export class ArgsMap {
   }
 
   get(key: unknown): unknown {
-    if (Array.isArray(key) && !this.#arities.has(key.length)) {
-      return this.#findByMatcher(key);
-    }
+    if (Array.isArray(key)) {
+      const shape = this.#exactShapes.get(key.length);
 
-    // The common shape, and the only one that reaches a configured value without rendering a key:
-    // a call of one primitive argument can only match a config of one primitive argument, and every
-    // one of those is in this map.
-    if (Array.isArray(key) && isSinglePrimitiveArgs(key)) {
-      const hit = this.#exactSinglePrimitive.get(key[0]);
+      if (shape === undefined) {
+        return this.#findByMatcher(key);
+      }
 
-      return hit === undefined ? this.#findByMatcher(key) : hit;
+      // The common shape, and the only one that reaches a configured value without rendering a key:
+      // a call of one primitive argument can only match a config of one primitive argument, and
+      // every one of those is in this map. It needs no shape check — a primitive is never the
+      // object the shape is about.
+      if (isSinglePrimitiveArgs(key)) {
+        const hit = this.#exactSinglePrimitive.get(key[0]);
+
+        return hit === undefined ? this.#findByMatcher(key) : hit;
+      }
+
+      // One pass answers both questions the key needs: whether any argument is an object at all
+      // (which decides the cheap all-primitives rendering) and whether one sits where no config
+      // holds an object (which decides the exact map is a miss without rendering anything).
+      let deep = false;
+
+      for (let index = 0; index < key.length; index += 1) {
+        if (isDeepValue(key[index])) {
+          if (!shape[index]) {
+            return this.#findByMatcher(key);
+          }
+
+          deep = true;
+        }
+      }
+
+      const serializedArgs = deep ? serializeValue(key) : serializePrimitiveArgs(key);
+
+      return serializedArgs in this.#map ? this.#map[serializedArgs] : this.#findByMatcher(key);
     }
 
     const serialized = this.#serialize(key);
@@ -263,21 +261,21 @@ export class ArgsMap {
     const asymmetric: ConfiguredEntry[] = this.#matcherConfigs.map((config, position) => ({
       index: exact.length + position + 1,
       args: `[${config.described.join(',')}]`,
-      matches: (actualArgs: unknown[]): boolean => this.#argsMatch(config, actualArgs),
+      matches: (actualArgs: unknown[]): boolean => this.#argsMatch(config, actualArgs, []),
     }));
 
     return [...exact, ...asymmetric];
   }
 
-  /** Render one asymmetric config once, at registration time. See {@link MatcherConfig}. */
+  /** Render one structural config once, at registration time. See {@link MatcherConfig}. */
   #buildMatcherConfig(key: unknown[], value: unknown): MatcherConfig {
     const serialized: (string | undefined)[] = [];
     const described: string[] = [];
 
     for (const arg of key) {
-      if (isAsymmetricMatcher(arg)) {
+      if (needsStructuralMatch(arg)) {
         serialized.push(undefined);
-        described.push(arg.toAsymmetricMatcher?.() ?? String(arg));
+        described.push(describeWithMatchers(arg, serializeValue));
       } else {
         const rendered = this.#serialize([arg]);
 
@@ -288,7 +286,27 @@ export class ArgsMap {
       }
     }
 
-    return { args: key, serialized, described, value };
+    return {
+      args: key,
+      serialized,
+      described,
+      hasStructural: serialized.includes(undefined),
+      hasLiterals: serialized.some((position) => position !== undefined),
+      value,
+    };
+  }
+
+  /** Remember which positions of this arity hold an object — see {@link #exactShapes}. */
+  #recordShape(key: unknown[]): void {
+    const shape = this.#exactShapes.get(key.length) ?? key.map(() => false);
+
+    key.forEach((arg, index) => {
+      if (isDeepValue(arg)) {
+        shape[index] = true;
+      }
+    });
+
+    this.#exactShapes.set(key.length, shape);
   }
 
   /**
@@ -313,16 +331,18 @@ export class ArgsMap {
     this.#matcherConfigs[index] = config;
   }
 
-  /** Whether two configs were registered for the same argument list, matcher positions included. */
+  /** Whether two configs were registered for the same argument list, structural positions included. */
   #sameConfigArgs(existing: MatcherConfig, candidate: MatcherConfig): boolean {
     if (existing.args.length !== candidate.args.length) {
       return false;
     }
 
-    // A matcher position and a literal one never compare equal: a literal's serialization is a
-    // string where a matcher's is `undefined`, and `isSameMatcher` rejects a non-matcher outright.
+    // A structural position and a literal one never compare equal: a literal's serialization is a
+    // string where a structural position's is `undefined`, and the two branches are taken on that.
     return existing.args.every((arg, index) =>
-      isAsymmetricMatcher(arg) ? isSameMatcher(arg, candidate.args[index]) : existing.serialized[index] === candidate.serialized[index],
+      existing.serialized[index] === undefined
+        ? candidate.serialized[index] === undefined && sameExpectation(arg, candidate.args[index])
+        : existing.serialized[index] === candidate.serialized[index],
     );
   }
 
@@ -332,46 +352,60 @@ export class ArgsMap {
   // only primitive args take a fast path that skips the circular-ref bookkeeping.
   #serialize(key: unknown): SerializedArgs {
     if (Array.isArray(key) && !key.some(isDeepValue)) {
-      return `[${key.map((arg) => serializePrimitive(arg)).join(',')}]`;
+      return serializePrimitiveArgs(key);
     }
 
     return serializeValue(key);
   }
 
-  /** Return the value of the first asymmetric config whose predicate matches the actual args. */
+  /**
+   * Return the value of the first structural config whose predicate matches the actual args.
+   *
+   * `rendered` is the per-lookup memo of the actual arguments' serializations, shared by every
+   * config this lookup consults and thrown away afterwards. K structural configs used to re-render
+   * the same actual argument K times — measured at 78 µs per config on a 200-field record and 4 ms
+   * on a graph with a back-edge, so eight configs cost eight times that on **every** call of the
+   * spy.
+   */
   #findByMatcher(actualArgs: unknown): unknown {
-    if (!Array.isArray(actualArgs)) {
+    if (!Array.isArray(actualArgs) || this.#matcherConfigs.length === 0) {
       return undefined;
     }
 
-    const match = this.#matcherConfigs.find((config) => this.#argsMatch(config, actualArgs));
+    const rendered: Rendered = [];
+    const match = this.#matcherConfigs.find((config) => this.#argsMatch(config, actualArgs, rendered));
 
     return match?.value;
   }
 
-  /** Whether every configured arg matches the actual arg at the same position (same length). */
-  #argsMatch(config: MatcherConfig, actualArgs: unknown[]): boolean {
+  /**
+   * Whether every configured arg matches the actual arg at the same position (same length).
+   *
+   * The structural positions are decided first, literals afterwards. A matcher answers from the
+   * value itself and a literal has to render the actual argument, so asking the cheap question
+   * first is what keeps `calledWith({ id: 1 }, expect.any(Number))` from serializing a record on
+   * every call the matcher was going to reject anyway. A config with none of one kind skips that
+   * pass entirely — an all-matcher config is the common one, and it walks its args once.
+   */
+  #argsMatch(config: MatcherConfig, actualArgs: unknown[], rendered: Rendered): boolean {
     if (config.args.length !== actualArgs.length) {
       return false;
     }
 
-    return config.args.every((configArg, index) => this.#valueMatches(configArg, config.serialized[index], actualArgs[index]));
-  }
-
-  /**
-   * Match a single arg: asymmetric matchers delegate to `asymmetricMatch`, others compare the
-   * config arg's serialization — rendered once at `set()` time — against the actual arg's.
-   *
-   * The branch is taken on `configArg` rather than on `serializedConfigArg === undefined`, even
-   * though the two are the same test by construction: the type guard is what narrows `configArg`
-   * to something with `asymmetricMatch` on it, and the alternative needs an assertion to say the
-   * same thing less safely.
-   */
-  #valueMatches(configArg: unknown, serializedConfigArg: string | undefined, actualArg: unknown): boolean {
-    if (isAsymmetricMatcher(configArg)) {
-      return configArg.asymmetricMatch(actualArg);
+    // A structural position is a matcher deciding for itself, or a value holding one deeper down —
+    // or a function, which no string can stand for.
+    if (
+      config.hasStructural &&
+      !config.args.every((configArg, index) => config.serialized[index] !== undefined || matchValue(configArg, actualArgs[index]))
+    ) {
+      return false;
     }
 
-    return serializedConfigArg === this.#serialize([actualArg]);
+    return (
+      !config.hasLiterals ||
+      config.serialized.every(
+        (serialized, index) => serialized === undefined || serialized === (rendered[index] ??= this.#serialize([actualArgs[index]])),
+      )
+    );
   }
 }
