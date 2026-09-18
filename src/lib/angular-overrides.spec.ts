@@ -4,7 +4,7 @@
  * an imported NgModule contribute nothing.
  */
 import { Component, Injectable, NgModule, inject } from '@angular/core';
-import { TestBed } from '@angular/core/testing';
+import { TestBed, getTestBed } from '@angular/core/testing';
 import { describe, expect, it, vi } from 'vitest';
 
 import '../angular';
@@ -168,9 +168,18 @@ describe('overrideComponentProvider', () => {
     expect(typeof unrelated.ping).toBe('function');
   });
 
+  it('verifies a fixture built through the instance, which used to bypass the check', () => {
+    // `getTestBed().createComponent(X)` reaches the same seam now: a spec's own render helper often
+    // holds the instance rather than the exported class, and the check simply did not happen there.
+    overrideComponentProvider(DeclaredHostComponent, NavigationBuilderService);
+    TestBed.overrideProvider(NavigationBuilderService, { useValue: 'not-a-service' });
+
+    expect(() => getTestBed().createComponent(DeclaredHostComponent)).toThrow(/the override did not apply/);
+  });
+
   it('queues nothing when the running TestBed has no createComponent to hook', () => {
     const createComponent: PropertyKey = 'createComponent';
-    const restore = mockValueProp(TestBed, createComponent, undefined);
+    const restore = mockValueProp(getTestBed(), createComponent, undefined);
     const menu = overrideComponentProvider(MenuHostComponent, NavigationBuilderService);
 
     restore();

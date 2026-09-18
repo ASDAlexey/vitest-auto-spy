@@ -8,7 +8,7 @@
 import { HttpClient, provideHttpClient } from '@angular/common/http';
 import { HttpClientTestingModule, provideHttpClientTesting } from '@angular/common/http/testing';
 import { Component, Injectable, InjectionToken, NO_ERRORS_SCHEMA, NgModule, inject } from '@angular/core';
-import { TestBed } from '@angular/core/testing';
+import { TestBed, getTestBed } from '@angular/core/testing';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 
 import '../angular';
@@ -43,6 +43,16 @@ class ProvidersOnlyModule {}
 
 @NgModule({ declarations: [DeclaredDiagnosedComponent] })
 class DeclaringModule {}
+
+/** The shape every suite of any size has: one shared testing module, with the HTTP one inside it. */
+@NgModule({
+  // eslint-disable-next-line @typescript-eslint/no-deprecated -- nesting the deprecated module is the point: this is how a shared testing module carries HTTP testing.
+  imports: [HttpClientTestingModule],
+})
+class SharedTestingModule {}
+
+@NgModule({ imports: [SharedTestingModule] })
+class DeeperTestingModule {}
 
 /** An `imports` entry that looks like a component and has no class name — a minified bundle's version of one. */
 const NAMELESS_COMPONENT = { ɵcmp: {} };
@@ -92,6 +102,24 @@ describe('enableAngularDiagnostics', () => {
     expect(() => TestBed.configureTestingModule({ imports: [ProvidersOnlyModule], schemas: [NO_ERRORS_SCHEMA] })).not.toThrow();
   });
 
+  it('judges the configuration Angular ends up with, not one call of it', () => {
+    // `TestBedCompiler` accumulates the calls, so neither of these is the configuration: the schema
+    // applies to the component declared by the first call, and judging the second one alone failed a
+    // spec that was right.
+    TestBed.configureTestingModule({ declarations: [DeclaredDiagnosedComponent] });
+
+    expect(() => TestBed.configureTestingModule({ imports: [DiagnosedComponent], schemas: [NO_ERRORS_SCHEMA] })).not.toThrow();
+
+    TestBed.resetTestingModule();
+
+    // And the reverse order, which judging one call at a time let through in silence.
+    TestBed.configureTestingModule({ schemas: [NO_ERRORS_SCHEMA] });
+
+    expect(() => TestBed.configureTestingModule({ imports: [DiagnosedComponent] })).toThrow(/1 schema\(s\) that can never apply/);
+
+    TestBed.resetTestingModule();
+  });
+
   it('fails an NgModule import that contributes nothing, and never a providers-only one', () => {
     expect(() => TestBed.configureTestingModule({ imports: [EmptyModule] })).toThrow(/empty runtime scope: EmptyModule/);
     expect(() => TestBed.configureTestingModule({ imports: [ProvidersOnlyModule, DeclaringModule] })).not.toThrow();
@@ -131,6 +159,35 @@ describe('enableAngularDiagnostics', () => {
     TestBed.inject(HttpClient).get('/legacy').subscribe();
 
     expect(assertNoPendingRequests).toThrow(/GET \/legacy/);
+  });
+
+  it('finds the controller inside a shared module that only imports the HTTP one', () => {
+    // One level deep was all the search did, so the token was not found, and `pendingRequests`
+    // turned itself off for every suite with a shared testing module — without a word.
+    TestBed.configureTestingModule({ imports: [DeeperTestingModule] });
+    TestBed.inject(HttpClient).get('/nested').subscribe();
+
+    expect(assertNoPendingRequests).toThrow(/GET \/nested/);
+  });
+
+  it('keeps the requests of every module a test built, across two resets', () => {
+    TestBed.configureTestingModule({ providers: [provideHttpClient(), provideHttpClientTesting()] });
+    TestBed.inject(HttpClient).get('/api/first').subscribe();
+    TestBed.resetTestingModule();
+
+    TestBed.configureTestingModule({ providers: [provideHttpClient(), provideHttpClientTesting()] });
+    TestBed.inject(HttpClient).get('/api/second').subscribe();
+    TestBed.resetTestingModule();
+
+    // The second snapshot used to overwrite the first, so the first module's request was reported
+    // by nobody at all.
+    expect(assertNoPendingRequests).toThrow(/GET \/api\/first, GET \/api\/second/);
+  });
+
+  it('inspects a configuration made through the instance, which used to bypass every check', () => {
+    // `getTestBed().configureTestingModule(…)` reached none of the four inspectors: the wrapper was
+    // on the static, and every static is a delegate to this instance.
+    expect(() => getTestBed().configureTestingModule({ imports: [EmptyModule] })).toThrow(/empty runtime scope: EmptyModule/);
   });
 
   it('reports through the snapshot taken while the testing module was being torn down', () => {
@@ -192,6 +249,13 @@ describe('enableAngularDiagnostics', () => {
       expect(() => TestBed.createComponent(OwnProvidersComponent)).toThrow(
         /OwnProvidersComponent declares its own providers[\s\S]*RealService → a RealService instance[\s\S]*overrideComponentProvider/,
       );
+    });
+
+    it('inspects a fixture built through the instance', () => {
+      TestBed.resetTestingModule();
+      TestBed.configureTestingModule({ imports: [OwnProvidersComponent], providers: [provideAutoSpy(RealService)] });
+
+      expect(() => getTestBed().createComponent(OwnProvidersComponent)).toThrow(/declares its own providers/);
     });
 
     it('says nothing when the double does reach the component', () => {

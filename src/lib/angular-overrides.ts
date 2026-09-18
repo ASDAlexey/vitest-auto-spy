@@ -33,11 +33,11 @@
  * inside `@angular/core` with a line naming the thing that is missing.
  */
 import { type Type, isStandalone } from '@angular/core';
-import { TestBed } from '@angular/core/testing';
+import { TestBed, getTestBed } from '@angular/core/testing';
 
 import { createSpyFromClass } from './create-spy-from-class';
 import { DOCS_LINKS, withDocs } from './docs-links';
-import { type LooseTestBedMethod, readTestBedMethod } from './testbed-diagnostics';
+import { instrumentTestBed, onComponentCreated, readTestBedMethod } from './testbed-diagnostics';
 import type { ClassSpyConfiguration, ClassType, OnlyMethodKeysOf, Spy } from './types';
 
 /** The `{ useValue }` shape `TestBed.overrideProvider` expects, carrying an auto-spy. */
@@ -123,8 +123,7 @@ interface PendingVerification {
 }
 
 const pendingVerifications: PendingVerification[] = [];
-let createComponentWrapper: LooseTestBedMethod | undefined;
-let createComponentOriginal: LooseTestBedMethod | undefined;
+let removeCreateInspector: (() => void) | undefined;
 let resetWrapperInstalled = false;
 
 /**
@@ -138,29 +137,23 @@ let resetWrapperInstalled = false;
  */
 function dropStaleQueueState(): void {
   pendingVerifications.length = 0;
-
-  if (createComponentWrapper && createComponentOriginal) {
-    Reflect.set(TestBed, 'createComponent', createComponentOriginal);
-  }
-
-  createComponentWrapper = undefined;
-  createComponentOriginal = undefined;
+  removeCreateInspector?.();
+  removeCreateInspector = undefined;
 }
 
 /**
  * Clear the queue when the framework resets the module — the one moment between tests we can see.
  *
  * Wrapped on the `TestBed` *instance*, not the exported static: the framework's cleanup hook calls
- * `TestBedImpl.INSTANCE.resetTestingModule()` directly, so a static wrapper never sees it (the
- * `createComponent` wrapper above is a static precisely because *specs* call that one through the
- * exported class).
+ * the instance's `resetTestingModule()` directly, so a static wrapper never sees it. `getTestBed()`
+ * is the public way to that instance and returns exactly the `INSTANCE` the statics delegate to.
  */
 function wrapResetTestingModule(): void {
   if (resetWrapperInstalled) {
     return;
   }
 
-  resetWrapperInstalled = installResetWrapper(readProperty(TestBed, 'INSTANCE'));
+  resetWrapperInstalled = installResetWrapper(getTestBed());
 }
 
 /**
@@ -261,39 +254,27 @@ function verify(fixture: unknown, { component, token, spy }: PendingVerification
  * properties that make the group opt-in do not apply here.
  */
 function verifyOnNextCreate(entry: PendingVerification): void {
-  const original = createComponentWrapper ? undefined : readTestBedMethod('createComponent');
-
   // A running Angular without `createComponent` cannot be hooked; nothing is queued either, so the
   // helper degrades to "no verification" rather than to a stale check on the next fixture.
-  if (!createComponentWrapper && !original) {
+  if (readTestBedMethod('createComponent') === undefined) {
     return;
   }
 
+  // Through the shared seam rather than a second wrapper of this file's own: two wrappers on one
+  // method leave the order of the two checks to whichever installed last, and `getTestBed()
+  // .createComponent(X)` reached neither of them.
+  instrumentTestBed();
   pendingVerifications.push(entry);
   wrapResetTestingModule();
 
-  if (!original) {
-    return;
-  }
-
-  createComponentOriginal = original;
-  createComponentWrapper = function verifying(this: unknown, ...args: unknown[]): unknown {
-    const fixture = original.apply(this, args);
+  removeCreateInspector ??= onComponentCreated((_component, fixture) => {
     const queued = [...pendingVerifications];
 
-    // Fire once and get out of the way: the check belongs to the fixture this call built, and a
-    // wrapper left installed would run against a later spec's unrelated component.
-    Reflect.set(TestBed, 'createComponent', original);
-    createComponentWrapper = undefined;
-    createComponentOriginal = undefined;
-    pendingVerifications.length = 0;
-
+    // Fire once and get out of the way: the check belongs to the fixture this call built, and an
+    // inspector left registered would run against a later spec's unrelated component.
+    dropStaleQueueState();
     queued.forEach((pending) => verify(fixture, pending));
-
-    return fixture;
-  };
-
-  Reflect.set(TestBed, 'createComponent', createComponentWrapper);
+  });
 }
 
 /**

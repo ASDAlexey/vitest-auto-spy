@@ -26,6 +26,7 @@ import { getTestBed } from '@angular/core/testing';
 import { afterEach, beforeEach } from 'vitest';
 
 import { failOnUnspiedProvider } from './angular';
+import { assertAngularInternals } from './angular-internals';
 import { assertNgModuleScopes, componentInjector, describeResolved, isDeadNgModuleImport, readProperty } from './angular-overrides';
 import { DOCS_LINKS, withDocs } from './docs-links';
 import { isAutoSpyLike } from './spy-mark';
@@ -76,6 +77,27 @@ function checkNgModuleScopes(config: unknown): void {
 }
 
 /**
+ * What the testing module has been told so far, across every `configureTestingModule` of this test.
+ *
+ * `TestBedCompiler` **accumulates** the calls — `this.schemas.push(...)`, `this.declarations.push(...)`
+ * — so no single call is the configuration. Judging one of them reported a spec that declares a
+ * component in the first call and adds a schema plus a standalone import in the second, where the
+ * schema does apply, and said nothing about the reverse order, where it does not.
+ */
+interface ConfigurationTally {
+  schemas: number;
+  declarations: number;
+  standalone: string[];
+}
+
+let tally: ConfigurationTally = { schemas: 0, declarations: 0, standalone: [] };
+
+/** Forgotten with the module it describes: a reset takes the compiler's accumulation with it. */
+function resetTally(): void {
+  tally = { schemas: 0, declarations: 0, standalone: [] };
+}
+
+/**
  * `deadSchemas`: a schema with nothing to apply to.
  *
  * Schemas are a property of the testing module's `declarations`. A configuration that declares
@@ -84,22 +106,21 @@ function checkNgModuleScopes(config: unknown): void {
  * template that never rendered what it was supposed to.
  */
 function checkDeadSchemas(config: unknown): void {
-  const schemas = readList(config, 'schemas');
+  tally.schemas += readList(config, 'schemas').length;
+  tally.declarations += readList(config, 'declarations').length;
+  tally.standalone.push(...readList(config, 'imports').filter(isComponentClass).map(className));
 
-  if (schemas.length === 0 || readList(config, 'declarations').length > 0) {
-    return;
-  }
+  const schemas = tally.schemas;
+  const components = tally.standalone;
 
-  const components = readList(config, 'imports').filter(isComponentClass).map(className);
-
-  if (components.length === 0) {
+  if (schemas === 0 || tally.declarations > 0 || components.length === 0) {
     return;
   }
 
   throw new Error(
     withDocs(
-      `[vitest-auto-spy] enableAngularDiagnostics({ deadSchemas }): configureTestingModule was given ${schemas.length} schema(s) ` +
-        `that can never apply. The module declares nothing, and ${components.join(', ')} carries its own dependency scope.\n` +
+      `[vitest-auto-spy] enableAngularDiagnostics({ deadSchemas }): configureTestingModule was given ${schemas} schema(s) ` +
+        `that can never apply. The module declares nothing, and ${[...new Set(components)].join(', ')} carries its own dependency scope.\n` +
         'Nothing is being silenced here: whatever the schema was added for is still unresolved, and the template renders ' +
         'without it.\n' +
         "Drop the `schemas` entry, then put the missing directive, component or pipe into the standalone component's own " +
@@ -156,6 +177,48 @@ function findControllerToken(providers: unknown): unknown {
     .find((token) => typeof token === 'function' && token.name === HTTP_TESTING_CONTROLLER);
 }
 
+/**
+ * The token behind an imported module, however deep it sits.
+ *
+ * A suite of any size imports one shared testing module, and `HttpClientTestingModule` is inside
+ * *that* — so a walk one level deep found no token and turned the whole check off without a word.
+ * Cached per `ɵinj`, and only ever walked until a token is found: an import graph is a graph, and
+ * `TestBed` mutates `ɵinj.providers` only to replace providers that are already in it.
+ */
+const controllerTokens = new WeakMap<object, unknown>();
+
+function findControllerTokenInModule(imported: unknown, seen: Set<unknown>): unknown {
+  const injector = readProperty(imported, 'ɵinj');
+
+  if (typeof injector !== 'object' || injector === null || seen.has(injector)) {
+    return undefined;
+  }
+
+  seen.add(injector);
+
+  if (controllerTokens.has(injector)) {
+    return controllerTokens.get(injector);
+  }
+
+  const found =
+    findControllerToken(readProperty(injector, 'providers')) ?? findControllerTokenInImports(readProperty(injector, 'imports'), seen);
+
+  controllerTokens.set(injector, found);
+
+  return found;
+}
+
+/** `ɵinj.imports` nests arrays, and a `forRoot()` result arrives as `{ ngModule, providers }`. */
+function findControllerTokenInImports(imports: unknown, seen: Set<unknown>): unknown {
+  if (Array.isArray(imports)) {
+    return imports.map((entry: unknown) => findControllerTokenInImports(entry, seen)).find((token) => token !== undefined);
+  }
+
+  const wrapped = readProperty(imports, 'ngModule');
+
+  return findControllerToken(readProperty(imports, 'providers')) ?? findControllerTokenInModule(wrapped ?? imports, seen);
+}
+
 /** The token, from `providers: [provideHttpClientTesting()]` or from `imports: [HttpClientTestingModule]`. */
 function readControllerToken(config: unknown): unknown {
   const fromProviders = findControllerToken(readProperty(config, 'providers'));
@@ -164,8 +227,10 @@ function readControllerToken(config: unknown): unknown {
     return fromProviders;
   }
 
+  const seen = new Set<unknown>();
+
   return readList(config, 'imports')
-    .map((imported) => findControllerToken(readProperty(readProperty(imported, 'ɵinj'), 'providers')))
+    .map((imported) => findControllerTokenInImports(imported, seen))
     .find((token) => token !== undefined);
 }
 
@@ -196,7 +261,14 @@ function takeOpenRequests(controller: unknown): string[] {
 }
 
 let controllerToken: unknown;
-let openAtReset: string[] | undefined;
+
+/**
+ * Requests a reset took off a module this test had built — read by the check that runs after it.
+ *
+ * A list, and pushed to rather than replaced: a test that resets twice used to overwrite the first
+ * snapshot with the second, empty one, and the requests of the first module were never reported.
+ */
+const openAtReset: string[] = [];
 
 /** The one `TestBed` member read with a token of unknown type, declared structurally so it needs no assertion. */
 interface InjectingTestBed {
@@ -234,11 +306,10 @@ function readOpenRequests(): string[] {
  * ```
  */
 export function assertNoPendingRequests(): void {
-  const open = openAtReset ?? readOpenRequests();
-
   // One-shot, like `match()` itself: whoever reads the pending requests owns them, so the group's
-  // own `afterEach` does not report the same two requests a second time.
-  openAtReset = undefined;
+  // own `afterEach` does not report the same two requests a second time. Snapshot *and* live: a
+  // module built after the reset is holding requests of its own.
+  const open = [...openAtReset.splice(0), ...readOpenRequests()];
 
   if (open.length === 0) {
     return;
@@ -380,13 +451,9 @@ const snapshottingInstances = new WeakSet<object>();
 function wrapResetTestingModule(): void {
   beforeTestBedReset(snapshottingInstances, () => {
     if (active) {
-      const open = readOpenRequests();
-
-      if (open.length > 0) {
-        openAtReset = open;
-      }
-
+      openAtReset.push(...readOpenRequests());
       moduleDoubles.clear();
+      resetTally();
     }
   });
 }
@@ -408,8 +475,9 @@ function registerPerTestHooks(): void {
     if (preparedTest !== task) {
       preparedTest = task;
       controllerToken = undefined;
-      openAtReset = undefined;
+      openAtReset.length = 0;
       moduleDoubles.clear();
+      resetTally();
     }
   });
 
@@ -447,6 +515,7 @@ export function enableAngularDiagnostics(options: AngularDiagnosticsOptions = {}
     shadowedProviders: options.shadowedProviders ?? true,
   };
 
+  assertAngularInternals();
   failOnUnspiedProvider(active.unspiedProviders);
   instrumentTestBed();
 
@@ -500,6 +569,7 @@ export function disableAngularDiagnostics(): void {
   removeComponentInspector = undefined;
   moduleDoubles.clear();
   controllerToken = undefined;
-  openAtReset = undefined;
+  openAtReset.length = 0;
+  resetTally();
   failOnUnspiedProvider(false);
 }
