@@ -109,7 +109,23 @@ afterAll(() => {
 
 Each takes an optional host, defaulting to the real globals, so a test can contain a stand-in object
 instead. Under `isolate: true` this is close to a no-op — the environment is discarded per file
-anyway.
+anyway. `trackStrayTimers()` is idempotent even where a host refuses one of the five patches: a
+partial installation is rolled back whole rather than left in place with no undo and no registry
+entry.
+
+::: warning It cannot see a timer created under fake timers
+`vi.useFakeTimers()` assigns its own `setTimeout` over the wrappers, so everything the fake clock
+hands out bypasses the tracking entirely. `expect(countStrayTimers()).toBe(0)` is therefore vacuous
+for any file running on a frozen clock, `setupAutoSpy({ strayTimers: true, globalFakeTimers: true })`
+included — `vi.getTimerCount()` is the fake clock's own backlog, and the two do not compose.
+:::
+
+What counts as cancelled is wider than the handle the tracker recorded. Node hands out a `Timeout`
+object, and a library that keeps the id as a number cancels with `clearTimeout(+handle)`, or calls
+`handle.close()` on the object itself; both are read as cancelled rather than reported as a stray
+with a stack pointing at healthy code. `promisify(setTimeout)` keeps working too — the wrapper
+carries over the custom `promisify` implementation Node puts on the real scheduler, which a
+`const sleep = promisify(setTimeout)` evaluated at import depends on.
 
 Not every timer a file owns is one its code scheduled. jsdom answers every `setItem`, `removeItem`
 and `clear` on a Web Storage with a real `setTimeout(…, 0)` that dispatches the `storage` event
@@ -242,6 +258,12 @@ reads the response of wants:
 setupAutoSpy({ blockNetwork: { xhr: 'empty' } }); // tracker pings, answered and silent
 ```
 
+**Called twice, the mode of the last caller wins.** A setup file's stub goes in from a `beforeEach`
+that runs before the spec's own, so a spec calling `blockNetwork({ xhr: 'reject' })` to drive the
+failure branch was being served the setup file's silent empty 200 — with nothing saying so. The
+stubs themselves are installed once and not patched again: that is what keeps the restore journal
+from growing for the whole run under `restoreProps: false`, where nothing ever takes them off.
+
 A `data:` URL is let through, and it is the only thing that is: it is the scheme a spec serves its
 own fixtures from, and the only one a DOM answers without a socket. A **relative** URL is not
 exempt — the DOM resolves it against the document origin, so a spec that reaches `/config` and
@@ -309,9 +331,31 @@ non-configurable own property, so nothing can put it back — not `restoreMocked
 `mockValueProp(document, 'cookie', value)`, which records the descriptor it replaced …
 ```
 
-`globalThis`, `document` and `navigator` are compared before and after every test; only properties
-that appeared _and_ cannot be removed are reported. `guardGlobalPatches(reaction)` is exported for a
-suite that wants the check somewhere narrower.
+**What is watched.** `globalThis`, `document`, `navigator`, `location` and `screen`, and the DOM
+prototypes a stub is written against instead of a global: `Element`, `HTMLElement`,
+`HTMLCanvasElement`, `HTMLMediaElement`, `Node` and `EventTarget`.
+`Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { value: vi.fn() })` is the
+canonical one — jsdom implements none of those members, so the patch defines a **new** property,
+and with `configurable` defaulting to `false` the next file's `mockValueProp` fails with
+`Cannot redefine property` having touched nothing. A prototype is cheap to watch, too: tens of own
+names where `globalThis` carries several hundred. Keys are read with `Reflect.ownKeys`, so a symbol
+key is seen as well and the report prints it.
+
+Only properties that appeared _and_ cannot be removed are reported. The snapshot is taken once per
+file, in `beforeAll` — the check advances it itself, so a fresh one before every test would only
+rediscover what the previous check recorded — and every test is compared against it; the other end
+of the file, a patch made in an `afterAll`, is compared in that hook's cleanup, which runs after
+every `afterAll`. It costs about 59 µs per test; the [performance page](/core/performance) carries
+the rest of the per-option figures.
+
+**What it cannot see: an _existing_ name redefined with `configurable: false`.** Comparing names is
+what makes the check affordable; answering that question means a `getOwnPropertyDescriptor` for
+every name on every watched object after every test — around 950 of them on `globalThis` alone,
+more than the whole rest of the guard costs together. So a name that was already there and is
+redefined in place is reported by nothing. The **addition**, which is the shape a Jest-era stub
+actually takes, is.
+
+`guardGlobalPatches(reaction)` is exported for a suite that wants the check somewhere narrower.
 
 ## 8. Failing on a rejection zone.js swallowed
 
@@ -758,12 +802,36 @@ proto['ngOnDestroy'] = function () { … };      // now every object in the real
 Patch the prototype of the class the object came from, never the prototype of a plain object or of a
 double. `Object.prototype`, `Array.prototype` and `Function.prototype` are compared before and after
 every test; a key the environment already carried is left alone, so a project's own prototype
-polyfill is not swept. `guardPrototypePollution(reaction)` is exported for a suite that wants the
-check somewhere narrower.
+polyfill is not swept. The file's baseline is taken in its `beforeAll` and checked once more in that
+hook's cleanup, which runs after every `afterAll` — so a key written in the file's own `beforeAll`
+or `afterAll` is reported too, rather than mistaken for something the environment came with.
+`guardPrototypePollution(reaction)` is the same check registered on its own, for a suite that wants
+it somewhere narrower, and it covers both ends of the file the same way.
 
-A key added while the spec file is being _imported_ takes that file's own collect down before any
-hook can run, and nothing inside the runner can report it — what the guard still does there is take
-the key back off, so the report names one file instead of a hundred.
+### The key an earlier file left behind
+
+A key written while a spec file is being _imported_, while it is being collected, or in an
+`afterAll` is out of reach of every hook of that file — and the file that dies for it is the **next**
+one, during collect, before anything can report anything. The one seam left is the setup file, which
+the runner executes before each file is collected. So `setupAutoSpy()` compares the three prototypes
+against what the worker started with on the way in, takes back whatever an earlier file left, and
+writes the report to stderr:
+
+```text
+[vitest-auto-spy] "ngOnDestroy" was left on Object.prototype as an own enumerable property by a spec
+file that has already finished — while it was imported, while it was collected, or in an `afterAll`.
+… It has been taken back off. Look at the file that ran before this one …
+```
+
+It never throws, whatever the grade: the file that would fail is not the file that wrote the key.
+Stderr rather than `console.warn` for the same reason the stray-timer sweep uses it — there is no
+task yet, and Vitest drops intercepted output belonging to none. A key that refuses to be deleted is
+adopted into the baseline instead, so the rest of the worker is not told about it once per file.
+
+This is the one half `guardPrototypePollution(reaction)` cannot stand in for. It is registered from
+the spec file itself, so by the time it is loaded the damage of an earlier file is already in its
+baseline and the collect that is going to fail is this file's own. Only a call from a **setup
+file** sits at the seam between two files, which is why this half belongs to `setupAutoSpy()`.
 
 ## 16. Console output nothing absorbed
 
@@ -835,10 +903,21 @@ it('reports a failed load', () => {
 Spies an import installed before the guard armed are taken off when it does. A file that imports a
 spy without installing it gets the failure above plus one sentence naming the fix.
 
-**The library's own warnings are console output too.** A `console.warn` from `injectSpy` or from a
-`createSpyFromClass` configuration fails the test that caused it, so the guard turns every warning
-into a failure; [`misconfiguration: 'throw'`](#misconfiguration-reports-that-fail-at-the-call) makes
-the same reports throw at the call instead, which is the better stack.
+**The library's own reports are not counted as stray output.** A `'warn'` grade is supposed to mean
+a warning, and it stopped meaning one as soon as this guard was on beside it: the report arrived
+back as "this test wrote to the console and nothing absorbed it", quoting three truncated lines of
+itself and pointing at a frame inside `dist/`. So a report this library makes goes to the real
+console method the guard replaced, past the wrapper — `propsOutsideHooks`, whose default **is**
+`'warn'` and which was therefore the commonest way a suite met this at all, along with
+`guardGlobals`, `prototypePollution`, `unconfiguredReads`, a strict call the test swallowed, the
+duplicate-copy report, the misconfiguration reports (`injectSpy` handed a real instance, a
+`createSpyFromClass` typo), the teardown net of section 1 and the `test.concurrent` notice. All of
+them stay warnings under `strayConsole: 'throw'`.
+
+Only the guard's own wrapper is stepped over. A `vi.spyOn(console, 'warn')` a **test** installed
+absorbs these reports exactly as it absorbs anything else, so a suite that asserts on the library's
+warnings keeps working. [`misconfiguration: 'throw'`](#misconfiguration-reports-that-fail-at-the-call)
+makes those reports throw at the call instead, which is the better stack.
 
 **It changes nothing else.** The wrapper forwards every call unchanged, so Vitest's
 `stdout | file > test` attribution, `onConsoleLog` and the output of a failing test all stay exactly
@@ -915,7 +994,13 @@ zoneless TestBed: at `afterEach` time the component's style, its root element an
 
 `nodes` is off by default: a library that injects a stylesheet the first time it is imported does so
 once per worker, and a node check would charge that `<style>` to whichever test imported it first.
-What it costs: about 4 µs per test for the attributes, 10 µs with `nodes`.
+
+What it costs: about 4 µs per test for the attributes — the per-test check rides the
+`onTestFinished` the teardown net registers anyway, rather than paying for a registration of its
+own. `nodes` scales with how many children the two elements have, because it walks them: about
+11 µs per test for a `<head>` of 50 elements and 0.19 ms for one of 1000, and roughly four times
+that with `ignoreNodes`, whose selector answers are remembered for the test rather than matched
+twice per child. The [performance page](/core/performance) has the table.
 
 What it cannot see:
 
@@ -943,7 +1028,9 @@ setupAutoSpy({ preset: 'strict' });
 ```
 
 Starts every guard at its strictest grade. An option passed alongside it still wins, so
-`{ preset: 'strict', guardGlobals: 'warn' }` relaxes exactly one.
+`{ preset: 'strict', guardGlobals: 'warn' }` relaxes exactly one. All of it together costs about
+67 µs per test against 19 µs for a plain `setupAutoSpy()`, on a 10 000-test measurement under
+happy-dom; the [performance page](/core/performance) breaks that down per option.
 
 | Option               | Under `preset: 'strict'`                | Default without it |
 | -------------------- | --------------------------------------- | ------------------ |
@@ -1019,6 +1106,35 @@ half: a `trackStrayRejections()` read only through `countStrayRejections()`, or 
 through `countMockedProps()`. **A counter empties nothing.** Read through the flush, or let
 `setupAutoSpy()` own the teardown and use the counters for the assertion they are there for.
 
+## Under `test.concurrent`
+
+The rollbacks hold; the attribution of a finding does not.
+
+Everything this call puts back is keyed to the test it belongs to, and the net of section 1 now
+remembers **per test** rather than per file whether the shared `afterEach` ran — keyed by the task
+object the runner hands every hook, with the single flag kept only as the fallback for a runner that
+hands over no task. A concurrent neighbour can therefore no longer clear the flag the first test's
+net was about to read, which used to make the net either fire for a test whose teardown did run or
+stay quiet for one whose teardown did not.
+
+What cannot be promised is which test a finding belongs to. The document snapshot is one document,
+by construction. The console window and the unconfigured-read counter are opened and judged per test
+but live in a single slot — console output arrives through the global `console` rather than through
+the task, so there is nothing to key it by. With two tests in flight a finding can be reported
+against the other one, or cleared before it is seen. The first concurrent test a worker runs earns
+one warning saying exactly that:
+
+```text
+[vitest-auto-spy] a `test.concurrent` test ran with setupAutoSpy() installed. Its per-test guards
+assume one test at a time: the document snapshot, the console window and the unconfigured-read
+counter are opened and judged per test, so with two tests in flight a finding can be reported
+against the other one — or cleared before it is seen. The restores still run for every test. …
+```
+
+Once per worker, not once per test. Run the files that need a guard sequentially, or keep
+`test.concurrent` for files whose setup passes `strayConsole: 'off'`, `documentPollution: 'off'` and
+`unconfiguredReads: 'off'`.
+
 ## Reinstalling a stub for every test
 
 ```ts
@@ -1054,7 +1170,7 @@ each test: a stub installed for the previous test is exactly what must not still
 | `restoreProps`        | `true`    | `restoreMockedProps()` in a global `afterEach`                                              |
 | `propsOutsideHooks`   | `'warn'`  | Report a `mock*Prop` patch made outside a per-test hook — see below                         |
 | `restoreMocks`        | `false`   | `vi.restoreAllMocks()` in a global `afterEach` — turn on for `isolate: false`               |
-| `strayTimers`         | `false`   | Track and cancel timeouts, intervals and frames that outlive their file                     |
+| `strayTimers`         | `false`   | Track and cancel timeouts, intervals and frames that outlive their file — section 4         |
 | `onStrayTimers`       | —         | Takes the per-file count and each stray's origin, instead of the stderr warning             |
 | `strayRejections`     | `false`   | Fail the test a rejection zone.js swallowed surfaced in — needs zone.js                     |
 | `blockNetwork`        | `false`   | Close every network channel the environment has — `true`, or a narrowing object             |
@@ -1156,6 +1272,9 @@ whole run, that is [`setupFakeTimers(config, { betweenTests: true })`](./fake-ti
 Pass a config object rather than `true` when the run drives a real HTTP handler: the default
 `toFake` includes `setImmediate`, which is how an Express `404` becomes a 30-second timeout that
 names nothing — see [taking `setImmediate` out of `toFake`](./fake-timers#taking-setimmediate-out-of-tofake).
+
+It does not compose with `strayTimers`: the fake clock assigns its own `setTimeout` over the
+tracking wrappers, so nothing the clock hands out is counted — see section 4.
 
 ## Shared fixtures are functions, not constants
 

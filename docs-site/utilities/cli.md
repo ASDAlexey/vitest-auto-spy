@@ -21,6 +21,20 @@ and [`codemod`](/utilities/codemod) asks it of every span a migration off `jest-
 otherwise rename into the reverse meaning. This page covers the first three; the codemod
 [has its own](/utilities/codemod), because most of what it does is refuse.
 
+**The exit codes mean the same thing in all four**, which is what makes any of them a single CI
+line:
+
+| Exit | Meaning                                                                                                                                                                                                                           |
+| ---- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `0`  | The command ran and has nothing to report                                                                                                                                                                                         |
+| `1`  | It found something: `doctor` a finding above a note, `codemod` a span it left alone or a residue that survived, `init --check` a block that is out of date, `perf --gate` a confirmed budget                                      |
+| `2`  | It could not do the job it was asked to do: an unknown command, an unknown flag for a known command, an unknown transform id on `--only` / `--skip`, a `codemod` path that matches no file, or a `perf` run with nothing to judge |
+
+The unknown flag is the one worth stating on its own, because a parser that accepts everything makes
+a typo invisible: `init --dryrun` wrote the files a `--dry-run` would only have described, and
+`perf --gat` passed with no gate at all. Both read as green. A flag a command does not have stops it
+before it reads or writes anything, names the flag on stderr, and lists the ones that command takes.
+
 ## `doctor` — defects that never fail
 
 Every check here shares one property: **nothing consumes the result**. The suite is green,
@@ -64,7 +78,8 @@ turning `src/**/*.spec.ts` into `src*.spec.ts` — a syntactically valid glob th
 Nine of 152 spec tsconfigs still covered their specs.
 
 **It never writes.** `doctor` reads the repository and prints; there is no `--fix`. Exit code 1
-when anything above a note was found, 0 otherwise, so it drops into CI as one line.
+when anything above a note was found, 0 otherwise, so it drops into CI as one line — and 2 only when
+the command line itself was wrong, never as a verdict about the repository.
 
 **`--min-severity` for a suite that has already cleared the errors.** A repository that fixed
 everything still reads the notes on every run — the environment advice, the `jasmine-era-project`
@@ -99,6 +114,14 @@ because an empty report is how the widget learns that last run's issues are gone
 `--min-severity`. The flag works the same way on `perf`, where it carries the advice, the gate and
 the flaky tests.
 
+The widget tracks a finding by its **fingerprint**, so what goes into one decides whether two
+findings are two rows or one. Digits in a message are blanked, because a duration or a count moves
+between runs and a fingerprint that moved with it would report every finding as new — but what
+backticks enclose is kept, because that is where this CLI puts the thing a message is _about_: a
+test name, a file, a flag. Without that exemption `` `returns 200` `` and `` `returns 404` ``
+collapsed into one fingerprint, and the widget showed one of two parametrised cases and dropped the
+other. `3.90s` is still normalised.
+
 ```yaml
 doctor:
   script: npx vitest-auto-spy doctor --code-quality gl-code-quality.json
@@ -112,6 +135,26 @@ Two shapes of pattern are deliberately exempt, because for them "matches nothing
 of anything: a declaration-only glob (`src/**/*.d.ts`, routinely a placeholder for ambient types
 that do not exist yet) and a pattern rooted in a directory the scan never enters (`dist`,
 `out-tsc`, `coverage`).
+
+### What the scan counts as this repository
+
+Every check above reads one list of files, and the first line of the report is its length — so what
+goes into it decides what every finding is about. Three rules make it:
+
+- **Build output and package directories are skipped outright**: `node_modules`, `dist`, `build`,
+  `coverage`, `out-tsc`, `.git`, `.angular`, `.nx`, `.next`, `.nuxt`, `.output`, `.svelte-kit`,
+  `.turbo`, `.yarn`, `.cache`, `bower_components` and their siblings.
+- **A directory that is a repository of its own is not descended into** — a git worktree, whose
+  `.git` is a file, or a nested clone. Its files are on somebody else's branch: counting them made
+  every import graph a duplicate of itself, and on this repository's own tree, which carries
+  worktrees under a dot-directory, that was **2 240 files against the 1 213** that are actually in
+  it. The same rule is what keeps `codemod --write` out of another branch's working copy.
+- **The scan stops at 50 000 files.** `codemod` says so on stderr rather than calling a repository
+  migrated off a list it never finished, and `VITEST_AUTO_SPY_SCAN_CAP` raises the cap for a
+  repository that really is bigger.
+
+Nothing here reads `.gitignore` — that would mean spawning `git`, and the CLI has no dependencies
+and shells out to nothing.
 
 ### The two checks that resolve a name
 
@@ -657,9 +700,20 @@ when the file it appended to crosses that line.
 The codemod's own flags — `--write`, `--verify`, `--only`, `--skip`, `--list` — are on
 [its page](/utilities/codemod#flags).
 
+Each command takes the flags of its own table plus `--cwd`, `--help` and `--version`, and nothing
+else. A flag none of them lists stops that command with exit code 2 before it reads or writes a
+file, and prints the ones it does take.
+
 `init --check` in CI is the same shape as `llms:check` in this repository: it fails when the block
 on disk is not the block the installed version would write, which is exactly when an upgrade
 changed the advice.
+
+**What `--check` compares is the block, not the version stamp in its marker.** The two are different
+questions, and only one of them is a consumer's business: an upgrade that changes the advice is work
+to do, an upgrade that changes nothing but the `v=` in the marker is not — and comparing the files
+byte for byte turned every release of this package into a red step on a repository whose instructions
+had not moved a word. A plain `init` still refreshes the stamp, on the next run that has another
+reason to write.
 
 ## In CI
 
@@ -675,3 +729,7 @@ changed the advice.
 None of them need a network, a config file, or a token. The CLI ships with the package, has no
 runtime dependencies of its own, and is the only part of it allowed to touch `node:fs` — an
 invariant this repository checks on every build.
+
+Every one of them is also safe to pipe. `npx vitest-auto-spy codemod | head` closes the pipe halfway
+through the report; the command stops writing and exits with the code it had already decided on,
+rather than ending in an `EPIPE` stack trace over a run that had answered the question.

@@ -35,8 +35,8 @@ Lazy's margin widens as the class does — 1.43× at ten methods, 1.90× at fort
 back only when a single test really calls every method: 10 methods with all 10 called is 5.83 µs
 lazy against 4.21 µs eager, and 40 methods with all 40 called is 23.08 µs against 16.00 µs, so
 roughly 1.4× the wrong way. What settles it is not the clock but the heap, where the same asymmetry
-is far larger and does not close: an untouched 100-method double retains 25 601 B lazy against
-63 239 B eager, while at full materialisation the two arms are within 4% of each other — see
+is far larger and does not close: an untouched 100-method double retains **242 B** lazy against
+55 518 B eager, while at full materialisation the two arms are within 3% of each other — see
 [Retained memory per double](#retained-memory-per-double). That is why lazy is the default rather
 than an option.
 
@@ -148,27 +148,36 @@ and the promise/observable helper bundles attached to it. The measured bytes are
 ### Where the remaining memory is, and `lazySpies: 'proxy'`
 
 Lazy does not build the spy, but it still has to define **something** for the name: one
-`Object.defineProperty` accessor per method. On a class wide enough to matter, that placeholder is
-not overhead around the real cost — it _is_ the cost. `'proxy'` answers every method from one trap
-object instead, so all it retains per name is an entry in a set of strings the prototype already
-owns. On the current build that is **295 B per method against 186 B** at 10 methods untouched, and
-**256 B against 41 B** at 100 — the [retained-memory section below](#retained-memory-per-double)
-carries the whole table, and it is the one to read on the memory question.
+`Object.defineProperty` accessor per method. What it no longer has to define is a fresh **closure**
+per method per double. The `get` / `set` pair is one pair per method _name_ for the whole run — the
+double it belongs to is reached through `this` — so the placeholder is a descriptor slot on a shape
+V8 already has, and the per-double cost of a name nobody touched is around two bytes. An untouched
+double therefore retains roughly the same **240 B** whether it stands in for 10 methods or 100, and
+the width of the class has stopped being a memory question at all.
 
-**It is opt-in and stays opt-in**, for a reason that no benchmark of a wide class shows: a `Proxy`
+Materialising the first method has to undo one part of that sharing: a set of doubles whose
+accessors all came from the same descriptors sits on a shared fast-mode map, and turning an
+accessor into a data property there rewrites the whole map. The double is pushed into dictionary
+mode once, on its first materialisation, which turns that rewrite back into a hash update — the same
+V8 behaviour written up under [helpers shared across spies](#helpers-shared-across-spies), and the
+reason the probe is paid at the first read rather than when the double is built. An untouched
+double, which is the case this is all for, never pays it.
+
+`'proxy'` answers every method from one trap object instead of defining anything. That used to be
+the lighter arm, and it no longer is: it retains **4 097 B against 242 B** at 100 methods untouched
+and 1 857 B against 224 B at 10 — the [retained-memory section below](#retained-memory-per-double)
+carries the whole table — and it taxes every read for the life of the double, because a `Proxy`
 cannot remove itself. Once a method has materialised, the accessor path leaves a plain data property
-behind and every later read of it is an ordinary property read; the proxy still goes through a trap
-on every read and every call, for the life of the double. On a narrow class `'proxy'` is also slower
-to create, because a handful of `defineProperty` calls is cheaper than standing up a trap. That
-crossover is about **time**, and it does not carry over: the more rigorous memory measurement below
-(heap held per double, GC forced, the mock registry pruned between arms) found no memory crossover
-at all — `'proxy'` retained less than the default at every width it measured, from 10 methods up.
+behind and every later read of it is an ordinary property read, at about 7 ns; the trap answers in
+about 53 ns, every read, forever.
 
-So the rule is about the _shape_, not about the suite: reach for it on classes that are wide by
-construction — a generated API client (orval, `ng-openapi-gen`), an ngrx facade, a `Store` double —
-and especially under `isolate: false`, where every double a file made is alive at the same time and
-this difference is what stands between a job that finishes and a job that is killed. Everywhere else
-the default is the right answer.
+**It stays a public option**, and it has exactly one advantage left: standing up a trap is cheaper
+than defining a placeholder per name, so building a 100-method double costs about 2.0 µs against
+12.6 µs. That is a build-time win of ten microseconds against a memory cost of four kilobytes per
+double and a tax on every read, which is a trade very few suites want. Unless a profile of your own
+suite says otherwise, leave `lazySpies` alone — including on the classes that are wide by
+construction, a generated API client (orval, `ng-openapi-gen`), an ngrx facade, a `Store` double,
+which are precisely where the default is now strongest.
 
 ### What a single spy costs
 
@@ -176,7 +185,7 @@ A materialised spy used to be mostly the host runner's own mock, and nothing the
 shrink it. That is no longer true on Vitest, where [the spy engine](#the-spy-engine) replaced
 `vi.fn()` with a spy of the library's own: one shared prototype instead of twenty-five own
 properties, and call state allocated on the first call instead of six arrays at creation. A
-materialised method retains **1 923 B** where the runner's own mock retains 5 783 B on the same
+materialised method retains **1 906 B** where the runner's own mock retains 5 783 B on the same
 machine and the same runner — measured [below](#retained-memory-per-double). On Bun and `node:test`
 the runner's mock is still the floor.
 
@@ -191,15 +200,23 @@ same machine as everything else on this page:
 
 |                                 |    retained |              time |
 | ------------------------------- | ----------: | ----------------: |
-| lazy placeholder, never touched |   **294 B** |        **191 ns** |
-| materialised on first read      | **1 923 B** | **454 ns** on top |
+| lazy placeholder, never touched |     **2 B** |        **126 ns** |
+| materialised on first read      | **1 906 B** | **487 ns** on top |
 | a bare `vi.fn()`                | **5 783 B** |      **3 380 ns** |
 
-So a method a spec never touches is 20× lighter than a `vi.fn()` that stands in for it, and one it
-does touch is **3.0× lighter and 5.2× faster** to build (191 + 454 ns against 3 380). The retained
-column is `bench:memory` ([below](#retained-memory-per-double)); the time column is 20 000 doubles of
-10 methods each, median of seven passes, spread 182–220 / 423–666 / 3 042–7 947 ns — publish the
-spread with the median, because the last one is wide.
+So a method a spec never touches costs about two bytes where a `vi.fn()` standing in for it retains
+4 726 B before it is ever called, and one it does touch is **3.0× lighter and 5.5× faster** to build
+(126 + 487 ns against 3 380). The retained column is `bench:memory`
+([below](#retained-memory-per-double)), read off the 100-method untouched and all-called cells; the
+`vi.fn()` time is 20 000 doubles of 10 methods each, median of seven passes, spread 3 042–7 947 ns —
+publish the spread with the median, because that one is wide.
+
+The first row is the number that moved most, and it is worth knowing why the answer is "two bytes"
+rather than "a few hundred": what a placeholder now adds per double is a descriptor slot, not an
+object. The accessor pair itself is shared across every double of every class that has a method of
+that name, so it is paid once for the run. The per-double figure is small enough that the fixed cost
+of the double itself dominates a narrow class — an untouched 10-method double measures 224 B in
+total, an untouched 100-method one 242 B.
 
 Memory matters more than the time here. Under `isolate: false` a worker keeps everything its files
 allocated until the run ends, and it is the heap — not the clock — that ends up killing a CI job in
@@ -238,18 +255,26 @@ and the two shapes that work (`spy.load.resolveWith(v)`, or `bind` it first). Th
 namespaces bind, so nothing changes there.
 
 **Creating** a _double_ is still one `defineProperty` per lazy accessor, and that is now most of what
-it costs — the helper bundle above moved to the shared prototype, the placeholders cannot, and the
-end of this paragraph is why. Materialising a **method** did move, and by a large multiple — see
-[the spy engine](#the-spy-engine). The rest of this note is about the accessors, which are the part
-that did not. Sharing the accessor descriptors across spies looked like the obvious cut and was
-faster to build — and then markedly _slower_ to materialise, because V8 keeps an object whose
-accessors all came from the same descriptors on a shared fast-mode map, and turning an accessor into
-a data property there rewrites the whole map; with fresh closures the object falls into dictionary
-mode, where that same step is a hash update. Forcing dictionary mode with a `delete` fixes V8 and
-costs more on JSC. `Object.create(prototype, descriptors)` has the same fast-mode problem.
-The only cut left is putting the accessors on a shared prototype, which would make
-`Object.keys(spy)` and `{ ...spy }` stop listing methods nobody has touched yet — a change a
-spec can observe, so it is not made.
+it costs. What the accessors no longer are is a pair of fresh closures each: one `get` / `set` pair
+serves every double that has a method of that name, and the double is found through `this`. That cut
+was tried once before and rejected, because it was faster to build and then markedly _slower_ to
+materialise — V8 keeps objects whose accessors all came from the same descriptors on a shared
+fast-mode map, and turning an accessor into a data property there rewrites the whole map, where an
+object with fresh closures has fallen into dictionary mode and pays a hash update instead.
+Materialising all 100 methods of a double went 45 → 223 µs on the naive version of the change, and
+300 methods 195 → 1 733 µs.
+
+What makes it work is paying for dictionary mode deliberately, once, at the double's **first**
+materialisation rather than when it is built: 48.7 µs for 100 methods and 144 µs for 300, both at or
+below where they started. An untouched double never reaches that line, which is the whole point —
+it is the case the sharing exists for. On JSC (Bun) there is no shared-map pathology to fix, so the
+probe buys nothing there and costs about 50 ns per materialised method; it is paid anyway, because
+the memory win holds on both engines and "a lazy 100-method double" is a question about V8 under
+`isolate: false`.
+
+The one cut still not made is putting the accessors on a shared **prototype**, which would make
+`Object.keys(spy)` and `{ ...spy }` stop listing methods nobody has touched yet — a change a spec can
+observe.
 
 ## Against other libraries
 
@@ -422,24 +447,26 @@ prevent.
 
 ### Retained memory per double
 
-`npm run bench:memory`, 2026-09-10, Node v24.19.0, **Vitest 5.0.0**. 500 doubles held alive at once,
+`npm run bench:memory`, 2026-09-17, Node v24.19.0, **Vitest 5.0.0**. 500 doubles held alive at once,
 5 repeats per cell (median), 4 GC passes forced per settle. Each cell is heap delta divided by the
 500 doubles, i.e. **bytes per double** — the number in parentheses divides that further by the
 method count, i.e. bytes per method. The mock registry is pruned between arms; without that, every
 arm after the first would carry forward everything the earlier arms allocated, and the numbers would
 be a running total rather than each library's own footprint. Pruning was verified clean — worst
-residual 0.2% — and run-to-run spread was at worst ±6%, on the smallest cells.
+residual 0.2% — and run-to-run spread was at worst ±42%, on the one cell small enough for the noise
+floor to matter: the default arm's untouched 10-method double, which is now a couple of hundred
+bytes against a 512 KiB floor. Every other cell reproduced within ±1%.
 
 **Built from a class:**
 
 | Arm                                  |     10 methods, untouched |            10, all called |     100 methods, untouched |            100, all called |
 | ------------------------------------ | ------------------------: | ------------------------: | -------------------------: | -------------------------: |
-| vitest-auto-spy default lazy         |    2 940 B (294 B/method) | 19 227 B (1 923 B/method) |    25 601 B (256 B/method) | 188 143 B (1 881 B/method) |
-| vitest-auto-spy `lazySpies: 'proxy'` |    1 859 B (186 B/method) | 20 214 B (2 021 B/method) |      4 097 B (41 B/method) | 186 666 B (1 867 B/method) |
-| vitest-auto-spy `lazySpies: false`   |    5 561 B (556 B/method) | 18 567 B (1 857 B/method) |    58 441 B (584 B/method) | 188 115 B (1 881 B/method) |
-| jest-auto-spies                      | 67 246 B (6 725 B/method) | 77 802 B (7 780 B/method) | 674 658 B (6 747 B/method) | 779 712 B (7 797 B/method) |
-| jasmine-auto-spies                   | 69 722 B (6 972 B/method) | 80 287 B (8 029 B/method) | 699 472 B (6 995 B/method) | 804 525 B (8 045 B/method) |
-| @bugsplat/vitest-auto-spies          | 67 252 B (6 725 B/method) | 77 822 B (7 782 B/method) | 674 674 B (6 747 B/method) | 779 725 B (7 797 B/method) |
+| vitest-auto-spy default lazy         |     **224 B** (22/method) | 19 471 B (1 947 B/method) |     **242 B** (2 B/method) | 190 559 B (1 906 B/method) |
+| vitest-auto-spy `lazySpies: 'proxy'` |    1 857 B (186 B/method) | 20 459 B (2 046 B/method) |      4 097 B (41 B/method) | 189 096 B (1 891 B/method) |
+| vitest-auto-spy `lazySpies: false`   |    5 800 B (580 B/method) | 18 805 B (1 880 B/method) |    55 518 B (555 B/method) | 185 188 B (1 852 B/method) |
+| jest-auto-spies                      | 67 246 B (6 725 B/method) | 77 802 B (7 780 B/method) | 674 658 B (6 747 B/method) | 779 710 B (7 797 B/method) |
+| jasmine-auto-spies                   | 69 719 B (6 972 B/method) | 80 287 B (8 029 B/method) | 699 473 B (6 995 B/method) | 804 525 B (8 045 B/method) |
+| @bugsplat/vitest-auto-spies          | 67 250 B (6 725 B/method) | 77 822 B (7 782 B/method) | 674 675 B (6 747 B/method) | 779 725 B (7 797 B/method) |
 | hand-written `vi.fn()`               | 47 258 B (4 726 B/method) | 57 825 B (5 783 B/method) | 476 862 B (4 769 B/method) | 581 910 B (5 819 B/method) |
 
 **Every row moved against the edition this replaces, and only one of the two reasons is this
@@ -447,18 +474,26 @@ package.** The other is the runner: on Vitest 5 a bare `vi.fn()` retains 4 726 B
 4 102 B, and the three jest-auto-spies-family libraries are built on it, so their rows moved with it.
 Read the columns against each other on this table, never against a number from the Vitest 4 edition.
 
-This package's own rows moved for two reasons of their own. [The spy engine](#the-spy-engine) is the
-large one: a materialised method retains **1 923 B** against the runner's own 5 783 B, and an eagerly
-built but never-called one (`lazySpies: false`, untouched) **556 B**, because a spy that is never
-called allocates none of the six arrays `vi.fn()` allocates up front. The smaller one is that the
-helper bundle now lives on the prototype every spy inherits rather than being copied onto each spy —
-worth 48 B per materialised method, visible in every "all called" cell.
+This package's own rows moved for reasons of their own. [The spy engine](#the-spy-engine) is the one
+behind the "all called" cells: a materialised method retains **1 906 B** against the runner's own
+5 783 B, and an eagerly built but never-called one (`lazySpies: false`, untouched) **555 B**, because
+a spy that is never called allocates none of the six arrays `vi.fn()` allocates up front. A smaller
+part of the same story is that the helper bundle now lives on the prototype every spy inherits
+rather than being copied onto each spy — worth 48 B per materialised method, visible in every "all
+called" cell.
+
+The **untouched** cells of the default arm moved for a different reason and by two orders of
+magnitude: the lazy placeholder is now one shared accessor pair per method name for the whole run
+rather than a closure pair per double, so what a name nobody touched adds to a double is a
+descriptor slot — 25 601 B became 242 B at 100 methods, and 2 940 B became 224 B at 10. That is the
+change that turned `lazySpies: 'proxy'` from the lighter arm into the heavier one; the mechanism is
+[above](#where-the-remaining-memory-is-and-lazyspies-proxy).
 
 **Built from a type.** Untouched is width-independent — it is the same Proxy object either way:
 
 | Arm                               | untouched | 10 members called | 100 members called |
 | --------------------------------- | --------: | ----------------: | -----------------: |
-| vitest-auto-spy `createAutoMock`  |     705 B |          19 302 B |          185 878 B |
+| vitest-auto-spy `createAutoMock`  |     705 B |          19 546 B |          188 305 B |
 | vitest-mock-extended `mock`       |     353 B |          60 143 B |          602 216 B |
 | @golevelup/ts-vitest `createMock` |     496 B |         116 462 B |        1 158 265 B |
 
@@ -468,11 +503,12 @@ now one handler for the whole run, with everything that varies kept on the Proxy
 
 **What this establishes:**
 
-1. **`lazySpies: 'proxy'` has no memory crossover.** It is lighter than the default at every width
-   measured — 1.6× at 10 methods untouched, 6.2× at 100 — and at 100 all-called it is marginally
-   cheaper than both other strategies. The narrow-class crossover noted
-   [above](#where-the-remaining-memory-is-and-lazyspies-proxy) is a creation-time crossover only;
-   nothing in this table implies a memory break-even.
+1. **`lazySpies: 'proxy'` is no longer the memory answer.** It retains more than the default at every
+   width measured — 8.3× at 10 methods untouched, 16.9× at 100 — because the default's placeholder
+   now costs a descriptor slot and the trap object does not shrink. The only column where it is not
+   behind is "all called", where both arms are the materialised spies and the strategy that built
+   them has stopped mattering. What it still buys is creation time, and what it still charges is a
+   trap on every read; the trade is [above](#where-the-remaining-memory-is-and-lazyspies-proxy).
 2. **`jest-auto-spies` and `@bugsplat` agree to within 0.01%** on retained bytes, confirming the
    shared-core claim ([above](#the-three-jest-auto-spies-family-libraries-all-measured)) on a metric
    that has nothing to do with timing noise.
@@ -492,9 +528,10 @@ now one handler for the whole run, with everything that varies kept on the Proxy
   before anything is touched, and it is the one memory row this package still loses; from the first
   member called onwards it is 3.1× lighter than `vitest-mock-extended` and 6.0× lighter than
   `@golevelup`.
-- `lazySpies: false` is marginally cheaper than the default at 10 all-called (18 567 vs 19 227 B) —
-  the placeholder accessors the default installs are not free, and when every method is materialised
-  anyway there is nothing for them to save.
+- `lazySpies: false` is marginally cheaper than the default when every method is called anyway —
+  18 805 vs 19 471 B at 10 methods, 185 188 vs 190 559 B at 100. The placeholder accessors the
+  default installs are not free once they have been replaced, and a spec that touches the whole
+  surface gives them nothing to save.
 
 `heapUsed` only; off-heap was not measured. Retention inside the `@vitest/spy` registry `Set` is
 counted deliberately and charged identically to every arm. Single machine, Node v24.19.0 — the
@@ -629,19 +666,20 @@ prune reaches only one and the run dies out of memory.
 
 ## Bundle size
 
-The badge says 17.6 kB min+gzip, and that is the whole core entry bundled together. It is also the
+The badge says 20.1 kB min+gzip, and that is the whole core entry bundled together. It is also the
 largest number a consumer can pay for the core, because entries are separate subpaths and a project
 only pays for the ones it imports:
 
 | Imported                                      |    min+gzip |
 | --------------------------------------------- | ----------: |
-| `.` — the core entry, what the badge measures | **17.6 kB** |
-| `vitest-auto-spy/angular`                     |     26.9 kB |
-| `vitest-auto-spy/react` / `/vue` / `/svelte`  |     17.9 kB |
-| `vitest-auto-spy/node`                        |     16.7 kB |
-| `vitest-auto-spy/dom-stubs`                   |      5.7 kB |
-| `vitest-auto-spy/rxjs`                        |      2.3 kB |
-| `vitest-auto-spy/angular-router`              |      7.1 kB |
+| `.` — the core entry, what the badge measures | **20.1 kB** |
+| `vitest-auto-spy/angular`                     |     30.4 kB |
+| `vitest-auto-spy/react` / `/vue` / `/svelte`  |     20.1 kB |
+| `vitest-auto-spy/setup`                       |     18.9 kB |
+| `vitest-auto-spy/node`                        |     19.0 kB |
+| `vitest-auto-spy/dom-stubs`                   |      5.8 kB |
+| `vitest-auto-spy/rxjs`                        |      2.6 kB |
+| `vitest-auto-spy/angular-router`              |      8.4 kB |
 | `vitest-auto-spy/signal-forms`                |      1.4 kB |
 | `vitest-auto-spy/zone`                        |      1.1 kB |
 
@@ -690,6 +728,19 @@ names the declarations and both ways on instead of Angular's message aimed at th
 other runtime rows took +53…112 B for `narrow.defined`, and `/eslint-plugin` +501 B for the separate
 object-spread message and the stub-factory exemption.
 
+The last move was downwards, and it is the one place on this table where a number falling is worth a
+sentence: `/setup` went 18.3 → 17.1 kB and the three framework rows 17.9 → 17.6 kB when those entries
+started being emitted as standalone bundles rather than as a shell around a dozen shared chunks. The
+duplication that buys is paid on disk, not in any one entry — see
+[what is in the download](#what-is-in-the-download).
+
+The repair round that ships in the same release then moved every runtime row back up, and by more
+than the emission change had saved: the structural matcher behind nested matchers, symbol-keyed and
+static-member discovery, the teardown and guard modules `/setup` now carries, and the Angular
+internals canary put +2.4…3.6 kB on the solo rows — the root entry 17.6 → 20.1 kB, `/angular`
+26.9 → 30.4 kB, `/setup` 17.1 → 18.9 kB — and +0.1…1.3 kB on the chunked ones. Every figure above is
+the final tree, measured 2026-09-17.
+
 `npm run size:entries` prints all twenty-three and compares them against a committed baseline, so an entry
 that quietly gains a second copy of the core fails a check instead of being noticed a release later.
 
@@ -698,26 +749,40 @@ framework adapters, rxjs layer, console spies and setup helpers each live behind
 
 ### What is in the download
 
-`dist/` is **1 560 kB**, the published tarball **584 kB**, and the package ships **84 files**
-(measured 2026-09-12; the previous edition said 1 409 kB, 588 kB and 82 files — the two new files
-are the `/signal-forms` entry and its declarations, and the tarball still shrank, because the
-markdown that ships with it was reformatted and compresses better). An
+The published tarball is **818 kB** over **84 files** (`npm pack --dry-run`, 2026-09-17). An
+intermediate measurement of this same tree — after the standalone bundles described below, before
+the repair round's code — read 751 kB over 82 files; the edition before that measured 584 kB across
+84 files against 1 560 kB of `dist/` on 2026-09-12, before three releases. An
 earlier edition reported 241 kB, 108 kB and 54 files, and presented the change as a reduction.
 Those figures were correct when they were taken — they reproduce to the byte at v2.0.0 — but that
 package had thirteen subpaths, no command-line tool, and an ESLint entry a sixth of its current
 size. Comparing them to today's is comparing two different packages.
 
 Where the bytes are is more useful than the total. The two largest JavaScript files in the package,
-`dist/cli.js` at 160 kB and `dist/eslint-plugin.cjs` at 153 kB, are **never loaded by a spec file** —
-they are the `vitest-auto-spy` executable and the lint rules, together a fifth of `dist/`. The next
-two, `dist/index.js` at 109 kB and `dist/angular.js` at 156 kB, are large on purpose: both are built
-unsplit, so each carries its own copy of what it needs rather than reaching a shared chunk through
-the loader. `tsup.config.ts` records the measurement behind that decision — the root entry goes
-3.2 → 2.4 ms and root plus `angular` 4.7 → 3.7 ms under Node's native loader, so 0.8 and 1.0 ms per
-spec file. Disk is the cheap side of that trade.
+`dist/cli.js` at 244 kB and `dist/angular.js` at 186 kB, sit on opposite sides of that line: the
+first is the `vitest-auto-spy` executable — grown by the codemod's parse-what-it-wrote check and
+the perf tooling — which **no spec file ever loads**; the second is large on purpose, built unsplit
+so it carries its own copy of what it needs rather than reaching a shared chunk through the loader.
+`dist/eslint-plugin.cjs` at 178 kB belongs with the executable, and `dist/index.js` at 130 kB with
+`/angular`. `tsup.config.ts` records the measurement behind that decision — root plus `/angular`
+plus `/setup` goes 7.7 → 5.9 ms under Node's native loader, and `/setup` alone 5.6 → 3.1 ms, on the
+numbers below. Disk is the cheap side of that trade.
+
+`/setup`, `/react`, `/vue`, `/svelte` and `/node` are built the same way, and they are the entries
+where it shows most, because each of them used to be a shell reaching for twelve to fourteen modules
+through the loader and is now one. Per spec file, on Node 24, median of 25 runs: `/setup` 5.6 → 3.1 ms,
+the root entry plus `/setup` 7.0 → 4.9 ms, `/react` 5.5 → 3.1 ms, `/node` 3.4 → 1.7 ms, and the
+heaviest Angular shape — root plus `/angular` plus `/setup` — 7.7 → 5.9 ms. The bill is **+108 kB in
+the tarball** and about 442 kB in `dist/`, paid once at install, by a dependency that never reaches a
+production bundle. `npm run cold-import` measures those imports against a committed baseline in
+`cold-import.json`, counting modules as well as bytes, so an entry that quietly grows a loader graph
+again fails a check.
 
 Everything else splits as intended: within the chunked pass no module is emitted twice, and not one
-byte of a peer dependency — `vitest`, `@angular/*`, `rxjs` — is inlined anywhere in `dist/`.
+byte of a peer dependency — `vitest`, `@angular/*`, `rxjs` — is inlined anywhere in `dist/`. That
+last claim is the one `/signal-forms` used to fail quietly: its module graph measured 274 kB,
+nearly all of it `@angular/forms` being counted rather than treated as the peer it is. The entry's
+own graph is **5.9 kB**.
 
 CommonJS is part of the same accounting. The package used to ship a `.cjs` build of every entry, and
 most of it could never be loaded: Vitest refuses to be required (`Vitest cannot be imported in a
@@ -729,7 +794,7 @@ disconnected registries. CommonJS now ships only where a `require()` actually wo
 second entry: `vitest-auto-spy/node` and `vitest-auto-spy/eslint-plugin`.
 
 One last thing the total does not say: the two biggest files in the download are not code at all.
-`README.md` is 271 kB and `AGENTS.md` 261 kB, and both ship deliberately — the second is what makes
+`README.md` is 355 kB and `AGENTS.md` 434 kB, and both ship deliberately — the second is what makes
 the package legible to a coding agent that has only the installed copy to read.
 
 ## Which Node version
@@ -799,14 +864,16 @@ it was measuring.
 ## The two settings that cost
 
 **`{ lazySpies: 'proxy' }`** is the other direction: same laziness, one trap object instead of a
-placeholder per method, for classes wide enough that the placeholders are the memory. See
-[where the remaining memory is](#where-the-remaining-memory-is-and-lazyspies-proxy).
+placeholder per method. It buys build time on a wide class — about 2.0 µs against 12.6 µs at 100
+methods — and charges for it in retained bytes and in a trap on every read. See
+[where the remaining memory is](#where-the-remaining-memory-is-and-lazyspies-proxy) before reaching
+for it.
 
 **`{ lazySpies: false }`** gives up the win above. On a 40-method class it costs 11.50 µs against
 6.04 µs to build a double a spec calls three methods of, and on a 100-method class an untouched
-double retains 63 239 B against 25 601 B — roughly double on both counts. It is worth it only when a
-spec inspects the spy object itself through property descriptors; enumeration (`Object.keys`,
-spread, a snapshot) already works, because the placeholders are enumerable accessors.
+double retains 55 518 B against 242 B. It is worth it only when a spec inspects the spy object
+itself through property descriptors; enumeration (`Object.keys`, spread, a snapshot) already works,
+because the placeholders are enumerable accessors.
 
 **`autoSpyAccessors: true`** walks the prototype chain for getters and setters. That walk is
 memoised per prototype in a `WeakMap`, exactly like the method walk, so a class spied in 300 tests
@@ -819,13 +886,22 @@ Everything else — `methodsToSpyOn`, `observablePropsToSpyOn`, `calledWith`, th
 — is either a constant or, in `calledWith`'s case, a sub-microsecond map lookup on a serialized key.
 
 The one `calledWith` shape that is not sub-microsecond is a config holding an **asymmetric matcher**
-(`expect.any`, `expect.objectContaining`). Those cannot be a static key, so they are kept as
-predicates and evaluated against the actual args after the exact map misses — which means a deep
-walk of whatever else is in that config, on every call, however large that other argument is. The
-config args are serialized once when the config is registered rather than on every call, which takes
-a large bite out of it. Reach for an exact `calledWith` when you have one: that path is a map
-lookup rather than a walk, and it is the **0.17 µs** row in the micro-benchmark above — two
-configured shapes plus a miss.
+(`expect.any`, `expect.objectContaining`, and now one nested anywhere inside an object, array, `Map`
+or `Set`). Those cannot be a static key, so they are kept as predicates and compared structurally
+against the actual arguments after the exact map misses. Three things keep that from being paid over
+and over: the config args are serialized once when the config is registered rather than on every
+call; the actual argument is rendered **once per call** rather than once per matcher config, which
+on a 200-field record against eight configs is 636 µs against 0.4 µs; and a graph is walked once,
+with nodes already seen recorded rather than re-entered, so an argument that is a component graph
+with a back edge costs 0.1 µs where it used to cost 4.1 ms _per call_, and a cyclic graph 18 levels
+deep produces an 84 kB key in 0.29 ms instead of a 10.7 MB one in 276 ms.
+
+What the structural comparison costs on the hot path is about **10%** on the key of a deep object
+argument, roughly six points of which is asking each object for its symbol keys — the price of
+telling apart two arguments that differ only in a symbol. A single primitive argument is unchanged.
+
+Reach for an exact `calledWith` when you have one: that path is a map lookup rather than a walk, and
+it is the **0.17 µs** row in the micro-benchmark above — two configured shapes plus a miss.
 
 One run-level switch has a per-call price of its own:
 [`setupAutoSpy({ strayTimers: true })`](/utilities/setup#_4-cancelling-timers-that-outlive-their-file),
@@ -833,6 +909,61 @@ which `preset: 'strict'` turns on. Every `setTimeout`, `setInterval` and `reques
 captures a stack so a stray can name the call that scheduled it, and a scheduled-and-cleared timeout
 goes from 70 ns to about **1.75 µs** — 116 ns before 5.6 recorded origins (Node v24.19.0, Apple M4 Max,
 2026-09-11). Nearly all of it is V8 building the stack, which costs about 0.9 µs at any depth.
+
+### What the /setup guards cost per test
+
+The guards in [`setupAutoSpy()`](/utilities/setup) run on every test, so their price is multiplied by
+the size of the suite rather than by the number of doubles. Measured over 10 000 tests on happy-dom,
+one worker, Node v24.19.0, 2026-09-17 — **per test**:
+
+| Setting                                       | per test |
+| --------------------------------------------- | -------: |
+| `setupAutoSpy()` with its defaults            |    19 µs |
+| `setupAutoSpy({ strayConsole: 'throw' })`     |    22 µs |
+| `setupAutoSpy({ documentPollution: 'warn' })` |    23 µs |
+| `setupAutoSpy({ guardGlobals: 'warn' })`      |    59 µs |
+| `setupAutoSpy({ preset: 'strict' })`          |    67 µs |
+
+Ten thousand tests at the strict preset is two thirds of a second across the whole run, which is
+below the round-to-round spread of any suite measurement on this page. Two of the three things that
+keep it there are worth naming, because they are the reason the per-test figure does not grow with
+the guard list: `guardGlobals` takes its snapshot once per **file** and diffs against it, rather than
+snapshotting before every test, and the document check rides the `onTestFinished` the teardown net
+registers anyway instead of adding a second one, which is about 7 µs a test on its own. The third is
+`guardGlobals` spending some of that back — roughly 8 µs — on the DOM prototypes it now watches.
+
+`documentPollution: { nodes: true }` is the option whose cost depends on the page rather than on the
+suite: it compares the children of `<html>`, `<head>` and `<body>` as well as their attributes, and
+what that costs is set by how many children there are.
+
+| Children in `<head>` | `nodes: true` | with `ignoreNodes` |
+| -------------------- | ------------: | -----------------: |
+| 0                    |        3.5 µs |               5 µs |
+| 50                   |         11 µs |              43 µs |
+| 300                  |         56 µs |             243 µs |
+| 1 000                |    **188 µs** |             808 µs |
+
+A `<head>` of a thousand children is not hypothetical — an Angular suite that lets component styles
+accumulate gets there — and at that width the check used to cost 7.1 ms per test, because it spread
+a **live** `HTMLCollection` into an array on every read. It now walks `firstElementChild` /
+`nextElementSibling`, and an `ignoreNodes` selector is asked once per test rather than once per node.
+Both columns are still large enough to be worth knowing before turning `nodes` on for a whole suite;
+a single suffering `describe` block is often the better scope.
+
+### What the emission helpers cost per call
+
+`expectEmission` and its siblings format the stack anchor that points a failure at the caller **only
+when the wait fails**, so a passing call — which is every call in a green suite — costs **2.3 µs**
+instead of 3.6 µs at the top level, and 3.2 µs instead of 4.6 µs twenty-five frames deep. The failing
+path pays about 0.7 µs more for the same information, which is the right side of that trade to put
+the cost on.
+
+The other change is per **emission** rather than per call: `skip` and `until` decide whether a value
+counts as it arrives, instead of re-scanning everything collected so far each time something new
+turns up. On a wait over a stream that emits heavily before it settles that is worth between 30× and
+300×, and it is the difference between quadratic and linear in the number of emissions.
+`expectCompletion` and `expectError`, which need a count and not the values, now count instead of
+retaining them, so a wait on a stream of ten thousand values holds a number rather than an array.
 
 ## What actually makes a suite slow
 
@@ -865,6 +996,14 @@ What the mode costs is not in the clock: a `TestBed` patch installed once per wo
 file that asked for it, and a load-time failure is reported against every file in the worker at
 once. Both are in [Vitest → Isolation](../runtimes/vitest#isolation), and both are worth reading
 before the config is copied.
+
+Two helpers that live on that seam are worth knowing about, because in a shared worker a per-file
+cost becomes a per-run one. `setupAngularTestEnv()` remembers which testing environment the worker
+is on, so it no longer tears the environment down and re-runs the caller's initialiser for every
+spec file — the "one initialisation, no resets" it promises is now what happens. And a second
+`installProxyZonePatch()` is a no-op rather than a wrapper around its own wrapper: an explicit call
+in a setup file used to add a Proxy layer per spec file, so two hundred files left two hundred layers
+for every zone operation to pass through.
 
 On a suite small enough that Vitest's own start-up dominates, the mode barely reaches the clock at
 all. This library's own suite is 107 files and 1 697 tests; on Node 24 it takes 4.05 s end to end,

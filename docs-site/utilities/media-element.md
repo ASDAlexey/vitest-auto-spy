@@ -61,11 +61,16 @@ value — a disagreement that looks like a bug in the component.
 | `duration`            | `durationchange` |
 | `readyState` ≥ 1      | `loadedmetadata` |
 | `currentTime`         | `timeupdate`     |
-| `ended: true`         | `ended`          |
+| `ended: true`         | `pause`, `ended` |
 | a non-null `error`    | `error`          |
 
 `ended: false` and `error: null` announce nothing: those clear a state, and the platform has no
 event for that.
+
+`ended: true` on its own also **pauses** the element, and says so first. The platform pauses an
+unlooped element that runs to its end, and its `pause` event arrives before `ended`; a component
+reading `paused` after the `ended` event used to see `false`, a state no browser produces. Passing
+`paused` explicitly in the same call leaves it exactly as written.
 
 ## Seeking the way the component does
 
@@ -95,6 +100,13 @@ expect(content.duration).toBe(120); // the option's default
 A patch that closes over one `duration` variable reports the same duration for the ad and for the
 content — precisely the pair a player spec exists to tell apart. Every element gets its own record,
 weakly keyed, and `media.state(element)` reads it back.
+
+The records belong to the **install**, not to the module. An element that outlives the test that
+made it — kept in module scope by a spec, or left in `<body>` under `isolate: false` — therefore
+starts from the state of whichever install is in force, so a later `stubMediaElement({ duration: 30 })`
+reports 30 for it rather than the duration the test that first read it saw. `duration` starts at the
+option, `0` when it is left out; it is never the platform's `NaN`, so a component that waits for a
+known length has one from the first read.
 
 ## `play`, `pause`, `load`, `canPlayType`
 

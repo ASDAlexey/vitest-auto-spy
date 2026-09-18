@@ -57,6 +57,48 @@ WorkerSpy.instances[0].postMessage.mockReturnValue(undefined);
 It takes the same optional second argument as
 [`createSpyFromClass`](./create-spy-from-class), so each instance can be configured the usual way.
 
+A **method** spy answers `new` as well — `new sdk.Client()` on a double whose member is a class hands
+back the instance, or the object a `calledWith(…).mockReturnValue(…)` configured. What it does not do
+is type that member as constructible or make the instance a `Spy<T>`, so `createSpyClass` stays the
+answer wherever the double has to be a class in its own right; see
+[Constructor doubles](/utilities/constructor-doubles).
+
+### The class's statics — `{ statics: true }`
+
+A constructor double usually replaces the real class where the code under test can see it, and
+production code reads statics off that name as much as it calls `new` on it: a
+`Worker.isSupported()` feature check, a `Client.create()` factory, a `VERSION` constant. Without
+them the replacement is missing exactly the half `new` does not cover, and the failure —
+`SpyClass.isSupported is not a function` — lands inside production code. A third argument carries
+them over:
+
+```ts
+const SdkSpy = createSpyClass(Sdk, undefined, { statics: true }) as unknown as typeof Sdk;
+
+expect(SdkSpy.VERSION).toBe('2.1.0'); // data, copied as it stands
+expect(vi.isMockFunction(SdkSpy.create)).toBe(true); // a base class's static, spied like its own
+```
+
+Static **functions** become spies, the class's own and its base classes'; static **data** is copied
+as it stands, because a `VERSION` string is what the code under test expects to find rather than a
+spy answering `undefined`; static **accessors** are skipped rather than read, since a getter is code
+the class owns and running it while the double is assembled is a side effect nobody asked for. The
+double's own `calls` and `instances` are never overwritten, so a class carrying a static of either
+name is still a usable constructor spy.
+
+It is off by default — it adds members to the double. The options object is nameable in a
+consumer's own helper as `SpyClassOptions`, exported from the package root.
+
+**The static side has no types yet.** `ConstructorSpy<T>` describes the instances, so reaching for a
+static goes through a cast, and configuring one needs a second cast, because the class types that
+member as the real function:
+
+```ts
+(SdkSpy.isSupported as unknown as { mockReturnValue(value: boolean): void }).mockReturnValue(false);
+
+expect(SdkSpy.isSupported()).toBe(false);
+```
+
 ## Which error means which direction
 
 The compiler reports the `Spy<T>` / `T` mismatch in four different ways, and none of them contains
@@ -260,6 +302,44 @@ Two things deliberately did **not** change. `mockReturnValue()` with no argument
 compiles on a `void` method — that overload is this package's own, added because the runner's
 demands an argument on a method whose point is that it returns nothing. And `mockRejectedValue`
 still takes `unknown`, because a rejection is not the method's return type.
+
+## A method returning `any` keeps every bundle
+
+`[any] extends [Promise<infer P>]` is **true**, which makes a member declared `any` — a legacy
+service, a wrapper around a JavaScript package, a migrated `jest-auto-spies` double — look like a
+promise-returning method and nothing else. `any` is tested for first, so such a member keeps
+`mockReturnValue` on its `calledWith` chain as well as the promise and observable helpers, which is
+what it answers to at runtime:
+
+```ts
+const legacy = createAutoMock<LegacyApi>(); // request(id: number): any
+
+legacy.request.calledWith(1).mockReturnValue({ ok: true }); // ✅
+legacy.request.calledWith(2).resolveWith({ ok: false }); // ✅ — still there
+```
+
+Nothing narrows: a member whose type says `any` is configured the way its own type allows its caller
+to use it. Where that is too much freedom, the repair is the member's declaration, not the double.
+
+## `accessorSpies` is typed against the member it stands for
+
+Each half of the bag carries the type of the member it spies — `Mock<() => T[K]>` for a getter,
+`Mock<(value: T[K]) => void>` for a setter:
+
+```ts
+const settings = createSpyFromClass(SettingsService, { gettersToSpyOn: ['count'] }); // get count(): number
+
+settings.accessorSpies.getters.count.mockReturnValue(3); // ✅
+settings.accessorSpies.getters.count.mockReturnValue('three'); // ❌ TS2345
+```
+
+A bare `Mock` is `Mock<Procedure>` — `(...args: any[]) => any` — so the second line used to compile
+and the double then answered a `string` where the class promises a `number`, which is the read-side
+twin of the hole the method surface closed by taking `MockInstance<Method>`. A spec that stubbed a
+getter with a value of another type learns about it here, on the line that does it.
+
+It is `Mock<…>` and not `MockInstance<…>` on purpose: the bag has always been callable, so
+`accessorSpies.setters.theme('dark')` and `accessorSpies.getters.theme()` compile exactly as before.
 
 ## `readonly` survives onto the double, and `mockValueProp` is the answer
 

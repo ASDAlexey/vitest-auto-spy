@@ -125,12 +125,30 @@ standing in for.
 vi.mock('shaka-player', () => moduleNamespace({ Player: mockConstructor(() => playerStub) }));
 ```
 
-Returns `{ ...exports, default: exports, __esModule: true }` — the shape any dependency written to
-run as both CommonJS and ESM probes for with `mod.default ?? mod`.
+Returns `{ ...exports, default, __esModule: true }` — the shape any dependency written to run as
+both CommonJS and ESM probes for with `mod.default ?? mod`. `default` is the whole namespace, unless
+the factory spelled one out.
 
 The missing `default` is the failure this removes. A factory returning bare named exports makes
 Vitest throw `No "default" export is defined on the mock` **from inside that dependency**, with a
 stack that names the library rather than the factory three lines up in the spec.
+
+### A module whose default export _is_ the dependency
+
+A date library, a player, a generated client — plenty of packages export one callable as their
+default, and that is the thing the spec stubs:
+
+```ts
+const format = vi.fn(() => 'Monday');
+
+vi.mock('dayjs', () => moduleNamespace({ default: vi.fn(() => ({ format })) }));
+```
+
+The `default` the factory wrote is the `default` the namespace carries. Replacing it with the
+namespace object is what turned `default(…)` into `default is not a function` inside the dependency
+— the same failure this helper exists to remove, arriving from the other side. `ModuleNamespace<T>`
+is typed to match: `default` is the type of the `default` the factory declared where there is one,
+and the namespace otherwise.
 
 ### `lenient`
 

@@ -116,6 +116,48 @@ the same trap on every node, and `resetAutoSpy` walks the tree from whichever no
 are built without a guard, so an unconfigured call returns `undefined` (or the node itself under
 `selfReturning`) whatever `setupAutoSpy` was given.
 
+### A helper the entry registers later is still a helper
+
+Whether a key belongs to the node's spy (`mockReturnValue`, `calledWith`, `nextWith`, …) or to the
+type being mocked is asked of that spy on **every read**, so the answer follows the helpers actually
+installed at that moment. The surface grows during a run: `/rxjs` and `/jasmine` add theirs when they
+are imported, and `setSpyEngine` swaps the lot.
+
+```ts
+import 'vitest-auto-spy/rxjs';
+
+const api = mockDeep<Api>();
+
+api.feed.items.nextWith([item]); // the observable helper, not a child node
+```
+
+Under `isolate: false` the order is not a spec's to choose: one file reads a deep mock, another file
+in the same worker imports `/rxjs` afterwards, and a surface decided once for the worker would have
+left `nextWith` as a **child node** in the second file — callable, recorded, emitting nothing, and
+green until something asserted on the emission. The setup file is still the right place for the
+import; nothing depends on it any more.
+
+### A member the code under test calls with `new`
+
+A double of an SDK carries the shape the SDK has, and that regularly includes a class: `new
+sdk.Client(key)`, `new api.Session()`. Constructing a spied member works — the call is recorded like
+any other, and what comes back is a fresh instance, or the object the arguments were configured to
+answer with:
+
+```ts
+const sdk = mockDeep<Sdk>(); // `Client: new (key: string) => Client` on the type
+
+service.connect(); // production code runs `new this.sdk.Client(key)`
+
+expect(sdk.Client).toHaveBeenCalledWith(key);
+```
+
+Configuring one is where the types stop helping: a member the mocked type declares as a constructor
+is mapped as that constructor, so both the helper surface and a `new` written **in the spec** need a
+view of your own (`as unknown as new (key: string) => Client`). When the instances should be
+auto-spies of a real class, reach for [`createSpyClass`](/utilities/constructor-doubles) instead,
+which is a constructor by type as well as at runtime.
+
 ### What a Proxy-backed double cannot do
 
 Both `createAutoMock` and `mockDeep` build a Proxy, and a Proxy answers only the operations its

@@ -72,7 +72,10 @@ assertion it makes about the spy — the only thing that changed is that the rea
 started running inside every spec that installed the spy in order to stop it. It fails later, in a
 different file, if the real method happens to write to a store, fire a request or throw.
 
-`spyOnProperty(obj, 'p', 'get')` has the same default and goes the same way.
+`spyOnProperty(obj, 'p', 'get')` has the same default and goes the same way — and one more
+difference of its own: jasmine's third argument is **optional** and defaults to the getter, while
+`vi.spyOn(obj, 'p')` with two arguments spies on a _method_ and throws "can only spy on a function"
+the moment it runs. A bare `spyOnProperty(obj, 'p')` therefore needs `'get'` written out.
 
 The `jasmine-spy-on` transform appends the no-op jasmine installed for free, and skips it only where
 the expression already chains a strategy that replaces the implementation anyway (`.and.…`, or a
@@ -86,38 +89,40 @@ Nothing in this table is a behaviour change on the shim — the middle column is
 does once the import specifier changed. The right-hand column is the end state; **✎** marks the rows
 no transform touches, which are the ones to search for by hand once the codemod has run.
 
-| `jasmine-auto-spies`                                               | on `vitest-auto-spy/jasmine`                                | the end state                                              |
-| ------------------------------------------------------------------ | ----------------------------------------------------------- | ---------------------------------------------------------- |
-| `createSpyFromClass(C)`                                            | identical                                                   | `createSpyFromClass` from `vitest-auto-spy`                |
-| `createSpyFromClass(C, ['load', 'save'])`                          | identical                                                   | unchanged                                                  |
-| `methodsToSpyOn` / `observablePropsToSpyOn`                        | identical, same additive meaning                            | unchanged                                                  |
-| `gettersToSpyOn` / `settersToSpyOn`                                | identical                                                   | unchanged                                                  |
-| `providedMethodNames`                                              | accepted, merged into `methodsToSpyOn`, warns once per call | ✎ rename it to `methodsToSpyOn`                            |
-| `createFunctionSpy<F>('name')`                                     | identical                                                   | `createFunctionSpy` from `vitest-auto-spy`                 |
-| `provideAutoSpy(C)`                                                | identical `{ provide, useValue }`                           | `provideAutoSpy` from `/angular` (or `/nestjs`, `/vue`)    |
-| `createSpyObj(base, names, props?)`                                | identical, all four argument forms                          | **stays on `/jasmine`** — nothing else exports it          |
-| `type Spy<T>`                                                      | the same shape, **without** `@types/jasmine`                | `Spy<T>` from `vitest-auto-spy`                            |
-| `createObservableWithValues`                                       | from `vitest-auto-spy/rxjs`, unchanged                      | unchanged                                                  |
-| `spy.m.and.returnValue(v)`                                         | identical                                                   | `spy.m.mockReturnValue(v)`                                 |
-| `spy.m.and.returnValues(a, b)`                                     | identical                                                   | `.mockReturnValueOnce(a).mockReturnValueOnce(b)`           |
-| `spy.m.and.callFake(fn)`                                           | identical                                                   | `spy.m.mockImplementation(fn)`                             |
-| `spy.m.and.stub()`                                                 | identical                                                   | `spy.m.mockImplementation(() => undefined)`                |
-| `spy.m.and.throwError('boom')`                                     | identical                                                   | `.mockImplementation(() => { throw new Error('boom'); })`  |
-| `spy.m.and.resolveTo(v)`                                           | identical                                                   | `spy.m.mockResolvedValue(v)`                               |
-| `spy.m.and.callThrough()`                                          | **restores this library's dispatch** — see below            | reported, left byte-for-byte                               |
-| `spy.m.and.identity`                                               | the spy's name                                              | ✎ Vitest names the variable, not the spy — delete the read |
-| `spy.m.and.resolveWith / rejectWith / resolveWithPerCall`          | identical                                                   | drop `.and` — `spy.m.resolveWith(v)`                       |
-| `spy.m.and.nextWith / nextOneTimeWith / nextWithValues`            | identical                                                   | drop `.and`                                                |
-| `spy.m.and.nextWithPerCall / throwWith / complete / returnSubject` | identical                                                   | drop `.and`                                                |
-| `spy.m.withArgs(1).and.returnValue(v)`                             | identical                                                   | `spy.m.calledWith(1).mockReturnValue(v)`                   |
-| `expect(spy.m.withArgs(1)).toHaveBeenCalled()`                     | **no counterpart** — `withArgs` returns a chain, not a spy  | ✎ `expect(spy.m).toHaveBeenCalledWith(1)`                  |
-| `spy.m.calls.count()` / `any()`                                    | identical                                                   | ✎ `spy.m.mock.calls.length`                                |
-| `spy.m.calls.argsFor(i)` / `allArgs()`                             | identical                                                   | ✎ `spy.m.mock.calls[i]` / `spy.m.mock.calls`               |
-| `spy.m.calls.all()` / `first()` / `mostRecent()`                   | identical                                                   | ✎ `spy.m.mock.calls` beside `spy.m.mock.results`           |
-| `spy.m.calls.thisFor(i)`                                           | identical                                                   | ✎ `spy.m.mock.instances[i]`                                |
-| `spy.m.calls.reset()`                                              | identical                                                   | ✎ `spy.m.mockClear()`                                      |
-| `spy.m.calls.saveArgumentsByValue()`                               | **a documented no-op** — see below                          | ✎ take the copy in a `mockImplementation`                  |
-| `spy.accessorSpies.getters.x.and.returnValue(v)`                   | identical                                                   | `spy.accessorSpies.getters.x.mockReturnValue(v)`           |
+| `jasmine-auto-spies`                                               | on `vitest-auto-spy/jasmine`                                | the end state                                               |
+| ------------------------------------------------------------------ | ----------------------------------------------------------- | ----------------------------------------------------------- |
+| `createSpyFromClass(C)`                                            | identical                                                   | `createSpyFromClass` from `vitest-auto-spy`                 |
+| `createSpyFromClass(C, ['load', 'save'])`                          | identical                                                   | unchanged                                                   |
+| `methodsToSpyOn` / `observablePropsToSpyOn`                        | identical, same additive meaning                            | unchanged                                                   |
+| `gettersToSpyOn` / `settersToSpyOn`                                | identical                                                   | unchanged                                                   |
+| `providedMethodNames`                                              | accepted, merged into `methodsToSpyOn`, warns once per call | ✎ rename it to `methodsToSpyOn`                             |
+| `createFunctionSpy<F>('name')`                                     | identical                                                   | `createFunctionSpy` from `vitest-auto-spy`                  |
+| `provideAutoSpy(C)`                                                | identical `{ provide, useValue }`                           | `provideAutoSpy` from `/angular` (or `/nestjs`, `/vue`)     |
+| `createSpyObj(base, names, props?)`                                | identical, all four argument forms                          | **stays on `/jasmine`** — nothing else exports it           |
+| `type Spy<T>`                                                      | the same shape, **without** `@types/jasmine`                | `Spy<T>` from `vitest-auto-spy`                             |
+| `createObservableWithValues`                                       | from `vitest-auto-spy/rxjs`, unchanged                      | unchanged                                                   |
+| `spy.m.and.returnValue(v)`                                         | identical                                                   | `spy.m.mockReturnValue(v)`                                  |
+| `spy.m.and.returnValues(a, b)`                                     | identical                                                   | `.mockReturnValueOnce(a).mockReturnValueOnce(b)`            |
+| `spy.m.and.callFake(fn)`                                           | identical                                                   | `spy.m.mockImplementation(fn)`                              |
+| `spy.m.and.stub()`                                                 | identical                                                   | `spy.m.mockImplementation(() => undefined)`                 |
+| `spy.m.and.throwError('boom')`                                     | identical                                                   | `.mockImplementation(() => { throw new Error('boom'); })`   |
+| `spy.m.and.resolveTo(v)`                                           | identical                                                   | `spy.m.mockResolvedValue(v)`                                |
+| `spy.m.and.callThrough()`                                          | **restores this library's dispatch** — see below            | reported, left byte-for-byte                                |
+| `spy.m.and.identity`                                               | the spy's name                                              | ✎ Vitest names the variable, not the spy — delete the read  |
+| `spy.m.and.resolveWith / rejectWith / resolveWithPerCall`          | identical                                                   | drop `.and` — `spy.m.resolveWith(v)`                        |
+| `spy.m.and.nextWith / nextOneTimeWith / nextWithValues`            | identical                                                   | drop `.and`                                                 |
+| `spy.m.and.nextWithPerCall / throwWith / complete / returnSubject` | identical                                                   | drop `.and`                                                 |
+| `spy.m.withArgs(1).and.returnValue(v)`                             | identical                                                   | `spy.m.calledWith(1).mockReturnValue(v)`                    |
+| `spy.m.withArgs(1).and.stub / throwError / resolveTo`              | identical                                                   | `spy.m.calledWith(1)` + `failWith` / `resolveWith`          |
+| `spy.m.withArgs(1).and.callFake / callThrough / returnValues`      | **throws, naming the alternative** — see below              | ✎ configure the whole spy, or the value for those arguments |
+| `expect(spy.m.withArgs(1)).toHaveBeenCalled()`                     | **no counterpart** — `withArgs` returns a chain, not a spy  | ✎ `expect(spy.m).toHaveBeenCalledWith(1)`                   |
+| `spy.m.calls.count()` / `any()`                                    | identical                                                   | ✎ `spy.m.mock.calls.length`                                 |
+| `spy.m.calls.argsFor(i)` / `allArgs()`                             | identical                                                   | ✎ `spy.m.mock.calls[i]` / `spy.m.mock.calls`                |
+| `spy.m.calls.all()` / `first()` / `mostRecent()`                   | identical                                                   | ✎ `spy.m.mock.calls` beside `spy.m.mock.results`            |
+| `spy.m.calls.thisFor(i)`                                           | identical                                                   | ✎ `spy.m.mock.instances[i]`                                 |
+| `spy.m.calls.reset()`                                              | identical                                                   | ✎ `spy.m.mockClear()`                                       |
+| `spy.m.calls.saveArgumentsByValue()`                               | **a documented no-op** — see below                          | ✎ take the copy in a `mockImplementation`                   |
+| `spy.accessorSpies.getters.x.and.returnValue(v)`                   | identical                                                   | `spy.accessorSpies.getters.x.mockReturnValue(v)`            |
 
 And the `@hirez_io/observer-spy` beside it, which the same entry replaces — see
 [below](#hirez-io-observer-spy-comes-along-too). The end state is a different **kind** of assertion,
@@ -152,6 +157,30 @@ method itself does: a `Promise`-returning method gets `resolveWith` / `rejectWit
 `Observable`-returning one gets `nextWith` and the rest — and those only once
 `import 'vitest-auto-spy/rxjs'` has run somewhere, as on every other entry.
 
+### Three `withArgs` strategies have no argument-scoped form
+
+`.withArgs(…)` narrows a configuration to one argument list, and `stub()`, `throwError(e)` and
+`resolveTo(v)` all say what the call should **answer**, so they narrow with it. `callFake(fn)`,
+`callThrough()` and `returnValues(a, b)` install an _implementation_, and an implementation answers
+every call whatever its arguments — there is nothing for "but only for these arguments" to install
+into.
+
+They are present and throw rather than being absent, because a spec reaching one otherwise fails
+with `… is not a function` at the configuration line and says nothing about what to write instead:
+
+```text
+[vitest-auto-spy] load.withArgs(…).and.callFake() is not supported: it installs an implementation,
+and an implementation answers every call rather than one argument list. Configure the value for
+these arguments — `.withArgs(…).and.returnValue(v)`, `.throwError(e)`, `.resolveTo(v)` — or take
+the whole spy with `load.and.callFake(…)`, which is what jasmine's own strategy does to every call
+anyway.
+```
+
+`withArgs` is a method of **this library's** spies, on the shim and after it. A `vi.spyOn(obj, 'm')`
+has no `calledWith` to rename it to, so `spyOn(obj, 'm').withArgs(1)` is a line to rewrite by hand:
+branch on the arguments inside one `mockImplementation`, or replace the double with
+`createSpyFromClass` / `createAutoMock`, whose methods do have `calledWith`.
+
 ## jasmine's own globals
 
 These appear in files that have nothing to do with auto-spies, nothing imports them, and after the
@@ -178,9 +207,9 @@ import is one line per file that the codemod deletes at the end.
 | `jasmine.truthy` / `falsy` / `empty` / `notEmpty`                 | **no `expect.*` twin**                                 | `registerJasmineMatchers()`, below                                                            |
 | `jasmine.is` / `mapContaining` / `setContaining`                  | **no `expect.*` twin**                                 | `registerJasmineMatchers()`, below                                                            |
 | `jasmine.arrayWithExactContents`                                  | **no `expect.*` twin**                                 | `registerJasmineMatchers()`, below                                                            |
-| `jasmine.clock().install()` / `.uninstall()`                      | `vi.useFakeTimers()` / `vi.useRealTimers()`            |                                                                                               |
+| `jasmine.clock().install()` / `.uninstall()`                      | `vi.useFakeTimers()` / `vi.useRealTimers()`            | ⚠️ `install()` leaves `Date` real, as jasmine does — see below                                |
 | `jasmine.clock().tick(n)`                                         | `vi.advanceTimersByTime(n)`                            | neither settles a promise — [`advanceTimers`](/utilities/fake-timers) does                    |
-| `jasmine.clock().mockDate(d)`                                     | `vi.setSystemTime(d)`                                  |                                                                                               |
+| `jasmine.clock().mockDate(d)`                                     | `vi.setSystemTime(d)`                                  | this is what takes `Date` over — see below                                                    |
 | `jasmine.clock().withMock(fn)`                                    | on the namespace; **no `vi` twin**                     | the codemod reports it and leaves it                                                          |
 | `jasmine.addMatchers(m)`                                          | `expect.extend(m)`                                     |                                                                                               |
 | `jasmine.addCustomEqualityTester(t)`                              | `expect.addEqualityTesters([t])`                       | one tester, wrapped in the array Vitest takes                                                 |
@@ -227,6 +256,18 @@ object, so `expect.extend({ empty })` throws
 
 Anything on the `jasmine` namespace registers them on first use, so a suite that only touches them
 through `jasmine.truthy()` needs no setup call at all.
+
+`jasmine.mapContaining` compares **keys** with the runner's equality rather than looking them up,
+which is what jasmine's own `MapContaining` does: it searches the other map for a pair whose key and
+value both match. So an asymmetric matcher in key position works, and so does an object key that is
+deeply equal rather than the same reference — a `Map.has` answers on identity and misses both. The
+lookup stays as the fast path for the ordinary case, where the sample key is in the map as it
+stands.
+
+```ts
+expect(byUser).toEqual(jasmine.mapContaining(new Map([[{ id: 7 }, 'ada']])));
+expect(byName).toEqual(jasmine.mapContaining(new Map([[jasmine.any(String), 'ada']])));
+```
 
 ### `withContext` does not throw, it loses the message
 
@@ -291,6 +332,39 @@ change, and a suite that believed it had raised its timeout is worse off than on
 The failure this prevents is filed against the wrong thing: a `beforeEach` that overruns is
 attributed to the **test**, with the test's duration pinned at the limit, so the log reads
 `× should create 10045ms` and the body it names never ran.
+
+### `clock().install()` leaves `Date` real
+
+jasmine's `install()` fakes the schedulers and nothing else; `Date` is a separate opt-in there,
+called `mockDate()`. Vitest's `useFakeTimers()` fakes `Date` by default, so a spec written against
+jasmine's split — install the clock, then measure real elapsed time — saw `Date.now()` frozen and
+moving only on `tick(ms)`: a TTL cache that never expired, an `expect(Date.now() - start)` reading
+`0`, and nothing in the output about a clock.
+
+`jasmine.clock().install()` here therefore leaves `Date` alone, as jasmine does. Every timer Vitest
+fakes by default is still faked, minus the clock; `process.nextTick` and `queueMicrotask` stay real,
+as they are under Vitest's own default.
+
+```ts
+jasmine.clock().install();
+jasmine.clock().mockDate(new Date('2026-01-01')); // this is what takes Date over
+```
+
+`mockDate()` installs the full set, because `vi.setSystemTime` moves a fake clock nothing is
+reading while `Date` is outside the faked set. Re-installing loses whatever was already scheduled,
+which jasmine's own `mockDate` does not — so called after something has queued a timer, it says so
+rather than leaving the loss to be discovered:
+
+```text
+[vitest-auto-spy] jasmine.clock().mockDate() took Date over after 2 callback(s) had already been
+scheduled, and re-installing the fake clock dropped them. Call mockDate() right after install(),
+before anything schedules a timer — jasmine.clock().install() leaves Date real on purpose, as
+jasmine does.
+```
+
+Right after `install()`, which is where a migrated spec puts it, there is nothing to lose and
+nothing is printed. `mockDate()` without `install()` is unchanged: it installs `Date`-only fakes and
+leaves the timers real.
 
 ## Two places where this is deliberately not upstream
 
@@ -394,6 +468,30 @@ single name against a type, because there is no type to check against. Where a c
 [`createSpyFromClass(C)`](/core/create-spy-from-class) reads it; where only an interface does,
 [`createAutoMock<T>()`](/core/auto-mock-by-type) reads that. Both fail at compile time on a
 misspelled member, and this one cannot.
+
+Its third argument builds **spied accessors**, as jasmine's does, rather than plain values. Reading
+the property still answers what was seeded, so a migrated spec sees no change there; what it gains
+is jasmine's own surface, where the spies are reachable only through the descriptor — jasmine hands
+back no reference to them either:
+
+```ts
+import { type JasmineMethodSpy, createSpyObj } from 'vitest-auto-spy/jasmine';
+
+const cart = createSpyObj('cart', ['checkout'], { total: 10 });
+
+expect(cart.total).toBe(10); // the seeded value, as before
+
+const { get, set } = Object.getOwnPropertyDescriptor(cart, 'total')!;
+
+(get as JasmineMethodSpy<() => number>).and.returnValue(7); // re-answer it mid-test
+cart.total = 3;
+
+expect(cart.total).toBe(7);
+expect(set).toHaveBeenCalledWith(3); // and assert that the code under test wrote it
+```
+
+The cast is the price of the shape: a descriptor's `get` is typed as a plain function, and the
+spies are behind it.
 
 ## `@hirez_io/observer-spy` comes along too
 

@@ -71,6 +71,11 @@ installConsoleSpies(); // re-install after a restore (idempotent otherwise)
 - `installConsoleSpies()` returns the full `ConsoleSpies` bag — always the same one — and puts its
   spies back on the console if something took them off.
 
+The spies survive `vi.resetModules()`. That call hands the next import a fresh copy of this module
+while the previous copy's spies are still on `console`, and a new copy never mistakes one of those
+for the real method: the real ones are remembered once per worker, where every copy finds them. So
+`restoreConsole()` cannot put a spy nobody can reach back on `console` for the rest of the worker.
+
 ## Under the stray-console guard
 
 [`setupAutoSpy({ strayConsole: 'throw' })`](/utilities/setup#_16-console-output-nothing-absorbed)

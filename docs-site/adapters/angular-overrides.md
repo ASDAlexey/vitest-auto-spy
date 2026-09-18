@@ -43,11 +43,21 @@ scope the bundler has stripped, leaving it with none of them — see
 Queuing the component removes the _usual_ cause of a silent no-op. It does not prove the override
 landed, so the helper checks.
 
-**What is queued.** Each call pushes one entry — component, token, spy — and wraps
-`TestBed.createComponent` **once**. On the next fixture the wrapper runs every queued entry, then
-puts the original method back and empties the queue. It fires on the first fixture and gets out of
-the way, because the check belongs to the fixture that call built; a wrapper left installed would
-run against a later spec's unrelated component.
+**What is queued.** Each call pushes one entry — component, token, spy — and registers **once** with
+the same `createComponent` seam the [diagnostics](/adapters/angular-diagnostics) use. On the next
+fixture it runs every queued entry, then unregisters and empties the queue. It fires on the first
+fixture and gets out of the way, because the check belongs to the fixture that call built; an
+inspector left registered would run against a later spec's unrelated component.
+
+That seam sits on the `TestBed` **instance**, which every static delegates to, so the fixture is
+verified whichever way the spec built it:
+
+```ts
+const fixture = getTestBed().createComponent(HostComponent); // verified, like TestBed.createComponent
+```
+
+Sharing one seam rather than wrapping `createComponent` a second time also settles the order of the
+two checks that read it, instead of leaving it to whichever installed last.
 
 **How the token is resolved.** Through the component's _own_ injector, not the testing module's:
 

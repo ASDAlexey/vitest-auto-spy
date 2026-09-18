@@ -82,6 +82,7 @@ Each instance exposes what a spec asserts on and what it drives:
 | `disconnect`    | the spy                                                                |
 | `disconnected`  | whether teardown ran — the readable form of asserting on `disconnect`  |
 | `emit(entries)` | invoke the callback with one batch, exactly as the browser delivers it |
+| `host`          | the observer the code under test constructed — see below               |
 
 `emit` takes an array rather than a single entry on purpose. A fast scroll or a resize storm
 delivers several at once, and code that assumes one entry per call is a real bug this makes
@@ -89,6 +90,30 @@ reachable:
 
 ```ts
 observers.last.emit([intersectionEntry(first, false), intersectionEntry(second, true)]);
+```
+
+## The observer the callback is handed
+
+The callback's second argument is the object `new IntersectionObserver(…)` returned — the one the
+code under test kept — and not the record above. Production code reaches for it:
+
+```ts
+new IntersectionObserver((entries, observer) => {
+  observer.disconnect(); // or observer.takeRecords(), or `if (observer !== this.observer) return;`
+});
+```
+
+so `takeRecords()` is a spy on it, answering an empty list, and `root`, `rootMargin` and
+`thresholds` are read back off the init the constructor was given rather than left blank — a
+directive that builds one observer per root margin asserts on exactly those. `rootMargin` defaults
+to `'0px 0px 0px 0px'` and `thresholds` to `[0]`, as the platform's do, and a `threshold` given as a
+single number arrives as a one-element array.
+
+`instances[i].host` (and `last.host`) is the same object, for a spec that compares it against the
+observer the component holds:
+
+```ts
+expect(observers.last.host).toBe(component.observer);
 ```
 
 ## Building entries

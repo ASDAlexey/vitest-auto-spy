@@ -139,6 +139,19 @@ The ported `jest.spyOn(global, 'Date')` is not the way. Fake timers already own 
 throws `Date is not a constructor` with a stack in production code and no mention of timers
 anywhere.
 
+Both hand back an undo, and the undo works in both worlds. Where this call installed the `Date`-only
+fakes it takes them off again; where the suite already had fakes on it leaves them exactly where
+they were and only puts the **clock** back — carrying over whatever the block advanced inside
+itself, so a `withSystemTime(t, body)` whose body moved the clock by a minute leaves it a minute
+past where it started rather than back at `t`. Taking the suite's fakes off there would break every
+later test in the file, and an undo that did nothing at all was the reason a frozen date used to
+leak out of the block it was written for. Calling the undo twice, or after the block took the fakes
+off itself, does nothing further.
+
+The `Date`-only set this installs is marked as such, so the fake-timer helpers can tell it from a
+suite that owns the whole clock — see [fake timers](/utilities/fake-timers) for what `setupFakeTimers`
+and `advanceTimers` do with that.
+
 ### `useCountingClock(options?)`
 
 ```ts
@@ -168,3 +181,16 @@ is left sitting on an object nothing reads any more, and the naive undo (`afterE
 = saved })`) re-attaches a dead clock's `now` to the live one, where it breaks a later file.
 `useCountingClock` and `mockNow` re-apply per test and hand the undo to `restoreMockedProps()`,
 which recorded the exact object it patched.
+
+## A watchdog is not on your clock, and not on your zone
+
+The helpers whose own timeout _is_ the assertion — [`expectEmission` and its
+family](/core/observable-assertions) and [`stable`](/adapters/angular) — read the timer functions
+once, at import, so `vi.useFakeTimers()` cannot silence them: the failure stays "the stream did not
+emit" rather than becoming "the test timed out".
+
+zone.js needs one step more, because it replaces `setTimeout` while it loads and its replacement
+picks a scheduler from `Zone.current` at call time. So these watchdogs take the untouched function
+zone.js parks aside: one armed inside `fakeAsync` stays on real time, and a `tick()` cannot expire
+the wait it is driving. Only the watchdogs do that — everything else a spec schedules is the zone's,
+which is the whole point of [running under one](/utilities/zone).

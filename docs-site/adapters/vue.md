@@ -9,6 +9,11 @@ The `vitest-auto-spy/vue` entry re-exports the full core (zero-config on Vitest)
 `provideAutoSpy(token, Class)` that builds a `global.provide` entry for `@vue/test-utils`. Nothing
 here imports `vue`, `pinia` or `@vue/test-utils` — they stay optional peers.
 
+It registers the default Vitest mock adapter only when nothing else has, so importing it cannot
+replace one a runtime entry installed first. That entry still imports `vitest`, though, so it does
+not load under `bun test` or `node --test`: a Vue suite on either of those runners uses the core
+through its own runtime entry and builds the `provide` map by hand.
+
 Class-based services injected via `provide`/`inject` and class-based Pinia stores are the natural
 fit:
 

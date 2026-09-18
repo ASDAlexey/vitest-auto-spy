@@ -41,6 +41,25 @@ re-configures the group.
 warns again instead of failing. It leaves the `TestBed` timing instrumentation in place —
 `enableTestBedDiagnostics` may be using it, and `disableTestBedDiagnostics()` is what removes that.
 
+## Both ways of reaching the `TestBed` are seen
+
+A spec configures its module through the exported `TestBed` class or through `getTestBed()`, and the
+two are the same object: every static is a one-line delegate to the instance. The hooks are
+therefore installed on the **instance**, so a suite written the second way is checked like any
+other:
+
+```ts
+getTestBed().configureTestingModule({ imports: [CatalogPageComponent] }); // inspected
+const fixture = getTestBed().createComponent(CatalogPageComponent); // and so is this
+```
+
+That covers `ngModuleScopes`, `deadSchemas`, `shadowedProviders` and the
+[`overrideComponentProvider` verification](/adapters/angular-overrides), all of which used to see
+only the static form and report nothing about a suite that never used it. It counts each call once —
+the wrapper sits on the instance alone, never on both — and `TestBed.overrideTemplate`, which
+Angular routes through `overrideComponent`, is now part of the measured
+[`TestBed` time](/adapters/angular) rather than invisible to it.
+
 ## Call it _after_ the Angular test environment is set up
 
 The group reads the `TestBed` the environment built, so it belongs after `initTestEnvironment` —
@@ -110,6 +129,13 @@ TestBed.configureTestingModule({ imports: [CatalogPageComponent], schemas: [NO_E
 The check fires when all three hold: `schemas` is non-empty, `declarations` is empty, and `imports`
 carries at least one component class (an entry with a `ɵcmp`).
 
+**The three are read off the configuration Angular ends up with, not off one call.**
+`TestBedCompiler` accumulates: a spec is free to call `configureTestingModule` in a `beforeEach` and
+again inside the test, and the module is the sum of them. Judging a single call reported a spec that
+declares a component in the first and adds a schema next to a standalone import in the second —
+where the schema is live — and said nothing in the reverse order, where it is dead. The tally is
+forgotten wherever the module is: before every test, and at every `resetTestingModule`.
+
 ```
 [vitest-auto-spy] enableAngularDiagnostics({ deadSchemas }): configureTestingModule was given 1 schema(s) that can never apply. The module declares nothing, and CatalogPageComponent carries its own dependency scope.
 Nothing is being silenced here: whatever the schema was added for is still unresolved, and the template renders without it.
@@ -164,6 +190,18 @@ The token is therefore read out of **the caller's own configuration**, and the i
 through `TestBed.inject(token, null)` — only while the testing module exists. Asking a reset
 `TestBed` would build a fresh module, and the next `configureTestingModule` would then refuse to run.
 
+The walk over `imports` goes all the way down, which is what the usual shape needs:
+
+```ts
+TestBed.configureTestingModule({ imports: [SharedTestingModule] }); // and HttpClientTestingModule is inside that
+```
+
+A suite of any size has one shared testing module, and the HTTP one sits inside it. Reading only the
+first level found no token there and turned the check off without a word. Each module's `ɵinj` is
+walked once and cached, nested arrays and a `forRoot()`-style `{ ngModule, providers }` result are
+both understood, a cycle in the import graph is not followed twice, and the walk stops at the first
+token — a suite that configures HTTP testing directly pays nothing for it.
+
 A project that configures neither form is silently inert — no token is found, the check reports
 nothing, and nothing had to be installed for that to be true. That is exactly the shape an optional
 integration should have.
@@ -180,11 +218,19 @@ test on with _Cannot configure the test module when the test module has already 
 The `TestBed` **instance's** `resetTestingModule` is therefore wrapped to snapshot the open requests
 while the testing module still exists — the instance, because the static
 `TestBed.resetTestingModule()` delegates to it while `getTestBed().resetTestingModule()` and
-Angular's cleanup hook call it directly — and the `afterEach` reports from that snapshot when there
-is one. The same wrapper forgets the doubles `shadowedProviders` remembered for the module. Reading is
-**one-shot** in both directions: the requests are read with `match(() => true)`, which both lists
-and takes them, and the snapshot is cleared as it is read. Two hooks that both looked cannot report
-the same request twice.
+Angular's cleanup hook call it directly — and the `afterEach` reports the snapshot **and** whatever
+is open now. A test that resets twice built two modules, and both are reported: the snapshot is a
+list that every reset adds to, not a value the next reset overwrites. The same wrapper forgets the
+doubles `shadowedProviders` remembered for the module, and the `deadSchemas` tally with them.
+Reading is **one-shot** in both directions: the requests are read with `match(() => true)`, which
+both lists and takes them, and the snapshot is emptied as it is read. Two hooks that both looked
+cannot report the same request twice.
+
+Taking the snapshot is best-effort; the reset it precedes is not. A snapshot that throws — reading a
+token out of an injector Angular has already destroyed is the way it happens — is swallowed, and
+`resetTestingModule` runs regardless. Skipping it used to fail the **next** test with
+_Cannot configure the test module when the test module has already been instantiated_, a failure
+that names a spec with nothing wrong with it.
 
 If the running `TestBed` has no `resetTestingModule` at all, no wrapper is installed and the check
 falls back to reading a live injector. The wrapper is installed once per `TestBed` instance and does

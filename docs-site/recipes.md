@@ -377,6 +377,41 @@ expect(consoleErrorSpy).toHaveBeenCalledWith(expect.stringContaining('parse'));
 Never add a second `vi.spyOn(console, 'error')` on top: whichever patch wins depends on import order,
 and the assertion then runs against a spy that never intercepted the call.
 
+## An argument the spec cannot spell
+
+Some arguments have no literal to write against: a callback the code under test built, an options
+object assembled from three sources, a `FormData`. `captureArg` takes hold of one where an
+expectation would have had to describe it.
+
+```ts
+import { captureArg } from 'vitest-auto-spy';
+
+const options = captureArg<RequestInit>();
+
+expect(fetchSpy).toHaveBeenCalledWith('/api/save', options);
+
+expect(options.value.method).toBe('POST');
+```
+
+`.values` holds every value the captor was **offered**, which is not the same as every value that
+matched. The runner tries an assertion against each recorded call and compares positions left to
+right, stopping at the first that disagrees; a captor matches everything, so one standing to the left
+of a position that goes on to reject the call has already recorded that call's argument. A captor in
+the last position is offered only the calls that agreed on everything before it.
+
+Where the list has to mean "matched", give the captor a filter. It then decides the match itself, and
+records only what it accepts:
+
+```ts
+const post = captureArg<RequestInit>({ where: (value) => (value as RequestInit).method === 'POST' });
+
+expect(fetchSpy).toHaveBeenCalledWith('/api/save', post);
+expect(post.values).toHaveLength(1);
+```
+
+`captured` says the captor was offered something, not that the assertion passed — so assert on the
+expectation, and read the captor for what the call carried.
+
 ## An array assertion that says nothing
 
 ```ts
@@ -401,6 +436,13 @@ more runs to find out. `diffByField` answers it directly:
 9 of 9 elements differ.
   `event_timestamp` differs in all 9: actual 1 everywhere, expected 2, 3, 4, 5, 6, 7, …
 ```
+
+An element that is **not** a plain record is compared whole, and reported as `the element`: a `Date`,
+a `Map`, a `Set`, a `URL`, an instance whose state sits behind accessors. Per-field comparison reads
+`Object.keys`, which is empty for every one of them, so the alternative is a report finding no
+difference between two elements that plainly differ — on exactly the call shape above, where nothing
+differing is what the assertion passes on. Two records that differ only in a symbol-keyed field are
+reported the same way.
 
 "Everywhere" against a run of expected values is the tell: under fake timers every `Date.now()`
 inside one test answers the same, so a spec about **order** or **duration** needs

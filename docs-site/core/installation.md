@@ -15,26 +15,35 @@ re-exports this one, entry point for entry point — a typo installs the same co
 singular name; the alias is generated from it and only ever follows it.
 :::
 
-Peer dependencies are all **provided by your project**; `rxjs` and the four `@angular/*` packages
-are **optional** — install them only for the matching entry point. The package itself has **zero
-runtime dependencies**.
+Peer dependencies are all **provided by your project**, and every one of them is **optional** —
+install each only for the entry point that needs it. `vitest` is optional too: a project that only
+imports `vitest-auto-spy/bun` or `/node` no longer installs the Vitest runner it never loads. The
+range is unchanged at `>=2.1`, so a project that does have Vitest is still held to it. The package
+itself has **zero runtime dependencies**.
 
 | Peer                        | Needed for                                                                                        | Optional? |
 | --------------------------- | ------------------------------------------------------------------------------------------------- | --------- |
-| `vitest`                    | the default runner                                                                                | no        |
+| `vitest`                    | the default runner, and every entry point that drives Vitest's own mocks — `>=2.1`                | yes       |
 | `rxjs`                      | `vitest-auto-spy/rxjs` observable spies — `>=7.2`, no upper bound (rxjs 8 too)                    | yes       |
 | `@angular/core`             | `vitest-auto-spy/angular` and `vitest-auto-spy/bun-angular` helpers — `>=20`                      | yes       |
 | `@angular/common`           | `vitest-auto-spy/angular-http` — `>=20`, this entry only                                          | yes       |
 | `@angular/router`           | `vitest-auto-spy/angular-router` — `>=20`, this entry only                                        | yes       |
+| `@angular/forms`            | `vitest-auto-spy/signal-forms` — `>=22`, this entry only                                          | yes       |
 | `@angular/platform-browser` | `By` and the directive matchers on `vitest-auto-spy/angular`, the Bun preload's platform — `>=20` | yes       |
 
-| Tool       | Minimum                                                                  |
-| ---------- | ------------------------------------------------------------------------ |
-| Node.js    | ≥ 22 — 18 and 20 are EOL; CI exercises 22, 24 and 26                     |
-| Vitest     | ≥ 2.1                                                                    |
-| Angular    | ≥ 20 for the Angular entry points — nothing else in the package needs it |
-| Bun        | ≥ 1.4 for `vitest-auto-spy/bun-angular`; any recent Bun for `/bun`       |
-| TypeScript | ≥ 4.7 for the typed helpers (plain JS works too, just untyped)           |
+| Tool       | Minimum                                                            |
+| ---------- | ------------------------------------------------------------------ |
+| Node.js    | ≥ 22 — 18 and 20 are EOL; CI exercises 22, 24 and 26               |
+| Vitest     | ≥ 2.1                                                              |
+| Angular    | ≥ 20 for the Angular entry points, ≥ 22 for `/signal-forms`        |
+| Bun        | ≥ 1.4 for `vitest-auto-spy/bun-angular`; any recent Bun for `/bun` |
+| TypeScript | ≥ 4.7 for the typed helpers (plain JS works too, just untyped)     |
+
+**The bottom of the runner range is exercised, not only declared.** Alongside the usual matrix, CI
+packs the tarball and installs it into a fresh project against four pairs of runner and rxjs — the
+declared floor of both together (Vitest 2.1 with rxjs 7.2), then Vitest 3 and 4 on rxjs 7.8, then
+whatever ships today — runs a spec over the published build and type-checks a probe against the
+published declarations.
 
 Vitest **≥ 2.1** because the typed `spy.method.mock.settledResults` surface is Vitest's own `Mock`
 type, and `@vitest/spy` only grew `settledResults` in 2.0 — 2.1 is where the 2.x line actually sits.
@@ -91,7 +100,22 @@ Ships **ESM with bundled `.d.ts` types**. Two subpaths additionally ship a Commo
 could never have worked: Vitest itself refuses to be required (`Vitest cannot be imported in a
 CommonJS module using require()`), so every Vitest-backed entry threw on the first line of its own
 `.cjs`. Test runners load ESM natively, so nothing is lost — and dropping the unreachable output cut
-the published package roughly in half.
+the published package roughly in half. What the tarball weighs today, and what each entry point
+costs to import, are measured in [Performance](./performance).
+
+The CommonJS ESLint config is the one place that `require` is the documented call:
+
+```js
+// eslint.config.cjs
+const autoSpy = require('vitest-auto-spy/eslint-plugin');
+
+module.exports = [{ files: ['**/*.spec.ts'], ...autoSpy.configs.recommended }];
+```
+
+`require('vitest-auto-spy/eslint-plugin')` hands back the plugin object itself, and the `.d.cts`
+that ships beside it declares exactly that — an `export =`. So in an `eslint.config.cts` the call
+that works is the call that type-checks, and `autoSpy.default.rules` is a compiler error rather than
+a line that compiles and throws at run time.
 
 ## Entry points
 
@@ -110,6 +134,9 @@ since 4.0.0, into its TypeScript program either:
 | `vitest-auto-spy/dom-stubs`      | the globals a component builds for itself — `stubIntersectionObserver`, `stubResizeObserver`, `stubMutationObserver`, `stubObserver`, `stubMediaElement`, `stubAbortController` and the entry builders. On the root entry until 4.0.0                                   | —                                                        |
 | `vitest-auto-spy/diagnostics`    | `compareTestRuns` / `summarizeTestRun` / `formatTestRunComparison` and `diffByField` — the two reports a counter cannot give. On the root entry until 4.0.0; pure functions, so this one can be imported from a plain Node script too                                   | —                                                        |
 | `vitest-auto-spy/angular`        | `provideAutoSpy`, `injectSpy`, `renderShallow`, `createWithAutoSpies`, `stable`/`flushEffects`, signal matchers, TestBed diagnostics, the `mock*Prop` helpers                                                                                                           | `@angular/core`, `@angular/platform-browser`             |
+| `vitest-auto-spy/angular-http`   | [`httpResource()` and `HttpClient` in two lines](../adapters/angular-http) — `provideHttpTesting`, `expectRequest`, `expectNoRequest`. A companion to `/angular`, not a second copy of the core                                                                         | `@angular/common`, `@angular/core`                       |
+| `vitest-auto-spy/angular-router` | [an `ActivatedRoute` whose streams and snapshot agree](../adapters/angular-router), and a `Router` double whose URL and events agree — `provideActivatedRoute`, `injectActivatedRoute`, `provideRouterDouble`                                                           | `@angular/router`, `@angular/core`, `rxjs`               |
+| `vitest-auto-spy/signal-forms`   | [Angular's signal forms in a spec](../adapters/signal-forms) — `createForm`, built where `form()` can inject, and `registerFormMatchers()` for `toHaveFieldErrors`                                                                                                      | `@angular/forms`, `@angular/core`                        |
 | `vitest-auto-spy/nestjs`         | `provideAutoSpy`, `injectSpy` for `Test.createTestingModule`                                                                                                                                                                                                            | — (your `@nestjs/*`)                                     |
 | `vitest-auto-spy/react`          | the core, with a natural import for React Testing Library suites                                                                                                                                                                                                        | — (your `react`)                                         |
 | `vitest-auto-spy/vue`            | `provideAutoSpy` for `global.provide` + Pinia store spying                                                                                                                                                                                                              | — (your `vue`/`pinia`)                                   |
@@ -124,6 +151,10 @@ since 4.0.0, into its TypeScript program either:
 
 Each entry registers its mock adapter **on import**, so import the one matching your test runner —
 mixing `vitest-auto-spy` into a `bun test` run leaves the wrong adapter installed.
+
+`vitest-auto-spy/package.json` resolves as well — the manifest is in the export map. Tools that read
+a dependency's own `package.json` through Node's resolver rather than by path (Storybook, Nx, a
+renovate helper) get the file instead of `ERR_PACKAGE_PATH_NOT_EXPORTED`.
 
 `vitest-auto-spy/jasmine` is Vitest-only for that reason — it registers the Vitest adapter, which
 means importing `vitest`. On `bun test` and `node --test`, call `enableJasmineCompat()` from

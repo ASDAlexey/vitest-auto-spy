@@ -22,6 +22,13 @@ const myService = injectSpy(moduleRef, MyService);
 Dependency-free by design: `@nestjs/common` / `@nestjs/testing` are optional peers, so the entry
 describes the module reference with a minimal structural type instead of importing them.
 
+::: warning Vitest only, for now
+The entry registers the default Vitest mock adapter only when nothing else has, so importing it
+cannot replace one a runtime entry (`vitest-auto-spy/bun`, `…/node`) installed first. It still
+imports `vitest` itself, though, and neither `bun test` nor `node --test` can load that — so a Nest
+unit built through `createNestUnit` is not available on those runners yet.
+:::
+
 ::: warning `injectSpy` takes two arguments here
 Angular's `injectSpy(token)` reads from the global `TestBed`. NestJS has no global module, so the
 NestJS variant is **`injectSpy(moduleRef, token)`** — the module reference comes first.

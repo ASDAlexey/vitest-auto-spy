@@ -354,7 +354,8 @@ These account for the large majority of broken specs, and every one of them is c
    A fixture is a factory; a spec file exports nothing at all.
 8. **`it('x', (done) => …)`.** Vitest passes a `TestContext`, so `done()` throws inside a promise
    nobody awaits and the test **passes** having run almost none of its body. The lint rule
-   `no-done-callback` catches it; the fix is `await`.
+   `no-done-callback` catches it; the fix is `await`. Taking that context under a plain name and
+   only reading it — `it('x', (ctx) => ctx.skip())` — is legal and is not what the rule reports.
 9. **`await Promise.resolve()` to wait out a dynamic `import()` under fake timers.** It never
    advances one, and `setTimeout` is the fake one — use
    [`settleDynamicImport` / `flushEventLoop`](/utilities/event-loop).

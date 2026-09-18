@@ -28,6 +28,25 @@ await expectCompletion(service.purgeCache()); // asserts termination
 | `expectCompletion(source$, opts?)`       | `void`                               | the stream is still running when the timeout expires, or it errors          |
 | `expectError(source$, opts?)`            | the error, unwrapped                 | the stream completes or stays quiet instead of failing                      |
 
+## The `await` is not optional
+
+Each helper subscribes at the call and settles through the promise, so a call nobody awaits is a
+subscription nobody closes and an assertion nobody made. That used to run on into the **next** test,
+where a cold HTTP stream or `router.events` went on feeding it until its watchdog rejected —
+unhandled, and blamed on a test that had nothing to do with it.
+
+Every wait still open at the end of a test is therefore torn down by
+[`setupAutoSpy()`](/utilities/setup), ahead of every other teardown step, and named:
+
+```text
+[vitest-auto-spy] 1 emission helper(s) were never awaited in this test (saved$). The subscription is
+torn down now, but the assertion never ran.
+```
+
+Its promise is left unsettled rather than rejected — its test is over, and nothing is left to catch
+it. The line is the repair: `await` the call, or hold it in a variable and await that before the
+test ends.
+
 ## The emitted type is inferred
 
 `expectEmission(of(1))` is a `Promise<number>`, and `expectEmissions(of(1), 2)` a `Promise<number[]>`
@@ -51,6 +70,46 @@ The second one used to hang. `OutputEmitterRef.subscribe(callback)` stores whate
 calls it on `emit()` inside a `try/catch` that routes failures to Angular's `ErrorHandler`, so
 passing it an observer object produced no visible error at all — just
 `await expectEmission(component.selectionChange)` waiting for the watchdog.
+
+A source that cannot be subscribed to at all is reported as this helper's own failure, before rxjs
+sees it:
+
+```
+saved$ is not subscribable ([1,2]). Pass the observable itself, not the value it emits, and check
+that the spy feeding it was configured.
+```
+
+The two ways to get there are passing the value instead of the stream, and passing a member of a spy
+nothing configured. A promise gets its own line — `await` it directly, or pass the observable it came
+from — because `firstValueFrom(source$)` handed to a helper by mistake is the common version.
+
+## A synchronous source stops where the wait settles
+
+These helpers subscribe **as a subscriber**, not as a plain observer, so the subscription can be
+closed from inside the emission that settles it. That is what `firstValueFrom` does, and it is what
+makes the two synchronous cases behave:
+
+```ts
+const seen = vi.fn();
+
+await expect(expectEmission(from([1, 2, 3, 4, 5]).pipe(tap(seen)))).resolves.toBe(1);
+expect(seen).toHaveBeenCalledTimes(1); // one, not five
+
+await expect(expectEmission(of(1).pipe(repeat()))).resolves.toBe(1); // an endless source, settled
+```
+
+Handed a plain observer, rxjs wraps it and hands the subscription back only once `subscribe` has
+returned — which for `of`, `from`, `range` and anything with `repeat()` is after the whole sequence
+has been produced. Everything the source emitted was then collected although one value was asked
+for, every side effect after the accepted value ran, and an endless synchronous source spun inside
+`subscribe` where no watchdog can reach it.
+
+So a `tap`, `finalize` or `defer` spy is **not** called for the values after the accepted one. A spec
+written against the old behaviour — asserting five `tap` calls where the helper asked for the first
+value — now sees one, which is the number the production subscriber would have made.
+
+`expectEmissions(source$, 3)` takes exactly three and stops there, and `expectNoEmission` is settled
+by the first emission rather than by the end of the sequence.
 
 ## `expectCompletion` — when the value is not the point
 
@@ -104,6 +163,18 @@ do not match are still **counted**, so a timeout reads `4 emission(s) received` 
 "the wrong thing fired" stays distinguishable from "nothing fired". A `filter` in front of the helper
 throws that away.
 
+Both are decided once per emission, where the value arrives, so an emission-heavy wait costs the
+predicate exactly one call per value — see [the performance page](/core/performance). `skip` is part
+of the failure too: a wait told to skip five and given two reads
+`expected 1 after skipping 5` rather than the bare `expected 1` that made two emissions sound like
+plenty.
+
+`expectEmissions(source$, 0)` is refused at the call, with the stack of the spec line that wrote it:
+no count below one is something a stream can satisfy, and the wait could only ever have timed out.
+Worth knowing for a spec that computes the count —
+`expectEmissions(source$, expected.length)` over an empty expectation is that call. Assert silence
+with `expectNoEmission(source$)`, which the refusal names.
+
 ## `advance` — the window between subscribing and awaiting
 
 A stream driven by a `debounceTime`, a retry or a poll needs the clock moved _after_ something is
@@ -119,6 +190,17 @@ line above it. It is a callback rather than an `advanceTimers: true` flag becaus
 in the **core** entry, which contains no test runner: `vi`, `bun:test` and `node:test` drive their
 clocks differently, and only the spec knows which one it is on.
 
+It is ordinary spec code — `vi.runAllTimers()`, `fixture.detectChanges()` — and it throws like
+ordinary code. A throw rejects the wait as this helper's own failure, naming the callback and
+carrying the original on `cause`, and the subscription is torn down with it:
+
+```
+purchased$: the `advance` callback threw: Error: no fake timers installed
+```
+
+Unguarded, that throw used to come out of the promise raw, with no anchor and no `label` — and for
+`expectNoEmission`, whose watchdog is off, nothing closed the subscription for the rest of the run.
+
 ## Options
 
 | Option    | Default                             | Notes                                                                                                               |
@@ -128,6 +210,11 @@ clocks differently, and only the spec knows which one it is on.
 | `skip`    | `0`                                 | Ignore the first `N` emissions — the stale first value of a `shareReplay` / `BehaviorSubject`                       |
 | `until`   | —                                   | Wait for the first emission satisfying the predicate; the others are still counted in the failure                   |
 | `advance` | —                                   | Run once, after the subscription exists and before the promise is handed back                                       |
+
+`{ timeout: Infinity }` — any non-finite value — means "no watchdog", the same as `0`, and reads as
+the intent it usually is: wait as long as the runner allows. The timer API tops out at 2³¹−1 ms and
+truncates anything above that to 1 ms, so a wait asked for forever used to fail after one
+millisecond.
 
 ### The watchdog runs on real time — even under fake timers
 
@@ -151,7 +238,22 @@ setEmissionTimeout(100); // the clock is frozen; a real second buys nothing
 ```
 
 `setEmissionTimeout` is process-wide and does not touch `expectNoEmission`, whose wait is a quiet
-window rather than a watchdog.
+window rather than a watchdog. It refuses `NaN` and a negative number: either one used to be
+accepted and then silently disable every watchdog in the run — the failure the whole option exists
+to prevent, installed by the line meant to tune it. `0` and `Infinity` are the two ways to ask for
+that on purpose.
+
+#### zone.js is the one faker a capture does not escape
+
+Capturing `setTimeout` at import time is enough for `vi.useFakeTimers()`, which replaces the global
+afterwards. It is not enough for zone.js, which replaces it while it loads — long before this
+package — and whose replacement picks its scheduler from `Zone.current` at **call** time. The
+watchdog therefore used to land in the virtual queue inside `fakeAsync`, where
+`tick(1_500)` towards a `debounceTime(2_000)` rejected the very stream it was advancing.
+
+zone.js keeps the untouched function under `__zone_symbol__setTimeout`, and that is the one the
+watchdog takes when a zone is loaded. So the sentence above is now true under a zone as well: the
+wait is real time, and no `tick()` a spec writes can expire it. Without zone.js nothing changes.
 
 ## Failure messages
 
@@ -170,6 +272,12 @@ than disabling it with `{ timeout: 0 }`, which leaves the next silent stream wit
 saved$ completed after 0 emission(s), expected 1. A completed-but-empty stream is the usual sign
 that the value was produced before the subscription.
 ```
+
+Three more say that the call itself was wrong rather than the stream: a source that is not
+subscribable, an `advance` callback that threw, and `expectEmissions(source$, 0)`, which is refused
+at the call. Each is shown with the option it belongs to, above. Where `skip` is in play the
+expectation is spelled out too — `expected 1 after skipping 5`, rather than a bare `expected 1` over
+a stream that emitted twice.
 
 ### The code frame opens your spec line
 

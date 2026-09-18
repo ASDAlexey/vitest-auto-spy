@@ -142,7 +142,19 @@ quieter still: `error()` and `complete()` close a Subject for good, so every lat
 spy pushed into a dead subject and emitted nothing.
 
 Both are fixed: `resetAutoSpy(spy)` drops the subject, and a terminated one is replaced by the next
-configuration. Two things follow that are worth knowing.
+configuration. A subject the **spec** closed counts as terminated too: `returnSubject()` hands back
+the real thing, and the subject reports its own `complete()` / `error()` back to the spy, so the
+next `nextWith` starts a new stream instead of pushing into a dead one.
+
+```ts
+const subject = service.load$.returnSubject();
+
+subject.complete(); // the spec closes it by hand
+
+service.load$.nextWith(page); // a fresh stream — not a value nobody can receive
+```
+
+Two more things follow that are worth knowing.
 
 **`vi.clearAllMocks()` and `clearMocks: true` still cannot reach it.** That is not an oversight — it
 is the same boundary that keeps them from clearing a `calledWith` chain: the state lives in this
@@ -158,6 +170,38 @@ beforeEach(() => {
 then fail" — both calls belong to one story, and only a reset or a terminal call starts a new one.
 `nextWithValues([{ errorValue: e }])` remains the way to build a stream that fails on subscription
 regardless of what came before it.
+
+## `nextWith` pushes; `nextWithValues` republishes
+
+The two look interchangeable and are not, and the difference only shows on an observable
+**property** — the kind a component subscribes to once, in `ngOnInit`.
+
+| Helper                                                    | What it does to the stream                   | A subscriber that is already on it |
+| --------------------------------------------------------- | -------------------------------------------- | ---------------------------------- |
+| `nextWith` / `nextOneTimeWith` / `throwWith` / `complete` | pushes into the subject everybody shares     | receives it                        |
+| `nextWithValues`                                          | publishes a **new** stream over the property | stays on the old one               |
+
+The property's stream is read at subscription time, so a component that subscribed in `ngOnInit`
+holds the stream that was published then. `nextWithValues` after that point builds its sequence
+beside it, not into it — no error, no timeout, nothing at all unless the spec also awaits an
+emission. The property says so once instead:
+
+```
+[vitest-auto-spy] nextWithValues() on an observable property publishes a new stream, and the
+subscriber already attached to this property stays on the old one — so these values never reach it.
+Configure the property before the code under test subscribes, or push into the live stream with
+nextWith() / returnSubject().
+```
+
+Both repairs are one line. Configure the property in the arrange step, before the fixture is built —
+which is what most specs meant anyway — or drive the live stream:
+
+```ts
+service.items$.nextWith(['a']); // reaches the component that subscribed in ngOnInit
+service.items$.returnSubject().error(new Error('offline')); // so does this
+```
+
+A method spy has no such problem: its stream is read per call, so the next call gets the new one.
 
 ## Standalone observable builder
 
@@ -272,6 +316,22 @@ preference — upstream's rethrow stopped working when rxjs 7 began routing anyt
 observer callback through `reportUnhandledError`, which reports it asynchronously, so it never
 reaches the subscribing line. Pass `{ expectErrors: true }` (or call `.expectErrors()`) when the
 error is the point, and read `getError()`.
+
+`onComplete()` and `onError()` have the same shape here, with one difference that only shows on a
+failing spec: awaited as promises, each **rejects** when the stream ended the other way round. A
+stream that errors can never complete, so `await spy.onComplete()` on it could only ever hang — and
+what the runner then reported was the file's timeout, which is the failure these helpers exist to
+replace:
+
+```
+[vitest-auto-spy] this spy's observable errored, so the promise from onComplete() can never resolve:
+completion is not coming. Read receivedComplete() / receivedError(), or await
+`expectCompletion(source$)` / `expectError(source$)`, which fail with a message naming the stream.
+```
+
+It holds whichever order the two happen in — the stream that already ended rejects at the call, and
+one that ends afterwards rejects the promise then. The **callback** form is unchanged and matches
+upstream: a callback for an ending that never comes is simply never invoked.
 
 `SubscriberSpy` is disposable, so the subscription can be scoped to its block instead of to a global
 `afterEach`:

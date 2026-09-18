@@ -48,6 +48,15 @@ signature so it tracks whatever the installed version accepts:
 setupFakeTimers({ toFake: ['setTimeout'] }); // leave Date and queueMicrotask real
 ```
 
+**A config is installed, not merely offered.** A call that was given one takes the clock over even
+where fakes are already running: a nested `describe` inside a file that armed its own set, a
+`describe` under [`globalFakeTimers`](./setup#fake-timers-for-the-whole-run), or a file whose
+`beforeAll` called `mockSystemTime()` and so faked nothing but `Date`. Those are the cases where
+deferring to whoever got there first means doing the opposite of what the caller asked — with
+`Date`-only fakes in place, `setTimeout` stayed real and `advanceTimers(100)` passed having advanced
+nothing at all. A call with **no** config of its own still defers, as it always has: an outer
+`describe` or a global setup owns the clock and knows what it wanted.
+
 ### Taking `setImmediate` out of `toFake`
 
 Vitest's default `toFake` is _every_ timer the environment has except `process.nextTick` and
@@ -128,13 +137,39 @@ expect(search.query).toHaveBeenCalled();
 
 That is why it is `async` — the return value must be awaited.
 
+It drains the whole queue rather than a fixed couple of turns of it. A `.then().then().then()` chain
+a timer callback started was otherwise left one level short, and a timer _scheduled_ from a promise
+continuation never ran at all — which is the rxjs `delay()`, retry and poll shape this helper exists
+for.
+
 `ms` defaults to `0`: the "run everything already due, then flush microtasks" step, which is what a
 `setTimeout(fn, 0)` or a resolved-promise chain needs.
 
 On real timers it throws a message naming the fix, rather than letting Vitest fail deeper in with
-"timers are not mocked".
+"timers are not mocked". It refuses the same way when only the **clock** is faked:
+`mockSystemTime()` installs `Date` alone, so there is nothing for the call to advance, and it used
+to pass having done nothing. The error names `setupFakeTimers()` as what a test driving timers wants
+instead.
 
 ::: tip Angular
 Pair it with [`stable(fixture)`](../adapters/angular#zoneless-waiting): `advanceTimers` moves the
 clock, `stable` flushes the effects and change detection the clock set off.
+:::
+
+## Freezing the clock alone
+
+[`mockSystemTime(time)` and `withSystemTime(time, body)`](./event-loop) freeze the clock whether or
+not fake timers are already running: with fakes installed they move the fake clock, without them
+they install `Date`-only fakes and leave the timers real.
+
+Either way the clock goes back afterwards — under fakes the suite installed too, where the undo was
+a no-op and `withSystemTime`'s promise to restore "including on failure" reached nothing. Time the
+spec advanced inside the block is kept rather than thrown away: the clock is put back to where it
+would have been had the block not set it, not to the instant the block opened.
+
+::: warning `countStrayTimers()` is blind under fake timers
+`vi.useFakeTimers()` assigns its own `setTimeout` over the [stray-timer](./setup) wrappers, so every
+timer the fake clock hands out bypasses the tracking. `expect(countStrayTimers()).toBe(0)` says
+nothing at all about a file running on a frozen clock, and `strayTimers` does not compose with
+`globalFakeTimers` or with this helper. `vi.getTimerCount()` is the fake clock's own backlog.
 :::

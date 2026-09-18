@@ -17,9 +17,11 @@ The spy is a plain object of mocks, so you pass it straight into a `<Context.Pro
 or a hook's dependency argument, then drive return values with `calledWith` / `resolveWith` /
 `mockReturnValue` and assert against `spy.method.mock.calls`.
 
-Importing this entry registers the default Vitest mock adapter and re-exports the same public API
-as the core. It pulls in `vitest` only — never `react` or `@testing-library/react`, which stay your
-own dev dependencies.
+Importing this entry registers the default Vitest mock adapter — only when nothing else has, so it
+cannot replace one a runtime entry installed first — and re-exports the same public API as the core.
+It pulls in `vitest` only, never `react` or `@testing-library/react`, which stay your own dev
+dependencies. That `vitest` import is also why the entry does not load under `bun test` or
+`node --test`: on those runners import the core through their own runtime entry instead.
 
 ## Through a Context provider
 

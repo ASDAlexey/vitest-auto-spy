@@ -17,9 +17,10 @@ One section per rule, with a stable anchor, so a config can point at the rule it
 
 **This is not the setup page.** [ESLint plugin](/utilities/eslint-plugin) is how the plugin is
 wired in — the config block, the `files` glob, the recipe for landing it on a large suite without a
-red CI, and tables that give each rule one line. This page is the other half: for a report that has
-already arrived, what the rule decided on, when it stays silent, and where it is wrong about your
-project. Nothing here has to be read in order.
+red CI, tables that give each rule one line, and [what the whole plugin costs to
+run](/utilities/eslint-plugin). This page is the other half: for a report that has already arrived,
+what the rule decided on, when it stays silent, and where it is wrong about your project. Nothing
+here has to be read in order.
 
 Every section answers the same six questions:
 
@@ -40,7 +41,7 @@ an `error` except five.
 | --------------------------------------------------------------------- | ---------------- | ------------------------------------------------------------------------------------------- |
 | [`no-expect-in-subscribe`](#no-expect-in-subscribe)                   | `error`          | `expect()` inside a `subscribe` callback — it runs only if the stream emits                 |
 | [`no-floating-assertion`](#no-floating-assertion)                     | `error`          | `expect()` in a `.then()` chain nothing awaits                                              |
-| [`no-done-callback`](#no-done-callback)                               | `error`          | a named first parameter on a test or hook, and `done.fail(…)` beneath it                    |
+| [`no-done-callback`](#no-done-callback)                               | `error`          | a first parameter that is called, passed on or unused, and `done.fail(…)` beneath it        |
 | [`no-bare-called-with`](#no-bare-called-with)                         | `error`          | `calledWith(…)` / `mustBeCalledWith(…)` as a statement of its own                           |
 | [`no-constant-expect`](#no-constant-expect)                           | `error`          | `expect(true).toBe(true)` — a value spelled out in the spec, under a matcher it decides     |
 | [`no-redundant-smoke-test`](#no-redundant-smoke-test)                 | `error`          | a test whose whole body asserts the subject exists, beside tests that already run its setup |
@@ -205,16 +206,22 @@ means the rule is no help against a floating chain with a side effect.
 **`error`** · no fix · syntax only
 
 **Reports.** Two things. A first parameter that is a plain identifier on `it` / `test` /
-`beforeAll` / `beforeEach` / `afterAll` / `afterEach`, and — separately — a `.fail(…)` call on a
-parameter it has already reported.
+`beforeAll` / `beforeEach` / `afterAll` / `afterEach` **and is used as a callback rather than as a
+context**, and — separately — a `.fail(…)` call on a parameter it has already reported.
 
-**Decides on.** The parameter's _form_, not its name. Vitest's own fixtures have to be destructured,
-so a plain name in that position is a `done` carried over from Jest or Jasmine, whatever it is
-called; `({ task })` and a zero-parameter callback are silent. The `done.fail(…)` half is resolved
-through the scope manager to a parameter of a callback already in the reported set — `done` is what
-the parameter is called in nine files out of ten and in none of the tenth, and a `fail` method on a
-matcher bag or a domain object is somebody's API. The parameter is visited before the body, so the
-set is complete by the time the `fail` is met.
+**Decides on.** The parameter's form and then what the body does with it, never its name. A
+destructuring pattern — `({ task })` — and a zero-parameter callback are silent outright, because a
+`test.extend` fixture has to be destructured. A plain name is the ambiguous case: Vitest passes the
+`TestContext` there whether or not it is taken apart, so `(ctx) => ctx.skip()` is its own
+documentation's example and not a `done` at all. The rule reads the parameter's references in the
+callback's own scope and stays quiet when **every** one of them is a member read — `ctx.task`,
+`ctx.expect`, `ctx.onTestFinished`. It reports when the parameter is called (`done()`), handed to
+something that will call it (`.subscribe(done)`, `setTimeout(done)`), or never used at all, since
+none of those is a context being used. The one member read that is not a context is `.fail`, which
+the `TestContext` has no member for — that is jasmine's failure channel and this rule's second
+message. That half is resolved through the scope manager to a parameter of a callback already in the
+reported set, because a `fail` method on a matcher bag or a domain object is somebody's API. The
+parameter is visited before the body, so the set is complete by the time the `fail` is met.
 
 **Finding, and the repair.**
 
@@ -242,8 +249,11 @@ callback or a `.catch()`, i.e. on the exact path that was supposed to fail the t
 
 **Limits.** A helper that genuinely takes one positional argument and is _called_ as a hook is not a
 shape the selector can tell apart, but the selector matches only the six runner names, so this is
-narrow in practice. Nothing here reads the callback body, so a `done` that is declared and never
-called is reported too — correctly, since the parameter is not what the runner passes.
+narrow in practice. A parameter nothing in the body mentions is reported, deliberately: an unused
+`done` is the shape the runner is not going to call, and a context nobody reads is a parameter that
+can go. And a name read only through a member is taken as a context however it is spelled, so a
+`done` that the body only ever reads a property off is silent — the read tells the rule nothing else
+about it.
 
 **Severity.** `error`. A test that passes without running is not something a project can afford to
 read past in lint output.
@@ -982,6 +992,11 @@ deliberately wants half a route keeps it under a per-line disable. The rule read
 project-local class that happens to be called `ActivatedRoute` is reported too; the answer there is
 the same as for any name collision — rename one of them.
 
+**The two route rules agree.** [`prefer-provide-auto-spy`](#prefer-provide-auto-spy) reads the
+`ActivatedRoute` token as well — in a provider descriptor and in `TestBed.overrideProvider` — and on
+it names `provideActivatedRoute()` rather than `provideAutoSpy`. A descriptor both rules see is two
+reports of one repair, where it used to be two reports of opposite ones.
+
 **Severity.** `error`. Every report has a `provide:` naming the route class beside it, so there is
 no heuristic in the decision, and what it reports is a double whose halves a passing test keeps
 apart.
@@ -1206,6 +1221,17 @@ token is nearly always imported from the file that declares it, so `^[\dA-Z_]+$`
 read. This matters because the advice differs: `provideAutoSpy` reads a class prototype, a token has
 none, and recommending it on one does not compile. Three migration batches got the wrong
 recommendation before the split existed; in one of them 6 of 8 reports were on tokens.
+
+**`ActivatedRoute` gets a message of its own.** Where the provider the rule was going to report —
+in a `providers` array or at a `TestBed.overrideProvider` — provides `ActivatedRoute`, the repair it
+names is `provideActivatedRoute()` from `vitest-auto-spy/angular-router`, not `provideAutoSpy`. The
+reason is [`prefer-provide-activated-route`](#prefer-provide-activated-route)'s whole subject: the
+class keeps `snapshot`, `params`, `queryParams`, `data`, `fragment` and `url` in **instance** fields,
+so a spy built off its prototype has none of them and every read is `undefined` until the spec seeds
+it one by one — the same half-route the hand-written `useValue` was. Nothing about the rule's reach
+changes; it reports exactly the shapes it reported before and only the advice differs. That arm
+carries no fix, because the replacement is a different double rather than the same one spelled
+shorter.
 
 A `multi: true` registration is exempt outright. `provideAutoSpy` builds one double for a token and
 takes no registration mode, so the replacement would silently turn an accumulating provider into an

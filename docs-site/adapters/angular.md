@@ -291,7 +291,7 @@ const { fixture, component } = renderShallow(TaskListComponent, {
 | --------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------- |
 | `providers`     | `[]`    | Providers for the testing module. `EnvironmentProviders` (`provideHttpClient()`, …) welcome                                     |
 | `imports`       | `[]`    | Extra imports for the testing module (a stub module, a routing harness)                                                         |
-| `inputs`        | —       | Values for the component's inputs — signal inputs take the **value**, not the signal                                            |
+| `inputs`        | —       | Values for the component's inputs — signal inputs take the **value**, not the signal; keyed by class field or by public name    |
 | `keepTemplate`  | `false` | Keep the real template (for `viewChild`, content projection, host bindings)                                                     |
 | `keepChildren`  | `[]`    | Child components/directives/pipes that stay resolvable; everything else is dropped                                              |
 | `template`      | `''`    | A stand-in template to render instead of a blank one                                                                            |
@@ -301,6 +301,12 @@ const { fixture, component } = renderShallow(TaskListComponent, {
 `fixture` is a real `ComponentFixture`; nothing here replaces `@angular/core/testing`. Blanking the
 template keeps lifecycle hooks, inputs, signals and DI — everything a spec that asserts on
 TypeScript state actually reads.
+
+`inputs` goes through the same name resolution [`setInputs`](#changing-an-input-mid-test) uses, so
+the two behave alike: an aliased input may be given either spelling, and a name the component does
+not declare is refused at the call rather than answered by Angular with an `NG0303` on the console
+and no value at all. That is a behaviour change worth a note — a key that was silently doing nothing
+now fails, which is the point, but it fails in a spec that used to be green.
 
 `keepTemplate: true` keeps the template's vocabulary by reading the imports the compiler wrote into
 `ɵcmp`, and those arrive in three shapes: the flat array, a factory returning it, or `null` for a
@@ -348,6 +354,20 @@ declare with an `NG0303` on the console and no change at all — a typo, an inpu
 spec was written, or a plain field mistaken for an input all land there, and the assertion that
 follows fails on state nothing moved. Either spelling of an aliased input works: the class field the
 type is keyed by, or the public name Angular binds.
+
+An input a **host directive** exposes counts as declared, because `setInput` accepts it:
+
+```ts
+@Component({ selector: 'app-badge', hostDirectives: [{ directive: TooltipDirective, inputs: ['text: tip'] }], template: '…' })
+export class BadgeComponent {}
+
+await setInputs(fixture, { tip: 'Archived' }); // the name the host exposes
+```
+
+Those names are not in the component's own `ɵcmp.inputs`, so a check that read only that list
+refused a name Angular is happy with — and said "It declares no inputs at all" about a component
+that has some. The exposed names of every host directive are read instead, through nested host
+directives too.
 
 A fixture whose `componentType` carries no `ɵcmp` is refused by name as well: the class is named,
 along with what it would have to be for there to be inputs at all — a `@Directive` takes its inputs
@@ -530,6 +550,11 @@ Pass `label` when a spec awaits more than one fixture, so the failure says which
 `{ timeout: 0 }` to disable the watchdog and wait indefinitely — worth it only for a deliberately
 long real-timer test. The watchdog runs on a timer captured at import, so `vi.useFakeTimers()`
 cannot stop it: a watchdog the code under test can freeze is not a watchdog.
+
+zone.js is the one replacement a capture does not escape on its own, because it swaps `setTimeout`
+while it loads and its replacement picks a scheduler at call time. The watchdog therefore takes the
+untouched function zone.js parks aside, so inside `fakeAsync` it stays on real time and a `tick()`
+past the timeout cannot fail the wait it is driving.
 
 ## Resources: `httpResource()` and `resource()`
 
@@ -738,15 +763,36 @@ under test calls the other half: a service hands out `readonly products = this.#
 and an optimistic update writes straight through the resource. Each of these does what Angular's own
 does, including to the status.
 
-| On the double           | What it does                                                                            |
-| ----------------------- | --------------------------------------------------------------------------------------- |
-| `value`                 | a writable signal; `value.set` / `value.update` move the status to `'local'`            |
-| `set(v)` / `update(fn)` | the same write, spelled the way Angular spells it                                       |
-| `hasValue()`            | `true` unless the status is `'error'` or the value is `undefined`                       |
-| `snapshot()`            | `{ status, value }`, or `{ status: 'error', error }` — what `@switch` reads             |
-| `asReadonly()`          | the same double back                                                                    |
-| `destroy()`             | back to `'idle'` at the initial value; later writes from the code under test do nothing |
-| `reload()`              | the spy — `true` until the spec says otherwise, and nothing is re-issued                |
+| On the double           | What it does                                                                                |
+| ----------------------- | ------------------------------------------------------------------------------------------- |
+| `value`                 | a writable signal; `value.set` / `value.update` move the status to `'local'`                |
+| `set(v)` / `update(fn)` | the same write, spelled the way Angular spells it                                           |
+| `hasValue()`            | `true` unless the status is `'error'` or the value is `undefined`                           |
+| `snapshot()`            | `{ status, value }`, or `{ status: 'error', error }` — what `@switch` reads                 |
+| `asReadonly()`          | the same double back                                                                        |
+| `destroy()`             | back to `'idle'` at the initial value; later writes from the code under test do nothing     |
+| `reload()`              | the spy — `false` while `'idle'` or `'loading'`, `true` otherwise, and nothing is re-issued |
+
+Two of those are the double refusing to be more forgiving than the thing it stands in for.
+
+**`value()` throws once the resource has failed.** Angular builds `value` as a computation that
+rethrows the failure rather than handing back the last good value, so component code reading
+`products.value()` without checking `hasValue()` first dies in the application — and used to pass
+here, which is the one direction a test double must never take. The error carries the cause, and the
+spec's own half is unaffected: `fail()` on an already-failed resource, `loading()` and `snapshot()`
+read the stored value directly.
+
+```ts
+products.fail('offline');
+
+expect(() => products.resource.value()).toThrow(); // as a real resource does
+expect(component.errorMessage()).toBe('offline'); // the branch that checks first is fine
+```
+
+**`reload()` answers the way Angular's does** — `false` while there is nothing to re-issue, which is
+a resource that never ran or is still running, and `true` otherwise. It is still a spy and still
+re-issues nothing; a spec that branches on the result was branching on a constant `true` before.
+Override it with `reload.mockReturnValue(…)` where the branch is the point.
 
 `hasValue()` is the one worth reading twice. It has been value-based since Angular v20, not
 status-based: a resource declared with a `defaultValue` has a defined value from the moment it is
@@ -783,9 +829,22 @@ status it was actually in and the flush that is missing.
 
 Duck-typed on `{ status, value, error }` with `error` optional, so `httpResource`, `resource`,
 `rxResource` and a `mockResourceProp` double all work. Handed something that is not a resource, each
-matcher says so rather than throwing a `TypeError` — the two ways to get there are passing
-`products.value()` instead of `products`, and passing a property that was never a resource, and both
-are silent otherwise.
+matcher **throws**, naming what it got — the two ways to get there are passing `products.value()`
+instead of `products`, and passing a property that was never a resource, and both are silent
+otherwise.
+
+A wrong argument is thrown rather than reported as a failed assertion because a failure is something
+`.not` turns into a pass:
+
+```ts
+expect(products.value()).not.toBeLoading(); // green, and about an object nothing was asked
+```
+
+That line asserts nothing whatever the resource is doing. The same reasoning applies to
+[`toHaveFocus`](#focus-assertions) handed something that is not an element — a query that found
+nothing is the most common cause, and `expect(missingEl).not.toHaveFocus()` used to pass — and to
+[`toHaveDirectiveApplied`](#tohavedirectiveapplied) handed something that is not a fixture or a
+`DebugElement`, where `expect(undefined).not.toHaveDirectiveApplied(X)` did the same.
 
 ## Running one effect on demand
 
@@ -899,7 +958,7 @@ answers them.
 | `provideDocumentDouble(overrides?, token?)`                           | the same under Angular's `DOCUMENT`, or under a token of your own                    |
 | `createWindowDouble(overrides?)` / `createDocumentDouble(overrides?)` | the same doubles without a `TestBed` — for `new LayoutProbe(win)` or a bare function |
 
-Five things to know:
+Six things to know:
 
 - **The window helper takes your token, the document helper does not need one.** Angular ships
   `DOCUMENT`, from `@angular/core` itself since v20. It has never shipped a `WINDOW`: every
@@ -918,6 +977,13 @@ Five things to know:
   There is no handle to learn and no `restoreMockedProps()` to remember.
 - **A factory, not a `useValue`.** Every injector builds its own, so a provider array hoisted to a
   module constant cannot carry one test's writes into the next.
+- **Methods are bound to the real object; constructors are handed over untouched.** A method read
+  off the view has to keep its `this`, and a bound function keeps none of its target's own members —
+  which for `Date`, `Promise`, `Object`, `Array`, `Number` and `Event` is where everything lives. So
+  those come back as they are: `win.Date.now()`, `win.Promise.resolve()`, `win.Object.keys(…)` and
+  `new win.Event('resize')` all work, and `win.Event === window.Event` holds, which is what an
+  `instanceof` in the code under test is reading. A constructor needs no binding anyway — its `this`
+  is the instance being built.
 - **`location` takes overrides like every other member.** The platform declares its members
   unforgeable, which is what makes the hand-written `{ location: { reload: vi.fn() } }` the shape it
   is; here it merges the same way everything else does:
@@ -1476,17 +1542,33 @@ it: `Signal<T>` has no `set`, so that only type-checks after an assertion.
 **What it replaces, and what it does not.** Angular links a consumer to the signal it read, not to
 the property it read it through. A spec that renders first and patches second would therefore leave
 every `computed()`, `effect()` and template binding on the old signal for the rest of the test —
-cached value and all, with nothing said about it. So a member that is already writable — `signal()`,
-`model()`, `linkedSignal()` — is not replaced: the helper writes into the signal the class already
-has and hands that one back. Order stops mattering, a `model()` keeps its output half, and there is
-nothing for `restoreMockedProps()` to put back — the value simply stays where the spec left it,
-which is only visible on an object that outlives the test.
+cached value and all, with nothing said about it. So a member with a node behind it is not replaced:
+the helper writes into the signal the class already has and hands that one back. Order stops
+mattering, a `model()` keeps its output half, and there is nothing for `restoreMockedProps()` to put
+back — the value simply stays where the spec left it, which is only visible on an object that
+outlives the test.
+
+That covers `signal()`, `model()` and `linkedSignal()`, and it covers the shape a service actually
+publishes:
+
+```ts
+export class CounterService {
+  readonly #count = signal(0);
+  readonly count = this.#count.asReadonly(); // driven in place, not swapped
+}
+```
+
+`asReadonly()` is a view over the **same** node, so writing through it is writing the signal the
+class owns — and a `computed()` that has already read it, live or not, recomputes from the new
+value. The handle that comes back reads and writes that node too; `asReadonly()` on it hands back
+the member the service published.
 
 The swap is kept for the two shapes with no node to write into: a `computed()` the class declares,
 and a member the spy does not have yet. Those still have to be patched **before anything reads
 them** — before the first `detectChanges()` / `stable(fixture)` — and the helper checks rather than
-assumes. A read-only signal a live consumer has already read is refused by name instead of being
-replaced where nothing would notice.
+assumes. A `computed()` something has already read is refused by name instead of being replaced
+where nothing would notice, and the refusal names the way round it: drive the signal that
+`computed()` reads.
 
 An `input()` is refused outright. Angular sets an input through the input node rather than through
 the property, so a replaced one breaks the host's next write with
@@ -1674,6 +1756,9 @@ frequent), focus is still on `<body>` because nothing claimed it, and focus is o
 element. `toHaveFocus` names which of the three happened and describes both nodes by tag, id and
 class rather than by dumping their subtrees.
 
+The first of the three is thrown rather than failed, so `.not` cannot swallow it: a query that found
+nothing is not an element without focus, and asserting on its focus asserts nothing at all.
+
 ## `injectSpy` and tokens
 
 `injectSpy` takes an `InjectionToken` as well as a class, which matters in a codebase where half the
@@ -1712,8 +1797,14 @@ Vitest's own answer, `test.projects`, does not solve it either. Nothing promises
 files of one project, and a worker handed a file of the other mode fails exactly the same way.
 
 What works is to decide the mode from the file about to run and, when it differs from the one
-installed, tear the environment down before initialising the other. The mode is remembered per
-worker, so a run of files in the same mode pays for one initialisation and no resets.
+installed, tear the environment down before initialising the other.
+
+The mode is remembered per **worker**, not per call, which is what makes "one initialisation, no
+resets" true under `isolate: false` — there the setup file is executed once per spec file while the
+platform lives for the whole worker, so a mode kept in the call was `undefined` again on every file
+and every file paid for a `resetTestEnvironment()` plus the initialiser of your own. A remembered
+mode is not taken on trust either: if something else has torn the platform down in the meantime, the
+environment is initialised again.
 
 The initialisers stay yours: which platform, which providers and which `teardown` policy a project
 wants is not something this library should decide, and the packages that supply them
@@ -1769,6 +1860,10 @@ looks like a fix and is not: `schemas: [NO_ERRORS_SCHEMA]` applies to a testing 
 `declarations` and never to a standalone component, so next to a standalone component it is a dead
 entry that reads as if something were deliberately silenced.
 
+It takes a `ComponentFixture` or a `DebugElement`, and anything else is thrown rather than failed —
+a `nativeElement` or an `undefined` passed by mistake is a wrong argument, and under `.not` a
+failure would have read as a pass.
+
 ## A stand-in for a child — `createComponentStub` {#a-stand-in-for-a-child-createcomponentstub}
 
 The hand-written stub is a class in the spec that restates the child's selector, inputs and
@@ -1803,6 +1898,11 @@ chart.pointSelected.emit(2); // an output the parent listens to
 | `input()` as a signal input, `model()` as a model, a decorator input as a property | providers, so nothing the real child provides reaches its content     |
 | every output, as an `EventEmitter`                                                 | lifecycle hooks and queries                                           |
 | `exportAs`; for a pipe, its name and purity                                        | anything the second argument does not seed                            |
+
+**Host directives are in the right-hand column, and that has a consequence worth stating.** An input
+the real child exposes through a `hostDirectives` entry is not an input of the child itself, so it is
+not on the stub either, and a parent binding to it answers `NG0303`. A child like that is one to keep
+rather than to stub — `keepChildren: [TheChild]`, or a fixture built with `TestBed` directly.
 
 The second argument seeds members on every instance, copied per instance — a method the parent calls
 through a `viewChild`, or a pipe's `transform`, which is the identity by default:
@@ -1884,3 +1984,31 @@ auto-spy. Register it with provideAutoSpy(DeviceRegistryService) …
 A provider the spec forgot to register is otherwise found much later — when `.mockReturnValue(…)` is
 called on the real method, or, if the class has no private members to make the types disagree, never.
 The warning is printed once per token.
+
+## When an Angular internal moves
+
+A few of the helpers here answer questions Angular publishes no API for: which requests a testing
+module is still holding, what a compiled component calls its inputs, whether anything has already
+read a signal. The peer range is `>=20` with no upper bound, so the question worth planning for is
+not whether those shapes are private but what happens when one of them moves.
+
+Left alone, each fails **silently**. A renamed field reads as `undefined`, the check that depended
+on it decides there is nothing to report, and the suite keeps passing with one assertion fewer than
+its author believes. So the shapes are probed instead — once per worker, lazily, from the first
+helper that needs them — and a shape that has moved is a loud failure naming the Angular version and
+the check that stops working:
+
+```text
+[vitest-auto-spy] @angular/core 23.0.0 no longer carries ReactiveNode#consumers / #kind, which this
+package reads.
+`mockSignalProp()` can no longer see whether a signal has been read, nor write through a read-only
+one, so a patch applied after the first read would be accepted and quietly change nothing.
+Nothing here is fixable from a spec: report the Angular version above, and pin the previous one
+until a release of this package reads the new shape.
+```
+
+Nothing to call and nothing to configure: `mockSignalProp`, `enableAngularDiagnostics()` and
+`provideHttpTesting()` run it on the way past, and a suite that uses none of them pays nothing.
+Two shapes cannot be probed up front — a compiled definition needs a component, and the compiler may
+not be loaded at all — so `setInputs`, `renderShallow` and `createComponentStub` raise the same
+failure at the moment they find one wrong.

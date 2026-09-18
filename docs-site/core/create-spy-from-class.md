@@ -276,9 +276,14 @@ assignable to parameter of type 'ClassType<unknown>'`. The repair is the import.
 
 **What it is.** A method's spy is built on **first access** (`spy.method`) and then cached, so
 methods a test never touches never pay the spy-construction cost. That is the default,
-`lazySpies: true`; `lazySpies: false` builds every spy up front instead, and `'proxy'` drops the
-per-method placeholder as well — see
-[Performance](/core/performance#where-the-remaining-memory-is-and-lazyspies-proxy).
+`lazySpies: true`; `lazySpies: false` builds every spy up front instead, and `'proxy'` replaces the
+per-method placeholders with one trap object — see [Performance](/core/performance).
+
+The placeholder a method waits behind is one `get`/`set` pair per method **name**, shared by every
+double that has a method of that name, so an untouched double retains a couple of hundred bytes
+whatever the width of the class — [Performance](/core/performance) has the measurement. The sharing
+is visible in exactly one place: `Object.create(double).method` materialises on the heir rather than
+on the double, because the placeholder reads its double through `this`.
 
 **Why it matters.** Building a spy is not free: each method gets a host-runner mock plus the
 `calledWith` / `resolveWith` / `nextWith` helper surface. On a wide service where a test calls only
@@ -305,12 +310,28 @@ quietly faster than the plain one for no reason a reader could see. See
 is constructed, not what it does. The one nuance: a lazy method is an accessor until first touched,
 so a never-accessed spy has no recorded calls (which is exactly why `resetAutoSpy` can skip it).
 
-### `lazySpies: 'proxy'` — for classes wide enough to end a CI job
+**A frozen or sealed double still hands out its methods.** Materialising means redefining the
+placeholder, which `Object.freeze` refuses — so the spy is kept beside the double instead of on it,
+and the read answers the same spy every time:
 
-`lazySpies: true` still has to _put something_ on the double for every method: one
-`Object.defineProperty` accessor each. On a wide class that placeholder is not a detail — it is
-almost all of what an untouched double retains. `'proxy'` is the same laziness with one trap object
-in place of all of them, so retention stops tracking the width of the class.
+```ts
+const cart = createSpyFromClass(Cart);
+Object.freeze(cart); // a deep-freeze fixture, a dev-mode state guard
+
+cart.total.mockReturnValue(3);
+
+expect(cart.total()).toBe(3);
+```
+
+An assignment to a sealed double goes to the same place, so `cart.total = vi.fn()` is read back as
+what it named. A double that only had `preventExtensions` called on it keeps its properties
+configurable, so there the spy lands on the double as usual.
+
+### `lazySpies: 'proxy'` — one trap object instead of a placeholder per method
+
+`lazySpies: true` still defines something on the double for every string-named method: the shared
+`get`/`set` pair above. `'proxy'` is the same laziness with one trap object in place of all of them,
+so the record carries no property for a method until something reads it.
 
 ```ts
 // a generated API client: 400 operations, a test touches two
@@ -319,37 +340,17 @@ const api = createSpyFromClass(GeneratedVenuesClient, { lazySpies: 'proxy' });
 api.findById.resolveWith({ id: 1 }); // built here, like any lazy spy
 ```
 
-Measured on Node 24.19, 2 000 doubles held at once, nothing touched:
+**It is not the memory option it reads as, and that is why it is opt-in.** Because the placeholders
+are shared per name, an untouched double on the default path retains less than the proxy's own trap
+object and the key set beside it — at a hundred methods, several times less. What the mode buys is
+build time on a class wide enough for the definitions to matter; what it costs is every read and
+every call for the life of the double, because a `Proxy` cannot remove itself: once a method has
+materialised, the accessor path leaves a plain data property behind and every later read is free,
+while the proxy still goes through a trap. [Performance](/core/performance) has both sides measured.
 
-| Methods on the class | `lazySpies: true` | `lazySpies: 'proxy'` |      Delta |
-| -------------------: | ----------------: | -------------------: | ---------: |
-|                    5 |           1 634 B |              1 737 B | **+102 B** |
-|                   20 |           5 629 B |              2 219 B |   −3 410 B |
-|                  100 |          25 597 B |              4 135 B |  −21 463 B |
-|                  400 |         101 584 B |             11 813 B |  −89 771 B |
-
-That is 253 B per method against 25 B per method — the placeholder against one entry in a set of
-names the prototype already owns. Under `isolate: false`, where every double in a file outlives the
-test that made it, this is the difference between a job that finishes and a job that is killed.
-
-Building is cheaper too, because there is nothing to define. Create a double and call two of its
-methods five times each:
-
-| Methods on the class | `lazySpies: true` | `lazySpies: 'proxy'` |     Ratio |
-| -------------------: | ----------------: | -------------------: | --------: |
-|                    5 |          6 515 ns |             8 180 ns | **0.80×** |
-|                   20 |          8 938 ns |             6 643 ns |     1.35× |
-|                  100 |         20 713 ns |            11 638 ns |     1.78× |
-|                  400 |         61 212 ns |            10 798 ns |     5.67× |
-
-**Why it is opt-in, and will stay opt-in.** A `Proxy` cannot remove itself. Once a method has
-materialised, the accessor path leaves a plain data property behind and every later read is free;
-the proxy still goes through a trap — **+30 ns per read and +43 ns per call, for the life of the
-double**. At five methods it also _loses_ 102 B. Both tables cross over somewhere around twenty
-methods, which is why the default does not move.
-
-Reach for it on the shapes that are wide by construction — generated API clients (orval,
-`ng-openapi-gen`), ngrx facades, a `Store` double — and leave it alone on an ordinary service.
+So reach for it when building the doubles is what shows up in a profile — generated API clients
+(orval, `ng-openapi-gen`), ngrx facades, a `Store` double, all of them built per test and barely
+touched — and leave it alone otherwise, including on a suite whose problem is memory.
 
 **It is not a different double.** `Object.keys`, spread, `JSON.stringify`, `in`,
 `hasOwnProperty`, `Object.getOwnPropertyDescriptor`, `delete`, `Object.freeze`, key order, `returns`,
@@ -357,7 +358,9 @@ Reach for it on the shapes that are wide by construction — generated API clien
 asserts the two against each other rather than against hand-written expectations. Reading a
 descriptor deliberately does **not** build the spy, for the same reason `resetAutoSpy` can skip an
 untouched method: `Object.keys` and a teardown both read descriptors, and materialising there would
-hand back the memory the mode exists to save.
+hand back the work the mode exists to skip. A [symbol-keyed method](#edge-cases) is the one member
+defined on the record in this mode too — a Proxy may not report a key its target does not have, and
+there are never enough of them for it to matter.
 
 ## `using` — reset at the end of the block {#using}
 
@@ -375,9 +378,11 @@ it('loads', () => {
 ```
 
 `resetAutoSpy` is what runs, so it is the full reset: recorded calls, `calledWith` /
-`mustBeCalledWith` chains, `resolveWith` / `nextWith` values, and a bare `mockReturnValue` set
-directly on the host mock. It is also callable by hand — `cart[Symbol.dispose]()` — and the key has
-a **stable identity** across reads, which a `Disposable` check and a `DisposableStack` both assume.
+`mustBeCalledWith` chains, `resolveWith` / `nextWith` values, a bare `mockReturnValue` set directly
+on the host mock, a queued `mockReturnValueOnce` that has not been collected, and whatever an
+accessor spy was configured with. It is also callable by hand — `cart[Symbol.dispose]()` — and the
+key has a **stable identity** across reads, which a `Disposable` check and a `DisposableStack` both
+assume.
 
 **The method is ours; the syntax is your toolchain's.** The `using` _declaration_ is downlevelled by
 esbuild and `tsc`, which is why the specs in this repository use it while CI runs on Node 22, 24 and 26. Executed natively — an untranspiled `.js` on Node 22 — it is a `SyntaxError`; Node 24 runs it. If
@@ -486,6 +491,12 @@ The getter stays a spy, so a later `accessorSpies.getters.remoteConfig.mockRetur
 overrides the seed. A seed on a member whose spy has only a setter becomes a plain value instead of a
 write the getter never reads back.
 
+Whether a member is a spied getter is read from the double's **descriptor** for `accessorSpies`, not
+by reading the key. That is the difference on the [type-driven proxy](/core/auto-mock-by-type) a
+fully abstract class falls back to, where reading any key mints a spy for it: seeding a member there
+leaves the double with the members it was given, and no `accessorSpies` of its own turning up in
+`Reflect.ownKeys`, in a spread, in a snapshot or in `explainSpy`.
+
 ## A single function — `createFunctionSpy`
 
 When there is no class at all, `createFunctionSpy<Fn>(name)` builds one spy with the same
@@ -505,6 +516,30 @@ await expect(load(1)).resolves.toBe('value');
 
 **Inherited methods are spied.** Discovery walks the whole prototype chain, so a method declared on
 a base class is spied exactly like one declared on the subclass. `Object.prototype` is not included.
+
+**A chain that never reaches `Object.prototype` is walked too.** A class whose prototype was given a
+`null` parent, and a plain `Object.create(null)` dictionary handed to `createSpyFromInstance` — a
+registry of handlers, a bag of callbacks — have their callables discovered like any other. The walk
+stops at `Object.prototype` by identity, so another realm's `Object.prototype` is recognised by the
+members it carries and left alone exactly as this realm's is.
+
+**Symbol-keyed methods are discovered and spied.** A class that declares `[SERIALIZE]()` or
+`[Symbol.for('app.render')]()` gets a spy under that key, typed, reset and configured like a named
+one:
+
+```ts
+const envelope = createSpyFromClass(Envelope);
+
+envelope[SERIALIZE].calledWith(payload).mockReturnValue('{}');
+```
+
+The runtime's own symbols are deliberately left alone — everything that is a value on `Symbol`
+(`Symbol.iterator`, `Symbol.toPrimitive`, `Symbol.asyncIterator`, `Symbol.dispose`, …) plus
+`Symbol.for('nodejs.util.inspect.custom')`. A spy on one of those is not an extra spy but a broken
+object: `[...double]` stops working on an iterable class, a string conversion goes through a mock
+that answers `undefined`, the failure message that was about to explain something else breaks
+instead, and `Symbol.dispose` is the key [`using`](#using) already owns. A future runtime symbol is
+covered without an edit, because the list is read off `Symbol` rather than written out.
 
 **Abstract classes work at runtime**, because an abstract class is still a constructor function with
 a prototype — only TypeScript refuses to type it as `ClassType<T>`. Pass the concrete subclass to

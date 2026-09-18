@@ -24,8 +24,11 @@ cartStore.total.mockReturnValue(42);
 render(Cart, { props: { store: cartStore } });
 ```
 
-Importing this entry registers the default Vitest mock adapter and re-exports the whole core, so a
-Svelte suite needs a single import. It pulls in neither `svelte` nor `@testing-library/svelte`.
+Importing this entry registers the default Vitest mock adapter — only when nothing else has, so it
+cannot replace one a runtime entry installed first — and re-exports the whole core, so a Svelte
+suite needs a single import. It pulls in neither `svelte` nor `@testing-library/svelte`. It does
+pull in `vitest`, which is why it does not load under `bun test` or `node --test`: on those runners
+import the core through their own runtime entry instead.
 
 ## Through context
 

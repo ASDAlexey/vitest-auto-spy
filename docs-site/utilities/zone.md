@@ -115,3 +115,23 @@ of the package, not an accident of this release — see `AGENTS.md`.
 
 `installProxyZonePatch()` is exported for a setup file that would rather call it explicitly; it
 returns the undo.
+
+**Calling it twice does nothing the second time.** The patch marks the views it hands out, and a
+global it has already replaced is left alone — so an explicit call in a setup file under
+`isolate: false`, where Vitest runs that file once per spec **file** while the globals live for the
+whole worker, no longer wraps its own wrapper. Two hundred files used to leave two hundred Proxy
+layers on every `it` of the last one. Correctness survived that (a callback carries its own mark, so
+the zones never nested) and the cost did not. The undo of the installation that actually replaced
+the globals still puts them back.
+
+## `fakeAsync` and the helpers that time themselves out
+
+`tick()` drives the virtual clock, and two of this package's waits deliberately stay off it:
+the [emission helpers](/core/observable-assertions) and
+[`stable`](/adapters/angular). Their timeout _is_ the assertion, so a spec that could advance past
+it would be failing a stream by advancing it — `tick(1_500)` towards a `debounceTime(2_000)` used to
+reject the wait it was about to satisfy.
+
+Both take the untouched `setTimeout` zone.js parks aside, so their watchdogs run on real time inside
+`fakeAsync` too. Nothing else changes: every timer, promise and microtask the code under test
+schedules is the zone's, and `tick()` / `flushMicrotasks()` remain the way to move them.

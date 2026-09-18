@@ -12,7 +12,8 @@ dispatch by argument, and the type-specific helpers configure the result.
 Arguments are matched by a serialized key, and object keys are sorted before it is built — so
 `calledWith({ id: 1, name: 'a' })` matches a call made with `{ name: 'a', id: 1 }`. The two are
 the same argument, and the order a literal happened to be written in is not something a test
-should depend on.
+should depend on. A `Map` and a `Set` are read the same way: `calledWith(new Set([1, 2]))` answers a
+call made with `new Set([2, 1])`, because insertion order is not part of what either one holds.
 :::
 
 ## Synchronous methods
@@ -56,6 +57,27 @@ under `setSpyEngine('runner')`, on Bun or on `node:test` — those install their
 the runtime, where nothing here can see it. The `Once` family is never reported: its queue drains
 back onto the dispatch, so it suspends the chain for a call rather than taking it away.
 :::
+
+### A chain kept in a variable
+
+`calledWith` / `mustBeCalledWith` hand back a handle for **those** arguments, so a chain stored in a
+variable stays bound to the list it was taken for however many chains are opened afterwards:
+
+```ts
+const one = myService.getName.calledWith(1);
+const two = myService.getName.calledWith(2);
+
+one.mockReturnValue('first');
+two.mockReturnValue('second');
+
+expect(myService.getName(1)).toBe('first');
+expect(myService.getName(2)).toBe('second');
+```
+
+That is the shape to reach for when one argument list is configured in two places — a default in
+`beforeEach` and the outcome in the test — or when a helper opens the chain and hands it back. Every
+handle of one spy writes into the same argument map, so configuring a stored handle and naming the
+same arguments again are the same write, and the later one wins as it always does.
 
 ### Making a call throw — `failWith`
 
@@ -110,12 +132,16 @@ Wanted (3 configured):
 Actual: getName(9,'zzz')
 ```
 
+A matcher nested in a config is printed where it sits — `save({id:Any<Number>,name:'a'})` — so the
+line reads as the config was written, rather than as the matcher's own fields.
+
 ### Asymmetric matchers in `calledWith`
 
 `calledWith` / `mustBeCalledWith` accept the same asymmetric matchers as `expect`
-(`expect.any`, `expect.objectContaining`, `expect.stringMatching`, …). A config that
-contains at least one matcher is stored as a predicate and matched against the actual
-arguments at call time, instead of by exact serialization.
+(`expect.any`, `expect.objectContaining`, `expect.stringMatching`, …), and they mean the same thing
+**at any depth**: inside an object, inside an array, and as a key or a value of a `Map` or a `Set`.
+A config carrying one anywhere is stored as a predicate and matched against the actual arguments at
+call time, instead of by exact serialization.
 
 ```ts
 myService.getName.calledWith(expect.any(Number)).mockReturnValue('Fake Name');
@@ -124,6 +150,11 @@ expect(myService.getName(2)).toBe('Fake Name');
 
 myService.save.calledWith(expect.objectContaining({ id: 1 })).mockReturnValue(true);
 expect(myService.save({ id: 1, name: 'x' })).toBe(true);
+
+// a matcher one level down, which is the ordinary shape of a payload assertion
+myService.save.calledWith({ id: expect.any(Number), name: 'x' }).mockReturnValue(true);
+myService.saveAll.calledWith([expect.any(String)]).mockReturnValue(true);
+myService.index.calledWith(new Map([['id', expect.any(Number)]])).mockReturnValue(true);
 ```
 
 An exact argument list is matched before any of them, and the matcher configs are tried in the
@@ -140,9 +171,39 @@ expect(myService.getName(1)).toBe('second');
 
 Each `expect.anything()` call builds a new object, so "the same argument" cannot mean the same
 instance: two matchers are the same when they accept the same values — same matcher class, same
-sample, same inversion. A hand-rolled `{ asymmetricMatch }` object is the exception. Its verdict
-lives in a closure that no comparison can read, so two of them are always two configs, and only
-that very instance, registered again, overrides.
+sample, same inversion. That holds where the matcher sits nested, too: a second
+`calledWith({ id: expect.any(Number) })` overrides the first rather than queueing behind it.
+A hand-rolled `{ asymmetricMatch }` object is the exception. Its verdict lives in a closure that no
+comparison can read, so two of them are always two configs, and only that very instance, registered
+again, overrides.
+
+### What counts as the same argument
+
+Whatever a matcher does not decide is compared the way the runner's own `equals` compares it, in a
+predicate config and in the serialized key alike:
+
+| Argument      | Compared by                                                                     |
+| ------------- | ------------------------------------------------------------------------------- |
+| `Map`, `Set`  | their contents, in any order                                                    |
+| `Date`        | its time                                                                        |
+| `RegExp`      | its source and flags                                                            |
+| `Error`       | its name and message, plus the own enumerable fields a subclass adds            |
+| a function    | identity — the same function object, never the same name                        |
+| anything else | its own enumerable entries, symbol keys included; the prototype is not compared |
+
+An instance whose whole state sits behind accessors or private fields — a `URL`, an `ArrayBuffer`, a
+component — has no entries to compare with, so it is told apart by its class but not from another
+instance of that class. Configure such an argument with a matcher (`expect.any(URL)`), or with the
+field the code under test really varies.
+
+::: warning Two arguments that used to share one key
+Each of these was a single `calledWith` key: two different functions of one name (two anonymous
+callbacks included), two `Error`s differing only in their message, an object whose key was written to
+look like structure (`{ 'a:1,b': 2 }` against `{ a: 1, b: 2 }`), a field under a symbol key, and a
+`Set` built in a different order. A spec that leaned on it — one anonymous callback collecting the
+value configured for another — was green for a comparison it never made, and fails now. The failure
+prints both argument lists, so the repair is in the config, not in the helper.
+:::
 
 ## Promise-returning methods — `resolveWith`
 
@@ -196,6 +257,13 @@ resetAutoSpy(myService);
 `resetAutoSpy` reverts both the library config (`calledWith` / `resolveWith` / `nextWith` / …) **and**
 a bare return value set directly on a spy (`myService.getName.mockReturnValue('x')`) — after a reset
 the method returns `undefined` again until reconfigured.
+
+Two things live inside the host mock rather than in a library container, and they go with the rest:
+a queued `mockReturnValueOnce` value, which no longer answers the first call after the reset, and
+whatever an accessor spy was told to return (`accessorSpies.getters.theme.mockReturnValue('dark')`),
+which no longer survives into the next test. That is what `vi.resetAllMocks()` does, per double —
+so a spec that stacked a `Once` value before a `resetAutoSpy` and expected to collect it afterwards
+reads `undefined` there and has to queue the value after the reset instead.
 
 ## Observable methods & properties — `nextWith`
 

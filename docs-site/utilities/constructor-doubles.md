@@ -96,6 +96,29 @@ The bottom two rows are imported from `vitest-auto-spy/dom-stubs` since 4.0.0, n
 see [Observer stubs](./observer-stubs). `mockConstructor`, `stubConstructor` and `createSpyClass`
 stayed on the root: they are about `new`, not about the DOM.
 
+`createSpyClass(Foo)` carries the instances and nothing else. Where production code also reads
+statics off the name it replaced — `Foo.isSupported()`, `Foo.create()`, `Foo.VERSION` — pass
+`{ statics: true }` as its third argument; [Bridging `Spy<T>` and `T`](/core/spy-typing) has what
+each kind of static becomes.
+
+### A constructor that is a member of a double
+
+None of the three is needed when the class is reached **through a dependency** the spec already
+doubles — `new this.sdk.Client(key)`, `new deps.Session()`. A spied member answers `new`: the
+construction is recorded like any other call, and what the code under test receives is a fresh
+instance, or the object that argument list was configured to answer with.
+
+```ts
+const sdk = createAutoMock<Sdk>();
+
+service.connect(); // `new this.sdk.Client(key)` inside
+
+expect(sdk.Client).toHaveBeenCalledWith(key);
+```
+
+The three helpers above are for a constructor the code under test reaches **directly**: a global it
+names, an import it calls, a real class whose instances should be auto-spies.
+
 ## `stubAbortController()`
 
 `element.addEventListener('pointerdown', handler, { signal })` is the recommended way to detach

@@ -294,22 +294,22 @@ Not about a single test but about what one file leaves behind for the next.
 
 The ways a provider — or a spy on the component itself — ends up not being what the spec thinks it registered.
 
-| Rule                                                                                               | Flags                                                                                                                                                                                                                                                                 | Fix     |        Without it         |
-| -------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- | :-----------------------: |
-| [`prefer-provide-auto-spy`](#two-things-these-rules-learned-the-hard-way)                          | a hand-rolled `useValue`, `useFactory`, `useClass` or `useExisting`, in a provider or a `TestBed.overrideProvider` → `provideAutoSpy(Class)` / `provideAutoSpyForToken(TOKEN)`; and `{ provide: X, useValue: createSpyFromClass(X) }`, which is that call written out | fix     |            red            |
-| [`prefer-provide-activated-route`](/utilities/eslint-rules#prefer-provide-activated-route)         | a hand-built `ActivatedRoute` — any slot, and `provideAutoSpy(ActivatedRoute)` too → `provideActivatedRoute({ … })`; the double knows either the streams or the snapshot, never both                                                                                  | —       |            red            |
-| [`prefer-inject-spy`](#the-three-prefer-rules-%E2%80%94-drift-and-one-line-that-undoes-a-provider) | `vi.spyOn(TestBed.inject(X), 'm')`, inline or via a `const` → `injectSpy(X).m`                                                                                                                                                                                        | suggest |            red            |
-| [`no-unregistered-inject-spy`](#the-spy-that-only-the-compiler-can-see)                            | `injectSpy(X)` for a token this file never registered → the real instance, whose spy helpers exist only for the compiler                                                                                                                                              | —       |  red _(by construction)_  |
-| [`prefer-render-shallow`](#the-render-nobody-reads)                                                | `TestBed.createComponent` in a file that never reads the template → `renderShallow(X)`                                                                                                                                                                                | suggest |           green           |
-| [`prefer-set-inputs`](/utilities/eslint-rules#prefer-set-inputs)                                   | `fixture.componentRef.setInput('title', v)` → `await setInputs(fixture, { title: v })`, which resolves the name before it writes and types the value                                                                                                                  | suggest |           green           |
-| [`no-overridden-provider`](#two-providers-one-token)                                               | two providers for one token in one array, or one a `TestBed.overrideProvider` replaces → the earlier one never runs; the exact duplicate can be deleted                                                                                                               | suggest |           green           |
-| [`no-inject-before-override`](#the-trap-this-plugin-s-own-advice-sets)                             | `TestBed.inject()` / `injectSpy()` / `renderShallow()` in a hook, in a suite that still calls `override*`                                                                                                                                                             | —       |            red            |
-| [`no-dead-schemas`](#no-dead-schemas-%E2%80%94-the-charm-that-protects-nobody)                     | `schemas` on a testing module that declares nothing → the schema applies to nothing                                                                                                                                                                                   | —       | green _(by construction)_ |
-| [`no-mistyped-use-value`](/utilities/eslint-rules#no-mistyped-use-value)                           | `{ provide: TOKEN, useValue }` whose value does not fit the primitive `TOKEN` declares — `useValue` is `any`; **type-aware**                                                                                                                                          | —       | green _(by construction)_ |
-| [`no-unknown-use-value-key`](/utilities/eslint-rules#no-unknown-use-value-key)                     | a key of an object `useValue` the provided type (`InjectionToken<T>`'s `T`, a class's instance) does not have — keys only; **type-aware**                                                                                                                             | —       | green _(by construction)_ |
-| [`no-instance-lifecycle-spy`](/utilities/eslint-rules#no-instance-lifecycle-spy)                   | `vi.spyOn(component, 'ngOnInit')` — Angular calls the hook it read off the prototype, never the instance spy; `warn`                                                                                                                                                  | —       |    green _(the stub)_     |
-| [`no-compile-components`](/utilities/eslint-rules#no-compile-components)                           | `compileComponents()` under a builder that inlines `templateUrl` / `styleUrls`; silent until `{ builder: 'inline-resources' }`                                                                                                                                        | suggest |     — _(a dead line)_     |
-| [`no-sync-testbed-await`](/utilities/eslint-rules#no-sync-testbed-await)                           | `await` on `configureTestingModule` / `override*` / `createComponent` — each answers the TestBed or the fixture, never a promise                                                                                                                                      | suggest |    — _(a dead await)_     |
+| Rule                                                                                               | Flags                                                                                                                                                                                                                                                                                                                               | Fix     |        Without it         |
+| -------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------- | :-----------------------: |
+| [`prefer-provide-auto-spy`](#two-things-these-rules-learned-the-hard-way)                          | a hand-rolled `useValue`, `useFactory`, `useClass` or `useExisting`, in a provider or a `TestBed.overrideProvider` → `provideAutoSpy(Class)` / `provideAutoSpyForToken(TOKEN)`, and `provideActivatedRoute()` for the `ActivatedRoute` token; and `{ provide: X, useValue: createSpyFromClass(X) }`, which is that call written out | fix     |            red            |
+| [`prefer-provide-activated-route`](/utilities/eslint-rules#prefer-provide-activated-route)         | a hand-built `ActivatedRoute` — any slot, and `provideAutoSpy(ActivatedRoute)` too → `provideActivatedRoute({ … })`; the double knows either the streams or the snapshot, never both                                                                                                                                                | —       |            red            |
+| [`prefer-inject-spy`](#the-three-prefer-rules-%E2%80%94-drift-and-one-line-that-undoes-a-provider) | `vi.spyOn(TestBed.inject(X), 'm')`, inline or via a `const` → `injectSpy(X).m`                                                                                                                                                                                                                                                      | suggest |            red            |
+| [`no-unregistered-inject-spy`](#the-spy-that-only-the-compiler-can-see)                            | `injectSpy(X)` for a token this file never registered → the real instance, whose spy helpers exist only for the compiler                                                                                                                                                                                                            | —       |  red _(by construction)_  |
+| [`prefer-render-shallow`](#the-render-nobody-reads)                                                | `TestBed.createComponent` in a file that never reads the template → `renderShallow(X)`                                                                                                                                                                                                                                              | suggest |           green           |
+| [`prefer-set-inputs`](/utilities/eslint-rules#prefer-set-inputs)                                   | `fixture.componentRef.setInput('title', v)` → `await setInputs(fixture, { title: v })`, which resolves the name before it writes and types the value                                                                                                                                                                                | suggest |           green           |
+| [`no-overridden-provider`](#two-providers-one-token)                                               | two providers for one token in one array, or one a `TestBed.overrideProvider` replaces → the earlier one never runs; the exact duplicate can be deleted                                                                                                                                                                             | suggest |           green           |
+| [`no-inject-before-override`](#the-trap-this-plugin-s-own-advice-sets)                             | `TestBed.inject()` / `injectSpy()` / `renderShallow()` in a hook, in a suite that still calls `override*`                                                                                                                                                                                                                           | —       |            red            |
+| [`no-dead-schemas`](#no-dead-schemas-%E2%80%94-the-charm-that-protects-nobody)                     | `schemas` on a testing module that declares nothing → the schema applies to nothing                                                                                                                                                                                                                                                 | —       | green _(by construction)_ |
+| [`no-mistyped-use-value`](/utilities/eslint-rules#no-mistyped-use-value)                           | `{ provide: TOKEN, useValue }` whose value does not fit the primitive `TOKEN` declares — `useValue` is `any`; **type-aware**                                                                                                                                                                                                        | —       | green _(by construction)_ |
+| [`no-unknown-use-value-key`](/utilities/eslint-rules#no-unknown-use-value-key)                     | a key of an object `useValue` the provided type (`InjectionToken<T>`'s `T`, a class's instance) does not have — keys only; **type-aware**                                                                                                                                                                                           | —       | green _(by construction)_ |
+| [`no-instance-lifecycle-spy`](/utilities/eslint-rules#no-instance-lifecycle-spy)                   | `vi.spyOn(component, 'ngOnInit')` — Angular calls the hook it read off the prototype, never the instance spy; `warn`                                                                                                                                                                                                                | —       |    green _(the stub)_     |
+| [`no-compile-components`](/utilities/eslint-rules#no-compile-components)                           | `compileComponents()` under a builder that inlines `templateUrl` / `styleUrls`; silent until `{ builder: 'inline-resources' }`                                                                                                                                                                                                      | suggest |     — _(a dead line)_     |
+| [`no-sync-testbed-await`](/utilities/eslint-rules#no-sync-testbed-await)                           | `await` on `configureTestingModule` / `override*` / `createComponent` — each answers the TestBed or the fixture, never a promise                                                                                                                                                                                                    | suggest |    — _(a dead await)_     |
 
 ### Reaching past the public surface
 
@@ -688,6 +688,12 @@ shape a Jasmine suite is actually full of, the call sits at the bottom of a call
 returns `undefined` before it runs, and the test **passes** having run almost none of itself. Four such tests sat green for years in the suite this
 rule came from; nothing but a type-checker ever noticed, and only indirectly.
 
+The parameter being a plain name is not by itself the finding, because the `TestContext` arrives
+there whether or not it is destructured — `it('x', (ctx) => ctx.skip())` is Vitest's own example.
+What separates the two is what the body does with the name: read it through a member and it is the
+context, call it or hand it to something that will call it and it is a `done`. The rule reads that,
+so the context form is silent and an unused parameter is not.
+
 ### A double built once per worker, not once per test
 
 `no-shared-module-level-mock` exists because an exported double is built once per **module**, not
@@ -828,6 +834,13 @@ six of eight reports were on tokens. The rule now tells the two apart — by the
 `new InjectionToken(…)` is within the resolver's reach, by the `SCREAMING_SNAKE_CASE` spelling
 otherwise — and names `provideAutoSpyForToken(TOKEN)` for a token, while the class message mentions
 the token form too.
+
+`ActivatedRoute` is the third answer, and it is a class the rule reads by name. A spy over its
+prototype is not a route: `snapshot`, `params`, `queryParams`, `data`, `fragment` and `url` are
+instance fields, so the double has none of them. A provider of that token is pointed at
+`provideActivatedRoute()` from `vitest-auto-spy/angular-router` instead — the same repair
+[`prefer-provide-activated-route`](/utilities/eslint-rules#prefer-provide-activated-route) names, so
+a descriptor both rules read now says one thing twice rather than two opposite things once each.
 
 ### The trap this plugin's own advice sets
 
@@ -1385,6 +1398,23 @@ is worth having as a rule rather than a runtime check. Read the token back with 
 run is red with a diagnostic naming the cause; read it back with `TestBed.inject` and assert against
 the hand-rolled double, which is what the file that prompted this rule did, and everything passes
 while the `provideAutoSpy` above it never ran.
+
+### What the plugin costs to run
+
+The other thing worth measuring is the plugin itself, because every rule here runs over every spec
+file. Over this repository's own 173 specs, `recommended` as a whole takes **56 ms**; over a single
+1.7 MB spec, **68 ms**.
+
+Most of what those numbers used to be was three rules asking a whole-file question once per node.
+`no-inject-before-override` and `no-overridden-provider` now collect the `override*` and
+`resetTestingModule` calls in one pass and decide the ordering by range, instead of walking the
+suite again for every injection — 1 028 ms to 0.13 ms on a 249 kB spec. `prefer-render-shallow` asks
+whether the file reads a rendered template once per file rather than once per `createComponent` —
+2 528 ms to 12.8 ms on the 1.7 MB one. `no-redundant-smoke-test` indexes identifiers only in the
+blocks where a smoke test needs them, and builds no index at all in a file that has none — 46 ms to
+9.7 ms over the 173 specs, where it had been the single largest cost in the plugin. Together that is
+93 → 56 ms over the suite and 3.3 s → 68 ms over the large spec, with not one message or position
+moved: none of it changes what any rule decides, only how many times it asks.
 
 ### `no-done-callback` — what the first parameter actually is
 

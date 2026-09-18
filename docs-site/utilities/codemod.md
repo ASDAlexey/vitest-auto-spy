@@ -93,18 +93,25 @@ warn   no-vi-twin src/app/service.spec.ts:12
 That run exits **1**, and the reason is the whole design: one line — `jest.requireActual` — was left
 alone, so a person still has work to do. Nothing about the six edits failed.
 
-| Exit | When                                                                                 |
-| ---- | ------------------------------------------------------------------------------------ |
-| `0`  | Every span was decided, and nothing matched a residue pattern afterwards             |
-| `1`  | Something was left alone, or a residue survived the run — including under `--verify` |
-| `2`  | An unknown transform id was passed to `--only` / `--skip`                            |
+| Exit | When                                                                                                         |
+| ---- | ------------------------------------------------------------------------------------------------------------ |
+| `0`  | Every span was decided, and nothing matched a residue pattern afterwards                                     |
+| `1`  | Something was left alone, or a residue survived the run — including under `--verify`                         |
+| `2`  | Nothing ran: an unknown transform id on `--only` / `--skip`, an unknown flag, or a path that matches no file |
 
-With no path it visits every `*.spec.ts` / `*.test.ts(x)` in the repository; with a path it visits
-every TypeScript file under it, declaration files excluded. The narrow default is deliberate — a
+With no path it visits every `*.spec.*` / `*.test.*` in the repository, JavaScript ones included —
+a Jest suite that was never TypeScript is the suite with the most `jest.` in it. With a path it
+visits every source file under it, declaration files excluded. The narrow default is deliberate — a
 `jest.` in a `main.ts` is not a test to migrate, and a codemod that offers to edit application code
 on its first run does not get a second one. A file whose text matches none of the selected
 transforms' patterns is never read into the report at all, so the output is the files that have
 something to say.
+
+**A path that names no file is an error, exit 2.** Paths are resolved against `--cwd` before they
+are matched, so an absolute path, a `./` prefix, a trailing slash and a Windows separator all name
+the files the scan listed, and `.` is the repository root. A path that matches nothing is printed on
+stderr and nothing is read at all: a misspelled path in a CI line is not a clean result, and under
+`--verify` a run that let it through would answer `Nothing left to migrate.` and exit 0.
 
 ## The thirteen transforms
 
@@ -114,35 +121,42 @@ it cannot change what the others saw.
 
 They come in three families. **Four are shared**, because both dialects have the construct:
 
-| Id                          | Rewrites                                                                                            | Declines                                                  |
-| --------------------------- | --------------------------------------------------------------------------------------------------- | --------------------------------------------------------- |
-| `auto-spies-import`         | `import … from 'jest-auto-spies'` / `'jasmine-auto-spies'` → the entry points that export each name | A default or namespace import; a name no entry exports    |
-| `inject-cast`               | `TestBed.inject(X) as Spy<X>` → `asSpy<X>(TestBed.inject(X))`, adding the import                    | `as Spy<T>` over anything else                            |
-| `jasmine-aliases`           | `xit` / `xdescribe` / `fit` / `fdescribe` / `xtest` → `it.skip` / `describe.skip` / …               | A method of the same name — `shape.fit(box)` is untouched |
-| `mock-implementation-arity` | `mockImplementation()` with no argument → `mockImplementation(() => undefined)`                     | A call that already has its function                      |
+| Id                          | Rewrites                                                                                            | Declines                                                          |
+| --------------------------- | --------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| `auto-spies-import`         | `import … from 'jest-auto-spies'` / `'jasmine-auto-spies'` → the entry points that export each name | A default or namespace import; a name no entry exports            |
+| `inject-cast`               | `TestBed.inject(X) as Spy<X>` → `asSpy<X>(TestBed.inject(X))`, adding the import                    | `as Spy<T>` over anything else                                    |
+| `jasmine-aliases`           | `xit` / `xdescribe` / `fit` / `fdescribe` / `xtest` → `it.skip` / `describe.skip` / …               | A name that is not a call — `shape.fit(box)`, `function fit(…) {` |
+| `mock-implementation-arity` | `mockImplementation()` with no argument → `mockImplementation(() => undefined)`                     | A call that already has its function                              |
 
 **Three are Jest's:**
 
-| Id                    | Rewrites                                                                                | Declines                                                                 |
-| --------------------- | --------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| `jest-globals-import` | `from '@jest/globals'` → `from 'vitest'`, renaming the `jest` binding to `vi`           | The rest of the clause — `describe` / `it` / `expect` are named the same |
-| `jest-namespace`      | `jest.<member>` → `vi.<member>` for the 26 members that have a twin                     | A member with no twin, and any member it does not know                   |
-| `jest-types`          | `jest.Mock<R, [A]>` → `Mock<(a: A) => R>`, plus four renames, importing the Vitest name | A type argument list it cannot split at the top level                    |
+| Id                    | Rewrites                                                                                | Declines                                                                                                    |
+| --------------------- | --------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `jest-globals-import` | `from '@jest/globals'` → `from 'vitest'`, renaming the `jest` binding to `vi`           | The rest of the clause — `describe` / `it` / `expect` are named the same                                    |
+| `jest-namespace`      | `jest.<member>` → `vi.<member>` for the 26 members that have a twin                     | A member with no twin, and any member it does not know                                                      |
+| `jest-types`          | `jest.Mock<R, [A]>` → `Mock<(a: A) => R>`, plus four renames, importing the Vitest name | A type argument list it cannot split at the top level; a `jest` from `@jest/globals`, which is renamed only |
 
 **Six are jasmine's** — see [Migrating from jasmine-auto-spies](/migrating-jasmine) for what each
 one is protecting:
 
-| Id                    | Rewrites                                                                                                                                     | Declines                                                                                            |
-| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
-| `jasmine-and-helpers` | `spy.load.and.nextWith(v)` → `spy.load.nextWith(v)` — the ten auto-spies helpers lose the namespace                                          | Nothing; the list is closed                                                                         |
-| `jasmine-strategies`  | `.and.returnValue` / `callFake` / `stub` / `throwError` / `returnValues` / `resolveTo` → the `mock*` twin, and `.withArgs(` → `.calledWith(` | `.and.callThrough()`, which has no original to call through to; a strategy it does not know         |
-| `jasmine-spy-on`      | `spyOn(o, 'm')` → `vi.spyOn(o, 'm').mockImplementation(() => undefined)`                                                                     | A call that already chains a strategy — there the stub would be redundant                           |
-| `jasmine-globals`     | `jasmine.createSpy` / `createSpyObj` / `any` / `clock()` / `addMatchers` → their `vi`, `expect` and `vitest-auto-spy` twins                  | `getEnv`, `truthy` / `falsy` / `empty` / `notEmpty`, `DEFAULT_TIMEOUT_INTERVAL`, the spy strategies |
-| `jasmine-types`       | `jasmine.Spy` → `Mock` from `vitest`, `jasmine.SpyObj<T>` → `Spy<T>` from this package                                                       | Either name when the entry table could not be generated                                             |
-| `jasmine-matchers`    | `toBeTrue` / `toBeFalse` / `toHaveSize` / `toHaveBeenCalledOnceWith` / `withContext` / `fail` → their Vitest spellings                       | Nothing; each is a closed rename                                                                    |
+| Id                    | Rewrites                                                                                                                                     | Declines                                                                                                                     |
+| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `jasmine-and-helpers` | `spy.load.and.nextWith(v)` → `spy.load.nextWith(v)` — the ten auto-spies helpers lose the namespace                                          | Nothing; the list is closed                                                                                                  |
+| `jasmine-strategies`  | `.and.returnValue` / `callFake` / `stub` / `throwError` / `returnValues` / `resolveTo` → the `mock*` twin, and `.withArgs(` → `.calledWith(` | `.and.callThrough()`, which has no original to call through to; a strategy it does not know; `.withArgs(` on a `spyOn` chain |
+| `jasmine-spy-on`      | `spyOn(o, 'm')` → `vi.spyOn(o, 'm').mockImplementation(() => undefined)`, and `spyOnProperty(o, 'p')` gains the `'get'` jasmine defaulted to | A call that already chains a strategy — there the stub would be redundant — and one that continues into `.withArgs(`         |
+| `jasmine-globals`     | `jasmine.createSpy` / `createSpyObj` / `any` / `clock()` / `addMatchers` → their `vi`, `expect` and `vitest-auto-spy` twins                  | `getEnv`, `truthy` / `falsy` / `empty` / `notEmpty`, `DEFAULT_TIMEOUT_INTERVAL`, the spy strategies                          |
+| `jasmine-types`       | `jasmine.Spy` → `Mock` from `vitest`, `jasmine.SpyObj<T>` → `Spy<T>` from this package                                                       | Either name when the entry table could not be generated                                                                      |
+| `jasmine-matchers`    | `toBeTrue` / `toBeFalse` / `toHaveSize` / `toHaveBeenCalledOnceWith` / `withContext` / `fail` → their Vitest spellings                       | A `fail` that is not a call; a `withContext` on an `expect()` with nothing in it                                             |
 
 `auto-spies-import` runs first, because it is what creates the `vitest-auto-spy` import that
 `inject-cast` then adds `asSpy` to. Everything after that is order-independent.
+
+One strategy is worth reading in full, because the obvious rewrite is wrong in one direction only.
+jasmine's `.and.throwError(x)` builds an `Error` out of **any** string it is handed, so a variable
+becomes `throw typeof x === 'string' ? new Error(x) : x` rather than a bare `throw x` — otherwise a
+spec that passed a message threw the string here and a `toThrow(Error)` beside it failed on a file
+nobody had changed. A string literal is still a plain `new Error('…')`, and an argument the guard
+would have to evaluate twice is declined rather than duplicated.
 
 ### `--from` picks the family
 
@@ -198,6 +212,20 @@ between that being safe and being a slower way to be wrong:
 
 `jest.Mock` with no type arguments at all is left as `Mock`: on its own it already means the same
 thing on both sides.
+
+**Which `jest` the file imports decides whether there is a transposition at all.** The `jest` of
+`@jest/globals` is `jest-mock` ≥ 29, which took the whole function type years ago, so
+`jest.Mock<() => string>` there already means what Vitest means. Transposing it a second time
+produced `Mock<() => () => string>` — a mock that returns a function — and nothing failed until a
+call site disagreed. So a file that imports from `@jest/globals` has the name renamed and the type
+arguments left exactly as written.
+
+**The same transposition on a _call_ is reported rather than carried across.** `jest.fn<R, [A]>()`
+and `jest.spyOn<…>()` in the `@types/jest` spelling put the return type first the way the type does,
+and `jest-namespace` renames the callee to `vi.fn` / `vi.spyOn`, where the single type argument is
+read as a call signature. The list is named by `jest-mock-type-arguments` and left for a person —
+again, only in a file whose `jest` is not the one from `@jest/globals`, where the order is already
+right.
 
 ## The entry-point table is generated, not written down
 
@@ -273,24 +301,68 @@ Entry-point table (/work/app/node_modules/vitest-auto-spy)
 A transform that this run would skip is marked `-` in the left column, so `--list --skip jest-types`
 answers "what exactly am I about to run" in one command. `--list` writes nothing and exits 0.
 
+## The import statement is edited in place, not rebuilt
+
+The import block is what every migration touches, and it is also where a file keeps things a rewrite
+has no business losing: an alias, a comment on a specifier, the line ending the repository uses. So
+a clause is edited by range rather than reassembled out of the names it holds.
+
+- **A line comment inside the clause is not a list of names.** The clause is split into slots on the
+  commas of the [masked view](#how-a-pattern-never-matches-a-comment), so the words inside a
+  `// keep this one` are never read as imports of that name. An added name lands after the last
+  _code_ character of the clause and before the comment rather than inside it; a removed specifier
+  takes its own comma and its own trailing comment and nothing else. Aliases (`a as b`) and the
+  clause's own line breaks survive, because nothing rewrites the specifiers that stay.
+- **A new statement goes on its own line.** The insertion point is just past the newline that ends
+  the statement above, so an import with a comment at the end of its line keeps it — and the newline
+  written is the one the file already uses, so a CRLF file stays CRLF.
+- **A byte-order mark is not part of the first import.** A file that starts with one is migrated
+  like any other, and keeps it.
+
+## The result is parsed before it is written
+
+Every transform here works on text, and the failure that hurts is the one where the diff looks
+plausible and the file no longer compiles. So the result of each rewrite is handed to a parser — the
+`typescript` of the repository being migrated, resolved from `--cwd` rather than from wherever the
+CLI happens to be installed, so a global `npx vitest-auto-spy` does not read a consumer's files with
+somebody else's compiler.
+
+A file whose syntax diagnostics the run added to is **not written**. It is left byte for byte as it
+was, its edits and its new import lines dropped with it, and reported:
+
+```
+error  codemod-broke-syntax src/app/service.spec.ts:1
+       The rewritten file does not parse, so it was left exactly as it was.
+       → This is a defect in the codemod, not in the file. Migrate this one by hand, and report the
+         construct it tripped over — the file is worth attaching.
+```
+
+The comparison is between the diagnostics before and the diagnostics after, never against zero, so a
+spec that already had a syntax error is not blamed for it. Where `typescript` does not resolve from
+the repository the check is skipped in silence — it is a safety net, not an install instruction.
+
 ## What it deliberately leaves alone
 
 This list is the feature. Every entry is a span where a plausible rewrite exists, compiles, and is
 wrong — so the codemod prints it instead, with the reason and a `path:line` an editor turns into a
 jump.
 
-| Left alone                                                                      | Why                                                                                                                                  |
-| ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
-| `jest.requireActual(id)`                                                        | `vi.importActual(id)` is asynchronous and only legal inside a `vi.mock` factory — rewriting it changes the control flow around it    |
-| `jest.requireMock(id)`, `jest.setMock(…)`                                       | There is no `vi` twin; the double is provided through the TestBed / the container, or passed as an argument                          |
-| `jest.replaceProperty(o, k, v)`                                                 | The answer is `mockValueProp(o, k, v)` from this package — a different helper with its own restore, not a member with a new name     |
-| `jest.setTimeout(n)`                                                            | The replacement is the `testTimeout` config option or `vi.setConfig({ testTimeout: n })`; the argument is not a plain number there   |
-| `enableAutomock`, `createMockFromModule`, `now`, `retryTimes`, `runAllTicks`, … | No `vi` member of that name exists, and for each the honest answer is a different design                                             |
-| Any **unknown** `jest.<member>`                                                 | Never renamed on the assumption that `vi` has it. That assumption is exactly the `vi.requireMock is not a function` failure          |
-| `as Spy<T>` over anything but `TestBed.inject(...)`                             | If the value really is a spy, `asSpy(...)`; if it is a hand-built double, [`createAutoMock<T>()`](/core/auto-mock-by-type) builds it |
-| A default or namespace import of the legacy package                             | The helpers live behind different entry points, and a namespace cannot straddle them                                                 |
-| Anything inside a template literal                                              | Every pattern is matched against a masked view; a template literal's contents are blank there                                        |
-| Any span whose brackets do not balance                                          | The end of the region is unknown, and guessing where it ends is how a rewrite takes half a type                                      |
+| Left alone                                                                      | Why                                                                                                                                                                                                                                               |
+| ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `jest.requireActual(id)`                                                        | `vi.importActual(id)` is asynchronous and only legal inside a `vi.mock` factory — rewriting it changes the control flow around it                                                                                                                 |
+| `jest.requireMock(id)`, `jest.setMock(…)`                                       | There is no `vi` twin; the double is provided through the TestBed / the container, or passed as an argument                                                                                                                                       |
+| `jest.replaceProperty(o, k, v)`                                                 | The answer is `mockValueProp(o, k, v)` from this package — a different helper with its own restore, not a member with a new name                                                                                                                  |
+| `jest.setTimeout(n)`                                                            | The replacement is the `testTimeout` config option or `vi.setConfig({ testTimeout: n })`; the argument is not a plain number there                                                                                                                |
+| `enableAutomock`, `createMockFromModule`, `now`, `retryTimes`, `runAllTicks`, … | No `vi` member of that name exists, and for each the honest answer is a different design                                                                                                                                                          |
+| Any **unknown** `jest.<member>`                                                 | Never renamed on the assumption that `vi` has it. That assumption is exactly the `vi.requireMock is not a function` failure                                                                                                                       |
+| `as Spy<T>` over anything but `TestBed.inject(...)`                             | If the value really is a spy, `asSpy(...)`; if it is a hand-built double, [`createAutoMock<T>()`](/core/auto-mock-by-type) builds it                                                                                                              |
+| A default or namespace import of the legacy package                             | The helpers live behind different entry points, and a namespace cannot straddle them                                                                                                                                                              |
+| Anything inside a template literal                                              | Every pattern is matched against a masked view; a template literal's contents are blank there                                                                                                                                                     |
+| Any span whose brackets do not balance                                          | The end of the region is unknown, and guessing where it ends is how a rewrite takes half a type                                                                                                                                                   |
+| `.withArgs(…)` on a `spyOn(…)` chain                                            | `vi.spyOn` has no `calledWith`, so the rename produced `calledWith is not a function` on the first run. Reported as `jasmine-with-args-on-spy-on`, and the `spyOn` under it is left as written too                                                |
+| `.and.throwError(build())`                                                      | jasmine wraps a string it is handed and throws anything else, which the rewrite spells with the argument named twice — fine for `err` or `state.err`, wrong for an expression that would then run twice. Declined with `unknown-jasmine-strategy` |
+| `expect()` with nothing in it                                                   | There is no subject for a `withContext` message to move next to, and moving it anyway wrote `expect(, 'm')`                                                                                                                                       |
+| `fail`, `fit`, `xit` and their siblings where they are not calls                | A method or a function of the same name, which a rename turns into a syntax error. `--verify` does not report a declaration either                                                                                                                |
 
 ### How a pattern never matches a comment
 
@@ -303,6 +375,13 @@ breaks, with the _contents_ of comments, strings, template literals and regular 
 by spaces. Offsets found in the mask are valid in the original, which is what makes "find in the
 mask, slice from the source" safe. Quotes are kept, so `from 'jest-auto-spies'` is still findable —
 the quote is matched in the mask and the specifier is read from the source between them.
+
+**JSX is code, not a regular expression.** The slash of `<Thing />` and of `</Thing>` sits exactly
+where a regular expression may open, and reading it as one blanked everything up to the next tag's
+slash — so a `.tsx` spec had a region no transform could reach and the residue check could not see
+either, which is a migration that looks finished on a file it never entered. A `<` immediately
+before a `/` is not an operator, and a candidate literal with a `<` inside it is not a regular
+expression, so a `.tsx` suite is migrated and reported in full.
 
 The residue check ([below](#verifying-by-matching-not-by-diffing)) uses a second view of the same
 mask that differs in exactly two places, both because what it is looking for lives inside a literal:
@@ -367,7 +446,9 @@ going to check by hand anyway.
 | `--cwd <dir>`  | Run against another directory instead of the current one                                          |
 
 An id neither `--only` nor `--skip` recognises exits **2** naming the known ids, rather than quietly
-running everything.
+running everything. A flag this table does not have exits **2** the same way, before anything is
+read: `codemod --wirte` is not a dry run that happened to write nothing, it is a line that did not
+say what its author meant.
 
 ### When the scan hits its cap
 
@@ -382,6 +463,10 @@ narrow --paths.
 
 `VITEST_AUTO_SPY_SCAN_CAP=200000 npx vitest-auto-spy codemod --verify` raises it. Narrowing with
 `--paths` is usually the better answer: the scan is not the slow part, the transforms are.
+
+The scan does not descend into a directory that is a repository of its own — a git worktree, whose
+`.git` is a file, or a nested clone. Those files belong to another branch's working copy, and
+`--write` has no business rewriting a spec that is not in the tree being migrated.
 
 ## In CI
 

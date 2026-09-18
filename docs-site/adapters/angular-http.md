@@ -85,6 +85,20 @@ A module built in `beforeAll` has no test to fail, so it arms nothing — take i
 `verifyNoPendingRequests()` if they matter.
 :::
 
+The one thing the initializer needs that is not Angular's is the runner's own report of which test
+is running. Where that is missing — a runner other than Vitest, `bun:test` and `node:test` included
+— it says so, once per worker, instead of arming nothing in silence:
+
+```
+[vitest-auto-spy] provideHttpTesting(): globalThis.__vitest_worker__ is not there, so the runner
+does not say which test is running and the end-of-test check cannot arm. Call
+`verifyNoPendingRequests()` yourself, or report the runner and version — under bun:test and
+node:test this entry has no hook to use.
+```
+
+Everything else on this page works there; only the automatic teardown check needs the hook, and
+`verifyNoPendingRequests()` is the same check written by hand.
+
 ## `expectRequest(matcher, options?)`
 
 ```ts
