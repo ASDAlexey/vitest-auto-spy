@@ -7,6 +7,7 @@
  * core barrel exports them too so a React/Vue/Node suite can use the same undo bookkeeping.
  */
 import { DOCS_LINKS, withDocs } from './docs-links';
+import { libraryWarn } from './guard-reaction';
 import { getMockAdapter } from './mock-adapter';
 import { isCannotRedefine, redefineFailure } from './redefine-failure';
 import { currentSpecFile } from './spec-file';
@@ -293,8 +294,7 @@ function reportOutsideHook(patches: readonly PatchedProp[]): void {
     throw new Error(message);
   }
 
-  // eslint-disable-next-line no-console -- a dev-time misconfiguration warning, the channel this library already uses for `injectSpy`'s not-a-spy report.
-  console.warn(message);
+  libraryWarn(message);
 }
 
 /**

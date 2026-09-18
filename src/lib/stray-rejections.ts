@@ -80,8 +80,21 @@ type RejectionHandler = (error: unknown) => void;
 
 interface Tracking {
   readonly captured: StrayRejection[];
+  /** How many were dropped once {@link MAX_CAPTURED} was reached — counted, never retained. */
+  readonly dropped: { count: number };
   readonly stop: StopTrackingRejections;
 }
+
+/**
+ * How many rejections are kept in full.
+ *
+ * Every entry holds its `reason`, which for an assertion failure is a `matcherResult` carrying both
+ * the actual and the expected value — a component, a store slice, an HTTP response. The list is only
+ * emptied by {@link flushStrayRejections}, so a suite that merely *counts* used to retain all of it
+ * for the life of the worker. A report needs a count and a few examples; past that, counting is
+ * enough.
+ */
+const MAX_CAPTURED = 100;
 
 const HANDLER_SLOT = 'unhandledPromiseRejectionHandler';
 
@@ -164,8 +177,11 @@ function isAssertionFailure(reason: unknown): boolean {
  * "attributed to" rather than "thrown by" for exactly that reason.
  */
 function describeRejection(error: unknown): StrayRejection {
-  const wrapped: unknown = typeof error === 'object' && error !== null ? Reflect.get(error, 'rejection') : undefined;
-  const reason = wrapped ?? error;
+  // The key, not a truthy value: `Promise.reject()` with no argument is an ordinary shape in a test
+  // double, and `??` treated its genuine `rejection: undefined` as "no wrapper" — so the report
+  // printed zone's own `{ rejection, zone, task }` object as `[object Object]`.
+  const wrapper = typeof error === 'object' && error !== null && 'rejection' in error;
+  const reason: unknown = wrapper ? Reflect.get(error, 'rejection') : error;
 
   return { reason, assertion: isAssertionFailure(reason), testName: expect.getState().currentTestName ?? '' };
 }
@@ -202,9 +218,14 @@ export function trackStrayRejections(host: RejectionHost = defaultHost()): StopT
   const slot = zone.__symbol__(HANDLER_SLOT);
   const previous: unknown = Reflect.get(zone, slot);
   const captured: StrayRejection[] = [];
+  const dropped = { count: 0 };
 
   Reflect.set(zone, slot, (error: unknown): void => {
-    captured.push(describeRejection(error));
+    if (captured.length < MAX_CAPTURED) {
+      captured.push(describeRejection(error));
+    } else {
+      dropped.count += 1;
+    }
 
     // Chained rather than replaced: where `PromiseRejectionEvent` exists, the handler already in the
     // slot is zone.js's own, and it is what forwards the rejection to a
@@ -226,7 +247,7 @@ export function trackStrayRejections(host: RejectionHost = defaultHost()): StopT
     registry().delete(host);
   };
 
-  registry().set(host, { captured, stop });
+  registry().set(host, { captured, dropped, stop });
 
   return stop;
 }
@@ -234,6 +255,10 @@ export function trackStrayRejections(host: RejectionHost = defaultHost()): StopT
 /**
  * How many swallowed rejections have piled up so far — the assertion a suite reaches for when it
  * wants one to fail the run rather than scroll past in stderr.
+ *
+ * Every one of them is counted, including those past the retention cap: {@link flushStrayRejections}
+ * hands back the first 100 reasons of a batch and no more, so a runaway file cannot pin its values
+ * for the rest of the worker.
  *
  * @example
  * ```ts
@@ -247,7 +272,7 @@ export function countStrayRejections(host: RejectionHost = defaultHost()): numbe
     throw new Error(withDocs('countStrayRejections() needs trackStrayRejections() to have run first.', DOCS_LINKS.setup));
   }
 
-  return tracked.captured.length;
+  return tracked.captured.length + tracked.dropped.count;
 }
 
 /**
@@ -271,5 +296,11 @@ export function countStrayRejections(host: RejectionHost = defaultHost()): numbe
 export function flushStrayRejections(host: RejectionHost = defaultHost()): StrayRejection[] {
   const tracked = registry().get(host);
 
-  return tracked ? tracked.captured.splice(0) : [];
+  if (!tracked) {
+    return [];
+  }
+
+  tracked.dropped.count = 0;
+
+  return tracked.captured.splice(0);
 }

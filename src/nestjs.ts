@@ -9,12 +9,16 @@
  * optional peers and are never imported. The core (`vitest-auto-spy`) stays
  * framework-agnostic and never references NestJS.
  */
-import { registerMockAdapter } from './lib/mock-adapter';
+import { hasMockAdapter, registerMockAdapter } from './lib/mock-adapter';
 import { vitestMockAdapter } from './lib/vitest-adapter';
 
 // NestJS suites run on Vitest, and this entry may be imported without the core
-// (`provideAutoSpy` builds spies on its own), so register the default adapter here too.
-registerMockAdapter(vitestMockAdapter);
+// (`provideAutoSpy` builds spies on its own), so register the default adapter here
+// too — but not over one a runtime entry installed first, which is what a Nest suite
+// on `bun:test` or `node --test` gets when it imports both.
+if (!hasMockAdapter()) {
+  registerMockAdapter(vitestMockAdapter);
+}
 
 export { injectSpy, provideAutoSpy, type NestModuleRef, type NestValueProvider } from './lib/nestjs';
 

@@ -141,6 +141,53 @@ describe('the guard on a stand-in console', () => {
     globalThis.__vitestAutoSpyStrayConsole__ = armedForRealConsole;
   });
 
+  it('stops formatting once the report is full, and keeps counting', () => {
+    const guard = armConsoleGuard({ reaction: 'throw', allow: [] }, console$.host);
+    let reads = 0;
+    const heavy = {
+      get state(): string {
+        reads += 1;
+
+        return 'a store state nobody quotes';
+      },
+    };
+
+    openConsoleWindow(guard);
+
+    for (let i = 0; i < 8; i++) {
+      call(console$.host, 'log', heavy);
+    }
+
+    // Five quoted, eight counted — and the three past the quota were never serialised.
+    expect(reads).toBe(5);
+    expect(thrownBy(() => reportTestConsole(guard))).toContain('8 time(s)');
+  });
+
+  it('keeps formatting past the quota while there is an allow list to match against', () => {
+    const guard = armConsoleGuard({ reaction: 'throw', allow: ['noise'] }, console$.host);
+
+    openConsoleWindow(guard);
+
+    for (let i = 0; i < 7; i++) {
+      call(console$.host, 'log', i % 2 === 0 ? 'noise' : 'real output');
+    }
+
+    expect(thrownBy(() => reportTestConsole(guard))).toContain('3 time(s)');
+
+    // Past the quota the text is still built, because only it can answer the allow list — and the
+    // call is counted without being quoted.
+    openConsoleWindow(guard);
+
+    for (let i = 0; i < 8; i++) {
+      call(console$.host, 'log', 'real output');
+    }
+
+    const report = thrownBy(() => reportTestConsole(guard));
+
+    expect(report).toContain('8 time(s)');
+    expect(report).toContain('… and 3 more');
+  });
+
   it('forwards every call, and records only what writes', () => {
     const guard = armConsoleGuard({ reaction: 'throw', allow: [] }, console$.host);
 

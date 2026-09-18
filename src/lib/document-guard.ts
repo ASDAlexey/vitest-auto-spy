@@ -74,6 +74,15 @@ interface WatchedElement {
 export interface DocumentSnapshot {
   readonly watched: readonly WatchedElement[];
   readonly options: ResolvedDocumentPollution;
+  /**
+   * What `ignoreNodes` answered for each child, so the check does not ask again.
+   *
+   * The selector is matched per child per pass, and a `<head>` that collects stylesheets is where
+   * `nodes: true` is turned on in the first place — 1000 children cost 0.5 ms of `matches()` alone.
+   * An element's answer cannot change between the snapshot and the check of one test without the
+   * test rewriting the attribute the selector reads, which is not what a leftover looks like.
+   */
+  readonly ignored: WeakMap<Element, boolean>;
 }
 
 const QUOTED_VALUE_LENGTH = 80;
@@ -114,14 +123,38 @@ function readAttributes(element: Element, ignore: readonly (RegExp | string)[]):
   );
 }
 
-function readChildren(element: Element, options: ResolvedDocumentPollution): Element[] | undefined {
+function readChildren(element: Element, options: ResolvedDocumentPollution, ignored: WeakMap<Element, boolean>): Element[] | undefined {
   if (!options.nodes) {
     return undefined;
   }
 
   const ignore = options.ignoreNodes;
+  const children: Element[] = [];
 
-  return [...element.children].filter((child) => ignore === undefined || !child.matches(ignore));
+  // Walked rather than spread: jsdom's `children` is a live `HTMLCollection` that scans from the
+  // start on every index, so `[...head.children]` is quadratic — 3.2 ms for a `<head>` of 1000
+  // nodes against 36 µs for this walk, twice per test.
+  for (let child = element.firstElementChild; child; child = child.nextElementSibling) {
+    if (ignore === undefined || !isIgnoredNode(child, ignore, ignored)) {
+      children.push(child);
+    }
+  }
+
+  return children;
+}
+
+function isIgnoredNode(child: Element, ignore: string, ignored: WeakMap<Element, boolean>): boolean {
+  const remembered = ignored.get(child);
+
+  if (remembered !== undefined) {
+    return remembered;
+  }
+
+  const matched = child.matches(ignore);
+
+  ignored.set(child, matched);
+
+  return matched;
 }
 
 /**
@@ -135,8 +168,10 @@ export function snapshotDocument(
   options: ResolvedDocumentPollution,
   doc: Document | null | undefined = Reflect.get(globalThis, 'document'),
 ): DocumentSnapshot {
+  const ignored = new WeakMap<Element, boolean>();
+
   if (!doc) {
-    return { watched: [], options };
+    return { watched: [], options, ignored };
   }
 
   const candidates: [string, Element | null][] = [
@@ -146,11 +181,18 @@ export function snapshotDocument(
   ];
   const watched = candidates.flatMap(([label, element]): WatchedElement[] =>
     element
-      ? [{ label, element, attributes: readAttributes(element, options.ignoreAttributes), children: readChildren(element, options) }]
+      ? [
+          {
+            label,
+            element,
+            attributes: readAttributes(element, options.ignoreAttributes),
+            children: readChildren(element, options, ignored),
+          },
+        ]
       : [],
   );
 
-  return { watched, options };
+  return { watched, options, ignored };
 }
 
 function quote(value: string): string {
@@ -194,10 +236,15 @@ function describeElement(element: Element): string {
 }
 
 /** Take added children back out, put removed ones back in their order, and say what had moved. */
-function restoreChildren({ label, element, children }: WatchedElement, options: ResolvedDocumentPollution): string[] {
+function restoreChildren(
+  { label, element, children }: WatchedElement,
+  options: ResolvedDocumentPollution,
+  ignored: WeakMap<Element, boolean>,
+): string[] {
   const before = children ?? [];
-  const now = readChildren(element, options) ?? [];
-  const added = now.filter((child) => !before.includes(child));
+  const now = readChildren(element, options, ignored) ?? [];
+  const baseline = new Set(before);
+  const added = now.filter((child) => !baseline.has(child));
   const removed = before.filter((child) => child.parentNode !== element);
 
   added.forEach((child) => child.remove());
@@ -243,7 +290,7 @@ export function checkDocumentPollution(snapshot: DocumentSnapshot, scope: string
   const { options } = snapshot;
   const lines = snapshot.watched.flatMap((watched) => [
     ...restoreAttributes(watched, options.ignoreAttributes),
-    ...restoreChildren(watched, options),
+    ...restoreChildren(watched, options, snapshot.ignored),
   ]);
 
   if (lines.length === 0) {
@@ -283,10 +330,37 @@ export function fileScope(): string {
  *   document back and only reports it, `'off'` registers nothing — including the repair.
  */
 export function guardDocumentPollution(option: DocumentPollutionOptions | DocumentPollutionReaction): void {
+  const watch = watchDocumentPollution(option);
+
+  if (!watch) {
+    return;
+  }
+
+  beforeEach(() => {
+    const check = watch.open();
+
+    onTestFinished(check);
+  });
+}
+
+/** The per-test half of the guard, for a caller that already owns a `beforeEach` and an `onTestFinished`. */
+export interface DocumentWatch {
+  /** Take the snapshot; the returned check puts the document back and reports, and belongs in `onTestFinished`. */
+  open(): () => void;
+}
+
+/**
+ * Register the file-level check and hand back the per-test half.
+ *
+ * `setupAutoSpy` folds the check into the `onTestFinished` it registers anyway: the runner takes a
+ * stack for every registration (`withTimeout(handler, …, new Error(…))`), so a second one costs
+ * about 7 µs per test for a callback that runs in the same place as the first.
+ */
+export function watchDocumentPollution(option: DocumentPollutionOptions | DocumentPollutionReaction): DocumentWatch | undefined {
   const options = resolveDocumentPollution(option);
 
   if (options.reaction === 'off') {
-    return;
+    return undefined;
   }
 
   beforeAll(() => {
@@ -295,9 +369,11 @@ export function guardDocumentPollution(option: DocumentPollutionOptions | Docume
     return (): void => checkDocumentPollution(file, fileScope());
   });
 
-  beforeEach(() => {
-    const test = snapshotDocument(options);
+  return {
+    open: (): (() => void) => {
+      const test = snapshotDocument(options);
 
-    onTestFinished(() => checkDocumentPollution(test, testScope()));
-  });
+      return (): void => checkDocumentPollution(test, testScope());
+    },
+  };
 }

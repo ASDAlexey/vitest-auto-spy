@@ -18,11 +18,15 @@
  * same public API as the core. It pulls in `vitest` only — never `react` or
  * `@testing-library/react`, which stay the consumer's own (dev) dependencies.
  */
-import { registerMockAdapter } from './lib/mock-adapter';
+import { hasMockAdapter, registerMockAdapter } from './lib/mock-adapter';
 import { vitestMockAdapter } from './lib/vitest-adapter';
 
 // This entry may be imported on its own (without the core `vitest-auto-spy`
 // import), so register the default Vitest adapter here too — same as `angular.ts`.
-registerMockAdapter(vitestMockAdapter);
+// Only when nothing else has: `import 'vitest-auto-spy/bun'` followed by this
+// entry used to leave the Bun suite building Vitest mocks.
+if (!hasMockAdapter()) {
+  registerMockAdapter(vitestMockAdapter);
+}
 
 export * from './auto-spy';

@@ -87,6 +87,50 @@ describe('vitest-auto-spy/console', () => {
     expect(vi.isMockFunction(console.warn)).toBe(false);
   });
 
+  it('never takes another copy of itself for the real console method', () => {
+    // What `vi.resetModules()` leaves behind: the spy of the previous copy of this module is still
+    // on `console`, and the new copy has empty maps. Recording that spy as "the original" made
+    // `restoreConsole()` install a function nothing can reach — every log of the rest of the worker
+    // swallowed. The mark is a `Symbol.for`, so the copies recognise each other's spies.
+    const real = installConsoleSpies() && console.log;
+
+    restoreConsole();
+
+    const realLog = console.log;
+    const orphan = (): void => undefined;
+
+    Object.defineProperty(orphan, Symbol.for('vitest-auto-spy.console-spy'), { value: true });
+    console.log = orphan;
+
+    installConsoleSpies();
+
+    expect(console.log).not.toBe(orphan);
+
+    restoreConsole();
+
+    expect(console.log).toBe(realLog);
+    expect(vi.isMockFunction(real)).toBe(true);
+  });
+
+  it('keeps the orphan as the original where the shared registry has nothing to offer', () => {
+    restoreConsole();
+
+    const realLog = console.log;
+    const orphan = (): void => undefined;
+
+    Object.defineProperty(orphan, Symbol.for('vitest-auto-spy.console-spy'), { value: true });
+    Reflect.set(globalThis, '__vitestAutoSpyConsoleOriginals__', undefined);
+    console.log = orphan;
+
+    installConsoleSpies();
+    restoreConsole();
+
+    // Nothing better is on offer: the registry was emptied, so the orphan is what goes back — and
+    // the real method is put back here so the rest of the file is not left with it.
+    expect(console.log).toBe(orphan);
+    console.log = realLog;
+  });
+
   it('builds the spies without installing them when the stray-console guard owns the console', () => {
     Reflect.set(globalThis, '__vitestAutoSpyStrayConsole__', { host: console });
 

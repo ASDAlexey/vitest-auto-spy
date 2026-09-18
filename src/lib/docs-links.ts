@@ -29,6 +29,9 @@ export const DOCS_LINKS = {
   eventLoop: `${DOCS}/utilities/event-loop`,
   fakeTimers: `${DOCS}/utilities/fake-timers`,
   installation: `${DOCS}/core/installation`,
+  // The migration guide, not an adapter page: everything that reports through this link is a jasmine
+  // idiom that has no exact counterpart here, and that page is where the counterparts are listed.
+  jasmine: `${DOCS}/migrating-jasmine`,
   mediaElement: `${DOCS}/utilities/media-element`,
   moduleMocks: `${DOCS}/utilities/module-mocks`,
   nestjs: `${DOCS}/adapters/nestjs`,

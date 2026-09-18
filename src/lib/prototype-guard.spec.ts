@@ -4,7 +4,7 @@
  * for a second reason — a key on the real `Object.prototype` is exactly what stops a worker from
  * collecting, and a suite proving that must not be the one that causes it.
  */
-import { describe, expect, it, vi } from 'vitest';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { mockValueProp } from './prop-mock';
 import { type PrototypeSnapshot, checkPrototypePollution, guardPrototypePollution, snapshotPrototypes } from './prototype-guard';
@@ -162,6 +162,31 @@ describe('guardPrototypePollution, wired into the run', () => {
 
     expect(Object.keys(Object.prototype)).toEqual([]);
     expect(warnings).toHaveLength(1);
+    expect(String(warnings[0]?.[0])).toMatch(/left "ngOnDestroy" on Object\.prototype/);
+  });
+});
+
+describe('guardPrototypePollution, against a write made in beforeAll', () => {
+  guardPrototypePollution('warn');
+
+  const warnings: unknown[][] = [];
+
+  beforeAll(() => {
+    // Recorded as "what the environment had" while the baseline was taken in the first `beforeEach`,
+    // so this leak used to be invisible to the standalone entry point.
+    Object.assign(Object.prototype, { [LEAKED]: () => undefined });
+  });
+
+  it('reports it against the first test of the file', () => {
+    vi.spyOn(console, 'warn').mockImplementation((...args: unknown[]) => {
+      warnings.push(args);
+    });
+  });
+
+  it('has taken the key off again', () => {
+    vi.mocked(console.warn).mockRestore();
+
+    expect(Object.keys(Object.prototype)).toEqual([]);
     expect(String(warnings[0]?.[0])).toMatch(/left "ngOnDestroy" on Object\.prototype/);
   });
 });

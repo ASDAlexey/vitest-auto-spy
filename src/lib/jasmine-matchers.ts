@@ -89,15 +89,36 @@ function isEmpty(value: unknown): boolean {
   return false;
 }
 
-/** Whether every entry of `sample` appears in `received`, comparing values with the runner's equality. */
+/**
+ * Whether every entry of `sample` appears in `received`, comparing keys and values with the runner's
+ * equality.
+ *
+ * The key is compared, not looked up. jasmine's `MapContaining` searches the other map for a pair
+ * whose key *and* value both match, which is what makes `jasmine.any(String)` and an object key with
+ * deep equality work there — a `Map.has` answers on reference identity and misses both. The lookup
+ * stays as the fast path for the ordinary case, where the sample key is in the map as it stands.
+ */
 function mapContains(received: Map<unknown, unknown>, sample: Map<unknown, unknown>, equals: Equals): boolean {
   for (const [key, value] of sample) {
-    if (!received.has(key) || !equals(received.get(key), value)) {
+    const direct = received.has(key) && equals(received.get(key), value);
+
+    if (!direct && !hasMatchingEntry(received, key, value, equals)) {
       return false;
     }
   }
 
   return true;
+}
+
+/** Whether any entry of `received` matches the pair by equality — the slow half of {@link mapContains}. */
+function hasMatchingEntry(received: Map<unknown, unknown>, key: unknown, value: unknown, equals: Equals): boolean {
+  for (const [theirKey, theirValue] of received) {
+    if (equals(theirKey, key) && equals(theirValue, value)) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 /** Whether every member of `sample` appears in `received` — by equality, not by reference. */

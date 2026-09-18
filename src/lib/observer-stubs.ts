@@ -37,6 +37,15 @@ export interface ObserverInstance<TEntry, TTarget = unknown> {
    * per unique root margin"), and without this the only thing a spec can count is constructions.
    */
   readonly options: unknown;
+  /**
+   * The object the code under test holds: what `new IntersectionObserver(…)` returned, and what its
+   * callback is handed as the second argument.
+   *
+   * Production code reaches for it — `(entries, observer) => { observer.disconnect(); }`,
+   * `if (observer !== this.observer) return;` — so a spec that needs to compare against what the
+   * component kept compares against this.
+   */
+  readonly host: object;
   /** Everything passed to `observe`, in order, including repeats. */
   readonly targets: TTarget[];
   /** The spy behind `observe` — for asserting *that* something was observed, and with what options. */
@@ -95,12 +104,14 @@ function createInstance<TEntry, TTarget>(
   callback: (entries: TEntry[], observer: unknown) => void,
   options: unknown,
   autoEmit: ((target: TTarget) => TEntry) | undefined,
+  host: object,
 ): MutableInstance<TEntry, TTarget> {
   const adapter = getMockAdapter();
   const targets: TTarget[] = [];
 
   const instance: MutableInstance<TEntry, TTarget> = {
     options,
+    host,
     targets,
     disconnected: false,
     observe: adapter.createMockFn((target: TTarget) => {
@@ -110,7 +121,7 @@ function createInstance<TEntry, TTarget>(
         // Synchronously, from inside `observe` — the browser does deliver a first record for an
         // already-visible target, and the ported suites depend on it having happened by the time
         // `observe()` returns.
-        callback([autoEmit(target)], instance);
+        callback([autoEmit(target)], host);
       }
     }, 'observe'),
     unobserve: adapter.createMockFn((target: TTarget) => {
@@ -125,7 +136,10 @@ function createInstance<TEntry, TTarget>(
       targets.length = 0;
     }, 'disconnect'),
     emit(entries: TEntry[]): void {
-      callback(entries, instance);
+      // The host, not this record: the callback's second argument is the observer the code under
+      // test constructed and keeps, and it calls `takeRecords()` / `disconnect()` on it or compares
+      // it with the one it holds.
+      callback(entries, host);
     },
   };
 
@@ -155,12 +169,21 @@ export function stubObserver<TEntry, TTarget = unknown>(
   const instances: MutableInstance<TEntry, TTarget>[] = [];
 
   class StubObserver {
-    readonly root = null;
-    readonly rootMargin = '';
-    readonly thresholds: readonly number[] = [];
+    // Read back off the init, as the platform does: a directive that builds one observer per root
+    // margin asserts on `observer.rootMargin`, and a blank string said it had none.
+    readonly root: unknown;
+    readonly rootMargin: string;
+    readonly thresholds: readonly number[];
 
     constructor(callback: (entries: TEntry[], observer: unknown) => void, init?: unknown) {
-      const instance = createInstance<TEntry, TTarget>(callback, init, options.autoEmit);
+      const config: object = Object(init);
+      const threshold: unknown = Reflect.get(config, 'threshold');
+
+      this.root = Reflect.get(config, 'root') ?? null;
+      this.rootMargin = String(Reflect.get(config, 'rootMargin') ?? '0px 0px 0px 0px');
+      this.thresholds = Array.isArray(threshold) ? [...threshold] : [Number(threshold ?? 0)];
+
+      const instance = createInstance<TEntry, TTarget>(callback, init, options.autoEmit, this);
 
       instances.push(instance);
 

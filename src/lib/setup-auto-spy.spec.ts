@@ -8,23 +8,26 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest
 import '../index';
 import { resetAngularBuildNotice } from './angular-build-notice';
 import { createSpyFromClass } from './create-spy-from-class';
+import { abandonEmissionWaits, registerEmissionWait } from './emission-timeout';
 import { takeStrictViolations } from './function-spy';
 import { captureMockRegistry, getMockRegistrySize, resetMockRegistryTracking } from './mock-registry';
 import { getPackageCopies, registerPackageCopy, resetPackageCopies } from './package-identity';
 import { countMockedProps, mockValueProp, restoreMockedProps } from './prop-mock';
+import { snapshotPrototypes } from './prototype-guard';
 import {
   annotateFrozenClockTimeouts,
   annotateTimedOutHooks,
   applyPreset,
   describeStrayRejections,
+  reportPrototypeLeftovers,
   reportStrayRejections,
   reportStrayTimers,
   reportSwallowedStrictCalls,
   reportedErrors,
-  runTeardown,
   setupAutoSpy,
   warnAboutSuppressedLeaks,
 } from './setup-auto-spy';
+import { createTeardownLedger, noticeConcurrentTest, resetConcurrencyNotice, runTeardown } from './setup-teardown';
 import { type StrayRejection, flushStrayRejections } from './stray-rejections';
 import { countStrayTimers, trackStrayTimers } from './stray-timers';
 
@@ -1045,5 +1048,157 @@ describe('preset: "strict", wired', () => {
 
   it('fails a misconfigured double at the call site', () => {
     expect(misconfigured).toThrow(/returns names 'clear'/);
+  });
+});
+
+/**
+ * The key an earlier file left on a built-in prototype.
+ *
+ * The write itself happens where no hook can see it — while a file is imported, while it is
+ * collected, or in an `afterAll` — and the file that pays for it is the next one, which dies during
+ * collection with no stack. A setup file runs before that collection, which is the seam the check
+ * stands in; it is driven here against a stand-in prototype, because a key that will not delete off
+ * the real `Object.prototype` would take the rest of the worker down with it.
+ */
+describe('a prototype key left behind by a file that has already finished', () => {
+  const written: string[] = [];
+  const write = (message: string): void => {
+    written.push(message);
+  };
+  let stand: Record<string, unknown>;
+
+  beforeEach(() => {
+    written.length = 0;
+    stand = {};
+    globalThis.__vitestAutoSpyPrototypeBaseline__ = snapshotPrototypes([{ name: 'Stand.prototype', object: stand }]);
+  });
+
+  afterEach(() => {
+    // Back to the worker's own baseline, which the next `setupAutoSpy()` in this file compares against.
+    globalThis.__vitestAutoSpyPrototypeBaseline__ = undefined;
+  });
+
+  it('says nothing when every prototype is as the worker found it', () => {
+    reportPrototypeLeftovers(write);
+
+    expect(written).toEqual([]);
+  });
+
+  it('takes the key off and names what it was, without failing the file about to run', () => {
+    stand['leakedFromEarlierFile'] = 1;
+
+    expect(() => reportPrototypeLeftovers(write)).not.toThrow();
+    expect('leakedFromEarlierFile' in stand).toBe(false);
+    expect(written.join('\n')).toMatch(/"leakedFromEarlierFile" was left on Stand\.prototype[\s\S]*already finished/);
+  });
+
+  it('adopts a key it cannot delete, so the next file is not told about it again', () => {
+    Object.defineProperty(stand, 'sealedLeftover', { value: 1, enumerable: true, configurable: false });
+
+    reportPrototypeLeftovers(write);
+    reportPrototypeLeftovers(write);
+
+    expect(written).toHaveLength(1);
+  });
+
+  it('writes to stderr by default, since there is no task to attribute a console line to', () => {
+    const stderr = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+
+    stand['leakedFromEarlierFile'] = 1;
+    reportPrototypeLeftovers();
+
+    expect(stderr).toHaveBeenCalledWith(expect.stringContaining('leakedFromEarlierFile'));
+    stderr.mockRestore();
+  });
+});
+
+describe('the ledger the teardown net reads', () => {
+  it('answers per test, so a concurrent neighbour cannot clear the other flag', () => {
+    const ledger = createTeardownLedger();
+    const first = { task: { name: 'first' } };
+    const second = { task: { name: 'second' } };
+
+    ledger.begin(first);
+    ledger.begin(second);
+    ledger.done(second);
+
+    expect(ledger.ran(second)).toBe(true);
+    expect(ledger.ran(first)).toBe(false);
+  });
+
+  it('falls back to a single flag where the runner hands a context with no task', () => {
+    const ledger = createTeardownLedger();
+
+    ledger.begin(undefined);
+    expect(ledger.ran(undefined)).toBe(false);
+
+    ledger.done(undefined);
+    expect(ledger.ran(undefined)).toBe(true);
+
+    ledger.begin(undefined);
+    expect(ledger.ran(undefined)).toBe(false);
+  });
+});
+
+describe('the notice a concurrent test earns', () => {
+  const written: string[] = [];
+  const write = (message: string): void => {
+    written.push(message);
+  };
+
+  beforeEach(() => {
+    written.length = 0;
+    resetConcurrencyNotice();
+  });
+
+  afterAll(resetConcurrencyNotice);
+
+  it('says nothing for an ordinary test', () => {
+    noticeConcurrentTest({ task: { concurrent: false } }, write);
+    noticeConcurrentTest(undefined, write);
+
+    expect(written).toEqual([]);
+  });
+
+  it('says once per worker what the per-test guards cannot promise', () => {
+    noticeConcurrentTest({ task: { concurrent: true } }, write);
+    noticeConcurrentTest({ task: { concurrent: true } }, write);
+
+    expect(written).toHaveLength(1);
+    expect(written[0]).toMatch(/test\.concurrent[\s\S]*assume one test at a time/);
+  });
+});
+
+/**
+ * An emission helper registers a wait for as long as it holds a subscription, and a dropped promise
+ * leaves it registered: the test passed without the assertion it was written around, and the
+ * subscription outlives it.
+ */
+describe('an emission wait nobody awaited', () => {
+  setupAutoSpy({ duplicateCopies: 'off' });
+
+  const warnings: string[] = [];
+  let abandoned = 0;
+
+  it('is left alone while the test that opened it runs', () => {
+    vi.spyOn(console, 'warn').mockImplementation((message: unknown) => {
+      warnings.push(String(message));
+    });
+    registerEmissionWait({
+      describe: 'the price stream',
+      abandon: () => {
+        abandoned += 1;
+      },
+    });
+
+    expect(abandoned).toBe(0);
+  });
+
+  it('is torn down by the next test, which is told what it was waiting for', () => {
+    vi.restoreAllMocks();
+
+    expect(abandoned).toBe(1);
+    expect(warnings.join('\n')).toContain('1 emission helper(s) were never awaited in this test (the price stream)');
+    expect(abandonEmissionWaits()).toEqual([]);
   });
 });

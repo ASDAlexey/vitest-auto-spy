@@ -16,6 +16,7 @@
  * cost that shows up in the benchmark suite — so a spy that is never configured through `.and` pays
  * one property definition and allocates nothing.
  */
+import { DOCS_LINKS, withDocs } from './docs-links';
 import type { JasmineSpyHooks } from './jasmine-support';
 import { getMockAdapter } from './mock-adapter';
 import type { MockFn } from './mock-adapter';
@@ -243,22 +244,66 @@ function defineNamespace(spy: MockFn, name: string, build: () => Record<string, 
  * *spy*, so `expect(spy.withArgs(1)).toHaveBeenCalled()` is legal jasmine and has no counterpart
  * here. Assert on the spy itself with `toHaveBeenCalledWith(1)` instead.
  */
-function buildWithArgsChain(chain: CalledWithChain): { and: Record<string, unknown> } {
+/**
+ * Exported as well as used: a chain with no promise helper on it — the fallback path of `resolveTo` —
+ * cannot be produced through a real spy, since `createFunctionSpy` attaches those to every chain.
+ */
+export function buildWithArgsChain(chain: CalledWithChain, name: string): { and: Record<string, unknown> } {
   // Both spellings of the same terminal, because both are in use: `returnValue` is what a jasmine
   // suite types, `mockReturnValue` is what the rest of this library types.
   const and: Record<string, unknown> = {
     returnValue: chain.returnValue.bind(chain),
     mockReturnValue: chain.returnValue.bind(chain),
+    stub: (): void => chain.returnValue(undefined),
+    throwError: (value: unknown, message?: string): void => chain.failWith(toThrownError(value, message)),
+    resolveTo: (value?: unknown): void => {
+      const resolveWith: unknown = Reflect.get(chain, 'resolveWith');
+
+      if (typeof resolveWith === 'function') {
+        Reflect.apply(resolveWith, chain, [value]);
+
+        return;
+      }
+
+      chain.returnValue(Promise.resolve(value));
+    },
   };
+
+  UNSUPPORTED_WITH_ARGS.forEach((strategy) => {
+    and[strategy] = (): never => {
+      throw new Error(unsupportedWithArgsMessage(name, strategy));
+    };
+  });
 
   delegateHelpers(and, chain);
 
   return { and };
 }
 
-/** What `calledWith(…)` hands back — `returnValue` is always on it, the async helpers only sometimes. */
+/**
+ * The three jasmine strategies that have no argument-scoped form here.
+ *
+ * Each of them installs an *implementation*, and an implementation answers every call whatever its
+ * arguments — so "run this fake, but only for these arguments" has nothing to install into. They are
+ * present and throw rather than being absent: a migrated spec that reaches one otherwise fails with
+ * `… is not a function` at the configuration line and says nothing about what to write instead.
+ */
+const UNSUPPORTED_WITH_ARGS = ['callFake', 'callThrough', 'returnValues'] as const;
+
+function unsupportedWithArgsMessage(name: string, strategy: string): string {
+  return withDocs(
+    `[vitest-auto-spy] ${name}.withArgs(…).and.${strategy}() is not supported: it installs an implementation, and an ` +
+      'implementation answers every call rather than one argument list. Configure the value for these arguments — ' +
+      '`.withArgs(…).and.returnValue(v)`, `.throwError(e)`, `.resolveTo(v)` — or take the whole spy with ' +
+      `\`${name}.and.${strategy}(…)\`, which is what jasmine's own strategy does to every call anyway.`,
+    DOCS_LINKS.jasmine,
+  );
+}
+
+/** What `calledWith(…)` hands back — `returnValue` and `failWith` are always on it, the async helpers only sometimes. */
 interface CalledWithChain {
   returnValue(value: unknown): void;
+  failWith(error?: unknown): void;
 }
 
 /** The half of an assembled function spy this module talks to, beyond the bare callable. */
@@ -283,7 +328,8 @@ export function addJasmineNamespacesToFunctionSpy(spy: MockFn, hooks: JasmineSpy
   defineNamespace(spy, 'calls', () => buildCalls(spy));
 
   Object.defineProperty(spy, 'withArgs', {
-    value: (...args: unknown[]): { and: Record<string, unknown> } => buildWithArgsChain(asLibrarySpy(spy).calledWith(...args)),
+    value: (...args: unknown[]): { and: Record<string, unknown> } =>
+      buildWithArgsChain(asLibrarySpy(spy).calledWith(...args), hooks.name || 'spy'),
     enumerable: false,
     configurable: true,
     writable: true,

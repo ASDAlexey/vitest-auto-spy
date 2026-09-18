@@ -6,8 +6,14 @@
  */
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
 
-import { createFunctionSpy, createSpyFromClass, createSpyObj, jasmine, provideAutoSpy } from './jasmine';
+import { type JasmineMethodSpy, createFunctionSpy, createSpyFromClass, createSpyObj, jasmine, provideAutoSpy } from './jasmine';
 import { resetJasmineSupport } from './lib/jasmine-support';
+import type { Func } from './lib/types';
+
+/** The accessor spies of a `createSpyObj` property, seen through the descriptor the platform hands back. */
+function asJasmineSpy(accessor: unknown): JasmineMethodSpy<Func> {
+  return accessor as JasmineMethodSpy<Func>;
+}
 
 class AccountService {
   get owner(): string {
@@ -122,7 +128,7 @@ describe('vitest-auto-spy/jasmine', () => {
       expect(store.load.and.identity).toBe('load');
     });
 
-    it('seeds plain properties from the third argument, in both of its shapes', () => {
+    it('seeds properties from the third argument, in both of its shapes', () => {
       const user = createSpyObj('user', ['save'], { id: 7 });
       const flags = createSpyObj('flags', ['read'], ['enabled']);
       const bare = createSpyObj(['read'], { region: 'eu' });
@@ -131,6 +137,24 @@ describe('vitest-auto-spy/jasmine', () => {
       expect(flags.enabled).toBeUndefined();
       expect(bare.region).toBe('eu');
       expect(typeof user.save).toBe('function');
+    });
+
+    it('spies the seeded properties, as jasmine does, so the descriptor can re-answer them', () => {
+      const user = createSpyObj('user', ['save'], { id: 7 });
+      const descriptor = Object.getOwnPropertyDescriptor(user, 'id');
+      const getter = descriptor?.get;
+      const setter = descriptor?.set;
+
+      expect(getter).toBeTypeOf('function');
+      expect(setter).toBeTypeOf('function');
+
+      // The documented way to drive a `createSpyObj` property: the spies are reached through the
+      // descriptor, exactly as in jasmine, which hands back no reference to them either.
+      asJasmineSpy(getter).and.returnValue(9);
+      user.id = 11;
+
+      expect(user.id).toBe(9);
+      expect(setter).toHaveBeenCalledWith(11);
     });
 
     it('builds an object of properties alone, with no methods', () => {

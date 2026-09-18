@@ -11,6 +11,7 @@
  * runs under Vitest against fakes, and lets a consumer supply its own DOM in the same shape.
  */
 import { DOCS_LINKS, withDocs } from './docs-links';
+import { libraryWarn } from './guard-reaction';
 
 /** A named strategy that installs browser globals, or throws if its implementation is missing. */
 export interface DomRegistrar {
@@ -130,8 +131,7 @@ export function copyWindowGlobals(source: Record<string, unknown>, target: Recor
     return;
   }
 
-  // eslint-disable-next-line no-console -- intentional dev-time environment warning; console.warn is allowed per CLAUDE.md.
-  console.warn(
+  libraryWarn(
     withDocs(
       `[vitest-auto-spy] copyWindowGlobals: the host refused to redefine ${refused.join(', ')}. The DOM is only ` +
         `half-installed, and the failure will arrive later as "document is not defined" or an unrelated jsdom ` +

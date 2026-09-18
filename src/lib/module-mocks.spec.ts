@@ -74,6 +74,16 @@ describe('moduleNamespace', () => {
     expect(namespace.__esModule).toBe(true);
   });
 
+  it('keeps a default the factory spelled out, which is the module shape that fails without it', () => {
+    const stub = vi.fn(() => 'formatted');
+    const namespace = moduleNamespace({ default: stub, isDayjs: vi.fn() });
+
+    // `vi.mock('dayjs', () => moduleNamespace({ default: dayjsStub }))`: the dependency probes
+    // `mod.default ?? mod` and used to be handed the namespace object, so `default(…)` threw.
+    expect(namespace.default).toBe(stub);
+    expect(namespace.default()).toBe('formatted');
+  });
+
   it('leaves an unknown export absent by default, so a drifted factory is caught', () => {
     const namespace = moduleNamespace({ Player: vi.fn() });
 

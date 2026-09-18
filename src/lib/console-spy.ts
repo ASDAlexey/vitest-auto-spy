@@ -48,6 +48,23 @@ declare global {
   // A `globalThis` augmentation has to be declared with `var`.
   var __vitestAutoSpyResetConsoleSpies__: (() => void) | undefined;
   var __vitestAutoSpyDetachConsoleSpies__: (() => void) | undefined;
+  /**
+   * The real console methods, shared by every copy of this module in the worker.
+   *
+   * `vi.resetModules()` gives the next import a fresh copy of this module with empty maps, while the
+   * spies of the previous copy are still on `console`. That copy then recorded a spy nobody can reach
+   * any more as "the original", and `restoreConsole()` put that dead spy back on `console` for good —
+   * every log of the rest of the worker swallowed, and every assertion against a spy that is not the
+   * installed one failing. The real methods are remembered here instead, where a new copy finds them.
+   */
+  var __vitestAutoSpyConsoleOriginals__: Map<string, Func> | undefined;
+}
+
+/** Marks a function as a console spy of *some* copy of this module — `Symbol.for`, so the copies agree. */
+const CONSOLE_SPY_MARK = Symbol.for('vitest-auto-spy.console-spy');
+
+function sharedOriginals(): Map<string, Func> {
+  return (globalThis.__vitestAutoSpyConsoleOriginals__ ??= new Map());
 }
 
 // The originals are kept as the loose `Func`: the global `console` methods are
@@ -69,9 +86,31 @@ function setConsoleMethod(method: SpiedConsoleMethod, implementation: Func): voi
 function createMethodSpy(method: SpiedConsoleMethod): ConsoleMethodSpy {
   const spy = createFunctionSpy<ConsoleMethodFn>(`console.${method}`);
 
+  Object.defineProperty(spy, CONSOLE_SPY_MARK, { value: true });
   activeSpies.set(method, spy);
 
   return spy;
+}
+
+/**
+ * What `console[method]` was before any copy of this module touched it.
+ *
+ * A spy of another copy is never taken for the original: after `vi.resetModules()` it is exactly
+ * what sits on `console`, and putting it back at the end of the test would install a dead function.
+ */
+function realConsoleMethod(method: SpiedConsoleMethod): Func {
+  const current = getConsoleMethod(method);
+  const shared = sharedOriginals();
+
+  if (Reflect.get(current, CONSOLE_SPY_MARK) === true) {
+    return shared.get(method) ?? current;
+  }
+
+  if (!shared.has(method)) {
+    shared.set(method, current);
+  }
+
+  return current;
 }
 
 function createConsoleSpies(): ConsoleSpies {
@@ -100,7 +139,7 @@ function createConsoleSpies(): ConsoleSpies {
 function mountConsoleSpies(): void {
   for (const [method, spy] of activeSpies) {
     if (getConsoleMethod(method) !== spy) {
-      originalMethods.set(method, getConsoleMethod(method));
+      originalMethods.set(method, realConsoleMethod(method));
       setConsoleMethod(method, spy);
     }
   }

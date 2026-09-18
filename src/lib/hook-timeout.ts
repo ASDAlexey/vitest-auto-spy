@@ -41,9 +41,11 @@ export interface RunnerTimeouts {
 
 /**
  * `Hook timed out in <n>ms.` — the runner's own wording, and the only thing that identifies the
- * failure as a timeout rather than a throw from inside the hook.
+ * failure as a timeout rather than a throw from inside the hook. Vitest 5 can put
+ * ` while waiting for <operations>` before the full stop, so the limit is read rather than the
+ * shape of the whole sentence.
  */
-const HOOK_TIMEOUT_MESSAGE = /^Hook timed out in (\d+)ms\./;
+const HOOK_TIMEOUT_MESSAGE = /^Hook timed out in (\d+)ms(?: while waiting for [^\n]*?)?\./;
 
 /** Marks a message this module has already extended, so a second pass cannot append twice. */
 const HINT_MARKER = '[vitest-auto-spy] hookTimeout';

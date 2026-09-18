@@ -2,6 +2,7 @@
  * On `globalThis`: the core, `/angular` and `/setup` are separate bundles, and the grade `setupAutoSpy`
  * sets has to reach the factories every one of them carries.
  */
+import { libraryWarn } from './guard-reaction';
 
 /** How the library reports a configuration of its own API that cannot do what it says. */
 export type MisconfigurationReaction = 'throw' | 'warn';
@@ -27,6 +28,7 @@ export function reportMisconfiguration(message: string): void {
     throw new Error(message);
   }
 
-  // eslint-disable-next-line no-console -- the `'warn'` grade is the dev-time warning channel this library has always used.
-  console.warn(message);
+  // Through the library's own channel: `strayConsole` watches `console.warn`, and a report printed
+  // there failed the test it was advising — see {@link libraryWarn}.
+  libraryWarn(message);
 }

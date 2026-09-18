@@ -46,6 +46,53 @@ describe('stubObserver', () => {
     expect(observers.last.observe).toHaveBeenCalledWith(element);
   });
 
+  it("hands the callback the observer the code under test holds, with the platform's own members on it", () => {
+    const observers = stubIntersectionObserver();
+    let seen: IntersectionObserver | undefined;
+
+    const observer = new IntersectionObserver((_entries, self) => {
+      seen = self;
+    });
+
+    observer.observe(document.createElement('div'));
+    observers.last.emit([]);
+
+    // Production code compares the argument with the instance it kept, and calls `takeRecords()` /
+    // `disconnect()` on it — an internal record has neither, and `observer === this.observer` was false.
+    expect(seen).toBe(observer);
+    expect(observers.last.host).toBe(observer);
+    expect(seen?.takeRecords()).toEqual([]);
+  });
+
+  it('reports the root, root margin and thresholds it was constructed with', () => {
+    stubIntersectionObserver();
+
+    const observer = new IntersectionObserver(() => undefined, { rootMargin: '50px 0px', threshold: [0, 0.5] });
+    const bare = new IntersectionObserver(() => undefined);
+    const single = new IntersectionObserver(() => undefined, { threshold: 0.25 });
+
+    expect(observer.rootMargin).toBe('50px 0px');
+    expect(observer.thresholds).toEqual([0, 0.5]);
+    expect(observer.root).toBeNull();
+    expect(bare.rootMargin).toBe('0px 0px 0px 0px');
+    expect(bare.thresholds).toEqual([0]);
+    expect(single.thresholds).toEqual([0.25]);
+  });
+
+  it('hands the same observer to an auto-emitted first record', () => {
+    const observers = stubIntersectionObserver({ autoEmit: true });
+    let seen: unknown;
+
+    const observer = new IntersectionObserver((_entries, self) => {
+      seen = self;
+    });
+
+    observer.observe(document.createElement('div'));
+
+    expect(seen).toBe(observer);
+    expect(observers.last.targets).toHaveLength(1);
+  });
+
   it('drives the callback the code under test passed in', () => {
     const observers = stubIntersectionObserver();
     const directive = new RevealDirective();

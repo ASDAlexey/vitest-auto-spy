@@ -26,7 +26,7 @@ export interface GlobalSnapshot {
   /** The name used in the report — `document`, `navigator`, `globalThis`. */
   name: string;
   object: object;
-  names: Set<string>;
+  names: Set<PropertyKey>;
 }
 
 /** An object the guard would watch, before it is known whether this environment has it. */
@@ -35,7 +35,18 @@ export interface WatchedCandidate {
   object: unknown;
 }
 
-/** The three objects a spec means when it says "a global". */
+/**
+ * The DOM prototypes a Jest-era stub is written against.
+ *
+ * `Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { value: vi.fn() })` is the
+ * canonical one — jsdom implements none of these members, so the patch defines a *new* property, and
+ * with `configurable` defaulting to `false` no later file can redefine it: `mockValueProp` then fails
+ * with `Cannot redefine property`, in a file that never touched it. They are cheap to watch, too: a
+ * prototype carries tens of own names where `globalThis` carries several hundred.
+ */
+const WATCHED_PROTOTYPES = ['Element', 'HTMLElement', 'HTMLCanvasElement', 'HTMLMediaElement', 'Node', 'EventTarget'] as const;
+
+/** The objects a spec means when it says "a global", plus the prototypes it patches instead. */
 function watchedCandidates(): WatchedCandidate[] {
   return [
     { name: 'globalThis', object: globalThis },
@@ -43,12 +54,17 @@ function watchedCandidates(): WatchedCandidate[] {
     // the setup entry loads this module whatever environment a project runs in.
     { name: 'document', object: Reflect.get(globalThis, 'document') },
     { name: 'navigator', object: Reflect.get(globalThis, 'navigator') },
+    { name: 'location', object: Reflect.get(globalThis, 'location') },
+    { name: 'screen', object: Reflect.get(globalThis, 'screen') },
+    ...WATCHED_PROTOTYPES.map((name) => ({
+      name: `${name}.prototype`,
+      object: Reflect.get(Object(Reflect.get(globalThis, name)), 'prototype'),
+    })),
   ];
 }
 
 /**
- * Record what `globalThis`, `document` and `navigator` own right now, skipping the ones this
- * environment does not have.
+ * Record what each watched object owns right now, skipping the ones this environment does not have.
  *
  * Exported — and taking the candidates as a parameter — for this module's own spec: the detection
  * is worth testing directly, because the only other way to reach it is through a hook that fails
@@ -56,13 +72,13 @@ function watchedCandidates(): WatchedCandidate[] {
  */
 export function snapshotWatchedGlobals(candidates: readonly WatchedCandidate[] = watchedCandidates()): GlobalSnapshot[] {
   return candidates.flatMap(({ name, object }) =>
-    typeof object === 'object' && object !== null ? [{ name, object, names: new Set(Object.getOwnPropertyNames(object)) }] : [],
+    typeof object === 'object' && object !== null ? [{ name, object, names: new Set(Reflect.ownKeys(object)) }] : [],
   );
 }
 
 /** Whether an own property of `object` was defined so that nothing can ever redefine or delete it. */
-function isSealed(object: object, name: string): boolean {
-  // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- `name` was read off `getOwnPropertyNames(object)` in the same synchronous call, so the `undefined` this signature allows for cannot happen; a runtime fallback for it would be a branch no test could reach, and the coverage gate here is 100%.
+function isSealed(object: object, name: PropertyKey): boolean {
+  // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- `name` was read off `Reflect.ownKeys(object)` in the same synchronous call, so the `undefined` this signature allows for cannot happen; a runtime fallback for it would be a branch no test could reach, and the coverage gate here is 100%.
   const descriptor = Object.getOwnPropertyDescriptor(object, name) as PropertyDescriptor;
 
   return !descriptor.configurable;
@@ -71,7 +87,7 @@ function isSealed(object: object, name: string): boolean {
 /**
  * Names that appeared since the snapshot and were defined as non-configurable — the irreversible ones.
  *
- * Names, not descriptors: `getOwnPropertyDescriptors(globalThis)` materialises ~950 descriptor
+ * Keys, not descriptors: `getOwnPropertyDescriptors(globalThis)` materialises ~950 descriptor
  * objects, and it would do so after every test to find the addition that virtually never happens.
  * A descriptor is read for the handful of names that are new, and for nothing else.
  *
@@ -79,8 +95,8 @@ function isSealed(object: object, name: string): boolean {
  * the work is the same either way, and this way a leftover is reported once — against the file that
  * added it — instead of against every test that follows it.
  */
-function sealedAdditions({ object, names }: GlobalSnapshot): string[] {
-  const current = Object.getOwnPropertyNames(object);
+function sealedAdditions({ object, names }: GlobalSnapshot): PropertyKey[] {
+  const current = Reflect.ownKeys(object);
   const added = current.filter((name) => !names.has(name));
 
   // `added` is exactly what `current` has and the snapshot does not, so the counts can only
@@ -95,14 +111,14 @@ function sealedAdditions({ object, names }: GlobalSnapshot): string[] {
   return added.filter((name) => isSealed(object, name));
 }
 
-function report({ name }: GlobalSnapshot, added: string[]): string {
+function report({ name }: GlobalSnapshot, added: PropertyKey[]): string {
   const testPath = expect.getState().testPath ?? 'this file';
 
   return withDocs(
-    `[vitest-auto-spy] ${testPath} redefined ${added.map((property) => `${name}.${property}`).join(', ')} as a non-configurable ` +
+    `[vitest-auto-spy] ${testPath} redefined ${added.map((property) => `${name}.${String(property)}`).join(', ')} as a non-configurable ` +
       'own property, so nothing can put it back — not `restoreMockedProps()`, not `vi.unstubAllGlobals()`, not the next ' +
       "file's own `Object.defineProperty`. `Object.defineProperty` defaults `configurable` to `false`; use " +
-      `\`mockValueProp(${name}, '${added[0]}', value)\`, which records the descriptor it replaced and registers the undo.`,
+      `\`mockValueProp(${name}, '${String(added[0])}', value)\`, which records the descriptor it replaced and registers the undo.`,
     DOCS_LINKS.setup,
   );
 }
@@ -125,7 +141,8 @@ export function checkSealedAdditions(before: readonly GlobalSnapshot[], reaction
 }
 
 /**
- * Watch `globalThis`, `document` and `navigator` for own properties a test adds and cannot remove.
+ * Watch the shared objects — `globalThis`, `document`, `navigator`, `location`, `screen` and the DOM
+ * prototypes a stub is written against — for own properties a test adds and cannot remove.
  *
  * Registers the hooks itself; `setupAutoSpy({ guardGlobals: … })` is how a project turns it on.
  *

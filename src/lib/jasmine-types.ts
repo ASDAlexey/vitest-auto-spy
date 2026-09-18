@@ -69,16 +69,25 @@ export interface JasmineStrategies<Method extends Func> {
   resolveTo(value?: Awaited<ReturnType<Method>>): AddSpyMethodsByReturnTypes<Method>;
 }
 
-/** `.and` on a method spy: jasmine's strategies plus whichever helper bundle the return type earns. */
-export type JasmineAnd<Method extends Func> = JasmineStrategies<Method> &
+/**
+ * The helper bundle a method's return type earns: the promise helpers for a `Promise`, the
+ * observable ones for a stream, and `Fallback` for everything else.
+ *
+ * One conditional for both `.and` namespaces — `spy.and` falls back to nothing, and
+ * `spy.withArgs(…).and` falls back to its own terminal.
+ */
+type HelpersForReturn<Method extends Func, Fallback> =
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the conditional only extracts the return type; the parameter shape is irrelevant, and a narrower signature would fail to match arbitrary methods.
-  (Method extends (...args: any[]) => infer Returned
+  Method extends (...args: any[]) => infer Returned
     ? [Returned] extends [Promise<infer P>]
       ? AddPromiseSpyMethods<P>
       : [Returned] extends [ObservableLike<infer O>]
         ? AddObservableSpyMethods<O>
-        : unknown
-    : unknown);
+        : Fallback
+    : Fallback;
+
+/** `.and` on a method spy: jasmine's strategies plus whichever helper bundle the return type earns. */
+export type JasmineAnd<Method extends Func> = HelpersForReturn<Method, unknown> & JasmineStrategies<Method>;
 
 /**
  * jasmine's `.calls` bookkeeping.
@@ -107,6 +116,31 @@ export interface JasmineCalls {
   saveArgumentsByValue(): void;
 }
 
+/**
+ * The strategies `spy.withArgs(…).and` carries whatever the method returns.
+ *
+ * jasmine's `withArgs` chain offers every strategy `spy.and` does. Three of them — `callFake`,
+ * `callThrough` and `returnValues` — install an *implementation*, which answers every call whatever
+ * its arguments, so they have no argument-scoped form here: they are declared, and they throw with
+ * the alternative named rather than being absent from the type and failing as `… is not a function`.
+ */
+export interface JasmineWithArgsStrategies<Method extends Func> {
+  /** Answer `undefined` for these arguments. */
+  stub(): void;
+  /** Throw a message, an `Error`, or an error class constructed with `message`, for these arguments. */
+  throwError(message: string): void;
+  throwError(error: Error): void;
+  throwError(errorClass: new (message?: string) => Error, message?: string): void;
+  /** Answer a promise resolved with `value` for these arguments. */
+  resolveTo(value?: Awaited<ReturnType<Method>>): void;
+  /** @deprecated Not supported per argument list — it throws. Use `spy.and.callFake(…)` for the whole spy. */
+  callFake(fake: Method): never;
+  /** @deprecated Not supported per argument list — it throws. Use `spy.and.callThrough()` for the whole spy. */
+  callThrough(): never;
+  /** @deprecated Not supported per argument list — it throws. Use `spy.and.returnValues(…)` for the whole spy. */
+  returnValues(...values: ReturnType<Method>[]): never;
+}
+
 /** What `spy.withArgs(…).and` offers for a sync method: jasmine's terminal, plus this library's name for it. */
 export interface JasmineWithArgsSync<Method extends Func> {
   returnValue(value: ReturnType<Method>): void;
@@ -114,15 +148,8 @@ export interface JasmineWithArgsSync<Method extends Func> {
 }
 
 /** `spy.withArgs(…).and` — the same object `calledWith(…)` returns, under jasmine's namespace. */
-export type JasmineWithArgsAnd<Method extends Func> =
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- see `JasmineAnd`.
-  Method extends (...args: any[]) => infer Returned
-    ? [Returned] extends [Promise<infer P>]
-      ? AddPromiseSpyMethods<P>
-      : [Returned] extends [ObservableLike<infer O>]
-        ? AddObservableSpyMethods<O>
-        : JasmineWithArgsSync<Method>
-    : JasmineWithArgsSync<Method>;
+export type JasmineWithArgsAnd<Method extends Func> = HelpersForReturn<Method, JasmineWithArgsSync<Method>> &
+  JasmineWithArgsStrategies<Method>;
 
 /** The three namespaces the jasmine layer adds to a method spy. */
 export interface JasmineNamespaces<Method extends Func> {

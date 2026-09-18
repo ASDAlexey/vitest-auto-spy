@@ -118,8 +118,15 @@ const isServedInProcess = (url: string): boolean => /^data:/i.test(url.trim());
 /** The URL each request was *asked* for, before `open` diverted it — `send` needs the real one. */
 const requestedUrls = new WeakMap<XMLHttpRequest, string>();
 
-/** The replacements currently installed, so a second install cannot stack itself on the first. */
-const installedXhrStubs = new WeakSet<object>();
+/**
+ * The replacements currently installed, each with the mode its `send` reads.
+ *
+ * The mode is a cell rather than a captured value because the second install has to be able to
+ * change it: `setupAutoSpy({ blockNetwork: { xhr: 'empty' } })` puts its stub in from the setup
+ * file's `beforeEach`, which runs before the spec's own, so a spec calling `blockNetwork()` for the
+ * failure branch used to get the silent empty 200 the setup had asked for — with nothing saying so.
+ */
+const installedXhrStubs = new WeakMap<object, { mode: XhrBlockMode }>();
 
 /**
  * Close the network channels the environment implements, and report what the code under test asked
@@ -147,7 +154,11 @@ const installedXhrStubs = new WeakSet<object>();
  * 'WebSocket', …)` is the tool for a spec that has one.
  */
 export function blockNetwork(options: BlockNetworkOptions = {}): void {
-  if (options.fetch ?? true) {
+  // Each patch is skipped where the stub is already the member, which is what makes the call
+  // idempotent. It matters with `restoreProps: false`, where nothing ever takes the stubs off: the
+  // per-test re-install then recorded another journal entry for `fetch` and `sendBeacon` on every
+  // test, and the journal on `globalThis` grew for the whole run.
+  if ((options.fetch ?? true) && globalThis.fetch !== blockedFetch) {
     mockValueProp(globalThis, 'fetch', blockedFetch);
   }
 
@@ -178,13 +189,18 @@ function blockXhr(mode: XhrBlockMode): void {
   const { prototype } = globalThis.XMLHttpRequest;
 
   // A second install would take the first stub for the original and chain onto it: `open` would
-  // record the already-diverted `data:` URL, and `send` would read it back as one to let through —
-  // silently downgrading `'reject'` to `'empty'`. The first install stands until
-  // `restoreMockedProps()` takes it off.
-  if (installedXhrStubs.has(prototype.open)) {
+  // record the already-diverted `data:` URL, and `send` would read it back as one to let through.
+  // The stub in place stands until `restoreMockedProps()` takes it off — but it answers with the
+  // mode of whoever asked last, which is the spec rather than the setup file.
+  const installed = installedXhrStubs.get(prototype.open);
+
+  if (installed) {
+    installed.mode = mode;
+
     return;
   }
 
+  const cell = { mode };
   const openRequest = prototype.open;
   const sendRequest = prototype.send;
 
@@ -207,7 +223,7 @@ function blockXhr(mode: XhrBlockMode): void {
 
     // Nothing recorded means `send` was called without `open`. Let the real one raise the
     // `InvalidStateError` that says so, rather than answering a request that was never made.
-    if (mode === 'empty' || requested === undefined || isServedInProcess(requested)) {
+    if (cell.mode === 'empty' || requested === undefined || isServedInProcess(requested)) {
       sendRequest.call(this, body);
 
       return;
@@ -216,7 +232,7 @@ function blockXhr(mode: XhrBlockMode): void {
     failRequest(this, requested);
   }
 
-  installedXhrStubs.add(open);
+  installedXhrStubs.set(open, cell);
   mockValueProp(prototype, 'open', open);
   mockValueProp(prototype, 'send', send);
 }
@@ -256,7 +272,9 @@ function shadowProp(request: XMLHttpRequest, property: string, value: number | s
 
 /** Replace `sendBeacon`, but only where there is one to replace — see {@link BlockNetworkOptions.beacon}. */
 function blockBeacon(): void {
-  if (typeof globalThis.navigator?.sendBeacon !== 'function') {
+  const beacon: unknown = globalThis.navigator?.sendBeacon;
+
+  if (typeof beacon !== 'function' || beacon === blockedSendBeacon) {
     return;
   }
 

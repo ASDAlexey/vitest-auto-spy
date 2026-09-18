@@ -22,6 +22,7 @@
  */
 import { expect, vi } from 'vitest';
 
+import type { FakeTimersConfig } from './fake-timers';
 import { createFunctionSpy, createSpyObj } from './jasmine-factories';
 import { registerJasmineMatchers } from './jasmine-matchers';
 import { misconfigurationThrows, reportMisconfiguration } from './misconfiguration';
@@ -53,31 +54,81 @@ export interface JasmineClock {
   withMock(body: () => void): void;
 }
 
+/**
+ * What `jasmine.clock().install()` fakes: the timers, and not the clock.
+ *
+ * jasmine's `install()` replaces the schedulers only — `Date` is a separate opt-in there
+ * (`mockDate()`), and a migrated spec written against that keeps measuring real elapsed time. Vitest
+ * fakes `Date` by default, so the same spec saw `Date.now()` frozen and moving only on `tick(ms)`:
+ * a TTL cache never expired, `expect(Date.now() - start)` read `0`, and nothing said why.
+ * `mockDate(date)` still works — `vi.setSystemTime` applies with `Date` left real.
+ */
+// `toNotFake` rather than a `toFake` list, and the two cannot be passed together: this way every
+// timer Vitest fakes by default is still faked, minus the clock — and `nextTick` / `queueMicrotask`
+// stay real, as they are under Vitest's own default.
+const JASMINE_TIMERS: FakeTimersConfig = { toNotFake: ['Date', 'nextTick', 'queueMicrotask'] };
+
+/** Whether `mockDate` has already taken the clock over, so a second call does not re-install. */
+let dateIsMocked = false;
+
 const clockHandle: JasmineClock = {
   install(): JasmineClock {
-    vi.useFakeTimers();
+    vi.useFakeTimers(JASMINE_TIMERS);
+    dateIsMocked = false;
 
     return clockHandle;
   },
   uninstall(): void {
     vi.useRealTimers();
+    dateIsMocked = false;
   },
   tick(ms: number): void {
     vi.advanceTimersByTime(ms);
   },
   mockDate(date?: Date): void {
+    mockTheDate();
     vi.setSystemTime(date ?? new Date());
   },
   withMock(body: () => void): void {
-    vi.useFakeTimers();
+    vi.useFakeTimers(JASMINE_TIMERS);
+    dateIsMocked = false;
 
     try {
       body();
     } finally {
       vi.useRealTimers();
+      dateIsMocked = false;
     }
   },
 };
+
+/**
+ * Hand the clock to the fake as well, which `install()` deliberately left real.
+ *
+ * `vi.setSystemTime` moves the fake clock's idea of now, and with `Date` outside the faked set
+ * nothing reads it — so taking `Date` over means installing again, and a timer already queued does
+ * not survive that. jasmine's own `mockDate` keeps the schedule, so the difference is said out loud
+ * rather than left to be discovered: called before anything is scheduled, which is where a migrated
+ * spec puts it, there is nothing to lose and nothing is printed.
+ */
+function mockTheDate(): void {
+  if (dateIsMocked || !vi.isFakeTimers()) {
+    return;
+  }
+
+  const queued = vi.getTimerCount();
+
+  if (queued > 0) {
+    reportMisconfiguration(
+      `[vitest-auto-spy] jasmine.clock().mockDate() took Date over after ${queued} callback(s) had already been scheduled, ` +
+        'and re-installing the fake clock dropped them. Call mockDate() right after install(), before anything schedules a ' +
+        'timer — jasmine.clock().install() leaves Date real on purpose, as jasmine does.',
+    );
+  }
+
+  vi.useFakeTimers();
+  dateIsMocked = true;
+}
 
 let warnedAboutTimeout = false;
 

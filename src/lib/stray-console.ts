@@ -115,12 +115,17 @@ function formatArg(value: unknown): string {
   }
 }
 
+/** Whether this call writes nothing at all: a passing `assert`, a `group` with no label. */
+function writesNothing(method: string, args: readonly unknown[]): boolean {
+  return Boolean(method === 'assert' && args[0]) || ((method === 'group' || method === 'groupCollapsed') && args.length === 0);
+}
+
 /** The first lines of what the call wrote, or `undefined` when this call writes nothing at all. */
 export function describeOutput(method: string, args: readonly unknown[]): string | undefined {
-  if ((method === 'assert' && args[0]) || ((method === 'group' || method === 'groupCollapsed') && args.length === 0)) {
-    return undefined;
-  }
+  return writesNothing(method, args) ? undefined : formatOutput(method, args);
+}
 
+function formatOutput(method: string, args: readonly unknown[]): string {
   const written = method === 'assert' ? ['Assertion failed', ...args.slice(1)] : args;
 
   return written
@@ -147,13 +152,26 @@ export function callerFrame(boundary: unknown, host: FrameHost = Error): string 
 }
 
 function record(guard: ConsoleGuard, method: string, args: readonly unknown[], boundary: unknown): void {
-  const text = guard.recording ? describeOutput(method, args) : undefined;
-
-  if (text === undefined || isAllowed(text, guard.allow)) {
+  if (!guard.recording || writesNothing(method, args)) {
     return;
   }
 
   const bucket = guard.test === undefined ? guard.outsideTest : guard.inTest;
+
+  // Nothing left to quote and nothing to match against: the call is counted and not formatted. A test
+  // that logs whole store states or an `HttpErrorResponse` with its body used to pay a `JSON.stringify`
+  // of every argument of every call to fill a report that stops at five of them.
+  if (bucket.calls.length >= QUOTED_CALLS && guard.allow.length === 0) {
+    bucket.total += 1;
+
+    return;
+  }
+
+  const text = formatOutput(method, args);
+
+  if (isAllowed(text, guard.allow)) {
+    return;
+  }
 
   bucket.total += 1;
 

@@ -14,7 +14,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { createSpyFromClass } from './create-spy-from-class';
 import { enableJasmineCompat } from './enable-jasmine';
 import { createFunctionSpy } from './function-spy';
-import { addJasmineNamespacesToFunctionSpy } from './jasmine-namespaces';
+import { addJasmineNamespacesToFunctionSpy, buildWithArgsChain } from './jasmine-namespaces';
 import { toThrownError } from './jasmine-namespaces';
 import { resetJasmineSupport } from './jasmine-support';
 import type { JasmineAccessorSpy, JasmineMethodSpy } from './jasmine-types';
@@ -223,6 +223,75 @@ describe('jasmine namespaces', () => {
       expect(service.load(2)).toBe('two');
       expect(service.load(3)).toBeUndefined();
     });
+
+    it('carries the strategies an argument list can have: throwError, stub and resolveTo', async () => {
+      const service = createSpyFromClass(AccountService);
+      const load = asJasmine<AccountService['load']>(service.load);
+
+      load.withArgs(1).and.throwError(new RangeError('out of range'));
+      load.withArgs(2).and.stub();
+      asJasmine<AccountService['save']>(service.save).withArgs(3).and.resolveTo('saved-three');
+
+      expect(() => service.load(1)).toThrow(RangeError);
+      expect(service.load(2)).toBeUndefined();
+      await expect(service.save(3)).resolves.toBe('saved-three');
+    });
+
+    it('throws error classes and messages the way jasmine’s throwError takes them', () => {
+      const service = createSpyFromClass(AccountService);
+      const load = asJasmine<AccountService['load']>(service.load);
+
+      load.withArgs(1).and.throwError('plain message');
+      load.withArgs(2).and.throwError(TypeError, 'from a class');
+
+      expect(() => service.load(1)).toThrow('plain message');
+      expect(() => service.load(2)).toThrow(TypeError);
+    });
+
+    it('resolves through the promise helper a spy carries, and without one when it does not', async () => {
+      const spy = createFunctionSpy<() => Promise<string>>('standalone');
+      const chain: { returnValue(value: unknown): void; failWith(error?: unknown): void } = {
+        returnValue: (value) => {
+          answered = value;
+        },
+        failWith: () => undefined,
+      };
+      let answered: unknown;
+
+      addJasmineNamespacesToFunctionSpy(spy, { name: 'standalone', restoreDispatch: () => undefined });
+      asJasmine<() => Promise<string>>(spy).withArgs().and.resolveTo('through the helper');
+
+      await expect(spy()).resolves.toBe('through the helper');
+
+      // A chain with no `resolveWith` — what an accessor-level chain looks like — falls back to a
+      // promise as the plain value.
+      const fallback: unknown = buildWithArgsChain(chain, 'standalone').and['resolveTo'];
+
+      if (typeof fallback === 'function') {
+        fallback('as a value');
+      }
+
+      await expect(answered).resolves.toBe('as a value');
+    });
+
+    /* eslint-disable @typescript-eslint/no-deprecated -- the three strategies are marked deprecated because no argument list can carry them; calling each one is how the message they throw is checked. */
+    it('calls an unnamed spy "spy" when it has to name one', () => {
+      const spy = createFunctionSpy<() => string>('');
+
+      addJasmineNamespacesToFunctionSpy(spy, { name: '', restoreDispatch: () => undefined });
+
+      expect(() => asJasmine<() => string>(spy).withArgs().and.callThrough()).toThrow(/spy\.withArgs\(…\)\.and\.callThrough/);
+    });
+
+    it('says what to write instead for the strategies no argument list can carry', () => {
+      const service = createSpyFromClass(AccountService);
+      const load = asJasmine<AccountService['load']>(service.load);
+
+      expect(() => load.withArgs(1).and.callFake(() => 'faked')).toThrow(/callFake\(\) is not supported[\s\S]*returnValue/);
+      expect(() => load.withArgs(1).and.callThrough()).toThrow(/callThrough\(\) is not supported/);
+      expect(() => load.withArgs(1).and.returnValues('a', 'b')).toThrow(/returnValues\(\) is not supported/);
+    });
+    /* eslint-enable @typescript-eslint/no-deprecated -- back to the default for the rest of the file. */
 
     it('configures promise and observable results for exactly those arguments', async () => {
       const service = createSpyFromClass(AccountService);

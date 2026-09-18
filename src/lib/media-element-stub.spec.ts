@@ -41,6 +41,49 @@ describe('stubMediaElement', () => {
     expect(seen).toEqual(['play', 'playing']);
   });
 
+  it('pauses the element when it reaches its end, and says so before ended', async () => {
+    const media = stubMediaElement({ duration: 30 });
+    const element = video();
+    const seen: string[] = [];
+
+    element.addEventListener('pause', () => seen.push('pause'));
+    element.addEventListener('ended', () => seen.push('ended'));
+
+    await element.play();
+    media.set(element, { ended: true });
+
+    // The platform pauses an unlooped element at its end and fires `pause` first; `paused: false`
+    // beside `ended: true` is a state no browser produces.
+    expect(seen).toEqual(['pause', 'ended']);
+    expect(media.state(element).paused).toBe(true);
+  });
+
+  it('leaves an explicit paused flag alone beside ended', () => {
+    const media = stubMediaElement();
+    const element = video();
+
+    media.set(element, { ended: true, paused: false });
+
+    expect(media.state(element).paused).toBe(false);
+  });
+
+  it('starts a fresh record per install, so an element that outlives a test takes the new duration', () => {
+    const element = video();
+
+    stubMediaElement({ duration: 10 });
+
+    expect(element.duration).toBe(10);
+
+    restoreMockedProps();
+
+    const media = stubMediaElement({ duration: 30 });
+
+    // The element is held across the two installs — module scope in a spec, or `<body>` under
+    // `isolate: false` — and used to keep the first install's record for the rest of the run.
+    expect(element.duration).toBe(30);
+    expect(media.state(element).duration).toBe(30);
+  });
+
   it('pauses back', async () => {
     const media = stubMediaElement();
     const element = video();

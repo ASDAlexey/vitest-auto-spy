@@ -140,6 +140,38 @@ describe('stray rejections', () => {
     expect(() => countStrayRejections(host)).toThrow(/needs trackStrayRejections\(\) to have run first/);
   });
 
+  it('unwraps a promise rejected with nothing at all', () => {
+    const { host, zone } = createHost();
+
+    track(host);
+    // `Promise.reject()` — an ordinary shape in a test double. Probing for a truthy `rejection`
+    // treated this as "not a wrapper" and reported zone's own object, printed as `[object Object]`.
+    fire(zone, wrap(undefined));
+
+    expect(flushStrayRejections(host)).toEqual([{ reason: undefined, assertion: false, testName: expect.any(String) }]);
+  });
+
+  it('counts every rejection but keeps only the first hundred reasons', () => {
+    const { host, zone } = createHost();
+
+    track(host);
+
+    for (let index = 0; index < 150; index += 1) {
+      fire(zone, wrap(new Error(`reason ${index}`)));
+    }
+
+    // Each entry holds its reason — for a failed matcher, both the actual and the expected value —
+    // and only a flush empties the list. A suite that merely counts used to retain all of it for
+    // the life of the worker.
+    expect(countStrayRejections(host)).toBe(150);
+
+    const flushed = flushStrayRejections(host);
+
+    expect(flushed).toHaveLength(100);
+    expect(String(flushed[99]?.reason)).toContain('reason 99');
+    expect(countStrayRejections(host)).toBe(0);
+  });
+
   it('hands over what was captured and starts again from empty', () => {
     const { host, zone } = createHost();
 
@@ -179,6 +211,7 @@ describe('stray rejections', () => {
       fire(zone, wrap(new Error('on the real globals')));
 
       expect(countStrayRejections()).toBe(1);
+      expect(flushStrayRejections()).toHaveLength(1);
     } finally {
       stop();
       restore();

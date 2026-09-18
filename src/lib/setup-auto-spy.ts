@@ -12,23 +12,25 @@
  *  3. **Draining the runner's restore registry.** Every `vi.spyOn` adds an entry that only
  *     `vi.restoreAllMocks()` removes; with a shared environment that list grows for the whole run.
  */
-import { afterAll, afterEach, beforeAll, beforeEach, onTestFinished, vi } from 'vitest';
+import { afterAll, beforeAll, beforeEach, vi } from 'vitest';
 
 import { noticeAngularBuildSplitting } from './angular-build-notice';
 import { DOCS_LINKS, withDocs } from './docs-links';
-import { type DocumentPollutionOptions, type DocumentPollutionReaction, guardDocumentPollution } from './document-guard';
+import { type DocumentPollutionOptions, type DocumentPollutionReaction, watchDocumentPollution } from './document-guard';
+import { abandonEmissionWaits } from './emission-timeout';
 import { type FakeTimersConfig, setupFakeTimers } from './fake-timers';
 import { annotateFrozenClockTimeout, readFrozenClock } from './frozen-clock';
 import { setDefaultStrictMode, takeStrictViolations } from './function-spy';
 import { type GlobalPatchReaction, type GlobalSnapshot, checkSealedAdditions, snapshotWatchedGlobals } from './global-patch-guard';
-import { type GuardReaction, reactToFindings } from './guard-reaction';
+import { type GuardReaction, libraryWarn, reactToFindings } from './guard-reaction';
 import { annotateHookTimeout, readRunnerTimeouts } from './hook-timeout';
 import { type MisconfigurationReaction, setMisconfigurationReaction } from './misconfiguration';
 import { trackMockRegistry } from './mock-registry';
 import { type BlockNetworkOptions, blockNetwork } from './network-stub';
 import { describeDuplicateCopies } from './package-identity';
-import { type OutsideHookReaction, beginPropEpoch, countMockedProps, reportPropsOutsideHooks, restoreMockedProps } from './prop-mock';
+import { type OutsideHookReaction, beginPropEpoch, reportPropsOutsideHooks, restoreMockedProps } from './prop-mock';
 import { type PrototypePollutionReaction, type PrototypeSnapshot, checkPrototypePollution, snapshotPrototypes } from './prototype-guard';
+import { type TeardownStep, installTeardown } from './setup-teardown';
 import { ownFrames, stackFrames } from './stack-frames';
 import { type StrayConsoleOptions, type StrayConsoleReaction, watchStrayConsole } from './stray-console';
 import { type StrayRejection, flushStrayRejections, trackStrayRejections } from './stray-rejections';
@@ -45,6 +47,8 @@ import type { UnstubbedCallHandler, UnstubbedReadHandler } from './types';
 import { openReadWindow, reportUnconfiguredReads, setUnconfiguredReadsDefault } from './unconfigured-reads';
 import { restoreWebStorage } from './web-storage';
 import { writeWarning } from './write-warning';
+
+export { type TeardownStep, runTeardown } from './setup-teardown';
 
 /** How `setupAutoSpy` should react to more than one install of the library. */
 export type DuplicateCopiesReaction = 'off' | 'throw' | 'warn';
@@ -464,8 +468,7 @@ function reportDuplicateCopies(reaction: DuplicateCopiesReaction): void {
     throw new Error(report);
   }
 
-  // eslint-disable-next-line no-console -- the whole point of `'warn'` is to surface the report without failing the run.
-  console.warn(report);
+  libraryWarn(report);
 }
 
 const LATE_ASSERTION_ADVICE =
@@ -624,45 +627,6 @@ export function annotateFrozenClockTimeouts(context?: unknown): void {
   annotateFrozenClockTimeout(reportedErrors(context), readFrozenClock());
 }
 
-/**
- * One step of the single `afterEach` {@link setupAutoSpy} installs.
- *
- * The runner's test context is handed along, because one of the steps needs to know how the test it
- * runs after ended; the rest ignore it.
- */
-type TeardownStep = (context?: unknown) => void;
-
-/**
- * Run every teardown step, then re-throw whatever the first failing one threw.
- *
- * Two of the steps throw on purpose — `strayRejections` and `guardGlobals: 'throw'` fail the test
- * their finding belongs to — and a throw out of a hook cancels every hook the runner has not called
- * yet. So the steps share one hook and this loop: the restores run whether or not a diagnostic
- * found something, and the diagnostic's message still fails the test.
- *
- * The first failure wins rather than the last, because the diagnostics run first and their message
- * is the one that names a defect in the suite; a `try`/`finally` would give the opposite priority,
- * since a `finally` block's throw replaces the pending one.
- *
- * Exported for this module's own spec: every step of a real run either throws through the hook —
- * failing the test that is doing the asserting — or is invisible from inside a test.
- */
-export function runTeardown(steps: readonly TeardownStep[], context?: unknown): void {
-  const failures: unknown[] = [];
-
-  for (const step of steps) {
-    try {
-      step(context);
-    } catch (error) {
-      failures.push(error);
-    }
-  }
-
-  if (failures.length > 0) {
-    throw failures[0];
-  }
-}
-
 function restoreRunnerMocks(): void {
   vi.restoreAllMocks();
 }
@@ -690,8 +654,17 @@ function watchGlobalPatches(reaction: GlobalPatchReaction): TeardownStep[] {
 
   let before: GlobalSnapshot[] = [];
 
-  beforeEach(() => {
+  // Taken once for the file rather than before every test: the check advances the snapshot itself, so
+  // a fresh one would only rediscover what the previous check recorded — and `getOwnPropertyNames`
+  // over `globalThis` is 20 µs a test, which is most of what this option costs. From `beforeAll` and
+  // not the first `beforeEach`, so a patch made in the file's own `beforeAll` is seen too; the check
+  // in its cleanup runs after every `afterAll` and covers the other end of the file.
+  beforeAll(() => {
     before = snapshotWatchedGlobals();
+
+    return (): void => {
+      checkSealedAdditions(before, reaction);
+    };
   });
 
   return [
@@ -712,15 +685,20 @@ function watchPrototypePollution(reaction: PrototypePollutionReaction): Teardown
     return [];
   }
 
+  reportPrototypeLeftovers();
+
   let before: PrototypeSnapshot[] = [];
 
-  beforeEach(() => {
-    // Taken once for the file: the check advances the snapshot itself, and a fresh one before every
-    // test would adopt a key the previous test left as the new baseline — the one case that has to
-    // be reported rather than accepted.
-    if (before.length === 0) {
-      before = snapshotPrototypes();
-    }
+  // From `beforeAll`, not the first `beforeEach`: a key written in the file's own `beforeAll` used to
+  // land in the baseline as "what the environment had", and one written in an `afterAll` was never
+  // looked at. The check in the `beforeAll` cleanup runs after every `afterAll`, so both ends of the
+  // file are covered; the per-test step advances the same snapshot and keeps naming the test.
+  beforeAll(() => {
+    before = snapshotPrototypes();
+
+    return (): void => {
+      checkPrototypePollution(before, reaction);
+    };
   });
 
   return [
@@ -728,6 +706,58 @@ function watchPrototypePollution(reaction: PrototypePollutionReaction): Teardown
       checkPrototypePollution(before, reaction);
     },
   ];
+}
+
+declare global {
+  // A `globalThis` augmentation has to be declared with `var`.
+  var __vitestAutoSpyPrototypeBaseline__: PrototypeSnapshot[] | undefined;
+}
+
+/**
+ * Take off a key an earlier spec file left on a built-in prototype while it was being imported,
+ * collected, or torn down.
+ *
+ * None of those three is reachable from a hook: the write happens before the file's own `beforeAll`
+ * or after its last `afterAll`, and the *next* file dies during collection — `for…in` over the hooks
+ * object spreads the inherited key — so nothing in the worker runs to report it, and the rest of the
+ * worker's files fail as a block with no stack. A setup file, though, is executed before each file is
+ * collected. That is the one seam left, and this is what stands in it: the key comes off, the run
+ * survives, and the report names the file that ran last rather than the innocent one about to start.
+ *
+ * Never a throw, whatever the grade: the file that would fail is not the file that wrote the key.
+ * Never `console.warn` either — there is no task yet, and Vitest drops intercepted output that
+ * belongs to none.
+ */
+export function reportPrototypeLeftovers(write: (message: string) => void = writeWarning): void {
+  const baseline = (globalThis.__vitestAutoSpyPrototypeBaseline__ ??= snapshotPrototypes());
+  const findings = baseline.flatMap((snapshot) => {
+    const added = Object.keys(snapshot.object).filter((key) => !snapshot.keys.has(key));
+
+    added.forEach((key) => {
+      // A key that will not delete is adopted into the baseline, so the next file is not told about
+      // it again — there is nothing anyone can do about it by then.
+      if (!Reflect.deleteProperty(snapshot.object, key)) {
+        snapshot.keys.add(key);
+      }
+    });
+
+    return added.length > 0 ? [describePrototypeLeftover(snapshot.name, added)] : [];
+  });
+
+  if (findings.length > 0) {
+    write(findings.join('\n'));
+  }
+}
+
+function describePrototypeLeftover(name: string, added: readonly string[]): string {
+  return withDocs(
+    `[vitest-auto-spy] ${added.map((key) => `"${key}"`).join(', ')} was left on ${name} as an own enumerable property by a ` +
+      'spec file that has already finished — while it was imported, while it was collected, or in an `afterAll`. No hook of ' +
+      "that file could see it, and Vitest walks a file's hooks with `for…in`, so the key stops every later spec file in this " +
+      'worker from collecting at all — no stack, no failing test. It has been taken back off. Look at the file that ran before ' +
+      'this one: patch the prototype of the class an object came from, never `Object.getPrototypeOf(someObjectLiteral)`.',
+    DOCS_LINKS.setup,
+  );
 }
 
 /**
@@ -876,6 +906,24 @@ function armMisconfiguration(reaction: MisconfigurationReaction | undefined): vo
   });
 }
 
+/**
+ * Emission waits the test never awaited: tear the subscription down and name what it was waiting for.
+ *
+ * Ahead of every other step, because a wait still holding a subscription keeps its source — and the
+ * timers and patches the source touches — alive while the checks after it look for leftovers. A
+ * non-empty list means a helper's promise was dropped, so the test passed without its assertion.
+ */
+function abandonPendingWaits(): void {
+  const abandoned = abandonEmissionWaits();
+
+  if (abandoned.length > 0) {
+    libraryWarn(
+      `[vitest-auto-spy] ${abandoned.length} emission helper(s) were never awaited in this test ` +
+        `(${abandoned.join(', ')}). The subscription is torn down now, but the assertion never ran.`,
+    );
+  }
+}
+
 /** The steps of the shared `afterEach` that put the environment back, in the order they have to run. */
 function buildRestores(options: SetupAutoSpyOptions): TeardownStep[] {
   const restores: TeardownStep[] = [];
@@ -939,8 +987,9 @@ export function setupAutoSpy(input: SetupAutoSpyOptions = {}): void {
   armStrictMode(options);
   armUnconfiguredReads(options);
   armMisconfiguration(options.misconfiguration);
-  // Not a teardown step: it has to look after the TestBed's own teardown, which an `afterEach` here precedes.
-  guardDocumentPollution(options.documentPollution ?? 'off');
+  // Not a teardown step: it has to look after the TestBed's own teardown, which an `afterEach` here
+  // precedes. Its per-test check rides the `onTestFinished` the net registers anyway.
+  const documents = watchDocumentPollution(options.documentPollution ?? 'off');
 
   if (options.globalFakeTimers) {
     setupFakeTimers(options.globalFakeTimers === true ? undefined : options.globalFakeTimers, { betweenTests: true });
@@ -965,77 +1014,9 @@ export function setupAutoSpy(input: SetupAutoSpyOptions = {}): void {
   const consoleRestore = consoleGuard ? [consoleGuard.restore] : [];
   const consoleReport = consoleGuard ? [consoleGuard.report] : [];
   // Never empty: the read report's step is always there, since a double's own `onUnstubbedRead` needs it.
-  installTeardown([...consoleRestore, ...diagnostics, ...restores, ...consoleReport], [...consoleRestore, ...restores]);
-}
-
-/**
- * The teardown hook, and the net that catches the run where it never happened.
- *
- * Vitest runs `afterEach` hooks in **reverse** registration order, so the hook a setup file
- * registers is the *last* to run — and a hook the spec file registered, which therefore runs first,
- * takes the whole chain down with it when it throws. Nothing here runs, the patches stay in place,
- * and the next test reads values somebody else installed.
- *
- * That is neither hypothetical nor loud. One spec kept a long-standing
- * `afterEach(() => vi.restoreAllMocks())`; migrating it to
- * `provideAutoSpy(LayoutStateService, { gettersToSpyOn: [...] })` made the restored getter return
- * `undefined`, `ngOnDestroy` called it as a signal, the `TypeError` aborted the hook — and the
- * failure surfaced in a different `describe` as a template error about a null profile. With the
- * hand-rolled `vi.fn()` it replaced, the restored getter was still callable, so the mine had been
- * sitting there invisible.
- *
- * `onTestFinished` is the answer because Vitest runs it after the `afterEach` chain and runs it
- * whatever that chain did — measured in both orderings rather than assumed. It is registered per
- * test from a `beforeEach`, and does nothing at all unless the hook was skipped, so the ordinary
- * path costs one boolean.
- */
-function installTeardown(steps: readonly TeardownStep[], restores: readonly TeardownStep[]): void {
-  let teardownRan = false;
-  // One full explanation per file: a run where every test's hooks throw repeated it hundreds of times.
-  let skippedInFile = 0;
-
-  beforeEach(() => {
-    teardownRan = false;
-
-    onTestFinished(() => {
-      if (teardownRan) {
-        return;
-      }
-
-      const leaked = countMockedProps();
-
-      runTeardown(restores);
-
-      skippedInFile += 1;
-      // eslint-disable-next-line no-console -- the test has already failed on whatever threw, and a second thrown error would bury the first; this is the sentence that explains it.
-      console.warn(skippedInFile === 1 ? describeSkippedTeardown(leaked) : describeSkippedAgain(leaked, skippedInFile));
-    });
-  });
-
-  afterEach((context) => {
-    try {
-      runTeardown(steps, context);
-    } finally {
-      // In a `finally`, because `runTeardown` rethrows what a step threw and the restores have run
-      // by then regardless — the net's job is the hook that never started, not the one that failed.
-      teardownRan = true;
-    }
-  });
-}
-
-/** The short form, for every skipped teardown after the first in a file. */
-function describeSkippedAgain(leaked: number, count: number): string {
-  return `[vitest-auto-spy] setupAutoSpy()'s afterEach did not run for this test either (${count} in this file); ${leaked} mock*Prop patch(es) put back — see the first report in this file for why.`;
-}
-
-/** What the net says when it finds a teardown that never ran. */
-function describeSkippedTeardown(leaked: number): string {
-  return withDocs(
-    `[vitest-auto-spy] setupAutoSpy()'s afterEach did not run for this test, so ${leaked} mock*Prop patch(es) were still in ` +
-      'place; they have been put back now. Vitest runs `afterEach` hooks in reverse registration order, which makes the one a ' +
-      'setup file registers the last to run — so any hook the spec file registered that throws takes this one with it. Look for ' +
-      "the hook that threw in this test's output; without this net the patches would have travelled into the next test, and the " +
-      'failure would have surfaced in some later test that never touched them.',
-    DOCS_LINKS.setup,
+  installTeardown(
+    [...consoleRestore, abandonPendingWaits, ...diagnostics, ...restores, ...consoleReport],
+    [...consoleRestore, abandonPendingWaits, ...restores],
+    documents,
   );
 }

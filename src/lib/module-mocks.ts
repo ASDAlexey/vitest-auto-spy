@@ -146,8 +146,15 @@ export interface ModuleNamespaceOptions {
   lenient?: boolean;
 }
 
-/** A module mock's exports, plus the `default` an interop probe looks for. */
-export type ModuleNamespace<T extends object> = T & { default: T; __esModule: true };
+/**
+ * A module mock's exports, plus the `default` an interop probe looks for.
+ *
+ * A factory that spells out its own `default` keeps it: a module whose default export is the thing
+ * under test (`dayjs`, a class from `shaka-player`) is the common case, and handing the interop probe
+ * the namespace instead used to turn `default(…)` into `default is not a function` — the very failure
+ * this helper exists to remove.
+ */
+export type ModuleNamespace<T extends object> = T & { default: T extends { default: infer Default } ? Default : T; __esModule: true };
 
 /**
  * Build the object a `vi.mock` factory should return, with `default` and `__esModule` in place.
@@ -165,7 +172,8 @@ export type ModuleNamespace<T extends object> = T & { default: T; __esModule: tr
  * @param options See {@link ModuleNamespaceOptions.lenient}.
  */
 export function moduleNamespace<T extends object>(exports: T, options: ModuleNamespaceOptions = {}): ModuleNamespace<T> {
-  const namespace: ModuleNamespace<T> = { ...exports, default: exports, __esModule: true };
+  // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- the conditional in `ModuleNamespace` says exactly this, and no literal can carry a type that depends on a runtime `in` check.
+  const namespace = { ...exports, default: 'default' in exports ? exports.default : exports, __esModule: true } as ModuleNamespace<T>;
 
   if (!options.lenient) {
     return namespace;

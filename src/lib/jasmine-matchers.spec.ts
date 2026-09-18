@@ -85,6 +85,19 @@ describe('jasmine matchers', () => {
       expect(set).not.jasmineSetContaining(new Set([{ id: 3 }]));
     });
 
+    it('compares the keys of a map too, as jasmine does', () => {
+      const byObject = new Map<unknown, unknown>([[{ id: 1 }, 'first']]);
+      const byString = new Map<unknown, unknown>([['2026-09', 7]]);
+
+      // jasmine's MapContaining looks for a pair whose key *and* value match, so an object key
+      // matches by deep equality and an asymmetric matcher is a legal key. `Map.has` answers on
+      // reference identity and missed both.
+      expect(byObject).jasmineMapContaining(new Map([[{ id: 1 }, 'first']]));
+      expect(byObject).not.jasmineMapContaining(new Map([[{ id: 2 }, 'first']]));
+      expect(byString).jasmineMapContaining(new Map([[jasmine.any(String), 7]]));
+      expect(byString).not.jasmineMapContaining(new Map([[jasmine.any(Number), 7]]));
+    });
+
     it('rejects a value that is not a Map or a Set at all', () => {
       expect({ a: 1 }).not.jasmineMapContaining(new Map([['a', 1]]));
       expect([1]).not.jasmineSetContaining(new Set([1]));

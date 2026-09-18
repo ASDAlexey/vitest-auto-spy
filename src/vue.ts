@@ -31,10 +31,14 @@
  * Angular suites run on Vitest, so this entry registers the default adapter even
  * when imported without the core (`provideAutoSpy` builds spies on its own).
  */
-import { registerMockAdapter } from './lib/mock-adapter';
+import { hasMockAdapter, registerMockAdapter } from './lib/mock-adapter';
 import { vitestMockAdapter } from './lib/vitest-adapter';
 
-registerMockAdapter(vitestMockAdapter);
+// Only when no runtime entry has registered one already, so an import of this
+// entry cannot replace the Bun or `node:test` adapter a suite installed first.
+if (!hasMockAdapter()) {
+  registerMockAdapter(vitestMockAdapter);
+}
 
 export { provideAutoSpy, type VueInjectionToken, type VueProvideSpy } from './lib/vue';
 

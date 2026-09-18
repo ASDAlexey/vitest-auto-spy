@@ -15,7 +15,7 @@ const SEALED = 'cookie';
 function watchedObject(): GlobalSnapshot {
   const object = {};
 
-  return { name: 'document', object, names: new Set(Object.getOwnPropertyNames(object)) };
+  return { name: 'document', object, names: new Set(Reflect.ownKeys(object)) };
 }
 
 describe('guardGlobalPatches', () => {
@@ -66,7 +66,7 @@ describe('guardGlobalPatches', () => {
 
   it('follows a deletion, so the baseline keeps describing what is actually there', () => {
     const object: Record<string, unknown> = { legacy: 1 };
-    const snapshot: GlobalSnapshot = { name: 'document', object, names: new Set(Object.getOwnPropertyNames(object)) };
+    const snapshot: GlobalSnapshot = { name: 'document', object, names: new Set(Reflect.ownKeys(object)) };
 
     // One name gone and another arrived: the counts alone cannot tell that apart from "nothing
     // happened", which is the case the baseline has to be rebuilt for.
@@ -101,6 +101,26 @@ describe('guardGlobalPatches', () => {
     // jsdom has all three; a Node environment has one, and the guard must not look for the others.
     expect(watched).toContain('globalThis');
     expect(watched).toContain('document');
+  });
+
+  it('watches the DOM prototypes a Jest-era stub is written against', () => {
+    const watched = snapshotWatchedGlobals().map((snapshot) => snapshot.name);
+
+    // `Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { value: vi.fn() })` is the
+    // patch this list exists for: jsdom implements no such member, so it is a new non-configurable
+    // property, and the next file's `mockValueProp` fails on it with nothing naming the writer.
+    expect(watched).toContain('HTMLElement.prototype');
+    expect(watched).toContain('HTMLCanvasElement.prototype');
+    expect(watched).toContain('Element.prototype');
+  });
+
+  it('sees a symbol key as well as a name', () => {
+    const snapshot = watchedObject();
+    const key = Symbol('sealedBySymbol');
+
+    Object.defineProperty(snapshot.object, key, { value: 1 });
+
+    expect(() => checkSealedAdditions([snapshot], 'throw')).toThrow(/redefined document\.Symbol\(sealedBySymbol\)/);
   });
 
   it('says "this file" when the runner reports no path', () => {

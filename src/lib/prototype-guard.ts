@@ -29,12 +29,14 @@
  * from, never the prototype of a plain object.
  *
  * **What the guard can and cannot see.** It runs per test, so a property added while a test runs
- * fails that test by name. A property added while the spec file is being *imported* takes that
- * file's own collect down before any hook can run — nothing inside the runner can report it. What
- * the guard still does there is take the key back off, so the rest of the worker collects normally
- * and the report names one file instead of a hundred.
+ * fails that test by name, and it checks once more when the file is over, which covers a write made
+ * in an `afterAll`. A property added while the spec file is being *imported* takes that file's own
+ * collect down before any hook can run — nothing inside the runner can report it, and nothing here
+ * can take the key off either, because this module is loaded by the same file. `setupAutoSpy()` is
+ * what covers that case: it runs from a setup file, before each spec file is imported, and reports
+ * the leftovers of the previous one against the file that wrote them.
  */
-import { afterEach, beforeEach, expect } from 'vitest';
+import { afterEach, beforeAll, expect } from 'vitest';
 
 import { DOCS_LINKS, withDocs } from './docs-links';
 import { type GuardReaction, reactToFindings } from './guard-reaction';
@@ -160,12 +162,15 @@ export function guardPrototypePollution(reaction: PrototypePollutionReaction): v
 
   let watched: PrototypeSnapshot[] = [];
 
-  beforeEach(() => {
-    // Taken once for the file, not before every test: the check advances the snapshot itself, so a
-    // fresh one would only rediscover what the previous `afterEach` already removed.
-    if (watched.length === 0) {
-      watched = snapshotPrototypes();
-    }
+  // From `beforeAll`, not the first `beforeEach`: a key written in the file's own `beforeAll` used to
+  // land in the baseline as "what the environment had". The cleanup runs after every `afterAll`, so
+  // both ends of the file are covered; the per-test check advances the same snapshot.
+  beforeAll(() => {
+    watched = snapshotPrototypes();
+
+    return (): void => {
+      checkPrototypePollution(watched, reaction);
+    };
   });
 
   afterEach(() => {

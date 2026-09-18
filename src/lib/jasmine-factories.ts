@@ -178,9 +178,27 @@ export function createSpyObj<Names extends string, Props extends string = never>
   }
 
   for (const name of properties?.names ?? []) {
-    spyObj[name] = properties?.values?.[name];
+    defineSpiedProperty(spyObj, baseName, name, properties?.values?.[name]);
   }
 
   // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- see above: the shape only exists once the names have been walked.
   return spyObj as SpyObj<Names, Props>;
+}
+
+/**
+ * One seeded property, as jasmine builds it: a spied getter and a spied setter, not a plain value.
+ *
+ * Reading it still answers what was seeded, so a migrated spec sees no change there. What it gains is
+ * jasmine's own surface: `Object.getOwnPropertyDescriptor(obj, 'x').get.and.returnValue(7)` re-answers
+ * the getter mid-test, which is the documented way to drive a `createSpyObj` property and the only
+ * way to assert that the code under test read it — and, with the setter spied, that it wrote it.
+ */
+function defineSpiedProperty(spyObj: Record<string, unknown>, baseName: string, name: string, value: unknown): void {
+  const label = baseName ? `${baseName}.${name}` : name;
+  const get = createFunctionSpy<Func>(`${label}.get`);
+  const set = createFunctionSpy<Func>(`${label}.set`);
+
+  get.mockReturnValue(value);
+
+  Object.defineProperty(spyObj, name, { get, set, enumerable: true, configurable: true });
 }

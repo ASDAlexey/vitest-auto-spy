@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import '../index';
 import { BLOCKED_FETCH_MESSAGE, BLOCKED_XHR_MESSAGE, blockNetwork } from './network-stub';
-import { mockValueProp, restoreMockedProps } from './prop-mock';
+import { countMockedProps, mockValueProp, restoreMockedProps } from './prop-mock';
 
 /** Drive a request to whatever end it reaches, and report which one that was. */
 function request(url: string, open: (xhr: XMLHttpRequest) => void = (xhr) => xhr.open('GET', url)): Promise<string> {
@@ -143,6 +143,32 @@ describe('blockNetwork', () => {
       // Chaining would have recorded the already-diverted `data:` URL and downgraded the mode to
       // the silent 200 — which is the whole reason a second install is refused.
       expect(await request('https://tracker.example.test/ping.gif')).toContain('error 0');
+    });
+
+    it('answers with the mode of whoever asked last, not of whoever installed the stub', async () => {
+      // The order `setupAutoSpy({ blockNetwork: { xhr: 'empty' } })` produces: the setup file's
+      // `beforeEach` runs first, and the spec that needs the failure branch asks second.
+      blockNetwork({ xhr: 'empty' });
+      blockNetwork();
+
+      expect(await request('https://tracker.example.test/ping.gif')).toContain('error 0');
+
+      blockNetwork({ xhr: 'empty' });
+
+      expect(await request('https://tracker.example.test/ping.gif')).toBe('load 200 ""');
+    });
+
+    it('records nothing more in the restore journal when the stubs are already in place', () => {
+      blockNetwork();
+
+      const patched = countMockedProps();
+
+      blockNetwork();
+      blockNetwork();
+
+      // With `restoreProps: false` nothing ever takes the stubs off, and a journal entry per test
+      // for the whole run is a leak of its own.
+      expect(countMockedProps()).toBe(patched);
     });
 
     it('gives the real open and send back through restoreMockedProps', () => {

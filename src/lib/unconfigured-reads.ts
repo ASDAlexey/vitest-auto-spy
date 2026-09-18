@@ -133,7 +133,14 @@ export function createTrackedPropSpy(member: string, guard: ReadGuard | undefine
   return support.createPropSpy(listener);
 }
 
-/** Start counting: called before the first hook of every test. */
+/**
+ * Start counting: called before the first hook of every test.
+ *
+ * One window per worker rather than one per task: a read is noted from the double's own getter,
+ * inside the code under test, where nothing says which `test.concurrent` is running — so keying the
+ * ledger by task would need an async context this library does not install. Under `test.concurrent`
+ * the second test therefore clears the first one's reads, and `setupAutoSpy` says so once per worker.
+ */
 export function openReadWindow(): void {
   const current = ledger();
 

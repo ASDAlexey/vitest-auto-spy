@@ -63,6 +63,46 @@ describe('the jasmine namespace', () => {
       jasmine.clock().uninstall();
     });
 
+    it('leaves Date real, as jasmine does, until mockDate asks for it', () => {
+      jasmine.clock().install();
+
+      const before = Date.now();
+
+      jasmine.clock().tick(10_000);
+
+      // jasmine's install() replaces the schedulers only, so a spec measuring elapsed time or a TTL
+      // keeps reading the wall clock; ticking the timers must not move it.
+      expect(Date.now() - before).toBeLessThan(10_000);
+
+      jasmine.clock().mockDate(new Date('2020-01-01T00:00:00.000Z'));
+
+      expect(new Date().toISOString()).toBe('2020-01-01T00:00:00.000Z');
+
+      jasmine.clock().uninstall();
+    });
+
+    it('says so when taking Date over drops callbacks that were already scheduled', () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+      jasmine.clock().install();
+      setTimeout(() => undefined, 100);
+      jasmine.clock().mockDate(new Date('2020-01-01T00:00:00.000Z'));
+
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('had already been scheduled'));
+
+      jasmine.clock().uninstall();
+      warn.mockRestore();
+    });
+
+    it('mocks the date on its own, with no clock installed at all', () => {
+      jasmine.clock().mockDate(new Date('2021-02-03T00:00:00.000Z'));
+
+      expect(new Date().toISOString()).toBe('2021-02-03T00:00:00.000Z');
+      expect(vi.isFakeTimers()).toBe(false);
+
+      vi.useRealTimers();
+    });
+
     it('defaults mockDate to now, and returns the same handle from install so a call can be chained', () => {
       expect(jasmine.clock().install()).toBe(jasmine.clock());
 

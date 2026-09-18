@@ -28,7 +28,7 @@ import { mockReadonlyPropGetter, mockValueProp } from './prop-mock';
 
 /** The readable state of one stubbed media element. */
 export interface MediaElementState {
-  /** Seconds. `NaN` until metadata arrives, which is what a component checking for a known length reads. */
+  /** Seconds. Starts at the stub's `duration` option (`0` by default), not at the platform's `NaN`. */
   duration: number;
   currentTime: number;
   paused: boolean;
@@ -77,25 +77,29 @@ const DEFAULT_STATE: Omit<MediaElementState, 'duration'> = {
 };
 
 /**
- * Per-element state, weakly keyed so a fixture torn down mid-run is still collectable.
+ * Per-element state, weakly keyed so a fixture torn down mid-run is still collectable — and owned by
+ * the install rather than by the module.
  *
- * Lives in module scope rather than in the installer's closure because the prototype accessors are
- * the only place it can be read from, and they are reached through `this` — an element the spec may
- * have created before the stub was installed.
+ * Module scope made the record outlive the stub that created it: an element held in module scope by
+ * a spec, or left in `<body>` under `isolate: false`, kept the `duration` and `currentTime` of the
+ * test that first read it, and a later `stubMediaElement({ duration: 30 })` had no effect on it. The
+ * accessors reach the record through the `read` closure, so nothing needs it to be shared.
  */
-const states = new WeakMap<HTMLMediaElement, MediaElementState>();
+function createStates(duration: number): (element: HTMLMediaElement) => MediaElementState {
+  const states = new WeakMap<HTMLMediaElement, MediaElementState>();
 
-function stateOf(element: HTMLMediaElement, duration: number): MediaElementState {
-  const existing = states.get(element);
+  return (element: HTMLMediaElement): MediaElementState => {
+    const existing = states.get(element);
 
-  if (existing) {
-    return existing;
-  }
+    if (existing) {
+      return existing;
+    }
 
-  const created: MediaElementState = { ...DEFAULT_STATE, duration };
-  states.set(element, created);
+    const created: MediaElementState = { ...DEFAULT_STATE, duration };
+    states.set(element, created);
 
-  return created;
+    return created;
+  };
 }
 
 /**
@@ -108,6 +112,9 @@ const ANNOUNCEMENTS: readonly ((next: Partial<MediaElementState>) => string | un
   (next): string | undefined => (next.duration === undefined ? undefined : 'durationchange'),
   (next): string | undefined => (next.readyState !== undefined && next.readyState >= 1 ? 'loadedmetadata' : undefined),
   (next): string | undefined => (next.currentTime === undefined ? undefined : 'timeupdate'),
+  // The platform pauses an unlooped element when it reaches its end, and the `pause` event arrives
+  // before `ended`. `applyState` fills the flag in, so a component listening for `pause` hears it.
+  (next): string | undefined => (next.ended === true && next.paused === true ? 'pause' : undefined),
   (next): string | undefined => (next.ended ? 'ended' : undefined),
   (next): string | undefined => (next.error ? 'error' : undefined),
 ];
@@ -153,7 +160,7 @@ export function stubMediaElement(options: MediaElementStubOptions = {}): MediaEl
   const duration = options.duration ?? 0;
   const prototype = HTMLMediaElement.prototype;
   const adapter = getMockAdapter();
-  const read = (element: HTMLMediaElement): MediaElementState => stateOf(element, duration);
+  const read = createStates(duration);
 
   const play = adapter.createMockFn(function (this: HTMLMediaElement): Promise<void> {
     const state = read(this);
@@ -231,10 +238,14 @@ function installStateAccessors(prototype: HTMLMediaElement, read: (element: HTML
 }
 
 function applyState(state: MediaElementState, element: HTMLMediaElement, next: Partial<MediaElementState>): void {
-  Object.assign(state, next);
+  // `ended: true` on its own means the element ran to its end, which pauses it: a component reading
+  // `paused` after the `ended` event used to see `false`, a state the platform never produces.
+  const changes = next.ended === true && next.paused === undefined ? { ...next, paused: true } : next;
+
+  Object.assign(state, changes);
 
   ANNOUNCEMENTS.forEach((announce) => {
-    const event = announce(next);
+    const event = announce(changes);
 
     if (event !== undefined) {
       element.dispatchEvent(new Event(event));
