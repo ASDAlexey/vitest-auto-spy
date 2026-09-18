@@ -464,6 +464,32 @@ const CROSS_ENTRY = [
       assert(takeStrictViolations().length === 1, 'a strict throw from /svelte was not recorded where ./setup reads it');
     `,
   },
+  {
+    // The captor and the walker that decides whether an argument matches are inlined into every
+    // chunk, so the captor a test imports is never the class the double's own matching knows. Both
+    // halves here are duck-typed on purpose — a captor recognised by identity would record nothing
+    // and match everything, and the spec would still pass, because both entries of a source-level
+    // test are one module.
+    name: 'a captor from the root entry filters and records through a double built by ./node, at depth',
+    entries: ['.', './node'],
+    body: `
+      const { captureArg } = await import(INDEX);
+      const { createSpyFromClass } = await import(NODE);
+
+      class Api {
+        send(_request) { return ''; }
+      }
+
+      const api = createSpyFromClass(Api);
+      const body = captureArg({ where: (value) => typeof value === 'string' && value.startsWith('{') });
+
+      api.send.calledWith({ url: '/save', init: { body } }).mockReturnValue('accepted');
+
+      assert(api.send({ url: '/save', init: { body: '{"a":1}' } }) === 'accepted', 'a nested captor did not match through a double from another entry');
+      assert(api.send({ url: '/save', init: { body: 'plain' } }) === undefined, 'the where filter did not reject a call the captor should not have matched');
+      assert(body.values.length === 1 && body.values[0] === '{"a":1}', 'the captor recorded something other than the one value its filter accepted');
+    `,
+  },
   // `dist/index.js` carries its own `fast-spy`, the framework entries share another, and 5.4.0 put
   // the helper bundle on the wrong copy's prototype: whichever entry loaded first built spies with no
   // `calledWith`. Both load orders, because the claim record has to hold in either.
