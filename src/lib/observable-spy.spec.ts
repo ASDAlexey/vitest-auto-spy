@@ -18,6 +18,7 @@ import {
   createObservablePropSpy,
 } from './observable-spy';
 import { registerObservableSupport } from './observable-support';
+import { mockValueProp } from './prop-mock';
 import { resetAutoSpy } from './reset-auto-spy';
 import { vitestMockAdapter } from './vitest-adapter';
 
@@ -175,6 +176,99 @@ describe('the backing subject does not outlive the configuration that filled it'
     store.products$.nextWith('after');
 
     expect(record(store.products$).values).toEqual(['after']);
+  });
+
+  it('starts a new stream after a spec closed the subject it was handed', () => {
+    // `returnSubject()` hands the same subject to the spec, and AGENTS.md offers it "for anything
+    // the helpers miss". A `complete()` called on it left the target believing the stream was open,
+    // so the next `nextWith` pushed into a dead subject and its value was lost without a word.
+    const service = createSpyFromClass(AccountService);
+
+    service.createSeamlessTransition.returnSubject().complete();
+    service.createSeamlessTransition.nextWith('uri://after');
+
+    expect(record(service.createSeamlessTransition()).values).toEqual(['uri://after']);
+  });
+
+  it('starts a new stream after a spec errored the subject it was handed', () => {
+    const service = createSpyFromClass(AccountService);
+
+    service.createSeamlessTransition.returnSubject().error(new Error('closed by the spec'));
+    service.createSeamlessTransition.nextWith('uri://after');
+
+    const seen = record(service.createSeamlessTransition());
+
+    expect(seen.values).toEqual(['uri://after']);
+    expect(seen.error).toBeUndefined();
+  });
+});
+
+describe('nextWithValues on a property somebody is already subscribed to', () => {
+  class Feed {
+    items$!: Observable<number>;
+  }
+
+  it('says so, once, instead of emitting into a stream nobody is on', () => {
+    const feed = createSpyFromClass(Feed, { observablePropsToSpyOn: ['items$'] });
+    const seen: number[] = [];
+    const warnings: string[] = [];
+    const restore = mockValueProp(globalThis.process.stderr, 'write', (line: string) => {
+      warnings.push(line);
+
+      return true;
+    });
+
+    try {
+      // The Angular shape: the component subscribed in `ngOnInit`, and the spec configures the feed
+      // afterwards. `nextWithValues` publishes a *new* stream, which `defer` only reads for the
+      // next subscription — so these values never reach the subscriber that is already there.
+      feed.items$.subscribe((value) => seen.push(value));
+      feed.items$.nextWithValues([{ value: 1 }, { value: 2 }]);
+      feed.items$.nextWithValues([{ value: 3 }]);
+    } finally {
+      restore();
+    }
+
+    expect(seen).toEqual([]);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain('nextWithValues() on an observable property publishes a new stream');
+  });
+
+  it('stays quiet when the property is configured before anybody subscribes', () => {
+    const feed = createSpyFromClass(Feed, { observablePropsToSpyOn: ['items$'] });
+    const warnings: string[] = [];
+    const restore = mockValueProp(globalThis.process.stderr, 'write', (line: string) => {
+      warnings.push(line);
+
+      return true;
+    });
+
+    try {
+      feed.items$.nextWithValues([{ value: 1 }]);
+    } finally {
+      restore();
+    }
+
+    expect(warnings).toEqual([]);
+  });
+
+  it('stays quiet for a function spy, whose stream is read per call', () => {
+    const load = createFunctionSpy<() => Observable<string>>('load');
+    const warnings: string[] = [];
+    const restore = mockValueProp(globalThis.process.stderr, 'write', (line: string) => {
+      warnings.push(line);
+
+      return true;
+    });
+
+    try {
+      load.returnSubject().subscribe(() => undefined);
+      load.nextWithValues([{ value: 'a' }]);
+    } finally {
+      restore();
+    }
+
+    expect(warnings).toEqual([]);
   });
 });
 

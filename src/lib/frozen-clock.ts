@@ -35,7 +35,11 @@ import { vi } from 'vitest';
 import { DOCS_LINKS, withDocs } from './docs-links';
 
 /** Both wordings the runner uses for "ran out of time" — a frozen clock strands hooks as readily as tests. */
-const TIMEOUT_MESSAGE = /^(?:Test|Hook) timed out in \d+ms\./;
+// The ` while waiting for …` part is Vitest 5's: it names the operations its `TaskDeadline` was
+// tracking, and it sits between the limit and the full stop. Nothing calls `track` in the 5.0.0
+// node runner, so the suffix is not reachable yet — the day something does (browser commands,
+// `expect.poll`, `vi.waitFor`), a regex anchored on `ms.` would drop the hint without a word.
+const TIMEOUT_MESSAGE = /^(?:Test|Hook) timed out in \d+ms(?: while waiting for [^\n]*?)?\./;
 
 /** Marks a message this module has already extended, so a second pass cannot append twice. */
 const HINT_MARKER = '[vitest-auto-spy] the clock is frozen';

@@ -34,15 +34,43 @@ describe('mockSystemTime', () => {
     expect(vi.isFakeTimers()).toBe(true);
   });
 
-  it('is a no-op undo, twice over, when the suite owns the timers', () => {
+  it('puts the clock back, twice over, without taking the suite timers off', () => {
+    vi.useFakeTimers({ now: new Date('2020-06-01T00:00:00.000Z') });
+
+    const restore = mockSystemTime(0);
+
+    expect(new Date().getUTCFullYear()).toBe(1970);
+
+    restore();
+    restore();
+
+    // The fakes are the suite's and stay on; the time is the caller's again, which is what
+    // `withSystemTime` promises and a no-op undo never did.
+    expect(vi.isFakeTimers()).toBe(true);
+    expect(new Date().getUTCFullYear()).toBe(2020);
+  });
+
+  it('keeps the time the spec advanced inside the block', () => {
+    vi.useFakeTimers({ now: new Date('2020-06-01T00:00:00.000Z') });
+
+    const restore = mockSystemTime(0);
+
+    vi.advanceTimersByTime(5_000);
+    restore();
+
+    expect(new Date().toISOString()).toBe('2020-06-01T00:00:05.000Z');
+  });
+
+  it('does nothing when the block took the fakes off itself', () => {
     vi.useFakeTimers();
 
     const restore = mockSystemTime(0);
 
-    restore();
+    vi.useRealTimers();
     restore();
 
-    expect(vi.isFakeTimers()).toBe(true);
+    // Setting the time here would install a fresh `Date`-only fake behind the spec's back.
+    expect(vi.isFakeTimers()).toBe(false);
   });
 
   it('tolerates a body that took the fakes off itself', async () => {
@@ -96,6 +124,20 @@ describe('withSystemTime', () => {
 
     expect(frozen).toBe('2025-04-30T00:00:00.000Z');
     expect(vi.isFakeTimers()).toBe(false);
+  });
+
+  it('restores the clock under fakes the suite installed', async () => {
+    vi.useFakeTimers({ now: new Date('2020-06-01T00:00:00.000Z') });
+
+    try {
+      await withSystemTime('2030-01-01T00:00:00.000Z', () => {
+        expect(new Date().getUTCFullYear()).toBe(2030);
+      });
+
+      expect(new Date().getUTCFullYear()).toBe(2020);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('restores the clock when the body throws', async () => {

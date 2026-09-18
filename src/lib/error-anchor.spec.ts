@@ -75,6 +75,31 @@ describe('captureAnchor', () => {
     expect(firstFrame(failure)).not.toContain('helperWithoutCapture');
   });
 
+  it('formats the captured stack only once a failure asks for it', () => {
+    let reads = 0;
+    const host = {
+      captureStackTrace: (target: object): void => {
+        Object.defineProperty(target, 'stack', {
+          get: (): string => {
+            reads += 1;
+
+            return 'Error\n    at spec (/spec/orders.spec.ts:2:2)';
+          },
+        });
+      },
+    };
+
+    const anchor = captureAnchor(helper, host);
+
+    // Reading `.stack` is what costs: under Vitest it runs a source-map-aware `prepareStackTrace`,
+    // and every helper call used to pay for a string only a failed wait ever prints.
+    expect(reads).toBe(0);
+
+    anchor(ownFailure('did not emit'));
+
+    expect(reads).toBe(1);
+  });
+
   it('trims nothing for an anonymous boundary rather than dropping an arbitrary frame', () => {
     const anonymous = Object.defineProperty((): void => undefined, 'name', { value: '' });
     const failure = captureAnchor(anonymous, {})(ownFailure('did not emit'));

@@ -73,3 +73,32 @@ export function restoreTimerGlobals(): void {
 export function getWatchedTimerGlobals(): string[] {
   return [...realTimerGlobals.keys()];
 }
+
+/**
+ * The `Date`-only fakes `mockSystemTime()` installs, remembered by identity.
+ *
+ * `vi.isFakeTimers()` answers "is *some* clock faked", and that one question used to decide two
+ * different things: `setupFakeTimers()` skipped its own install when it found these, leaving
+ * `setTimeout` real and `advanceTimers()` silently running nothing. Both helpers need to tell the
+ * two sets apart, so the identity lives here, in the module they already share, on `globalThis` for
+ * the same reason as the tracker registries — a `vi.resetModules()` must not forget it.
+ */
+declare global {
+  // A `globalThis` augmentation has to be declared with `var`.
+  var __vitestAutoSpyDateOnlyFakes__: unknown;
+}
+
+/** Remember the `Date` a `Date`-only install left on the globals. */
+export function markDateOnlyFakes(): void {
+  globalThis.__vitestAutoSpyDateOnlyFakes__ = globalThis.Date;
+}
+
+/** Whether the fakes currently installed are the `Date`-only ones — i.e. no timer is faked at all. */
+export function hasDateOnlyFakes(): boolean {
+  return globalThis.__vitestAutoSpyDateOnlyFakes__ === globalThis.Date;
+}
+
+/** Forget them: something else has taken the clock over, or this call put it back. */
+export function forgetDateOnlyFakes(): void {
+  globalThis.__vitestAutoSpyDateOnlyFakes__ = undefined;
+}

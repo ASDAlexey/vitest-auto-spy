@@ -40,6 +40,38 @@ describe('compareTestRuns', () => {
     expect(diff.added).toEqual(['/repo/src/cart.spec.ts::Cart > removes', '/repo/src/cart.spec.ts::Cart > totals']);
   });
 
+  it('sees one of two same-named tests disappear', () => {
+    const twice = report({
+      name: '/repo/src/cart.spec.ts',
+      tests: [
+        { fullName: 'Cart > handles error', status: 'passed' },
+        { fullName: 'Cart > handles error', status: 'passed' },
+      ],
+    });
+    const once = report({ name: '/repo/src/cart.spec.ts', tests: [{ fullName: 'Cart > handles error', status: 'passed' }] });
+
+    // A set of names answers "nothing was lost" here, which is the one question this function is
+    // for — and two identically named tests in one file is what copy-paste produces.
+    const diff = compareTestRuns(twice, once);
+
+    expect(diff.missing).toEqual(['/repo/src/cart.spec.ts::Cart > handles error (×2 → ×1)']);
+    expect(diff.added).toEqual([]);
+    expect(diff.baseline.counts.get('/repo/src/cart.spec.ts::Cart > handles error')).toBe(2);
+  });
+
+  it('reports a name that ran more often than before as added', () => {
+    const once = report({ name: 'a.spec.ts', tests: [{ fullName: 'A > one', status: 'passed' }] });
+    const twice = report({
+      name: 'a.spec.ts',
+      tests: [
+        { fullName: 'A > one', status: 'passed' },
+        { fullName: 'A > one', status: 'passed' },
+      ],
+    });
+
+    expect(compareTestRuns(once, twice).added).toEqual(['a.spec.ts::A > one (×2 → ×1)']);
+  });
+
   it('leaves a path alone when the root is not in it', () => {
     const summary = summarizeTestRun(report({ name: '/elsewhere/a.spec.ts', tests: [{ fullName: 'A > one', status: 'passed' }] }), '/src/');
 

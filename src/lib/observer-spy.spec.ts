@@ -149,6 +149,43 @@ describe('subscribeSpyTo', () => {
     });
   });
 
+  describe('a promise that could only ever hang', () => {
+    it('rejects an awaited onComplete once the stream errors instead', async () => {
+      const source$ = new Subject<number>();
+      const spy = subscribeSpyTo(source$, { expectErrors: true });
+      const pending = spy.onComplete();
+
+      source$.error(new Error('boom'));
+
+      // Completion is not coming. Left unsettled, `await spy.onComplete()` hung until the runner's
+      // file timeout, which then reported the file rather than the stream.
+      await expect(pending).rejects.toThrow(/errored, so the promise from onComplete\(\) can never resolve/);
+      await expect(spy.onComplete()).rejects.toThrow(/can never resolve/);
+    });
+
+    it('rejects an awaited onError once the stream completes instead', async () => {
+      const source$ = new Subject<number>();
+      const spy = subscribeSpyTo(source$);
+      const pending = spy.onError();
+
+      source$.complete();
+
+      await expect(pending).rejects.toThrow(/completed without erroring, so the promise from onError\(\) can never resolve/);
+      await expect(spy.onError()).rejects.toThrow(/can never resolve/);
+    });
+
+    it('leaves a callback alone, as upstream does', () => {
+      const source$ = new Subject<number>();
+      const spy = subscribeSpyTo(source$, { expectErrors: true });
+      const never = vi.fn();
+
+      spy.onComplete(never);
+      source$.error(new Error('boom'));
+
+      expect(never).not.toHaveBeenCalled();
+    });
+  });
+
   describe('what this does that upstream does not', () => {
     it('hands back a copy, so mutating what was read cannot corrupt the spy', () => {
       const spy = subscribeSpyTo(of('b', 'a'));

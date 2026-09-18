@@ -41,6 +41,33 @@ export interface ObserverSpyConfig {
   expectErrors: boolean;
 }
 
+/**
+ * One waiting `onComplete()` / `onError()`.
+ *
+ * `fail` is what the promise form needs and the callback form does not: a stream that errors can
+ * never complete, so the promise a spec awaited for the completion could never settle —
+ * `await spy.onComplete()` hung until the runner's file timeout, which then reported the *file*
+ * rather than the stream, the failure these helpers exist to replace.
+ */
+interface Waiter {
+  settle: () => void;
+  fail: (error: Error) => void;
+}
+
+/** A callback waiter is not a promise: upstream simply never calls it, and neither does this. */
+function ignoreTheOtherEnding(): void {
+  // Deliberately empty — see {@link Waiter}.
+}
+
+/** The stream ended the other way round from what the waiter was promised. */
+function endedOtherwise(waitedFor: 'an error' | 'completion', happened: string): Error {
+  return new Error(
+    `[vitest-auto-spy] this spy's observable ${happened}, so the promise from ${waitedFor === 'completion' ? 'onComplete()' : 'onError()'} ` +
+      `can never resolve: ${waitedFor} is not coming. Read receivedComplete() / receivedError(), or await ` +
+      '`expectCompletion(source$)` / `expectError(source$)`, which fail with a message naming the stream.',
+  );
+}
+
 /** Nothing was emitted, and the caller asked for a value anyway. */
 function noValue(what: string): Error {
   return new Error(
@@ -60,8 +87,8 @@ export class ObserverSpy<T> {
   #receivedError = false;
   #receivedComplete = false;
   #expectErrors: boolean;
-  #onCompleteCallbacks: (() => void)[] = [];
-  #onErrorCallbacks: (() => void)[] = [];
+  #onCompleteCallbacks: Waiter[] = [];
+  #onErrorCallbacks: Waiter[] = [];
 
   constructor(config?: ObserverSpyConfig) {
     this.#expectErrors = config?.expectErrors ?? false;
@@ -87,7 +114,8 @@ export class ObserverSpy<T> {
   error(errorValue: unknown): void {
     this.#error = errorValue;
     this.#receivedError = true;
-    this.#onErrorCallbacks.splice(0).forEach((resolve) => resolve());
+    this.#onErrorCallbacks.splice(0).forEach((waiter) => waiter.settle());
+    this.#onCompleteCallbacks.splice(0).forEach((waiter) => waiter.fail(endedOtherwise('completion', 'errored')));
   }
 
   /** Throw the recorded error when nothing declared it expected. Guards the value readers only. */
@@ -104,7 +132,8 @@ export class ObserverSpy<T> {
 
   complete(): void {
     this.#receivedComplete = true;
-    this.#onCompleteCallbacks.splice(0).forEach((resolve) => resolve());
+    this.#onCompleteCallbacks.splice(0).forEach((waiter) => waiter.settle());
+    this.#onErrorCallbacks.splice(0).forEach((waiter) => waiter.fail(endedOtherwise('an error', 'completed without erroring')));
   }
 
   /** Record errors rather than rethrowing them, after construction. Chainable, as upstream's is. */
@@ -114,33 +143,57 @@ export class ObserverSpy<T> {
     return this;
   }
 
-  /** Resolves (or invokes `callback`) when the stream completes — immediately if it already has. */
+  /**
+   * Resolves (or invokes `callback`) when the stream completes — immediately if it already has.
+   *
+   * The promise form **rejects** on a stream that errored instead: the completion it is waiting for
+   * is not coming, and a promise that can only hang reports the file rather than the stream.
+   */
   onComplete(): Promise<void>;
   onComplete(callback: () => void): void;
   onComplete(callback?: () => void): Promise<void> | void {
-    return this.#settle(this.#receivedComplete, this.#onCompleteCallbacks, callback);
+    return this.#settle(this.#receivedComplete, this.#onCompleteCallbacks, callback, () =>
+      this.#receivedError ? endedOtherwise('completion', 'errored') : undefined,
+    );
   }
 
-  /** Resolves when the stream errors — immediately if it already has. */
+  /** Resolves when the stream errors — immediately if it already has; rejects once it completes instead. */
   onError(): Promise<void>;
   onError(callback: () => void): void;
   onError(callback?: () => void): Promise<void> | void {
-    return this.#settle(this.#receivedError, this.#onErrorCallbacks, callback);
+    return this.#settle(this.#receivedError, this.#onErrorCallbacks, callback, () =>
+      this.#receivedComplete ? endedOtherwise('an error', 'completed without erroring') : undefined,
+    );
   }
 
   /** Shared by {@link onComplete} and {@link onError}: run now if it already happened, else queue. */
-  #settle(alreadyHappened: boolean, queue: (() => void)[], callback?: () => void): Promise<void> | void {
+  #settle(
+    alreadyHappened: boolean,
+    queue: Waiter[],
+    callback: (() => void) | undefined,
+    endedOtherWay: () => Error | undefined,
+  ): Promise<void> | void {
     if (callback) {
       if (alreadyHappened) {
         callback();
       } else {
-        queue.push(callback);
+        queue.push({ settle: callback, fail: ignoreTheOtherEnding });
       }
 
       return undefined;
     }
 
-    return alreadyHappened ? Promise.resolve() : new Promise<void>((resolve) => queue.push(resolve));
+    if (alreadyHappened) {
+      return Promise.resolve();
+    }
+
+    const missed = endedOtherWay();
+
+    return missed
+      ? Promise.reject(missed)
+      : new Promise<void>((resolve, reject) => {
+          queue.push({ settle: resolve, fail: reject });
+        });
   }
 
   getValuesLength(): number {

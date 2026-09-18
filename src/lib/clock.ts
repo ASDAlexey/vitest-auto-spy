@@ -22,7 +22,7 @@
 import { afterEach, beforeEach, vi } from 'vitest';
 
 import { type RestoreProp, mockValueProp } from './prop-mock';
-import { restoreTimerGlobals } from './timer-globals';
+import { forgetDateOnlyFakes, markDateOnlyFakes, restoreTimerGlobals } from './timer-globals';
 
 /** Anything `vi.setSystemTime` accepts. */
 export type SystemTime = Date | number | string;
@@ -49,14 +49,31 @@ export type SystemTime = Date | number | string;
  */
 export function mockSystemTime(time: SystemTime): RestoreProp {
   if (vi.isFakeTimers()) {
+    // The suite owns the fakes, so they stay on — but the clock still goes back where it was, which
+    // is what `withSystemTime` promises "including on failure" and what a no-op undo never did.
+    // Measured against the fake clock, so time the spec advanced inside the block is not lost.
+    const before = Date.now();
+
     vi.setSystemTime(time);
 
-    // The suite owns the fakes; taking them off here would break every later test in the file.
-    return (): void => undefined;
+    const set = Date.now();
+    let undone = false;
+
+    return (): void => {
+      if (undone || !vi.isFakeTimers()) {
+        return;
+      }
+
+      undone = true;
+      vi.setSystemTime(before + (Date.now() - set));
+    };
   }
 
   vi.useFakeTimers({ toFake: ['Date'] });
   vi.setSystemTime(time);
+  // Only `Date` is faked here, so `setupFakeTimers()` must not mistake this for a suite that owns
+  // the clock, and `advanceTimers()` must not pretend it can move one.
+  markDateOnlyFakes();
 
   // The fake `Date` this call installed, kept by identity. `vi.isFakeTimers()` answers "someone has
   // fakes on", not "mine are still on": a suite that installed its own set in between would have it
@@ -69,6 +86,7 @@ export function mockSystemTime(time: SystemTime): RestoreProp {
       return;
     }
 
+    forgetDateOnlyFakes();
     vi.useRealTimers();
 
     // Under a DOM environment `useRealTimers()` *deletes* `Date` instead of putting it back, and the

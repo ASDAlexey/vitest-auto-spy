@@ -1,6 +1,7 @@
-import { BehaviorSubject, Subject, of } from 'rxjs';
+import { BehaviorSubject, EMPTY, Subject, from, of, repeat, tap } from 'rxjs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { abandonEmissionWaits } from './emission-timeout';
 import {
   type SubscribableLike,
   expectCompletion,
@@ -162,6 +163,10 @@ describe('expectNoEmission', () => {
 
   it('defaults the quiet window to a single macrotask', async () => {
     await expect(expectNoEmission(new Subject<number>())).resolves.toBeUndefined();
+  });
+
+  it('is satisfied by a stream that completes without emitting', async () => {
+    await expect(expectNoEmission(EMPTY, { timeout: 5 })).resolves.toBeUndefined();
   });
 });
 
@@ -629,5 +634,267 @@ describe('the failure points at the caller, not at the callback that built it', 
     // Rewriting this one would be a lie: it was created by the code under test, not by a helper.
     await expect(expectError(source$, { timeout: 50 })).resolves.toBe(original);
     expect(original.stack).toBe(stackBefore);
+  });
+});
+
+describe('a source that cannot be subscribed to', () => {
+  /** A source the compiler already refuses, as a spec meets one: a spy nobody configured, or the value instead of the stream. */
+  function notASource(value: unknown): SubscribableLike<number> {
+    return value as SubscribableLike<number>;
+  }
+
+  it('names the mistake instead of failing inside rxjs', async () => {
+    // Before: `TypeError: Reflect.get called on non-object`, with no helper name, no label and no anchor.
+    await expect(expectEmission(notASource(undefined), { label: 'products$' })).rejects.toThrow(
+      /products\$ is not subscribable \(undefined\)/,
+    );
+  });
+
+  it('sends a promise to `await` rather than to the observable helpers', async () => {
+    await expect(expectEmission(notASource(Promise.resolve(1)))).rejects.toThrow(/is not subscribable[\s\S]*That is a promise/);
+  });
+
+  it('reports the value a spec passed instead of the stream', async () => {
+    await expect(expectNoEmission(notASource([1, 2]))).rejects.toThrow(/is not subscribable \(\[1,2\]\)[\s\S]*not the value it emits/);
+  });
+
+  it('rejects with what a throwing `subscribe` threw', async () => {
+    const source$: SubscribableLike<number> = {
+      subscribe: () => {
+        throw new Error('subscribe boom');
+      },
+    };
+
+    await expect(expectEmission(source$, { timeout: 50 })).rejects.toThrow('subscribe boom');
+  });
+});
+
+describe('a synchronous source is stopped at the value that settles the wait', () => {
+  it('runs no side effect past the first accepted emission', async () => {
+    const seen: number[] = [];
+
+    // The subscription used to be handed back only after the producer had finished, so every value
+    // arrived, `values` grew, and a `tap` / `finalize` calling a spy made `toHaveBeenCalledTimes(1)`
+    // a lie.
+    await expect(expectEmission(from([1, 2, 3, 4, 5]).pipe(tap((value) => seen.push(value))))).resolves.toBe(1);
+
+    expect(seen).toEqual([1]);
+  });
+
+  it('settles an endless synchronous source instead of hanging the worker', async () => {
+    await expect(expectEmission(of(1).pipe(repeat()), { timeout: 200 })).resolves.toBe(1);
+  });
+
+  it('keeps taking values from a synchronous source until the count is reached', async () => {
+    const seen: number[] = [];
+
+    await expect(expectEmissions(from([1, 2, 3, 4, 5]).pipe(tap((value) => seen.push(value))), 3)).resolves.toEqual([1, 2, 3]);
+
+    expect(seen).toEqual([1, 2, 3]);
+  });
+
+  it('lets a source that closes the subscriber itself finish normally', async () => {
+    await expect(expectEmissions(of(1, 2), 2)).resolves.toEqual([1, 2]);
+  });
+});
+
+describe('an observer rxjs drives as a subscriber', () => {
+  /** The subscriber rxjs hands its producers, of which the observer type states only three members. */
+  interface DrivenSubscriber {
+    add?: ((teardown?: unknown) => void) | undefined;
+    remove?: ((teardown: unknown) => void) | undefined;
+    next?: ((value: number) => void) | undefined;
+    error?: ((error: unknown) => void) | undefined;
+    complete?: (() => void) | undefined;
+    unsubscribe?: (() => void) | undefined;
+  }
+
+  /** A source that speaks rxjs's contract (`pipe` is the probe) and drives the subscriber by hand. */
+  function drivenSource(drive: (subscriber: DrivenSubscriber) => void): SubscribableLike<number> & { pipe: () => undefined } {
+    return {
+      pipe: () => undefined,
+      subscribe: (observer) => {
+        drive(observer);
+
+        return { unsubscribe: () => undefined };
+      },
+    };
+  }
+
+  it('runs the teardowns it was given, and drops the ones taken back', async () => {
+    const ran: string[] = [];
+    const source$ = drivenSource((subscriber) => {
+      const kept = (): void => {
+        ran.push('kept');
+      };
+
+      subscriber.add?.(kept);
+      subscriber.add?.({ unsubscribe: () => ran.push('subscription') });
+      subscriber.add?.(undefined);
+      subscriber.add?.(() => ran.push('removed'));
+      subscriber.remove?.(kept);
+      subscriber.next?.(1);
+    });
+
+    await expect(expectEmission(source$)).resolves.toBe(1);
+
+    expect(ran).toEqual(['subscription', 'removed']);
+  });
+
+  it('runs a teardown handed over after it has closed, and ignores a second close', async () => {
+    const ran: string[] = [];
+    const source$ = drivenSource((subscriber) => {
+      subscriber.next?.(1);
+      subscriber.add?.(() => ran.push('late'));
+      subscriber.unsubscribe?.();
+      subscriber.next?.(2);
+      subscriber.complete?.();
+    });
+
+    await expect(expectEmission(source$)).resolves.toBe(1);
+
+    expect(ran).toEqual(['late']);
+  });
+
+  it('reports an error the producer raises after the collector closed only once', async () => {
+    const source$ = drivenSource((subscriber) => {
+      subscriber.error?.(new Error('first'));
+      subscriber.error?.(new Error('second'));
+    });
+
+    await expect(expectEmission(source$)).rejects.toThrow(/errored instead of emitting: Error: first/);
+  });
+});
+
+describe('a timeout that cannot be a deadline', () => {
+  it('waits without a watchdog when the timeout is Infinity', async () => {
+    // Node truncates a delay above 2³¹−1 to 1 ms, so `{ timeout: Infinity }` — the natural way to
+    // say "no deadline" while debugging — used to fail after a millisecond, "within Infinity ms".
+    await expect(expectEmission(later('late', 5), { timeout: Infinity })).resolves.toBe('late');
+  });
+
+  it('refuses a default that would silently disable every watchdog', () => {
+    expect(() => setEmissionTimeout(Number.NaN)).toThrow(/setEmissionTimeout\(NaN\) needs a non-negative number/);
+    expect(() => setEmissionTimeout(-1)).toThrow(/needs a non-negative number/);
+  });
+});
+
+describe('a count no stream can satisfy', () => {
+  it('refuses zero, pointing at the helper that does assert silence', () => {
+    expect(() => expectEmissions(of(1), 0)).toThrow(/can never succeed[\s\S]*expectNoEmission/);
+  });
+});
+
+describe('the `advance` callback is spec code, and spec code throws', () => {
+  it('rejects naming the callback, with the original on `cause`', async () => {
+    const source$ = new Subject<number>();
+    const boom = new Error('advance boom');
+    const failure: Error = await expectEmission(source$, {
+      timeout: 5_000,
+      advance: () => {
+        throw boom;
+      },
+    }).then(
+      () => new Error('resolved'),
+      (error: Error) => error,
+    );
+
+    expect(failure.message).toContain('the `advance` callback threw: Error: advance boom');
+    expect(failure.cause).toBe(boom);
+    expect(source$.observed).toBe(false);
+  });
+
+  it('tears the subscription down even where no watchdog would ever do it', async () => {
+    const source$ = new Subject<number>();
+
+    await expect(
+      expectNoEmission(source$, {
+        advance: () => {
+          throw new Error('advance boom');
+        },
+      }),
+    ).rejects.toThrow('the `advance` callback threw');
+
+    // `expectNoEmission` runs with the watchdog off, so nothing else would have unsubscribed: the
+    // stream went on feeding a dead collector into the next test.
+    expect(source$.observed).toBe(false);
+  });
+});
+
+describe('the emissions that count are matched once each', () => {
+  it('asks the predicate about the new value only, never about the buffer again', async () => {
+    const source$ = new Subject<number>();
+    const asked: number[] = [];
+    const pending = expectEmissions(source$, 2, {
+      timeout: 200,
+      until: (value) => {
+        asked.push(value);
+
+        return value > 10;
+      },
+    });
+
+    [1, 2, 3, 11, 4, 12].forEach((value) => source$.next(value));
+
+    await expect(pending).resolves.toEqual([11, 12]);
+    // Re-scanning the buffer per emission made this 21 calls for six values, and quadratic from there.
+    expect(asked).toEqual([1, 2, 3, 11, 4, 12]);
+  });
+
+  it('says how many emissions it was told to skip when the stream completes short', async () => {
+    await expect(expectEmission(of(1, 2), { skip: 5, timeout: 50 })).rejects.toThrow(
+      'completed after 2 emission(s), expected 1 after skipping 5',
+    );
+  });
+
+  it('counts the emissions a completion-waiting helper saw without keeping them', async () => {
+    const source$ = new Subject<number>();
+
+    setTimeout(() => {
+      source$.next(1);
+      source$.next(2);
+      source$.next(3);
+    }, 1);
+
+    await expect(expectCompletion(source$, { timeout: 20, label: 'saved$' })).rejects.toThrow(
+      /saved\$ did not complete within 20 ms \(3 emission\(s\) received\)/,
+    );
+  });
+});
+
+describe('a wait nobody awaited does not reach the next test', () => {
+  it('unsubscribes every open wait and names what each was waiting for', async () => {
+    const source$ = new Subject<number>();
+    const other$ = new Subject<number>();
+
+    // The shape the docblock recommends — hold the promise, poke, then await — leaves the promise
+    // unhandled whenever the test fails in between. The subscription then lives on into the next
+    // test, and the watchdog rejects there, unhandled and blamed on it.
+    void expectEmission(source$, { timeout: 5_000, label: 'saved$' });
+    void expectCompletion(other$, { timeout: 5_000 });
+
+    expect(abandonEmissionWaits()).toEqual(['saved$', 'the observable']);
+    expect(source$.observed).toBe(false);
+    expect(other$.observed).toBe(false);
+
+    // Nothing settles those promises, so nothing can reject unhandled in a later test.
+    expect(abandonEmissionWaits()).toEqual([]);
+    await Promise.resolve();
+  });
+
+  it('clears the quiet window of an abandoned expectNoEmission too', async () => {
+    const source$ = new Subject<number>();
+
+    void expectNoEmission(source$, { timeout: 5_000 });
+
+    expect(abandonEmissionWaits()).toEqual(['the observable']);
+    expect(source$.observed).toBe(false);
+    await Promise.resolve();
+  });
+
+  it('holds nothing once a wait has settled on its own', async () => {
+    await expect(expectEmission(of(1))).resolves.toBe(1);
+
+    expect(abandonEmissionWaits()).toEqual([]);
   });
 });

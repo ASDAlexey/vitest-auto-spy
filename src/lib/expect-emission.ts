@@ -10,9 +10,10 @@
  * dependency and the helpers work with rxjs `Observable`s, Angular `toObservable()` results, signals
  * wrapped in `toObservable`, or a hand-rolled subscribable.
  */
-import { emissionTimeout } from './emission-timeout';
+import { type PendingEmissionWait, emissionTimeout, forgetEmissionWait, registerEmissionWait } from './emission-timeout';
 import { type StackAnchor, captureAnchor, ownFailure } from './error-anchor';
 import { serializeValue } from './serialize-args';
+import { unpatchedClearTimeout as clearTimer, unpatchedSetTimeout as setTimer } from './unpatched-timers';
 
 /** Minimal observer accepted by {@link SubscribableLike}. */
 export interface EmissionObserver<T> {
@@ -83,12 +84,114 @@ interface HybridObserver<T> extends EmissionObserver<T> {
  * the observer contract as well, through its own `next` / `error` / `complete` properties — covers
  * every other source, hand-rolled ones included.
  */
-function subscribeToSource<T>(source$: EmissionSource<T>, observer: EmissionObserver<T>): { unsubscribe(): void } {
+function subscribeToSource<T>(
+  source$: EmissionSource<T>,
+  observer: EmissionObserver<T>,
+  holdEarly: (handle: { unsubscribe(): void }) => void,
+): { unsubscribe(): void } {
   if (isRxjsSource(source$)) {
-    return source$.subscribe(observer);
+    const stoppable = stoppableObserver(observer);
+
+    // Handed over *before* the producer runs, and that is the whole point of it: a synchronous
+    // source emits everything from inside `subscribe`, so the collector must already have something
+    // to close when the value it was waiting for arrives.
+    holdEarly(stoppable);
+
+    // The subscription becomes one of the teardowns: rxjs hands back the subscriber it was given,
+    // so this is usually `stoppable` itself — adding it to its own set is harmless, because
+    // `unsubscribe()` closes before it drains. Where a future rxjs wraps the observer instead, the
+    // wrapper's subscription is in there and gets torn down with everything else.
+    stoppable.add(source$.subscribe(stoppable));
+
+    return stoppable;
   }
 
   return source$.subscribe(asHybridObserver(observer));
+}
+
+/**
+ * An observer rxjs accepts *as a subscriber*, so a synchronous source can be stopped mid-flight.
+ *
+ * Handed a plain observer, rxjs wraps it in its own `SafeSubscriber` and hands the subscription
+ * back only once `subscribe` returns — which for `of`, `from`, `range`, `expand` or anything with
+ * `repeat()` is after the whole sequence has been produced. Everything the source emits is then
+ * collected although one value was asked for, every side effect after the first value runs (a `tap`
+ * or a `finalize` calling a spy, so `toHaveBeenCalledTimes(1)` lies), and an infinite synchronous
+ * source hangs the worker where no watchdog can reach it. `firstValueFrom` does not have the
+ * problem because it subscribes *with* a subscriber and closes it from inside `next`.
+ *
+ * rxjs's test for one is structural — `closed` plus `add`/`remove`/`unsubscribe` beside the three
+ * observer methods — so satisfying it needs no rxjs import and no `Subscriber` subclass. A version
+ * that stops recognising the shape falls back to the wrapped-observer behaviour of before: the
+ * collector still unsubscribes through the subscription it was handed.
+ */
+interface StoppableObserver<T> extends EmissionObserver<T> {
+  closed: boolean;
+  add(teardown: unknown): void;
+  remove(teardown: unknown): void;
+  unsubscribe(): void;
+}
+
+function stoppableObserver<T>(observer: EmissionObserver<T>): StoppableObserver<T> {
+  const teardowns = new Set<unknown>();
+  const self: StoppableObserver<T> = {
+    closed: false,
+    add: (teardown) => {
+      if (self.closed) {
+        runTeardown(teardown);
+
+        return;
+      }
+
+      teardowns.add(teardown);
+    },
+    remove: (teardown) => {
+      teardowns.delete(teardown);
+    },
+    unsubscribe: () => {
+      if (self.closed) {
+        return;
+      }
+
+      self.closed = true;
+      teardowns.forEach(runTeardown);
+      teardowns.clear();
+    },
+    next: (value) => {
+      if (!self.closed) {
+        observer.next(value);
+      }
+    },
+    error: (error) => {
+      if (!self.closed) {
+        self.unsubscribe();
+        observer.error(error);
+      }
+    },
+    complete: () => {
+      if (!self.closed) {
+        self.unsubscribe();
+        observer.complete();
+      }
+    },
+  };
+
+  return self;
+}
+
+/** rxjs teardowns come as a function or as anything with `unsubscribe`; `undefined` is a legal one too. */
+function runTeardown(teardown: unknown): void {
+  if (typeof teardown === 'function') {
+    teardown();
+
+    return;
+  }
+
+  const unsubscribe: unknown = Reflect.get(Object(teardown), 'unsubscribe');
+
+  if (typeof unsubscribe === 'function') {
+    unsubscribe.call(teardown);
+  }
 }
 
 /** Whether the source follows rxjs's `Subscribable` contract, where a function argument means "next only". */
@@ -149,46 +252,8 @@ export interface EmissionOptions<T = unknown> {
 // Re-exported so the public surface of the emission helpers stays one import for consumers.
 export { setEmissionTimeout } from './emission-timeout';
 
-/**
- * The real timers, captured at import time — and it has to be import time, twice over.
- *
- * **The watchdog must not be stoppable by the code under test.** `vi.useFakeTimers()` replaces
- * `setTimeout`, and a helper whose watchdog is itself faked never fires: a silent stream would hang
- * until the runner's own test timeout, reporting "test timed out" instead of naming the stream.
- * These helpers *are* the assertion, so their clock is the one thing a spec cannot stop.
- *
- * **A virtual watchdog would also race the source.** Under fake timers there is one clock, and the
- * spec drives it: `expectEmission(source$, { timeout: 200 })` followed by
- * `vi.advanceTimersByTime(5_000)` would fire a virtual watchdog at 200 ms and reject the stream the
- * spec was about to advance into. The spec named "still resolves a stream a spec advances by hand"
- * is the canary for that. A timeout here is a wall-clock safety net, not a deadline the source has
- * to beat.
- *
- * Reading `globalThis.setTimeout` at *call* time would give the fake one, so the capture cannot
- * move; and it is not order-dependent in any way that matters, because a fake clock is installed
- * from `beforeAll`/`beforeEach` (see `setupFakeTimers`), which the module graph is fully evaluated
- * before.
- */
-const setTimer: typeof setTimeout = globalThis.setTimeout.bind(globalThis);
-const clearTimer: typeof clearTimeout = globalThis.clearTimeout.bind(globalThis);
-
 function describeSource(options: AnyEmissionOptions | undefined): string {
   return options?.label ?? 'the observable';
-}
-
-/**
- * The emissions that count, out of every emission seen: past `skip`, and matching `until`.
- *
- * Applied on read rather than at `next`, so `values` stays the full record of what arrived. That is
- * what lets the failure say "4 emission(s) received" about a stream that emitted four times and
- * matched none — the distinction a spec needs in order to tell "nothing fired" from "the wrong
- * thing fired", and the one a `pipe(filter(…))` in front of the helper throws away.
- */
-function accepted<T>(values: T[], options: EmissionOptions<T> | undefined): T[] {
-  const past = options?.skip ? values.slice(options.skip) : values;
-  const until = options?.until;
-
-  return until ? past.filter((value) => until(value)) : past;
 }
 
 /**
@@ -200,15 +265,29 @@ function accepted<T>(values: T[], options: EmissionOptions<T> | undefined): T[] 
  */
 type AnyEmissionOptions = EmissionOptions<never>;
 
-/** How the failure should describe what it was waiting for, given the selection options. */
+/**
+ * How the failure should describe what it was waiting for, given the selection options.
+ *
+ * `skip` is part of the answer: `expectEmission(of(1, 2), { skip: 5 })` was asked for the sixth
+ * emission, and a message reading "expected 1" made two emissions sound like plenty.
+ */
 function describeExpectation(count: number, options: AnyEmissionOptions | undefined): string {
-  return options?.until ? `${count} matching` : String(count);
+  const matching = options?.until ? `${count} matching` : String(count);
+
+  return options?.skip ? `${matching} after skipping ${options.skip}` : matching;
 }
 
 /** One subscription plus its timeout, torn down whichever way the promise settles. */
-interface Collector<T> {
-  values: T[];
+interface Collector {
   stop: () => void;
+  /**
+   * One more teardown for `stop()` to run, assigned after construction.
+   *
+   * It has a single user: the quiet window of `expectNoEmission` is the helper's own timer rather
+   * than the collector's, and a wait abandoned at the end of its test never reaches the `finally`
+   * that would otherwise clear it.
+   */
+  alsoStop?: () => void;
 }
 
 /**
@@ -236,10 +315,18 @@ interface Settle<T> extends Rejecter {
  * The wording therefore travels with the helper instead of living in the collector.
  */
 interface CollectorHandlers<T> {
-  /** Whether what has arrived so far settles the promise successfully. */
-  isDone: (values: T[]) => boolean;
+  /**
+   * Whether what has arrived so far settles the promise successfully, given how many emissions were
+   * accepted.
+   *
+   * A count rather than the buffer, because the buffer used to be re-scanned on every emission: with
+   * `skip` that copied it per value, and with `until` it re-ran the caller's predicate over every
+   * value seen so far — quadratic both ways, and 30–300× on an emission-heavy wait. Acceptance is
+   * decided once per value now, where the value arrives.
+   */
+  isDone: (accepted: number) => boolean;
   /** The source completed — resolve, reject, or ignore, depending on the helper. */
-  onComplete: (values: T[]) => void;
+  onComplete: (accepted: T[], received: number) => void;
   /**
    * The watchdog expired: build the failure this helper reports.
    *
@@ -248,7 +335,7 @@ interface CollectorHandlers<T> {
    * `expectNoEmission` runs with the watchdog disabled — its arrow would never be called, and 100 %
    * function coverage would fail on a branch that cannot be reached.
    */
-  onTimeout: (values: T[], options: AnyEmissionOptions | undefined, waited: number) => Error;
+  onTimeout: (received: number, options: AnyEmissionOptions | undefined, waited: number) => Error;
   /**
    * The source errored — settle the promise.
    *
@@ -256,29 +343,80 @@ interface CollectorHandlers<T> {
    * helper the stream erroring is the success, and the value it resolves with is the error itself.
    */
   onError: (error: unknown, options: AnyEmissionOptions | undefined, settle: Settle<T>) => void;
+  /**
+   * Whether an emission can settle this helper.
+   *
+   * `false` for the two that wait for termination. They report how many values arrived and never
+   * read one, so the values are counted rather than kept — a stream feeding `expectError` for a
+   * whole second used to retain every component it emitted — and `skip` / `until`, which only
+   * choose *which* emission settles a helper, are not evaluated at all.
+   *
+   * Where they are, only the emissions that *count* are kept: `received` is what the failures
+   * report ("4 emission(s) received", the distinction between "nothing fired" and "the wrong thing
+   * fired"), and the values a `skip` or an `until` ruled out are of no further use to anybody.
+   */
+  emissionsSettle: boolean;
+}
+
+/** The largest delay a timer accepts: Node truncates anything above it to 1 ms, with a warning. */
+const MAX_TIMER_DELAY = 2 ** 31 - 1;
+
+/**
+ * Whether the source can be subscribed to at all.
+ *
+ * Without this the two ordinary mistakes — passing the value instead of the stream, or a source a
+ * spy was never configured with — reached rxjs's machinery and came back as
+ * `TypeError: Reflect.get called on non-object` or `source$.subscribe is not a function`: no helper
+ * name, no `label`, no anchor.
+ */
+function isSubscribable(source$: unknown): boolean {
+  return (
+    (typeof source$ === 'object' || typeof source$ === 'function') &&
+    source$ !== null &&
+    typeof Reflect.get(source$, 'subscribe') === 'function'
+  );
+}
+
+function notSubscribableError(source$: unknown, options: AnyEmissionOptions | undefined): Error {
+  const hint =
+    typeof Reflect.get(Object(source$), 'then') === 'function'
+      ? 'That is a promise — `await` it directly, or pass the observable it came from.'
+      : 'Pass the observable itself, not the value it emits, and check that the spy feeding it was configured.';
+
+  return ownFailure(`${describeSource(options)} is not subscribable (${serializeValue(source$)}). ${hint}`);
+}
+
+/** What one collector has seen, shared between it and the observer that fills it. */
+interface Collected<T> {
+  /** The emissions that count: past `skip`, matching `until`, and only where they can settle the wait. */
+  readonly accepted: T[];
+  /** Every emission, counted — what the failures report, and all they report. */
+  received: number;
+  readonly stop: () => void;
 }
 
 /**
  * The observer half of {@link subscribeAndCollect}.
  *
- * `next` is the one place caller-supplied code runs: the `until` predicate, reached through both
- * `isDone` and the resolve path — hence the message `fail` writes. Left to escape, rxjs routes the
- * throw to `reportUnhandledError` on a fresh macrotask: the run gets an unhandled error, the
- * subscription and the watchdog stay alive until the timeout, and the eventual message blames the
- * silence instead of the predicate. `complete` needs no such guard — every `onComplete` settles the
- * promise with a message it builds itself.
+ * `next` is the one place caller-supplied code runs: the `until` predicate. Left to escape, rxjs
+ * routes the throw to `reportUnhandledError` on a fresh macrotask — the run gets an unhandled
+ * error, the subscription and the watchdog stay alive until the timeout, and the eventual message
+ * blames the silence instead of the predicate. `complete` needs no such guard: every `onComplete`
+ * settles the promise with a message it builds itself.
  */
 function collectingObserver<T>(
-  values: T[],
-  stop: () => void,
+  collected: Collected<T>,
+  options: EmissionOptions<T> | undefined,
   settle: Settle<T>,
   handlers: CollectorHandlers<T>,
-  options: AnyEmissionOptions | undefined,
 ): EmissionObserver<T> {
+  const skip = options?.skip ?? 0;
+  const until = options?.until;
+
   const fail = (error: unknown): void => {
-    stop();
+    collected.stop();
     settle.reject(
-      ownFailure(`${describeSource(options)}: the \`until\` predicate threw on emission ${values.length}: ${String(error)}`, {
+      ownFailure(`${describeSource(options)}: the \`until\` predicate threw on emission ${collected.received}: ${String(error)}`, {
         cause: error,
       }),
     );
@@ -286,71 +424,115 @@ function collectingObserver<T>(
 
   return {
     next: (value): void => {
-      values.push(value);
+      collected.received += 1;
 
       try {
-        if (handlers.isDone(values)) {
-          stop();
-          settle.resolve(values);
+        if (handlers.emissionsSettle && collected.received > skip && (until === undefined || until(value))) {
+          collected.accepted.push(value);
+        }
+
+        if (handlers.isDone(collected.accepted.length)) {
+          collected.stop();
+          settle.resolve(collected.accepted);
         }
       } catch (error) {
         fail(error);
       }
     },
     error: (error): void => {
-      stop();
+      collected.stop();
       handlers.onError(error, options, settle);
     },
     complete: (): void => {
-      stop();
-      handlers.onComplete(values);
+      collected.stop();
+      handlers.onComplete(collected.accepted, collected.received);
     },
   };
 }
 
+/**
+ * Run the caller's `advance`, reporting a throw as this helper's own failure.
+ *
+ * It is ordinary spec code — `vi.runAllTimers()`, `fixture.detectChanges()` — and it throws like
+ * ordinary code. Unguarded, the throw came out of the promise raw, with no anchor and no `label`,
+ * and nothing tore the collector down: for `expectNoEmission`, whose watchdog is off, the
+ * subscription then lived on for the rest of the run.
+ */
+function runAdvance<T>(options: EmissionOptions<T> | undefined, collected: Collected<T>, settle: Rejecter): void {
+  try {
+    options?.advance?.();
+  } catch (error) {
+    collected.stop();
+    settle.reject(ownFailure(`${describeSource(options)}: the \`advance\` callback threw: ${String(error)}`, { cause: error }));
+  }
+}
+
 function subscribeAndCollect<T>(
   source$: EmissionSource<T>,
-  options: AnyEmissionOptions | undefined,
+  options: EmissionOptions<T> | undefined,
   settle: Settle<T>,
   handlers: CollectorHandlers<T>,
-): Collector<T> {
-  const values: T[] = [];
+): Collector {
   let subscription: { unsubscribe(): void } | undefined = undefined;
   let stopped = false;
+  let timer: ReturnType<typeof setTimer> | undefined = undefined;
 
   // Idempotent: called from `next`/`error`/`complete` (possibly before `subscribe` returned, for a
-  // synchronous source) and again from the caller's own timer.
-  const stop = (): void => {
+  // synchronous source), from the watchdog, and from the teardown of a test that never awaited.
+  function stop(): void {
     stopped = true;
     clearTimer(timer);
+    collector.alsoStop?.();
     subscription?.unsubscribe();
-  };
+    forgetEmissionWait(wait);
+  }
 
-  const timeout = options?.timeout ?? emissionTimeout();
-  const timer =
-    timeout > 0
-      ? setTimer(() => {
-          stop();
-          settle.reject(handlers.onTimeout(values, options, timeout));
-        }, timeout)
-      : undefined;
+  const collected: Collected<T> = { accepted: [], received: 0, stop };
+  const wait: PendingEmissionWait = { describe: describeSource(options), abandon: stop };
+  const collector: Collector = { stop };
 
-  subscription = subscribeToSource(source$, collectingObserver(values, stop, settle, handlers, options));
+  if (!isSubscribable(source$)) {
+    settle.reject(notSubscribableError(source$, options));
+
+    return collector;
+  }
+
+  subscription = subscribeToSource(source$, collectingObserver(collected, options, settle, handlers), (early) => {
+    subscription = early;
+  });
 
   // A synchronous source (`of(…)`, a `BehaviorSubject`) settled while `subscription` was still
-  // unassigned, so the `stop()` above could not unsubscribe. Do it now.
+  // unassigned — which only a source that is not rxjs's can now do, since an rxjs one hands its
+  // subscriber over up front. The `stop()` above could not unsubscribe; do it now.
   if (stopped) {
     subscription.unsubscribe();
+
+    return collector;
   }
+
+  // Armed after the subscription, not before it: a source that throws out of `subscribe` used to
+  // leave the watchdog running for its whole timeout. `Infinity` — the natural way to say "no
+  // deadline" while debugging — would fire after 1 ms, because that is what Node does with a delay
+  // above 2³¹−1, so a non-finite wait disables the watchdog instead.
+  const timeout = options?.timeout ?? emissionTimeout();
+
+  if (Number.isFinite(timeout) && timeout > 0) {
+    timer = setTimer(
+      () => {
+        stop();
+        settle.reject(handlers.onTimeout(collected.received, options, timeout));
+      },
+      Math.min(timeout, MAX_TIMER_DELAY),
+    );
+  }
+
+  registerEmissionWait(wait);
 
   // After the subscription and before the caller gets its promise — the one moment a spec cannot
-  // reach on its own. Skipped once the source has already settled: advancing a clock into a
-  // stream nobody is listening to is how a stray timer outlives the test.
-  if (!stopped) {
-    options?.advance?.();
-  }
+  // reach on its own.
+  runAdvance(options, collected, settle);
 
-  return { values, stop };
+  return collector;
 }
 
 /**
@@ -365,9 +547,9 @@ function anchoredRejecter(reject: (error: Error) => void, anchor: StackAnchor): 
   return (error) => reject(anchor(error));
 }
 
-function timeoutError(values: unknown[], options: AnyEmissionOptions | undefined, waited: number): Error {
+function timeoutError(received: number, options: AnyEmissionOptions | undefined, waited: number): Error {
   return ownFailure(
-    `${describeSource(options)} did not emit within ${waited} ms (${values.length} emission(s) received). ` +
+    `${describeSource(options)} did not emit within ${waited} ms (${received} emission(s) received). ` +
       'Either the stream never fired — check the trigger and any provider spy feeding it — or it is slower than the ' +
       'timeout; raise it with `{ timeout: … }`. This wait is real time even under fake timers, on purpose: a virtual ' +
       'watchdog would race the timers your spec advances. Lower it with `setEmissionTimeout(100)` in the setup file ' +
@@ -388,9 +570,9 @@ function rejectAsSourceError(error: unknown, options: AnyEmissionOptions | undef
   settle.reject(ownFailure(`${describeSource(options)} errored instead of emitting: ${String(error)}`, { cause: error }));
 }
 
-function completedError(values: unknown[], expected: number, options: AnyEmissionOptions | undefined): Error {
+function completedError(received: number, expected: number, options: AnyEmissionOptions | undefined): Error {
   return ownFailure(
-    `${describeSource(options)} completed after ${values.length} emission(s), expected ${describeExpectation(expected, options)}. ` +
+    `${describeSource(options)} completed after ${received} emission(s), expected ${describeExpectation(expected, options)}. ` +
       'A completed-but-empty stream is the usual sign that the value was produced before the subscription.',
   );
 }
@@ -464,6 +646,16 @@ function collectEmissions<T>(
   options: EmissionOptions<T> | undefined,
   anchor: StackAnchor,
 ): Promise<T[]> {
+  // `count: 0` could never be satisfied: `isDone` is consulted only when something arrives, so the
+  // wait either timed out or was told "completed after 0 emission(s), expected 0". Thrown rather
+  // than rejected, so the stack is the caller's own — this is a bad argument, not a failed wait.
+  if (count < 1) {
+    throw new Error(
+      `[vitest-auto-spy] expectEmissions(source$, ${count}) can never succeed — a count below 1 is not something a stream can satisfy. ` +
+        'Use `expectNoEmission(source$)` to assert silence.',
+    );
+  }
+
   return new Promise<T[]>((resolve, reject) => {
     const fail = anchoredRejecter(reject, anchor);
 
@@ -472,12 +664,13 @@ function collectEmissions<T>(
       options,
       // Resolved with everything that arrived, then narrowed to the accepted ones: the collector's
       // job is to record, and `skip` / `until` decide what the caller is handed.
-      { resolve: (values) => resolve(accepted(values, options).slice(0, count)), reject: fail },
+      { resolve: (values) => resolve(values.slice(0, count)), reject: fail },
       {
-        isDone: (values) => accepted(values, options).length >= count,
-        onComplete: (values) => fail(completedError(values, count, options)),
+        isDone: (acceptedCount) => acceptedCount >= count,
+        onComplete: (_values, received) => fail(completedError(received, count, options)),
         onTimeout: timeoutError,
         onError: rejectAsSourceError,
+        emissionsSettle: true,
       },
     );
   });
@@ -502,16 +695,17 @@ export function expectNoEmission<T>(source$: EmissionSource<T>, options?: Emissi
       source$,
       { ...options, timeout: 0 },
       {
-        resolve: (emitted) => fail(unexpectedEmissionError(accepted(emitted, options), options)),
+        resolve: (emitted) => fail(unexpectedEmissionError(emitted, options)),
         reject: fail,
       },
       {
-        isDone: (values) => accepted(values, options).length > 0,
+        isDone: (acceptedCount) => acceptedCount > 0,
         onComplete: () => undefined,
         // Never reached — the watchdog is off (`timeout: 0`) and the quiet window below is this
         // helper's own timer. Named rather than inlined so it is not an uncalled arrow.
         onTimeout: timeoutError,
         onError: rejectAsSourceError,
+        emissionsSettle: true,
       },
     );
 
@@ -522,6 +716,10 @@ export function expectNoEmission<T>(source$: EmissionSource<T>, options?: Emissi
       collector.stop();
       resolve();
     }, quietFor);
+
+    // A test that ended without awaiting this promise has no `finally` to reach: the collector's
+    // teardown clears the window too.
+    collector.alsoStop = (): void => clearTimer(quietWindow);
   }).finally(() => {
     // An emission or a source error settles the promise before the window is up, and a settled
     // promise ignores whatever the timer does next — but the timer itself does not go away. It
@@ -562,11 +760,12 @@ export function expectCompletion(source$: EmissionSource<unknown>, options?: Emi
       options,
       { resolve, reject: anchoredRejecter(reject, anchor) },
       {
-        // Emissions are collected for the failure message, but only completion settles this.
+        // Emissions are counted for the failure message, but only completion settles this.
         isDone: staysOpen,
         onComplete: resolve,
         onTimeout: notCompletedError,
         onError: rejectAsNotCompleted,
+        emissionsSettle: false,
       },
     );
   }).then(() => undefined);
@@ -577,9 +776,9 @@ function staysOpen(): boolean {
   return false;
 }
 
-function notCompletedError(values: unknown[], options: AnyEmissionOptions | undefined, waited: number): Error {
+function notCompletedError(received: number, options: AnyEmissionOptions | undefined, waited: number): Error {
   return ownFailure(
-    `${describeSource(options)} did not complete within ${waited} ms (${values.length} emission(s) received). ` +
+    `${describeSource(options)} did not complete within ${waited} ms (${received} emission(s) received). ` +
       'A stream that keeps running usually means the completing operator never ran — check `take`, `first`, ' +
       '`takeUntil`, or a Subject nobody calls `complete()` on. The wait is real time even under fake timers; ' +
       'raise it with `{ timeout: … }`, or lower the suite default with `setEmissionTimeout(…)`.',
@@ -624,25 +823,26 @@ export function expectError(source$: EmissionSource<unknown>, options?: Emission
       {
         // Only `error` settles this one: an emission is not the answer, and neither is completion.
         isDone: staysOpen,
-        onComplete: (values) => fail(completedWithoutErrorError(values, options)),
+        onComplete: (_values, received) => fail(completedWithoutErrorError(received, options)),
         onTimeout: notErroredError,
         onError: resolveWithError,
+        emissionsSettle: false,
       },
     );
   }).then((values) => firstOf(values));
 }
 
-function completedWithoutErrorError(values: unknown[], options: AnyEmissionOptions | undefined): Error {
+function completedWithoutErrorError(received: number, options: AnyEmissionOptions | undefined): Error {
   return ownFailure(
-    `${describeSource(options)} completed after ${values.length} emission(s) without erroring, but an error was expected. ` +
+    `${describeSource(options)} completed after ${received} emission(s) without erroring, but an error was expected. ` +
       'Check that the failure path is the one the spec set up — a spy configured with `resolveWith`/`nextWith` rather ' +
       'than `rejectWith`/`throwWith` produces exactly this.',
   );
 }
 
-function notErroredError(values: unknown[], options: AnyEmissionOptions | undefined, waited: number): Error {
+function notErroredError(received: number, options: AnyEmissionOptions | undefined, waited: number): Error {
   return ownFailure(
-    `${describeSource(options)} did not error within ${waited} ms (${values.length} emission(s) received). ` +
+    `${describeSource(options)} did not error within ${waited} ms (${received} emission(s) received). ` +
       'The stream is still running: nothing failed, and nothing completed either.',
   );
 }

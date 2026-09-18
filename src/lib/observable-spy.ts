@@ -32,6 +32,7 @@ import { attachHelpers, decorate, detachedHelperError } from './spy-decoration';
 import { hooksOf } from './spy-mark';
 import type { AddObservableSpyMethods, ValueConfig, ValueConfigPerCall } from './types';
 import { isCompleteConfig, isErrorConfig, isNextValueConfig } from './value-config-guards';
+import { writeWarning } from './write-warning';
 
 function createReplaySubject<T>(): ReplaySubject<T> {
   return new ReplaySubject<T>(REPLAY_BUFFER_SIZE);
@@ -98,8 +99,14 @@ function mergeSubjectWithDefaultValues<T>(subject: ReplaySubject<T>, valuesConfi
  * closures for the helpers themselves — a dozen objects per method a spec called, before the mock.
  * The targets below extend it, so a function spy's whole observable state is one object.
  *
- * `terminated` is tracked here rather than read off the subject: rxjs's own `isStopped` is
- * deprecated, and the three helpers that close it are the only things that can, so this cannot drift.
+ * `terminated` is tracked here rather than read off the subject, because rxjs's own `isStopped` is
+ * deprecated — but the three helpers are *not* the only things that can close it. `returnSubject()`
+ * hands the same subject to the spec, and AGENTS.md offers it "for anything the helpers miss", so a
+ * spec that calls `subject.complete()` itself used to leave this flag saying `false`: the next
+ * `nextWith(2)` then pushed into a dead subject and the value was silently lost. The subject
+ * therefore reports its own closing, through its two closing methods rather than through an extra
+ * subscription — a subscriber would make every subject `observed` for ever, which is the thing
+ * specs read to check that a component unsubscribed.
  */
 abstract class ObservableTarget<T> {
   subject: ReplaySubject<T> | undefined = undefined;
@@ -107,11 +114,28 @@ abstract class ObservableTarget<T> {
 
   get(): ReplaySubject<T> {
     if (!this.subject || this.terminated) {
-      this.subject = createReplaySubject<T>();
+      this.subject = this.#selfReporting(createReplaySubject<T>());
       this.terminated = false;
     }
 
     return this.subject;
+  }
+
+  /** The same subject, with `complete()` and `error()` reporting back here whoever calls them. */
+  #selfReporting(subject: ReplaySubject<T>): ReplaySubject<T> {
+    const { complete, error } = subject;
+
+    subject.complete = (): void => {
+      this.terminate();
+      complete.call(subject);
+    };
+
+    subject.error = (reason: unknown): void => {
+      this.terminate();
+      error.call(subject, reason);
+    };
+
+    return subject;
   }
 
   terminate(): void {
@@ -121,6 +145,14 @@ abstract class ObservableTarget<T> {
   reset(): void {
     this.subject = undefined;
     this.terminated = false;
+  }
+
+  /**
+   * Called before `nextWithValues` replaces the published stream, for a target that has to say
+   * something about the subscribers already on the old one.
+   */
+  replacingStream(): void {
+    // Nothing to say for a function spy or a `calledWith` chain: their stream is read per call.
   }
 
   /** Where a configured stream goes: the spy's return container, a `calledWith` slot, or a prop's published stream. */
@@ -187,6 +219,8 @@ function observableHelpers<Self, T>(
       }
 
       const target = resolve(this, 'nextWithValues');
+
+      target.replacingStream();
       target.publish(mergeSubjectWithDefaultValues(target.get(), valuesConfigs));
     },
     throwWith(this: Self, value: unknown): void {
@@ -363,10 +397,31 @@ export function createObservableWithValues<T>(
 class PropObservableTarget<T> extends ObservableTarget<T> {
   published$: Observable<T> = defer(() => this.get());
   fed = false;
+  #warnedAboutLateValues = false;
 
   publish(stream: Observable<T>): void {
     this.published$ = stream;
     this.fed = true;
+  }
+
+  /**
+   * `nextWithValues` publishes a *new* stream, and `defer` only re-reads it for the next
+   * subscription — so a component that subscribed in `ngOnInit` sees nothing, with no error and no
+   * timeout unless the spec also awaits an emission. Its siblings do not have the problem: they
+   * push into the subject everyone is already on. Said once per property, and only when there is
+   * somebody to miss it.
+   */
+  override replacingStream(): void {
+    if (this.#warnedAboutLateValues || this.subject?.observed !== true) {
+      return;
+    }
+
+    this.#warnedAboutLateValues = true;
+    writeWarning(
+      '[vitest-auto-spy] nextWithValues() on an observable property publishes a new stream, and the subscriber already ' +
+        'attached to this property stays on the old one — so these values never reach it. Configure the property before ' +
+        'the code under test subscribes, or push into the live stream with nextWith() / returnSubject().',
+    );
   }
 }
 

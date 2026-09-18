@@ -1,3 +1,5 @@
+import * as nodeTimers from 'node:timers';
+import { promisify } from 'node:util';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -87,6 +89,58 @@ function createManualHost(): SchedulerHost & { fire(handle: unknown, ...args: un
     },
     fire(handle: unknown, ...args: unknown[]): void {
       pending.get(handle)?.(...args);
+    },
+  };
+}
+
+/**
+ * A stand-in whose handles behave like Node's `Timeout`: they coerce to a number, and they can be
+ * cancelled through the object, through that number, or by their own `close()`.
+ */
+function createNodeLikeHost(): SchedulerHost & { pending: number } {
+  let next = 1;
+  const live = new Set<object>();
+
+  const schedule = (): object => {
+    const id = next++;
+    const handle = {
+      _destroyed: false,
+      [Symbol.toPrimitive]: (): number => id,
+      close(): void {
+        handle._destroyed = true;
+        live.delete(handle);
+      },
+    };
+
+    live.add(handle);
+
+    return handle;
+  };
+
+  const cancel = (handle: unknown): void => {
+    if (typeof handle === 'object' && handle !== null) {
+      Reflect.set(handle, '_destroyed', true);
+      live.delete(handle);
+
+      return;
+    }
+
+    // Node cancels by id too, and a library that stores the handle as a number is why.
+    live.forEach((candidate) => {
+      if (Number(candidate) === Number(handle)) {
+        Reflect.set(candidate, '_destroyed', true);
+        live.delete(candidate);
+      }
+    });
+  };
+
+  return {
+    setTimeout: schedule,
+    setInterval: schedule,
+    clearTimeout: cancel,
+    clearInterval: cancel,
+    get pending(): number {
+      return live.size;
     },
   };
 }
@@ -431,5 +485,109 @@ describe('describeStrayTimers', () => {
 
     expect(describeStrayTimers(host)[0]?.file).toBeUndefined();
     stop();
+  });
+});
+
+describe("a handle cancelled behind the wrappers' back", () => {
+  it('forgets a timeout cleared by the number its handle coerces to', () => {
+    const host = createNodeLikeHost();
+    const stop = trackStrayTimers(host);
+    const handle = host.setTimeout(() => undefined, 10_000);
+
+    // What a library that stores ids as numbers does — `clearTimeout(+handle)`. The `Map` is keyed
+    // by the object, so this used to miss and the timer was reported as a stray of healthy code.
+    host.clearTimeout(Number(handle));
+
+    expect(countStrayTimers(host)).toBe(0);
+    expect(describeStrayTimers(host)).toEqual([]);
+    stop();
+  });
+
+  it('forgets an interval cleared the same way', () => {
+    const host = createNodeLikeHost();
+    const stop = trackStrayTimers(host);
+    const handle = host.setInterval(() => undefined, 10_000);
+
+    host.clearInterval(Number(handle));
+
+    expect(countStrayTimers(host)).toBe(0);
+    stop();
+  });
+
+  it('shrugs off a clear for a handle it never handed out, in either form', () => {
+    const host = createNodeLikeHost();
+    const stop = trackStrayTimers(host);
+
+    host.setTimeout(() => undefined, 10_000);
+    host.clearTimeout(9_999);
+    host.clearTimeout({ handleOf: 'somebody else' });
+
+    expect(countStrayTimers(host)).toBe(1);
+    stop();
+  });
+
+  it('does not count a timeout the code under test closed itself', () => {
+    const host = createNodeLikeHost();
+    const stop = trackStrayTimers(host);
+    const handle = host.setTimeout(() => undefined, 10_000);
+
+    Reflect.get(Object(handle), 'close')?.call(handle);
+
+    expect(countStrayTimers(host)).toBe(0);
+    expect(cancelStrayTimers(host)).toBe(0);
+    stop();
+  });
+
+  it('still counts and cancels one that is genuinely outstanding', () => {
+    const host = createNodeLikeHost();
+    const stop = trackStrayTimers(host);
+
+    host.setTimeout(() => undefined, 10_000);
+
+    expect(countStrayTimers(host)).toBe(1);
+    expect(cancelStrayTimers(host)).toBe(1);
+    expect(host.pending).toBe(0);
+    stop();
+  });
+
+  it('keeps the promise-returning twin Node attaches to setTimeout', async () => {
+    // Node's own schedulers, not the environment's: only they carry the custom `promisify`
+    // implementation this is about, and jsdom's do not.
+    const host: SchedulerHost = {
+      setTimeout: nodeTimers.setTimeout,
+      setInterval: nodeTimers.setInterval,
+      clearTimeout: nodeTimers.clearTimeout,
+      clearInterval: nodeTimers.clearInterval,
+    };
+    const stop = trackStrayTimers(host);
+
+    try {
+      // `const sleep = promisify(setTimeout)` is evaluated at import, before any test; losing the
+      // custom implementation made `promisify` build the callback-last form, and the first call
+      // threw ERR_INVALID_ARG_TYPE in every Node and NestJS suite.
+      // Typed off the host interface, which carries neither Node's overloads nor its `__promisify__`.
+      const sleep: (ms: number, value: string) => Promise<unknown> = promisify(host.setTimeout);
+
+      await expect(sleep(1, 'value')).resolves.toBe('value');
+    } finally {
+      stop();
+    }
+  });
+});
+
+describe('an installation that cannot be completed', () => {
+  it('puts every wrapper back rather than leaving half of them on', () => {
+    const host = createHost({ frames: false });
+    const realSetTimeout = host.setTimeout;
+
+    // A host whose `requestAnimationFrame` is an accessor with no setter — a frozen stand-in, or a
+    // DOM shim. The frame wrap assigns, so it throws, and the four timer wrappers were left
+    // installed with no undo and no registry entry: `countStrayTimers()` then threw for the rest of
+    // the run, and a second call wrapped everything twice.
+    Object.defineProperty(host, 'requestAnimationFrame', { configurable: true, get: () => () => 1 });
+
+    expect(() => trackStrayTimers(host)).toThrow();
+    expect(host.setTimeout).toBe(realSetTimeout);
+    expect(() => countStrayTimers(host)).toThrow(/needs trackStrayTimers\(\) to have run first/);
   });
 });

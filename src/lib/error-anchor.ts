@@ -60,16 +60,24 @@ export function anchorOf(stack: string | undefined, boundaryName: string): Stack
  * package runs on — the same cut is made by name, which costs nothing when it finds nothing.
  */
 export function captureAnchor(boundary: Func, host: StackHost = Error): StackAnchor {
-  const holder = new Error();
   const capture = host.captureStackTrace;
 
   if (capture) {
+    // A plain object, not an `Error`: capturing into one takes the frames without building the
+    // string, and the string is what costs — Vitest's source-map-aware `prepareStackTrace` formats
+    // it the moment `.stack` is read. Every helper pays that today for a stack only a *failed*
+    // wait ever prints (17–33 µs a call against 1.2 µs here). Read it lazily instead, from the
+    // anchor, which runs when the failure is already being built.
+    const holder: { stack?: string } = {};
+
     capture(holder, boundary);
 
-    return anchorOf(holder.stack, '');
+    return (error) => anchorOf(holder.stack, '')(error);
   }
 
-  return anchorOf(holder.stack, boundary.name);
+  const fallback = new Error();
+
+  return (error) => anchorOf(fallback.stack, boundary.name)(error);
 }
 
 function anchor(frames: string[], error: Error): Error {

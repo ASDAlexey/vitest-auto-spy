@@ -34,6 +34,15 @@ export interface TestRunReport {
 export interface TestRunSummary {
   /** `file::full test name` for every test the report mentions, whatever its status. */
   names: Set<string>;
+  /**
+   * How many times each of those names ran.
+   *
+   * Two `it('handles error')` in one file — the ordinary result of a copy-paste — are one name, so
+   * a set alone answered "nothing was lost" for a migration that dropped one of them. The
+   * multiplicity is the honest answer, and it sits beside `names` rather than replacing it so
+   * nothing reading the set has to change.
+   */
+  counts: Map<string, number>;
   files: number;
   passed: number;
   failed: string[];
@@ -44,10 +53,32 @@ export interface TestRunSummary {
 export interface TestRunComparison {
   baseline: TestRunSummary;
   current: TestRunSummary;
-  /** In the baseline, gone now — the answer to "did I lose anything?". */
+  /**
+   * In the baseline, gone now — the answer to "did I lose anything?".
+   *
+   * A name that ran fewer times than before, rather than not at all, is listed as
+   * `name (×2 → ×1)`: one of two same-named tests disappearing is a loss like any other.
+   */
   missing: string[];
   /** Not in the baseline — a rename shows up here *and* in `missing`. */
   added: string[];
+}
+
+/** Names whose multiplicity dropped from `before` to `after`, annotated where the drop is partial. */
+function lost(before: TestRunSummary, after: TestRunSummary): string[] {
+  const names: string[] = [];
+
+  before.counts.forEach((count, name) => {
+    const now = after.counts.get(name) ?? 0;
+
+    if (now === 0) {
+      names.push(name);
+    } else if (now < count) {
+      names.push(`${name} (×${count} → ×${now})`);
+    }
+  });
+
+  return names;
 }
 
 /** Trim the absolute path down to the part that is the same in both runs. */
@@ -69,7 +100,7 @@ function shorten(file: string, root: string | undefined): string {
  *   and a laptop) compare as equal.
  */
 export function summarizeTestRun(report: TestRunReport, root?: string): TestRunSummary {
-  const summary: TestRunSummary = { names: new Set(), files: 0, passed: 0, failed: [], skipped: 0 };
+  const summary: TestRunSummary = { names: new Set(), counts: new Map(), files: 0, passed: 0, failed: [], skipped: 0 };
 
   (report.testResults ?? []).forEach((file) => {
     summary.files += 1;
@@ -78,6 +109,7 @@ export function summarizeTestRun(report: TestRunReport, root?: string): TestRunS
       const name = `${shorten(file.name ?? '<unknown file>', root)}::${test.fullName ?? test.title ?? '<unnamed test>'}`;
 
       summary.names.add(name);
+      summary.counts.set(name, (summary.counts.get(name) ?? 0) + 1);
 
       if (test.status === 'passed') {
         summary.passed += 1;
@@ -112,8 +144,8 @@ export function compareTestRuns(baseline: TestRunReport, current: TestRunReport,
   return {
     baseline: before,
     current: after,
-    missing: [...before.names].filter((name) => !after.names.has(name)),
-    added: [...after.names].filter((name) => !before.names.has(name)),
+    missing: lost(before, after),
+    added: lost(after, before),
   };
 }
 

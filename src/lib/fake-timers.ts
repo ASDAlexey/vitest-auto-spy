@@ -16,7 +16,7 @@
 import { afterAll, afterEach, beforeAll, beforeEach, vi } from 'vitest';
 
 import { DOCS_LINKS, withDocs } from './docs-links';
-import { restoreTimerGlobals } from './timer-globals';
+import { forgetDateOnlyFakes, hasDateOnlyFakes, restoreTimerGlobals } from './timer-globals';
 
 /**
  * Config forwarded verbatim to `vi.useFakeTimers()`.
@@ -48,14 +48,40 @@ export type FakeTimersConfig = Parameters<typeof vi.useFakeTimers>[0];
  *   its `describe` and must leave the clock as it found it.
  */
 export function setupFakeTimers(config?: FakeTimersConfig, { betweenTests = false }: SetupFakeTimersOptions = {}): void {
+  // The fakes this call installed, by identity. `vi.isFakeTimers()` answers "somebody has fakes
+  // on", which is not the question: `mockSystemTime()` in a `beforeAll` installs `Date`-only fakes,
+  // and skipping the install on those left `setTimeout` real — `advanceTimers(100)` then passed its
+  // own check and ran nothing, silently. The same "somebody" also swallowed this call's `config`
+  // whenever an outer `setupFakeTimers` or `globalFakeTimers` had armed a set first.
+  let ownFakes: { readonly date: unknown; readonly timer: unknown } | undefined = undefined;
+
+  const ownsTheClock = (): boolean => ownFakes?.date === globalThis.Date && ownFakes?.timer === globalThis.setTimeout;
+
   // Both halves are guarded, because installing or uninstalling twice does not round-trip: a suite
   // that drives the clock itself, or a nested `describe` that calls this helper again, reaches a
   // second `vi.useRealTimers()` — and that one leaves the environment without `clearInterval`,
   // which then explodes during teardown of whichever file happens to run next.
   const install = (): void => {
-    if (!vi.isFakeTimers()) {
-      vi.useFakeTimers(config);
+    if (vi.isFakeTimers()) {
+      if (ownsTheClock()) {
+        return;
+      }
+
+      // Somebody else's fakes. A call with no config of its own defers to them, as it always has —
+      // an outer `describe` or a global setup owns the clock and knows what it wanted. A call that
+      // *was* given a config, and a set that fakes nothing but `Date`, are the two cases where
+      // deferring means silently doing the opposite of what the caller asked.
+      if (config === undefined && !hasDateOnlyFakes()) {
+        return;
+      }
+
+      forgetDateOnlyFakes();
+      vi.useRealTimers();
+      restoreTimerGlobals();
     }
+
+    vi.useFakeTimers(config);
+    ownFakes = { date: globalThis.Date, timer: globalThis.setTimeout };
   };
 
   const uninstall = (): void => {
@@ -63,6 +89,7 @@ export function setupFakeTimers(config?: FakeTimersConfig, { betweenTests = fals
       vi.useRealTimers();
     }
 
+    ownFakes = undefined;
     restoreTimerGlobals();
   };
 
@@ -132,6 +159,20 @@ export async function advanceTimers(ms = 0): Promise<void> {
     );
   }
 
-  vi.advanceTimersByTime(ms);
-  await Promise.resolve();
+  if (hasDateOnlyFakes()) {
+    throw new Error(
+      withDocs(
+        'advanceTimers() found only the clock faked, not the timers: mockSystemTime() installs `Date` alone, so there is ' +
+          'nothing for this call to advance and it used to pass having done nothing. Call setupFakeTimers() (or ' +
+          'vi.useFakeTimers()) for the test that drives timers.',
+        DOCS_LINKS.fakeTimers,
+      ),
+    );
+  }
+
+  // `advanceTimersByTimeAsync`, not the sync version plus one `await Promise.resolve()`: that
+  // drains a fixed two levels of the microtask queue, so a `.then().then().then()` chain a timer
+  // callback started was left one level short and a timer *scheduled* from a promise continuation
+  // never ran at all — the rxjs `delay()` / retry / poll shape this helper exists for.
+  await vi.advanceTimersByTimeAsync(ms);
 }

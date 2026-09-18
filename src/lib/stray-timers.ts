@@ -92,6 +92,16 @@ interface Tracking {
    * every suite that used the form as leaking for the rest of the file.
    */
   readonly opaque: Set<unknown>;
+  /**
+   * The same timeout and interval handles, keyed by the number they coerce to.
+   *
+   * Node hands out `Timeout` objects with a `Symbol.toPrimitive`, and a library that stores the id
+   * as a number — for serialisation, or to stay portable with the browser's numeric handles —
+   * cancels with `clearTimeout(+handle)`. That misses a `Map` keyed by the object, so a timer the
+   * code under test cancelled properly was reported as a stray, with a stack pointing at healthy
+   * code. Only filled where the handle actually coerces, i.e. on Node.
+   */
+  readonly numeric: Map<number, unknown>;
   readonly frames: Map<number, Origin>;
   /** Set while the library schedules on its own behalf, so its timers are never charged to a file. */
   readonly pause: { paused: boolean };
@@ -148,18 +158,30 @@ function scheduleTracked<THandle>(
   callback: ScheduledCallback,
   handles: Map<THandle, Origin>,
   kind: Origin['kind'],
+  numeric?: Map<number, unknown>,
 ): THandle {
   const oneShot = kind !== 'interval';
   // eslint-disable-next-line prefer-const -- read by the closure below and assigned after it; `const` cannot express a binding whose reader is created first.
   let handle: THandle;
 
   const forgetting = (...args: unknown[]): void => {
-    handles.delete(handle);
+    if (numeric) {
+      forgetHandle({ handles, numeric }, handle);
+    } else {
+      handles.delete(handle);
+    }
+
     callback(...args);
   };
 
   handle = schedule(oneShot && typeof callback === 'function' ? forgetting : callback);
   handles.set(handle, captureOrigin(kind));
+
+  const id = numeric && numericIdOf(handle);
+
+  if (numeric && id !== undefined) {
+    numeric.set(id, handle);
+  }
 
   return handle;
 }
@@ -180,8 +202,39 @@ function captureOrigin(kind: Origin['kind']): Origin {
   return { kind, file: currentSpecFile(), trace };
 }
 
-/** The two sets {@link wrapTimerScheduler} records into — see {@link Tracking} for what separates them. */
-type TimerSets = Pick<Tracking, 'handles' | 'opaque' | 'pause'>;
+/** The sets {@link wrapTimerScheduler} records into — see {@link Tracking} for what separates them. */
+type TimerSets = Pick<Tracking, 'handles' | 'numeric' | 'opaque' | 'pause'>;
+
+/** The number a Node `Timeout` coerces to, or `undefined` for a handle that is already one — or neither. */
+function numericIdOf(handle: unknown): number | undefined {
+  return typeof handle === 'object' && handle !== null && Symbol.toPrimitive in handle ? Number(handle) : undefined;
+}
+
+/** Drop a handle from the tracking, whichever of its two forms is being handed over. */
+function forgetHandle(sets: Pick<Tracking, 'handles' | 'numeric'>, handle: unknown): void {
+  sets.handles.delete(handle);
+
+  if (typeof handle === 'number') {
+    const object = sets.numeric.get(handle);
+
+    sets.numeric.delete(handle);
+
+    if (object !== undefined) {
+      sets.handles.delete(object);
+    }
+
+    return;
+  }
+
+  const id = numericIdOf(handle);
+
+  if (id !== undefined) {
+    sets.numeric.delete(id);
+  }
+}
+
+/** Node's hook for "this function has a promise-returning twin", read off the real scheduler and put back on the wrapper. */
+const PROMISIFY_CUSTOM = Symbol.for('nodejs.util.promisify.custom');
 
 /**
  * Replace `setTimeout` / `setInterval` with recording wrappers.
@@ -195,6 +248,7 @@ type TimerSets = Pick<Tracking, 'handles' | 'opaque' | 'pause'>;
  */
 function wrapTimerScheduler(host: SchedulerHost, name: 'setInterval' | 'setTimeout', sets: TimerSets): () => void {
   const original = host[name];
+  const promisified: unknown = Reflect.get(original, PROMISIFY_CUSTOM);
   // Only a timeout is one-shot; an interval outlives its first run.
   const kind = name === 'setTimeout' ? 'timeout' : 'interval';
 
@@ -212,8 +266,17 @@ function wrapTimerScheduler(host: SchedulerHost, name: 'setInterval' | 'setTimeo
       return handle;
     }
 
-    return scheduleTracked((tracked) => original(tracked, ...rest), callback, sets.handles, kind);
+    return scheduleTracked((tracked) => original(tracked, ...rest), callback, sets.handles, kind, sets.numeric);
   });
+
+  // Node's `setTimeout` carries a custom `promisify` implementation, and `promisify` prefers it over
+  // the callback-last form. Losing it made `promisify(setTimeout)` build the callback version
+  // instead, so `const sleep = promisify(setTimeout)` — evaluated at import, before any test, in
+  // every Node and NestJS suite — threw `ERR_INVALID_ARG_TYPE` on its first call. Carried over
+  // verbatim: that path goes to `timers/promises`, which never reached the tracking anyway.
+  if (promisified !== undefined) {
+    Object.defineProperty(wrapper, PROMISIFY_CUSTOM, { configurable: true, value: promisified });
+  }
 
   defineScheduler(host, name, wrapper);
 
@@ -227,11 +290,15 @@ function wrapTimerScheduler(host: SchedulerHost, name: 'setInterval' | 'setTimeo
  * pending": a timer the code under test cancelled itself has nothing left to leak, and counting it
  * would report every suite that cleans up properly as a leak.
  */
-function wrapTimerCanceller(host: SchedulerHost, name: 'clearInterval' | 'clearTimeout', handles: Map<unknown, Origin>): () => void {
+function wrapTimerCanceller(
+  host: SchedulerHost,
+  name: 'clearInterval' | 'clearTimeout',
+  sets: Pick<Tracking, 'handles' | 'numeric'>,
+): () => void {
   const original = host[name];
 
   defineScheduler(host, name, (handle: unknown): void => {
-    handles.delete(handle);
+    forgetHandle(sets, handle);
     original(handle);
   });
 
@@ -301,16 +368,10 @@ export function trackStrayTimers(host: SchedulerHost = defaultHost()): StopTrack
 
   const handles = new Map<unknown, Origin>();
   const opaque = new Set<unknown>();
+  const numeric = new Map<number, unknown>();
   const frames = new Map<number, Origin>();
   const pause = { paused: false };
-
-  const undo = [
-    wrapTimerScheduler(host, 'setTimeout', { handles, opaque, pause }),
-    wrapTimerScheduler(host, 'setInterval', { handles, opaque, pause }),
-    wrapTimerCanceller(host, 'clearTimeout', handles),
-    wrapTimerCanceller(host, 'clearInterval', handles),
-    wrapFrameScheduler(host, frames, pause),
-  ];
+  const undo: (() => void)[] = [];
 
   const stop: StopTrackingTimers = () => {
     cancelStrayTimers(host);
@@ -318,7 +379,27 @@ export function trackStrayTimers(host: SchedulerHost = defaultHost()): StopTrack
     registry().delete(host);
   };
 
-  registry().set(host, { handles, opaque, frames, pause, stop });
+  // Rolled back as a whole if any wrap throws part-way. `wrapFrameScheduler` assigns rather than
+  // defines, so a host whose `requestAnimationFrame` is an accessor with no setter — or a frozen
+  // stand-in — used to leave the four timer wrappers installed with no undo anywhere and no
+  // registry entry: `countStrayTimers()` then threw "needs trackStrayTimers() to have run first"
+  // for the rest of the run, and a second call wrapped everything a second time.
+  // One push per wrap, not one call with five arguments: the arguments are all evaluated before
+  // `push` runs, so a throw in the last of them would leave the first four installed and unrecorded
+  // — the very state this rollback exists to prevent.
+  try {
+    undo.push(wrapTimerScheduler(host, 'setTimeout', { handles, numeric, opaque, pause }));
+    undo.push(wrapTimerScheduler(host, 'setInterval', { handles, numeric, opaque, pause }));
+    undo.push(wrapTimerCanceller(host, 'clearTimeout', { handles, numeric }));
+    undo.push(wrapTimerCanceller(host, 'clearInterval', { handles, numeric }));
+    undo.push(wrapFrameScheduler(host, frames, pause));
+  } catch (error) {
+    undo.forEach((restore) => restore());
+
+    throw error;
+  }
+
+  registry().set(host, { handles, numeric, opaque, frames, pause, stop });
 
   return stop;
 }
@@ -349,7 +430,7 @@ export function cancelStrayTimers(host: SchedulerHost = defaultHost()): number {
     return 0;
   }
 
-  const cancelled = tracked.handles.size + tracked.frames.size;
+  const cancelled = pendingHandles(tracked).length + tracked.frames.size;
 
   // A handle is either a timeout or an interval, and both clears accept either — calling both is
   // cheaper than recording which scheduler produced it.
@@ -358,6 +439,7 @@ export function cancelStrayTimers(host: SchedulerHost = defaultHost()): number {
     host.clearInterval(handle);
   });
   tracked.handles.clear();
+  tracked.numeric.clear();
 
   // Always a timeout, so one clear is enough. Clearing one that has already fired is a no-op.
   tracked.opaque.forEach((handle) => host.clearTimeout(handle));
@@ -394,6 +476,31 @@ export function withoutStrayTimerTracking<T>(work: () => T, host: SchedulerHost 
   }
 }
 
+/**
+ * Whether the handle still stands for a callback that can fire.
+ *
+ * Node's `Timeout` can also be cancelled through `handle.close()`, which no wrapper here sees. The
+ * object then reports itself destroyed, and reading that at count time is cheaper and safer than
+ * wrapping a method on every handle — it is an internal field, so it is only ever used to *drop* a
+ * handle, never to keep one.
+ */
+function isPending(handle: unknown): boolean {
+  return Reflect.get(Object(handle), '_destroyed') !== true;
+}
+
+/** Outstanding timeouts and intervals, minus the ones cancelled behind the wrappers' back. */
+function pendingHandles(tracked: Tracking): Origin[] {
+  const pending: Origin[] = [];
+
+  tracked.handles.forEach((origin, handle) => {
+    if (isPending(handle)) {
+      pending.push(origin);
+    }
+  });
+
+  return pending;
+}
+
 /** The stack frames of the wrappers in this file, which say nothing about where the call came from. */
 const OWN_MODULE_FRAME = /stray-timers\.[jt]s/;
 
@@ -410,7 +517,7 @@ function describeOrigin({ kind, file, trace }: Origin): StrayTimer {
 export function describeStrayTimers(host: SchedulerHost = defaultHost()): StrayTimer[] {
   const tracked = registry().get(host);
 
-  return tracked ? [...tracked.handles.values(), ...tracked.frames.values()].map(describeOrigin) : [];
+  return tracked ? [...pendingHandles(tracked), ...tracked.frames.values()].map(describeOrigin) : [];
 }
 
 /**
@@ -418,9 +525,16 @@ export function describeStrayTimers(host: SchedulerHost = defaultHost()): StrayT
  * it wants a leak to fail the run rather than be cleaned up quietly.
  *
  * A timeout leaves the count when it fires, a frame when it runs, and either kind of timer when
- * something clears it; an interval stays until it is cancelled, which is what makes an uncancelled
- * one worth reporting. The legacy string form of `setTimeout` is not counted at all — its handler
- * cannot be wrapped, so nothing reports when it fired; {@link cancelStrayTimers} still clears it.
+ * something clears it — by handle, by the number the handle coerces to, or through its own
+ * `close()`; an interval stays until it is cancelled, which is what makes an uncancelled one worth
+ * reporting. The legacy string form of `setTimeout` is not counted at all — its handler cannot be
+ * wrapped, so nothing reports when it fired; {@link cancelStrayTimers} still clears it.
+ *
+ * **It cannot see a timer scheduled while fake timers are installed.** `vi.useFakeTimers()` assigns
+ * its own `setTimeout` over the wrapper, so everything the fake clock hands out bypasses the
+ * tracking entirely — which makes `expect(countStrayTimers()).toBe(0)` vacuous for any file running
+ * on a frozen clock, `setupAutoSpy({ strayTimers: true, globalFakeTimers: true })` included. Read
+ * `vi.getTimerCount()` for the fake clock's own backlog; the two do not compose.
  *
  * @example
  * ```ts
@@ -434,7 +548,7 @@ export function countStrayTimers(host: SchedulerHost = defaultHost()): number {
     throw new Error(withDocs('countStrayTimers() needs trackStrayTimers() to have run first.', DOCS_LINKS.setup));
   }
 
-  return tracked.handles.size + tracked.frames.size;
+  return pendingHandles(tracked).length + tracked.frames.size;
 }
 
 /**
