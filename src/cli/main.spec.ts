@@ -6,8 +6,8 @@
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { pathExists, writeTextFile } from './fs-scan';
-import { runCli } from './main';
+import { pathExists, readTextFile, writeTextFile } from './fs-scan';
+import { guardBrokenPipe, runCli } from './main';
 import type { CliIo } from './main';
 import { createTempRepo, removeTempRepos } from './temp-repo';
 
@@ -59,6 +59,52 @@ describe('runCli', () => {
 
     expect(runCli(['dcotor'], io)).toBe(2);
     expect(io.stderr.join('\n')).toContain('Unknown command: dcotor');
+  });
+
+  it('rejects a misspelled flag with exit code 2 rather than running without it', () => {
+    const root = createTempRepo(HEALTHY);
+    const io = recorder();
+
+    expect(runCli(['init', '--dryrun', '--cwd', root], io)).toBe(2);
+    expect(io.stderr.join('\n')).toContain('Unknown flag for `init`: --dryrun');
+    expect(io.stderr.join('\n')).toContain('--dry-run');
+    expect(readTextFile(join(root, 'AGENTS.md'))).toBe(HEALTHY['AGENTS.md']);
+    expect(runCli(['perf', '--gat', '--cwd', root], recorder())).toBe(2);
+    expect(runCli(['codemod', '--wirte', '--cwd', root], recorder())).toBe(2);
+  });
+
+  it('refuses a --cwd that is not a directory instead of reporting a clean repository', () => {
+    const root = createTempRepo(HEALTHY);
+    const io = recorder();
+
+    expect(runCli(['doctor', '--cwd', join(root, 'nope')], io)).toBe(2);
+    expect(io.stderr.join('\n')).toContain('is not a directory');
+    // A file is the other way to get an empty scan out of a path that exists.
+    expect(runCli(['perf', '--cwd', join(root, 'package.json')], recorder())).toBe(2);
+    expect(runCli(['doctor', '--cwd', root], recorder())).toBe(0);
+  });
+
+  it('takes every flag its own command documents, and the common ones on any command', () => {
+    const root = createTempRepo(HEALTHY);
+
+    expect(runCli(['init', '--check', '--dry-run', '--uninstall', '--cwd', root], recorder())).toBe(0);
+    expect(runCli(['codemod', '--verify', '--list', '--from', 'auto', '--cwd', root], recorder())).toBe(0);
+    expect(runCli(['doctor', '--min-severity', 'error', '--cwd', root], recorder())).toBe(0);
+  });
+
+  it('closes quietly when the pipe it was writing to is gone, and rethrows anything else', () => {
+    const listeners: ((error: { code?: string }) => void)[] = [];
+    const stream = { on: (_event: 'error', listener: (error: { code?: string }) => void) => listeners.push(listener) };
+    let exited = 0;
+
+    guardBrokenPipe(stream, () => {
+      exited += 1;
+    });
+
+    listeners[0]?.({ code: 'EPIPE' });
+
+    expect(exited).toBe(1);
+    expect(() => listeners[0]?.({ code: 'EACCES' })).toThrow();
   });
 });
 

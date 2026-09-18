@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { applyManaged, digest, hasManaged, removeManaged, renderBody, wrapManaged } from './init-block';
+import { applyManaged, digest, hasManaged, removeManaged, renderBody, withoutVersion, wrapManaged } from './init-block';
 import type { Profile } from './profile';
 
 const profileWith = (over: Partial<Profile>): Profile => ({
@@ -62,6 +62,12 @@ describe('markers', () => {
     expect(managed).toContain(`<!-- vitest-auto-spy:begin v=9.9.9 sha=${digest('body')} -->`);
     expect(hasManaged(managed)).toBe(true);
     expect(hasManaged('no markers here')).toBe(false);
+  });
+
+  it('compares two versions of the same body as the same text', () => {
+    expect(withoutVersion(wrapManaged('body', '9.9.9'))).toBe(withoutVersion(wrapManaged('body', '1.0.0')));
+    expect(withoutVersion(wrapManaged('body', '1.0.0'))).not.toBe(withoutVersion(wrapManaged('other', '1.0.0')));
+    expect(withoutVersion('no markers here')).toBe('no markers here');
   });
 });
 

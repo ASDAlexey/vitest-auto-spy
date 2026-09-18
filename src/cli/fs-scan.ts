@@ -127,6 +127,18 @@ export function scanRepository(root: string, limit: number = scanCap()): { files
   return { files: found.sort(), truncated };
 }
 
+/**
+ * A repository of its own, below the one being scanned: a git worktree (whose `.git` is a *file*)
+ * or a nested clone.
+ *
+ * Its files are not this repository's files. A tree carrying agent worktrees under
+ * `.claude/worktrees/` listed them twice over — `doctor` saw every import graph in duplicate, and
+ * `codemod --write` would have rewritten specs sitting on somebody else's branch.
+ */
+function isRepositoryRoot(directory: string): boolean {
+  return existsSync(join(directory, '.git'));
+}
+
 function walk(root: string, directory: string, found: string[], limit: number): boolean {
   if (found.length >= limit) {
     return true;
@@ -148,7 +160,7 @@ function walk(root: string, directory: string, found: string[], limit: number): 
     const full = join(directory, entry.name);
 
     if (entry.isDirectory()) {
-      if (!SKIPPED_DIRECTORIES.has(entry.name) && walk(root, full, found, limit)) {
+      if (!SKIPPED_DIRECTORIES.has(entry.name) && !isRepositoryRoot(full) && walk(root, full, found, limit)) {
         return true;
       }
 

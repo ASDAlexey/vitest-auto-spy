@@ -40,6 +40,13 @@ describe('boundNames', () => {
 
     expect(boundNames(source, braces)).toEqual(['a', 'c', 'D']);
   });
+
+  it('does not read the words of a line comment as names nobody imported', () => {
+    const source = 'import {\n  a,\n  b, // the typed double\n} from "x";';
+    const braces = listImports(source)[0]?.braces ?? [0, 0];
+
+    expect(boundNames(source, braces)).toEqual(['a', 'b']);
+  });
 });
 
 describe('applyImportPlan', () => {
@@ -87,6 +94,58 @@ describe('applyImportPlan', () => {
   it('drops a name the rewrite orphaned, and the whole statement when nothing is left', () => {
     expect(applyImportPlan("import { asSpy, Spy } from 'x';\nasSpy(1);\n", [], ['Spy'])).toBe("import { asSpy } from 'x';\nasSpy(1);\n");
     expect(applyImportPlan("import { Spy } from 'x';\nconst a = 1;\n", [], ['Spy'])).toBe('const a = 1;\n');
+  });
+
+  it('inserts before a line comment on the last specifier, not inside it', () => {
+    const source = "import {\n  createSpyFromClass,\n  provideAutoSpy, // registers the adapter\n} from 'vitest-auto-spy';\n";
+    const need = [{ specifier: 'vitest-auto-spy', name: 'asSpy', typeOnly: false }];
+
+    expect(applyImportPlan(source, need, [])).toBe(
+      "import {\n  createSpyFromClass,\n  provideAutoSpy, asSpy // registers the adapter\n} from 'vitest-auto-spy';\n",
+    );
+  });
+
+  it('drops one specifier as it was written, keeping its alias and taking its own comment', () => {
+    const aliased = "import { a as b, Spy } from 'x';\nb();\n";
+
+    expect(applyImportPlan(aliased, [], ['Spy'])).toBe("import { a as b } from 'x';\nb();\n");
+
+    const commented = "import {\n  createSpyFromClass,\n  Spy, // the typed double\n} from 'x';\ncreateSpyFromClass(1);\n";
+
+    expect(applyImportPlan(commented, [], ['Spy'])).toBe("import {\n  createSpyFromClass,\n} from 'x';\ncreateSpyFromClass(1);\n");
+  });
+
+  it('drops the first of several specifiers without taking the ones after it', () => {
+    const source = "import { Spy, asSpy } from 'x';\nasSpy(1);\n";
+
+    expect(applyImportPlan(source, [], ['Spy'])).toBe("import { asSpy } from 'x';\nasSpy(1);\n");
+  });
+
+  it('adds a statement on its own line, whatever ends the one above it', () => {
+    const trailing = "import { TestBed } from '@angular/core/testing';// keep\nconst a = 1;\n";
+
+    expect(applyImportPlan(trailing, MOCK, [])).toBe(
+      "import { TestBed } from '@angular/core/testing';// keep\nimport type { Mock } from 'vitest';\nconst a = 1;\n",
+    );
+    expect(applyImportPlan("import { TestBed } from 'x';", MOCK, [])).toBe(
+      "import { TestBed } from 'x';\nimport type { Mock } from 'vitest';\n",
+    );
+  });
+
+  it('writes the line ending the file already uses', () => {
+    expect(applyImportPlan('import { TestBed } from "x";\r\nconst a = 1;\r\n', MOCK, [])).toBe(
+      'import { TestBed } from "x";\r\nimport type { Mock } from \'vitest\';\r\nconst a = 1;\r\n',
+    );
+    expect(applyImportPlan('import { S } from "./s";\r\n', MOCK, [])).toBe(
+      'import type { Mock } from \'vitest\';\r\n\r\nimport { S } from "./s";\r\n',
+    );
+  });
+
+  it('finds the first import of a file that starts with a byte-order mark', () => {
+    const source = '﻿import { S } from "./s";\n';
+
+    expect(listImports(source)).toHaveLength(1);
+    expect(applyImportPlan(source, MOCK, [])).toBe('﻿import type { Mock } from \'vitest\';\n\nimport { S } from "./s";\n');
   });
 
   it('looks past an import with no braces when it drops a name', () => {

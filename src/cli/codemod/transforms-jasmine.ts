@@ -54,8 +54,46 @@ export const jasmineStrategies: TransformSpec = {
   family: 'jasmine',
   summary: '.and.returnValue / callFake / throwError / returnValues / stub / resolveTo → the mock* twin, and .withArgs → .calledWith.',
   residue: new RegExp(String.raw`\.\s*and\s*\.\s*(?:${NATIVE_STRATEGIES.join('|')})\b|\.\s*withArgs\s*\(`),
-  run: (context) => mergeOutputs([replacements(context, WITH_ARGS, () => '.calledWith('), strategyOutputs(context)]),
+  run: (context) => mergeOutputs([withArgsOutput(context), strategyOutputs(context)]),
 };
+
+/**
+ * `.withArgs(…)` is `calledWith` on an auto-spy and nothing at all on `vi.spyOn`, which has no such
+ * method — the rewritten line threw `calledWith is not a function` on the first run. On a chain
+ * rooted in `spyOn(…)` it is therefore reported rather than renamed.
+ */
+function withArgsOutput(context: TransformContext): TransformOutput {
+  const closes = spyOnCloses(context);
+
+  return mergeOutputs(
+    scan(context.masked, WITH_ARGS).map((match) =>
+      closes.has(lastCodeBefore(context.masked, match.index))
+        ? { ...EMPTY_OUTPUT, notes: [withArgsOnSpyOnNote(context, match.index)] }
+        : replacement(match.index, match.index + match.whole.length, '.calledWith('),
+    ),
+  );
+}
+
+function withArgsOnSpyOnNote(context: TransformContext, index: number): Finding {
+  return jasmineNote(
+    context,
+    'jasmine-with-args-on-spy-on',
+    index,
+    '`.withArgs(…)` on a `spyOn(…)` was left exactly as it was.',
+    '`vi.spyOn` has no `calledWith`. Branch on the arguments inside one `mockImplementation`, or replace the whole double with `createSpyFromClass` / `createAutoMock`, whose methods do have `calledWith`.',
+  );
+}
+
+/** Index just past the last code character before `index`. */
+function lastCodeBefore(masked: string, index: number): number {
+  let cursor = index;
+
+  while (cursor > 0 && /\s/.test(masked.charAt(cursor - 1))) {
+    cursor -= 1;
+  }
+
+  return cursor;
+}
 
 function strategyOutputs(context: TransformContext): TransformOutput {
   return mergeOutputs(
@@ -110,6 +148,10 @@ function strategyText(name: string, args: readonly string[]): string | undefined
  * `throwError('boom')` throws an `Error` built from the message; `throwError(err)` throws the value;
  * `throwError(Klass, 'boom')` builds the class. Anything else is not a form jasmine documents, and
  * inventing one here would put a `throw` in the suite that nobody wrote.
+ *
+ * A variable is the case the literal rule gets wrong: jasmine wraps *any* string it is handed, so
+ * `throwError(message)` with a string in `message` threw an `Error` there and threw the bare string
+ * here — and `toThrow(Error)` then failed on a spec nobody had changed.
  */
 function throwText(args: readonly string[]): string | undefined {
   const [first, second] = args;
@@ -122,8 +164,17 @@ function throwText(args: readonly string[]): string | undefined {
     return `.mockImplementation(() => { throw new ${first}(${second}); })`;
   }
 
-  return `.mockImplementation(() => { throw ${/^["'`]/.test(first) ? `new Error(${first})` : first}; })`;
+  if (/^["'`]/.test(first)) {
+    return `.mockImplementation(() => { throw new Error(${first}); })`;
+  }
+
+  return PLAIN_PATH.test(first)
+    ? `.mockImplementation(() => { throw typeof ${first} === 'string' ? new Error(${first}) : ${first}; })`
+    : undefined;
 }
+
+/** An expression safe to name twice: no call, no index, nothing that can run. */
+const PLAIN_PATH = /^[$A-Z_a-z][\w$]*(?:\s*\.\s*[$A-Z_a-z][\w$]*)*$/;
 
 function callThroughNote(context: TransformContext, index: number): Finding {
   return jasmineNote(
@@ -175,20 +226,54 @@ export const jasmineSpyOn: TransformSpec = {
   }),
 };
 
+/** Where every `spyOn(…)` / `spyOnProperty(…)` call ends, for the transforms that read its chain. */
+function spyOnCloses(context: TransformContext): Set<number> {
+  return new Set(
+    scan(context.masked, SPY_ON).flatMap((match) => {
+      const range = spyOnRange(context, match);
+
+      return range === undefined ? [] : [range[1]];
+    }),
+  );
+}
+
+function spyOnRange(context: TransformContext, match: Match): Range | undefined {
+  const start = match.index + group(match.groups, 1).length;
+
+  return callRange(context, start + group(match.groups, 2).length);
+}
+
+const CHAINED_WITH_ARGS = /^\s*\.\s*withArgs\s*\(/;
+
 function spyOnEdits(context: TransformContext, match: Match): Edit[] {
   const name = group(match.groups, 2);
   const start = match.index + group(match.groups, 1).length;
-  const range = callRange(context, start + name.length);
+  const range = spyOnRange(context, match);
 
-  if (range === undefined) {
+  // A `.withArgs(…)` chain has no Vitest shape at all — `jasmine-strategies` reports it — so the
+  // call it hangs off is left as written rather than half-rewritten around a chain that cannot run.
+  if (range === undefined || CHAINED_WITH_ARGS.test(context.masked.slice(range[1]))) {
     return [];
   }
 
   const rename: Edit = { start, end: start + name.length, text: 'vi.spyOn' };
+  const accessor = accessorEdits(context, name, range);
 
   if (CHAINED_STRATEGY.test(context.masked.slice(range[1]))) {
-    return [rename];
+    return [rename, ...accessor];
   }
 
-  return [rename, { start: range[1], end: range[1], text: '.mockImplementation(() => undefined)' }];
+  return [rename, ...accessor, { start: range[1], end: range[1], text: '.mockImplementation(() => undefined)' }];
+}
+
+/**
+ * jasmine's `spyOnProperty(o, 'p')` defaults to the getter; `vi.spyOn(o, 'p')` with no third
+ * argument spies on a *method* and throws "can only spy on a function" the moment it runs.
+ */
+function accessorEdits(context: TransformContext, name: string, range: Range): Edit[] {
+  if (name !== 'spyOnProperty' || callArguments(context, range).length !== 2) {
+    return [];
+  }
+
+  return [{ start: range[1] - 1, end: range[1] - 1, text: ", 'get'" }];
 }

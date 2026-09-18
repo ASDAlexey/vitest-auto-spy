@@ -7,9 +7,9 @@
  * then every span the codemod could not decide is left exactly as it was and named in the report —
  * the failure to avoid is not a crash, it is a silent wrong rewrite that still compiles.
  */
-import { join } from 'node:path';
+import { join, relative, resolve } from 'node:path';
 
-import { SCAN_CAP_ENV, readTextFile, scanCap, writeTextFile } from '../fs-scan';
+import { SCAN_CAP_ENV, readTextFile, scanCap, toPosix, writeTextFile } from '../fs-scan';
 import type { CliIo } from '../main';
 import { readProfile } from '../profile';
 import type { Finding } from '../report';
@@ -20,6 +20,8 @@ import { FROM_ACCEPTED, TRANSFORMS, residueOf, resolveFrom, runTransforms, selec
 import { unifiedDiff } from './diff';
 import type { EntryMap } from './entry-map';
 import { buildEntryMap, findPackageRoot } from './entry-map';
+import type { SyntaxParser } from './syntax-check';
+import { brokeSyntax, brokeSyntaxNote, loadParser } from './syntax-check';
 import type { TransformSpec } from './transform-context';
 
 export interface CodemodOptions {
@@ -34,24 +36,62 @@ export interface CodemodOptions {
   readonly paths: readonly string[];
 }
 
-const SPEC_FILE = /\.(?:spec|test)\.[cm]?tsx?$/;
-const SOURCE_FILE = /(?<!\.d)\.[cm]?tsx?$/;
+// JavaScript spec files count: the mask and the transforms are language-independent, and a Jest
+// suite that was never TypeScript is exactly the suite with the most `jest.` in it.
+const SPEC_FILE = /\.(?:spec|test)\.[cm]?[jt]sx?$/;
+const SOURCE_FILE = /(?<!\.d)\.[cm]?[jt]sx?$/;
+
+export interface Selection {
+  readonly files: string[];
+  /** Paths that named no file, as they were typed. A typo in CI must not read as "nothing to do". */
+  readonly missing: string[];
+}
 
 /**
- * With no path, every spec file; with a path, every TypeScript file under it. The narrow default is
- * on purpose — `jest.` in a `main.ts` is not a test to migrate, and a codemod that offers to edit
+ * With no path, every spec file; with a path, every source file under it. The narrow default is on
+ * purpose — `jest.` in a `main.ts` is not a test to migrate, and a codemod that offers to edit
  * application code on its first run does not get a second one.
+ *
+ * A path is resolved against `cwd` first, so an absolute path, a `../` or a Windows separator names
+ * the same file the scan listed. One that names nothing is reported rather than silently dropped:
+ * `--verify` over a misspelled path used to print "Nothing left to migrate" and exit 0.
  */
-export function selectFiles(files: readonly string[], paths: readonly string[]): string[] {
+export function selectFiles(cwd: string, files: readonly string[], paths: readonly string[]): Selection {
   const sources = files.filter((file) => SOURCE_FILE.test(file));
 
   if (paths.length === 0) {
-    return sources.filter((file) => SPEC_FILE.test(file));
+    return { files: sources.filter((file) => SPEC_FILE.test(file)), missing: [] };
   }
 
-  const wanted = paths.map((path) => path.replace(/^\.\//, '').replace(/\/+$/, ''));
+  const chosen = new Set<string>();
+  const missing: string[] = [];
 
-  return sources.filter((file) => wanted.some((path) => file === path || file.startsWith(`${path}/`)));
+  for (const path of paths) {
+    const matched = matching(sources, normalizePath(cwd, path));
+
+    if (matched.length === 0) {
+      missing.push(path);
+    }
+
+    for (const file of matched) {
+      chosen.add(file);
+    }
+  }
+
+  return { files: sources.filter((file) => chosen.has(file)), missing };
+}
+
+function matching(sources: readonly string[], path: string): string[] {
+  // The repository root itself, written as `.` or as the absolute path of `--cwd`.
+  if (path === '') {
+    return [...sources];
+  }
+
+  return sources.filter((file) => file === path || file.startsWith(`${path}/`));
+}
+
+function normalizePath(cwd: string, path: string): string {
+  return toPosix(relative(cwd, resolve(cwd, path))).replace(/\/+$/, '');
 }
 
 /** `--list`: the transforms, marked for what this run would skip, and the generated table. */
@@ -137,14 +177,30 @@ interface RunPlan {
   readonly profileEntry: string;
 }
 
+/**
+ * A rewrite that stopped parsing is not applied, whatever the rest of the report says.
+ *
+ * Every bug of this shape — a name inserted after a line comment, a rename that landed on a
+ * declaration — produced a green report over a file that no longer compiled. The result is checked
+ * against the consumer's own `typescript`; where there is none, this is a no-op.
+ */
+export function verified(parser: SyntaxParser | undefined, result: FileResult): FileResult {
+  if (parser === undefined || result.before === result.after || !brokeSyntax(parser, result.file, result.before, result.after)) {
+    return result;
+  }
+
+  return { ...result, after: result.before, fired: new Map(), importLines: [], notes: [...result.notes, brokeSyntaxNote(result.file)] };
+}
+
 function transformAll(cwd: string, files: readonly string[], plan: RunPlan): RunTotals {
   const { options, profileEntry } = plan;
   const entries = buildEntryMap(findPackageRoot(cwd, ownPackageRoot()));
+  const parser = loadParser(cwd);
   const results = readAll(cwd, files).flatMap(([file, source]) => {
     const selected = transformsFor(plan.mode, plan.selected, source);
 
     return selected.some((transform) => transform.residue.test(source))
-      ? [runTransforms({ file, source, entries, preferredEntry: profileEntry, selected })]
+      ? [verified(parser, runTransforms({ file, source, entries, preferredEntry: profileEntry, selected }))]
       : [];
   });
   const touched = results.filter((result) => result.before !== result.after || result.notes.length > 0 || result.residue.length > 0);
@@ -192,9 +248,15 @@ export function runCodemod(cwd: string, options: CodemodOptions, io: CliIo): num
     );
   }
 
-  const files = selectFiles(profile.files, options.paths);
+  const selection = selectFiles(cwd, profile.files, options.paths);
 
   io.out(`vitest-auto-spy codemod — ${cwd}`);
+
+  if (selection.missing.length > 0 && !options.list) {
+    io.err(`\nNo file under ${cwd} matches ${selection.missing.join(', ')}. Nothing was read, so nothing here is a clean result.`);
+
+    return 2;
+  }
 
   if (options.list) {
     // `auto` decides per file, so the listing shows every transform it might reach; a named
@@ -205,10 +267,10 @@ export function runCodemod(cwd: string, options: CodemodOptions, io: CliIo): num
   }
 
   if (options.verify) {
-    return verifyCommand(cwd, files, selected, mode, io);
+    return verifyCommand(cwd, selection.files, selected, mode, io);
   }
 
-  return report(transformAll(cwd, files, { options, selected, mode, profileEntry: profile.entry }), options, io);
+  return report(transformAll(cwd, selection.files, { options, selected, mode, profileEntry: profile.entry }), options, io);
 }
 
 function report(totals: RunTotals, options: CodemodOptions, io: CliIo): number {

@@ -68,9 +68,9 @@ export function residueOf(file: string, text: string, transforms: readonly Trans
   const masked = maskComments(text);
 
   return transforms.flatMap((transform) =>
-    scan(masked, new RegExp(transform.residue.source, `${transform.residue.flags.replace('g', '')}g`)).map((match) =>
-      residueNote(file, text, match, transform),
-    ),
+    scan(masked, new RegExp(transform.residue.source, `${transform.residue.flags.replace('g', '')}g`))
+      .filter((match) => transform.residueIgnores?.(masked, match) !== true)
+      .map((match) => residueNote(file, text, match, transform)),
   );
 }
 

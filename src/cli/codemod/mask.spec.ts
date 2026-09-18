@@ -10,7 +10,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { EMPTY_OUTPUT, applyEdits, mergeOutputs, note } from './edits';
-import { buildMask, lineOf, maskCode, maskComments, matchBracket, splitTopLevel, trimmed } from './mask';
+import { buildMask, isCallPosition, lineOf, maskCode, maskComments, matchBracket, splitTopLevel, trimmed } from './mask';
 
 describe('maskCode', () => {
   it('blanks the contents of comments, strings and regular expressions, keeping the length', () => {
@@ -58,6 +58,13 @@ describe('maskCode', () => {
 
     expect(maskCode(stringCase)).not.toContain('jest.');
     expect(maskCode(stringCase).length).toBe(stringCase.length);
+  });
+
+  it('keeps JSX visible, where the slash of a self-closing tag looks like a regular expression', () => {
+    const line = 'render(<div><A onClick={jest.fn()} /><B onClick={jest.fn()} /></div>);';
+
+    expect(maskCode(line)).toBe(line);
+    expect(maskCode('render(<div></div>);')).toBe('render(<div></div>);');
   });
 
   it('knows the keywords after which a slash opens a regular expression', () => {
@@ -110,6 +117,26 @@ describe('splitTopLevel', () => {
     const text = '(a: string) => void, []';
 
     expect(splitTopLevel(text, 0, text.length)).toHaveLength(2);
+  });
+
+  it('sees both arguments past a comparison, whose `>` closes nothing', () => {
+    const text = 'n > 0, false';
+    const parts = splitTopLevel(text, 0, text.length).map(([start, end]) => text.slice(start, end).trim());
+
+    expect(parts).toEqual(['n > 0', 'false']);
+  });
+});
+
+describe('isCallPosition', () => {
+  it('tells a call from a parameter list, whatever the return type says', () => {
+    expect(isCallPosition('fail(reason);', 4)).toBe(true);
+    expect(isCallPosition('expect(fail(1)).toThrow();', 11)).toBe(true);
+    expect(isCallPosition('function fail(reason: string): never {\n  throw 1;\n}', 13)).toBe(false);
+    expect(isCallPosition('class H {\n  fit(size: number) { return size; }\n}', 15)).toBe(false);
+  });
+
+  it('treats a list that never closes as a call, which is what every other reader here does', () => {
+    expect(isCallPosition('fail(reason', 4)).toBe(true);
   });
 });
 

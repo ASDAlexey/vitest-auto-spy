@@ -84,15 +84,26 @@ const REPO = {
 };
 
 describe('selectFiles', () => {
-  const files = ['src/a.spec.ts', 'src/a.ts', 'src/b.test.tsx', 'src/types.d.ts', 'tools/c.spec.ts'];
+  const files = ['src/a.spec.ts', 'src/a.ts', 'src/b.test.tsx', 'src/legacy.spec.js', 'src/types.d.ts', 'tools/c.spec.ts'];
 
-  it('visits only the specs when no path is given', () => {
-    expect(selectFiles(files, [])).toEqual(['src/a.spec.ts', 'src/b.test.tsx', 'tools/c.spec.ts']);
+  it('visits only the specs when no path is given, JavaScript ones included', () => {
+    expect(selectFiles('/repo', files, []).files).toEqual(['src/a.spec.ts', 'src/b.test.tsx', 'src/legacy.spec.js', 'tools/c.spec.ts']);
   });
 
-  it('visits every TypeScript file under a path that was given, minus the declarations', () => {
-    expect(selectFiles(files, ['./src/'])).toEqual(['src/a.spec.ts', 'src/a.ts', 'src/b.test.tsx']);
-    expect(selectFiles(files, ['src/a.ts'])).toEqual(['src/a.ts']);
+  it('visits every source file under a path that was given, minus the declarations', () => {
+    expect(selectFiles('/repo', files, ['./src/']).files).toEqual(['src/a.spec.ts', 'src/a.ts', 'src/b.test.tsx', 'src/legacy.spec.js']);
+    expect(selectFiles('/repo', files, ['src/a.ts']).files).toEqual(['src/a.ts']);
+  });
+
+  it('resolves an absolute path and the repository root against the scan', () => {
+    expect(selectFiles('/repo', files, ['/repo/src/a.ts']).files).toEqual(['src/a.ts']);
+    expect(selectFiles('/repo', files, ['.']).files).toHaveLength(files.length - 1);
+  });
+
+  it('reports a path that names no file instead of answering "nothing to do"', () => {
+    expect(selectFiles('/repo', files, ['src/nope.spec.ts'])).toEqual({ files: [], missing: ['src/nope.spec.ts'] });
+    expect(selectFiles('/repo', files, ['/elsewhere/src']).missing).toEqual(['/elsewhere/src']);
+    expect(selectFiles('/repo', files, ['src/a.ts', 'src/nope.ts']).files).toEqual(['src/a.ts']);
   });
 });
 
@@ -211,6 +222,23 @@ describe('codemod', () => {
 
     expect(output).toContain('mock-implementation-arity');
     expect(output).not.toContain('auto-spies-import         1 edit');
+  });
+
+  it('exits 2 on a path that names no file, rather than calling the run clean', () => {
+    const root = createTempRepo(REPO);
+    const io = recorder();
+
+    expect(runCli(['codemod', 'src/nope.spec.ts', '--cwd', root, '--verify'], io)).toBe(2);
+    expect(io.stderr.join('\n')).toContain('src/nope.spec.ts');
+    expect(io.stdout.join('\n')).not.toContain('Nothing left to migrate.');
+  });
+
+  it('takes an absolute path for the same files a relative one names', () => {
+    const root = createTempRepo(REPO);
+    const io = recorder();
+
+    expect(runCli(['codemod', `${root}/src/app`, '--cwd', root, '--verify'], io)).toBe(1);
+    expect(io.stdout.join('\n')).toContain('residue/auto-spies-import');
   });
 
   it('rejects an unknown transform id with exit code 2', () => {

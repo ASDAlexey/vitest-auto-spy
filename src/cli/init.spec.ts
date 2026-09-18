@@ -6,7 +6,7 @@
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { pathExists, readTextFile } from './fs-scan';
+import { pathExists, readTextFile, writeTextFile } from './fs-scan';
 import { runInit, skillPlan } from './init';
 import type { InitOptions, Plan } from './init';
 import { hasManaged } from './init-block';
@@ -159,7 +159,33 @@ describe('runInit --check and --dry-run', () => {
     install(root);
 
     expect(install(root, { check: true }).ok).toBe(true);
-    expect(runInit(readProfile(root), '9.9.9', { ...OPTIONS, check: true }).ok).toBe(false);
+  });
+
+  it('passes a version bump that changed nothing else, and fails once the block itself differs', () => {
+    const root = createTempRepo({ 'package.json': MANIFEST });
+
+    install(root);
+
+    expect(runInit(readProfile(root), '9.9.9', { ...OPTIONS, check: true }).ok).toBe(true);
+    expect(statusOf(runInit(readProfile(root), '9.9.9', { ...OPTIONS, check: true }), 'AGENTS.md')).toBe('unchanged');
+
+    const stale = (readTextFile(join(root, 'AGENTS.md')) ?? '').replace('`methodsToSpyOn`', '`methodsToSpyOnce`');
+
+    writeTextFile(join(root, 'AGENTS.md'), stale);
+
+    const result = runInit(readProfile(root), '9.9.9', { ...OPTIONS, check: true });
+
+    expect(statusOf(result, 'AGENTS.md')).toBe('updated');
+    expect(result.ok).toBe(false);
+  });
+
+  it('still refreshes the version stamp on a plain run', () => {
+    const root = createTempRepo({ 'package.json': MANIFEST });
+
+    install(root);
+
+    expect(statusOf(runInit(readProfile(root), '9.9.9', OPTIONS), 'AGENTS.md')).toBe('updated');
+    expect(readTextFile(join(root, 'AGENTS.md'))).toContain('v=9.9.9');
   });
 
   it('reports what it would do without touching the disk', () => {

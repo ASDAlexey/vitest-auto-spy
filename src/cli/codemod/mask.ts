@@ -33,15 +33,32 @@ function isRegexPosition(source: string, offset: number): boolean {
     }
 
     if (/[\w$]/.test(char)) {
-      const word = /[\w$]+$/.exec(source.slice(0, index + 1));
-
-      return word !== null && REGEX_KEYWORDS.test(word[0]);
+      return REGEX_KEYWORDS.test(wordEndingAt(source, index));
     }
 
-    return char !== ')' && char !== ']';
+    // `<` is the closing tag of a JSX element, never the left side of a comparison against a
+    // regular expression literal.
+    return char !== ')' && char !== ']' && char !== '<';
   }
 
   return true;
+}
+
+/**
+ * The identifier ending at `index`, read backwards.
+ *
+ * A `/[\w$]+$/` over `source.slice(0, index + 1)` answers the same thing and costs the whole prefix:
+ * the engine retries every start position in it, which is a second per megabyte on a file that
+ * divides often. Walking back over the word itself is the same answer in a handful of steps.
+ */
+function wordEndingAt(source: string, index: number): string {
+  let start = index;
+
+  while (start > 0 && /[\w$]/.test(source.charAt(start - 1))) {
+    start -= 1;
+  }
+
+  return source.slice(start, index + 1);
 }
 
 /** Same length, same line breaks, no content. */
@@ -86,7 +103,8 @@ export function buildMask(source: string, options: MaskOptions): string {
   // it. Handing such a span back "unchanged" still consumed it, so everything inside stayed in the
   // code mask and transforms rewrote prose in comments and text in literals. On a division the scan
   // backs up to the slash itself and resumes one character later, so nothing is consumed before it
-  // is classified.
+  // is classified. A candidate containing `<` goes the same way: in a `.tsx` file the slash of `/>`
+  // opens a span that runs to the next tag's slash, and hiding it hid real code from the transforms.
   const tokens = new RegExp(TOKENS.source, 'g');
   let masked = '';
   let cursor = 0;
@@ -96,7 +114,7 @@ export function buildMask(source: string, options: MaskOptions): string {
     const offset = match.index;
     const comment = token.startsWith('//') || token.startsWith('/*');
 
-    if (!comment && token.startsWith('/') && !isRegexPosition(source, offset)) {
+    if (!comment && token.startsWith('/') && (!isRegexPosition(source, offset) || token.includes('<'))) {
       masked += source.slice(cursor, offset + 1);
       cursor = offset + 1;
       tokens.lastIndex = offset + 1;
@@ -173,6 +191,22 @@ export function matchBracket(masked: string, open: number): number | undefined {
   return undefined;
 }
 
+/** A body opening right after a parameter list: `) {`, and `): never {` with a return type between. */
+const BODY_AFTER = /^\s*(?::[^=]*)?{/;
+
+/**
+ * Whether the `(` at `open` starts a call rather than a declaration's parameter list.
+ *
+ * `fail`, `fit` and `xit` are call names *and* ordinary member names, so a rename keyed on the name
+ * alone rewrote `function fail(reason) {` into a syntax error. A call is never followed by a block,
+ * which decides it without a parser.
+ */
+export function isCallPosition(masked: string, open: number): boolean {
+  const close = matchBracket(masked, open);
+
+  return close === undefined || !BODY_AFTER.test(masked.slice(close, close + 200));
+}
+
 /** Half-open `[start, end)` index ranges into the source. */
 export type Range = readonly [number, number];
 
@@ -180,6 +214,10 @@ export type Range = readonly [number, number];
  * The comma-separated parts of `masked[start, end)` that are at nesting depth zero. Used for a type
  * argument list and for a tuple's elements — the two places where "the second one" has to be the
  * second one and not the second comma.
+ *
+ * The depth never goes below zero, which is what keeps an argument list readable: `f(n > 0, false)`
+ * has a `>` that closes nothing, and counting it dropped the whole list to one argument — the second
+ * value then disappeared from the rewrite with nothing reported.
  */
 export function splitTopLevel(masked: string, start: number, end: number): Range[] {
   const parts: Range[] = [];
@@ -194,7 +232,7 @@ export function splitTopLevel(masked: string, start: number, end: number): Range
     } else if (PAIRS[char] !== undefined) {
       depth += 1;
     } else if (char === ')' || char === ']' || char === '}' || char === '>') {
-      depth -= 1;
+      depth = Math.max(depth - 1, 0);
     } else if (char === ',' && depth === 0) {
       parts.push([from, index]);
       from = index + 1;

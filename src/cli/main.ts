@@ -9,6 +9,7 @@ import { flagEnabled, flagList, flagNumber, flagValue, parseArgs } from './args'
 import { writeCodeQuality } from './code-quality';
 import { runCodemod } from './codemod/run';
 import { runDoctor } from './doctor';
+import { isDirectory } from './fs-scan';
 import { HELP } from './help';
 import { runInit } from './init';
 import type { InitAction, InitResult } from './init';
@@ -207,9 +208,87 @@ function codemodCommand(cwd: string, argv: readonly string[], io: CliIo): number
   );
 }
 
+/** Flags every command takes. `--help` and `--version` are handled before dispatch. */
+const COMMON_FLAGS: readonly string[] = ['cwd', 'help', 'version'];
+
+/**
+ * Which flags each command accepts.
+ *
+ * Nothing rejected a flag before this table, and a parser that accepts everything makes a typo
+ * invisible: `init --dryrun` wrote the files, `perf --gat` passed with no gate. Both read as green.
+ */
+const COMMAND_FLAGS: Readonly<Record<string, readonly string[]>> = {
+  codemod: ['from', 'list', 'only', 'skip', 'verify', 'write'],
+  doctor: ['code-quality', 'min-severity'],
+  init: ['check', 'dry-run', 'uninstall'],
+  perf: [
+    'baseline',
+    'baseline-factor',
+    'baseline-floor-ms',
+    'code-quality',
+    'command',
+    'factor',
+    'fail-on-flaky',
+    'gate',
+    'gate-only',
+    'json',
+    'max-file-ms',
+    'max-file-tests',
+    'max-test-ms',
+    'max-wall-ms',
+    'min-severity',
+    'no-confirm',
+    'out',
+    'top',
+    'update-baseline',
+  ],
+};
+
+function rejectFlags(args: ParsedArgs, command: string, io: CliIo): boolean {
+  const accepted = COMMAND_FLAGS[command];
+
+  if (accepted === undefined) {
+    return false;
+  }
+
+  const unknown = Object.keys(args.flags).filter((name) => !accepted.includes(name) && !COMMON_FLAGS.includes(name));
+
+  if (unknown.length === 0) {
+    return false;
+  }
+
+  io.err(`Unknown flag for \`${command}\`: ${unknown.map((name) => `--${name}`).join(', ')}. Nothing ran.`);
+  io.err(
+    `\`${command}\` accepts ${[...accepted, ...COMMON_FLAGS]
+      .sort((a, b) => a.localeCompare(b))
+      .map((name) => `--${name}`)
+      .join(', ')}.`,
+  );
+
+  return true;
+}
+
+/**
+ * A pipe closed before the output ended — `… | head` — which Node reports as an unhandled `error`
+ * event and a stack trace over a run that did exactly what it was asked.
+ */
+export function guardBrokenPipe(
+  stream: { on(event: 'error', listener: (error: { code?: string }) => void): unknown },
+  quit: () => void,
+): void {
+  stream.on('error', (error) => {
+    if (error.code !== 'EPIPE') {
+      throw error;
+    }
+
+    quit();
+  });
+}
+
 export function runCli(argv: readonly string[], io: CliIo): number {
   const args = parseArgs(argv);
-  const cwd = resolve(flagValue(args, 'cwd') ?? process.cwd());
+  const requested = flagValue(args, 'cwd');
+  const cwd = resolve(requested ?? process.cwd());
 
   if (flagEnabled(args, 'version')) {
     io.out(ownVersion());
@@ -221,6 +300,18 @@ export function runCli(argv: readonly string[], io: CliIo): number {
     io.out(HELP);
 
     return args.command === undefined && !flagEnabled(args, 'help') ? 2 : 0;
+  }
+
+  if (rejectFlags(args, args.command, io)) {
+    return 2;
+  }
+
+  // A mistyped `--cwd` used to scan an empty tree and report "No problems found." with exit 0, which
+  // reads exactly like a clean repository.
+  if (requested !== undefined && !isDirectory(cwd)) {
+    io.err(`--cwd ${requested} is not a directory (resolved to ${cwd}). Nothing ran.`);
+
+    return 2;
   }
 
   if (args.command === 'doctor') {

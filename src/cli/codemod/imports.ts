@@ -30,7 +30,9 @@ interface Host {
   readonly braces: Range;
 }
 
-const STATEMENT = /(?:^|\n)[\t ]*import\b/g;
+// A byte-order mark sits between `^` and the first statement, and a file that starts with one is
+// still a file whose first import has to be found.
+const STATEMENT = /(?:^\uFEFF?|\n)[\t ]*import\b/g;
 const QUOTE = /["']/;
 
 function findQuote(masked: string, from: number, to: number): number {
@@ -94,47 +96,107 @@ function hostsFor(statements: readonly ImportStatement[], specifier: string): Ho
   });
 }
 
-/** The names a statement binds, as written — `type Foo` counts as `Foo`. */
-export function boundNames(source: string, braces: Range): string[] {
-  const [open, close] = braces;
-
-  return source
-    .slice(open + 1, close - 1)
-    .split(',')
-    .map((part) => part.trim().replace(/^type\s+/, ''))
-    .map((part) => (part.includes(' as ') ? part.slice(part.lastIndexOf(' as ') + 4).trim() : part))
-    .filter((part) => part.length > 0);
+/** One specifier of a clause, with the commas around it — what a removal has to take with it. */
+interface Slot {
+  /** The local name, or `''` for a part that is only a comment. */
+  readonly name: string;
+  /** Just past the comma before it, or just past the `{`. */
+  readonly start: number;
+  /** Index of the comma that ends it, or `-1` when it is the last part. */
+  readonly comma: number;
+  /** Just past its last code character. */
+  readonly codeEnd: number;
 }
 
-function allBound(source: string, statements: readonly ImportStatement[]): Set<string> {
-  return new Set(statements.flatMap((statement) => (statement.braces === undefined ? [] : boundNames(source, statement.braces))));
+/**
+ * The parts of a clause, split on the *masked* commas.
+ *
+ * Splitting the raw text made a line comment after a specifier part of the next name — and then an
+ * insertion landed inside the comment, or a removal rebuilt the clause around the comment's words.
+ */
+function slotsOf(masked: string, [open, close]: Range): Slot[] {
+  const slots: Slot[] = [];
+  let from = open + 1;
+
+  for (let index = open + 1; index < close - 1; index += 1) {
+    if (masked.charAt(index) === ',') {
+      slots.push(slotAt(masked, from, index, index));
+      from = index + 1;
+    }
+  }
+
+  slots.push(slotAt(masked, from, close - 1, -1));
+
+  return slots;
+}
+
+function slotAt(masked: string, from: number, end: number, comma: number): Slot {
+  const [, codeEnd] = trimmed(masked, [from, end]);
+  const text = masked
+    .slice(from, end)
+    .trim()
+    .replace(/^type\s+/, '');
+
+  return { name: text.includes(' as ') ? text.slice(text.lastIndexOf(' as ') + 4).trim() : text, start: from, comma, codeEnd };
+}
+
+/** The names a statement binds, as written — `type Foo` counts as `Foo`. */
+export function boundNames(source: string, braces: Range, masked: string = maskCode(source)): string[] {
+  return slotsOf(masked, braces)
+    .map((slot) => slot.name)
+    .filter((name) => name.length > 0);
+}
+
+function allBound(source: string, masked: string, statements: readonly ImportStatement[]): Set<string> {
+  return new Set(statements.flatMap((statement) => (statement.braces === undefined ? [] : boundNames(source, statement.braces, masked))));
 }
 
 function spell(need: ImportNeed): string {
   return need.typeOnly ? `type ${need.name}` : need.name;
 }
 
+/** The file's own line ending, so a statement added to a CRLF file does not split a line in two. */
+function eolOf(source: string): string {
+  return source.includes('\r\n') ? '\r\n' : '\n';
+}
+
 /** All-type imports become one `import type`, which is what a hand-written line would have said. */
-function newStatement(specifier: string, needs: readonly ImportNeed[]): string {
+function newStatement(specifier: string, needs: readonly ImportNeed[], eol: string): string {
   const allTypes = needs.every((need) => need.typeOnly);
   const names = needs.map((need) => (allTypes ? need.name : spell(need))).sort((a, b) => a.localeCompare(b));
 
-  return `import ${allTypes ? 'type ' : ''}{ ${names.join(', ')} } from '${specifier}';\n`;
+  return `import ${allTypes ? 'type ' : ''}{ ${names.join(', ')} } from '${specifier}';${eol}`;
 }
 
-function insertionPoint(statements: readonly ImportStatement[]): { readonly at: number; readonly blankAfter: boolean } {
+interface Insertion {
+  readonly at: number;
+  /** Text that has to come first, when the statement above does not end in a line break. */
+  readonly lead: string;
+  readonly blankAfter: boolean;
+}
+
+/**
+ * Where a new statement goes: the start of the line *after* the last third-party import.
+ *
+ * "One character past its end" assumed that character was the newline. A trailing comment, a CRLF
+ * file or a file that ends without a line break each put something else there, and the statement
+ * landed inside the comment or between the `\r` and the `\n`.
+ */
+function insertionPoint(source: string, statements: readonly ImportStatement[]): Insertion {
   const last = statements.filter((statement) => !statement.specifier.startsWith('.')).at(-1);
 
-  if (last !== undefined) {
-    return { at: last.end + 1, blankAfter: false };
+  if (last === undefined) {
+    return { at: statements[0]?.start ?? 0, lead: '', blankAfter: statements.length > 0 };
   }
 
-  return { at: statements[0]?.start ?? 0, blankAfter: statements.length > 0 };
+  const lineEnd = source.indexOf('\n', last.end);
+
+  return lineEnd === -1 ? { at: source.length, lead: eolOf(source), blankAfter: false } : { at: lineEnd + 1, lead: '', blankAfter: false };
 }
 
-function insertIntoBraces(source: string, host: Host, needs: readonly ImportNeed[]): Edit {
+function insertIntoBraces(masked: string, host: Host, needs: readonly ImportNeed[]): Edit {
   const [open, close] = host.braces;
-  const [first, last] = trimmed(source, [open + 1, close - 1]);
+  const [first, last] = trimmed(masked, [open + 1, close - 1]);
   const addition = needs.map((need) => (host.statement.typeOnly ? need.name : spell(need))).join(', ');
 
   if (first === last) {
@@ -142,8 +204,9 @@ function insertIntoBraces(source: string, host: Host, needs: readonly ImportNeed
   }
 
   // After the last name rather than before the closing brace: `{ a, b }` has a space in front of
-  // that brace, and inserting there produces `{ a, b , c }`.
-  return { start: last, end: last, text: /,$/.test(source.slice(open + 1, last)) ? ` ${addition}` : `, ${addition}` };
+  // that brace, and inserting there produces `{ a, b , c }`. The end of the last name is read off
+  // the mask, so a line comment on that name does not swallow the addition.
+  return { start: last, end: last, text: /,$/.test(masked.slice(open + 1, last)) ? ` ${addition}` : `, ${addition}` };
 }
 
 function pickHost(statements: readonly ImportStatement[], specifier: string, needs: readonly ImportNeed[]): Host | undefined {
@@ -157,8 +220,8 @@ function pickHost(statements: readonly ImportStatement[], specifier: string, nee
   return needs.every((need) => need.typeOnly) ? candidates[0] : undefined;
 }
 
-function uniqueNeeds(source: string, statements: readonly ImportStatement[], needs: readonly ImportNeed[]): ImportNeed[] {
-  const bound = allBound(source, statements);
+function uniqueNeeds(source: string, masked: string, statements: readonly ImportStatement[], needs: readonly ImportNeed[]): ImportNeed[] {
+  const bound = allBound(source, masked, statements);
   const seen = new Set<string>();
 
   return needs.filter((need) => {
@@ -174,19 +237,20 @@ function uniqueNeeds(source: string, statements: readonly ImportStatement[], nee
   });
 }
 
-function planEdits(source: string, statements: readonly ImportStatement[], needs: readonly ImportNeed[]): Edit[] {
+function planEdits(source: string, masked: string, statements: readonly ImportStatement[], needs: readonly ImportNeed[]): Edit[] {
   const specifiers = [...new Set(needs.map((need) => need.specifier))].sort((a, b) => a.localeCompare(b));
-  const { at, blankAfter } = insertionPoint(statements);
+  const { at, lead, blankAfter } = insertionPoint(source, statements);
+  const eol = eolOf(source);
 
   return specifiers.map((specifier) => {
     const group = needs.filter((need) => need.specifier === specifier);
     const host = pickHost(statements, specifier, group);
 
     if (host === undefined) {
-      return { start: at, end: at, text: `${newStatement(specifier, group)}${blankAfter ? '\n' : ''}` };
+      return { start: at, end: at, text: `${lead}${newStatement(specifier, group, eol)}${blankAfter ? eol : ''}` };
     }
 
-    return insertIntoBraces(source, host, group);
+    return insertIntoBraces(masked, host, group);
   });
 }
 
@@ -203,23 +267,53 @@ export function referencedOutsideImports(source: string, statements: readonly Im
   return new RegExp(`\\b${name}\\b`).test(masked.join(''));
 }
 
-function dropOne(source: string, statements: readonly ImportStatement[], name: string): Edit[] {
-  const host = statements
-    .flatMap((statement): Host[] => (statement.braces === undefined ? [] : [{ statement, braces: statement.braces }]))
-    .find((candidate) => boundNames(source, candidate.braces).includes(name));
+/** The statement that binds `name`, with the clause already split into its parts. */
+function bindingOf(
+  masked: string,
+  statements: readonly ImportStatement[],
+  name: string,
+): { host: Host; slots: Slot[]; slot: Slot } | undefined {
+  for (const statement of statements) {
+    const { braces } = statement;
+    const slots = braces === undefined ? [] : slotsOf(masked, braces);
+    const slot = slots.find((candidate) => candidate.name === name);
 
-  if (host === undefined || referencedOutsideImports(source, statements, name)) {
+    if (braces !== undefined && slot !== undefined) {
+      return { host: { statement, braces }, slots, slot };
+    }
+  }
+
+  return undefined;
+}
+
+/** A line comment that rides the specifier being removed, so it goes with it. */
+function trailingComment(source: string, from: number): number {
+  const comment = /^[\t ]*\/\/[^\n]*/.exec(source.slice(from));
+
+  return comment === null ? from : from + comment[0].length;
+}
+
+function dropOne(source: string, masked: string, statements: readonly ImportStatement[], name: string): Edit[] {
+  const binding = bindingOf(masked, statements, name);
+
+  if (binding === undefined || referencedOutsideImports(source, statements, name)) {
     return [];
   }
 
-  const kept = boundNames(source, host.braces).filter((bound) => bound !== name);
-  const [open, close] = host.braces;
+  const { host, slots, slot } = binding;
 
-  if (kept.length === 0) {
+  if (slots.filter((candidate) => candidate.name.length > 0).length === 1) {
     return [{ start: host.statement.start, end: Math.min(host.statement.end + 1, source.length), text: '' }];
   }
 
-  return [{ start: open + 1, end: close - 1, text: ` ${kept.join(', ')} ` }];
+  // One specifier's span, not a rebuilt clause: rebuilding it lost the aliases as they were written
+  // and moved every comment in the clause onto the wrong line. A part that ends in a comma takes the
+  // comma; the last part takes the comma in front of it instead, which is the character at `start - 1`.
+  return [slot.comma === -1 ? { start: slot.start - 1, end: slot.codeEnd, text: '' } : dropWithComma(source, slot)];
+}
+
+function dropWithComma(source: string, slot: Slot): Edit {
+  return { start: slot.start, end: trailingComment(source, slot.comma + 1), text: '' };
 }
 
 /**
@@ -228,12 +322,14 @@ function dropOne(source: string, statements: readonly ImportStatement[], name: s
  * the statement as it now reads rather than as it read before.
  */
 export function applyImportPlan(source: string, needs: readonly ImportNeed[], dropIfUnused: readonly string[]): string {
-  const statements = listImports(source);
-  const withImports = applyEdits(source, planEdits(source, statements, uniqueNeeds(source, statements, needs)));
-  const after = listImports(withImports);
+  const masked = maskCode(source);
+  const statements = listImports(source, masked);
+  const withImports = applyEdits(source, planEdits(source, masked, statements, uniqueNeeds(source, masked, statements, needs)));
+  const afterMask = maskCode(withImports);
+  const after = listImports(withImports, afterMask);
 
   return applyEdits(
     withImports,
-    dropIfUnused.flatMap((name) => dropOne(withImports, after, name)),
+    dropIfUnused.flatMap((name) => dropOne(withImports, afterMask, after, name)),
   );
 }

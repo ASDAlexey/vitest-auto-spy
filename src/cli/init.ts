@@ -8,7 +8,7 @@
 import { join } from 'node:path';
 
 import { isDirectory, isSymlink, pathExists, readTextFile, removeFile, writeTextFile } from './fs-scan';
-import { applyManaged, hasManaged, removeManaged } from './init-block';
+import { applyManaged, hasManaged, removeManaged, withoutVersion } from './init-block';
 import { LEGACY_FILES, TIER_ONE_MARKDOWN, TIER_TWO, managedBlock, ownedContent, skillStub } from './init-targets';
 import type { Target } from './init-targets';
 import type { Profile } from './profile';
@@ -74,7 +74,11 @@ function planFor(target: Target, content: string | undefined, profile: Profile, 
   return { target, existing, desired: applyManaged(existing ?? '', managedBlock(profile, version)), note };
 }
 
-function statusOf(plan: Plan): ActionStatus {
+/**
+ * `--check` judges the block, not the version stamp in its marker: a bump with an identical body is
+ * not work for the consumer's CI to fail over. A plain run still refreshes the stamp.
+ */
+function statusOf(plan: Plan, check: boolean): ActionStatus {
   if (plan.desired === undefined) {
     return 'skipped';
   }
@@ -83,7 +87,11 @@ function statusOf(plan: Plan): ActionStatus {
     return 'created';
   }
 
-  return plan.existing === plan.desired ? 'unchanged' : 'updated';
+  if (plan.existing === plan.desired) {
+    return 'unchanged';
+  }
+
+  return check && withoutVersion(plan.existing) === withoutVersion(plan.desired) ? 'unchanged' : 'updated';
 }
 
 function collectTargets(profile: Profile): Target[] {
@@ -149,7 +157,7 @@ function uninstallPlan(plan: Plan): Plan {
 }
 
 function applyPlan(cwd: string, plan: Plan, options: InitOptions): InitAction {
-  const status = options.uninstall ? uninstallStatus(plan) : statusOf(plan);
+  const status = options.uninstall ? uninstallStatus(plan) : statusOf(plan, options.check);
   const path = plan.target.path;
 
   if (options.check || options.dryRun || plan.desired === undefined || status === 'unchanged') {

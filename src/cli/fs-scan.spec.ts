@@ -43,6 +43,18 @@ describe('listRepositoryFiles', () => {
     expect(listRepositoryFiles(root)).toEqual(['src/a.ts']);
   });
 
+  it('does not descend into a nested repository or a worktree, whose files belong to another branch', () => {
+    const root = createTempRepo({
+      'src/a.ts': '',
+      '.claude/worktrees/one/.git': 'gitdir: /elsewhere/.git/worktrees/one',
+      '.claude/worktrees/one/src/copy.spec.ts': '',
+      'packages/nested/.git/HEAD': 'ref: refs/heads/main',
+      'packages/nested/src/b.ts': '',
+    });
+
+    expect(listRepositoryFiles(root)).toEqual(['src/a.ts']);
+  });
+
   it('stops at the limit rather than walking a pathological tree', () => {
     const root = createTempRepo({ 'src/a.ts': '', 'src/b.ts': '', 'other/c.ts': '' });
 

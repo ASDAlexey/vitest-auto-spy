@@ -15,9 +15,9 @@ import type { ImportStatement } from './imports';
 import { listImports } from './imports';
 import { JASMINE_ALIASES, NO_TWIN, RENAMED, RETURN_FIRST, TYPE_NAMES } from './jest-api';
 import type { Range } from './mask';
-import { lineOf, matchBracket, splitTopLevel, trimmed } from './mask';
+import { isCallPosition, lineOf, matchBracket, splitTopLevel, trimmed } from './mask';
 import type { Match, TransformContext, TransformSpec } from './transform-context';
-import { group, scan, textOf } from './transform-context';
+import { declarationResidue, group, scan, textOf } from './transform-context';
 
 const MEMBER = /\bjest\s*\.\s*([$A-Z_a-z][\w$]*)/g;
 const VITEST = 'vitest';
@@ -159,14 +159,14 @@ export function signature(context: TransformContext, target: string, parts: read
   return args === undefined ? `${target}<() => ${returns}>` : `${target}<(${parameterList(context, args)}) => ${returns}>`;
 }
 
-function typeOutput(context: TransformContext, match: Match, name: string, target: string): TransformOutput {
+function typeOutput(context: TransformContext, match: Match, name: string, target: string, functionFirst: boolean): TransformOutput {
   const need: ImportNeed = { specifier: VITEST, name: target, typeOnly: true };
   const after = match.index + match.whole.length;
   const gap = /^\s*</.exec(context.masked.slice(after));
   const open = gap === null ? -1 : after + group(gap, 0).length - 1;
   const close = open === -1 ? undefined : matchBracket(context.masked, open);
 
-  if (close === undefined || !RETURN_FIRST.has(name)) {
+  if (close === undefined || !RETURN_FIRST.has(name) || functionFirst) {
     return { edits: [{ start: match.index, end: after, text: target }], needs: [need], dropIfUnused: [], notes: [] };
   }
 
@@ -203,16 +203,45 @@ export const jestTypes: TransformSpec = {
   summary:
     'jest.Mock<R, [A]> → Mock<(a: A) => R>, jest.SpyInstance → MockInstance the same way, and the four plain type renames, importing the Vitest name.',
   residue: /\bjest\s*\.\s*(?:Mock|MockedClass|MockedFunction|MockedObject|Mocked|SpyInstance)\b/,
-  run: (context) =>
-    collect(
-      scan(context.masked, MEMBER).flatMap((match) => {
+  run: (context) => {
+    const functionFirst = importsJestGlobals(context);
+
+    return collect([
+      ...scan(context.masked, MEMBER).flatMap((match) => {
         const name = group(match.groups, 1);
         const target = TYPE_NAMES[name];
 
-        return target === undefined ? [] : [typeOutput(context, match, name, target)];
+        return target === undefined ? [] : [typeOutput(context, match, name, target, functionFirst)];
       }),
-    ),
+      ...(functionFirst ? [] : [genericCallNotes(context)]),
+    ]);
+  },
 };
+
+/**
+ * Whether the file's `jest` is the one from `@jest/globals`.
+ *
+ * `jest-mock` ≥ 29 took the whole function type — `jest.Mock<() => string>` already means what
+ * Vitest means — so transposing it a second time produced `Mock<() => () => string>`, a mock that
+ * returns a function, and nothing failed until a call site disagreed.
+ */
+function importsJestGlobals(context: TransformContext): boolean {
+  return listImports(context.source, context.masked).some((statement) => statement.specifier === JEST_GLOBALS);
+}
+
+const GENERIC_CALL = /\bjest\s*\.\s*(fn|spyOn)\s*</g;
+
+/**
+ * `jest.fn<R, [A]>()` is the same transposition as the type, on a call this codemod does not rewrite.
+ * Renaming it to `vi.fn<R, [A]>()` leaves a type argument list Vitest reads as a call signature, so
+ * the list is reported rather than carried across in silence.
+ */
+function genericCallNotes(context: TransformContext): TransformOutput {
+  return {
+    ...EMPTY_OUTPUT,
+    notes: scan(context.masked, GENERIC_CALL).map((match) => unreadableTypeArguments(context, match.index, group(match.groups, 1))),
+  };
+}
 
 const NO_ARGUMENT = /\.\s*(mockImplementation(?:Once)?)\s*\(\s*\)/g;
 
@@ -248,14 +277,19 @@ export const jasmineAliases: TransformSpec = {
   family: 'shared',
   summary: 'xit / xdescribe / fit / fdescribe → it.skip / describe.skip / it.only / describe.only.',
   residue: /(?:^|[^\w$.])(?:fdescribe|fit|xdescribe|xit|xtest)\s*\(/,
+  residueIgnores: declarationResidue,
   run: (context) => ({
     ...EMPTY_OUTPUT,
     edits: Object.entries(JASMINE_ALIASES).flatMap(([alias, replacement]) =>
-      scan(context.masked, new RegExp(`(^|[^\\w$.])${alias}\\s*\\(`, 'g')).map((match): Edit => {
-        const start = match.index + group(match.groups, 1).length;
+      scan(context.masked, new RegExp(`(^|[^\\w$.])${alias}\\s*\\(`, 'g'))
+        // `fit(size: number) { … }` is a method named `fit`, not a focused test: rewriting it
+        // produced `it.only(size: number) {`, which is a syntax error nothing in the report named.
+        .filter((match) => isCallPosition(context.masked, match.index + match.whole.length - 1))
+        .map((match): Edit => {
+          const start = match.index + group(match.groups, 1).length;
 
-        return { start, end: start + alias.length, text: replacement };
-      }),
+          return { start, end: start + alias.length, text: replacement };
+        }),
     ),
   }),
 };

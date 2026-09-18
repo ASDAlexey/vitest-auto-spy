@@ -8,7 +8,7 @@
 import type { TransformOutput } from './edits';
 import type { EntryMap } from './entry-map';
 import type { Range } from './mask';
-import { trimmed } from './mask';
+import { isCallPosition, trimmed } from './mask';
 
 export interface TransformContext {
   /** Repository-relative path, used only to address a note. */
@@ -45,7 +45,18 @@ export interface TransformSpec {
    * diff looks right can still leave the pattern it was pointed at.
    */
   readonly residue: RegExp;
+  /**
+   * A residue match this transform never owned. `fail` and `fit` are call names *and* member names,
+   * so the pattern that finds the global also finds a method declaration the codemod correctly left
+   * alone — and reporting that one made `--verify` red with nothing to do about it.
+   */
+  readonly residueIgnores?: (masked: string, match: Match) => boolean;
   readonly run: (context: TransformContext) => TransformOutput;
+}
+
+/** The shared answer for the two transforms whose patterns end in `(`: a declaration is not theirs. */
+export function declarationResidue(masked: string, match: Match): boolean {
+  return match.whole.endsWith('(') && !isCallPosition(masked, match.index + match.whole.length - 1);
 }
 
 /** The source text of a range, with the whitespace the mask says is whitespace trimmed off. */

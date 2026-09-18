@@ -10,7 +10,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { runTransforms, transformsFor } from './codemod';
+import { residueOf, runTransforms, transformsFor } from './codemod';
 import type { EntryMap } from './entry-map';
 import { maskCode } from './mask';
 import type { TransformContext, TransformSpec } from './transform-context';
@@ -86,12 +86,25 @@ describe('jasmine-strategies — the half that does not', () => {
     expect(apply('s.and.returnValues(1, 2);', jasmineStrategies)).toBe('s.mockReturnValueOnce(1).mockReturnValueOnce(2);');
   });
 
-  it('builds an Error around the message form of throwError, and throws the other two as written', () => {
+  it('builds an Error around the message form of throwError, and decides a variable at runtime', () => {
     expect(apply("s.and.throwError('boom');", jasmineStrategies)).toBe("s.mockImplementation(() => { throw new Error('boom'); });");
-    expect(apply('s.and.throwError(err);', jasmineStrategies)).toBe('s.mockImplementation(() => { throw err; });');
     expect(apply("s.and.throwError(HttpError, 'boom');", jasmineStrategies)).toBe(
       "s.mockImplementation(() => { throw new HttpError('boom'); });",
     );
+  });
+
+  it('wraps a variable the way jasmine does — a string becomes an Error, anything else is thrown as it is', () => {
+    expect(apply('s.and.throwError(err);', jasmineStrategies)).toBe(
+      "s.mockImplementation(() => { throw typeof err === 'string' ? new Error(err) : err; });",
+    );
+    expect(apply('s.and.throwError(errors.first);', jasmineStrategies)).toBe(
+      "s.mockImplementation(() => { throw typeof errors.first === 'string' ? new Error(errors.first) : errors.first; });",
+    );
+  });
+
+  it('declines an argument it would have to evaluate twice', () => {
+    expect(apply('s.and.throwError(build());', jasmineStrategies)).toBe('s.and.throwError(build());');
+    expect(notesOf('s.and.throwError(build());', jasmineStrategies)[0]).toContain('unknown-jasmine-strategy');
   });
 
   it('reports rather than invents, for the forms it has no rewrite for', () => {
@@ -115,6 +128,16 @@ describe('jasmine-strategies — the half that does not', () => {
 
   it('turns the argument matcher into the one this package spells', () => {
     expect(apply('spy.m.withArgs(1).and.returnValue(2);', jasmineStrategies)).toBe('spy.m.calledWith(1).mockReturnValue(2);');
+  });
+
+  it('reports withArgs on a spyOn chain instead of renaming it onto a method vi.spyOn does not have', () => {
+    const source = "spyOn(api, 'load').withArgs(1).and.returnValue(2);";
+
+    expect(apply(source, jasmineStrategies)).toBe("spyOn(api, 'load').withArgs(1).mockReturnValue(2);");
+    expect(notesOf(source, jasmineStrategies)[0]).toContain('jasmine-with-args-on-spy-on');
+    expect(notesOf("spyOnProperty(api, 'ready')\n  .withArgs(1);", jasmineStrategies)[0]).toContain('jasmine-with-args-on-spy-on');
+    expect(notesOf('spy.m.withArgs(1);', jasmineStrategies)).toEqual([]);
+    expect(apply("spyOn(api, 'load';\nspy.m.withArgs(1);", jasmineStrategies)).toContain('spy.m.calledWith(1);');
   });
 });
 
@@ -140,6 +163,19 @@ describe('jasmine-spy-on — the rewrite that is not a rename', () => {
     expect(apply("spyOnProperty(service, 'ready', 'get');", jasmineSpyOn)).toBe(
       "vi.spyOn(service, 'ready', 'get').mockImplementation(() => undefined);",
     );
+  });
+
+  it('writes the accessor kind jasmine defaulted to, which vi.spyOn does not', () => {
+    expect(apply("spyOnProperty(window, 'innerWidth');", jasmineSpyOn)).toBe(
+      "vi.spyOn(window, 'innerWidth', 'get').mockImplementation(() => undefined);",
+    );
+    expect(apply("spyOnProperty(window, 'innerWidth').and.returnValue(100);", jasmineSpyOn)).toBe(
+      "vi.spyOn(window, 'innerWidth', 'get').and.returnValue(100);",
+    );
+  });
+
+  it('leaves a chain that continues into withArgs exactly as it was', () => {
+    expect(apply("spyOn(api, 'load').withArgs(1);", jasmineSpyOn)).toBe("spyOn(api, 'load').withArgs(1);");
   });
 
   it('leaves an already-namespaced call, and one whose brackets do not balance', () => {
@@ -240,9 +276,20 @@ describe('jasmine-matchers', () => {
     expect(apply("expect(a).withContext('m';", jasmineMatchers)).toBe("expect(a).withContext('m';");
   });
 
+  it('leaves an expect with nothing in it, which has no place to put the message', () => {
+    expect(apply("expect().withContext('empty').nothing();", jasmineMatchers)).toBe("expect().withContext('empty').nothing();");
+  });
+
   it('routes the bare fail through expect, and not a method of the same name', () => {
     expect(apply("fail('unreachable');", jasmineMatchers)).toBe("expect.fail('unreachable');");
     expect(apply("runner.fail('x');", jasmineMatchers)).toBe("runner.fail('x');");
+  });
+
+  it('leaves a helper the suite declared itself, where the rename would be a syntax error', () => {
+    const helper = 'function fail(reason: string): never {\n  throw new Error(reason);\n}';
+
+    expect(apply(helper, jasmineMatchers)).toBe(helper);
+    expect(residueOf('a.spec.ts', helper, [jasmineMatchers])).toEqual([]);
   });
 });
 

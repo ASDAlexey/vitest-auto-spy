@@ -24,9 +24,14 @@ const REPOSITORY_PATH = 'package.json';
 /**
  * The widget tells new issues from resolved ones by fingerprint, so it must survive a re-run: the
  * numbers in a message change every time, the words around them do not.
+ *
+ * What a backtick encloses is exempt, because that is where this CLI puts the things a message is
+ * *about* — a test name, a file, a flag. Blanking their digits collapsed `returns 200` and
+ * `returns 404` into one fingerprint, and the widget then showed one of the two parametrised
+ * branches and dropped the rest.
  */
 function fingerprintOf(finding: Finding): string {
-  const words = finding.message.replace(/\d+(?:\.\d+)?/g, '#');
+  const words = finding.message.replace(/`[^`]*`|\d+(?:\.\d+)?/g, (token) => (token.startsWith('`') ? token : '#'));
 
   return createHash('sha256')
     .update(`${finding.check}\n${finding.file ?? ''}\n${words}`)

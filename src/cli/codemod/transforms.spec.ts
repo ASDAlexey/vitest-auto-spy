@@ -119,6 +119,21 @@ describe('jest-types — the argument-order trap', () => {
   it('answers undefined for an empty argument list', () => {
     expect(signature(contextFor('x'), 'Mock', [])).toBeUndefined();
   });
+
+  it('renames without transposing where the jest is the one from @jest/globals, which already takes the function type', () => {
+    const source = "import { jest } from '@jest/globals';\nlet m: jest.Mock<() => string>;\n";
+
+    expect(apply(source, jestTypes)).toContain('let m: Mock<() => string>;');
+    expect(notesOf(source, jestTypes)).toEqual([]);
+  });
+
+  it('reports the type arguments of a generic jest.fn or jest.spyOn, which the rename carries across unchanged', () => {
+    expect(notesOf('const a = jest.fn<string, [number]>();', jestTypes)).toEqual([
+      'jest-mock-type-arguments `jest.fn` here has a type argument list this codemod will not transpose.',
+    ]);
+    expect(notesOf("jest.spyOn<Api, 'load'>(api, 'load');", jestTypes)[0]).toContain('`jest.spyOn`');
+    expect(notesOf('const a = jest.fn();', jestTypes)).toEqual([]);
+  });
 });
 
 describe('jest-namespace', () => {
@@ -173,6 +188,13 @@ describe('mock-implementation-arity and the jasmine aliases', () => {
       'it.skip("a", f);\ndescribe.only("b", f);\ndescribe.skip("c", f);\nit.only("d", f);\ntest.skip("e", f);',
     );
     expect(apply('shape.fit(box);', jasmineAliases)).toBe('shape.fit(box);');
+  });
+
+  it('leaves a declaration of the same name alone, where a rename would be a syntax error', () => {
+    const method = 'class Helper {\n  fit(size: number) { return size; }\n}';
+
+    expect(apply(method, jasmineAliases)).toBe(method);
+    expect(apply('function xit(name: string): void {}', jasmineAliases)).toBe('function xit(name: string): void {}');
   });
 });
 

@@ -19,9 +19,9 @@ import { EMPTY_OUTPUT, mergeOutputs } from './edits';
 import { entryFor } from './entry-map';
 import { ASYMMETRIC_MATCHERS, CLOCK_MEMBERS, MATCHER_RENAMES, NO_TWIN, TYPE_TARGETS } from './jasmine-api';
 import { callArguments, callRange, jasmineNote, missingEntryNote, replacement, replacements } from './jasmine-calls';
-import { matchBracket } from './mask';
+import { isCallPosition, matchBracket } from './mask';
 import type { Match, TransformContext, TransformSpec } from './transform-context';
-import { group, scan } from './transform-context';
+import { declarationResidue, group, scan } from './transform-context';
 
 const MEMBER = /\bjasmine\s*\.\s*([$A-Z_a-z][\w$]*)/g;
 const ASYMMETRIC = new Set(ASYMMETRIC_MATCHERS);
@@ -194,6 +194,7 @@ export const jasmineMatchers: TransformSpec = {
   residue: new RegExp(
     String.raw`\.\s*(?:toBeTrue|toBeFalse|withContext|${Object.keys(MATCHER_RENAMES).join('|')})\s*\(|(?:^|[^\w$.])fail\s*\(`,
   ),
+  residueIgnores: declarationResidue,
   run: (context) =>
     mergeOutputs([
       replacements(context, BOOLEAN_MATCHER, (match) => `.toBe(${group(match.groups, 1).toLowerCase()})`),
@@ -203,16 +204,33 @@ export const jasmineMatchers: TransformSpec = {
       ...Object.entries(MATCHER_RENAMES).map(([from, to]) =>
         replacements(context, new RegExp(String.raw`\.\s*${from}\s*\(`, 'g'), () => `.${to}(`),
       ),
-      replacements(context, FAIL, (match) => `${group(match.groups, 1)}expect.fail(`),
+      { ...EMPTY_OUTPUT, edits: failEdits(context) },
       { ...EMPTY_OUTPUT, edits: scan(context.masked, EXPECT).flatMap((match) => withContextEdits(context, match)) },
     ]),
 };
 
+/**
+ * `fail(reason)` is jasmine's global; `function fail(reason) {` is a helper a suite wrote itself,
+ * and rewriting that one produced `function expect.fail(reason) {`.
+ */
+function failEdits(context: TransformContext): Edit[] {
+  return scan(context.masked, FAIL)
+    .filter((match) => isCallPosition(context.masked, match.index + match.whole.length - 1))
+    .map((match): Edit => ({
+      start: match.index,
+      end: match.index + match.whole.length,
+      text: `${group(match.groups, 1)}expect.fail(`,
+    }));
+}
+
 function withContextEdits(context: TransformContext, match: Match): Edit[] {
-  const close = matchBracket(context.masked, match.index + match.whole.length - 1);
+  const subject = match.index + match.whole.length - 1;
+  const close = matchBracket(context.masked, subject);
   const tail = close === undefined ? null : WITH_CONTEXT.exec(context.masked.slice(close));
 
-  if (close === undefined || tail === null) {
+  // `expect().withContext(m)` has nothing to move the message next to, and moving it anyway wrote
+  // `expect(, 'm')`. jasmine's argument-less `expect()` is left for a person.
+  if (close === undefined || tail === null || context.masked.slice(subject + 1, close - 1).trim() === '') {
     return [];
   }
 

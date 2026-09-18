@@ -158,6 +158,25 @@ describe('installedVersion', () => {
   it('returns undefined when no node_modules copy is reachable', () => {
     expect(installedVersion(createTempRepo({ 'package.json': '{}' }))).toBeUndefined();
   });
+
+  it('falls back to the walk for an older install whose exports do not list the manifest', () => {
+    const root = createTempRepo({
+      'package.json': '{}',
+      'node_modules/vitest-auto-spy/package.json': JSON.stringify({
+        name: 'vitest-auto-spy',
+        version: '4.0.0',
+        exports: { '.': './index.js' },
+      }),
+    });
+
+    expect(installedVersion(root)).toBe('4.0.0');
+  });
+
+  it('asks the resolver first, which is what answers under Yarn PnP and a hoisted install', () => {
+    // This repository has no `node_modules/vitest-auto-spy` for the walk to find, so a version here
+    // can only have come through `exports`.
+    expect(installedVersion(process.cwd())).toMatch(/^\d+\.\d+\.\d+/);
+  });
 });
 
 describe('tableApplies', () => {

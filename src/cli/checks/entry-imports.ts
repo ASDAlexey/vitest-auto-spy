@@ -6,6 +6,7 @@
  * on the table being generated (`scripts/generate-export-map.mjs`) rather than written down, and on
  * `tableApplies`: a table describes one major version, and the consumer may have another installed.
  */
+import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 
 import { captures, parseJsonc, readTextFile } from '../fs-scan';
@@ -111,16 +112,42 @@ function majorOf(version: string): string | undefined {
   return captures(version, /^(\d+)\./g)[0];
 }
 
+function versionAt(path: string | undefined): string | undefined {
+  const text = path === undefined ? undefined : readTextFile(path);
+  const parsed = text === undefined ? undefined : parseJsonc(text);
+  const version = isRecord(parsed) ? parsed['version'] : undefined;
+
+  return typeof version === 'string' ? version : undefined;
+}
+
+/**
+ * Where the resolver says the package is, which is the only answer that holds under Yarn PnP and in
+ * a monorepo that hoisted `node_modules` somewhere the directory walk below never looks.
+ */
+function resolvedManifest(directory: string): string | undefined {
+  try {
+    return createRequire(join(directory, 'package.json')).resolve('vitest-auto-spy/package.json');
+  } catch {
+    // No resolution from here — a repository without the package installed, or one whose resolver
+    // refuses the subpath; the walk answers those.
+    return undefined;
+  }
+}
+
 /** The version of this package the consuming repository actually has installed, if it can be read. */
 export function installedVersion(cwd: string): string | undefined {
+  const resolved = versionAt(resolvedManifest(cwd));
+
+  if (resolved !== undefined) {
+    return resolved;
+  }
+
   let directory = cwd;
 
   for (;;) {
-    const text = readTextFile(join(directory, 'node_modules/vitest-auto-spy/package.json'));
-    const parsed = text === undefined ? undefined : parseJsonc(text);
-    const version = isRecord(parsed) ? parsed['version'] : undefined;
+    const version = versionAt(join(directory, 'node_modules/vitest-auto-spy/package.json'));
 
-    if (typeof version === 'string') {
+    if (version !== undefined) {
       return version;
     }
 

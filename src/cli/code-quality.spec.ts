@@ -61,6 +61,13 @@ describe('toCodeQuality', () => {
     expect(other?.fingerprint).not.toBe(first?.fingerprint);
   });
 
+  it('tells two parametrised cases apart, whose names differ only in a number', () => {
+    const [first] = toCodeQuality([finding({ message: '`suite > returns 200` spent 3.90s in its body, over the 1.00s budget.' })]);
+    const [other] = toCodeQuality([finding({ message: '`suite > returns 404` spent 1.20s in its body, over the 1.00s budget.' })]);
+
+    expect(other?.fingerprint).not.toBe(first?.fingerprint);
+  });
+
   it('leaves out what --min-severity hides from the printed report', () => {
     expect(toCodeQuality([finding(), finding({ severity: 'info' })], 'warning')).toHaveLength(1);
   });

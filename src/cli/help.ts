@@ -37,8 +37,9 @@ Commands
 Usage of codemod
   npx vitest-auto-spy codemod [path…] [options]
 
-  With no path it visits every *.spec.ts / *.test.ts in the repository; with a
-  path it visits every TypeScript file under it.
+  With no path it visits every *.spec.* / *.test.* in the repository, JavaScript
+  ones included; with a path it visits every source file under it. A path that
+  matches no file is an error, exit 2 — a typo in CI is not a clean result.
 
   A jasmine-auto-spies suite migrates the same way, with --from jasmine: the
   \`.and\` namespace comes off the auto-spies helpers, jasmine's own strategies

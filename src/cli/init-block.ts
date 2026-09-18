@@ -74,6 +74,17 @@ export function hasManaged(text: string): boolean {
 }
 
 /**
+ * The text with the version dropped out of the marker.
+ *
+ * `--check` is meant for a consumer's CI, and it compared the files byte for byte — so every release
+ * of this package turned that step red on a repository whose block had not changed a word. The body
+ * is what the check is about; the stamp is refreshed by the next `init` that runs for another reason.
+ */
+export function withoutVersion(text: string): string {
+  return text.replace(new RegExp(MARKER_BEGIN.source, 'g'), (marker) => marker.replace(/\s+v=[^\s>]+/, ''));
+}
+
+/**
  * Replaces the managed block in `existing`, or appends it. Text outside the markers is preserved
  * byte for byte — a consumer's own instructions are none of this CLI's business.
  */
