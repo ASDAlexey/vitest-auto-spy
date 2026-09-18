@@ -64,7 +64,7 @@ jobs:
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4.0.5
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
 
   # Tell the engines that pull from IndexNow — Yandex, Bing, Seznam, Naver — that the pages changed,
   # instead of waiting for a crawl. Google does not participate; its route is the sitemap submitted
