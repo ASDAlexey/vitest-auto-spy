@@ -267,7 +267,8 @@ a `NodeList` stays assignable to the mapping of itself.
 **`ValueConfig<T>`**, `UnstubbedCall`, `UnstubbedCallHandler`, `UnstubbedRead`, `UnstubbedReadHandler`, `NextValueConfig`, `ErrorValueConfig`,
 `CompleteValueConfig`, `ValueConfigPerCall`, `OnlyMethodKeysOf<T>`, `OnlyObservablePropsOf<T>`,
 `AccessorKeysOf<T>`, `MethodReturns<T>`, `PropStubValue<V>`, `SpyOptions`, `Overloads<F>`,
-`AutoSpyDefaultEntry<T>`,
+`AutoSpyDefaultEntry<T>`, `ArgCaptor<T>` and `CaptureArgOptions` (what `captureArg` returns and the
+`{ where }` it takes), `SpyClassOptions` (the `{ statics }` of `createSpyClass`),
 `AddThrowHelper` (the `failWith` every method spy carries) are exported from the core as well;
 `/angular` adds `AutoSpyTokenDefaults<T>` (a token's registration), `AutoSpyFixture`, `SpiedFixtures<Spec>` and `ExtendWithAutoSpiesOptions` for
 `extendWithAutoSpies`, `ComponentStubOptions` for `createComponentStub`, and `MatDialogRefInit<Ref>`,

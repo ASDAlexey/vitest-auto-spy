@@ -240,7 +240,8 @@ _обращения_ к свойству: цепочка, идущая чере�
 **`ValueConfig<T>`**, `UnstubbedCall`, `UnstubbedCallHandler`, `UnstubbedRead`, `UnstubbedReadHandler`, `NextValueConfig`, `ErrorValueConfig`,
 `CompleteValueConfig`, `ValueConfigPerCall`, `OnlyMethodKeysOf<T>`, `OnlyObservablePropsOf<T>`,
 `AccessorKeysOf<T>`, `MethodReturns<T>`, `PropStubValue<V>`, `SpyOptions`, `Overloads<F>`,
-`AutoSpyDefaultEntry<T>`,
+`AutoSpyDefaultEntry<T>`, `ArgCaptor<T>` и `CaptureArgOptions` (что возвращает `captureArg` и какой
+`{ where }` он принимает), `SpyClassOptions` (те самые `{ statics }` у `createSpyClass`),
 `AddThrowHelper` (тот самый `failWith`, который несёт каждый спай метода) экспортируются из ядра тоже;
 `/angular` добавляет `AutoSpyTokenDefaults<T>` (регистрацию токена), `AutoSpyFixture`, `SpiedFixtures<Spec>` и `ExtendWithAutoSpiesOptions` для
 `extendWithAutoSpies`, `ComponentStubOptions` для `createComponentStub` и `MatDialogRefInit<Ref>`,
