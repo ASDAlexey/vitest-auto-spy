@@ -9,6 +9,10 @@ The API reference says what each helper does. This page says which ones you will
 in what order, and what breaks at scale — measured against a private Angular 22 zoneless suite of
 roughly 370 spec files that has been on this library since early versions.
 
+The task-shaped recipes live on their own pages: [mocking classes](/guides/mocking-classes),
+[mocking `localStorage`](/guides/mocking-local-storage), [mocking Prisma Client](/guides/mocking-prisma)
+and [Storybook stories with auto-spies](/guides/storybook-angular).
+
 The distribution is lopsided, and worth knowing before you learn the whole surface:
 
 | Helper                                                                   | Spec files using it |
