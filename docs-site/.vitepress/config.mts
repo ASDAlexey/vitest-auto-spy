@@ -28,6 +28,10 @@ const RU_LABEL: Record<string, string> = {
   Performance: 'Производительность',
 
   'Patterns that hold up': 'Паттерны, которые держатся',
+  'Mocking classes': 'Моки классов',
+  'Mocking localStorage': 'Мок localStorage',
+  'Mocking Prisma Client': 'Мок Prisma Client',
+  'Storybook stories (Angular)': 'Стори Storybook (Angular)',
 
   'Angular on Bun': 'Angular на Bun',
 
@@ -89,7 +93,13 @@ const SIDEBAR = [
   {
     text: 'Spec patterns',
     collapsed: false,
-    items: [{ text: 'Patterns that hold up', link: '/recipes' }],
+    items: [
+      { text: 'Patterns that hold up', link: '/recipes' },
+      { text: 'Mocking classes', link: '/guides/mocking-classes' },
+      { text: 'Mocking localStorage', link: '/guides/mocking-local-storage' },
+      { text: 'Mocking Prisma Client', link: '/guides/mocking-prisma' },
+      { text: 'Storybook stories (Angular)', link: '/guides/storybook-angular' },
+    ],
   },
   {
     text: 'Runtimes',
@@ -343,6 +353,13 @@ export default defineConfig({
           'jasmine-auto-spies, jasmine to vitest, karma to vitest, migrate jasmine, jasmine.createSpyObj, ' +
           'jasmine spyOn call through, withContext vitest, DEFAULT_TIMEOUT_INTERVAL, ' +
           'prefer-observer-stub, hand rolled IntersectionObserver stub, MutationObserver is not a constructor, ' +
+          'no-hand-assigned-global, global.fetch = vi.fn, mock fetch without restore, fetch mock leaks into next test, ' +
+          'window.matchMedia mock, vitest browser mode spyOn module export, Cannot spy on export, Module namespace is not configurable, ' +
+          'mockReset calls real method, bun test restore mocks between tests, bun mock.module preload, spy vs stub vs mock, ' +
+          'stubResponse, mock fetch Response vitest, as Response cast, msw and blockNetwork, msw handlers not applied, ' +
+          'passthrough, spy on real service keep implementation, vi.mock spy true, spy on module but call real function, ' +
+          'adoptMock, calledWith on vi.mock factory, vi.mocked calledWith, mockFn vitest-mock-extended, ' +
+          'mockDeep array, deep mock array map is not a function, mock prisma client vitest, prisma $transaction mock, ' +
           'mockValueProp only works in the first test, property mock stops applying, patch in beforeAll not reapplied, ' +
           'propsOutsideHooks, reportPropsOutsideHooks, registerAutoSpyDefaults, clearAutoSpyDefaults, ' +
           'same spy config repeated in every spec, default spy configuration per class, ' +

@@ -131,6 +131,14 @@ spyNamePrefix?: string): T` — the double is typed as the real service, so `.mo
 `vitest-mock-extended` and `jest-mock-extended` share the `*-mock-extended` column: same API, same
 `ts-essentials` deep-Proxy core, different runner.
 
+`vitest-mock-extended` is also the one whose reach is not about features. 5.1.1 (2026-08-02) was
+downloaded 897 290 times in the week to 2026-09-18, and much of that traffic arrives through one
+recipe: Prisma's own testing series mocks `PrismaClient` with its `mockDeep`. Two facts worth having
+before choosing: its peer range is `vitest >=4.0.0`, against `>=2.1.0` here, and it runs on Vitest only.
+The same recipe written with this package's `mockDeep` — typed `resolveWith` / `rejectWith`,
+`resolveWithPerCall`, `resetAutoSpy` over the whole tree, and an interactive `$transaction` — is
+[Mocking Prisma Client](/guides/mocking-prisma).
+
 **`vitest-when` is the direct competitor for `calledWith`, and only for that.** 702 637 downloads in
 the same window against a two-function API: `when(mock).calledWith(args).thenReturn(v)`, plus
 `thenResolve`, `thenReject`, `thenThrow`, `thenDo`, a `debug()` helper and `{ ignoreExtraArgs, times }`.
@@ -424,7 +432,30 @@ The contrast:
 - **Its Proxy answers every property**, so a typo in a mocked method name never fails — where
   `createSpyFromClass` reads the real prototype and
   [`onlyMethodsToSpyOn` reports a name that is not on it](/core/create-spy-from-class), and `createNestUnit` builds every class token with it.
-- **v4 has been in beta since 2025-11-04** (`4.0.0-beta.0`), unreleased.
+- **v4 has been in beta since 2025-11-04** (`4.0.0-beta.0`), unreleased — still the case on
+  2026-09-19, with 3.1.1 (2026-05-08) as `latest`. Before the 3.1 line there was no release at all
+  between 3.0.1 on 2025-01-02 and `4.0.0-alpha.0` on 2025-10-27.
+- **The Vitest adapter patches another package's typings on install.** `@suites/doubles.vitest`
+  3.1.0 ships a `postinstall` that prepends `/// <reference types="@suites/doubles.vitest/unit" />`
+  to `@suites/unit`'s own `index.d.ts`, found by a relative path out of its own folder. Where
+  dependency install scripts do not run — pnpm 10's default, `--ignore-scripts`, a locked-down CI —
+  or where the two packages do not sit side by side, `Mocked<T>` quietly stays the runner-neutral
+  type, and the documented fallback is a hand-written `global.d.ts`. Subpath entries that carry their
+  own types, as here, have nothing to patch.
+- **On Vitest the decorator metadata needs SWC.** esbuild, and therefore Vite, does not emit
+  `design:paramtypes`, so a Nest suite on Vitest adds `unplugin-swc` whichever builder it uses —
+  `createNestUnit` reads the same metadata and pays the same toll. What differs is everywhere else:
+  the Angular, React, Vue and Svelte entries read no decorator metadata at all.
+- **The scale.** `@suites/doubles.vitest` was downloaded 25 353 times in the week to 2026-09-18, and
+  `@suites/unit` 80 249 — one maintainer, Apache-2.0.
+
+**Solitary and sociable are the right words, and they carry over to Angular.** Suites names the two
+shapes a unit test takes: _solitary_, every collaborator doubled, and _sociable_, a named few built
+for real with everything past them still doubled. In a `TestBed` the same choice is made one provider
+at a time — `provideAutoSpy(X)` for a collaborator that stays a double, the real class (or its own
+`providedIn: 'root'`) for one that is exposed — so a spec says which of its dependencies are real by
+what it lists, with no builder to learn. On Nest the builder exists:
+[`createNestUnit(S, { expose: [D] })`](/adapters/nestjs#sociable-—-expose) is `sociable().expose()`.
 
 The spec-by-spec translation — `unitRef.get` to `spies.get`, `.mock().impl()` to a control helper or
 `providers`, string and symbol tokens, `@Optional()`, and the `await` that disappears — is
@@ -475,7 +506,7 @@ alongside it:
   of, kept to the mocks that outlive a file. On `isolate: false` it is what makes `clearMocks` cost
   more with every test already run, and what keeps a whole run's recorded arguments — and the
   component trees behind them — alive in one worker.
-- [Thirty-eight ESLint rules](/utilities/eslint-plugin) versioned together with the API they recommend, and
+- [Thirty-nine ESLint rules](/utilities/eslint-plugin) versioned together with the API they recommend, and
   [`setupAutoSpy()`](/utilities/setup) for the test-run hygiene a shared environment needs.
 - [Per-file `TestBed` diagnostics](/adapters/angular#where-a-spec-spends-its-time) — which specs
   actually pay for `TestBed`, and by how much.
@@ -501,8 +532,10 @@ alongside it:
   [replacing just that half](/migrating-testing-library-angular) leaves `render` where it is.
 - **You only ever mock interfaces, never classes, and want nothing else.**
   [`vitest-mock-extended`](https://github.com/eratio08/vitest-mock-extended) is smaller and does
-  exactly that. `createAutoMock` / [`mockDeep`](/core/auto-mock-by-type) cover the same ground here
-  if you want the helpers too — the two are complementary, not exclusive.
+  exactly that, on Vitest 4 and later. `createAutoMock` / [`mockDeep`](/core/auto-mock-by-type) cover
+  the same ground here if you want the helpers too — the two are complementary, not exclusive, and
+  [the Prisma recipe](/guides/mocking-prisma) shows the translation on the case most people arrive
+  with.
 - **You want a NestJS unit built from its DI metadata, on Jest or Vitest, and never anywhere else.**
   [`@suites/unit`](https://github.com/suites-dev/suites) is the closest thing, with the caveats
   [above](#nestjs).
