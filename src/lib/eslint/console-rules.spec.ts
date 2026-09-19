@@ -2,31 +2,17 @@
  * The three console rules, checked from both ends: the shapes that still print or silence other files,
  * and the ones that absorb the output, install the spies themselves or only read a spy — which stay silent.
  */
-import * as tsParser from '@typescript-eslint/parser';
-import { type LintMessage, Linter } from 'eslint';
+import { type LintMessage } from 'eslint';
 import { describe, expect, it } from 'vitest';
 
-import plugin from '../../eslint-plugin';
+import { runRule } from './run-rule';
 
 const PASSTHROUGH = 'no-passthrough-console-spy';
 const IN_SPEC = 'no-console-in-spec';
 const IMPORT_TIME = 'no-import-time-console-spies';
 
-const linter = new Linter({ configType: 'flat' });
-
 function verify(code: string, rule: string, globals: Record<string, 'readonly'> = {}): LintMessage[] {
-  return linter.verify(
-    code,
-    [
-      {
-        files: ['**/*.ts'],
-        languageOptions: { parser: tsParser, globals },
-        plugins: { 'vitest-auto-spy': plugin },
-        rules: { [`vitest-auto-spy/${rule}`]: 'error' },
-      },
-    ],
-    'logger.spec.ts',
-  );
+  return runRule(rule, code, { globals, filename: 'logger.spec.ts' });
 }
 
 function count(code: string, rule: string): number {

@@ -18,9 +18,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import plugin from '../../eslint-plugin';
 import { hiddenMemberOf } from './private-access';
 import type { EsMemberExpression, ParserServices, RuleContext } from './rule-types';
+import { runRule } from './run-rule';
 
 /** Built in `beforeAll`: a flat config matches `files` against the linter's own cwd, and the
  * fixtures live in a throwaway directory rather than under the repository. */
@@ -119,50 +119,29 @@ afterAll(() => {
 
 /** Lint one fixture with the rule on and a real program behind it. */
 function lintTyped(fixture: string): LintMessage[] {
-  return linter.verify(
-    FIXTURES[fixture] ?? '',
-    [
-      {
-        files: ['**/*.ts'],
-        languageOptions: { parser: tsParser, parserOptions: { ...TYPED, project: ['./tsconfig.json'], tsconfigRootDir: root } },
-        plugins: { 'vitest-auto-spy': plugin },
-        rules: { 'vitest-auto-spy/no-private-member-access': 'error' },
-      },
-    ],
-    fixture,
-  );
+  return runRule('no-private-member-access', FIXTURES[fixture] ?? '', {
+    filename: fixture,
+    linter,
+    languageOptions: { parser: tsParser, parserOptions: { ...TYPED, project: ['./tsconfig.json'], tsconfigRootDir: root } },
+  });
 }
 
 /** The same lint with the inference left alone, which is what a runner gets. */
 function lintInferred(fixture: string): LintMessage[] {
-  return linter.verify(
-    FIXTURES[fixture] ?? '',
-    [
-      {
-        files: ['**/*.ts'],
-        languageOptions: { parser: tsParser, parserOptions: { project: ['./tsconfig.json'], tsconfigRootDir: root } },
-        plugins: { 'vitest-auto-spy': plugin },
-        rules: { 'vitest-auto-spy/no-private-member-access': 'error' },
-      },
-    ],
-    fixture,
-  );
+  return runRule('no-private-member-access', FIXTURES[fixture] ?? '', {
+    filename: fixture,
+    linter,
+    languageOptions: { parser: tsParser, parserOptions: { project: ['./tsconfig.json'], tsconfigRootDir: root } },
+  });
 }
 
 /** The same fixture with no project behind it — the configuration most suites start from. */
 function lintUntyped(fixture: string): LintMessage[] {
-  return linter.verify(
-    FIXTURES[fixture] ?? '',
-    [
-      {
-        files: ['**/*.ts'],
-        languageOptions: { parser: tsParser },
-        plugins: { 'vitest-auto-spy': plugin },
-        rules: { 'vitest-auto-spy/no-private-member-access': 'error' },
-      },
-    ],
-    fixture,
-  );
+  return runRule('no-private-member-access', FIXTURES[fixture] ?? '', {
+    filename: fixture,
+    linter,
+    languageOptions: { parser: tsParser },
+  });
 }
 
 describe('no-private-member-access — the shapes it must report', () => {

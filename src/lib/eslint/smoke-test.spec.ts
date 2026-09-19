@@ -1,26 +1,12 @@
-import * as tsParser from '@typescript-eslint/parser';
-import { type LintMessage, Linter } from 'eslint';
+import { type LintMessage } from 'eslint';
 import { describe, expect, it } from 'vitest';
 
-import plugin from '../../eslint-plugin';
+import { runRule } from './run-rule';
 
 const RULE = 'no-redundant-smoke-test';
 
-const linter = new Linter({ configType: 'flat' });
-
 function verify(code: string): LintMessage[] {
-  const messages = linter.verify(
-    code,
-    [
-      {
-        files: ['**/*.ts'],
-        languageOptions: { parser: tsParser },
-        plugins: { 'vitest-auto-spy': plugin },
-        rules: { [`vitest-auto-spy/${RULE}`]: 'error' },
-      },
-    ],
-    'pipe.spec.ts',
-  );
+  const messages = runRule(RULE, code, { filename: 'pipe.spec.ts' });
 
   expect(messages.filter((message) => message.ruleId === null)).toEqual([]);
 

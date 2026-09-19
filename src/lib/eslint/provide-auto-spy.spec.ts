@@ -7,28 +7,16 @@
  * checked character for character: the replacement is the factory's own body, so anything the fix
  * invents is a change of meaning rather than a shortening.
  */
-import * as tsParser from '@typescript-eslint/parser';
-import { type LintMessage, Linter } from 'eslint';
+import { type LintMessage } from 'eslint';
 import { describe, expect, it } from 'vitest';
 
-import plugin from '../../eslint-plugin';
+import { fixRule, runRule } from './run-rule';
 
 const RULE = 'prefer-provide-auto-spy';
 
-const linter = new Linter({ configType: 'flat' });
-
-const config = [
-  {
-    files: ['**/*.ts'],
-    languageOptions: { parser: tsParser },
-    plugins: { 'vitest-auto-spy': plugin },
-    rules: { [`vitest-auto-spy/${RULE}`]: 'error' },
-  },
-];
-
 /** Every report the rule draws for a snippet. */
 function verify(code: string): LintMessage[] {
-  return linter.verify(code, config, 'component.spec.ts');
+  return runRule(RULE, code);
 }
 
 /** How many reports the rule draws. */
@@ -43,8 +31,21 @@ function message(code: string): string {
 
 /** The source as `eslint --fix` would leave it, repeated passes and all. */
 function autofix(code: string): string {
-  return linter.verifyAndFix(code, config, 'component.spec.ts').output;
+  return fixRule(RULE, code).output;
 }
+
+/** The rule ids reported for a snippet. */
+function lint(code: string): string[] {
+  return verify(code).map((message) => message.ruleId ?? 'parse-error');
+}
+
+/** The lines reported for a snippet — for asserting that every violator of a list is named, not just one. */
+function lines(code: string): number[] {
+  return verify(code).map((message) => message.line);
+}
+
+/** The first report's message again, under the name the hand-rolled arm's cases were written against. */
+const firstMessage = message;
 
 describe('prefer-provide-auto-spy — the long-form arm', () => {
   it('flags a provider that is provideAutoSpy written out', () => {
@@ -232,5 +233,231 @@ describe('prefer-provide-auto-spy — the ActivatedRoute token', () => {
   it('says nothing more than it used to about a route descriptor that hands over no double', () => {
     expect(count('const p = { provide: ActivatedRoute, useValue: route };')).toBe(0);
     expect(count('const p = { provide: Cart, useValue: { total: vi.fn() } };')).toBe(1);
+  });
+});
+
+describe('prefer-provide-auto-spy — the hand-rolled arm', () => {
+  it('flags it through a quoted key too', () => {
+    expect(lint("const p = { 'provide': Cart, 'useValue': { total: jest.fn() } };")).toHaveLength(1);
+  });
+
+  it('leaves a plain configuration value alone', () => {
+    expect(lint("const p = { provide: CONFIG, useValue: { apiUrl: '/api' } };")).toEqual([]);
+  });
+
+  it('leaves a spy-backed provider and a computed key alone', () => {
+    // A spy read from the class the provider *names* is the long-form arm's business and has its own
+    // file; what is silent here is a factory reading a different class — an abstract token's
+    // implementation, which `provideAutoSpy` on the token itself could not stand in for.
+    expect(lint('const p = { provide: Cart, useValue: createSpyFromClass(BaseCart) };')).toEqual([]);
+    // A factory with a seed is the fix this rule recommends; the ` + '`' + `useValue` + '`' + ` is a call, not a literal.
+    expect(lint('const p = { provide: Cart, useValue: createAutoMock<Cart>({ total: vi.fn() }) };')).toEqual([]);
+    expect(lint("const p = { ['provide']: Cart, useValue: { total: vi.fn() } };")).toEqual([]);
+    expect(lint('const p = { useValue: { total: vi.fn() } };')).toEqual([]);
+  });
+
+  it('leaves a multi provider alone, because the fix it would ask for does not exist', () => {
+    // `provideAutoSpy` builds one double for a token and takes no registration mode, so following
+    // this advice would quietly turn an accumulating provider into an overriding one.
+    expect(lint('const p = { provide: HOOKS, useValue: { run: vi.fn() }, multi: true };')).toEqual([]);
+  });
+
+  it('follows a double declared above and passed by name', () => {
+    // Eight doubles in one file of the suite this came from were written this way, and the rule
+    // reported none of them.
+    expect(lint('const nav = { go: vi.fn() };\nconst p = { provide: Nav, useValue: nav };')).toHaveLength(1);
+  });
+
+  it('follows a name a hook fills in, which is how a migrated suite writes one', () => {
+    // The shape a whole 170-file migration shard was written in: every one of its six
+    // `provideAutoSpy` opportunities was a `let` declared above and assigned in a `beforeEach`, and
+    // the report it drew instead came from `prefer-create-spy-from-class`, whose message never
+    // mentions `provideAutoSpy`.
+    const assigned = [
+      "describe('x', () => {",
+      '  let nav: { go: Mock };',
+      '  beforeEach(() => {',
+      '    nav = { go: vi.fn() };',
+      '    TestBed.configureTestingModule({ providers: [{ provide: NavService, useValue: nav }] });',
+      '  });',
+      '});',
+    ].join('\n');
+
+    expect(lines(assigned)).toEqual([5]);
+  });
+
+  it('leaves a name assigned more than once alone', () => {
+    // From the second assignment on, what the name holds where it is used depends on run order.
+    const twice = [
+      'let nav;',
+      'beforeEach(() => { nav = { go: vi.fn() }; });',
+      'afterEach(() => { nav = { go: vi.fn(), back: vi.fn() }; });',
+      'const p = { provide: NavService, useValue: nav };',
+    ].join('\n');
+
+    expect(lint(twice)).toEqual([]);
+  });
+
+  it('sees a spy nested below the top level of the useValue', () => {
+    expect(lint("const p = { provide: PLATFORM, useValue: { type: 'tizen', application: { init: vi.fn() } } };")).toHaveLength(1);
+  });
+
+  it('leaves a name it cannot follow to an object of spies alone', () => {
+    expect(lint('const p = { provide: Cart, useValue: buildCart() };')).toEqual([]);
+    expect(lint("import { nav } from './fixtures';\nconst p = { provide: Nav, useValue: nav };")).toEqual([]);
+    expect(lint('const nav = { go: () => vi.fn() };\nconst p = { provide: Nav, useValue: nav };')).toEqual([]);
+  });
+
+  /**
+   * One pass, every violator — the property a lint rule has to have before a suite can be cleared
+   * against it and the rule raised to `error`. A rule that reported in batches would make "zero
+   * findings" mean nothing, and the inventory taken from one run an undercount.
+   *
+   * Reported as a defect from a migration and not reproducible: the two `providers` arrays behind
+   * that report each held a shape this rule is deliberately silent on — the three in
+   * "leaves a name it cannot follow to an object of spies alone" above, plus `multi: true`. That
+   * silence is the real limit on the inventory, and it does not move when a neighbour is fixed.
+   */
+  it('reports every hand-rolled provider of one array in a single pass', () => {
+    const providers = [
+      'TestBed.configureTestingModule({',
+      '  providers: [',
+      '    { provide: NewCardService, useValue: { load: vi.fn(), save: vi.fn() } },',
+      '    { provide: DomainEventsService, useValue: { emit: vi.fn(), listen: vi.fn() } },',
+      '    { provide: FocusService, useValue: { focus: vi.fn() } },',
+      '  ],',
+      '});',
+    ].join('\n');
+
+    expect(lines(providers)).toEqual([3, 4, 5]);
+  });
+
+  it('reports the survivors unchanged once one of them has been converted', () => {
+    const converted = [
+      'TestBed.configureTestingModule({',
+      '  providers: [',
+      '    provideAutoSpy(NewCardService),',
+      '    { provide: DomainEventsService, useValue: { emit: vi.fn(), listen: vi.fn() } },',
+      '    { provide: FocusService, useValue: { focus: vi.fn() } },',
+      '  ],',
+      '});',
+    ].join('\n');
+
+    expect(lines(converted)).toEqual([4, 5]);
+  });
+
+  it('names provideAutoSpyForToken when the thing provided is a token, not a class', () => {
+    // `provideAutoSpy` reads a class prototype; a token has none, so the old advice did not compile.
+    // Six of eight reports in one migration batch were on tokens.
+    expect(firstMessage('const p = { provide: PASSCODE_TOKEN, useValue: { check: vi.fn() } };')).toContain('provideAutoSpyForToken(TOKEN)');
+    // A declaration the resolver can reach settles it whatever the name looks like.
+    expect(
+      firstMessage("const Logger = new InjectionToken<Logger>('logger');\nconst p = { provide: Logger, useValue: { debug: vi.fn() } };"),
+    ).toContain('provideAutoSpyForToken(TOKEN)');
+  });
+
+  it('names provideAutoSpy for a class, and still mentions the token form', () => {
+    const message = firstMessage('const p = { provide: CartService, useValue: { total: vi.fn() } };');
+
+    expect(message).toContain('provideAutoSpy(Class)');
+    expect(message).toContain('provideAutoSpyForToken(TOKEN)');
+  });
+
+  it('points at overrides for a data member, on both halves of the message', () => {
+    // The rule was read as asking for something the class factory could not express — a double
+    // whose `remoteConfig` has to *be* an object rather than answer with one — and the reader
+    // reached for `gettersToSpyOn`, which is not that. `overrides` has been on the class
+    // configuration for as long as it has been on the token factory; only the message was silent.
+    expect(firstMessage('const p = { provide: CartService, useValue: { total: vi.fn() } };')).toContain('{ overrides: … }');
+
+    // And the token half says what a nested shape needs, which is the same second argument: the
+    // bare double makes every key a function spy, so `req.headers.get(…)` reads a property off one.
+    expect(firstMessage('const p = { provide: REQUEST, useValue: { headers: { get: vi.fn() } } };')).toContain(
+      '{ headers: { get: vi.fn() } }',
+    );
+
+    // A chained call is the third argument's, and stays a spy — a `mockReturnThis()` seed did not.
+    expect(firstMessage('const p = { provide: LOGGER, useValue: { channel: vi.fn() } };')).toContain('{ selfReturning: ["channel"] }');
+  });
+
+  it('reads a class out of every initialiser that is not a token', () => {
+    const classMessage = (setup: string): string => firstMessage(setup + '\nconst p = { provide: Cart, useValue: { total: vi.fn() } };');
+
+    expect(classMessage('')).toContain('provideAutoSpy(Class)');
+    expect(classMessage('const Cart = class {};')).toContain('provideAutoSpy(Class)');
+    expect(classMessage('const Cart = new CartService();')).toContain('provideAutoSpy(Class)');
+    expect(classMessage('const Cart = new ng.InjectionToken();')).toContain('provideAutoSpy(Class)');
+    // Not an identifier at all — a token read off a namespace import.
+    expect(firstMessage('const p = { provide: tokens.CART, useValue: { total: vi.fn() } };')).toContain('provideAutoSpy(Class)');
+  });
+
+  it('reads a hand-rolled double behind a useFactory, through the function', () => {
+    // The `useValue` walk stops at function boundaries — a factory returning spies is the shape the
+    // rules recommend. For `useFactory` the function *is* the value, so it reads through it.
+    expect(lint('const p = { provide: A, useFactory: () => ({ isKeyEnabled: vi.fn() }) };')).toHaveLength(1);
+    expect(
+      lint('const spy = vi.fn().mockImplementation(() => ({ isKeyEnabled: vi.fn() }));\nconst p = { provide: A, useFactory: spy };'),
+    ).toHaveLength(1);
+    expect(lint('const p = { provide: A, useFactory: buildRealThing };')).toEqual([]);
+    expect(lint('const p = { provide: A, useFactory: () => new CartService() };')).toEqual([]);
+  });
+
+  it('reads a stub class handed over by useExisting, not just by useClass', () => {
+    // `useExisting` aliases the token instead of constructing the stub per injector, and neither
+    // difference changes the repair. Reported from the class instead, it drew
+    // `no-stub-class-double`'s message, which recommends `createSpyFromClass` and cannot know DI is
+    // involved.
+    const existing = 'class NavMock { go = vi.fn(); }\nconst p = { provide: NavService, useExisting: NavMock };';
+
+    expect(lint(existing)).toHaveLength(1);
+    expect(firstMessage(existing)).toContain('stub class whose fields are `vi.fn()`s');
+    // Aliasing to a real class is the ordinary use of the slot.
+    expect(lint('const p = { provide: SPECIAL_OFFER_OPENER, useExisting: SpecialOfferOpenService };')).toEqual([]);
+    // …and so is aliasing to a class this file cannot read.
+    expect(lint("import { NavMock } from './nav.mock';\nconst p = { provide: NavService, useExisting: NavMock };")).toEqual([]);
+  });
+
+  it('flags a hand-rolled double handed to TestBed.overrideProvider', () => {
+    // The same substitution from outside a `providers` array, and the `provide:` this rule looks for
+    // is not there — the token is argument 0. 33 of one consumer's 61 override calls hand over an
+    // object literal, and nothing reported any of them.
+    expect(lint('TestBed.overrideProvider(CartService, { useValue: { total: vi.fn() } });')).toEqual([
+      'vitest-auto-spy/prefer-provide-auto-spy',
+    ]);
+    // Chained off the configuration call, which is how most of them are written — a selector naming
+    // `TestBed` would match none of these.
+    expect(lint('TestBed.configureTestingModule({}).overrideProvider(Cart, { useValue: { total: vi.fn() } });')).toHaveLength(1);
+    // A name above the call is followed here too.
+    expect(lint('const cart = { total: vi.fn() };\nTestBed.overrideProvider(Cart, { useValue: cart });')).toHaveLength(1);
+    // A stub class and a factory reach the same message.
+    expect(lint('class CartMock { total = vi.fn(); }\nTestBed.overrideProvider(Cart, { useClass: CartMock });')).toHaveLength(1);
+    expect(lint('TestBed.overrideProvider(Cart, { useFactory: () => ({ total: vi.fn() }) });')).toHaveLength(1);
+  });
+
+  it('says where the replacement goes at an override call site', () => {
+    const message = firstMessage('TestBed.overrideProvider(Cart, { useValue: { total: vi.fn() } });');
+
+    // The recommendation has to be the one that fits this call site: `provideAutoSpy` returns
+    // `{ provide, useValue }`, which is why it can be handed straight to `overrideProvider`.
+    expect(message).toContain('TestBed.overrideProvider(X, provideAutoSpy(X))');
+    expect(message).toContain('provideAutoSpyForToken(TOKEN)');
+    // …and the one case where the override is not the thing to delete.
+    expect(message).toContain('component under test declares its own `providers`');
+  });
+
+  it('leaves an override that already hands over an auto-spy alone', () => {
+    // The idiom one consumer settled on, 28 of its 61 override calls: the fix, not the problem.
+    expect(lint('TestBed.overrideProvider(Cart, provideAutoSpy(Cart));')).toEqual([]);
+    expect(lint('TestBed.overrideProvider(Cart, { useValue: createSpyFromClass(Cart) });')).toEqual([]);
+    // Nothing to read: no descriptor, a descriptor that is a name, and an empty double.
+    expect(lint('TestBed.overrideProvider(Cart);')).toEqual([]);
+    expect(lint('TestBed.overrideProvider(Cart, descriptor);')).toEqual([]);
+    expect(lint('TestBed.overrideProvider(KdsTvDomUtilsService, { useValue: {} });')).toEqual([]);
+  });
+
+  it('points at the README recipe', () => {
+    expect(firstMessage('const p = { provide: Cart, useValue: { total: vi.fn() } };')).toContain(
+      'https://github.com/ASDAlexey/vitest-auto-spy#how-to-mock',
+    );
   });
 });

@@ -10,9 +10,9 @@ import { join } from 'node:path';
 import type { TypeChecker } from 'typescript';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import plugin from '../../eslint-plugin';
+import { runRule } from './run-rule';
 
-const RULE = 'vitest-auto-spy/no-unknown-use-value-key';
+const RULE = 'no-unknown-use-value-key';
 
 const TYPES = `
 export declare class InjectionToken<T> {
@@ -119,11 +119,7 @@ afterAll(() => {
 const typed = (): object => ({ disallowAutomaticSingleRunInference: true, project: ['./tsconfig.json'], tsconfigRootDir: root });
 
 function lintWith(fixture: string, languageOptions: object): LintMessage[] {
-  return linter.verify(
-    FIXTURES[fixture] ?? '',
-    [{ files: ['**/*.ts'], languageOptions, plugins: { 'vitest-auto-spy': plugin }, rules: { [RULE]: 'error' } }],
-    fixture,
-  );
+  return runRule(RULE, FIXTURES[fixture] ?? '', { filename: fixture, languageOptions, linter });
 }
 
 const lintTyped = (fixture: string): LintMessage[] => lintWith(fixture, { parser: tsParser, parserOptions: typed() });

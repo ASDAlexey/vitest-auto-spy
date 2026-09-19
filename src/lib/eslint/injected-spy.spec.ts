@@ -7,30 +7,39 @@
  * written for (an auto-spy silently downgraded to a plain `vi.fn()`), because there is no auto-spy
  * anywhere near these lines and, for `DestroyRef`, there cannot be one.
  */
-import * as tsParser from '@typescript-eslint/parser';
-import { type LintMessage, Linter } from 'eslint';
+import { type LintMessage } from 'eslint';
 import { describe, expect, it } from 'vitest';
 
-import plugin from '../../eslint-plugin';
+import { runRule } from './run-rule';
 
 const RULE = 'prefer-inject-spy';
 
-const linter = new Linter({ configType: 'flat' });
-
 /** Lint one snippet with only this rule enabled, configured when options are given. */
 function verify(code: string, options?: object): LintMessage[] {
-  return linter.verify(
-    code,
-    [
-      {
-        files: ['**/*.ts'],
-        languageOptions: { parser: tsParser },
-        plugins: { 'vitest-auto-spy': plugin },
-        rules: { [`vitest-auto-spy/${RULE}`]: options ? ['error', options] : 'error' },
-      },
-    ],
-    'component.spec.ts',
-  );
+  return runRule(RULE, code, { options });
+}
+
+/** The rule ids reported for a snippet. */
+function lint(code: string): string[] {
+  return verify(code).map((message) => message.ruleId ?? 'parse-error');
+}
+
+/** What the editor would offer for the first report. */
+function suggestionsFor(code: string): string[] {
+  return (verify(code)[0]?.suggestions ?? []).map((suggestion) => suggestion.desc);
+}
+
+/** The source as it would read after accepting the first report's first suggestion. */
+function applySuggestion(code: string): string {
+  const suggestion = verify(code)[0]?.suggestions?.[0];
+
+  if (!suggestion) {
+    return code;
+  }
+
+  const [start, end] = suggestion.fix.range;
+
+  return `${code.slice(0, start)}${suggestion.fix.text}${code.slice(end)}`;
 }
 
 /** How many reports a snippet draws — the only number most of these cases are about. */
@@ -131,5 +140,68 @@ describe('prefer-inject-spy tokens kept real', () => {
     expect(report?.suggestions?.map((suggestion) => suggestion.desc)).toEqual([
       'Read the spy from DI instead: injectSpy(BillingPlansService).getPlans',
     ]);
+  });
+});
+
+describe('prefer-inject-spy', () => {
+  it('resolves the variable through the scope it is used in, not only the one it is declared in', () => {
+    expect(lint("const cart = TestBed.inject(Cart);\nit('x', () => { vi.spyOn(cart, 'total'); });")).toHaveLength(1);
+  });
+
+  it('leaves an ordinary spyOn alone', () => {
+    expect(lint("vi.spyOn(window, 'scrollTo');")).toEqual([]);
+    expect(lint('vi.spyOn();')).toEqual([]);
+    expect(lint("vi.spyOn(this.cart, 'total');")).toEqual([]);
+  });
+
+  it('leaves a name that is not knowably the injected instance alone', () => {
+    // Bound by an import, never by a declarator.
+    expect(lint("import { cart } from './fixtures';\nvi.spyOn(cart, 'total');")).toEqual([]);
+    // Declared without an initialiser, so what it holds was decided somewhere else.
+    expect(lint("let cart;\nvi.spyOn(cart, 'total');")).toEqual([]);
+    // Initialised from something else entirely.
+    expect(lint("const cart = createSpyFromClass(Cart);\nvi.spyOn(cart, 'total');")).toEqual([]);
+    // Injected once and then replaced — by the spyOn it holds whatever the assignment put there.
+    expect(lint("let cart = TestBed.inject(Cart);\ncart = other;\nvi.spyOn(cart, 'total');")).toEqual([]);
+  });
+
+  it('leaves every call that merely looks like TestBed.inject alone', () => {
+    const spyOnInit = (init: string): string[] => lint('const cart = ' + init + ";\nvi.spyOn(cart, 'total');");
+
+    expect(spyOnInit('injected')).toEqual([]);
+    expect(spyOnInit('inject(Cart)')).toEqual([]);
+    expect(spyOnInit('bed.testBed.inject(Cart)')).toEqual([]);
+    expect(spyOnInit('Injector.inject(Cart)')).toEqual([]);
+    expect(spyOnInit('TestBed[key](Cart)')).toEqual([]);
+    expect(spyOnInit('TestBed.get(Cart)')).toEqual([]);
+  });
+
+  it('suggests the replacement, and imports injectSpy with it', () => {
+    expect(suggestionsFor("vi.spyOn(TestBed.inject(Cart), 'total');")).toEqual(['Read the spy from DI instead: injectSpy(Cart).total']);
+    expect(applySuggestion("vi.spyOn(TestBed.inject(Cart), 'total');")).toBe(
+      "import { injectSpy } from 'vitest-auto-spy/angular';\ninjectSpy(Cart).total;",
+    );
+  });
+
+  it('suggests it for the two-step form too, naming the token the variable came from', () => {
+    const code = "import { injectSpy } from 'vitest-auto-spy/angular';\nconst cart = TestBed.inject(Cart);\nvi.spyOn(cart, 'total');";
+
+    // Already imported, so the edit is the call and nothing else.
+    expect(applySuggestion(code)).toContain('injectSpy(Cart).total');
+    expect(applySuggestion(code)).not.toContain('vi.spyOn');
+  });
+
+  it('reports without a suggestion when the rewrite would have to be invented', () => {
+    // Nothing to name the token with.
+    expect(suggestionsFor("vi.spyOn(TestBed.inject(), 'total');")).toEqual([]);
+    // `injectSpy` takes the token alone; dropping the flags would change which instance comes back.
+    expect(suggestionsFor("vi.spyOn(TestBed.inject(Cart, null), 'total');")).toEqual([]);
+    // No method name to put after the dot.
+    expect(suggestionsFor('vi.spyOn(TestBed.inject(Cart));')).toEqual([]);
+    expect(suggestionsFor('vi.spyOn(TestBed.inject(Cart), method);')).toEqual([]);
+    expect(suggestionsFor('vi.spyOn(TestBed.inject(Cart), 0);')).toEqual([]);
+    expect(suggestionsFor("vi.spyOn(TestBed.inject(Cart), 'add-item');")).toEqual([]);
+    // The name is already something else here.
+    expect(suggestionsFor("const injectSpy = 1;\nvi.spyOn(TestBed.inject(Cart), 'total');")).toEqual([]);
   });
 });

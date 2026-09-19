@@ -9,30 +9,16 @@
  * ones are the calls that really do hand back a promise — `compileComponents`, the fixture's
  * `whenStable` family — and every receiver this file cannot read as the TestBed.
  */
-import * as tsParser from '@typescript-eslint/parser';
-import { type LintMessage, Linter } from 'eslint';
+import { type LintMessage } from 'eslint';
 import { describe, expect, it } from 'vitest';
 
-import plugin from '../../eslint-plugin';
+import { runRule } from './run-rule';
 
 const RULE = 'no-sync-testbed-await';
 
-const linter = new Linter({ configType: 'flat' });
-
 /** Lint one snippet with only this rule enabled. */
 function verify(code: string): LintMessage[] {
-  return linter.verify(
-    code,
-    [
-      {
-        files: ['**/*.ts'],
-        languageOptions: { parser: tsParser },
-        plugins: { 'vitest-auto-spy': plugin },
-        rules: { [`vitest-auto-spy/${RULE}`]: 'error' },
-      },
-    ],
-    'card.component.spec.ts',
-  );
+  return runRule(RULE, code, { filename: 'card.component.spec.ts' });
 }
 
 /** How many reports a snippet draws. */

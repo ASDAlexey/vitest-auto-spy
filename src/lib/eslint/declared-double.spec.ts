@@ -9,30 +9,16 @@
  * So the silent cases below are not defensive padding: they are the majority of the occurrences,
  * and getting them wrong would have made the rule unusable on the suite it was written for.
  */
-import * as tsParser from '@typescript-eslint/parser';
-import { type LintMessage, Linter } from 'eslint';
+import { type LintMessage } from 'eslint';
 import { describe, expect, it } from 'vitest';
 
-import plugin from '../../eslint-plugin';
+import { runRule } from './run-rule';
 
 const RULE = 'no-structural-double';
 
-const linter = new Linter({ configType: 'flat' });
-
 /** Lint one snippet with only this rule enabled, configured when options are given. */
 function verify(code: string, rule: string, options?: object): LintMessage[] {
-  return linter.verify(
-    code,
-    [
-      {
-        files: ['**/*.ts'],
-        languageOptions: { parser: tsParser },
-        plugins: { 'vitest-auto-spy': plugin },
-        rules: { [`vitest-auto-spy/${rule}`]: options ? ['error', options] : 'error' },
-      },
-    ],
-    'component.spec.ts',
-  );
+  return runRule(rule, code, { options });
 }
 
 /** How many reports a snippet draws — the only number most of these cases are about. */

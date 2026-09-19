@@ -1,26 +1,12 @@
-import * as tsParser from '@typescript-eslint/parser';
-import { type LintMessage, Linter } from 'eslint';
+import { type LintMessage } from 'eslint';
 import { describe, expect, it } from 'vitest';
 
-import plugin from '../../eslint-plugin';
+import { runRule } from './run-rule';
 
 const RULE = 'no-constant-expect';
 
-const linter = new Linter({ configType: 'flat' });
-
 function verify(code: string): LintMessage[] {
-  return linter.verify(
-    code,
-    [
-      {
-        files: ['**/*.ts'],
-        languageOptions: { parser: tsParser },
-        plugins: { 'vitest-auto-spy': plugin },
-        rules: { [`vitest-auto-spy/${RULE}`]: 'error' },
-      },
-    ],
-    'public-api.spec.ts',
-  );
+  return runRule(RULE, code, { filename: 'public-api.spec.ts' });
 }
 
 /** The lines the rule reports. A line that does not parse fails the test rather than passing as a report. */

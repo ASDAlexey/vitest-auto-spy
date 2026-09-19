@@ -9,30 +9,16 @@
  * application code (a polyfill being installed for real), and one is the `afterEach` that puts the
  * original back — the shape closest to a report, and the one that would double every finding.
  */
-import * as tsParser from '@typescript-eslint/parser';
-import { type LintMessage, Linter } from 'eslint';
+import { type LintMessage } from 'eslint';
 import { describe, expect, it } from 'vitest';
 
-import plugin from '../../eslint-plugin';
+import { runRule } from './run-rule';
 
 const RULE = 'prefer-observer-stub';
 
-const linter = new Linter({ configType: 'flat' });
-
 /** Lint one snippet with only this rule enabled. */
 function verify(code: string): LintMessage[] {
-  return linter.verify(
-    code,
-    [
-      {
-        files: ['**/*.ts'],
-        languageOptions: { parser: tsParser },
-        plugins: { 'vitest-auto-spy': plugin },
-        rules: { [`vitest-auto-spy/${RULE}`]: 'error' },
-      },
-    ],
-    'component.spec.ts',
-  );
+  return runRule(RULE, code);
 }
 
 /** How many reports a snippet draws — the only number most of these cases are about. */

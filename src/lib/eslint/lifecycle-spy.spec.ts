@@ -1,26 +1,12 @@
-import * as tsParser from '@typescript-eslint/parser';
-import { type LintMessage, Linter } from 'eslint';
+import { type LintMessage } from 'eslint';
 import { describe, expect, it } from 'vitest';
 
-import plugin from '../../eslint-plugin';
+import { runRule } from './run-rule';
 
 const RULE = 'no-instance-lifecycle-spy';
 
-const linter = new Linter({ configType: 'flat' });
-
 function verify(code: string): LintMessage[] {
-  return linter.verify(
-    code,
-    [
-      {
-        files: ['**/*.ts'],
-        languageOptions: { parser: tsParser },
-        plugins: { 'vitest-auto-spy': plugin },
-        rules: { [`vitest-auto-spy/${RULE}`]: 'warn' },
-      },
-    ],
-    'card.component.spec.ts',
-  );
+  return runRule(RULE, code, { severity: 'warn', filename: 'card.component.spec.ts' });
 }
 
 describe(RULE, () => {

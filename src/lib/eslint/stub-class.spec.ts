@@ -11,31 +11,17 @@
  * the compiler already holds to the type, and a class expression in a property slot standing in for
  * a module export.
  */
-import * as tsParser from '@typescript-eslint/parser';
-import { type LintMessage, Linter } from 'eslint';
+import { type LintMessage } from 'eslint';
 import { describe, expect, it } from 'vitest';
 
-import plugin from '../../eslint-plugin';
+import { runRule } from './run-rule';
 
 const RULE = 'no-stub-class-double';
 const PROVIDER_RULE = 'prefer-provide-auto-spy';
 
-const linter = new Linter({ configType: 'flat' });
-
 /** Lint one snippet with a single rule of the plugin enabled, configured when options are given. */
 function verify(code: string, rule: string, options?: object): LintMessage[] {
-  return linter.verify(
-    code,
-    [
-      {
-        files: ['**/*.ts'],
-        languageOptions: { parser: tsParser },
-        plugins: { 'vitest-auto-spy': plugin },
-        rules: { [`vitest-auto-spy/${rule}`]: options ? ['error', options] : 'error' },
-      },
-    ],
-    'component.spec.ts',
-  );
+  return runRule(rule, code, { options });
 }
 
 /** How many reports this rule draws — the only number most of these cases are about. */

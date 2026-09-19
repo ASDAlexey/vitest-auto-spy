@@ -11,28 +11,16 @@
  * offers it and never applies it: on that suite, accepting all 451 of them turns 57 of 105 green
  * files red under zone.js, which is the measurement behind `hasSuggestions` rather than `fixable`.
  */
-import * as tsParser from '@typescript-eslint/parser';
-import { type LintMessage, Linter } from 'eslint';
+import { type LintMessage } from 'eslint';
 import { describe, expect, it } from 'vitest';
 
-import plugin from '../../eslint-plugin';
+import { fixRule, runRule } from './run-rule';
 
 const RULE = 'prefer-set-inputs';
 
-const linter = new Linter({ configType: 'flat' });
-
-const config = [
-  {
-    files: ['**/*.ts'],
-    languageOptions: { parser: tsParser },
-    plugins: { 'vitest-auto-spy': plugin },
-    rules: { [`vitest-auto-spy/${RULE}`]: 'error' as const },
-  },
-];
-
 /** Lint one snippet with only this rule enabled. */
 function verify(code: string): LintMessage[] {
-  return linter.verify(code, config, 'card.component.spec.ts');
+  return runRule(RULE, code, { filename: 'card.component.spec.ts' });
 }
 
 /** How many reports a snippet draws. */
@@ -83,7 +71,7 @@ describe(RULE, () => {
 
     expect(report?.suggestions).toHaveLength(1);
     expect(report?.suggestions?.[0]?.desc).toBe('Set the inputs through setInputs() — an awaited call, so the callback becomes async');
-    expect(linter.verifyAndFix(test("  fixture.componentRef.setInput('title', 'Hi');"), config, 'card.component.spec.ts').fixed).toBe(
+    expect(fixRule(RULE, test("  fixture.componentRef.setInput('title', 'Hi');"), { filename: 'card.component.spec.ts' }).fixed).toBe(
       false,
     );
   });
