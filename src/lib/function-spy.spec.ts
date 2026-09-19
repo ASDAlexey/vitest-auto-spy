@@ -267,6 +267,31 @@ describe('createFunctionSpy — a host implementation over a configured chain', 
     expect(load(1)).toBe('flat');
   });
 
+  it('does not report a calledWith configured after mockReset put the dispatch back', () => {
+    const load = createFunctionSpy<(id: number) => string>('load');
+
+    load.mockReturnValue('flat');
+    load.mockReset();
+    load.calledWith(1).mockReturnValue('configured');
+
+    expect(warnings).toEqual([]);
+    expect(load(1)).toBe('configured');
+  });
+
+  it('does not report a calledWith configured after a reset sweep put the dispatch back', () => {
+    const load = createFunctionSpy<(id: number) => string>('load');
+
+    load.mockReturnValue('flat');
+    vi.resetAllMocks();
+    warn.mockImplementation((message: unknown) => {
+      warnings.push(String(message));
+    });
+    load.calledWith(1).mockReturnValue('configured');
+
+    expect(warnings).toEqual([]);
+    expect(load(1)).toBe('configured');
+  });
+
   it('names mustBeCalledWith, which loses its throw as well as its value', () => {
     const load = createFunctionSpy<(id: number) => string>('load');
 

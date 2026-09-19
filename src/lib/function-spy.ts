@@ -348,6 +348,15 @@ function dispatchReplacedMessage(name: string, via: string, chain: string, order
 
 /** The other order of the same mistake: a chain opened on a spy whose dispatch is already gone. */
 function reportLateChain(internals: FunctionSpyInternals, chain: string): void {
+  if (internals.replacedBy === undefined) {
+    return;
+  }
+
+  // A reset sweep that put the dispatch back clears the flag, but only once the spy is touched, and
+  // reading its recorded calls is that touch — without importing the engine into every entry.
+  const recorded: object = Reflect.get(internals.host, 'mock');
+  Reflect.get(recorded, 'calls');
+
   if (internals.replacedBy !== undefined) {
     reportMisconfiguration(dispatchReplacedMessage(internals.name, internals.replacedBy, chain, 'late'));
   }
@@ -533,6 +542,15 @@ export function seedReturnValue(spy: Func, value: unknown): boolean {
   return true;
 }
 
+/** Put the library dispatch back on a spy this module built, over whatever the host's own reset installed. */
+export function reinstallDispatch(spy: Func): void {
+  const mark: unknown = Reflect.get(spy, AUTO_SPY_MARK);
+
+  if (mark instanceof FunctionSpyInternals) {
+    getMockAdapter().restoreImplementation(mark.host, mark.dispatch);
+  }
+}
+
 /**
  * The internals behind `this`, or a message naming the helper that was called off its spy.
  *
@@ -621,6 +639,26 @@ export function createFunctionSpy<FunctionType extends Func>(
   name: string,
   unstubbed?: UnstubbedGuard,
 ): AddSpyMethodsByReturnTypes<FunctionType> {
+  return buildFunctionSpy<FunctionType>(name, unstubbed, undefined);
+}
+
+/**
+ * Turn `host` — a runner mock something else built, such as a `vi.mock` factory — into the spy,
+ * keeping the calls it already recorded: the dispatch goes in as its implementation.
+ */
+export function adoptFunctionSpy<FunctionType extends Func>(
+  host: MockFn,
+  name: string,
+  unstubbed?: UnstubbedGuard,
+): AddSpyMethodsByReturnTypes<FunctionType> {
+  return buildFunctionSpy<FunctionType>(name, unstubbed, host);
+}
+
+function buildFunctionSpy<FunctionType extends Func>(
+  name: string,
+  unstubbed: UnstubbedGuard | undefined,
+  host: MockFn | undefined,
+): AddSpyMethodsByReturnTypes<FunctionType> {
   const valueContainer: ReturnValueContainer = { value: undefined };
   const state: SpyState = { valueContainer };
 
@@ -647,7 +685,11 @@ export function createFunctionSpy<FunctionType extends Func>(
     return settledResultsRecorder ? settledResultsRecorder(returned) : returned;
   };
 
-  const functionSpy = getMockAdapter().createMockFn(dispatch, name);
+  const functionSpy = host ?? getMockAdapter().createMockFn(dispatch, name);
+
+  if (host) {
+    getMockAdapter().restoreImplementation(host, dispatch);
+  }
 
   // Bun / node:test don't track `mock.settledResults`; polyfill it so the typed
   // `spy.method.mock.settledResults` surface works on every runtime (Vitest keeps
