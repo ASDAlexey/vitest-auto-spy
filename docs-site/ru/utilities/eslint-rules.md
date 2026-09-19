@@ -33,6 +33,8 @@ description: По разделу на каждое из тридцати вос�
 - **Границы** — где правило сообщает о работающем коде и чем это гасится.
 - **Severity** — и почему именно такая.
 
+<!-- The id is frozen on purpose: configs already point at #the-twenty-five-rules. Keep it when the rule count changes. -->
+
 ## Тридцать восемь правил {#the-twenty-five-rules}
 
 Сгруппированы по темам — так же, как на [странице настройки](/ru/utilities/eslint-plugin). Все

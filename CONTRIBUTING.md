@@ -12,21 +12,33 @@ npm ci
 
 ## Development workflow
 
-| Command                 | What it does                                                                                                                                                                                                                                                                           |
-| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `npm test`              | Run the test suite once                                                                                                                                                                                                                                                                |
-| `npm run test:watch`    | Run tests in watch mode                                                                                                                                                                                                                                                                |
-| `npm run test:coverage` | Run tests with coverage (100% thresholds enforced)                                                                                                                                                                                                                                     |
-| `npm run typecheck`     | Type-check the project with `tsc --noEmit`                                                                                                                                                                                                                                             |
-| `npm run check`         | The full gate CI runs — everything below plus lint, `format:check`, jscpd, the sync checks, every suite, and finally `build` + `cold-import:check`, which reads `dist/` and so has to come after it                                                                                    |
-| `npm run deps:check`    | Fail when `node_modules` drifted from `package-lock.json`, so the gate tests the versions `npm ci` installs                                                                                                                                                                            |
-| `npm run test:types`    | Assert what callers **infer** — `expectTypeOf` cases under `src/type-tests`                                                                                                                                                                                                            |
-| `npm run types:budget`  | Count the type instantiations `Spy<T>` costs `tsc` on a generated fixture; fails past the budget in `scripts/check-type-budget.mjs` (`--measure` prints the numbers, `--print` the fixture)                                                                                            |
-| `npm run test:node`     | Run `src/node-tests/` on the real `node --test`, the only place the `node:test` adapter is not a stub                                                                                                                                                                                  |
-| `npm run build`         | Build the ESM + CJS bundles and type declarations                                                                                                                                                                                                                                      |
-| `npm run bench`         | Micro-benchmark this package only (`bench/auto-spy.bench.ts`) — runs in any checkout, no extra install                                                                                                                                                                                 |
-| `npm run bench:vs`      | Head-to-head micro-benchmark against `@bugsplat/vitest-auto-spies`, `vitest-mock-extended`, `@golevelup/ts-vitest` and a hand-written `vi.fn()` control (`bench/vs-libraries.bench.ts`) — needs `npm ci --prefix bench` first                                                          |
-| `npm run bench:suite`   | Suite-scale harness: generates synthetic suites (1 000 / 3 000 / 10 000 tests) and measures wall-clock and peak RSS per arm. `npm run bench:suite --help` prints every option; a full run at 10 000 tests takes tens of minutes, so start with `--sizes 100 --repeats 1` to smoke-test |
+| Command                    | What it does                                                                                                                                                                                                                                                                           |
+| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `npm test`                 | Run the test suite once                                                                                                                                                                                                                                                                |
+| `npm run test:watch`       | Run tests in watch mode                                                                                                                                                                                                                                                                |
+| `npm run test:coverage`    | Run tests with coverage (100% thresholds enforced)                                                                                                                                                                                                                                     |
+| `npm run typecheck`        | Type-check the project with `tsc --noEmit`                                                                                                                                                                                                                                             |
+| `npm run check`            | The full gate CI runs — everything below plus lint, `format:check`, jscpd, the sync checks, every suite, and finally `build` + `cold-import:check`, which reads `dist/` and so has to come after it                                                                                    |
+| `npm run deps:check`       | Fail when `node_modules` drifted from `package-lock.json`, so the gate tests the versions `npm ci` installs                                                                                                                                                                            |
+| `npm run test:types`       | Assert what callers **infer** — `expectTypeOf` cases under `src/type-tests`                                                                                                                                                                                                            |
+| `npm run types:budget`     | Count the type instantiations `Spy<T>` costs `tsc` on a generated fixture; fails past the budget in `scripts/check-type-budget.mjs` (`--measure` prints the numbers, `--print` the fixture)                                                                                            |
+| `npm run test:node`        | Run `src/node-tests/` on the real `node --test`, the only place the `node:test` adapter is not a stub                                                                                                                                                                                  |
+| `npm run test:shared-env`  | Re-run the suite with `isolate: false` — one worker, one module graph — the environment `setupAutoSpy()` promises to survive                                                                                                                                                           |
+| `npm run test:zone`        | Run `src/zone-tests/` — the zone / `fakeAsync` suites behind `src/zone.ts`                                                                                                                                                                                                             |
+| `npm run test:happy-dom`   | Re-run the suite on real happy-dom, where the DOM stubs meet the environment they repair                                                                                                                                                                                               |
+| `npm run test:invariants`  | Run `src/invariants/` — the heap-plateau and teardown-shape invariants every spy has to hold                                                                                                                                                                                           |
+| `npm run test:bun`         | Run the core, rxjs and jasmine suites on real `bun test`                                                                                                                                                                                                                               |
+| `npm run test:bun:angular` | Run the bun suites with the Angular preload (`src/bun-angular.ts`)                                                                                                                                                                                                                     |
+| `npm run test:rstest`      | Run the Rstest suites on real `rstest run`                                                                                                                                                                                                                                             |
+| `npm run build`            | Build the ESM + CJS bundles and type declarations                                                                                                                                                                                                                                      |
+| `npm run smoke:dist`       | Prove the _package_, not the sources — every entry point loads from `dist/`, each in its own child process, and a helper from one entry still understands a double built by another                                                                                                    |
+| `npm run export-map:check` | Fail when `src/cli/checks/export-map.generated.ts` (what the `doctor` wrong-entry checks read) drifts from the `exports` map — `npm run export-map` regenerates it                                                                                                                     |
+| `npm run ru:sync`          | Create a placeholder for an English page with no Russian twin and delete orphans; `-- --anchors` writes the explicit `{#…}` ids translated headings must keep                                                                                                                          |
+| `npm run ru:check`         | The `--check` twin the gate runs — fails on placeholders, translated headings that lost the English anchor, and links that drop out of `/ru/`                                                                                                                                          |
+| `npm run release:notes`    | Print the GitHub Release body for a tag from the changelog — `node scripts/release-notes.mjs v3.0.0` — derived from Conventional Commits when the section is missing                                                                                                                   |
+| `npm run bench`            | Micro-benchmark this package only (`bench/auto-spy.bench.ts`) — runs in any checkout, no extra install                                                                                                                                                                                 |
+| `npm run bench:vs`         | Head-to-head micro-benchmark against `@bugsplat/vitest-auto-spies`, `vitest-mock-extended`, `@golevelup/ts-vitest` and a hand-written `vi.fn()` control (`bench/vs-libraries.bench.ts`) — needs `npm ci --prefix bench` first                                                          |
+| `npm run bench:suite`      | Suite-scale harness: generates synthetic suites (1 000 / 3 000 / 10 000 tests) and measures wall-clock and peak RSS per arm. `npm run bench:suite --help` prints every option; a full run at 10 000 tests takes tens of minutes, so start with `--sizes 100 --repeats 1` to smoke-test |
 
 ### Benchmarking against other libraries
 
@@ -56,6 +68,23 @@ Two methodology rules behind every number in `bench/vs-libraries.bench.ts` and
 matrix jobs would compare two runners and report it as a library difference. `.github/dependabot.yml`
 watches `bench/package.json`, so a competitor's release opens a PR that re-runs the head-to-head
 against the new version; keep the two files in step if either changes.
+
+### The docs-site loop
+
+The site is a separate VitePress install: its scripts live in `docs-site/package.json`, not the
+root, and its dependencies install on their own (`npm ci --prefix docs-site`, the same pattern as
+`bench/`).
+
+- `npm run dev` and `npm run preview`, run from `docs-site/`, serve the site; `predev` runs the
+  Russian page sync first, and `prebuild` also regenerates the LLM files.
+- Link checking runs as the `postbuild` hook (`check-docs-links.mjs`) over the built HTML, so a
+  broken link — cross-page or a dead `#fragment` — fails only at `bun run build`; `dev` and
+  `preview` never check links.
+- Heading anchors keep their em dashes: `## doctor — defects that never fail` gets the id
+  `doctor-—-defects-that-never-fail`, so a fragment copied by hand without the dash looks correct
+  in the source and lands the reader at the top of the page.
+- Never hand-write `{#anchor}` ids on translated headings — `npm run ru:sync -- --anchors` writes
+  them.
 
 ## Guidelines
 

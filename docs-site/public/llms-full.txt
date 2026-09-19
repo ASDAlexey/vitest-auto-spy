@@ -2269,6 +2269,7 @@ Every wait still open at the end of a test is therefore torn down by
 ```text
 [vitest-auto-spy] 1 emission helper(s) were never awaited in this test (saved$). The subscription is
 torn down now, but the assertion never ran.
+Docs: https://asdalexey.github.io/vitest-auto-spy/core/observable-assertions
 ```
 
 Its promise is left unsettled rather than rejected — its test is over, and nothing is left to catch
@@ -5839,6 +5840,7 @@ replace:
 [vitest-auto-spy] this spy's observable errored, so the promise from onComplete() can never resolve:
 completion is not coming. Read receivedComplete() / receivedError(), or await
 `expectCompletion(source$)` / `expectError(source$)`, which fail with a message naming the stream.
+Docs: https://asdalexey.github.io/vitest-auto-spy/runtimes/rxjs
 ```
 
 It holds whichever order the two happen in — the stream that already ended rejects at the call, and
@@ -7706,6 +7708,7 @@ rather than failing three lines later against `undefined`:
 [vitest-auto-spy] stubObserver('IntersectionObserver'): the code under test has not constructed an
 IntersectionObserver. Render the component (or run the effect) before reaching for `last`, and
 check that the stub was installed before the construction rather than after it.
+Docs: https://asdalexey.github.io/vitest-auto-spy/utilities/observer-stubs
 ```
 
 ## The handle
@@ -8890,6 +8893,7 @@ failure names the `label` instead:
 event-loop turns. Three causes, in the order they turn out to be true. The work started but a
 dynamic `import()` had not finished … Or the work never started …. Or it is waiting on a timer
 rather than on the event loop — timers stay frozen here, and only `advanceTimers()` moves them.
+Docs: https://asdalexey.github.io/vitest-auto-spy/utilities/event-loop
 ```
 
 The first of the three is the one that costs the most time to diagnose, which is why it is named
@@ -10760,6 +10764,8 @@ Every section answers the same six questions:
 - **Why it is recommended** — the concrete failure a suite gets without it. Not "this is tidier".
 - **Limits** — where it reports working code, and what quiets it.
 - **Severity** — and why that one.
+
+<!-- The id is frozen on purpose: configs already point at #the-twenty-five-rules. Keep it when the rule count changes. -->
 
 ## The thirty-eight rules
 

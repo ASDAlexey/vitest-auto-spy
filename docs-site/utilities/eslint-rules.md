@@ -32,6 +32,8 @@ Every section answers the same six questions:
 - **Limits** — where it reports working code, and what quiets it.
 - **Severity** — and why that one.
 
+<!-- The id is frozen on purpose: configs already point at #the-twenty-five-rules. Keep it when the rule count changes. -->
+
 ## The thirty-eight rules {#the-twenty-five-rules}
 
 Grouped by subject, the same grouping the [setup page](/utilities/eslint-plugin) uses. Every rule is
