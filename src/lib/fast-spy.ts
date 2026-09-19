@@ -254,8 +254,7 @@ function syncEpochs(spy: FastSpy): void {
 
   if (config.resetSeen !== resetEpoch) {
     config.resetSeen = resetEpoch;
-    config.implementation = config.original;
-    config.onceImplementations = [];
+    reinstateOriginal(spy, config);
   }
 
   if (config.clearSeen !== clearEpoch) {
@@ -651,11 +650,18 @@ function clearSpy(spy: FastSpy): void {
 
 /** Clear the spy and put the creation-time implementation back — `mockReset`, and all of `mockRestore`. */
 function resetSpy(spy: FastSpy): void {
-  const config = configOf(spy);
-
   spy[STATE]?.empty();
+  reinstateOriginal(spy, configOf(spy));
+}
+
+/**
+ * Put the creation-time implementation back, and tell the double: for a library spy that is its
+ * dispatch, so a `calledWith` configured afterwards must not be reported as decided by nothing.
+ */
+function reinstateOriginal(spy: FastSpy, config: FastSpyConfig): void {
   config.implementation = config.original;
   config.onceImplementations = [];
+  hooksOf(spy)?.implementationReplaced?.(config.original, 'mockReset');
 }
 
 definePrototypeMember('mockClear', function mockClear(this: unknown): unknown {
