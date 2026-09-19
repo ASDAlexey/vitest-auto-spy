@@ -23,6 +23,8 @@
  */
 import { defineHelper } from './define-helper';
 import { DOCS_LINKS, withDocs } from './docs-links';
+import { createFunctionSpy } from './function-spy';
+import type { Func } from './types';
 
 /**
  * Whether a value is a mock function of *some* runner.
@@ -31,7 +33,7 @@ import { DOCS_LINKS, withDocs } from './docs-links';
  * `bun:test`'s `mock()`, `node:test`'s `mock.fn()`), and none of them shares a brand this package
  * could ask for by name — so the shape is what there is to check.
  */
-function isRunnerMock(value: unknown): boolean {
+export function isRunnerMock(value: unknown): boolean {
   if (typeof value !== 'function') {
     return false;
   }
@@ -144,6 +146,33 @@ export interface ModuleNamespaceOptions {
    * what the test actually wanted. Turn it on to port first and tighten later.
    */
   lenient?: boolean;
+  /**
+   * Turn every function export into a spy that runs the real function until the test configures it.
+   * Default `false`. Pass the actual module — `moduleNamespace(await importOriginal(), { passthrough: true })`
+   * — for Vitest's `{ spy: true }` with `calledWith` and `resolveWith` on top. Classes and values stay as they are.
+   */
+  passthrough?: boolean;
+}
+
+// A class is left real: calling it through a spy would drop `new`, and `mockConstructor` is the double for it.
+function isPlainFunction(value: unknown): value is Func {
+  return typeof value === 'function' && !Function.prototype.toString.call(value).startsWith('class');
+}
+
+function spyThrough<T extends object>(exports: T): T {
+  const spied: T = { ...exports };
+
+  Object.entries(spied).forEach(([name, value]: [string, unknown]) => {
+    if (isPlainFunction(value)) {
+      Reflect.set(
+        spied,
+        name,
+        createFunctionSpy(name, { className: undefined, handle: (call) => Reflect.apply(value, undefined, call.args) }),
+      );
+    }
+  });
+
+  return spied;
 }
 
 /**
@@ -168,10 +197,11 @@ export type ModuleNamespace<T extends object> = T & { default: T extends { defau
  * Vitest throw `No "default" export is defined on the mock` — from inside that dependency, with a
  * stack that names the library rather than the factory three lines up in the spec.
  *
- * @param exports What the mocked module exposes.
- * @param options See {@link ModuleNamespaceOptions.lenient}.
+ * @param given What the mocked module exposes.
+ * @param options See {@link ModuleNamespaceOptions.lenient} and {@link ModuleNamespaceOptions.passthrough}.
  */
-export function moduleNamespace<T extends object>(exports: T, options: ModuleNamespaceOptions = {}): ModuleNamespace<T> {
+export function moduleNamespace<T extends object>(given: T, options: ModuleNamespaceOptions = {}): ModuleNamespace<T> {
+  const exports = options.passthrough ? spyThrough(given) : given;
   // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- the conditional in `ModuleNamespace` says exactly this, and no literal can carry a type that depends on a runtime `in` check.
   const namespace = { ...exports, default: 'default' in exports ? exports.default : exports, __esModule: true } as ModuleNamespace<T>;
 

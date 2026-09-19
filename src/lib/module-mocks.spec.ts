@@ -3,9 +3,17 @@
  * dropped, and a factory whose result the interop probe of a dependency does not recognise. The
  * specs therefore assert on what the diagnostics *say*, not only on that they fire.
  */
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
+import { adoptMock } from './adopt-mock';
+import type { User } from './adopt-mock.fixture';
+import { registerMockAdapter } from './mock-adapter';
 import { assertMocked, moduleNamespace } from './module-mocks';
+import { vitestMockAdapter } from './vitest-adapter';
+
+beforeAll(() => {
+  registerMockAdapter(vitestMockAdapter);
+});
 
 describe('assertMocked', () => {
   it('passes when some export of the namespace is a runner mock', () => {
@@ -105,5 +113,75 @@ describe('moduleNamespace', () => {
     expect('then' in namespace).toBe(false);
     expect(Symbol.iterator in namespace).toBe(false);
     await expect(Promise.resolve(namespace)).resolves.toBe(namespace);
+  });
+});
+
+describe('moduleNamespace with passthrough', () => {
+  class Engine {
+    readonly kind = 'real';
+  }
+
+  const actual = {
+    VERSION: '4.0.0',
+    Engine,
+    format: (value: number): string => `real ${value}`,
+    default: (value: number): number => value * 2,
+  };
+
+  it('runs the real function until the test configures it, and records the call', () => {
+    const namespace = moduleNamespace(actual, { passthrough: true });
+
+    expect(namespace.format(1)).toBe('real 1');
+    expect(namespace.format).toHaveBeenCalledWith(1);
+
+    adoptMock(namespace.format).calledWith(2).mockReturnValue('two');
+
+    expect(namespace.format(2)).toBe('two');
+  });
+
+  it('leaves values and classes as they are, and the module it was given untouched', () => {
+    const namespace = moduleNamespace(actual, { passthrough: true });
+
+    expect(namespace.VERSION).toBe('4.0.0');
+    expect(namespace.Engine).toBe(Engine);
+    expect(new namespace.Engine().kind).toBe('real');
+    expect(vi.isMockFunction(actual.format)).toBe(false);
+  });
+
+  it('spies the default export and hands the interop probe the spy', () => {
+    const namespace = moduleNamespace(actual, { passthrough: true });
+
+    expect(namespace.default(3)).toBe(6);
+    expect(namespace.default).toHaveBeenCalledWith(3);
+  });
+
+  it('passes assertMocked for the exports it spied', () => {
+    const namespace = moduleNamespace(actual, { passthrough: true });
+
+    expect(() => assertMocked(namespace, { exports: ['format', 'default'] })).not.toThrow();
+    expect(() => assertMocked(namespace, { exports: ['Engine'] })).toThrow(/Engine is not a mock/);
+  });
+
+  describe('as a vi.doMock factory over the actual module', () => {
+    afterEach(() => {
+      vi.doUnmock('./adopt-mock.fixture');
+      vi.resetModules();
+    });
+
+    it('keeps the real module working until the test configures an argument list', async () => {
+      vi.doMock('./adopt-mock.fixture', async (importOriginal) => moduleNamespace(await importOriginal<object>(), { passthrough: true }));
+
+      const api = await import('./adopt-mock.fixture');
+      const ada: User = { id: 7, name: 'Ada' };
+
+      await expect(api.loadUser(1)).resolves.toEqual({ id: 1, name: 'real' });
+
+      adoptMock(api.loadUser).calledWith(7).resolveWith(ada);
+
+      await expect(api.loadUser(7)).resolves.toBe(ada);
+      // Configured means configured: an argument list nothing matches gets the spy's default, as on every spy.
+      expect(api.loadUser(1)).toBeUndefined();
+      expect(api.loadUser).toHaveBeenCalledTimes(3);
+    });
   });
 });
