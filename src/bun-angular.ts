@@ -25,10 +25,15 @@
  * importing this from inside a spec is too late for the component under test. Importing it from a
  * spec as well is harmless — the module is cached, and both halves of it are guarded.
  *
- * Two Vitest-only helpers are deliberately absent, because they need the runner's `expect` and
- * suite-level hooks: `registerSignalMatchers` and the `testbed-diagnostics` family. Everything else
- * — `provideAutoSpy`, `injectSpy`, `renderShallow`, `createWithAutoSpies`, `stable`,
- * `flushEffects` — behaves exactly as it does on Vitest.
+ * The Vitest-only half of `vitest-auto-spy/angular` is absent here, and it is more than two names.
+ * The matcher registrars (`registerDirectiveMatchers`, `registerResourceMatchers`,
+ * `registerSignalMatchers`) need the runner's `expect`, the `testbed-diagnostics` family its
+ * suite-level hooks, and the rest of that entry's TestBed surgery — overrides and diagnostics
+ * assertions, `extendWithAutoSpies`, `provideAutoSpyForToken` with the token-keyed defaults,
+ * `trackInjections`, `setupAngularTestEnv`, the stub factories, the resource/signal prop doubles,
+ * the platform and dialog doubles — is simply not routed to Bun. Everything this entry does
+ * publish — the core surface with the `expectEmission` family, `provideAutoSpy`, `injectSpy`,
+ * `renderShallow`, `createWithAutoSpies`, `stable`, `flushEffects` — behaves as it does on Vitest.
  */
 import '@angular/compiler';
 import { NgModule, provideZonelessChangeDetection } from '@angular/core';
