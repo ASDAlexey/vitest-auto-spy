@@ -1,12 +1,12 @@
 ---
 title: Моки модулей, которые ничего не сделали
-description: assertMocked и moduleNamespace — доказать, что vi.mock() применился под бандлером, и дать его фабрике форму, которую узнаёт interop-проба.
+description: assertMocked, moduleNamespace и adoptMock — доказать, что vi.mock() применился под бандлером, дать его фабрике форму, которую узнаёт interop-проба, и настроить построенные ею моки через calledWith.
 ---
 
 # Моки модулей, которые ничего не сделали
 
 ```ts
-import { assertMocked, moduleNamespace } from 'vitest-auto-spy';
+import { adoptMock, assertMocked, moduleNamespace } from 'vitest-auto-spy';
 ```
 
 `vi.mock()` — единственный кусок перенесённой сюиты, который умеет падать **молча**. Это трансформ
@@ -127,8 +127,9 @@ export class MetricsGateway {
 vi.mock('shaka-player', () => moduleNamespace({ Player: mockConstructor(() => playerStub) }));
 ```
 
-Возвращает `{ ...exports, default: exports, __esModule: true }` — форму, которую щупает через
+Возвращает `{ ...exports, default, __esModule: true }` — форму, которую щупает через
 `mod.default ?? mod` любая зависимость, написанная так, чтобы работать и как CommonJS, и как ESM.
+`default` — всё пространство имён, если только фабрика не указала свой.
 
 Отсутствующий `default` — то падение, которое это убирает. Фабрика, возвращающая голые именованные
 экспорты, заставляет Vitest бросить `No "default" export is defined on the mock` **изнутри этой самой
@@ -167,6 +168,122 @@ vi.mock('shaka-player', () => moduleNamespace({ Player }, { lenient: true }));
 
 `then` и символьные ключи не присваиваются никогда, в любом режиме: пространство имён, отвечающее на
 `then`, было бы принято за промис у `await import(…)` и никогда бы не зарезолвилось.
+
+### `passthrough` {#passthrough}
+
+```ts
+vi.mock('./api', async (importOriginal) => moduleNamespace(await importOriginal<typeof import('./api')>(), { passthrough: true }));
+```
+
+Каждый экспорт-функция становится спаем, который выполняет настоящую функцию, пока тест его не
+настроит, и в любом случае записывает каждый вызов. Это `vi.mock(path, { spy: true })` из Vitest с
+хелперами этой библиотеки сверху — `calledWith`, `mustBeCalledWith`, `resolveWith` — и то же правило,
+что у [`createSpyFromInstance(obj, { passthrough: true })`](/ru/core/create-spy-from-class#passthrough):
+
+- **Настроенный экспорт отдаётся целиком.** Цепочка `calledWith(7)` отвечает `undefined` на
+  `loadUser(1)`, как у любого другого спая; к настоящему `loadUser` она не откатывается.
+- **`resetAutoSpy(api)` возвращает настоящую функцию.**
+- **Классы и значения остаются как есть.** Классу нужен `new`, а дубль для этого —
+  [`mockConstructor`](/ru/utilities/constructor-doubles). Вложенные объекты не обходятся.
+
+Экспорты типизированы как собственные функции модуля, поэтому до хелперов добирайтесь через
+[`adoptMock`](#adoptmock-mock-options): спай, построенный этой библиотекой, он возвращает как есть.
+
+```ts
+import { loadUser } from './api';
+
+adoptMock(loadUser).calledWith(7).resolveWith({ id: 7, name: 'Ada' });
+```
+
+## `adoptMock(mock, options?)` {#adoptmock-mock-options}
+
+```ts
+import { loadUser } from './api';
+import { greet } from './greeting';
+
+vi.mock('./api', () => ({ loadUser: vi.fn() }));
+
+it('greets the user it loaded', async () => {
+  adoptMock(loadUser).calledWith(7).resolveWith({ id: 7, name: 'Ada' });
+
+  await expect(greet(7)).resolves.toBe('Hello, Ada');
+});
+```
+
+Фабрика `vi.mock` строит собственные `vi.fn()`, и спека получает их обратно с типами настоящих
+функций: `mockResolvedValue` есть, `calledWith` и `resolveWith` — нет. `adoptMock` забирает такой мок
+**на месте**. Это тот же объект — тестируемый код держит его через замоканный модуль, так что копия
+ничего бы не настроила, — вызовы, которые он уже записал, остаются записанными, а возвращается он
+с типом спая функции по сигнатуре самого экспорта.
+
+- **Пока тест не настроил мок, ничего не меняется.** Ненастроенный вызов получает то, что мок
+  отвечал раньше: реализацию, с которой он был построен (`vi.fn(impl)`), или `undefined`. После
+  настройки решает настройка, как у любого спая: список аргументов, которому не подошёл ни один
+  `calledWith`, получает значение спая по умолчанию.
+- **Сбросы раннера её не трогают.** `vi.resetAllMocks()`, `mockReset: true` и `mockRestore()`
+  очищают вызовы и оставляют настройку — так же, как на любом спае, который строит эта библиотека.
+  `resetAutoSpy(loadUser)` — или `resetAutoSpy(api)` на пространстве имён — сбрасывает настройку и
+  возвращает собственную реализацию мока.
+- **Повторный вызов безвреден.** Тот же мок или спай, построенный этой библиотекой, возвращается
+  без изменений.
+- **`name`** — имя, которым его называет промах `mustBeCalledWith`. По умолчанию — собственное имя
+  мока.
+
+Обычная функция отвергается с отсылкой к `assertMocked`: она означает, что мок модуля не применился,
+а настройка настоящей функции лишь сдвинула бы тишину на строку ниже.
+
+### Где это работает {#where-it-works}
+
+| Раннер                  | Забирает |                                                                                                                                                                                         |
+| ----------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Vitest `vi.fn()`        | да       | Настройка переживает `vi.resetAllMocks()`, `mockReset: true` и `mockRestore()`.                                                                                                         |
+| Rstest `rstest.fn()`    | да       | То же, через `rstest.resetAllMocks()`.                                                                                                                                                  |
+| Bun `mock()`            | да       | `mockReset` у Bun только для чтения, поэтому `jest.resetAllMocks()` сбрасывает настройку — как и на любом спае, который эта библиотека строит на Bun. Сбрасывайте через `resetAutoSpy`. |
+| `node:test` `mock.fn()` | нет      | Он не умеет сообщить свою реализацию, а `mock.restoreAll()` молча вернул бы её поверх настройки. Постройте дубль через `createFunctionSpy` и передайте его.                             |
+
+### Спай, который вызывает оригинал {#a-spy-that-calls-through}
+
+`vi.spyOn(obj, 'method')` без реализации и каждый экспорт `vi.mock(path, { spy: true })` выполняют
+оригинал, о котором не сообщают: `getMockImplementation()` отвечает `undefined`, как у голого
+`vi.fn()`. Забранный, такой мок отвечает `undefined` на ненастроенный вызов. Чтобы записывать
+вызовы, выполнять настоящий код и настроить один случай, стройте спаи так с самого начала —
+[`passthrough`](#passthrough) для модуля,
+[`createSpyFromInstance(obj, { passthrough: true })`](/ru/core/create-spy-from-class#passthrough) для
+объекта.
+
+## `vi.doMock`, динамический импорт и `assertMocked` {#vi-domock-a-dynamic-import-and-assertmocked}
+
+`vi.mock` поднимается над импортами — поэтому он и работает, и поэтому же его фабрика не видит
+ничего, что объявляет тест. Выход — `vi.doMock`: он не поднимается, поэтому может отличаться от теста
+к тесту, — и действует только на то, что импортировано **после** него. Это делает его самым тихим
+моком из всех: статический импорт наверху файла уже держит настоящий модуль, и ничего не падает.
+
+```ts
+afterEach(() => {
+  vi.doUnmock('./api');
+  vi.resetModules();
+});
+
+it('greets the user it loaded', async () => {
+  vi.doMock('./api', () => ({ loadUser: vi.fn() }));
+
+  const api = assertMocked(await import('./api'), { specifier: './api', exports: ['loadUser'] });
+  const { greet } = await import('./greeting');
+
+  adoptMock(api.loadUser).calledWith(7).resolveWith({ id: 7, name: 'Ada' });
+
+  await expect(greet(7)).resolves.toBe('Hello, Ada');
+});
+```
+
+Рецепт держится на трёх вещах:
+
+- **Тестируемый код тоже импортируйте после `doMock`.** `./greeting`, импортированный наверху файла,
+  связал настоящий `./api` ещё до запуска теста; `assertMocked` на пространстве имён этого не видит.
+- **`vi.resetModules()` в `afterEach`,** чтобы динамический импорт следующего теста заново вычислил
+  модуль, а не вернул тот, что замокал этот тест.
+- **`assertMocked` на пространстве имён, которое вернул импорт.** Под бандлером `vi.doMock` так же
+  молчалив, как `vi.mock`, и именно эта строка об этом скажет.
 
 ## Чего это не делает {#what-this-does-not-do}
 

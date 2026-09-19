@@ -73,6 +73,40 @@ Both are exported from the core entry as well.
 Every `vi.spyOn` adds an entry that only `vi.restoreAllMocks()` removes; with a shared environment
 that list grows for the whole run. `restoreMocks: true` drains it after each test.
 
+### Clear, reset and restore applied to an auto-spy
+
+Since 4.1 a method spy is not a `vi.fn()` but the library's own mock, so it is fair to ask whether
+the runner's three config flags still reach it. They do, exactly as far as they reach a `vi.fn()`.
+Vitest applies the flags through `vi.clearAllMocks()`, `vi.resetAllMocks()` and
+`vi.restoreAllMocks()` before every test, and the library registers one `vi.fn()` of its own whose
+`mockClear` and `mockReset` sweep every auto-spy in the worker at once. Under
+[`setSpyEngine('runner')`](/core/performance#the-spy-engine) the spies are `vi.fn()`s and are reached directly. The
+table is the same for both engines, measured on Vitest 5:
+
+| config flag    | default               | recorded calls | `mockReturnValue` / `mockImplementation`       | `calledWith(…)` rules | a `vi.spyOn` on a real object      |
+| -------------- | --------------------- | -------------- | ---------------------------------------------- | --------------------- | ---------------------------------- |
+| `clearMocks`   | `true` since Vitest 5 | emptied        | kept                                           | kept                  | calls emptied, stays installed     |
+| `mockReset`    | `false`               | emptied        | dropped — a method or getter answers undefined | kept                  | real implementation answers again  |
+| `restoreMocks` | `false`               | untouched      | untouched                                      | untouched             | taken off, the real member is back |
+
+What that means in practice:
+
+- **`clearMocks` is already doing its job on Vitest 5.** It is on by default there, it reaches every
+  auto-spy, and it keeps whatever configured them.
+- **`mockReset` wipes configuration made outside `beforeEach`.** It runs before each test, after
+  `beforeAll` and after a `describe` body, so a double configured there answers `undefined` in every
+  test — the same trap as a `vi.fn()` configured there, and the reason to build doubles in
+  `beforeEach`. `calledWith(…)` rules survive it; [`resetAutoSpy(double)`](/core/control-helpers#resetting-spies-—-clearautospy-resetautospy)
+  drops those too.
+- **`restoreMocks` never touches an auto-spy.** Since Vitest 4 it only undoes `vi.spyOn`, and a
+  double built from a class has no real member underneath to put back. Setting it does not reset
+  your doubles; it puts spied real objects back, which is what `setupAutoSpy({ restoreMocks: true })`
+  does after each test as well.
+
+None of the three is needed for an auto-spy built in `beforeEach`: the next test builds a fresh one.
+`setupAutoSpy()` adds nothing on top of the flags: it does not clear or reset doubles itself,
+because the flags are the runner's contract. A double that outlives a test is what [`resetAutoSpy` and `clearAutoSpy`](/core/control-helpers#resetting-spies-—-clearautospy-resetautospy) are for.
+
 ## 4. Cancelling timers that outlive their file
 
 Opt-in, and only relevant with `isolate: false` — where every spec file in a worker shares one set of
@@ -273,6 +307,90 @@ passes is resting on nothing listening on that port.
 the code keeps and reconnects, so there is no answer a blanket stub could give that is not a
 behaviour change of its own;
 [`stubConstructor`](/utilities/constructor-doubles) is the tool for a spec that has one.
+
+### Answering a stubbed `fetch` — `stubResponse`
+
+A spec that wants the success branch replaces `fetch` and has to hand back a `Response`. The usual
+hand-built one is `{ ok: true, json: async () => data } as Response` — a cast over an object that
+has two of the members the code under test may read. `stubResponse` builds a real one, from the
+environment's own constructor, with no cast:
+
+```ts
+import { stubResponse } from 'vitest-auto-spy/setup';
+
+vi.spyOn(globalThis, 'fetch').mockResolvedValue(stubResponse({ body: { id: 1, name: 'Ada' } }));
+vi.spyOn(globalThis, 'fetch').mockResolvedValue(stubResponse({ ok: false, status: 404 }));
+```
+
+| field        | default                          | what it does                                                                           |
+| ------------ | -------------------------------- | -------------------------------------------------------------------------------------- |
+| `body`       | no body                          | plain object, array, number, boolean → JSON with `application/json`; else as is        |
+| `status`     | `200`, or `500` when `ok: false` | the status; a status the platform refuses (`0`, `600`) throws the platform's own error |
+| `ok`         | derived from `status`            | shorthand for the status class; an `ok` that disagrees with `status` throws            |
+| `statusText` | `''`                             | as given                                                                               |
+| `headers`    | —                                | any `HeadersInit`; a `content-type` set here wins over the JSON one                    |
+| `url`        | `''`                             | what `response.url` reads — Angular's fetch backend reports it as the request's URL    |
+
+A string is sent as it is, not as a JSON string. `Blob`, `ArrayBuffer`, typed-array, `FormData`,
+`URLSearchParams` and `ReadableStream` bodies go to the constructor untouched — with one catch under jsdom, whose `Blob`
+and `FormData` are jsdom's own and are not readable by Node's `Response`: pass a string or bytes
+there.
+
+**A `Response` body can be read once.** `mockResolvedValue(stubResponse(…))` hands the same object
+to every call, so the second `response.json()` rejects with "Body is unusable". A stub that answers
+more than one request builds one per call:
+
+```ts
+vi.spyOn(globalThis, 'fetch').mockImplementation(async () => stubResponse({ body: user }));
+```
+
+It works wherever the runtime has a global `Response`: Node, jsdom (which ships none of its own, so
+Node's is the one in scope), happy-dom, Bun, and `node:test`. Anywhere else it throws a
+`TypeError` naming the missing constructor.
+
+### Next to MSW
+
+`blockNetwork` and [MSW](https://mswjs.io)'s `setupServer()` patch the same globals, so the order they
+run in used to decide who won. `server.listen()` sits in a `beforeAll`, which runs before
+`setupAutoSpy()`'s per-test `beforeEach`, so the `fetch` stub went on **over** MSW's interceptor, and
+every handler for a `fetch` request was switched off: a request the spec had mocked rejected with
+`fetch is stubbed in unit tests`. That includes Angular's `HttpClient`, whose default backend is `fetch`
+in current Angular — `withFetch()` is deprecated as redundant, and `withXhr()` opts back out.
+
+`blockNetwork` now leaves `fetch` alone while an interceptor from `@mswjs/interceptors` holds it —
+MSW's `setupServer()`, and nock 14, which is built on the same package — and blocks it again once
+`server.close()` takes the interceptor off. `XMLHttpRequest` needs no such care: MSW builds the
+real class underneath, so a request it does not handle still reaches the blocked `open` and `send`
+and fails with the marker on `statusText`. Measured with MSW 2.15, under jsdom and happy-dom, on
+`fetch`, `XMLHttpRequest` and `HttpClient` with `withFetch()` and `withXhr()`:
+
+| request                              | handled by MSW | not handled by MSW                 |
+| ------------------------------------ | -------------- | ---------------------------------- |
+| `fetch`, `HttpClient` (fetch)        | MSW's response | MSW's `onUnhandledRequest` decides |
+| `XMLHttpRequest`, `HttpClient` (XHR) | MSW's response | blocked, naming the URL            |
+
+So under MSW the floor for `fetch` is MSW's own, and `onUnhandledRequest: 'error'` is not quite one.
+It exempts every URL whose path looks like a static asset — `.svg`, `.png`, fonts, `.css`, `.js`,
+and `.json` too — and lets it go out to the network unreported: exactly the icon loader this
+section began with. A catch-all handler registered last makes the floor hard:
+
+```ts
+import { HttpResponse, http } from 'msw';
+import { setupServer } from 'msw/node';
+
+export const server = setupServer(
+  ...handlers,
+  http.all('*', () => HttpResponse.error()), // anything the handlers above miss fails, offline
+);
+
+beforeAll(() => server.listen({ onUnhandledRequest: 'error' }));
+afterEach(() => server.resetHandlers());
+afterAll(() => server.close());
+```
+
+`server.use(…)` in a spec prepends its handlers, so the catch-all stays last; `resetHandlers()`
+keeps it, because it was passed to `setupServer`. Keep `blockNetwork: true` next to it for the
+channels MSW does not cover — `sendBeacon`, and any file that never starts the server.
 
 ## 6. Putting back timer globals the fakes took with them
 

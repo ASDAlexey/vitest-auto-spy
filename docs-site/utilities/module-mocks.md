@@ -1,12 +1,12 @@
 ---
 title: Module mocks that did nothing
-description: assertMocked and moduleNamespace — prove a vi.mock() applied under a bundler, and give its factory the shape an interop probe recognises.
+description: assertMocked, moduleNamespace and adoptMock — prove a vi.mock() applied under a bundler, give its factory the shape an interop probe recognises, and configure the mocks it built with calledWith.
 ---
 
 # Module mocks that did nothing
 
 ```ts
-import { assertMocked, moduleNamespace } from 'vitest-auto-spy';
+import { adoptMock, assertMocked, moduleNamespace } from 'vitest-auto-spy';
 ```
 
 `vi.mock()` is the one piece of a ported suite that can fail **silently**. It is a transform over
@@ -166,6 +166,120 @@ later.
 
 `then` and symbol keys are never claimed, whatever the mode: a namespace that answers to `then`
 would be treated as a promise by `await import(…)` and never resolve.
+
+### `passthrough`
+
+```ts
+vi.mock('./api', async (importOriginal) => moduleNamespace(await importOriginal<typeof import('./api')>(), { passthrough: true }));
+```
+
+Every function export becomes a spy that runs the real function until the test configures it, and
+records every call either way. It is Vitest's `vi.mock(path, { spy: true })` with this library's
+helpers on top — `calledWith`, `mustBeCalledWith`, `resolveWith` — and the same rule as
+[`createSpyFromInstance(obj, { passthrough: true })`](/core/create-spy-from-class#passthrough):
+
+- **A configured export is handed over whole.** A `calledWith(7)` chain answers `undefined` for
+  `loadUser(1)`, as on any other spy; it does not fall back to the real `loadUser`.
+- **`resetAutoSpy(api)` hands the real function back.**
+- **Classes and values stay as they are.** A class needs `new`, and the double for that is
+  [`mockConstructor`](/utilities/constructor-doubles). Nested objects are not walked.
+
+The exports are typed as the module's own functions, so reach the helpers through
+[`adoptMock`](#adoptmock-mock-options), which hands a spy this library built back unchanged:
+
+```ts
+import { loadUser } from './api';
+
+adoptMock(loadUser).calledWith(7).resolveWith({ id: 7, name: 'Ada' });
+```
+
+## `adoptMock(mock, options?)`
+
+```ts
+import { loadUser } from './api';
+import { greet } from './greeting';
+
+vi.mock('./api', () => ({ loadUser: vi.fn() }));
+
+it('greets the user it loaded', async () => {
+  adoptMock(loadUser).calledWith(7).resolveWith({ id: 7, name: 'Ada' });
+
+  await expect(greet(7)).resolves.toBe('Hello, Ada');
+});
+```
+
+A `vi.mock` factory builds its own `vi.fn()`s, and the spec gets them back typed as the real
+functions: `mockResolvedValue` is there, `calledWith` and `resolveWith` are not. `adoptMock` takes
+such a mock over **in place**. It is the same object — the code under test holds it through the
+mocked module, so a copy would configure nothing — the calls it already recorded stay recorded, and
+it comes back typed as a function spy of the export's own signature.
+
+- **Nothing changes until the test configures it.** An unconfigured call answers what the mock
+  answered before: the implementation it was built with (`vi.fn(impl)`), or `undefined`. Once
+  configured, the configuration decides, as on every spy — an argument list no `calledWith`
+  matches gets the spy's default.
+- **The runner's resets keep it.** `vi.resetAllMocks()`, `mockReset: true` and `mockRestore()` clear
+  the calls and leave the configuration, as they do on any spy this library builds.
+  `resetAutoSpy(loadUser)` — or `resetAutoSpy(api)` on the namespace — drops the configuration and
+  goes back to the mock's own implementation.
+- **Adopting twice is harmless.** The same mock, or a spy this library built, comes back unchanged.
+- **`name`** is what a `mustBeCalledWith` miss calls it. Default: the mock's own name.
+
+A plain function is refused with a pointer to `assertMocked`: it means the module mock did not apply,
+and configuring the real function would only move the silence one line down.
+
+### Where it works
+
+| Runner                  | Adopts  |                                                                                                                                                                                   |
+| ----------------------- | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Vitest `vi.fn()`        | yes     | The configuration survives `vi.resetAllMocks()`, `mockReset: true` and `mockRestore()`.                                                                                           |
+| Rstest `rstest.fn()`    | yes     | Same, through `rstest.resetAllMocks()`.                                                                                                                                           |
+| Bun `mock()`            | yes     | Bun's `mockReset` is read-only, so `jest.resetAllMocks()` drops the configuration — as it does on every spy this library builds on Bun. Reset with `resetAutoSpy`.                |
+| `node:test` `mock.fn()` | refused | It cannot report its implementation, and `mock.restoreAll()` would put it back over the configuration without a word. Build the double with `createFunctionSpy` and pass that in. |
+
+### A spy that calls through
+
+`vi.spyOn(obj, 'method')` without an implementation, and every export of
+`vi.mock(path, { spy: true })`, run an original they do not report: `getMockImplementation()` answers
+`undefined`, the same as for a bare `vi.fn()`. Adopted, such a mock answers `undefined` to an
+unconfigured call. To record calls, run the real code and configure one case, build the spies that
+way from the start — [`passthrough`](#passthrough) for a module,
+[`createSpyFromInstance(obj, { passthrough: true })`](/core/create-spy-from-class#passthrough) for an
+object.
+
+## `vi.doMock`, a dynamic import and `assertMocked`
+
+`vi.mock` is hoisted above the imports, which is what makes it work and also why its factory cannot
+see anything the test declares. `vi.doMock` is the way out: it is not hoisted, so it can differ per
+test — and it applies only to what is imported **after** it. That makes it the quietest mock of all:
+a static import at the top of the file already holds the real module, and nothing about it fails.
+
+```ts
+afterEach(() => {
+  vi.doUnmock('./api');
+  vi.resetModules();
+});
+
+it('greets the user it loaded', async () => {
+  vi.doMock('./api', () => ({ loadUser: vi.fn() }));
+
+  const api = assertMocked(await import('./api'), { specifier: './api', exports: ['loadUser'] });
+  const { greet } = await import('./greeting');
+
+  adoptMock(api.loadUser).calledWith(7).resolveWith({ id: 7, name: 'Ada' });
+
+  await expect(greet(7)).resolves.toBe('Hello, Ada');
+});
+```
+
+Three things carry the recipe:
+
+- **Import the code under test after the `doMock` too.** `./greeting` imported at the top of the file
+  bound the real `./api` before the test ran; `assertMocked` on the namespace cannot see that.
+- **`vi.resetModules()` in `afterEach`,** so the next test's dynamic import evaluates the module
+  again instead of handing back the one this test mocked.
+- **`assertMocked` on the namespace the import returned.** Under a bundler `vi.doMock` is as silent
+  as `vi.mock`, and this is the line that says so.
 
 ## What this does not do
 
