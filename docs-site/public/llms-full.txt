@@ -13497,15 +13497,47 @@ would quietly hide the errors somebody was watching for. The flag works the same
 ```
 $ npx vitest-auto-spy doctor --min-severity warning
 vitest-auto-spy doctor — /work/app
-1 284 files, runner: vitest, entry: vitest-auto-spy/angular
+1284 files scanned, 212 of them spec files — runner: vitest, entry: vitest-auto-spy/angular
 
 warn   dead-runner-config karma.conf.js
        Configures karma, which is not installed in this repository.
-       → Delete it. While it stays, every reader — human or agent — treats it as the source of
-         truth for how tests run.
+       → Delete it. While it stays, every reader — human or agent — treats it as the
+         source of truth for how tests run.
 
-0 errors, 1 warning, 3 notes
+0 errors, 1 warning, 3 notes (3 not shown: --min-severity warning)
 ```
+
+**One cause is printed once.** Findings of the same check with the same fix are one block: the
+message once when every place says the same thing — six library tsconfigs with the same empty
+`include` — and each file's own line under it otherwise, then the fix once. A finding that carries
+evidence of its own, or names no file, is never folded. Prose is wrapped to the terminal, or to 80
+columns when the output is a pipe or a CI log (`COLUMNS` overrides it); a path or a URL is never
+cut, and every line of a finding but its first is indented, so a harness that collects a finding as
+its `error` line plus the indented lines under it still collects all of it. The report ends in the
+tally whatever happened, a clean run included.
+
+```
+info   tsconfig-glob-matches-nothing — 6 files
+       The "include" pattern "src/**/*.spec.ts" matches no file, and there is no
+       "*.spec.ts" beside this config for it to miss.
+         libs/subscription-recovery/data/tsconfig.spec.json
+         libs/subscription-recovery/domain/tsconfig.spec.json
+         …
+       → Nothing is unchecked today: the entry starts matching when the first
+         such file is written. Delete it only if none ever will be.
+```
+
+**A scan that stopped short says so.** The file scan has a safety cap of 50 000 files
+(`VITEST_AUTO_SPY_SCAN_CAP` raises it). A repository past it used to get "No problems found." for
+the files nothing had read; it now gets a `scan-cap-reached` warning, and exit 1, until the cap is
+raised or `--cwd` narrows the tree.
+
+**`--format json` for a script.** One JSON document on stdout and nothing else: `schema`,
+`command`, `version`, `cwd`, `runner`, `entry`, `scanned` (`files`, `specFiles`,
+`truncated`), `exitCode`, `tally` (`errors`, `warnings`, `notes`) and every finding with
+`check`, `severity`, `file`, `message`, `fix` and `details`. `--min-severity` shapes only the
+text; the document always carries every finding. Fields only ever grow — one that changes meaning or
+goes away raises `schema`. The exit code is the same as the text run's.
 
 **`--code-quality <path>` for the merge request.** The same findings, written as a
 [GitLab Code Quality](https://docs.gitlab.com/ci/testing/code_quality/) report: point
@@ -13904,7 +13936,11 @@ rather than failing anything.
 ```
 $ npx vitest-auto-spy perf --json out/perf.json --gate --command 'npm test -- {paths:--include=}'
 
-perf gate: re-measuring 1 file on their own before failing anything.
+perf gate: re-measuring 1 file on its own before failing anything.
+
+perf gate verdict — 1 judged, 1 fails the run
+  kind  first  again  budget  verdict    where
+  test  4.31s  4.05s   1.00s  confirmed  libs/a/src/lib/thing.spec.ts › Thing > waits for the retry
 
 error  perf-gate-slow-test libs/a/src/lib/thing.spec.ts
        `Thing > waits for the retry` spent 4.31s in its body, over the 1.00s budget
@@ -13929,9 +13965,15 @@ under `--gate`.
 
 ### The two tables, and the shards they were merged from
 
-At the bottom of the report, after the findings, `perf` prints what would fail `--gate` and nothing
-else: **files over budget**, with `time`, the `budget` it is over, `ms/test` and `vs median test`,
-and **test bodies over budget**, the ones at or over `--max-test-ms`. The rows come from the same
+At the bottom of the report, after the findings, `perf` states the budgets once — a test body, and
+the three a file's bodies are held to, with what `--max-file-tests` is worth in this run — and then
+prints what would fail `--gate` and nothing else: **files over budget**, with `time`, the
+`budget` it is over, `over` (the two divided), `tests`, `ms/test`, `×median` and, when
+`--baseline` names a committed baseline, `vs base` — how many times its recorded share of the run
+the file takes now, or `new` — and **test bodies over budget**, the ones at or over
+`--max-test-ms`. Each title counts every row over budget and says when `--top` left some off. The
+budget flags draw the tables with or without `--gate`, so a report run and a gated run of the same
+suite agree about what is over. The rows come from the same
 functions the gate judges with and `--gate-only` narrows them the same way, so the table and the
 verdict under it cannot disagree. They used to be the ten slowest files and bodies of any run, and on
 a 2 023-file consumer suite the top of that list was a 234-test component spec at 8.6 ms a test and a
@@ -13939,15 +13981,35 @@ a 2 023-file consumer suite the top of that list was a 234-test component spec a
 budget one line says so; under `--gate` that line is left to the gate's own all-clear. `--top` caps
 the rows and `--top 0` turns both tables off.
 
-A body is named by two things — the file it lives in and its own name — so the bodies table prints
-the file once, whole, and indents its bodies under it rather than paying for both out of one column.
-A name that still does not fit loses its head, where the parent suites are, and keeps the test. A
-path too wide for its column is cut in the middle, on segment boundaries:
-`libs/…/lib/ads/ads.controller.spec.ts` still names the project and the file, where a cut at either
-end names neither. The time of every row is red and the headers are dim; `NO_COLOR`,
-`FORCE_COLOR=0` and `TERM=dumb` turn the color off. Widths are counted on what the terminal shows:
-padding that counted the escape sequence around a cut path's dimmed ellipsis used to pull that row
-eight columns left of its neighbours.
+The numbers come first, right-aligned, and the path last and whole, so an 80-column CI log still
+shows a path that can be copied — the tables used to cut it in the middle to keep a 140-column
+layout. A body is named by two things — the file it lives in and its own name — so the bodies table
+prints the file once and its bodies under it. The time of every row is red and the headers are dim.
+Color is on for a terminal and off for a pipe or a file unless `FORCE_COLOR` asks for it; `NO_COLOR`,
+`FORCE_COLOR=0` and `TERM=dumb` turn it off everywhere. A harness that captures this output and
+repaints it line by line therefore gets plain text to paint.
+
+```
+files over budget — 2 of 2015; the gate re-measures these and fails on them
+   time  budget  over  tests  ms/test  ×median  vs base  file
+  1.90s   634ms  3.0×    101     19ms     9.0×     0.8×  apps/web/src/app/tv/channel-card.component.spec.ts
+  1.43s   418ms  3.4×      5    285ms     136×      new  apps/web/src/app/purchase/thanks-page.factory.spec.ts
+```
+
+Under `--gate`, the confirmation pass is followed by **the verdict table**: one row per candidate
+with its `kind` (`test`, `file`, `grew`, `run`), the `first` reading, the one taken `again` on
+its own, the `budget` and the `verdict` — `confirmed`, `not reproduced`, `unconfirmed` (nothing
+could re-measure it), `single reading` (`--no-confirm`) or `over budget` for a whole-run budget.
+The card under a confirmed finding compares the candidate against **its own** budget; it used to
+show the file-total budget for a slow body or a baseline regression too, which printed "0.1× over"
+over a finding that had just failed the run. The whole report ends in one tally, for the advice,
+the gate and the baseline together.
+
+`--format json` prints the same run as one document on stdout — `run` (files, tests, wall and CPU
+milliseconds, the two medians, the phases), `budgets`, `gate` (`status`, `confirmation` and the
+verdict rows), `tally` and every finding — and moves the output of any suite it runs to stderr, so
+stdout stays parseable. A run with nothing to judge still prints a document, with `error` and
+`run: null`.
 
 A sharded pipeline writes one report per job, and a rule that compares a file against **the median
 of its own run** then compares it against a quarter of the evidence. `--json` takes a directory or a
@@ -14031,6 +14093,7 @@ perf:
 | `--baseline-factor`   | How many times its recorded share a file has to take before it is a regression. Default 2                                                                                               |
 | `--baseline-floor-ms` | The absolute floor under which a grown file is still noise. Default 500                                                                                                                 |
 | `--top <n>`           | Rows in the "files over budget" and "test bodies over budget" tables; `0` turns them off. Default 10                                                                                    |
+| `--format json`       | One JSON document on stdout instead of the text report; the suite's own output goes to stderr. Shared with `doctor`                                                                     |
 | `--min-severity`      | The quietest findings the report prints: `error`, `warning` or `info` (default). The tally line still counts what was hidden, and the exit code does not move                           |
 
 A positional path (`npx vitest-auto-spy perf src/cli`) is passed through to Vitest as its file

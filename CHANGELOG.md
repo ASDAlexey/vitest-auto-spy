@@ -8,6 +8,70 @@ The latest released version here must always match the one published on
 [npm](https://www.npmjs.com/package/vitest-auto-spy) and the latest `v*` git tag — see
 [CONTRIBUTING.md → Releasing](./CONTRIBUTING.md#releasing) for how that stays in sync.
 
+## [Unreleased]
+
+The `doctor` and `perf` reports, read against a 2 015-file consumer suite: what they print, how wide,
+and the four places where the printed numbers or words did not match what was measured.
+
+### Added
+
+- **`--format json` on `doctor` and `perf`.** One JSON document on stdout and nothing else:
+  `schema`, `command`, `version`, `cwd`, `exitCode`, `tally` and every finding (`check`, `severity`,
+  `file`, `message`, `fix`, `details` without terminal color). `doctor` adds what it scanned;
+  `perf` adds `run` (files, tests, wall and CPU milliseconds, the median test and file, the phases),
+  `budgets` and `gate` — `status`, how candidates could be `confirmation`-ed, and one verdict row per
+  candidate with both readings and its `outcome`. The output of a suite `perf` runs goes to stderr in
+  this mode, so stdout stays parseable. `--min-severity` shapes the text only.
+- **`perf` says what it judged, against what.** The header adds the tests run and the run's median
+  test and file; a `budgets:` line states the body budget and the three a file is held to, with what
+  `--max-file-tests` is worth in this run; the phase table carries a bar per phase.
+- **The gate prints its verdict as a table** after the confirmation pass: `kind`, `first`, `again`,
+  `budget` and `verdict` (`confirmed`, `not reproduced`, `unconfirmed`, `single reading`,
+  `over budget`) per candidate, above the findings.
+- **`files over budget` carries `over`, `tests` and, with `--baseline`, `vs base`** — how many times
+  its recorded share of the run the file takes now, or `new`. Each table title counts every row over
+  budget and says when `--top` left some out.
+- **`doctor` reports a scan that stopped at its cap** as a `scan-cap-reached` warning. Past 50 000
+  files it used to print "No problems found." for files nothing had read. **Behaviour change**: such a
+  repository now exits 1 until `VITEST_AUTO_SPY_SCAN_CAP` is raised or `--cwd` narrows the tree.
+
+### Changed
+
+- **One cause is printed once.** Findings of one check with one fix are a single block — the message
+  once when every place says the same, each file's own line otherwise, the fix once. On the consumer
+  suite, six identical `tsconfig-glob-matches-nothing` notes went from 23 lines to 11; twelve
+  `perf-import-barrel` notes, whose messages differ, from 47 to 40 even with every message wrapped to
+  80 columns. A finding with evidence or without a file is never folded.
+  The first line of every finding still starts at column 0 with `error`, `warn` or `info`, and every
+  other line is indented.
+- **Prose is wrapped to the reader.** The terminal's width, else `COLUMNS`, else 80 columns for a pipe
+  or a CI log, capped at 120; a path or a URL is never cut.
+- **Tables put the numbers first and the path last, whole.** They used to cut a path in the middle to
+  fit a 140-column layout, which left a CI log with paths nobody could copy.
+- **Color follows the terminal.** Off for a pipe or a file unless `FORCE_COLOR` is set; `NO_COLOR`,
+  `FORCE_COLOR=0` and `TERM=dumb` still turn it off. A harness that captures the output and repaints
+  it line by line no longer gets escapes nested inside its own.
+- **One tally, at the end of the report.** `perf` printed one after the advice and another after the
+  gate, and none at all after baseline regressions without `--gate`. `doctor` now ends in the tally
+  on a clean run too. When `--min-severity` hid findings the line says how many:
+  `0 errors, 0 warnings, 6 notes (6 not shown: --min-severity warning)`. It still starts with
+  `N errors, N warnings, N notes`.
+
+### Fixed
+
+- **The evidence card compared a candidate against the wrong budget.** For a slow test body or a
+  baseline regression it showed the file-total budget, so a confirmed regression read
+  `first run 3.00s   budget 20.00s   0.1× over` above a finding that had just failed the run. It now
+  shows the candidate's own budget and second reading.
+- **Budget flags were ignored without `--gate`.** `perf --max-test-ms 300` drew its tables against the
+  1 000 ms default; `--max-test-ms`, `--max-file-ms`, `--max-file-tests`, `--factor` and `--gate-only`
+  now draw them either way.
+- **"Nothing here would fail --gate" on a red suite.** The gate refuses a run that did not pass, so the
+  all-clear now says the suite did not pass and that `--gate` would not judge it.
+- **Wording:** `1 test files`, and `re-measuring 1 file on their own`.
+- **`--help`** said `doctor` exits 1 "when anything is found" (a note never fails it) and named the
+  `--top` tables by the names they had before they became "over budget" tables.
+
 ## [5.19.0] - 2026-09-17
 
 An audit of the whole library — the spy core and argument matching, async, RxJS and timers, Angular,
@@ -6360,6 +6424,7 @@ by hand there, in more than one place, by more than one person.
   `mockAccessorsProp`.
 - Dual ESM + CJS build with type declarations; 100% test coverage.
 
+[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.19.0...HEAD
 [5.19.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.18.0...v5.19.0
 [5.18.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.17.1...v5.18.0
 [5.17.1]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.17.0...v5.17.1

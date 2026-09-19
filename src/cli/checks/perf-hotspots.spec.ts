@@ -4,7 +4,7 @@
  * A row has to be exactly what the gate would take as a candidate — a table that lists a large file
  * of ordinary tests, which the gate never fails, is the noise these tables used to be. Order has to be
  * **total**, or two renderings of one report disagree. The per-test columns have to survive a file
- * that finished no body. A cut path has to stay in its column with color on, which is where padding
+ * that finished no body. The numbers have to stay in their columns with color on, which is where padding
  * used to count the escape sequence around the ellipsis. And color has to be pinned from the test,
  * because the same strings are golden here and a stray `NO_COLOR` would otherwise decide them.
  */
@@ -154,37 +154,42 @@ describe('formatHotspots', () => {
     expect(nothingOverBudgetNote()).toBe(
       'Nothing over budget: no file over its budget and no test body over 1.00s. Nothing here would fail --gate.',
     );
+    expect(nothingOverBudgetNote(GATE_DEFAULTS, true)).toContain('--gate does not judge a red run');
+    expect(nothingOverBudgetNote(GATE_DEFAULTS, true)).not.toContain('Nothing here would fail --gate');
   });
 
   it('shows each file with the budget it is over, and an em dash for a file that finished no test', () => {
     expect(formatHotspots(suite(), ROOT, plain)).toBe(
       [
-        'files over budget — the ones the gate re-measures and fails on',
+        'files over budget — 3 of 14; the gate re-measures these and fails on them',
+        '   time  budget  over  tests  ms/test  ×median  file',
+        '  7.50s   5.00s  1.5×     12    625ms     250×  libs/player/wrapper/src/lib/ads/ads.controller.spec.ts',
+        '  6.00s   5.00s  1.2×      3    2.00s     800×  libs/api/src/lib/catalog.service.spec.ts',
+        '  5.20s   5.00s  1.0×      0        —        —  libs/shared/retry.interceptor.spec.ts',
         '',
-        '  file                                                       time    budget    ms/test    vs median test',
-        '  libs/player/wrapper/src/lib/ads/ads.controller.spec.ts    7.50s     5.00s      625ms              250×',
-        '  libs/api/src/lib/catalog.service.spec.ts                  6.00s     5.00s      2.00s              800×',
-        '  libs/shared/retry.interceptor.spec.ts                     5.20s     5.00s          —                 —',
-        '',
-        '  `budget` is the largest of --max-file-ms 5.00s, --max-file-tests 2000 × the median test of this run (3ms),',
-        '  and --factor 10 × that median for each test in the file. A large file of ordinary tests is never here.',
-        '',
-        'test bodies over budget — each one over --max-test-ms 1.00s',
-        '',
+        'test bodies over budget — 1, each over --max-test-ms 1.00s',
         '  libs/player/wrapper/src/lib/ads/ads.controller.spec.ts',
-        `    AdsController > plays the pre-roll${' '.repeat(97)}2.90s`,
+        '    2.90s  AdsController > plays the pre-roll',
       ].join('\n'),
     );
   });
 
-  it('says "the one" for a single file, and prints a multiple under ten with a decimal', () => {
+  it('counts every row over budget in the title, and says how many of them a limit left on screen', () => {
+    const limited = formatHotspots(suite(), ROOT, { ...plain, limit: 1 });
+
+    expect(limited).toContain('files over budget — 3 of 14, the 1 most expensive shown;');
+    expect(limited).toContain('test bodies over budget — 1, each over');
+    expect(formatHotspots(suite(), ROOT, { ...plain, limit: 0 })).toBe('');
+  });
+
+  it('prints a multiple under ten with a decimal', () => {
     const gate = { ...GATE_DEFAULTS, factor: 1 };
     const single = formatHotspots(run([...ordinary(), file('libs/one.spec.ts', { tests: 5_000, testCount: 400 })]), ROOT, {
       ...plain,
       gate,
     });
 
-    expect(single).toContain('the one the gate re-measures');
+    expect(single).toContain('files over budget — 1 of 10;');
     expect(single).toContain('5.0×');
   });
 
@@ -219,12 +224,32 @@ describe('formatHotspots', () => {
     expect(at('  apps/one.spec.ts')).toBeLessThan(at('middle body'));
   });
 
-  it('cuts a path too wide for its column in the middle, on segment boundaries, and keeps both ends', () => {
-    expect(formatHotspots(suite(), ROOT, { ...plain, limit: 1, width: 90 })).toContain('  libs/…/lib/ads/ads.controller.spec.ts');
+  it('never cuts a path or a test name, so either can be copied out of any log', () => {
+    const long = `libs/${'deep/'.repeat(30)}x.spec.ts`;
+    const text = formatHotspots(
+      run([...ordinary(), file(long, { tests: 7_500, testCount: 12, cases: [{ name: 'n'.repeat(200), ms: 1_500 }] })]),
+      ROOT,
+      plain,
+    );
+
+    expect(text).toContain(long);
+    expect(text).toContain('n'.repeat(200));
+    expect(text).not.toContain('…');
   });
 
-  it('keeps a cut row in its column with color on, counting what the terminal shows rather than the escape codes', () => {
-    const rows = formatHotspots(suite(), ROOT, { width: 90, colors: true })
+  it('adds how much each file grew against a committed baseline, and "new" for a file it does not know', () => {
+    const baseline = { version: 1, median: 100, files: { 'libs/player/wrapper/src/lib/ads/ads.controller.spec.ts': 25 } };
+    const text = formatHotspots(suite(), ROOT, { ...plain, baseline });
+    const ads = text.split('\n').find((line) => line.endsWith('ads.controller.spec.ts'));
+    const retry = text.split('\n').find((line) => line.endsWith('retry.interceptor.spec.ts'));
+
+    expect(text).toContain('vs base');
+    expect(ads).toContain('3.0×');
+    expect(retry).toContain('new');
+  });
+
+  it('keeps the numbers of every row in their columns with color on', () => {
+    const rows = formatHotspots(suite(), ROOT, { colors: true })
       .split('\n')
       // eslint-disable-next-line no-control-regex -- stripping the escapes the module wrote
       .map((row) => row.replace(/\u001b\[[\d;]*m/g, ''))
@@ -232,23 +257,6 @@ describe('formatHotspots', () => {
 
     expect(rows).toHaveLength(3);
     expect(new Set(rows.map((row) => row.indexOf('5.00s'))).size).toBe(1);
-    expect(rows.some((row) => row.includes('…'))).toBe(true);
-  });
-
-  it('cuts a body name from the left and keeps the test, aligned to the width it was given', () => {
-    expect(formatHotspots(suite(), ROOT, { ...plain, width: 40 })).toContain('    …oller > plays the pre-roll    2.90s');
-  });
-
-  it('falls back to a tail cut when even the file name does not fit, or the path has no segment boundary', () => {
-    const giant = run([
-      file(`libs/${'x'.repeat(30)}giant.spec.ts`, { tests: 1_200, testCount: 2, cases: [{ name: 'slow one', ms: 1_100 }] }),
-    ]);
-    const flat = run([file(`${'y'.repeat(40)}root.spec.ts`, { tests: 1_300, testCount: 2, cases: [{ name: 'slow one', ms: 1_100 }] })]);
-    const cut = (text: string, name: string): boolean =>
-      text.split('\n').some((row) => row.trimStart().startsWith('…') && row.includes(name));
-
-    expect(cut(formatHotspots(giant, ROOT, { ...plain, width: 30 }), 'giant.spec.ts')).toBe(true);
-    expect(cut(formatHotspots(flat, ROOT, { ...plain, width: 30 }), 'root.spec.ts')).toBe(true);
   });
 });
 
@@ -256,9 +264,9 @@ describe('formatHotspots color', () => {
   it('carries the time of every row in red, and dims the header', () => {
     const colored = formatHotspots(suite(), ROOT, { colors: true });
 
-    expect(colored).toContain('\u001b[31m    7.50s\u001b[0m');
-    expect(colored).toContain('\u001b[31m    2.90s\u001b[0m');
-    expect(colored).not.toContain('\u001b[31m     5.00s');
+    expect(colored).toContain('\u001b[31m7.50s\u001b[0m');
+    expect(colored).toContain('\u001b[31m2.90s\u001b[0m');
+    expect(colored).not.toContain('\u001b[31m5.00s');
     expect(colored).toContain('\u001b[2mfile');
   });
 
@@ -280,6 +288,7 @@ describe('formatHotspots color', () => {
     expect(formatHotspots(suite(), ROOT)).not.toContain('\u001b[2mfile');
 
     vi.stubEnv('NO_COLOR', undefined);
+    vi.stubEnv('FORCE_COLOR', '1');
 
     expect(formatHotspots(suite(), ROOT)).toContain('\u001b[2mfile');
 

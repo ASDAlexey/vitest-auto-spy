@@ -14,35 +14,27 @@ import { DOM_FREE_RULE, findDomFreeSpecs } from './checks/dom-free';
 import type { SourceGraph } from './checks/graph';
 import { buildGraph } from './checks/graph';
 import { flakyFindings, heapFindings } from './checks/perf-flaky';
-import { formatHotspots, nothingOverBudgetNote } from './checks/perf-hotspots';
+import { budgetLine, formatHotspots, nothingOverBudgetNote } from './checks/perf-hotspots';
 import { isolationFromAngularBuilder } from './checks/runner-isolation';
 import { writeCodeQuality } from './code-quality';
 import { toPosix } from './fs-scan';
 import type { CliIo } from './main';
-import { painterFor } from './paint';
+import { MONOCHROME, type Painter, outputWidth, painterFor, wrapText } from './paint';
 import type { BaselineOptions } from './perf-baseline';
-import { baselineDrift, baselineRegressions, buildBaseline, readBaseline, writeBaseline } from './perf-baseline';
 import type { PerfFile, PerfRun, Phase } from './perf-data';
 import { PERF_DOCS, formatMs, formatShare, measuredNothing, phasesOf, shareOf, testsRunOf, totalOf } from './perf-data';
 import { formatEvidence } from './perf-evidence';
-import type { GateCandidate, GateOptions } from './perf-gate';
-import {
-  GATE_DEFAULTS,
-  fileBudget,
-  gateCandidates,
-  gateVerdict,
-  isJudged,
-  measuredFiles,
-  medianFileMs,
-  medianTestMs,
-  suspectFiles,
-} from './perf-gate';
-import { HISTORY_LIMIT, appendHistory, historyCandidates, historyEntry, isHistoryPath } from './perf-history';
+import type { GateCandidate, GateOptions, GateRow } from './perf-gate';
+import { gateCandidates, gateVerdict, isJudged, measuredFiles, medianFileMs, medianTestMs, suspectFiles } from './perf-gate';
 import type { CpuProfile } from './perf-profile';
 import { packageOf, summariseProfile } from './perf-profile';
+import type { Collected } from './perf-report';
+import { baselineCandidates, budgetsOf, perfJson, recordBaseline, tableBaseline } from './perf-report';
 import type { PerfMeasured, PerfSource, Remeasure } from './perf-run';
+import { formatVerdict, shortName } from './perf-verdict';
 import type { Profile } from './profile';
 import { type Finding, type Severity, formatFindings, summarize } from './report';
+import { bar, drawTable } from './table';
 
 /** The share at which a phase is worth naming files over. Below it the advice would be noise. */
 const DOMINATES = 0.3;
@@ -358,12 +350,23 @@ export function nothingToDo(analysis: PerfAnalysis): string {
     : `No phase this command has advice for — environment, import, or the three isolation pays per file — is over ${formatShare(DOMINATES)} of the total, and no rule found a file to name. Nothing here is worth your time.`;
 }
 
-/** The phase table, largest share first — the answer to "where did the time go". */
-export function formatPhases(phases: readonly Phase[]): string {
-  const header = `  ${'phase'.padEnd(14)}${'time'.padStart(10)}${'share'.padStart(9)}`;
-  const rows = phases.map((phase) => `  ${phase.name.padEnd(14)}${formatMs(phase.ms).padStart(10)}${formatShare(phase.share).padStart(9)}`);
+const PHASE_BAR_CELLS = 20;
 
-  return [header, ...rows].join('\n');
+function count(value: number, noun: string): string {
+  return `${value} ${noun}${value === 1 ? '' : 's'}`;
+}
+
+/** The phase table, largest share first — the answer to "where did the time go". */
+export function formatPhases(phases: readonly Phase[], paint: Painter = MONOCHROME): string {
+  return drawTable(
+    [
+      { head: 'phase', cells: phases.map((phase) => phase.name), left: true },
+      { head: 'time', cells: phases.map((phase) => formatMs(phase.ms)) },
+      { head: 'share', cells: phases.map((phase) => formatShare(phase.share)) },
+      { head: '', cells: phases.map((phase) => bar(phase.share, PHASE_BAR_CELLS)), left: true, paint: (cell) => paint.cyan(cell) },
+    ],
+    paint,
+  ).join('\n');
 }
 
 function reportFindings(analysis: PerfAnalysis, io: CliIo, minSeverity?: Severity): void {
@@ -373,18 +376,16 @@ function reportFindings(analysis: PerfAnalysis, io: CliIo, minSeverity?: Severit
     return;
   }
 
-  reportOrTally(analysis.findings, io, minSeverity);
+  reportOnly(analysis.findings, io, minSeverity);
 }
 
-/** The report, then the tally — and the tally alone when the threshold hid every finding. */
-function reportOrTally(findings: readonly Finding[], io: CliIo, minSeverity?: Severity): void {
+/** The findings the threshold lets through, or nothing; the one tally for the whole run comes last. */
+function reportOnly(findings: readonly Finding[], io: CliIo, minSeverity?: Severity): void {
   const report = formatFindings(findings, minSeverity);
 
   if (report !== '') {
     io.out(`\n${report}`);
   }
-
-  io.out(`\n${summarize(findings)}`);
 }
 
 /** A slow suite is not a broken one, so this is the only code that means "your suite is over budget". */
@@ -410,6 +411,8 @@ export interface BaselineRequest {
 
 export interface PerfOptions {
   readonly gate?: GateRequest;
+  /** The budgets the tables are drawn against when there is no gate — the same flags, so the report and a later `--gate` agree. */
+  readonly budgets?: GateOptions;
   readonly baseline?: BaselineRequest;
   /** How many rows the hotspot tables print. `0` turns them off. */
   readonly top?: number;
@@ -419,7 +422,11 @@ export interface PerfOptions {
   readonly codeQuality?: string;
   /** `--fail-on-flaky`: a test that passed only on a retry fails the run like a gate finding. */
   readonly failOnFlaky?: boolean;
+  /** `--format json`: one JSON document on stdout instead of the text report. */
+  readonly format?: OutputFormat;
 }
+
+export type OutputFormat = 'json' | 'text';
 
 /**
  * What a run that collected files and executed nothing is told.
@@ -468,7 +475,9 @@ function confirmRun(gate: GateRequest, suspects: readonly string[], cwd: string,
     return undefined;
   }
 
-  io.out(`\nperf gate: re-measuring ${suspects.length} ${suspects.length === 1 ? 'file' : 'files'} on their own before failing anything.`);
+  io.out(
+    `\nperf gate: re-measuring ${suspects.length === 1 ? '1 file on its own' : `${suspects.length} files on their own`} before failing anything.`,
+  );
 
   const second = gate.remeasure(suspects);
 
@@ -505,12 +514,19 @@ function confirmRun(gate: GateRequest, suspects: readonly string[], cwd: string,
  * finding that was not confirmed carries nothing — the second reading did not agree with it, so its
  * profile explains a file that was not slow.
  */
-function withEvidence(finding: Finding, first: PerfRun, second: PerfMeasured | undefined, cwd: string, options: GateOptions): Finding {
+function withEvidence(
+  finding: Finding,
+  row: GateRow,
+  first: PerfRun,
+  second: PerfMeasured | undefined,
+  cwd: string,
+  options: GateOptions,
+): Finding {
   const firstFiles = measuredFiles(first, cwd);
   const before = finding.file === undefined ? undefined : firstFiles.get(finding.file);
   const after = finding.file === undefined || second === undefined ? undefined : measuredFiles(second.run, cwd).get(finding.file);
 
-  if (finding.severity !== 'error' || before === undefined || after === undefined) {
+  if (finding.severity !== 'error' || before === undefined || after === undefined || row.again === undefined) {
     return finding;
   }
 
@@ -518,8 +534,7 @@ function withEvidence(finding: Finding, first: PerfRun, second: PerfMeasured | u
   const slowest = [...after.cases]
     .sort((a, b) => b.ms - a.ms || a.name.localeCompare(b.name))
     .slice(0, 5)
-    // The last two levels of a full name: the `describe` a reader searches for and the `it` inside it.
-    .map((entry) => ({ name: entry.name.split(' > ').slice(-2).join(' > '), ms: entry.ms }));
+    .map((entry) => ({ name: shortName(entry.name), ms: entry.ms }));
   const profile = [...(second?.profiles ?? new Map<string, CpuProfile>())].find(([path]) => toPosix(relative(cwd, path)) === finding.file);
   const imports = (after.slowImports ?? []).map((entry) => ({
     name: packageOf(entry.module) ?? toPosix(relative(cwd, entry.module)),
@@ -527,9 +542,9 @@ function withEvidence(finding: Finding, first: PerfRun, second: PerfMeasured | u
   }));
   const details = formatEvidence(
     {
-      ms: before.tests,
-      budget: fileBudget(before, medianTest, options),
-      again: after.tests,
+      ms: row.ms,
+      budget: row.budget,
+      again: row.again,
       testCount: before.testCount,
       medianTest,
       slowest,
@@ -556,7 +571,7 @@ function runGate(
   io: CliIo,
   gate: GateRequest,
   extra: readonly GateCandidate[],
-  reported: Finding[],
+  collected: Collected,
   minSeverity?: Severity,
 ): number {
   const unmatched = unmatchedScope(run, cwd, gate.options.only);
@@ -565,11 +580,14 @@ function runGate(
     io.err(
       `\n--gate-only named ${unmatched.length === gate.options.only.length ? 'nothing this run measured' : 'paths this run did not measure'}: ${unmatched.join(', ')}. A scope that matches nothing judges nothing, and a gate that judges nothing must not report an all-clear.`,
     );
+    collected.gate = 'refused';
 
     return PERF_NO_MEASUREMENT;
   }
 
   const candidates = [...gateCandidates(run, cwd, gate.options), ...extra];
+
+  collected.gate = 'judged';
 
   if (candidates.length === 0) {
     io.out(`\nperf gate: nothing over budget — no test body over ${formatMs(gate.options.maxTestMs)}, no file over its budget.`);
@@ -579,90 +597,39 @@ function runGate(
 
   const second = confirmRun(gate, suspectFiles(candidates), cwd, io);
   const verdict = gateVerdict(candidates, second?.run, cwd, gate.trustSingle);
-  const findings = verdict.findings.map((finding) => withEvidence(finding, run, second, cwd, gate.options));
+  const findings = verdict.entries.map(({ finding, row }) => withEvidence(finding, row, run, second, cwd, gate.options));
 
-  reported.push(...findings);
-  reportOrTally(findings, io, minSeverity);
+  collected.findings.push(...findings);
+  collected.rows.push(...verdict.rows);
+  io.out(`\n${formatVerdict(verdict.rows, painterFor(undefined)).join('\n')}`);
+  reportOnly(findings, io, minSeverity);
 
   return verdict.failed ? PERF_GATE_FAILED : 0;
 }
 
 /**
- * The baseline half: record this run, or turn what grew since the last recording into candidates the
- * gate judges like any other.
- *
- * A regression arrives as milliseconds rather than as the ratio it was detected by, because the
- * confirmation pass measures a clock and a reader checks one. `wasRatio × factor × this run's median
- * file` is what the recorded share is worth here, and a file over that is a file that grew.
+ * The budgets, then the files and bodies over them, or one line saying there are none. Under
+ * `--gate` that line is left to the gate, which prints its own all-clear a few lines further down.
  */
-function baselineCandidates(run: PerfRun, cwd: string, request: BaselineRequest, io: CliIo): GateCandidate[] {
-  if (isHistoryPath(request.path)) {
-    return historyCandidates(run, cwd, request.path, request.options, io);
-  }
-
-  const baseline = readBaseline(request.path);
-
-  if (baseline === undefined) {
-    io.err(`\nwarning  No baseline to compare against at ${request.path}. Record one with --update-baseline.`);
-
-    return [];
-  }
-
-  const median = medianFileMs(measuredFiles(run, cwd).values());
-  const drift = baselineDrift(run, cwd, baseline);
-
-  if (drift.added.length > 0 || drift.missing.length > 0) {
-    io.out(
-      `\nperf baseline: ${drift.added.length} files this run measured are not in it, ${drift.missing.length} it knows were not measured here. Neither is a finding.`,
-    );
-  }
-
-  return baselineRegressions(run, cwd, baseline, request.options).map((regression) => ({
-    check: 'perf-gate-regression' as const,
-    file: regression.file,
-    ms: regression.ms,
-    budget: regression.wasRatio * request.options.factor * median,
-    grewBy: regression.grewBy,
-    budgetNote: `${request.options.factor}× its recorded share of the run, from ${request.path}`,
-  }));
-}
-
-function recordBaseline(run: PerfRun, cwd: string, path: string, io: CliIo): void {
-  if (isHistoryPath(path)) {
-    const entry = historyEntry(run, cwd, new Date(), process.env);
-    const runs = appendHistory(path, entry);
-
-    io.out(
-      `\nperf history: recorded ${Object.keys(entry.files).length} files at a median of ${formatMs(entry.median)} into ${path}, which now holds ${runs} of the last ${HISTORY_LIMIT} runs. Keep it in the CI cache or an artifact; record only from the default branch.`,
-    );
-
-    return;
-  }
-
-  const baseline = buildBaseline(run, cwd);
-
-  writeBaseline(path, baseline);
-  io.out(
-    `\nperf baseline: recorded ${Object.keys(baseline.files).length} files at a median of ${formatMs(baseline.median)} into ${path}. Commit it — it is only worth what the next reader can diff.`,
-  );
-}
-
-/**
- * The files and bodies over budget, or one line saying there are none. Under `--gate` that line is
- * left to the gate, which prints its own all-clear a few lines further down.
- */
-function reportHotspots(run: PerfRun, cwd: string, options: PerfOptions, io: CliIo): void {
+function reportHotspots(source: PerfMeasured, cwd: string, options: PerfOptions, io: CliIo): void {
   if (options.top === 0) {
     return;
   }
 
-  const gate = options.gate?.options ?? GATE_DEFAULTS;
-  const hotspots = formatHotspots(run, cwd, options.top === undefined ? { gate } : { gate, limit: options.top });
+  const gate = budgetsOf(options);
+  const baseline = tableBaseline(options.baseline);
+  const hotspots = formatHotspots(source.run, cwd, {
+    gate,
+    ...(options.top === undefined ? {} : { limit: options.top }),
+    ...(baseline === undefined ? {} : { baseline }),
+  });
+
+  io.out(`\n${budgetLine(gate, medianTestMs(measuredFiles(source.run, cwd).values()), outputWidth()).join('\n')}`);
 
   if (hotspots !== '') {
     io.out(`\n${hotspots}`);
   } else if (options.gate === undefined) {
-    io.out(`\n${nothingOverBudgetNote(gate)}`);
+    io.out(`\n${wrapText(nothingOverBudgetNote(gate, source.runFailed), outputWidth(), '  ', '').join('\n')}`);
   }
 }
 
@@ -674,6 +641,19 @@ function reportHotspots(run: PerfRun, cwd: string, options: PerfOptions, io: Cli
  * failing (1) and there being nothing to judge (2).
  */
 export function renderPerf(source: PerfSource, profile: Profile, io: CliIo, options: PerfOptions = {}): number {
+  const json = options.format === 'json';
+  const text: CliIo = json ? { out: () => undefined, err: io.err } : io;
+  const collected: Collected = { findings: [], rows: [] };
+  const code = renderInto(source, profile, text, options, collected);
+
+  if (json) {
+    io.out(JSON.stringify(perfJson(source, profile, options, collected, code), undefined, 2));
+  }
+
+  return code;
+}
+
+function renderInto(source: PerfSource, profile: Profile, io: CliIo, options: PerfOptions, collected: Collected): number {
   if (!source.ok) {
     io.err(source.error);
 
@@ -696,42 +676,47 @@ export function renderPerf(source: PerfSource, profile: Profile, io: CliIo, opti
     io.err('warning  The suite did not pass. The timings below are still what the run measured.\n');
   }
 
-  const reported: Finding[] = [];
-  const code = reportMeasured(source, profile, io, options, reported);
+  const code = reportMeasured(source, profile, io, options, collected);
+
+  io.out(`\n${summarize(collected.findings, options.minSeverity)}`);
 
   if (options.codeQuality !== undefined) {
-    writeCodeQuality(options.codeQuality, reported, options.minSeverity);
+    writeCodeQuality(options.codeQuality, collected.findings, options.minSeverity);
   }
 
   return code;
 }
 
-function reportMeasured(source: PerfMeasured, profile: Profile, io: CliIo, options: PerfOptions, reported: Finding[]): number {
+function reportMeasured(source: PerfMeasured, profile: Profile, io: CliIo, options: PerfOptions, collected: Collected): number {
   const analysis = analysePerf(source.run, profile, options.failOnFlaky === true);
+  const measured = [...measuredFiles(source.run, profile.cwd).values()];
 
-  reported.push(...analysis.findings);
+  collected.analysis = analysis;
+  collected.run = source.run;
+  collected.findings.push(...analysis.findings);
   io.out(`vitest-auto-spy perf — ${profile.cwd}`);
   io.out(
-    `${analysis.fileCount} test files, ${formatMs(source.run.wall)} wall clock, ${formatMs(analysis.total)} of CPU time summed over the workers\n`,
+    `${count(analysis.fileCount, 'test file')}, ${count(testsRunOf(source.run), 'test')}, ${formatMs(source.run.wall)} wall clock, ${formatMs(analysis.total)} of CPU time summed over the workers`,
   );
+  io.out(`median test ${formatMs(medianTestMs(measured))}, median file ${formatMs(medianFileMs(measured))}\n`);
 
   if (source.note !== undefined) {
     io.out(`${source.note}\n`);
   }
 
-  io.out(formatPhases(analysis.phases));
+  io.out(formatPhases(analysis.phases, painterFor(undefined)));
 
   reportFindings(analysis, io, options.minSeverity);
-  reportHotspots(source.run, profile.cwd, options, io);
+  reportHotspots(source, profile.cwd, options, io);
 
-  const code = judgeMeasured(source, profile, io, options, reported);
+  const code = judgeMeasured(source, profile, io, options, collected);
 
   return code === 0 && analysis.findings.some((finding) => finding.check === 'perf-flaky' && finding.severity === 'error')
     ? PERF_GATE_FAILED
     : code;
 }
 
-function judgeMeasured(source: PerfMeasured, profile: Profile, io: CliIo, options: PerfOptions, reported: Finding[]): number {
+function judgeMeasured(source: PerfMeasured, profile: Profile, io: CliIo, options: PerfOptions, collected: Collected): number {
   const gate = options.gate;
 
   if (options.baseline?.update === true) {
@@ -743,12 +728,10 @@ function judgeMeasured(source: PerfMeasured, profile: Profile, io: CliIo, option
   const regressions = options.baseline === undefined ? [] : baselineCandidates(source.run, profile.cwd, options.baseline, io);
 
   if (gate === undefined) {
-    if (regressions.length > 0) {
-      const findings = gateVerdict(regressions, undefined, profile.cwd, false).findings;
+    const findings = gateVerdict(regressions, undefined, profile.cwd, false).findings;
 
-      reported.push(...findings);
-      io.out(`\n${formatFindings(findings, options.minSeverity)}`);
-    }
+    collected.findings.push(...findings);
+    reportOnly(findings, io, options.minSeverity);
 
     return 0;
   }
@@ -757,9 +740,10 @@ function judgeMeasured(source: PerfMeasured, profile: Profile, io: CliIo, option
     io.err(
       '\nThe gate does not judge a run that did not pass: a failed test is measured until its timeout, and 30 s of timeout looks exactly like 30 s of slow code. Fix the suite, then gate it.',
     );
+    collected.gate = 'refused';
 
     return PERF_NO_MEASUREMENT;
   }
 
-  return runGate(source.run, profile.cwd, io, gate, regressions, reported, options.minSeverity);
+  return runGate(source.run, profile.cwd, io, gate, regressions, collected, options.minSeverity);
 }

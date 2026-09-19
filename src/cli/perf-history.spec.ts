@@ -205,10 +205,10 @@ describe('renderPerf with a history', () => {
       }),
     ).toBe(1);
 
-    const out = io.stdout.join('\n');
+    const out = io.stdout.join('\n').replace(/\s+/g, ' ');
 
     expect(out).toContain('perf history: 3 recorded runs; 0 files this run measured are new to it');
-    expect(out).toContain('error  perf-gate-regression src/grew.spec.ts');
+    expect(out).toContain('error perf-gate-regression src/grew.spec.ts');
     expect(out).toContain('8.0× their mean share of the run in the recorded history');
     expect(out).toContain('2× its mean share over 3 recorded runs, and above the largest of them');
   });

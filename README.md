@@ -525,7 +525,8 @@ change detection, JIT compilation, computed styles — and the likely cause read
 perf-history.jsonl` keeps the last 30 runs in a cache and fails a file only past twice its mean share
 and above every share it was recorded at; `--fail-on-flaky` fails a test that passed only on a retry;
 and `--code-quality <path>`, on `perf` and on `doctor`, writes the findings for the GitLab merge
-request widget.
+request widget. `--format json` prints either command as one JSON document on stdout, with the gate's verdict
+rows, for a script that would otherwise parse the text.
 
 `--command` is also the answer to a bare `vitest run` not being your suite at all: where the suite is
 built by an Angular builder, an Nx target or a script, there is no root config, the defaults sweep up

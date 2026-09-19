@@ -6,6 +6,7 @@ import { resolve } from 'node:path';
 
 import type { ParsedArgs } from './args';
 import { flagEnabled, flagList, flagNumber, flagValue, parseArgs } from './args';
+import { isSpecFile } from './checks/graph';
 import { writeCodeQuality } from './code-quality';
 import { runCodemod } from './codemod/run';
 import { runDoctor } from './doctor';
@@ -13,16 +14,16 @@ import { isDirectory } from './fs-scan';
 import { HELP } from './help';
 import { runInit } from './init';
 import type { InitAction, InitResult } from './init';
-import type { BaselineRequest, GateRequest } from './perf';
+import type { BaselineRequest, GateRequest, OutputFormat } from './perf';
 import { renderPerf } from './perf';
 import { BASELINE_DEFAULTS, DEFAULT_BASELINE_FILE } from './perf-baseline';
 import { CASE_FLOOR_MS } from './perf-data';
 import type { GateOptions } from './perf-gate';
 import { GATE_DEFAULTS } from './perf-gate';
 import type { PerfRunOptions } from './perf-run';
-import { perfRemeasure, readPerfRun } from './perf-run';
+import { perfRemeasure, readPerfRun, spawnProcess, spawnToStderr } from './perf-run';
 import { readProfile } from './profile';
-import { type Severity, formatFindings, hasFailures, summarize } from './report';
+import { REPORT_SCHEMA, type Severity, findingJson, formatFindings, hasFailures, sortFindings, summarize, tallyOf } from './report';
 import { ownVersion } from './self';
 
 export interface CliIo {
@@ -43,36 +44,71 @@ function minSeverityOf(args: ParsedArgs): Severity | undefined {
   return raw === 'warning' || raw === 'warn' ? 'warning' : undefined;
 }
 
+/** `--format`: `text` unless asked otherwise, and `undefined` for a word that is neither. */
+function formatOf(args: ParsedArgs): OutputFormat | undefined {
+  const raw = flagValue(args, 'format')?.trim().toLowerCase() ?? 'text';
+
+  return raw === 'json' || raw === 'text' ? raw : undefined;
+}
+
+function rejectFormat(args: ParsedArgs, io: CliIo): boolean {
+  if (formatOf(args) !== undefined) {
+    return false;
+  }
+
+  io.err(`Unknown --format value: ${String(flagValue(args, 'format'))}. Accepted values: text, json. Nothing ran.`);
+
+  return true;
+}
+
 function doctorCommand(cwd: string, argv: readonly string[], io: CliIo): number {
+  const args = parseArgs(argv);
   const profile = readProfile(cwd);
   const findings = runDoctor(profile);
-
-  io.out(`vitest-auto-spy doctor — ${cwd}`);
-  io.out(`${profile.files.length} files, runner: ${profile.runner}, entry: ${profile.entry}\n`);
-
-  const args = parseArgs(argv);
   const minSeverity = minSeverityOf(args);
   const codeQuality = flagValue(args, 'code-quality');
+  const exitCode = hasFailures(findings) ? 1 : 0;
+  const specFiles = profile.files.filter(isSpecFile).length;
 
   if (codeQuality !== undefined) {
     writeCodeQuality(resolve(cwd, codeQuality), findings, minSeverity);
   }
 
-  if (findings.length === 0) {
-    io.out('No problems found.');
+  if (formatOf(args) === 'json') {
+    io.out(
+      JSON.stringify(
+        {
+          schema: REPORT_SCHEMA,
+          command: 'doctor',
+          version: ownVersion(),
+          cwd,
+          runner: profile.runner,
+          entry: profile.entry,
+          scanned: { files: profile.files.length, specFiles, truncated: profile.filesTruncated },
+          exitCode,
+          tally: tallyOf(findings),
+          findings: sortFindings(findings).map(findingJson),
+        },
+        undefined,
+        2,
+      ),
+    );
 
-    return 0;
+    return exitCode;
   }
 
-  const report = formatFindings(findings, minSeverity);
+  io.out(`vitest-auto-spy doctor — ${cwd}`);
+  io.out(`${profile.files.length} files scanned, ${specFiles} of them spec files — runner: ${profile.runner}, entry: ${profile.entry}\n`);
+
+  const report = findings.length === 0 ? 'No problems found.' : formatFindings(findings, minSeverity);
 
   if (report !== '') {
-    io.out(report);
+    io.out(`${report}\n`);
   }
 
-  io.out(`\n${summarize(findings)}`);
+  io.out(summarize(findings, minSeverity));
 
-  return hasFailures(findings) ? 1 : 0;
+  return exitCode;
 }
 
 /**
@@ -122,6 +158,8 @@ function baselineRequest(args: ParsedArgs, cwd: string): BaselineRequest | undef
 
 function perfCommand(cwd: string, argv: readonly string[], io: CliIo): number {
   const args = parseArgs(argv);
+  const format = formatOf(args);
+  const spawn = format === 'json' ? spawnToStderr : spawnProcess;
   const profile = readProfile(cwd);
   const options: PerfRunOptions = {
     cwd,
@@ -133,14 +171,16 @@ function perfCommand(cwd: string, argv: readonly string[], io: CliIo): number {
   };
   const trustSingle = flagEnabled(args, 'no-confirm');
   const gate: GateRequest | undefined = flagEnabled(args, 'gate')
-    ? { options: gateOptions(args), remeasure: trustSingle ? undefined : perfRemeasure(options), trustSingle }
+    ? { options: gateOptions(args), remeasure: trustSingle ? undefined : perfRemeasure(options, spawn), trustSingle }
     : undefined;
   const baseline = baselineRequest(args, cwd);
   const top = flagNumber(args, 'top');
   const minSeverity = minSeverityOf(args);
   const codeQuality = flagValue(args, 'code-quality');
 
-  return renderPerf(readPerfRun(options), profile, io, {
+  return renderPerf(readPerfRun(options, spawn), profile, io, {
+    budgets: gateOptions(args),
+    ...(format === 'json' ? { format } : {}),
     ...(gate === undefined ? {} : { gate }),
     ...(baseline === undefined ? {} : { baseline }),
     ...(top === undefined ? {} : { top }),
@@ -219,7 +259,7 @@ const COMMON_FLAGS: readonly string[] = ['cwd', 'help', 'version'];
  */
 const COMMAND_FLAGS: Readonly<Record<string, readonly string[]>> = {
   codemod: ['from', 'list', 'only', 'skip', 'verify', 'write'],
-  doctor: ['code-quality', 'min-severity'],
+  doctor: ['code-quality', 'format', 'min-severity'],
   init: ['check', 'dry-run', 'uninstall'],
   perf: [
     'baseline',
@@ -229,6 +269,7 @@ const COMMAND_FLAGS: Readonly<Record<string, readonly string[]>> = {
     'command',
     'factor',
     'fail-on-flaky',
+    'format',
     'gate',
     'gate-only',
     'json',
@@ -302,7 +343,7 @@ export function runCli(argv: readonly string[], io: CliIo): number {
     return args.command === undefined && !flagEnabled(args, 'help') ? 2 : 0;
   }
 
-  if (rejectFlags(args, args.command, io)) {
+  if (rejectFlags(args, args.command, io) || rejectFormat(args, io)) {
     return 2;
   }
 

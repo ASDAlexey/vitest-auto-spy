@@ -35,8 +35,18 @@ import {
   totalOf,
 } from './perf-data';
 import { cleanRepo, file, recorder, run } from './perf-fixtures';
+import { GATE_DEFAULTS } from './perf-gate';
 import type { PerfRunOptions, PerfSource, Spawn, SpawnRequest } from './perf-run';
-import { commandTakesPaths, perfRemeasure, readPerfRun, reporterPath, shellQuote, spawnProcess, withPaths } from './perf-run';
+import {
+  commandTakesPaths,
+  perfRemeasure,
+  readPerfRun,
+  reporterPath,
+  shellQuote,
+  spawnProcess,
+  spawnToStderr,
+  withPaths,
+} from './perf-run';
 import { readProfile } from './profile';
 import { createTempRepo, removeTempRepos } from './temp-repo';
 
@@ -164,6 +174,12 @@ describe('formatMs', () => {
     expect(formatMs(999.4)).toBe('999ms');
     expect(formatMs(8_910)).toBe('8.91s');
     expect(formatShare(0.5602)).toBe('56.0%');
+  });
+});
+
+describe('spawnToStderr', () => {
+  it('runs the command and returns its status, with the suite printing to stderr', () => {
+    expect(spawnToStderr({ command: 'exit 3', args: [], cwd: process.cwd(), env: {}, shell: true }).status).toBe(3);
   });
 });
 
@@ -788,6 +804,25 @@ describe('renderPerf', () => {
 
   const render = (root: string, over: Partial<PerfFile>, io: CliIo): number => renderPerf(sourceOf(root, over), readProfile(root), io);
 
+  it('says in --format json how the gate could confirm, and carries a whole-run budget when one was set', () => {
+    const root = cleanRepo(1);
+    const io = recorder();
+    const remeasure = (): PerfSource => ({ ok: false, error: 'no second run' });
+    const gate = { options: { ...GATE_DEFAULTS, maxWallMs: 60_000 }, remeasure, trustSingle: false };
+
+    expect(renderPerf(sourceOf(root, { tests: 100, testCount: 1 }), readProfile(root), io, { gate, format: 'json' })).toBe(0);
+    expect(JSON.parse(io.stdout.join(''))).toMatchObject({
+      budgets: { maxWallMs: 60_000 },
+      gate: { status: 'judged', confirmation: 'remeasure', verdicts: [] },
+    });
+
+    const plain = recorder();
+
+    renderPerf(sourceOf(root, { tests: 100, testCount: 1 }), readProfile(root), plain, { format: 'json' });
+
+    expect(JSON.parse(plain.stdout.join(''))).toMatchObject({ gate: null, budgets: { maxWallMs: null } });
+  });
+
   it('prints the phase table and the findings', () => {
     const io = recorder();
 
@@ -796,7 +831,7 @@ describe('renderPerf', () => {
     const out = io.stdout.join('\n');
 
     expect(out).toContain('vitest-auto-spy perf —');
-    expect(out).toContain('1 test files, 1.23s wall clock');
+    expect(out).toContain('1 test file, 1 test, 1.23s wall clock');
     expect(out).toContain('environment');
     expect(out).toContain('perf-environment-node-candidate src/case-0.spec.ts');
     expect(out).toContain('0 errors, 0 warnings');

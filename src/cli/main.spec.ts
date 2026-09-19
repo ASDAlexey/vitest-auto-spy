@@ -4,7 +4,7 @@
  * an instruction block that has drifted from the installed version.
  */
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { pathExists, readTextFile, writeTextFile } from './fs-scan';
 import { guardBrokenPipe, runCli } from './main';
@@ -341,5 +341,111 @@ describe('perf flags', () => {
 
     expect(out).toContain('perf-gate-slow-file src/ran.spec.ts');
     expect(out).not.toContain('src/empty.spec.ts');
+  });
+});
+
+describe('--format json', () => {
+  it('prints doctor as one JSON document with every finding, whatever --min-severity hides from the text', () => {
+    const io = recorder();
+    const root = createTempRepo({ 'package.json': '{}', 'src/a.spec.ts': '' });
+
+    expect(runCli(['doctor', '--cwd', root, '--format', 'json', '--min-severity', 'error'], io)).toBe(0);
+
+    const document: unknown = JSON.parse(io.stdout.join('\n'));
+
+    expect(document).toMatchObject({
+      schema: 1,
+      command: 'doctor',
+      cwd: root,
+      exitCode: 0,
+      scanned: { specFiles: 1, truncated: false },
+      tally: { errors: 0, warnings: 0, notes: 1 },
+      findings: [{ check: 'no-agent-instructions', severity: 'info' }],
+    });
+  });
+
+  it('prints perf as one JSON document: the run, the budgets, the gate and the findings', () => {
+    const io = recorder();
+    const root = createTempRepo(HEALTHY);
+    const files = [
+      ...Array.from({ length: 9 }, (_unused, index) => ({ file: `${root}/o-${index}.spec.ts`, tests: 100, testCount: 40 })),
+      { file: `${root}/slow.spec.ts`, tests: 9_000, testCount: 4 },
+    ];
+
+    writeTextFile(join(root, 'perf.json'), JSON.stringify({ version: 2, root, transform: 0, wall: 1_000, failed: 0, files }));
+
+    expect(runCli(['perf', '--cwd', root, '--json', join(root, 'perf.json'), '--gate', '--no-confirm', '--format', 'json'], io)).toBe(1);
+    expect(io.stdout).toHaveLength(1);
+
+    const document: unknown = JSON.parse(io.stdout.join(''));
+
+    expect(document).toMatchObject({
+      command: 'perf',
+      exitCode: 1,
+      run: { files: 10, tests: 364, failed: false, wallMs: 1_000 },
+      budgets: { maxTestMs: 1_000, maxWallMs: null },
+      gate: { status: 'judged', confirmation: 'single-reading', verdicts: [{ file: 'slow.spec.ts', outcome: 'single reading' }] },
+      tally: { errors: 1 },
+    });
+  });
+
+  it('still prints a document, with the error, when there is no report to read', () => {
+    const io = recorder();
+    const root = createTempRepo(HEALTHY);
+
+    expect(runCli(['perf', '--cwd', root, '--json', join(root, 'nowhere.json'), '--format', 'json', '--gate'], io)).toBe(2);
+    expect(JSON.parse(io.stdout.join(''))).toMatchObject({
+      exitCode: 2,
+      run: null,
+      gate: { status: 'skipped', confirmation: 'unavailable' },
+    });
+    expect(io.stderr.join('\n')).toContain('Not a perf report');
+  });
+
+  it('refuses a format it does not know, before anything runs', () => {
+    const io = recorder();
+
+    expect(runCli(['doctor', '--format', 'xml'], io)).toBe(2);
+    expect(io.stderr.join('\n')).toContain('Unknown --format value: xml');
+    expect(runCli(['doctor', '--format', 'TEXT', '--cwd', createTempRepo(HEALTHY)], recorder())).toBe(0);
+  });
+});
+
+describe('doctor text', () => {
+  it('says how much it read, and ends in the tally even when nothing was found', () => {
+    const io = recorder();
+    const root = createTempRepo({ ...HEALTHY, 'src/a.spec.ts': '' });
+
+    expect(runCli(['doctor', '--cwd', root], io)).toBe(0);
+    expect(io.stdout.join('\n')).toContain('4 files scanned, 1 of them spec files — runner: vitest');
+    expect(io.stdout.at(-1)).toBe('0 errors, 0 warnings, 0 notes');
+  });
+
+  it('warns when the scan stopped at its cap, because every other check then read part of the tree', () => {
+    vi.stubEnv('VITEST_AUTO_SPY_SCAN_CAP', '1');
+
+    const io = recorder();
+    const root = createTempRepo(HEALTHY);
+
+    expect(runCli(['doctor', '--cwd', root], io)).toBe(1);
+    expect(io.stdout.join('\n')).toContain('warn   scan-cap-reached');
+
+    vi.unstubAllEnvs();
+  });
+});
+
+describe('perf budgets without --gate', () => {
+  it('draws the tables against the budgets on the command line, which is what a later --gate judges', () => {
+    const io = recorder();
+    const root = createTempRepo(HEALTHY);
+    const files = [
+      ...Array.from({ length: 9 }, (_unused, index) => ({ file: `${root}/o-${index}.spec.ts`, tests: 100, testCount: 40 })),
+      { file: `${root}/busy.spec.ts`, tests: 600, testCount: 4, cases: [{ name: 'waits', ms: 400 }] },
+    ];
+
+    writeTextFile(join(root, 'perf.json'), JSON.stringify({ version: 2, root, transform: 0, wall: 1_000, failed: 0, files }));
+
+    expect(runCli(['perf', '--cwd', root, '--json', join(root, 'perf.json'), '--max-test-ms', '300'], io)).toBe(0);
+    expect(io.stdout.join('\n')).toContain('test bodies over budget — 1, each over --max-test-ms 300ms');
   });
 });

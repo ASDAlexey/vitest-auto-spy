@@ -14,6 +14,7 @@ import { buildGraph } from './checks/graph';
 import { checkHelperEntry } from './checks/helper-entry';
 import { checkJasmineEra } from './checks/jasmine-era';
 import { checkOrphanRunnerConfig } from './checks/orphan-runner-config';
+import { checkScanCap } from './checks/scan-cap';
 import { checkSpecImports } from './checks/spec-imports';
 import { checkTsconfigGlobs } from './checks/tsconfig-globs';
 import { checkUnawaitedHelper } from './checks/unawaited-helper';
@@ -24,6 +25,7 @@ export function runDoctor(profile: Profile): Finding[] {
   const graph = buildGraph(profile);
 
   return [
+    ...checkScanCap(profile),
     ...checkTsconfigGlobs(profile),
     ...checkSpecImports(graph),
     ...checkForeignPragma(graph),

@@ -4036,7 +4036,8 @@ Full reference: <https://asdalexey.github.io/vitest-auto-spy/utilities/cli>.
   worktrees under it listed every file twice, so `doctor` reported each import graph in duplicate and
   `codemod --write` would have rewritten specs on another branch. A `.git` entry is a stop, whether
   it is a directory (a nested clone) or a file (a worktree). Past 50 000 files the scan still
-  truncates and says so; `VITEST_AUTO_SPY_SCAN_CAP` raises the cap.
+  truncates, and `doctor` reports that as a `scan-cap-reached` warning (exit 1) rather than a clean
+  result; `VITEST_AUTO_SPY_SCAN_CAP` raises the cap.
 - **A path that matches no file is an error, exit 2.** _Nothing left to migrate_ off a path nobody
   read is not a clean result. Absolute paths and `./`-style ones resolve against `--cwd`.
 
@@ -4045,6 +4046,14 @@ here is the finding" — `doctor` with an error, `init --check` with a stale blo
 note, `perf --gate` over budget; **2** is "there was nothing to judge" — no command, an unknown
 command, an unknown flag, an unreadable `--only` / `--from` value, a path matching no file, and a
 `perf` run that measured nothing (including a red suite, which the gate will not judge at all).
+
+**Reading the output from a script: `--format json`**, on `doctor` and on `perf`. One JSON document
+on stdout — `schema`, `exitCode`, `tally` (`errors`, `warnings`, `notes`), every finding with
+`check`, `severity`, `file`, `message`, `fix`; `perf` adds `run`, `budgets` and `gate.verdicts` (one row
+per candidate, `outcome` one of `confirmed`, `not reproduced`, `unconfirmed`, `single reading`,
+`over budget`). Parse that rather than the text: the text is wrapped to the terminal (80 columns in a
+pipe), groups one cause found in many files into one block, and ends in a tally line that starts
+with `N errors, N warnings, N notes`.
 
 ### If you were asked why a suite is slow
 

@@ -339,8 +339,27 @@ function finding(candidate: GateCandidate, severity: Finding['severity'], tail: 
   };
 }
 
+/** What the gate decided about one candidate, as a row of the verdict table and of `--format json`. */
+export type GateOutcome = 'confirmed' | 'not reproduced' | 'over budget' | 'single reading' | 'unconfirmed';
+
+export interface GateRow {
+  readonly check: GateCheck;
+  readonly file?: string;
+  /** The test's full name, for a body. */
+  readonly name?: string;
+  readonly ms: number;
+  readonly budget: number;
+  /** The confirmation pass's reading, when there was one. */
+  readonly again?: number;
+  readonly outcome: GateOutcome;
+}
+
 export interface GateVerdict {
   readonly findings: readonly Finding[];
+  /** One per candidate that was judged, in the order the findings are. */
+  readonly rows: readonly GateRow[];
+  /** The two side by side. */
+  readonly entries: readonly { readonly finding: Finding; readonly row: GateRow }[];
   /** Whether the run should exit non-zero: a confirmed finding, or one the caller chose to trust. */
   readonly failed: boolean;
 }
@@ -356,6 +375,7 @@ const UNCONFIRMED = [
  */
 interface Judged {
   readonly finding: Finding;
+  readonly row: GateRow;
   /** Whether this one fails the run. */
   readonly failed: boolean;
   /** Whether it survived a second measurement — the only thing that may suppress a file total. */
@@ -363,10 +383,23 @@ interface Judged {
 }
 
 /** One candidate against its second reading, or against the absence of one. */
+function rowOf(candidate: GateCandidate, outcome: GateOutcome, again?: number): GateRow {
+  return {
+    check: candidate.check,
+    ...(candidate.check === 'perf-gate-wall' ? {} : { file: candidate.file }),
+    ...(candidate.check === 'perf-gate-slow-test' ? { name: candidate.name } : {}),
+    ms: candidate.ms,
+    budget: candidate.budget,
+    ...(again === undefined ? {} : { again }),
+    outcome,
+  };
+}
+
 function judge(candidate: GateCandidate, second: ReadonlyMap<string, PerfFile> | undefined, trustSingle: boolean): Judged {
   if (candidate.check === 'perf-gate-wall') {
     return {
       finding: finding(candidate, 'error', 'A whole-run budget is not re-measured: the second run would be the same suite again.'),
+      row: rowOf(candidate, 'over budget'),
       failed: true,
       confirmed: false,
     };
@@ -377,12 +410,18 @@ function judge(candidate: GateCandidate, second: ReadonlyMap<string, PerfFile> |
   if (again === undefined) {
     const tail = trustSingle ? 'Measured once, and --no-confirm said that is enough.' : UNCONFIRMED;
 
-    return { finding: finding(candidate, trustSingle ? 'error' : 'warning', tail), failed: trustSingle, confirmed: false };
+    return {
+      finding: finding(candidate, trustSingle ? 'error' : 'warning', tail),
+      row: rowOf(candidate, trustSingle ? 'single reading' : 'unconfirmed'),
+      failed: trustSingle,
+      confirmed: false,
+    };
   }
 
   if (again >= candidate.budget) {
     return {
       finding: finding(candidate, 'error', `Re-measured on its own: ${formatMs(again)}, still over budget.`),
+      row: rowOf(candidate, 'confirmed', again),
       failed: true,
       confirmed: true,
     };
@@ -392,6 +431,7 @@ function judge(candidate: GateCandidate, second: ReadonlyMap<string, PerfFile> |
 
   return {
     finding: finding(candidate, 'info', `${under} — not reported as a defect. It was sharing a worker, not running slowly.`),
+    row: rowOf(candidate, 'not reproduced', again),
     failed: false,
     confirmed: false,
   };
@@ -420,6 +460,8 @@ export function gateVerdict(
 ): GateVerdict {
   const second = confirm === undefined ? undefined : measuredFiles(confirm, cwd);
   const findings: Finding[] = [];
+  const rows: GateRow[] = [];
+  const entries: { finding: Finding; row: GateRow }[] = [];
   const confirmedBodies = new Set<string>();
   let failed = false;
 
@@ -427,6 +469,8 @@ export function gateVerdict(
     const judged = judge(candidate, second, trustSingle);
 
     findings.push(judged.finding);
+    rows.push(judged.row);
+    entries.push({ finding: judged.finding, row: judged.row });
     failed = failed || judged.failed;
 
     if (judged.confirmed && candidate.check === 'perf-gate-slow-test') {
@@ -444,5 +488,5 @@ export function gateVerdict(
     }
   }
 
-  return { findings, failed };
+  return { findings, rows, entries, failed };
 }

@@ -349,10 +349,11 @@ describe('renderPerf --baseline', () => {
       }),
     ).toBe(1);
 
-    const out = io.stdout.join('\n');
+    const out = io.stdout.join('\n').replace(/\s+/g, ' ');
 
-    expect(out).toContain('error  perf-gate-regression src/grew.spec.ts');
+    expect(out).toContain('error perf-gate-regression src/grew.spec.ts');
     expect(out).toContain('the share of the run they took when the baseline was recorded');
+    expect(out).toContain('first run 3.00s budget 600ms 5.0× over');
   });
 
   it('reports what drifted, and says so when there is no baseline to read at all', () => {

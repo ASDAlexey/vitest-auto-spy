@@ -8,7 +8,8 @@ Commands
   doctor    Report suite-level defects that never fail a run: a tsconfig include
             pattern that matches no file, a spec another file imports, a foreign
             runner's docblock pragma, configuration for a runner that is gone.
-            Read-only — it never edits a file. Exits 1 when anything is found.
+            Read-only — it never edits a file. Exits 1 on an error or a
+            warning; a note never fails the run.
 
   codemod   Migrate a suite off jest-auto-spies and Jest: split the legacy
             import across this package's entry points, rewrite
@@ -127,10 +128,12 @@ Options
                  prints everything. The tally line still counts what was hidden,
                  and nothing about the exit code moves — a note never failed a
                  run. Works for doctor and for perf.
-  --top <n>      perf only. Rows in the "slowest files" and "slowest bodies"
-                 tables. 0 turns them off. Asked for explicitly, a run whose
-                 slowest file is under the one-second floor says so rather
-                 than printing nothing.
+  --top <n>      perf only. Rows in the "files over budget" and "test bodies
+                 over budget" tables. 0 turns them off. The budget flags draw
+                 the tables with or without --gate.
+  --format <f>   text (default) or json: one JSON document on stdout, with
+                 every finding and, for perf, the gate's verdict rows. The
+                 suite's own output goes to stderr. Works for doctor and perf.
   --check        init only. Write nothing; exit 1 if the block is out of date.
   --dry-run      init only. Print what would change and write nothing.
   --uninstall    init only. Remove the managed blocks and the files it created.

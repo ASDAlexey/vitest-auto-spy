@@ -5,6 +5,7 @@
  * fail anything — a spec no tsconfig covers, a pragma the runner does not read — so there is no
  * throw site to hang them off. They are collected, sorted and printed together.
  */
+import { outputWidth, stripColor, wrapText } from './paint';
 
 /** How loudly a finding is reported, and whether it makes the process exit non-zero. */
 export type Severity = 'error' | 'info' | 'warning';
@@ -26,6 +27,11 @@ export interface Finding {
 const SEVERITY_ORDER: Record<Severity, number> = { error: 0, warning: 1, info: 2 };
 const SEVERITY_LABEL: Record<Severity, string> = { error: 'error', warning: 'warn ', info: 'info ' };
 
+/** Under the severity label, so every line of a finding but its first starts with whitespace. */
+const BODY = '       ';
+const ITEM = `${BODY}  `;
+const ITEM_BODY = `${ITEM}  `;
+
 /** Errors first, then warnings, then info; inside a severity, by check id and then by file. */
 export function sortFindings(findings: readonly Finding[]): Finding[] {
   return [...findings].sort((a, b) => {
@@ -46,15 +52,70 @@ export function hasFailures(findings: readonly Finding[]): boolean {
   return findings.some((finding) => finding.severity !== 'info');
 }
 
-function formatOne(finding: Finding): string {
+function fixLines(fix: string, width: number): string[] {
+  return wrapText(fix, width, `${BODY}  `, `${BODY}→ `);
+}
+
+function formatOne(finding: Finding, width: number): string {
   const where = finding.file === undefined ? '' : ` ${finding.file}`;
 
   return [
     `${SEVERITY_LABEL[finding.severity]}  ${finding.check}${where}`,
-    `       ${finding.message}`,
-    ...(finding.details ?? []).map((line) => `       ${line}`),
-    `       → ${finding.fix}`,
+    ...wrapText(finding.message, width, BODY),
+    ...(finding.details ?? []).map((line) => `${BODY}${line}`),
+    ...fixLines(finding.fix, width),
   ].join('\n');
+}
+
+/**
+ * One cause in many places: the same check with the same fix, each about a file. Printed once with
+ * the files under it, and the message once too when every place says the same thing.
+ */
+function formatGroup({ first, members: group }: FindingGroup, width: number): string {
+  const sameMessage = group.every((finding) => finding.message === first.message);
+  const places = group.flatMap((finding) => [
+    `${ITEM}${String(finding.file)}`,
+    ...(sameMessage ? [] : wrapText(finding.message, width, ITEM_BODY)),
+  ]);
+
+  return [
+    `${SEVERITY_LABEL[first.severity]}  ${first.check} — ${placesOf(group)}`,
+    ...(sameMessage ? wrapText(first.message, width, BODY) : []),
+    ...places,
+    ...fixLines(first.fix, width),
+  ].join('\n');
+}
+
+function placesOf(group: readonly Finding[]): string {
+  const files = new Set(group.map((finding) => finding.file)).size;
+
+  return files === group.length ? `${files} files` : `${group.length} places in ${files} ${files === 1 ? 'file' : 'files'}`;
+}
+
+/** A finding that carries evidence of its own, or names no file, is never folded into another. */
+function groupKey(finding: Finding, index: number): string {
+  return finding.details === undefined && finding.file !== undefined
+    ? `${finding.severity}\n${finding.check}\n${finding.fix}`
+    : `\n${index}`;
+}
+
+export interface FindingGroup {
+  readonly first: Finding;
+  /** `first` included, in report order. */
+  readonly members: readonly Finding[];
+}
+
+export function groupFindings(findings: readonly Finding[]): FindingGroup[] {
+  const groups = new Map<string, { first: Finding; members: Finding[] }>();
+
+  for (const [index, finding] of sortFindings(findings).entries()) {
+    const key = groupKey(finding, index);
+    const group = groups.get(key);
+
+    group === undefined ? groups.set(key, { first: finding, members: [finding] }) : group.members.push(finding);
+  }
+
+  return [...groups.values()];
 }
 
 /**
@@ -69,29 +130,46 @@ export function filterBySeverity(findings: readonly Finding[], minSeverity: Seve
   return findings.filter((finding) => SEVERITY_ORDER[finding.severity] <= SEVERITY_ORDER[minSeverity]);
 }
 
-export function formatFindings(findings: readonly Finding[], minSeverity: Severity = 'info'): string {
-  const reported = filterBySeverity(findings, minSeverity);
-
-  if (reported.length === 0) {
-    return '';
-  }
-
-  return sortFindings(reported).map(formatOne).join('\n\n');
+export function formatFindings(findings: readonly Finding[], minSeverity: Severity = 'info', width: number = outputWidth()): string {
+  return groupFindings(filterBySeverity(findings, minSeverity))
+    .map((group) => (group.members.length === 1 ? formatOne(group.first, width) : formatGroup(group, width)))
+    .join('\n\n');
 }
 
-/** One-line tally: `3 errors, 1 warning, 2 notes`. */
-export function summarize(findings: readonly Finding[]): string {
-  const counts = { error: 0, warning: 0, info: 0 };
+export interface Tally {
+  readonly errors: number;
+  readonly warnings: number;
+  readonly notes: number;
+}
 
-  for (const finding of findings) {
-    counts[finding.severity] += 1;
-  }
+export function tallyOf(findings: readonly Finding[]): Tally {
+  return {
+    errors: findings.filter((finding) => finding.severity === 'error').length,
+    warnings: findings.filter((finding) => finding.severity === 'warning').length,
+    notes: findings.filter((finding) => finding.severity === 'info').length,
+  };
+}
 
-  const parts = [plural(counts.error, 'error'), plural(counts.warning, 'warning'), plural(counts.info, 'note')];
+/**
+ * One-line tally: `3 errors, 1 warning, 2 notes`, and how many of them the threshold kept off the
+ * screen. The line starts with the error count, which is what a harness reading it matches on.
+ */
+export function summarize(findings: readonly Finding[], minSeverity: Severity = 'info'): string {
+  const tally = tallyOf(findings);
+  const hidden = findings.length - filterBySeverity(findings, minSeverity).length;
+  const parts = [plural(tally.errors, 'error'), plural(tally.warnings, 'warning'), plural(tally.notes, 'note')];
 
-  return parts.join(', ');
+  return `${parts.join(', ')}${hidden === 0 ? '' : ` (${hidden} not shown: --min-severity ${minSeverity})`}`;
 }
 
 function plural(count: number, noun: string): string {
   return `${count} ${noun}${count === 1 ? '' : 's'}`;
 }
+
+/** The `--format json` shape of one finding: the same fields, with no terminal color left in the evidence. */
+export function findingJson(finding: Finding): Finding {
+  return finding.details === undefined ? finding : { ...finding, details: finding.details.map(stripColor) };
+}
+
+/** Version of the `--format json` document. Raised only when a field changes meaning or goes away. */
+export const REPORT_SCHEMA = 1;

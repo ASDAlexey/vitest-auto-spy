@@ -21,6 +21,7 @@ const VALUE_FLAGS = new Set([
   'code-quality',
   'cwd',
   'factor',
+  'format',
   'from',
   'gate-only',
   'json',

@@ -39,17 +39,24 @@ export interface SpawnRequest {
 
 export type Spawn = (request: SpawnRequest) => SpawnOutcome;
 
-/** The real one. Output is inherited: the consumer watches their own suite run. */
-export const spawnProcess: Spawn = (request) => {
-  const result = spawnSync(request.command, [...request.args], {
-    cwd: request.cwd,
-    env: { ...process.env, ...request.env },
-    stdio: 'inherit',
-    shell: request.shell,
-  });
+function spawnWith(stdout: number | 'inherit'): Spawn {
+  return (request) => {
+    const result = spawnSync(request.command, [...request.args], {
+      cwd: request.cwd,
+      env: { ...process.env, ...request.env },
+      stdio: ['inherit', stdout, 'inherit'],
+      shell: request.shell,
+    });
 
-  return { status: result.status ?? 1 };
-};
+    return { status: result.status ?? 1 };
+  };
+}
+
+/** The real one. Output is inherited: the consumer watches their own suite run. */
+export const spawnProcess: Spawn = spawnWith('inherit');
+
+/** For `--format json`: the suite still prints, on stderr, so stdout carries one JSON document and nothing else. */
+export const spawnToStderr: Spawn = spawnWith(2);
 
 export interface PerfRunOptions {
   readonly cwd: string;
