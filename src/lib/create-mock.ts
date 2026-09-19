@@ -40,7 +40,8 @@ import type { DeepPartial } from './types';
  *
  * @param partial The fields to populate, checked against `T` at every depth. Everything else is
  *   `undefined` at runtime while the static type stays `T` — so an assertion on an unseeded field is
- *   a bug in the test, not in the helper.
+ *   a bug in the test, not in the helper. `createMock<T>(undefined)` is the same call as `createMock<T>()`
+ *   and answers `{}`, never `undefined`: a fixture that means "no value" passes `undefined` itself.
  */
 export function createMock<T>(partial?: DeepPartial<T>): T {
   // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- the single, deliberate assertion this helper exists to centralize: a partial data shape standing in for the full type in a test.

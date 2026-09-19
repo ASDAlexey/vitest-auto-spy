@@ -32,6 +32,13 @@ describe('createMock', () => {
     expect(snapshot.refresh).toBeUndefined();
   });
 
+  it('answers an explicit undefined with an empty object too, the same call as no argument', () => {
+    const snapshot = createMock<ReportSnapshot>(undefined);
+
+    expect(snapshot).toEqual({});
+    expect(snapshot).not.toBe(createMock<ReportSnapshot>(undefined));
+  });
+
   it('hands back the very object it was given, not a clone', () => {
     const partial: Partial<ReportSnapshot> = { id: '2' };
 
