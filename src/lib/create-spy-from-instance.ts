@@ -25,7 +25,9 @@ import { DISPOSE } from './dispose-symbol';
 import { createFunctionSpy, resolveUnstubbedGuard } from './function-spy';
 import { type RestoreProp, mockAccessorsProp, mockValueProp } from './prop-mock';
 import { redefineFailure } from './redefine-failure';
-import type { ClassSpyConfiguration, OnlyMethodKeysOf, Spy, SpyOptions } from './types';
+import { warnOnAccessorNamingAMethod, warnOnUnknownMethods } from './spy-config-warnings';
+import { mergeAutoSpyDefaults } from './spy-defaults';
+import type { ClassSpyConfiguration, ClassType, OnlyMethodKeysOf, Spy, SpyOptions } from './types';
 import { type ReadGuard, createTrackedPropSpy, resolveReadGuard } from './unconfigured-reads';
 
 /**
@@ -43,6 +45,49 @@ function constructorName(instance: object): string | undefined {
   const constructor: unknown = Reflect.get(instance, 'constructor');
 
   return typeof constructor === 'function' ? constructor.name : undefined;
+}
+
+/**
+ * The class whose `registerAutoSpyDefaults` registration applies to this instance, if any.
+ *
+ * `Object` and `Function` are the constructors a bare literal and a function carry — keys nobody
+ * means a per-class configuration for — and a null-prototype object carries none at all; none of
+ * them may resolve a registration.
+ */
+function registeredDefaultsKey<T extends object>(instance: T): ClassType<T> | undefined {
+  const constructor: unknown = Reflect.get(instance, 'constructor');
+
+  if (typeof constructor !== 'function' || constructor === Object || constructor === Function) {
+    return undefined;
+  }
+
+  // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- read off a live object at run time; the generic only carries the instance's own type so the merge accepts the caller's configuration unchanged.
+  return constructor as ClassType<T>;
+}
+
+/**
+ * The class path's two misconfiguration reports, read against the live object rather than a
+ * prototype chain.
+ *
+ * The honest "unknown" here includes the object's own callable fields — an arrow property a class
+ * factory cannot see is a real member of this object, so naming it is not a typo on this path. The
+ * empty-set quiet mirrors the class path's abstract-class judgement: an object with no callable
+ * members can only be described by the whitelist, so nothing in it is evidence of a mistake.
+ */
+function warnOnInstanceMisconfiguration(instance: object, className: string | undefined, config: ResolvedSpyConfiguration): void {
+  const label = `createSpyFromInstance(${className ?? 'object'})`;
+
+  if (config.onlyMethodsToSpyOn.length > 0) {
+    const available = getCallableMemberNames(instance);
+
+    if (available.length > 0) {
+      warnOnUnknownMethods(label, config.onlyMethodsToSpyOn, new Set(available));
+    }
+  }
+
+  if (config.gettersToSpyOn.length > 0 || config.settersToSpyOn.length > 0) {
+    warnOnAccessorNamingAMethod(label, config, new Set(getCallableMemberNames(instance)));
+  }
 }
 
 /**
@@ -128,7 +173,10 @@ export function restoreSpiedInstance(instance: object): void {
  * and `hasOwnProperty` is never replaced. The configuration is {@link createSpyFromClass}', minus
  * the two options that describe a double being built rather than an object being patched:
  * `lazySpies` (the members already exist, so there is nothing to defer) and `fillMissing` (an
- * instance is not an erased `abstract` declaration).
+ * instance is not an erased `abstract` declaration). A `registerAutoSpyDefaults` registration for
+ * the instance's class applies here as it does to the class factory, the caller's own configuration
+ * winning over it — while a bare object literal resolves no registration, the class its
+ * `constructor` names being `Object`.
  *
  * The returned value **is** the argument. `using spy = createSpyFromInstance(client)` restores the
  * object at the end of the block rather than merely resetting it, which is the only sense `dispose`
@@ -149,12 +197,19 @@ export function createSpyFromInstance<T extends object, Options extends SpyOptio
     );
   }
 
-  const config = resolveConfiguration(methodsToSpyOnOrConfig);
+  // The class's registration first, the caller's own configuration merged over it — the same order
+  // the class factory merges in, keyed by the class the instance's constructor names.
+  const registeredFor = registeredDefaultsKey(instance);
+  const config = resolveConfiguration(
+    registeredFor === undefined ? methodsToSpyOnOrConfig : mergeAutoSpyDefaults(registeredFor, methodsToSpyOnOrConfig),
+  );
   const className = constructorName(instance);
   const unstubbed = resolveUnstubbedGuard(className, config);
   const reads = resolveReadGuard(className, config);
   const restores = installedSpies.get(instance) ?? [];
   installedSpies.set(instance, restores);
+
+  warnOnInstanceMisconfiguration(instance, className, config);
 
   const methodNames = mergeMethodNames(
     config.onlyMethodsToSpyOn.length > 0 ? config.onlyMethodsToSpyOn : getCallableMemberNames(instance),

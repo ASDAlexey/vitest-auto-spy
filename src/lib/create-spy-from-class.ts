@@ -12,6 +12,7 @@ import { createLazySpyProxy } from './lazy-spy-proxy';
 import { reportMisconfiguration } from './misconfiguration';
 import { getMockAdapter } from './mock-adapter';
 import { attachDispose } from './reset-auto-spy';
+import { warnOnAccessorNamingAMethod, warnOnUnknownMethods } from './spy-config-warnings';
 import { mergeAutoSpyDefaults } from './spy-defaults';
 import type {
   ClassSpyConfiguration,
@@ -308,68 +309,6 @@ export function mergeMethodNames(base: PropertyKey[], config: ResolvedSpyConfigu
   }
 
   return [...new Set<PropertyKey>([...base, ...config.methodsToSpyOn, ...config.instanceMethodsToSpyOn])];
-}
-
-/**
- * Report (a warning, or a throw under `misconfiguration: 'throw'`) a name in a *restricting* list the class prototype lacks.
- * Under `onlyMethodsToSpyOn` a typo does not just add a useless spy — it leaves the real method
- * unspied, and the code under test then calls something that is not there.
- */
-function warnOnUnknownMethods(ObjectClass: ClassType<unknown>, requested: string[]): void {
-  const available = new Set(getAllMethodNames(ObjectClass.prototype));
-  const unknown = requested.filter((name) => !available.has(name));
-
-  if (unknown.length === 0) {
-    return;
-  }
-
-  reportMisconfiguration(
-    withDocs(
-      `[vitest-auto-spy] createSpyFromClass(${ObjectClass.name}): onlyMethodsToSpyOn names method(s) that are not on ` +
-        `the class prototype: ${unknown.join(', ')}. A spy was created for each, but the real code will never call ` +
-        `it — check for typos. If the callable lives on the instance (an arrow property, a signal() field, an ngrx ` +
-        `signalStore() method), prototype discovery cannot see it: name it in \`instanceMethodsToSpyOn\`, which adds ` +
-        `to the discovered methods instead of replacing them.`,
-      DOCS_LINKS.createSpyFromClass,
-    ),
-  );
-}
-
-/**
- * Warn when `gettersToSpyOn` / `settersToSpyOn` names a **method** of the class.
- *
- * The type no longer rejects a name by the type of its value — it cannot, because "is an accessor"
- * is a fact about the descriptor, and filtering by "not callable" is exactly what made every
- * signal-valued getter (`get isCompactMode(): Signal<boolean>`) unnameable. What is left to check is
- * the one case that is unambiguously a mistake rather than a style: naming a method installs a
- * spied accessor *over* it, so the method is no longer there to call.
- *
- * A plain instance field is deliberately not reported. Spying its accessors is a supported use, and
- * a field cannot be told from a typo without constructing the class — which this library never does.
- */
-function warnOnAccessorNamingAMethod(ObjectClass: ClassType<unknown>, config: ResolvedSpyConfiguration): void {
-  const requested = [...new Set([...config.gettersToSpyOn, ...config.settersToSpyOn])];
-
-  if (requested.length === 0) {
-    return;
-  }
-
-  const methods = new Set(getAllMethodNames(ObjectClass.prototype));
-  const shadowed = requested.filter((name) => methods.has(name));
-
-  if (shadowed.length === 0) {
-    return;
-  }
-
-  reportMisconfiguration(
-    withDocs(
-      `[vitest-auto-spy] createSpyFromClass(${ObjectClass.name}): gettersToSpyOn/settersToSpyOn name(s) that are ` +
-        `methods of the class: ${shadowed.join(', ')}. A spied accessor was installed over each, so the method is no ` +
-        `longer callable on the spy. Name it in methodsToSpyOn instead — or, if it is a signal() field read as a ` +
-        `property, patch it with mockSignalProp(service, 'x', initial), which keeps everything downstream reactive.`,
-      DOCS_LINKS.createSpyFromClass,
-    ),
-  );
 }
 
 /** Narrow an unknown member to the callable the adapter needs, without an assertion. */
@@ -716,7 +655,11 @@ function assembleSpy<T, Options extends SpyOptions>(ObjectClass: ClassType<T>, c
   // the whitelist is the only way to describe such a class, and warning about the correct usage is
   // worse than saying nothing.
   if (config.onlyMethodsToSpyOn.length > 0 && getAllMethodNames(ObjectClass.prototype).length > 0) {
-    warnOnUnknownMethods(ObjectClass, config.onlyMethodsToSpyOn);
+    warnOnUnknownMethods(
+      `createSpyFromClass(${ObjectClass.name})`,
+      config.onlyMethodsToSpyOn,
+      new Set(getAllMethodNames(ObjectClass.prototype)),
+    );
   }
 
   const autoSpy: Record<string, unknown> = {};
@@ -729,7 +672,11 @@ function assembleSpy<T, Options extends SpyOptions>(ObjectClass: ClassType<T>, c
     autoSpy[observablePropName] = createTrackedPropSpy(observablePropName, reads);
   });
 
-  warnOnAccessorNamingAMethod(ObjectClass, config);
+  // Gated here rather than left to the function's own early return: the method set costs a
+  // prototype-chain walk, and the overwhelmingly common call names no accessors at all.
+  if (config.gettersToSpyOn.length > 0 || config.settersToSpyOn.length > 0) {
+    warnOnAccessorNamingAMethod(`createSpyFromClass(${ObjectClass.name})`, config, new Set(getAllMethodNames(ObjectClass.prototype)));
+  }
   createAccessorsSpies(autoSpy, accessors.getters, accessors.setters, reads);
 
   // Lazy path materializes each method spy on first access (cheaper for large

@@ -17,7 +17,8 @@ import {
 } from './observable-spy';
 import { registerObservableSupport } from './observable-support';
 import { resetAutoSpy } from './reset-auto-spy';
-import type { ClassSpyConfiguration, OnlyMethodKeysOf, Spy } from './types';
+import { clearAutoSpyDefaults, registerAutoSpyDefaults } from './spy-defaults';
+import type { ClassSpyConfiguration, ClassType, OnlyMethodKeysOf, Spy } from './types';
 import { vitestMockAdapter } from './vitest-adapter';
 
 beforeAll(() => {
@@ -195,6 +196,139 @@ describe('createSpyFromInstance — configuration', () => {
     const spy = spyOn(bare, { onlyMethodsToSpyOn: ['ping'], strict: true });
 
     expect(() => spy.ping()).toThrow('Nothing configured ping, and strict mode is on.');
+  });
+});
+
+describe('createSpyFromInstance — misconfiguration reports', () => {
+  it('warns when onlyMethodsToSpyOn names a member the object does not have', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    try {
+      spyOn(new PaymentsClient(), { onlyMethodsToSpyOn: ['refund', 'nope'] as unknown as ['refund'] });
+
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining(
+          'createSpyFromInstance(PaymentsClient): onlyMethodsToSpyOn names method(s) that are not on ' + 'the class prototype: nope',
+        ),
+      );
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('stays quiet when the whitelist names an own callable field the class path cannot see', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    try {
+      const spy = spyOn(new PaymentsClient(), { onlyMethodsToSpyOn: ['charge'] });
+
+      expect(vi.isMockFunction(spy.charge)).toBe(true);
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('stays quiet on an object with no callable members, where the whitelist is the only description', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    try {
+      const dictionary: Record<string, () => void> = {};
+
+      spyOn(dictionary, { onlyMethodsToSpyOn: ['nope'] });
+
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('warns when a configured accessor names a method of the object', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    try {
+      spyOn(new PaymentsClient(), { gettersToSpyOn: ['refund'] });
+
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining(
+          'createSpyFromInstance(PaymentsClient): gettersToSpyOn/settersToSpyOn name(s) that are methods of the class: refund',
+        ),
+      );
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('warns when a configured accessor names an own callable field, which the class path could not see', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    try {
+      spyOn(new PaymentsClient(), { settersToSpyOn: ['charge'] });
+
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('are methods of the class: charge'));
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('stays quiet for names the object carries as accessors', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    try {
+      const spy = spyOn(new PaymentsClient(), { gettersToSpyOn: ['fees'], settersToSpyOn: ['limit'] });
+
+      expect(spy.accessorSpies.getters.fees).toBeDefined();
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
+  });
+});
+
+describe('createSpyFromInstance — registered defaults', () => {
+  it('applies the registration of the class the instance came from', () => {
+    registerAutoSpyDefaults(PaymentsClient, { gettersToSpyOn: ['fees'] });
+
+    try {
+      const spy = spyOn(new PaymentsClient());
+
+      expect(spy.accessorSpies.getters.fees).toBeDefined();
+    } finally {
+      clearAutoSpyDefaults();
+    }
+  });
+
+  it('unions the registration lists and lets the call site win per key', () => {
+    registerAutoSpyDefaults(PaymentsClient, { instanceMethodsToSpyOn: ['reload'], returns: { refund: 'registered' } });
+
+    try {
+      const spy = spyOn(new PaymentsClient(), { returns: { refund: 'caller' } });
+
+      expect(vi.isMockFunction(spy.reload)).toBe(true);
+      expect(spy.refund('7')).toBe('caller');
+    } finally {
+      clearAutoSpyDefaults();
+    }
+  });
+
+  it('resolves no registration for a bare literal, a function or a null-prototype object', () => {
+    const leak = { instanceMethodsToSpyOn: ['zzz'] } as unknown as ClassSpyConfiguration<object>;
+
+    registerAutoSpyDefaults(Object as unknown as ClassType<object>, leak);
+    registerAutoSpyDefaults(Function as unknown as ClassType<object>, leak);
+
+    try {
+      const literal = spyOn({ ping: () => 'x' });
+      const fn = createSpyFromInstance(() => 'real');
+      const rootless = spyOn(Object.create(null) as { send: () => string });
+
+      expect(Object.hasOwn(literal, 'zzz')).toBe(false);
+      expect(vi.isMockFunction(literal.ping)).toBe(true);
+      expect(Object.hasOwn(fn, 'zzz')).toBe(false);
+      expect(Object.hasOwn(rootless, 'zzz')).toBe(false);
+    } finally {
+      clearAutoSpyDefaults();
+    }
   });
 });
 
