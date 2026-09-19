@@ -34,3 +34,48 @@ describe('captureArg', () => {
       .toEqualTypeOf<{ where(value: unknown): boolean } | undefined>();
   });
 });
+
+describe('the options object', () => {
+  it('offers the filter the argument as it arrives, unknown — not the claimed type', () => {
+    // The declared parameter is `unknown` (pinned above), but `where` is a *method* signature, and
+    // method parameters are bivariant even under `strictFunctionTypes` — a filter narrowed to the
+    // claimed type compiles. Pinning that this compiles is the honest pin: it is how a caller
+    // writes it, and a switch to property syntax would change the answer this test gives.
+    captureArg<RequestInit>({ where: (value: string) => value.length > 0 });
+
+    // What bivariance does not buy is a filter the platform could never call: `where` sees one
+    // argument, so a second required parameter is not a filter for this option.
+    // @ts-expect-error -- the filter is offered one argument, the value
+    captureArg<RequestInit>({ where: (value: unknown, extra: string) => typeof extra === 'string' });
+  });
+
+  it('asks the filter for a verdict, not a description', () => {
+    // @ts-expect-error -- `where` returns whether to accept the value
+    captureArg<RequestInit>({ where: (value) => (typeof value === 'object' ? 'yes' : 'no') });
+  });
+
+  it('takes no other shape than the filter', () => {
+    // @ts-expect-error -- the options are `{ where }`, not a list of accepted values
+    captureArg<RequestInit>({ accepts: 'objects' });
+  });
+});
+
+describe('the captor a caller must not be able to write', () => {
+  it('keeps the captured reads readonly', () => {
+    const captor = captureArg<(id: number) => void>();
+
+    // The values exist to be read after the assertion ran; a writable one would let a spec
+    // fabricate the capture it meant to assert on.
+    // @ts-expect-error -- `value` is what the runner recorded, not a slot to fill
+    captor.value = (): void => undefined;
+    // @ts-expect-error -- same for the whole list
+    captor.values = [];
+    // @ts-expect-error -- and for the flag that says anything was seen
+    captor.captured = true;
+  });
+
+  it('takes exactly one type argument', () => {
+    // @ts-expect-error -- a captor claims one type; a second one has nowhere to live
+    captureArg<number, string>();
+  });
+});
