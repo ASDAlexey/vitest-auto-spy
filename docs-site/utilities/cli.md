@@ -282,6 +282,13 @@ the rule cannot resolve — an import it cannot follow, a package off the allowl
 defined`, and that costs more than a missed optimisation. On this repository the rule names nothing
 and calls 109 files undecided, for the reason above.
 
+**An environment is counted once per worker, not once per file.** Vitest builds the environment
+once per worker and then copies that one number into the report of every file the worker ran, so a
+sum over files multiplies one start-up by the files behind it — on a 672-file shard across 13
+workers, 126.4 s reported against 2.44 s actually spent. `perf` counts each distinct value once, and
+the finding prices the move honestly: a worker's environment is only saved when **every** file it
+ran is DOM-free, and when a DOM-using neighbour means the move frees nothing, the finding says so.
+
 **`perf-environment-engine`** is the other half of the same advice, for the files `perf-environment`
 cannot move: a spec that genuinely needs a DOM still has to build one, and `happy-dom` builds it for
 less. Measured on this package's own Angular suite, the same 117 files and the same assertions:
