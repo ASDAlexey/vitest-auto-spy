@@ -206,6 +206,13 @@ that never waited for CI. The handful of entries that change what a green spec d
 
 ### Fixed
 
+- **`npm install` fails on Angular 20 and 21 from 5.9.0 on.** The optional `@angular/forms` peer
+  was declared `>=22.0.0` for `/signal-forms`, and npm checks an optional peer's range as soon as the
+  package is installed. Nearly every Angular app has `@angular/forms`, so the install stopped with
+  `ERESOLVE` unless `--legacy-peer-deps` was passed. The peer is now `>=20.0.0` like the other
+  Angular peers. `/signal-forms` still needs Angular 22 at runtime, and `packaging.spec.ts` now
+  checks every `@angular/*` peer against the lowest major in the CI Angular matrix.
+
 - **Serializing the argument of a call could take a quarter of a second.** A memoised subtree that
   had emitted a back edge was un-memoised for the rest of the walk, so a graph with back edges —
   which is every Angular component graph, every parent-child pair of records — was rendered
