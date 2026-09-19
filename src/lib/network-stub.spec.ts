@@ -71,6 +71,25 @@ describe('blockNetwork', () => {
       expect(globalThis.fetch).toBe(real);
     });
 
+    it('leaves a fetch an interceptor owns to it, and blocks again once the interceptor is gone', async () => {
+      const interceptor = Symbol.for('fetch-interceptor');
+      const intercepted = async (): Promise<string> => 'handled';
+
+      mockValueProp(globalThis, 'fetch', intercepted);
+      mockValueProp(globalThis, interceptor, {});
+
+      blockNetwork();
+
+      // Replacing the proxy would switch every handler off, and every mocked request would
+      // reject with the stub's message instead.
+      expect(globalThis.fetch).toBe(intercepted);
+
+      Reflect.deleteProperty(globalThis, interceptor);
+      blockNetwork();
+
+      await expect(fetch('https://api.example.test/user')).rejects.toThrow(BLOCKED_FETCH_MESSAGE);
+    });
+
     it('leaves fetch alone when only the other channels are asked for', () => {
       const real = globalThis.fetch;
 

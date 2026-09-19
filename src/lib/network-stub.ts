@@ -158,7 +158,7 @@ export function blockNetwork(options: BlockNetworkOptions = {}): void {
   // idempotent. It matters with `restoreProps: false`, where nothing ever takes the stubs off: the
   // per-test re-install then recorded another journal entry for `fetch` and `sendBeacon` on every
   // test, and the journal on `globalThis` grew for the whole run.
-  if ((options.fetch ?? true) && globalThis.fetch !== blockedFetch) {
+  if ((options.fetch ?? true) && globalThis.fetch !== blockedFetch && !isFetchIntercepted()) {
     mockValueProp(globalThis, 'fetch', blockedFetch);
   }
 
@@ -171,6 +171,12 @@ export function blockNetwork(options: BlockNetworkOptions = {}): void {
   if (options.beacon ?? true) {
     blockBeacon();
   }
+}
+
+// `@mswjs/interceptors` (MSW `setupServer`, nock 14) holds this symbol while applied; replacing its
+// proxy would switch every handler off, since it captured the real `fetch` underneath itself.
+function isFetchIntercepted(): boolean {
+  return Symbol.for('fetch-interceptor') in globalThis;
 }
 
 /**
@@ -296,4 +302,83 @@ function describeTarget(input: unknown): string {
   const url: unknown = typeof input === 'object' && input !== null ? Reflect.get(input, 'url') : undefined;
 
   return String(url ?? input);
+}
+
+/** What {@link stubResponse} builds a `Response` from. Every field is optional. */
+export interface StubResponseInit {
+  /**
+   * A plain object, an array, a number or a boolean is sent as JSON with an `application/json`
+   * content type; a string, `Blob`, `ArrayBuffer`, typed array, `FormData`, `URLSearchParams` or
+   * `ReadableStream` is sent as it is. `null` and `undefined` send no body.
+   */
+  body?: unknown;
+  /** Default `200`, or `500` when `ok` is `false`. */
+  status?: number;
+  /** Shorthand for the status class; a `status` that disagrees with it throws. */
+  ok?: boolean;
+  statusText?: string;
+  headers?: HeadersInit;
+  /** What `response.url` reads — empty on a constructed `Response` otherwise. */
+  url?: string;
+}
+
+/**
+ * A real `Response` for a stubbed `fetch`, built from the environment's own constructor.
+ *
+ * ```ts
+ * vi.spyOn(globalThis, 'fetch').mockResolvedValue(stubResponse({ body: { id: 1 } }));
+ * vi.spyOn(globalThis, 'fetch').mockResolvedValue(stubResponse({ ok: false, status: 404 }));
+ * ```
+ */
+export function stubResponse(init: StubResponseInit = {}): Response {
+  if (typeof globalThis.Response !== 'function') {
+    throw new TypeError('[vitest-auto-spy] stubResponse() needs a global Response, and this environment has none');
+  }
+
+  const status = init.status ?? (init.ok === false ? 500 : 200);
+  const ok = status >= 200 && status < 300;
+
+  if (init.ok !== undefined && init.ok !== ok) {
+    throw new TypeError(`[vitest-auto-spy] stubResponse() was given ok: ${init.ok} with status ${status}, which is ${ok ? '' : 'not '}ok`);
+  }
+
+  const headers = new Headers(init.headers);
+  const json = isJsonBody(init.body);
+
+  if (json && !headers.has('content-type')) {
+    headers.set('content-type', 'application/json');
+  }
+
+  const response = new Response(json ? JSON.stringify(init.body) : toBodyInit(init.body), {
+    status,
+    headers,
+    ...(init.statusText === undefined ? {} : { statusText: init.statusText }),
+  });
+
+  if (init.url !== undefined) {
+    Object.defineProperty(response, 'url', { value: init.url, configurable: true });
+  }
+
+  return response;
+}
+
+// Decided by shape rather than `instanceof`: under a DOM environment a `Blob` or a `FormData` can
+// come from another realm, and it is the plain data that needs serialising anyway.
+function isJsonBody(body: unknown): boolean {
+  if (typeof body === 'number' || typeof body === 'boolean' || Array.isArray(body)) {
+    return true;
+  }
+
+  if (typeof body !== 'object' || body === null) {
+    return false;
+  }
+
+  const prototype: unknown = Object.getPrototypeOf(body);
+
+  return prototype === Object.prototype || prototype === null;
+}
+
+function toBodyInit(body: unknown): BodyInit | null {
+  // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- anything that is not JSON data is handed to the constructor, which rejects what it cannot read.
+  return (body ?? null) as BodyInit | null;
 }
