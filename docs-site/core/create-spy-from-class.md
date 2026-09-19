@@ -205,7 +205,13 @@ at, which is the failure this removes rather than relocates.
 **`createSpyFromInstance` reads it too**, keyed by the class the object's `constructor` names and
 merged the same way. A bare object literal and a `Object.create(null)` dictionary resolve no
 registration — their constructor is `Object` or nothing, and nobody means a per-class configuration
-for those.
+for those. When the call site lists `onlyMethodsToSpyOn`, the rest of the object stays real: the
+registration then contributes only `strict`, `onUnstubbedCall`, `onUnstubbedRead` and the
+`returns` / `selfReturning` entries of the listed methods, never an accessor, another method or an
+override — so `router.url` stays live under
+`createSpyFromInstance(router, { onlyMethodsToSpyOn: ['navigateByUrl'] })` whatever `Router`'s
+registration spies. A `returns` or `selfReturning` name the call site wrote for a method it left real
+is reported as a misconfiguration and skipped.
 
 **A second registration for the same class replaces the first.** Two registrations for one class in
 one suite is the drift this exists to remove, and quietly combining them would hide it.
@@ -331,6 +337,13 @@ expect(cart.total()).toBe(3);
 An assignment to a sealed double goes to the same place, so `cart.total = vi.fn()` is read back as
 what it named. A double that only had `preventExtensions` called on it keeps its properties
 configurable, so there the spy lands on the double as usual.
+
+**`vi.spyOn` on a method nobody has read yet wraps it.** Vitest reads an accessor by calling its
+getter with no receiver, which the shared placeholder cannot place on a double, so it answers with a
+forwarder: a configured `mockReturnValue` answers, an unconfigured call reaches the double's own spy
+with its strict guard, and `mockRestore()` hands that spy back with the calls it recorded. The call
+is redundant all the same — the member already is a spy, so `cart.total.mockReturnValue(3)` says it
+in one step.
 
 ### `lazySpies: 'proxy'` — one trap object instead of a placeholder per method
 
@@ -501,6 +514,70 @@ by reading the key. That is the difference on the [type-driven proxy](/core/auto
 fully abstract class falls back to, where reading any key mints a spy for it: seeding a member there
 leaves the double with the members it was given, and no `accessorSpies` of its own turning up in
 `Reflect.ownKeys`, in a spread, in a snapshot or in `explainSpy`.
+
+## `passthrough` — observe a real object without replacing it {#passthrough}
+
+`createSpyFromInstance(obj)` patches an object the test already holds, and by default every method
+becomes a double that answers `undefined`. `passthrough: true` keeps the object working instead:
+every call is recorded, and an unconfigured method runs the real one.
+
+```ts
+import { createSpyFromInstance } from 'vitest-auto-spy';
+
+const cart = createSpyFromInstance(new CartStore(), { passthrough: true });
+
+cart.add('apple'); // the real add ran — cart.items is ['apple']
+expect(cart.add).toHaveBeenCalledWith('apple');
+
+cart.checkout.resolveWith('declined'); // only checkout is a double from here on
+```
+
+It is Vitest's spy mode (`vi.mock(path, { spy: true })`) and Storybook's `spy: true` for one object,
+on every runtime, and the per-object answer to `vi.spyOn` on each method in turn. It exists on
+`createSpyFromInstance` alone: a class factory builds its double without an instance, so there is no
+real method to run.
+
+The rules:
+
+- **A configured method is handed over whole.** `calledWith`, `mustBeCalledWith`, `resolveWith`,
+  `nextWith`, `failWith`, `mockReturnValue`, `mockImplementation`, `returns` and `selfReturning` all
+  take the method off the real implementation. A `calledWith(1)` chain answers `undefined` for
+  `load(2)`, as on any other double; it does not fall back to the real `load`.
+- **`resetAutoSpy` hands it back.** Resetting reverts the configuration, and the unconfigured state
+  of a passthrough spy is the real method. `clearAutoSpy` keeps the configuration, as it always does.
+  In the jasmine layer, `.and.callThrough()` runs the real method again.
+- **The real method runs with the instance as `this`,** so its internal calls go through the spies
+  and are recorded too: `cart.add` calling `this.count()` shows up on `cart.count`.
+- **Some members stay real rather than spied.** Angular lifecycle hooks (`ngOnInit`, `ngOnDestroy`,
+  …), because the framework rather than the test calls them and the teardown has to run. And a
+  discovered callable carrying an API of its own — an Angular `signal()` field with `set` and
+  `update`, a mock — because a spy in its place would hide that API from the real code calling it.
+  Name one in `methodsToSpyOn` to spy it anyway. A discovered class stays real too, since a
+  passthrough cannot construct it; a named one becomes a plain double.
+- **Accessors and observable properties you name are still doubles.** `gettersToSpyOn`,
+  `settersToSpyOn` and `observablePropsToSpyOn` ask for a member to be replaced, and it is.
+- **A named member the object does not carry** has no real method to run, and answers like any
+  other double — `undefined`, or whatever a suite-wide strict mode says.
+- **`strict: true` or `onUnstubbedCall` on the same call is refused**, because both decide what an
+  unconfigured call does. A suite-wide `setupAutoSpy({ strict: true })` or a strict
+  `registerAutoSpyDefaults` for the class yields to `passthrough`; see
+  [Strict mode](./strict-mode#passthrough).
+
+On Angular this is the "check the interaction without breaking the service" shape: take the real
+service from `TestBed.inject` and spy it in place. Its dependencies, its signals and its `ɵprov` stay
+real, and TestBed's teardown still calls the real `ngOnDestroy`:
+
+```ts
+const cart = createSpyFromInstance(TestBed.inject(CartService), { passthrough: true });
+const fixture = TestBed.createComponent(CartComponent);
+
+fixture.componentInstance.addOne();
+
+expect(cart.add).toHaveBeenCalledWith(5); // the real CartService ran, with its real PriceFormatter
+```
+
+`restoreSpiedInstance(obj)` — or `using` — puts the real members back, and `setupAutoSpy()` does it
+after every test.
 
 ## A single function — `createFunctionSpy`
 

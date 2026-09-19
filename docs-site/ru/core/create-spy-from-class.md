@@ -206,7 +206,13 @@ provideAutoSpy(Router, { instanceMethodsToSpyOn: ['currentNavigation'] }); // д
 
 **`createSpyFromInstance` её тоже читает** — по классу, который называет `constructor` объекта, и
 сливает так же. Голый объектный литерал и словарь `Object.create(null)` регистрацию не находят: их
-конструктор — `Object` или ничего, и конфигурацию «на класс» для них никто не имеет в виду.
+конструктор — `Object` или ничего, и конфигурацию «на класс» для них никто не имеет в виду. Если
+вызов перечисляет `onlyMethodsToSpyOn`, остальной объект остаётся настоящим: регистрация тогда даёт
+только `strict`, `onUnstubbedCall`, `onUnstubbedRead` и записи `returns` / `selfReturning` для
+перечисленных методов — ни аксессоров, ни других методов, ни `overrides`. Поэтому `router.url`
+остаётся живым под `createSpyFromInstance(router, { onlyMethodsToSpyOn: ['navigateByUrl'] })`, что бы
+ни шпионила регистрация `Router`. Имя в `returns` или `selfReturning`, которое вызов сам написал для
+метода, оставленного настоящим, сообщается как ошибка конфигурации и пропускается.
 
 **Вторая регистрация того же класса заменяет первую.** Две регистрации одного класса в одной сюите —
 это тот разъезд, ради которого всё затевалось, и тихое их сложение его бы спрятало.
@@ -313,6 +319,13 @@ spy.getName.mockReturnValue('Ada'); // getName строится здесь, пр
 спая, а не то, что он делает. Единственный нюанс: ленивый метод до первого касания остаётся
 аксессором, поэтому у ни разу не тронутого спая нет записанных вызовов (ровно поэтому
 `resetAutoSpy` может его пропустить).
+
+**`vi.spyOn` на методе, который ещё никто не читал, его оборачивает.** Vitest читает аксессор, вызывая
+геттер без получателя, а общий плейсхолдер по такому вызову не может понять, какой это дубль, — поэтому
+он отдаёт переадресатор: настроенный `mockReturnValue` отвечает, ненастроенный вызов доходит до
+собственного спая дубля вместе со строгим режимом, а `mockRestore()` возвращает этот спай с
+записанными вызовами. Вызов при этом лишний — член и так спай, и `cart.total.mockReturnValue(3)`
+говорит то же одним шагом.
 
 ### `lazySpies: 'proxy'` — для классов, широких настолько, что убивают CI-джобу {#lazyspies-proxy-—-one-trap-object-instead-of-a-placeholder-per-method}
 
@@ -497,6 +510,72 @@ injectSpy(RemoteConfigService).remoteConfig; // { theme: 'dark' }, и чтени
 `accessorSpies.getters.remoteConfig.mockReturnValue(…)` по-прежнему перекрывает заданное значение.
 Значение для члена, у спая которого есть только сеттер, становится обычным значением, а не записью,
 которую геттер никогда не прочитает.
+
+## `passthrough` — наблюдать за настоящим объектом, не подменяя его {#passthrough}
+
+`createSpyFromInstance(obj)` патчит объект, который у теста уже есть, и по умолчанию каждый метод
+становится дублем, отвечающим `undefined`. `passthrough: true` оставляет объект рабочим: каждый вызов
+записывается, а ненастроенный метод выполняет настоящий.
+
+```ts
+import { createSpyFromInstance } from 'vitest-auto-spy';
+
+const cart = createSpyFromInstance(new CartStore(), { passthrough: true });
+
+cart.add('apple'); // выполнился настоящий add — cart.items равен ['apple']
+expect(cart.add).toHaveBeenCalledWith('apple');
+
+cart.checkout.resolveWith('declined'); // с этого места дублем стал только checkout
+```
+
+Это spy mode Vitest (`vi.mock(path, { spy: true })`) и `spy: true` из Storybook для одного объекта,
+на любом рантайме, и ответ на `vi.spyOn` по очереди на каждый метод — сразу для всего объекта. Опция
+есть только у `createSpyFromInstance`: фабрика по классу собирает дубль без экземпляра, и настоящего
+метода, который можно было бы выполнить, у неё нет.
+
+Правила:
+
+- **Настроенный метод отдаётся целиком.** `calledWith`, `mustBeCalledWith`, `resolveWith`,
+  `nextWith`, `failWith`, `mockReturnValue`, `mockImplementation`, `returns` и `selfReturning` —
+  любое из них снимает метод с настоящей реализации. Цепочка `calledWith(1)` отвечает `undefined` на
+  `load(2)`, как у любого другого дубля, и к настоящему `load` не откатывается.
+- **`resetAutoSpy` возвращает его обратно.** Сброс откатывает настройку, а ненастроенное состояние
+  passthrough-спая — это настоящий метод. `clearAutoSpy` настройку сохраняет, как и всегда. В
+  jasmine-слое `.and.callThrough()` снова запускает настоящий метод.
+- **Настоящий метод выполняется с экземпляром в качестве `this`,** поэтому его внутренние вызовы
+  проходят через спаи и тоже записываются: `cart.add`, вызывающий `this.count()`, виден на
+  `cart.count`.
+- **Некоторые члены остаются настоящими, а не спаями.** Хуки жизненного цикла Angular (`ngOnInit`,
+  `ngOnDestroy`, …) — их вызывает фреймворк, а не тест, и teardown должен выполниться. И найденный
+  при обходе вызываемый член со своим собственным API — поле Angular `signal()` с `set` и `update`,
+  мок, — потому что спай на его месте спрятал бы этот API от настоящего кода, который им пользуется.
+  Чтобы всё же поставить на него спай, назовите его в `methodsToSpyOn`. Найденный класс тоже
+  остаётся настоящим: passthrough не умеет его сконструировать; названный класс становится обычным
+  дублем.
+- **Названные вами аксессоры и observable-свойства остаются дублями.** `gettersToSpyOn`,
+  `settersToSpyOn` и `observablePropsToSpyOn` просят заменить член — и он заменяется.
+- **Названный член, которого у объекта нет,** выполнить нечем, и он отвечает как любой другой
+  дубль — `undefined` или то, что велит общесюитный строгий режим.
+- **`strict: true` или `onUnstubbedCall` в том же вызове отклоняются**, потому что оба решают, что
+  делает ненастроенный вызов. Общесюитный `setupAutoSpy({ strict: true })` или строгая регистрация
+  `registerAutoSpyDefaults` для класса уступают `passthrough`; см.
+  [Строгий режим](./strict-mode#passthrough).
+
+В Angular это та самая форма «проверить взаимодействие, не сломав сервис»: взять настоящий сервис из
+`TestBed.inject` и поставить на него спай на месте. Его зависимости, его сигналы и его `ɵprov`
+остаются настоящими, а teardown TestBed по-прежнему вызывает настоящий `ngOnDestroy`:
+
+```ts
+const cart = createSpyFromInstance(TestBed.inject(CartService), { passthrough: true });
+const fixture = TestBed.createComponent(CartComponent);
+
+fixture.componentInstance.addOne();
+
+expect(cart.add).toHaveBeenCalledWith(5); // выполнился настоящий CartService с настоящим PriceFormatter
+```
+
+`restoreSpiedInstance(obj)` — или `using` — возвращает настоящие члены на место, а `setupAutoSpy()`
+делает это после каждого теста.
 
 ## Одна функция — `createFunctionSpy` {#a-single-function-—-createfunctionspy}
 

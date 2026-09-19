@@ -215,6 +215,30 @@ createSpyFromClass(Cart, { strict: false }).total(); // undefined — отклю
 Обработчик побеждает `strict: true` на любом уровне, поэтому `{ strict: true, onUnstubbedCall: record }`
 на одном дубле записывает и не бросает; `strict: false` побеждает любой обработчик, кроме собственного.
 
+### `passthrough` стоит выше всех пяти {#passthrough}
+
+[`createSpyFromInstance(obj, { passthrough: true })`](./create-spy-from-class#passthrough) даёт
+ненастроенному вызову третий ответ: выполнить настоящий метод. Для каждого члена, у которого настоящий
+метод есть, он побеждает весь список выше — общесюитный `strict: true`, глобальный обработчик,
+строгую регистрацию `registerAutoSpyDefaults` для класса. Иначе сюита, включившая строгий режим, молча
+превратила бы каждый passthrough-дубль в бросающий.
+
+```ts
+setupAutoSpy({ strict: true });
+
+createSpyFromInstance(new Cart(), { passthrough: true }).total(); // настоящий total
+createSpyFromInstance(new Cart()).total(); // бросает: Nothing configured Cart.total
+```
+
+Молча ничего не перебивается, и держится это на двух правилах:
+
+- **Оба на одном вызове — ошибка.** `{ passthrough: true, strict: true }` и
+  `{ passthrough: true, onUnstubbedCall }` отклоняются при сборке дубля: каждый решает, что делает
+  ненастроенный вызов, и одна из настроек оказалась бы мёртвой. `strict: false` рядом с ним допустим —
+  он говорит то же самое.
+- **Член, за которым нет ничего настоящего, остаётся под списком.** Имени из `methodsToSpyOn`, которого
+  у объекта нет, нечего выполнять, поэтому общесюитный `strict` для него по-прежнему бросает.
+
 ## Чтения, которые никто не настроил {#reads-nobody-configured}
 
 Охранник выше срабатывает на **вызове**. Шпионский геттер строгого дубля, который никто не настроил,

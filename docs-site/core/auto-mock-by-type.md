@@ -10,6 +10,27 @@ description: createAutoMock, mockDeep and createMock — build a double from a t
 `resolveWith` / `rejectWith` / `resolveWithPerCall`, and `Observable`-returning methods/properties
 get `nextWith` and friends.
 
+## What each factory gives you by default
+
+What a member reads as before the spec configures anything. "Spy" means a callable that records its
+calls and returns `undefined`; none of them returns a pending `Promise` or an `Observable` until
+`resolveWith` / `nextWith` says what it emits.
+
+| Member of `T`                       | `createSpyFromClass(C)`                                                  | `createAutoMock<T>()`                       | `mockDeep<T>()`                                | `createMock<T>()` |
+| ----------------------------------- | ------------------------------------------------------------------------ | ------------------------------------------- | ---------------------------------------------- | ----------------- |
+| Method on the prototype             | spy                                                                      | spy                                         | spy                                            | `undefined`       |
+| Method returning `Promise` / stream | spy returning `undefined`                                                | spy returning `undefined`                   | spy returning `undefined`                      | `undefined`       |
+| Getter / setter                     | `undefined`; an accessor spy with `gettersToSpyOn` or `autoSpyAccessors` | spy — seed a value                          | spy — seed a value                             | `undefined`       |
+| Data field (`count: number`)        | `undefined` — fields are not on the prototype                            | spy — seed a value                          | spy — seed a value                             | `undefined`       |
+| Array field (`items: Item[]`)       | `undefined`                                                              | spy — seed an array                         | a real array once read by index, of deep mocks | `undefined`       |
+| Nested object                       | `undefined`                                                              | spy; the level below it is `undefined`      | a deep mock at every level                     | `undefined`       |
+| `Observable` property               | `undefined`; a stream with `observablePropsToSpyOn`                      | spy; a stream with `observablePropsToSpyOn` | a deep mock                                    | `undefined`       |
+| `then`, symbols, protocol keys      | `undefined`                                                              | `undefined`                                 | `undefined`                                    | `undefined`       |
+| A seeded value (`overrides`)        | the value                                                                | the value                                   | the value                                      | the value         |
+
+A spy standing in for a field is **truthy**, which is what the seed column is about: code that
+branches on `if (user.nickname)` takes the wrong branch until the spec writes the field.
+
 ## From a type — `createAutoMock`
 
 `createAutoMock<T>(overrides?)` builds a `Spy<T>` from a **type or interface** alone —
@@ -85,6 +106,10 @@ const config = createMock<ServerConfig>({ baseUrl: 'https://example.test' });
 with the wrong type, is still a compile error. It is also the single place the `as` lives, so a
 suite under a `no-type-assertion` lint rule stops sprinkling `eslint-disable` over its fixtures.
 
+`createMock<T>(undefined)` is the same call as `createMock<T>()` and answers `{}`, not `undefined` —
+a helper that forwards an optional `overrides` parameter relies on that. A fixture that means "no
+value" passes `undefined` itself: `getters.profile.mockReturnValue(undefined)`.
+
 ## Recursive deep mocks — `mockDeep`
 
 `mockDeep<T>(overrides?)` is the recursive counterpart of `createAutoMock`. Nested object
@@ -114,7 +139,106 @@ Nodes are intentionally **not** thenable, so awaiting a node never treats it as 
 the same trap on every node, and `resetAutoSpy` walks the tree from whichever node it was handed, so
 `using` on a sub-tree resets that sub-tree. `mockDeep` takes no strict-mode configuration: its nodes
 are built without a guard, so an unconfigured call returns `undefined` (or the node itself under
-`selfReturning`) whatever `setupAutoSpy` was given.
+`selfReturning`) whatever `setupAutoSpy` was given. The per-mock way to fail such a call is
+[`fallbackMockImplementation`](#fallback).
+
+### Arrays
+
+A member read with a numeric key is an array. The first index read turns it into a real `Array`
+whose elements are deep mocks, so `Array.isArray`, `length`, `map`, `filter`, spreading and
+`for…of` behave as the code under test expects — the type, `DeepMockProxy<T>`, always said so:
+
+```ts
+const page = mockDeep<Page>(); // `items: Item[]` on the type
+
+page.items[0].load.mockReturnValue('first');
+page.items[1].load.mockReturnValue('second');
+
+render(page); // production code runs `page.items.map((item) => item.load())`
+
+expect(page.items).toHaveLength(2);
+expect(page.items[1].load).toHaveBeenCalled();
+```
+
+- Nested arrays work the same way: `page.matrix[0][1].inner = 'cell'` builds two real arrays.
+- The array grows to one past the highest index read. An index skipped on the way up becomes a deep
+  mock as soon as anything reaches it, `map` and `forEach` included.
+- A seed or an assignment wins: `mockDeep<Page>({ items: [] })` stays empty, and nothing is
+  materialised into it.
+- `resetAutoSpy` and `using` reset the elements with the tree; the array keeps its length.
+- A handle read **before** the first index stays what it was — a node, not an array. It still answers
+  its indices from the same array, but read the member again for `Array.isArray` or `toEqual`. For
+  the same reason the root of `mockDeep<Item[]>()` is indexable but is not an array; build a
+  top-level list as `[mockDeep<Item>(), mockDeep<Item>()]`.
+- A member typed as a dictionary keyed by numbers (`Record<number, User>`) becomes an array on its
+  first index read. Reads by key keep working; `Object.keys` and `Array.isArray` see an array.
+- Under `noUncheckedIndexedAccess` the element type carries `| undefined`, as it does on any array.
+  A deep mock always materialises the index, so `page.items[0]!` is safe here.
+
+### A call nobody configured — `fallbackMockImplementation` {#fallback}
+
+```ts
+const db = mockDeep<Db>(
+  {},
+  {
+    fallbackMockImplementation: () => {
+      throw new Error('not mocked');
+    },
+  },
+);
+
+db.user.findUnique.calledWith({ where: { id: 1 } }).resolveWith(user);
+db.user.count(); // throws: not mocked
+```
+
+The fallback answers a call on **any node nobody configured**, at every depth; it receives the call
+arguments and its return value is what the call returns. The precedence is fixed, first match wins:
+
+1. the node's own configuration — `mockReturnValue`, `mockImplementation`, `resolveWith`,
+   `calledWith(...)`, `mustBeCalledWith(...)`;
+2. the fallback;
+3. `selfReturning`, which still hands the node back when the fallback returned `undefined` — so a
+   fallback that only records composes with a fluent chain, and one that throws stops it.
+
+"Configured" is a property of the node, not of the call: a node with a `calledWith({ id: 1 })`
+chain answers a call with `{ id: 2 }` with `undefined`, not with the fallback. When any other
+arguments should fail, say so with `mustBeCalledWith`, which throws and prints what was expected.
+`resetAutoSpy` drops the configuration, after which the fallback answers again.
+
+Nothing suite-wide joins the precedence. `setupAutoSpy({ strict: true })` does not reach a deep tree
+with or without a fallback, so neither option can silently switch the other off.
+
+### `vi.spyOn` on a member
+
+`vi.spyOn(api.repo, 'find')` finds a member nobody has read yet: a node answers `in` the way it
+answers a read. Every node is already a spy, and Vitest hands that spy back rather than wrapping it,
+so `vi.spyOn(prisma.user, 'findMany').mockResolvedValue(rows)` in a migrated suite configures the
+node itself.
+
+### A method that runs a callback with the client
+
+A transaction API calls its callback with a client, and a deep mock does not guess that: which
+argument is the callback, whether to await it, and what to hand it are the method's own contract,
+and an option applied to every node would also fire on `on('event', handler)`. Say it on the one
+method:
+
+```ts
+db.transaction.mockImplementation((run) => run(asInstance(db)));
+db.user.count.resolveWith(3);
+
+await expect(service.countInTransaction()).resolves.toBe(3);
+```
+
+`asInstance` is the bridge from `DeepMockProxy<Db>` to the `Db` the callback is typed against. A
+`fallbackMockImplementation` does not interfere: the method is configured, and everything the
+callback reaches that the spec did not configure still meets the fallback.
+
+### How a node prints
+
+In a snapshot a node prints as `[MockFunction mockDeep.repo.find]`, with its calls, and an array
+member as a list of those. In an assertion diff a node passed **as an argument** prints as
+`[Function undefined]`: the diff labels a function by its `name`, and on a node `name` is a member
+of the mocked type. The assertion itself is unaffected; only the label is empty.
 
 ### A helper the entry registers later is still a helper
 

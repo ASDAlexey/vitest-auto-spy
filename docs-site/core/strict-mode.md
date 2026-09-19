@@ -214,6 +214,31 @@ createSpyFromClass(Cart, { strict: false }).total(); // undefined — opted out
 A handler beats `strict: true` at every level, so `{ strict: true, onUnstubbedCall: record }` on one
 double records and does not throw; `strict: false` beats every handler but the double's own.
 
+### `passthrough` sits above all five {#passthrough}
+
+[`createSpyFromInstance(obj, { passthrough: true })`](./create-spy-from-class#passthrough) gives an
+unconfigured call a third answer: run the real method. For every member that has a real method it
+wins over the whole list above — a suite-wide `strict: true`, a global handler, a strict
+`registerAutoSpyDefaults` for the class. The alternative is a suite that turns strict on and silently
+turns every passthrough double into a throwing one.
+
+```ts
+setupAutoSpy({ strict: true });
+
+createSpyFromInstance(new Cart(), { passthrough: true }).total(); // the real total
+createSpyFromInstance(new Cart()).total(); // throws: Nothing configured Cart.total
+```
+
+Two things keep it from overriding anything silently:
+
+- **Naming both on one call throws.** `{ passthrough: true, strict: true }` and
+  `{ passthrough: true, onUnstubbedCall }` are refused when the double is built: each decides what
+  an unconfigured call does, so one of them would be dead configuration. `strict: false` beside it
+  is fine — it says the same thing.
+- **A member with nothing real behind it stays under the list.** A name from `methodsToSpyOn` that
+  the object does not carry has no real method to run, so the suite-wide `strict` still throws for
+  it.
+
 ## Reads nobody configured
 
 The guard above fires on a **call**. A strict double's spied getter nobody configured still answers

@@ -35,6 +35,22 @@ instead, and `createFixtureFactory<T>(defaults)` is where the model a whole suit
 out and checked once. See [Auto-mock by type](./auto-mock-by-type) and
 [Fixtures without casts](/utilities/fixtures).
 
+## Spy, stub or mock
+
+The words come from Gerard Meszaros's test-double vocabulary, and tutorials use them loosely. In
+that vocabulary a **stub** answers with canned values, a **spy** records how it was called, a
+**mock** is told in advance which calls to expect and fails on the others, and a **fake** is a
+working, simplified implementation.
+
+What `createSpyFromClass` returns is a stub and a spy at once, for every method. Each call is
+recorded (`toHaveBeenCalledWith` reads it), and each method answers what the spec configured
+(`mockReturnValue`, `resolveWith`, `calledWith(…)`), or `undefined` when nothing was configured. It
+becomes a mock only where you ask: `mustBeCalledWith(…)` throws on a call with other arguments, and
+[strict mode](./strict-mode) fails on a method nobody configured. It is never a fake, because the
+real class never runs. A `vi.spyOn(realObject, 'm')` is the other kind of spy: it wraps one method
+of a real object and calls through to it. `createMock<T>()` is a plain stub with no spies in it, for
+values the code under test only reads.
+
 ## Where it runs
 
 The core never imports your test runner directly: `vi.fn()` and its equivalents sit behind a

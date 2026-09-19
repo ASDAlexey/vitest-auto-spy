@@ -205,6 +205,54 @@ value configured for another — was green for a comparison it never made, and f
 prints both argument lists, so the repair is in the config, not in the helper.
 :::
 
+## Cause and effect: why `calledWith` and not `mockReturnValue`
+
+A stub is a statement about cause and effect: _given this input, the collaborator answers that_. A
+`mockReturnValue` keeps the effect and drops the cause — the answer comes back whatever the code sent —
+and that is how a test ends up passing when it should not:
+
+```ts
+function priceIn(rates: Rates, amount: number, currency: string): number {
+  return amount * rates.rateFor('EUR'); // the bug: `currency` is ignored
+}
+
+rates.rateFor.mockReturnValue(2);
+expect(priceIn(rates, 10, 'USD')).toBe(20); // green
+```
+
+The usual repair is a `toHaveBeenCalledWith('USD')` at the end of the test. It works, but it puts the
+cause and the effect in two places: the answer is configured at the top, the condition it depended on
+is checked at the bottom, and nothing ties them together — a trailing assertion that was never
+written, or was written against the wrong spy, leaves the test exactly as green as before.
+
+`calledWith` keeps both in one line. The answer exists only for the input it belongs to, so the wrong
+input gets no answer, and the test fails at the behaviour it was checking:
+
+```ts
+rates.rateFor.calledWith('USD').mockReturnValue(2);
+expect(priceIn(rates, 10, 'USD')).toBe(20); // fails: rateFor('EUR') answered undefined, the price is NaN
+```
+
+It is also the **looser** coupling of the two, which is the part that surprises people. An assertion
+on the call pins down how the code talks to its collaborator — how many times, in which order, with
+which exact arguments. An answer filtered by arguments only says that the result depends on the
+input: the code may call once or three times, cache, or reorder, and the test does not care as long
+as the right input produces the right output. Refactors that keep the behaviour keep the test green.
+
+When a call with any other arguments is itself the bug, say so with `mustBeCalledWith`. The failure
+then names the mismatch at the call, instead of surfacing as a `NaN` somewhere downstream:
+
+```text
+The function 'rateFor' was configured with 'mustBeCalledWith' and expects to be called with specific arguments.
+Wanted: rateFor('USD')
+Actual: rateFor('EUR')
+```
+
+An unconditional answer is still the right tool where there is no cause to tie it to: a method that
+takes no arguments, or one whose arguments the test genuinely does not care about. And
+`toHaveBeenCalledWith` is still the right assertion where the call _is_ the behaviour — a command
+sent, an event logged, a request fired with nothing read back.
+
 ## Promise-returning methods — `resolveWith`
 
 ```ts
