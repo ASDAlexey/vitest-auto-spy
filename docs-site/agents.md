@@ -370,3 +370,30 @@ These account for the large majority of broken specs, and every one of them is c
     spies with `installConsoleSpies()` from [`vitest-auto-spy/console`](/utilities/console) in a
     `beforeEach` and assert on `consoleErrorSpy`; the `no-passthrough-console-spy` rule reports the
     bare form.
+
+12. **Advice carried over from Jest-era tutorials and cheat sheets** — each item below is wrong under
+    Vitest, checked on Vitest 5.0.0:
+    - **A `vi.mock` factory that reads a variable declared above it.** `vi.mock` is hoisted above
+      the imports, so the factory runs before the `const` exists and the file fails with
+      `[vitest] There was an error when mocking a module…` caused by
+      `ReferenceError: Cannot access 'load' before initialization`. Jest's exemption for names
+      starting with `mock` does not exist here — `mockLoad` fails the same way. Declare what the
+      factory needs with `const mocks = vi.hoisted(() => ({ load: vi.fn() }))`.
+    - **`vi.requireActual` / `jest.requireActual` to keep the rest of a module.** Neither exists;
+      the factory receives `importOriginal`:
+      `vi.mock('./api', async (importOriginal) => ({ ...(await importOriginal<typeof import('./api')>()), load: vi.fn() }))`.
+      `vi.importActual` is the async standalone form.
+    - **`import { jest } from 'vitest'`.** `vitest` exports no `jest`; the namespace is `vi`.
+    - **`import { userEvent } from '@testing-library/user-event'`.** That named export exists only
+      from 14.5.0; the default export works on every 14.x. The 14.x API is async:
+      `const user = userEvent.setup(); await user.click(button)`.
+    - **`vi.restoreAllMocks()` to undo `vi.useFakeTimers()`.** Restoring, resetting or clearing
+      mocks leaves the fake clock installed; `vi.useRealTimers()` in an `afterEach` puts the real
+      one back.
+    - **`globalThis.fetch = vi.fn()`.** Neither `vi.restoreAllMocks()` nor `vi.unstubAllGlobals()`
+      reaches a bare assignment, so the fake answers every later test of the file. Use
+      `vi.stubGlobal('fetch', …)` with `unstubGlobals: true`, or `mockValueProp(globalThis, 'fetch', …)`,
+      which [`setupAutoSpy()`](/utilities/setup) restores; `blockNetwork()` for a spec that only
+      has to stay offline, and [`stubResponse({ body })`](/utilities/setup#answering-a-stubbed-fetch-—-stubresponse)
+      for the `Response` itself. The [`no-hand-assigned-global`](/utilities/eslint-rules#no-hand-assigned-global)
+      rule reports the bare form.

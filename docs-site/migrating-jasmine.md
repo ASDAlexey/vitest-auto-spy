@@ -83,6 +83,31 @@ the expression already chains a strategy that replaces the implementation anyway
 than a `sed` line.
 :::
 
+### `mockReset()` brings the call-through back
+
+The same default comes back through a reset. jasmine has no `mockReset`: `spy.calls.reset()` forgets
+the calls and keeps the strategy, which is why the table below maps it to `mockClear()`, not
+`mockReset()`. A migrant who reaches for `mockReset()` anyway, expecting what the Jest 29 docs
+describe (an implementation that returns `undefined`), gets something else on Vitest 3 and later. Measured on
+Vitest 5.0.0:
+
+| Before `mockReset()`                                | After it, on Vitest                         | After it, per the Jest 29 docs |
+| --------------------------------------------------- | ------------------------------------------- | ------------------------------ |
+| `vi.fn(() => 'impl').mockReturnValue('x')`          | `'impl'`, the implementation passed to `fn` | `undefined`                    |
+| `vi.fn().mockReturnValue('x')`                      | `undefined`                                 | `undefined`                    |
+| `vi.spyOn(api, 'load').mockImplementation(() => …)` | **the real `load`**, still spied            | `undefined`                    |
+
+The last row is the jasmine trap again. The codemod turned `spyOn(api, 'load')` into
+`vi.spyOn(api, 'load').mockImplementation(() => undefined)`, and a `mockReset()` in an `afterEach`
+takes the no-op away, so the real method runs in every later test. Use `mockClear()` to forget calls,
+and `mockImplementation(() => undefined)` again if the stub has to survive.
+
+Auto-spies split the same call in two. On `createSpyFromClass(Api)`, `spy.load.mockReset()` drops a
+`mockReturnValue` / `mockImplementation` (the method answers `undefined` again), but a
+`calledWith(…)`, `resolveWith(…)` or `nextWith(…)` configuration survives it, because it lives in
+the library's own container. `resetAutoSpy(spy)` resets both halves. `clearAutoSpy(spy)` is the
+`calls.reset()` of the whole object. See [Control helpers](/core/control-helpers#resetting-spies-—-clearautospy-resetautospy).
+
 ## The auto-spies API
 
 Nothing in this table is a behaviour change on the shim — the middle column is what the same line
@@ -658,6 +683,11 @@ v22), and two statements — `toHaveBeenCalledTimes(1)` plus `toHaveBeenCalledWi
 matcher fails with a better message. What the schematic makes of `jasmine.createSpyObj` — an object
 literal of `vi.fn()`, and three TODO comments it cannot resolve — has
 [its own page](/migrating-angular-schematic), with the real output beside the one-liner.
+
+If the new setup also runs in a real browser (the `browsers` option of `@angular/build:unit-test`),
+one more difference appears there: a `vi.spyOn` on a module export throws, because a native ESM
+namespace is sealed. Spies on classes and prototypes, every auto-spy included, are unaffected. See
+[Vitest → Browser mode](/runtimes/vitest#browser-mode-module-exports-are-read-only).
 
 ## What else you gain
 

@@ -31,6 +31,11 @@ the right distinction.
 `createNestUnit` keeps both. What changes is the double behind each token, the dependency count, and
 where the thing can run.
 
+The two words are worth keeping outside Nest, too. An Angular `TestBed` makes the same choice one
+provider at a time: `provideAutoSpy(Dep)` for every collaborator is a solitary spec; leaving one real —
+by not listing it, or by listing the real class — makes it sociable, with the seam moved exactly as
+far as the spec says. There is no builder to learn, because the provider list already is one.
+
 ## Install and remove
 
 ```bash
@@ -48,9 +53,18 @@ Your `tsconfig` does not change. `reflect-metadata` and `emitDecoratorMetadata: 
 for Suites and equally mandatory here — they are Nest's own requirements, and a Nest app that boots
 already meets them. Neither package adds one.
 
+Your Vitest config does not change either. esbuild, and therefore Vite, does not emit
+`design:paramtypes`, so a Nest suite on Vitest already runs its specs through SWC (`unplugin-swc`).
+`createNestUnit` reads the same metadata, so the plugin stays; this is the one piece of Suites' setup
+cost that is really Nest's and does not go away.
+
 One file you can delete: the `global.d.ts` that references `@suites/doubles.vitest/unit` to augment
-`Mocked<T>` and `unitRef.get()` with Vitest's mock types. `Spy<T>` is a plain exported type; there is
-nothing to augment.
+`Mocked<T>` and `unitRef.get()` with Vitest's mock types. It exists because the adapter's own route
+to the same result is a `postinstall` script that prepends that reference to `@suites/unit`'s
+`dist/esm/index.d.ts` and `dist/cjs/index.d.ts` inside `node_modules` — which does nothing where
+dependency install scripts do not run (pnpm 10 by default, `--ignore-scripts`) or where the two
+packages are not installed side by side. `Spy<T>` is a plain exported type; there is nothing to
+augment and nothing to patch.
 
 ## The translation
 
@@ -313,8 +327,14 @@ Four things, honestly.
   for Jest, Vitest and sinon.
 - **The rest of your suite on the same core.** [Angular](/adapters/angular) — which Suites
   structurally cannot do, because it discovers collaborators from constructor `design:paramtypes`
-  and `readonly #x = inject(X)` emits no such metadata — plus [React](/adapters/react),
-  [Vue](/adapters/vue) and [Svelte](/adapters/svelte), from one dependency.
+  and `readonly #x = inject(X)` emits no such metadata; there is no Angular adapter and no DI
+  adapter beyond Nest and Inversify — plus [React](/adapters/react), [Vue](/adapters/vue) and
+  [Svelte](/adapters/svelte), from one dependency.
+- **Streams and accessors.** A Suites double is a `Proxy` over `{}` answering every name with a
+  `vi.fn()`, so a method returning an `Observable` gets no stream helpers and a getter is not
+  preserved at all — reading it returns a mock function. Here a method returning an `Observable`
+  gets [`nextWith` and the rest](/core/control-helpers#observable-methods-properties-—-nextwith), and
+  getters and setters get [their own spies](/core/create-spy-from-class#accessor-spies-—-accessorspies).
 - **Getter and setter spies**, [observable spies](/core/observable-assertions), `calledWith` /
   `resolveWith` / `mustBeCalledWith`, [strict mode](/core/strict-mode) and
   [fixtures](/core/create-spy-from-class) — the helper layer a Nest spec ends up writing by hand.
@@ -325,5 +345,8 @@ Four things, honestly.
 
 `@suites/unit` 3.1.1, published 2026-05-08, with `@suites/di.nestjs` and `@suites/doubles.vitest` at
 3.1.0. `4.0.0-beta.0` was published on 2025-11-04 and nothing has shipped on the 4.x line since; the
-3.1.x releases that followed are on the 3.x line. Everything on this page was read out of those
-published tarballs rather than from the documentation site.
+3.1.x releases that followed are on the 3.x line. Before them, nothing was published between 3.0.1 on
+2025-01-02 and `4.0.0-alpha.0` on 2025-10-27. Everything on this page was read out of those
+published tarballs rather than from the documentation site, and the versions and dates were
+re-read from the registry on 2026-09-19 — unchanged, with 3.1.1 still `latest`. In the week to
+2026-09-18, `@suites/unit` was downloaded 80 249 times and `@suites/doubles.vitest` 25 353.

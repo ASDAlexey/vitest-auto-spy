@@ -83,6 +83,31 @@ spy.load.nextWith(account); // jest-auto-spies и здесь
 строчка на `sed`.
 :::
 
+### `mockReset()` возвращает сквозной вызов {#mockreset-brings-the-call-through-back}
+
+То же поведение по умолчанию возвращается через сброс. В jasmine нет `mockReset`: `spy.calls.reset()`
+забывает вызовы и сохраняет стратегию, поэтому таблица ниже переводит его в `mockClear()`, а не в
+`mockReset()`. Мигрант, который всё же берёт `mockReset()` и ждёт того, что описывает документация
+Jest 29 (реализации, возвращающей `undefined`), на Vitest 3 и новее получает другое. Замерено на
+Vitest 5.0.0:
+
+| До `mockReset()`                                    | После него, на Vitest                   | После него, по документации Jest 29 |
+| --------------------------------------------------- | --------------------------------------- | ----------------------------------- |
+| `vi.fn(() => 'impl').mockReturnValue('x')`          | `'impl'`, реализация, переданная в `fn` | `undefined`                         |
+| `vi.fn().mockReturnValue('x')`                      | `undefined`                             | `undefined`                         |
+| `vi.spyOn(api, 'load').mockImplementation(() => …)` | **настоящий `load`**, всё ещё под спаем | `undefined`                         |
+
+Последняя строка — снова ловушка jasmine. Кодмод превратил `spyOn(api, 'load')` в
+`vi.spyOn(api, 'load').mockImplementation(() => undefined)`, а `mockReset()` в `afterEach` убирает этот
+no-op, и настоящий метод выполняется в каждом следующем тесте. Чтобы забыть вызовы, берите
+`mockClear()`, а если заглушка должна пережить сброс — снова `mockImplementation(() => undefined)`.
+
+Авто-спаи делят тот же вызов надвое. На `createSpyFromClass(Api)` вызов `spy.load.mockReset()`
+сбрасывает `mockReturnValue` / `mockImplementation` (метод снова отвечает `undefined`), но конфигурация
+`calledWith(…)`, `resolveWith(…)` или `nextWith(…)` его переживает, потому что живёт в собственном
+контейнере библиотеки. `resetAutoSpy(spy)` сбрасывает обе половины. `clearAutoSpy(spy)` — это
+`calls.reset()` для всего объекта. См. [Управляющие хелперы](/ru/core/control-helpers#resetting-spies-—-clearautospy-resetautospy).
+
 ## API auto-spies {#the-auto-spies-api}
 
 Ничто в этой таблице не является изменением поведения на прокладке — средняя колонка описывает, что
@@ -624,6 +649,11 @@ _и есть_ ожидание, а тишина — это падение со �
 матчер падает с сообщением получше. Что схематика делает с `jasmine.createSpyObj` — объектный литерал
 из `vi.fn()` и три TODO-комментария, которые она не может разрешить, — разобрано на
 [отдельной странице](/ru/migrating-angular-schematic), где настоящий вывод стоит рядом с однострочником.
+
+Если новая настройка ещё и запускает тесты в настоящем браузере (опция `browsers` у
+`@angular/build:unit-test`), там появляется ещё одно отличие: `vi.spyOn` на экспорте модуля бросает,
+потому что пространство имён нативного ESM запечатано. Спаи на классах и прототипах, включая все
+авто-спаи, это не задевает. См. [Vitest → Browser mode](/ru/runtimes/vitest#browser-mode-module-exports-are-read-only).
 
 ## Что ещё вы получаете {#what-else-you-gain}
 

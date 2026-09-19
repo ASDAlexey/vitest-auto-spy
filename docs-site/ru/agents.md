@@ -374,3 +374,31 @@ Docs: https://asdalexey.github.io/vitest-auto-spy/runtimes/rxjs
     что строка всё равно печатается — а под `strayConsole` тест на ней падает. Ставьте тихие спаи
     через `installConsoleSpies()` из [`vitest-auto-spy/console`](/ru/utilities/console) в
     `beforeEach` и проверяйте `consoleErrorSpy`; голую форму ловит правило `no-passthrough-console-spy`.
+
+12. **Советы, перенесённые из туториалов и шпаргалок времён Jest**, — каждый пункт ниже неверен под
+    Vitest, проверено на Vitest 5.0.0:
+    - **Фабрика `vi.mock`, читающая переменную, объявленную выше.** `vi.mock` поднимается над
+      импортами, поэтому фабрика выполняется раньше, чем появляется `const`, и файл падает с
+      `[vitest] There was an error when mocking a module…`, причина —
+      `ReferenceError: Cannot access 'load' before initialization`. Исключения Jest для имён,
+      начинающихся с `mock`, здесь нет — `mockLoad` падает так же. Объявляйте то, что нужно
+      фабрике, через `const mocks = vi.hoisted(() => ({ load: vi.fn() }))`.
+    - **`vi.requireActual` / `jest.requireActual`, чтобы сохранить остальной модуль.** Ни того ни
+      другого нет; фабрика получает `importOriginal`:
+      `vi.mock('./api', async (importOriginal) => ({ ...(await importOriginal<typeof import('./api')>()), load: vi.fn() }))`.
+      `vi.importActual` — асинхронная отдельная форма.
+    - **`import { jest } from 'vitest'`.** `vitest` не экспортирует `jest`; пространство имён — `vi`.
+    - **`import { userEvent } from '@testing-library/user-event'`.** Именованный экспорт есть
+      только с 14.5.0; экспорт по умолчанию работает на любой 14.x. API 14.x асинхронный:
+      `const user = userEvent.setup(); await user.click(button)`.
+    - **`vi.restoreAllMocks()`, чтобы отменить `vi.useFakeTimers()`.** Восстановление, сброс и
+      очистка моков оставляют фейковые часы на месте; настоящие возвращает `vi.useRealTimers()` в
+      `afterEach`.
+    - **`globalThis.fetch = vi.fn()`.** Ни `vi.restoreAllMocks()`, ни `vi.unstubAllGlobals()` не
+      достают до голого присваивания, так что фейк отвечает каждому следующему тесту файла.
+      Используйте `vi.stubGlobal('fetch', …)` с `unstubGlobals: true` или
+      `mockValueProp(globalThis, 'fetch', …)`, который восстанавливает
+      [`setupAutoSpy()`](/ru/utilities/setup); `blockNetwork()` — для спеки, которой нужно лишь не
+      ходить в сеть, и [`stubResponse({ body })`](/ru/utilities/setup#answering-a-stubbed-fetch-—-stubresponse)
+      — для самого `Response`. Голую форму ловит правило
+      [`no-hand-assigned-global`](/ru/utilities/eslint-rules#no-hand-assigned-global).
