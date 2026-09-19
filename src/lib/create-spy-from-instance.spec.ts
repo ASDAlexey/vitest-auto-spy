@@ -271,6 +271,26 @@ describe('createSpyFromInstance — misconfiguration reports', () => {
     }
   });
 
+  it('warns when returns or selfReturning name a method the call left real, and leaves it real', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    try {
+      const client = new PaymentsClient();
+      const spy = spyOn(client, { onlyMethodsToSpyOn: ['refund'], returns: { ping: 'x', refund: 'done' }, selfReturning: ['charge'] });
+
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining(
+          'createSpyFromInstance(PaymentsClient): returns / selfReturning name ping, charge, which this call left as the real method',
+        ),
+      );
+      expect(client.ping()).toBe('real-ping');
+      expect(client.charge(1)).toBe('real-charge 1');
+      expect(spy.refund('7')).toBe('done');
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
   it('stays quiet for names the object carries as accessors', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
 
@@ -306,6 +326,51 @@ describe('createSpyFromInstance — registered defaults', () => {
 
       expect(vi.isMockFunction(spy.reload)).toBe(true);
       expect(spy.refund('7')).toBe('caller');
+    } finally {
+      clearAutoSpyDefaults();
+    }
+  });
+
+  it('keeps every other member real when the call site lists its only methods', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    registerAutoSpyDefaults(PaymentsClient, {
+      gettersToSpyOn: ['fees'],
+      settersToSpyOn: ['limit'],
+      instanceMethodsToSpyOn: ['charge'],
+      overrides: { amount: 42 },
+      returns: { ping: 'registered' },
+      selfReturning: ['charge'],
+    });
+
+    try {
+      const client = new PaymentsClient();
+      const spy = spyOn(client, { onlyMethodsToSpyOn: ['refund'] });
+
+      client.limit = 3;
+
+      expect(client.fees).toBe(5);
+      expect(client.amount).toBe(3);
+      expect(client.charge(1)).toBe('real-charge 1');
+      expect(client.ping()).toBe('real-ping');
+      expect(spy.refund('7')).toBeUndefined();
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      clearAutoSpyDefaults();
+      warn.mockRestore();
+    }
+  });
+
+  it('still lets the registration configure the methods the call site listed', () => {
+    registerAutoSpyDefaults(PaymentsClient, { strict: true, returns: { refund: 'registered', ping: 'unused' }, selfReturning: ['ping'] });
+
+    try {
+      const client = new PaymentsClient();
+      const spy = spyOn(client, { onlyMethodsToSpyOn: ['refund', 'ping', 'charge'], returns: { ping: 'caller' } });
+
+      expect(spy.refund('7')).toBe('registered');
+      expect(spy.ping()).toBe('caller');
+      expect(() => spy.charge(1)).toThrow('Nothing configured PaymentsClient.charge, and strict mode is on.');
     } finally {
       clearAutoSpyDefaults();
     }

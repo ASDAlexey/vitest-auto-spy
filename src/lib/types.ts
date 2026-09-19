@@ -1026,3 +1026,28 @@ export interface ClassSpyConfiguration<T> extends StrictSpyConfiguration {
    */
   lazySpies?: boolean | 'proxy';
 }
+
+/**
+ * The configuration `createSpyFromInstance` takes: {@link ClassSpyConfiguration}, plus the one option
+ * that only makes sense when a real object is being patched.
+ */
+export interface InstanceSpyConfiguration<T> extends ClassSpyConfiguration<T> {
+  /**
+   * Record every call, but run the real method until the test configures that method.
+   *
+   * ```ts
+   * const users = createSpyFromInstance(TestBed.inject(UserService), { passthrough: true });
+   *
+   * await component.save(); // the real UserService.save ran, and was recorded
+   * expect(users.save).toHaveBeenCalledWith({ id: 1 });
+   *
+   * users.load.resolveWith([]); // only load is a double now
+   * ```
+   *
+   * Any configuration takes over the **whole** method — `calledWith`, `resolveWith`, `returns`,
+   * `mockReturnValue` — and `resetAutoSpy` hands it back to the real one. The real method runs
+   * with the instance as `this`. Contradicts an explicit `strict: true` or `onUnstubbedCall` on the
+   * same call, which throws; a suite-wide `strict` or a registered one yields to it.
+   */
+  passthrough?: boolean | undefined;
+}

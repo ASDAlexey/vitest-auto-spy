@@ -10,7 +10,8 @@
  */
 import { describe, expectTypeOf, it } from 'vitest';
 
-import type { Spy } from '../auto-spy';
+import type { InstanceSpyConfiguration, Spy } from '../auto-spy';
+import { createSpyFromClass } from '../lib/create-spy-from-class';
 import { createSpyFromInstance, restoreSpiedInstance } from '../lib/create-spy-from-instance';
 
 class PaymentsClient {
@@ -79,6 +80,16 @@ describe('createSpyFromInstance', () => {
 
   it('takes the array shorthand as method names', () => {
     expectTypeOf(createSpyFromInstance(new PaymentsClient(), ['refund'])).toEqualTypeOf<Spy<PaymentsClient>>();
+  });
+
+  it('takes passthrough, keeps the result a Spy<T>, and is the only factory that does', () => {
+    const spy = createSpyFromInstance(new PaymentsClient(), { passthrough: true, returns: { refund: 'done' } });
+
+    expectTypeOf(spy).toEqualTypeOf<Spy<PaymentsClient>>();
+    expectTypeOf<InstanceSpyConfiguration<PaymentsClient>['passthrough']>().toEqualTypeOf<boolean | undefined>();
+
+    // @ts-expect-error -- a class factory builds the double, so there is no real method to pass through to
+    createSpyFromClass(PaymentsClient, { passthrough: true });
   });
 
   it('is Disposable, so `using` restores the object at the end of the block', () => {

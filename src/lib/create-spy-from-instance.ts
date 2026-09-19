@@ -22,12 +22,15 @@ import {
   resolveConfiguration,
 } from './create-spy-from-class';
 import { DISPOSE } from './dispose-symbol';
-import { createFunctionSpy, resolveUnstubbedGuard } from './function-spy';
+import { DOCS_LINKS, withDocs } from './docs-links';
+import { type UnstubbedGuard, createFunctionSpy, resolveUnstubbedGuard } from './function-spy';
+import { reportMisconfiguration } from './misconfiguration';
 import { type RestoreProp, mockAccessorsProp, mockValueProp } from './prop-mock';
 import { redefineFailure } from './redefine-failure';
 import { warnOnAccessorNamingAMethod, warnOnUnknownMethods } from './spy-config-warnings';
 import { mergeAutoSpyDefaults } from './spy-defaults';
-import type { ClassSpyConfiguration, ClassType, OnlyMethodKeysOf, Spy, SpyOptions } from './types';
+import { isMarkedMock } from './spy-mark';
+import type { ClassSpyConfiguration, ClassType, InstanceSpyConfiguration, OnlyMethodKeysOf, Spy, SpyOptions } from './types';
 import { type ReadGuard, createTrackedPropSpy, resolveReadGuard } from './unconfigured-reads';
 
 /**
@@ -63,6 +66,43 @@ function registeredDefaultsKey<T extends object>(instance: T): ClassType<T> | un
 
   // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- read off a live object at run time; the generic only carries the instance's own type so the merge accepts the caller's configuration unchanged.
   return constructor as ClassType<T>;
+}
+
+// A call site that lists its only methods keeps the rest of the object real, so the class's
+// registration may configure those methods but not replace any other member.
+function onlyMethodsWritten<T>(config: ClassSpyConfiguration<T> | OnlyMethodKeysOf<T>[] | undefined): string[] | undefined {
+  const only = Array.isArray(config) ? undefined : config?.onlyMethodsToSpyOn;
+
+  return only && only.length > 0 ? only : undefined;
+}
+
+function isLeftReal(instance: object, name: string): boolean {
+  const member: unknown = Reflect.get(instance, name);
+
+  return typeof member === 'function' && !isMarkedMock(member);
+}
+
+function withoutRealMembers(instance: object, label: string, config: ResolvedSpyConfiguration): ResolvedSpyConfiguration {
+  const real = [...new Set([...Object.keys(config.returns), ...config.selfReturning])].filter((name) => isLeftReal(instance, name));
+
+  if (real.length === 0) {
+    return config;
+  }
+
+  reportMisconfiguration(
+    withDocs(
+      `[vitest-auto-spy] ${label}: returns / selfReturning name ${real.join(', ')}, which this call left as the real method. List it in onlyMethodsToSpyOn or drop it.`,
+      DOCS_LINKS.createSpyFromClass,
+    ),
+  );
+
+  const kept = (name: string): boolean => !real.includes(name);
+
+  return {
+    ...config,
+    returns: Object.fromEntries(Object.entries(config.returns).filter(([name]) => kept(name))),
+    selfReturning: config.selfReturning.filter(kept),
+  };
 }
 
 /**
@@ -124,6 +164,82 @@ function installAccessorSpies(
   createAccessorsSpies(instance as Record<string, unknown>, getters, setters, reads);
 }
 
+// The strict guard never fires for these (see function-spy.ts), so a passthrough spy on one would
+// skip the real teardown silently. Under passthrough they stay the real methods instead.
+const LIFECYCLE_HOOKS: ReadonlySet<PropertyKey> = new Set([
+  'ngOnChanges',
+  'ngOnInit',
+  'ngDoCheck',
+  'ngAfterContentInit',
+  'ngAfterContentChecked',
+  'ngAfterViewInit',
+  'ngAfterViewChecked',
+  'ngOnDestroy',
+]);
+
+/** `passthrough` split off the rest, which is the class factory's configuration unchanged. */
+function splitPassthrough<T>(config: InstanceSpyConfiguration<T> | OnlyMethodKeysOf<T>[] | undefined): {
+  passthrough: boolean;
+  rest: ClassSpyConfiguration<T> | OnlyMethodKeysOf<T>[] | undefined;
+} {
+  if (config === undefined || Array.isArray(config)) {
+    return { passthrough: false, rest: config };
+  }
+
+  const { passthrough, ...rest } = config;
+
+  if (passthrough === true && (rest.strict === true || rest.onUnstubbedCall !== undefined)) {
+    throw new Error(
+      withDocs(
+        `[vitest-auto-spy] createSpyFromInstance() was given 'passthrough: true' together with ${rest.strict === true ? "'strict: true'" : "'onUnstubbedCall'"}. ` +
+          'Both decide what an unconfigured call does — run the real method, or refuse it — so one of them would be ignored. ' +
+          'Keep the one this test means.',
+        DOCS_LINKS.strictMode,
+      ),
+    );
+  }
+
+  return { passthrough: passthrough === true, rest };
+}
+
+/** A callable carrying an API of its own — an Angular `signal()` with `set`/`update`, a mock — rather than a plain method. */
+function carriesOwnApi(value: object): boolean {
+  return Reflect.ownKeys(value).some((key) => key !== 'length' && key !== 'name' && key !== 'prototype');
+}
+
+/** A `class` (or a built-in constructor): the one callable whose `prototype` cannot be reassigned, and which cannot be applied without `new`. */
+function isClass(value: object): boolean {
+  return Object.getOwnPropertyDescriptor(value, 'prototype')?.writable === false;
+}
+
+/**
+ * The passthrough guard for one member: `undefined` when there is no real method it can run, `'real'`
+ * when the member is better left untouched than spied.
+ *
+ * A spy in place of a signal field hides its `set` and `update`, and one in place of a class cannot
+ * construct it; so a discovered callable of either kind stays real, and only a named one is spied.
+ */
+function passthroughFor(
+  instance: object,
+  name: PropertyKey,
+  className: string | undefined,
+  named: ReadonlySet<PropertyKey>,
+): UnstubbedGuard | 'real' | undefined {
+  const original: unknown = Reflect.get(instance, name);
+
+  if (typeof original !== 'function') {
+    return undefined;
+  }
+
+  const constructor = isClass(original);
+
+  if (LIFECYCLE_HOOKS.has(name) || (!named.has(name) && (constructor || carriesOwnApi(original)))) {
+    return 'real';
+  }
+
+  return constructor ? undefined : { className, handle: (call) => Reflect.apply(original, instance, call.args) };
+}
+
 /** Put the instance back the way it was, dropping every spy this factory installed on it. */
 function disposeSpiedInstance(this: object): void {
   restoreSpiedInstance(this);
@@ -178,13 +294,17 @@ export function restoreSpiedInstance(instance: object): void {
  * winning over it — while a bare object literal resolves no registration, the class its
  * `constructor` names being `Object`.
  *
+ * `passthrough: true` keeps the object working: an unconfigured method runs the real one and is still
+ * recorded, until the test configures it. Angular lifecycle hooks are then left unspied, since the
+ * framework rather than the test calls them.
+ *
  * The returned value **is** the argument. `using spy = createSpyFromInstance(client)` restores the
  * object at the end of the block rather than merely resetting it, which is the only sense `dispose`
  * can have for an object the consumer owns.
  */
 export function createSpyFromInstance<T extends object, Options extends SpyOptions = SpyOptions>(
   instance: T,
-  methodsToSpyOnOrConfig?: ClassSpyConfiguration<T> | OnlyMethodKeysOf<T>[],
+  methodsToSpyOnOrConfig?: InstanceSpyConfiguration<T> | OnlyMethodKeysOf<T>[],
 ): Spy<T, Options> {
   // A sealed or frozen object rejects a *new* own property with "object is not extensible", which is
   // a different sentence from the "Cannot redefine property" the journal translates — so the same
@@ -199,9 +319,10 @@ export function createSpyFromInstance<T extends object, Options extends SpyOptio
 
   // The class's registration first, the caller's own configuration merged over it — the same order
   // the class factory merges in, keyed by the class the instance's constructor names.
+  const { passthrough, rest } = splitPassthrough(methodsToSpyOnOrConfig);
   const registeredFor = registeredDefaultsKey(instance);
   const config = resolveConfiguration(
-    registeredFor === undefined ? methodsToSpyOnOrConfig : mergeAutoSpyDefaults(registeredFor, methodsToSpyOnOrConfig),
+    registeredFor === undefined ? rest : mergeAutoSpyDefaults(registeredFor, rest, onlyMethodsWritten(rest)),
   );
   const className = constructorName(instance);
   const unstubbed = resolveUnstubbedGuard(className, config);
@@ -216,11 +337,21 @@ export function createSpyFromInstance<T extends object, Options extends SpyOptio
     config,
   );
 
-  methodNames.forEach((name) => installMember(instance, name, createFunctionSpy(String(name), unstubbed), restores));
+  const named = new Set([...config.onlyMethodsToSpyOn, ...config.methodsToSpyOn, ...config.instanceMethodsToSpyOn]);
+
+  methodNames.forEach((name) => {
+    const real = passthrough ? passthroughFor(instance, name, className, named) : undefined;
+
+    if (real !== 'real') {
+      installMember(instance, name, createFunctionSpy(String(name), real ?? unstubbed), restores);
+    }
+  });
   config.observablePropsToSpyOn.forEach((name) => installMember(instance, name, createTrackedPropSpy(name, reads), restores));
 
   installAccessorSpies(instance, config, restores, reads);
-  applyConfiguredReturns(instance, `createSpyFromInstance(${className ?? 'object'})`, config);
+  const label = `createSpyFromInstance(${className ?? 'object'})`;
+
+  applyConfiguredReturns(instance, label, withoutRealMembers(instance, label, config));
 
   for (const key of Reflect.ownKeys(config.overrides)) {
     installMember(instance, key, Reflect.get(config.overrides, key), restores);
