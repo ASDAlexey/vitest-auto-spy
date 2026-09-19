@@ -91,6 +91,7 @@ failure names the `label` instead:
 event-loop turns. Three causes, in the order they turn out to be true. The work started but a
 dynamic `import()` had not finished … Or the work never started …. Or it is waiting on a timer
 rather than on the event loop — timers stay frozen here, and only `advanceTimers()` moves them.
+Docs: https://asdalexey.github.io/vitest-auto-spy/utilities/event-loop
 ```
 
 The first of the three is the one that costs the most time to diagnose, which is why it is named

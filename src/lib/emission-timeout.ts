@@ -2,6 +2,7 @@
 // that are still open. It lives apart from `expect-emission.ts` so the build can pin 0.3 kB of
 // state into `dist/shared-state.js` instead of the whole 10 kB helper, and so `setupAutoSpy()` can
 // sweep the register from its teardown without pulling the helper into the setup entry.
+import { DOCS_LINKS, withDocs } from './docs-links';
 
 let defaultTimeoutMs = 1000;
 
@@ -34,8 +35,11 @@ export function setEmissionTimeout(milliseconds: number): void {
   // this whole module exists to prevent, installed by the line meant to tune it.
   if (Number.isNaN(milliseconds) || milliseconds < 0) {
     throw new Error(
-      `[vitest-auto-spy] setEmissionTimeout(${String(milliseconds)}) needs a non-negative number of milliseconds. ` +
-        'Use `0` to disable the watchdog, or `Infinity` to wait as long as the runner allows.',
+      withDocs(
+        `[vitest-auto-spy] setEmissionTimeout(${String(milliseconds)}) needs a non-negative number of milliseconds. ` +
+          'Use `0` to disable the watchdog, or `Infinity` to wait as long as the runner allows.',
+        DOCS_LINKS.observableAssertions,
+      ),
     );
   }
 

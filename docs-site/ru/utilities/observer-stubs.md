@@ -62,6 +62,7 @@ it('reveals the card once it scrolls into view', async () => {
 [vitest-auto-spy] stubObserver('IntersectionObserver'): the code under test has not constructed an
 IntersectionObserver. Render the component (or run the effect) before reaching for `last`, and
 check that the stub was installed before the construction rather than after it.
+Docs: https://asdalexey.github.io/vitest-auto-spy/utilities/observer-stubs
 ```
 
 ## Хендл {#the-handle}

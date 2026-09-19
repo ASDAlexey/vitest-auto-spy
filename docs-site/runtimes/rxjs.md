@@ -327,6 +327,7 @@ replace:
 [vitest-auto-spy] this spy's observable errored, so the promise from onComplete() can never resolve:
 completion is not coming. Read receivedComplete() / receivedError(), or await
 `expectCompletion(source$)` / `expectError(source$)`, which fail with a message naming the stream.
+Docs: https://asdalexey.github.io/vitest-auto-spy/runtimes/rxjs
 ```
 
 It holds whichever order the two happen in — the stream that already ended rejects at the call, and

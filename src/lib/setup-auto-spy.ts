@@ -819,16 +819,6 @@ function watchStrayRejections(enabled: boolean): TeardownStep[] {
 }
 
 /**
- * Install the library's test-run hygiene.
- *
- * ```ts
- * // vitest.setup.ts
- * import { setupAutoSpy } from 'vitest-auto-spy/setup';
- *
- * setupAutoSpy();
- * ```
- */
-/**
  * The steps that run before any hook is registered: what the run is told, and what it is handed.
  *
  * Both are one-shot rather than per test — nothing takes a repair off again — and both have to
@@ -918,8 +908,11 @@ function abandonPendingWaits(): void {
 
   if (abandoned.length > 0) {
     libraryWarn(
-      `[vitest-auto-spy] ${abandoned.length} emission helper(s) were never awaited in this test ` +
-        `(${abandoned.join(', ')}). The subscription is torn down now, but the assertion never ran.`,
+      withDocs(
+        `[vitest-auto-spy] ${abandoned.length} emission helper(s) were never awaited in this test ` +
+          `(${abandoned.join(', ')}). The subscription is torn down now, but the assertion never ran.`,
+        DOCS_LINKS.observableAssertions,
+      ),
     );
   }
 }
@@ -950,6 +943,16 @@ function buildRestores(options: SetupAutoSpyOptions): TeardownStep[] {
   return restores;
 }
 
+/**
+ * Install the library's test-run hygiene.
+ *
+ * ```ts
+ * // vitest.setup.ts
+ * import { setupAutoSpy } from 'vitest-auto-spy/setup';
+ *
+ * setupAutoSpy();
+ * ```
+ */
 export function setupAutoSpy(input: SetupAutoSpyOptions = {}): void {
   const options = applyPreset(input);
 

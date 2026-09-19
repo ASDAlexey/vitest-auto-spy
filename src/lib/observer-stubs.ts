@@ -24,6 +24,7 @@
  * filled in, and anything else can be passed through. Fabricating a complete `DOMRectReadOnly` for
  * an assertion that looks at `isIntersecting` would be ceremony, not fidelity.
  */
+import { DOCS_LINKS, withDocs } from './docs-links';
 import { type MockFn, getMockAdapter } from './mock-adapter';
 import { mockValueProp } from './prop-mock';
 
@@ -205,9 +206,12 @@ export function stubObserver<TEntry, TTarget = unknown>(
 
       if (!instance) {
         throw new Error(
-          `[vitest-auto-spy] stubObserver('${name}'): the code under test has not constructed a ${name}. ` +
-            'Render the component (or run the effect) before reaching for `last`, and check that the ' +
-            'stub was installed before the construction rather than after it.',
+          withDocs(
+            `[vitest-auto-spy] stubObserver('${name}'): the code under test has not constructed a ${name}. ` +
+              'Render the component (or run the effect) before reaching for `last`, and check that the ' +
+              'stub was installed before the construction rather than after it.',
+            DOCS_LINKS.observerStubs,
+          ),
         );
       }
 

@@ -12,12 +12,12 @@
 import { DOCS_LINKS, withDocs } from './docs-links';
 import type { CalledWithObject, ReturnValueContainer } from './internal-types';
 
-/** The observable helpers the `/rxjs` entry plugs into the core. */
 /** What the rxjs layer hands back for a function spy: its stream state, with the reset `resetAutoSpy` calls. */
 export interface ObservableStream {
   reset(): void;
 }
 
+/** The observable helpers the `/rxjs` entry plugs into the core. */
 export interface ObservableSupport {
   /** Install the stream helpers on a function spy — shared through a prototype where the engine has one. */
   addToFunctionSpy(spyFunction: object): void;

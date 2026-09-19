@@ -42,6 +42,7 @@ await expectCompletion(service.purgeCache()); // проверяет заверш
 ```text
 [vitest-auto-spy] 1 emission helper(s) were never awaited in this test (saved$). The subscription is
 torn down now, but the assertion never ran.
+Docs: https://asdalexey.github.io/vitest-auto-spy/core/observable-assertions
 ```
 
 Его промис оставляется незавершённым, а не отклонённым: его тест уже кончился, и ловить его больше

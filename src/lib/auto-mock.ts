@@ -235,7 +235,7 @@ function applyMockReturns(
           `[vitest-auto-spy] createAutoMock: ${option} names '${name}', which this double never turns into a spy — ` +
             "'then' and 'constructor' are held back so the mock is not treated as a Promise. Rename the member, or " +
             'seed it through the overrides argument instead.',
-          DOCS_LINKS.createSpyFromClass,
+          DOCS_LINKS.autoMockByType,
         ),
       );
 

@@ -41,6 +41,7 @@ Every wait still open at the end of a test is therefore torn down by
 ```text
 [vitest-auto-spy] 1 emission helper(s) were never awaited in this test (saved$). The subscription is
 torn down now, but the assertion never ran.
+Docs: https://asdalexey.github.io/vitest-auto-spy/core/observable-assertions
 ```
 
 Its promise is left unsettled rather than rejected — its test is over, and nothing is left to catch

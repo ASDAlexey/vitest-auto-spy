@@ -10,6 +10,7 @@
  * dependency and the helpers work with rxjs `Observable`s, Angular `toObservable()` results, signals
  * wrapped in `toObservable`, or a hand-rolled subscribable.
  */
+import { DOCS_LINKS, withDocs } from './docs-links';
 import { type PendingEmissionWait, emissionTimeout, forgetEmissionWait, registerEmissionWait } from './emission-timeout';
 import { type StackAnchor, captureAnchor, ownFailure } from './error-anchor';
 import { serializeValue } from './serialize-args';
@@ -651,8 +652,11 @@ function collectEmissions<T>(
   // than rejected, so the stack is the caller's own — this is a bad argument, not a failed wait.
   if (count < 1) {
     throw new Error(
-      `[vitest-auto-spy] expectEmissions(source$, ${count}) can never succeed — a count below 1 is not something a stream can satisfy. ` +
-        'Use `expectNoEmission(source$)` to assert silence.',
+      withDocs(
+        `[vitest-auto-spy] expectEmissions(source$, ${count}) can never succeed — a count below 1 is not something a stream can satisfy. ` +
+          'Use `expectNoEmission(source$)` to assert silence.',
+        DOCS_LINKS.observableAssertions,
+      ),
     );
   }
 

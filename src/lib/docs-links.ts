@@ -9,8 +9,9 @@
  * Keeping the URLs in one place also means a docs restructure is a single edit rather than a grep
  * across the library.
  */
+import { DOCS, DOCS_RXJS } from './message-link';
 
-const DOCS = 'https://asdalexey.github.io/vitest-auto-spy';
+export { withDocs } from './message-link';
 
 export const DOCS_LINKS = {
   angular: `${DOCS}/adapters/angular`,
@@ -35,12 +36,13 @@ export const DOCS_LINKS = {
   mediaElement: `${DOCS}/utilities/media-element`,
   moduleMocks: `${DOCS}/utilities/module-mocks`,
   nestjs: `${DOCS}/adapters/nestjs`,
+  observableAssertions: `${DOCS}/core/observable-assertions`,
   observerStubs: `${DOCS}/utilities/observer-stubs`,
   // The recipe for the one failure no spy library can work around: a binding the bundler already
   // inlined. Deep-linked to the section rather than the page, because the page's first half is
   // about the *silent* half of the same problem and the reader arriving here has the loud one.
   realSeam: `${DOCS}/utilities/module-mocks#provide-a-real-seam`,
-  rxjs: `${DOCS}/runtimes/rxjs`,
+  rxjs: DOCS_RXJS,
   setup: `${DOCS}/utilities/setup`,
   signalForms: `${DOCS}/adapters/signal-forms`,
   // Its own page rather than a section of the factory's: the reader arriving here was thrown at by a
@@ -50,8 +52,3 @@ export const DOCS_LINKS = {
   unconfiguredReads: `${DOCS}/core/strict-mode#reads-nobody-configured`,
   trackInjections: `${DOCS}/utilities/track-injections`,
 } as const;
-
-/** Append a "see also" line to a message, on its own line so a terminal keeps the URL clickable. */
-export function withDocs(message: string, link: string): string {
-  return `${message}\nDocs: ${link}`;
-}

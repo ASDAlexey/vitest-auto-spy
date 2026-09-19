@@ -61,6 +61,7 @@ rather than failing three lines later against `undefined`:
 [vitest-auto-spy] stubObserver('IntersectionObserver'): the code under test has not constructed an
 IntersectionObserver. Render the component (or run the effect) before reaching for `last`, and
 check that the stub was installed before the construction rather than after it.
+Docs: https://asdalexey.github.io/vitest-auto-spy/utilities/observer-stubs
 ```
 
 ## The handle

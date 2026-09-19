@@ -26,6 +26,8 @@
  */
 import { afterEach, beforeEach } from 'vitest';
 
+import { DOCS_LINKS, withDocs } from './docs-links';
+
 /** Reads the handle belonging to the current test. */
 export type PerTestHandle<T> = () => T;
 
@@ -58,9 +60,12 @@ export function installPerTest<T>(install: () => T): PerTestHandle<T> {
   return () => {
     if (!current) {
       throw new Error(
-        '[vitest-auto-spy] installPerTest: nothing is installed yet. Call the handle inside a test (or in a hook that ' +
-          'runs after the one this registered): at `describe` body time the stub for the first test does not exist ' +
-          'yet, and once a test has finished its stub is dropped rather than kept around for the next reader.',
+        withDocs(
+          '[vitest-auto-spy] installPerTest: nothing is installed yet. Call the handle inside a test (or in a hook that ' +
+            'runs after the one this registered): at `describe` body time the stub for the first test does not exist ' +
+            'yet, and once a test has finished its stub is dropped rather than kept around for the next reader.',
+          DOCS_LINKS.setup,
+        ),
       );
     }
 

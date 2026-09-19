@@ -774,14 +774,18 @@ describe('a timeout that cannot be a deadline', () => {
   });
 
   it('refuses a default that would silently disable every watchdog', () => {
-    expect(() => setEmissionTimeout(Number.NaN)).toThrow(/setEmissionTimeout\(NaN\) needs a non-negative number/);
+    expect(() => setEmissionTimeout(Number.NaN)).toThrow(
+      /setEmissionTimeout\(NaN\) needs a non-negative number[\s\S]*Docs: https:\/\/asdalexey\.github\.io\/vitest-auto-spy\/core\/observable-assertions/,
+    );
     expect(() => setEmissionTimeout(-1)).toThrow(/needs a non-negative number/);
   });
 });
 
 describe('a count no stream can satisfy', () => {
   it('refuses zero, pointing at the helper that does assert silence', () => {
-    expect(() => expectEmissions(of(1), 0)).toThrow(/can never succeed[\s\S]*expectNoEmission/);
+    expect(() => expectEmissions(of(1), 0)).toThrow(
+      /can never succeed[\s\S]*expectNoEmission[\s\S]*Docs: https:\/\/asdalexey\.github\.io\/vitest-auto-spy\/core\/observable-assertions/,
+    );
   });
 });
 
