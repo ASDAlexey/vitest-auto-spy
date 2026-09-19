@@ -1,6 +1,6 @@
 ---
 title: ESLint rules
-description: A reference section for each of the thirty-eight rules — what it reports, what it decides on, why it is in recommended, where it reports working code, and why its severity is what it is.
+description: A reference section for each of the thirty-nine rules — what it reports, what it decides on, why it is in recommended, where it reports working code, and why its severity is what it is.
 ---
 
 # ESLint rules
@@ -34,7 +34,7 @@ Every section answers the same six questions:
 
 <!-- The id is frozen on purpose: configs already point at #the-twenty-five-rules. Keep it when the rule count changes. -->
 
-## The thirty-eight rules {#the-twenty-five-rules}
+## The thirty-nine rules {#the-twenty-five-rules}
 
 Grouped by subject, the same grouping the [setup page](/utilities/eslint-plugin) uses. Every rule is
 an `error` except five.
@@ -54,6 +54,7 @@ an `error` except five.
 | [`no-object-define-property`](#no-object-define-property)             | `error`          | `Object.defineProperty` / `defineProperties` in a spec                                      |
 | [`no-import-time-spread`](#no-import-time-spread)                     | `error`          | a spread of an imported binding evaluated at module scope                                   |
 | [`prefer-observer-stub`](#prefer-observer-stub)                       | `error`          | an observer global replaced by hand or through the runner                                   |
+| [`no-hand-assigned-global`](#no-hand-assigned-global)                 | `error`          | `global.fetch = vi.fn()` — a double assigned to a global that no teardown puts back         |
 | [`prefer-provide-activated-route`](#prefer-provide-activated-route)   | `error`          | an `ActivatedRoute` provided as a hand-built object, class or factory — half a route        |
 | [`no-passthrough-console-spy`](#no-passthrough-console-spy)           | `error`          | `vi.spyOn(console, m)` nothing gives an implementation — it calls through and prints        |
 | [`no-console-in-spec`](#no-console-in-spec)                           | `error`          | a spec that calls a console method, or replaces one by assignment                           |
@@ -924,6 +925,62 @@ observer that records geometry the helper does not model — is reporting workin
 is a per-line disable. The three-name list is closed: a fourth observer global gets no report.
 
 **Severity.** `error`. Green and wrong, and the damage crosses files.
+
+## no-hand-assigned-global
+
+**`error`** · no fix · syntax only
+
+**Reports.** A double assigned straight to a property of the global object —
+`global.fetch = vi.fn(…)`, `window.matchMedia = vi.fn()`, `window.localStorage = { getItem: vi.fn() }`
+— in a file where nothing puts the original back in a teardown hook. A restore written inside the
+test instead of a hook gets a message of its own.
+
+**Decides on.** The same reading as [`prefer-observer-stub`](#prefer-observer-stub): the receiver is
+`global`, `globalThis`, `self` or `window`, casts stripped; the key is dotted or a string literal;
+and the value is a **double** — a runner mock (`vi.fn()` bare or configured), a class expression, a
+function, a name bound to one of those, or an object literal with a `vi.fn()` somewhere inside it.
+Then the whole file is read once, at the end, for a restore of the same global: an assignment of a
+value that is not a double, or a `delete`. A restore inside `afterEach`, `afterAll` or
+`onTestFinished` silences the report, because a hook runs whatever the assertions did. A restore
+anywhere else turns the report into the `restoreInTest` message.
+
+The message depends on the global. `fetch`, `XMLHttpRequest`, `WebSocket` and `EventSource` point at
+`mockValueProp`, `vi.stubGlobal` with `unstubGlobals`, and
+[`blockNetwork()`](/utilities/setup#_5-keeping-the-run-off-the-network) for a spec that only needs to stay off the
+network. `localStorage` and `sessionStorage` point at [`stubWebStorage()`](/utilities/setup#stub-web-storage).
+Any other global points at `mockValueProp(globalThis, name, value)` and `vi.stubGlobal`.
+
+**Finding, and the repair.**
+
+```ts
+beforeEach(() => {
+  global.fetch = vi.fn(() => Promise.resolve({ json: () => Promise.resolve(user) })) as never; // ❌
+});
+```
+
+```ts
+beforeEach(() => {
+  mockValueProp(globalThis, 'fetch', vi.fn().mockResolvedValue(Response.json(user)));
+  // undo registered with restoreMockedProps(), which setupAutoSpy() runs after every test
+});
+```
+
+**Why it is recommended.** A bare assignment is the one kind of mock that none of the runner's
+cleanups reaches. `vi.restoreAllMocks()` restores spies, `vi.unstubAllGlobals()` restores what
+`vi.stubGlobal` installed, and `restoreMockedProps()` restores what went through `mockValueProp`. The
+fake then answers every later test of the file, and under `isolate: false` every later file of the
+worker, where a component nobody edited starts getting a canned response. This is the form most
+`fetch` tutorials and generated cheat sheets show, usually with no restore.
+
+**Limits.** An alias of the global object (`const g = globalThis`) is out of reach. So is a restore
+that lives in a helper the spec calls from its hooks: the rule sees only assignments and `delete`s
+written in the file. A per-line disable is the answer for a double that is meant to last the whole
+run, such as one installed in a setup file on purpose. The three observer globals are left to
+[`prefer-observer-stub`](#prefer-observer-stub), and `Object.defineProperty(globalThis, …)` to
+[`no-object-define-property`](#no-object-define-property), so one line never draws two reports.
+
+**Severity.** `error`. The double outlives the test that installed it, and under `isolate: false` it
+outlives the file.
 
 ## prefer-provide-activated-route
 

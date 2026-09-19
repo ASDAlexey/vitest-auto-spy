@@ -166,6 +166,7 @@ const recommendedRules: Record<string, RuleSeverity> = {
   [`${PLUGIN_NAME}/no-stub-class-double`]: 'warn',
   [`${PLUGIN_NAME}/no-structural-double`]: 'warn',
   [`${PLUGIN_NAME}/prefer-observer-stub`]: 'error',
+  [`${PLUGIN_NAME}/no-hand-assigned-global`]: 'error',
   [`${PLUGIN_NAME}/prefer-provide-activated-route`]: 'error',
   [`${PLUGIN_NAME}/no-passthrough-console-spy`]: 'error',
   [`${PLUGIN_NAME}/no-console-in-spec`]: 'error',

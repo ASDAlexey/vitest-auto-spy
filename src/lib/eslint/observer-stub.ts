@@ -87,7 +87,7 @@ const STUB_GLOBAL = new Set(['stubGlobal']);
 const SPY_ON = new Set(['spyOn']);
 
 /** Strip `as T` / `<T>x` — a hand-rolled observer is cast to `typeof IntersectionObserver` almost by convention. */
-function withoutCasts(node: EsNode): EsNode {
+export function withoutCasts(node: EsNode): EsNode {
   let current = node;
 
   while (isCast(current)) {
@@ -116,13 +116,19 @@ function memberKey(member: EsMemberExpression): string | undefined {
   return member.computed ? literalString(member.property) : memberName(member);
 }
 
+/** The name a member expression addresses on the global object — dotted or through a string key. */
+export function globalMemberName(node: EsNode): string | undefined {
+  return isMemberExpression(node) && isGlobalReceiver(node.object) ? memberKey(node) : undefined;
+}
+
+/** Whether a global is one of the three observers this rule speaks for, so a neighbouring rule can leave it alone. */
+export function isObserverGlobal(name: string): boolean {
+  return OBSERVERS[name] !== undefined;
+}
+
 /** The observer a member expression addresses on the global — dotted or through a string key. */
 function observerOn(node: EsNode): ObserverTarget | undefined {
-  if (!isMemberExpression(node) || !isGlobalReceiver(node.object)) {
-    return undefined;
-  }
-
-  const key = memberKey(node);
+  const key = globalMemberName(node);
 
   return key === undefined ? undefined : OBSERVERS[key];
 }
@@ -162,7 +168,7 @@ function declaresAConstructor(definition: EsVariableDefinition): boolean {
  * class or a function written here, or a runner mock, is a double; a name that came from an import
  * or from a `let` the spec filled with the old value is not.
  */
-function isDouble(context: RuleContext, value: EsNode): boolean {
+export function isDouble(context: RuleContext, value: EsNode): boolean {
   const node = withoutCasts(value);
 
   if (node.type === 'ClassExpression' || isFunctionNode(node) || isRunnerFnCall(node)) {

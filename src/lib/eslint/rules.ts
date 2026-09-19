@@ -49,6 +49,7 @@ import { noDeadSchemas } from './dead-schemas';
 import { noStructuralDouble } from './declared-double';
 import { defineRule } from './define-rule';
 import { isFloatingChain, isPromiseCallback } from './floating-assertion';
+import { noHandAssignedGlobal } from './global-assignment';
 import { countRunnerFns, insideFactorySeed, insideModuleMock, minRunnerFns, substitutesADependency } from './hand-rolled-doubles';
 import { lazyValueSuggestion, runsAtImportTime, spreadFailureMode, spreadOfImport } from './import-time-spread';
 import {
@@ -687,6 +688,7 @@ export const rules: Record<string, RuleModule> = {
   'no-unregistered-inject-spy': noUnregisteredInjectSpy,
   'prefer-render-shallow': preferRenderShallow,
   'prefer-observer-stub': preferObserverStub,
+  'no-hand-assigned-global': noHandAssignedGlobal,
   'prefer-provide-activated-route': preferProvideActivatedRoute,
   'no-stub-class-double': noStubClassDouble,
   'no-structural-double': noStructuralDouble,

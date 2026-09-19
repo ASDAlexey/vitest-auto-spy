@@ -1,6 +1,6 @@
 ---
 title: Правила ESLint
-description: По разделу на каждое из тридцати восьми правил — что оно сообщает, на чём принимает решение, зачем оно в recommended, где сообщает о работающем коде и почему у него именно такая severity.
+description: По разделу на каждое из тридцати девяти правил — что оно сообщает, на чём принимает решение, зачем оно в recommended, где сообщает о работающем коде и почему у него именно такая severity.
 ---
 
 # Правила ESLint
@@ -35,51 +35,52 @@ description: По разделу на каждое из тридцати вос�
 
 <!-- The id is frozen on purpose: configs already point at #the-twenty-five-rules. Keep it when the rule count changes. -->
 
-## Тридцать восемь правил {#the-twenty-five-rules}
+## Тридцать девять правил {#the-twenty-five-rules}
 
 Сгруппированы по темам — так же, как на [странице настройки](/ru/utilities/eslint-plugin). Все
 правила — `error`, кроме пяти.
 
-| Правило                                                               | В `recommended` | Что сообщает                                                                                    |
-| --------------------------------------------------------------------- | --------------- | ----------------------------------------------------------------------------------------------- |
-| [`no-expect-in-subscribe`](#no-expect-in-subscribe)                   | `error`         | `expect()` внутри колбэка `subscribe` — он выполнится только если поток эмитит                  |
-| [`no-floating-assertion`](#no-floating-assertion)                     | `error`         | `expect()` в цепочке `.then()`, которую никто не ждёт                                           |
-| [`no-done-callback`](#no-done-callback)                               | `error`         | именованный первый параметр теста или хука и `done.fail(…)` под ним                             |
-| [`no-bare-called-with`](#no-bare-called-with)                         | `error`         | `calledWith(…)` / `mustBeCalledWith(…)` отдельным выражением-инструкцией                        |
-| [`no-constant-expect`](#no-constant-expect)                           | `error`         | `expect(true).toBe(true)` — значение из спеки под матчером, чей ответ оно предрешает            |
-| [`no-redundant-smoke-test`](#no-redundant-smoke-test)                 | `error`         | тест, всё тело которого — проверка, что субъект существует, рядом с тестами на том же setup     |
-| [`prefer-create-spy-from-class`](#prefer-create-spy-from-class)       | `error`         | объектный литерал из двух и более `vi.fn()`                                                     |
-| [`no-stub-class-double`](#no-stub-class-double)                       | `warn`          | класс, чьи поля — `vi.fn()`: тот же дубль, только с `new` впереди                               |
-| [`no-structural-double`](#no-structural-double)                       | `warn`          | объект из `vi.fn()` у имени, объявленного как объект из `Mock` Vitest                           |
-| [`no-shared-module-level-mock`](#no-shared-module-level-mock)         | `error`         | **экспортируемое** значение, которое строит `vi.fn()` при загрузке модуля                       |
-| [`no-object-define-property`](#no-object-define-property)             | `error`         | `Object.defineProperty` / `defineProperties` в спеке                                            |
-| [`no-import-time-spread`](#no-import-time-spread)                     | `error`         | спред импортированного биндинга, вычисляемый на уровне модуля                                   |
-| [`prefer-observer-stub`](#prefer-observer-stub)                       | `error`         | глобальный observer, подменённый руками или через раннер                                        |
-| [`prefer-provide-activated-route`](#prefer-provide-activated-route)   | `error`         | `ActivatedRoute`, предоставленный как собранный руками объект, класс или фабрика, — полмаршрута |
-| [`no-passthrough-console-spy`](#no-passthrough-console-spy)           | `error`         | `vi.spyOn(console, m)`, которому ничто не дало реализации, — вызывает оригинал и печатает       |
-| [`no-console-in-spec`](#no-console-in-spec)                           | `error`         | спека, которая вызывает метод консоли или подменяет его присваиванием                           |
-| [`no-import-time-console-spies`](#no-import-time-console-spies)       | `error`         | импорт `vitest-auto-spy/console` в файле, который не зовёт `installConsoleSpies()`              |
-| [`prefer-provide-auto-spy`](#prefer-provide-auto-spy)                 | `error`         | провайдер, который собирает дубль сервиса руками или расписывает `provideAutoSpy`               |
-| [`prefer-inject-spy`](#prefer-inject-spy)                             | `error`         | `vi.spyOn` поверх инстанса, который выдал `TestBed.inject`                                      |
-| [`no-unregistered-inject-spy`](#no-unregistered-inject-spy)           | `error`         | `injectSpy(X)` для токена, который этот файл не регистрировал как автоспай                      |
-| [`prefer-render-shallow`](#prefer-render-shallow)                     | `warn`          | `TestBed.createComponent` в файле, который ни разу не читает отрендеренный шаблон               |
-| [`prefer-set-inputs`](#prefer-set-inputs)                             | `warn`          | серию `fixture.componentRef.setInput(…)` — имя, которое Angular ничем не проверяет              |
-| [`no-overridden-provider`](#no-overridden-provider)                   | `error`         | провайдер, которого заменяет более поздний или `TestBed.overrideProvider`                       |
-| [`no-inject-before-override`](#no-inject-before-override)             | `error`         | инъекция в хуке в сюите, которая ещё зовёт `TestBed.override*`                                  |
-| [`no-dead-schemas`](#no-dead-schemas)                                 | `error`         | `schemas` в тестовом модуле, который ничего не объявляет                                        |
-| [`no-mistyped-use-value`](#no-mistyped-use-value)                     | `error`         | `useValue`, который не подходит под примитивный тип, объявленный его `InjectionToken`           |
-| [`no-unknown-use-value-key`](#no-unknown-use-value-key)               | `error`         | ключ объектного `useValue`, которого нет у предоставляемого типа, — только ключи                |
-| [`no-instance-lifecycle-spy`](#no-instance-lifecycle-spy)             | `warn`          | `vi.spyOn(component, 'ngOnInit')` — спай на хуке, который Angular не вызывает                   |
-| [`no-compile-components`](#no-compile-components)                     | `error`         | `compileComponents()` под билдером, встраивающим ресурсы, — молчит, пока ему не скажут          |
-| [`no-sync-testbed-await`](#no-sync-testbed-await)                     | `error`         | `await` на вызове TestBed, который отвечает самим TestBed или фикстурой, а не промисом          |
-| [`no-private-member-access`](#no-private-member-access)               | `error`         | `private` / `protected`-член, добытый через скобки, каст или прототип                           |
-| [`no-mocked-for-spy`](#no-mocked-for-spy)                             | `error`         | `Mocked<T>` в типовой позиции, где значение — спай                                              |
-| [`prefer-as-spy`](#prefer-as-spy)                                     | `error`         | `TestBed.inject(X) as Spy<X>` — каст, который больше не компилируется                           |
-| [`no-ts-expect-error-on-double`](#no-ts-expect-error-on-double)       | `error`         | `@ts-expect-error` / `@ts-ignore` над `nextWith`, `mockReturnValue`, … дубля                    |
-| [`no-jasmine-globals`](#no-jasmine-globals)                           | `error`         | `jasmine.*`, голые `spyOn(` / `fail(` / `pending(` и `.withContext(`                            |
-| [`jasmine-namespace-without-entry`](#jasmine-namespace-without-entry) | `error`         | `.and` / `.calls` / `.withArgs` в файле, который нигде не ставит слой совместимости             |
-| [`no-save-arguments-by-value`](#no-save-arguments-by-value)           | `error`         | `spy.calls.saveArgumentsByValue()` — здесь это no-op                                            |
-| [`prefer-native-spy-api`](#prefer-native-spy-api)                     | `error`         | `.and` / `.calls` там, где то же самое умеет собственный API спая                               |
+| Правило                                                               | В `recommended` | Что сообщает                                                                                              |
+| --------------------------------------------------------------------- | --------------- | --------------------------------------------------------------------------------------------------------- |
+| [`no-expect-in-subscribe`](#no-expect-in-subscribe)                   | `error`         | `expect()` внутри колбэка `subscribe` — он выполнится только если поток эмитит                            |
+| [`no-floating-assertion`](#no-floating-assertion)                     | `error`         | `expect()` в цепочке `.then()`, которую никто не ждёт                                                     |
+| [`no-done-callback`](#no-done-callback)                               | `error`         | именованный первый параметр теста или хука и `done.fail(…)` под ним                                       |
+| [`no-bare-called-with`](#no-bare-called-with)                         | `error`         | `calledWith(…)` / `mustBeCalledWith(…)` отдельным выражением-инструкцией                                  |
+| [`no-constant-expect`](#no-constant-expect)                           | `error`         | `expect(true).toBe(true)` — значение из спеки под матчером, чей ответ оно предрешает                      |
+| [`no-redundant-smoke-test`](#no-redundant-smoke-test)                 | `error`         | тест, всё тело которого — проверка, что субъект существует, рядом с тестами на том же setup               |
+| [`prefer-create-spy-from-class`](#prefer-create-spy-from-class)       | `error`         | объектный литерал из двух и более `vi.fn()`                                                               |
+| [`no-stub-class-double`](#no-stub-class-double)                       | `warn`          | класс, чьи поля — `vi.fn()`: тот же дубль, только с `new` впереди                                         |
+| [`no-structural-double`](#no-structural-double)                       | `warn`          | объект из `vi.fn()` у имени, объявленного как объект из `Mock` Vitest                                     |
+| [`no-shared-module-level-mock`](#no-shared-module-level-mock)         | `error`         | **экспортируемое** значение, которое строит `vi.fn()` при загрузке модуля                                 |
+| [`no-object-define-property`](#no-object-define-property)             | `error`         | `Object.defineProperty` / `defineProperties` в спеке                                                      |
+| [`no-import-time-spread`](#no-import-time-spread)                     | `error`         | спред импортированного биндинга, вычисляемый на уровне модуля                                             |
+| [`prefer-observer-stub`](#prefer-observer-stub)                       | `error`         | глобальный observer, подменённый руками или через раннер                                                  |
+| [`no-hand-assigned-global`](#no-hand-assigned-global)                 | `error`         | `global.fetch = vi.fn()` — дубль, присвоенный в глобальный объект, который никакой teardown не возвращает |
+| [`prefer-provide-activated-route`](#prefer-provide-activated-route)   | `error`         | `ActivatedRoute`, предоставленный как собранный руками объект, класс или фабрика, — полмаршрута           |
+| [`no-passthrough-console-spy`](#no-passthrough-console-spy)           | `error`         | `vi.spyOn(console, m)`, которому ничто не дало реализации, — вызывает оригинал и печатает                 |
+| [`no-console-in-spec`](#no-console-in-spec)                           | `error`         | спека, которая вызывает метод консоли или подменяет его присваиванием                                     |
+| [`no-import-time-console-spies`](#no-import-time-console-spies)       | `error`         | импорт `vitest-auto-spy/console` в файле, который не зовёт `installConsoleSpies()`                        |
+| [`prefer-provide-auto-spy`](#prefer-provide-auto-spy)                 | `error`         | провайдер, который собирает дубль сервиса руками или расписывает `provideAutoSpy`                         |
+| [`prefer-inject-spy`](#prefer-inject-spy)                             | `error`         | `vi.spyOn` поверх инстанса, который выдал `TestBed.inject`                                                |
+| [`no-unregistered-inject-spy`](#no-unregistered-inject-spy)           | `error`         | `injectSpy(X)` для токена, который этот файл не регистрировал как автоспай                                |
+| [`prefer-render-shallow`](#prefer-render-shallow)                     | `warn`          | `TestBed.createComponent` в файле, который ни разу не читает отрендеренный шаблон                         |
+| [`prefer-set-inputs`](#prefer-set-inputs)                             | `warn`          | серию `fixture.componentRef.setInput(…)` — имя, которое Angular ничем не проверяет                        |
+| [`no-overridden-provider`](#no-overridden-provider)                   | `error`         | провайдер, которого заменяет более поздний или `TestBed.overrideProvider`                                 |
+| [`no-inject-before-override`](#no-inject-before-override)             | `error`         | инъекция в хуке в сюите, которая ещё зовёт `TestBed.override*`                                            |
+| [`no-dead-schemas`](#no-dead-schemas)                                 | `error`         | `schemas` в тестовом модуле, который ничего не объявляет                                                  |
+| [`no-mistyped-use-value`](#no-mistyped-use-value)                     | `error`         | `useValue`, который не подходит под примитивный тип, объявленный его `InjectionToken`                     |
+| [`no-unknown-use-value-key`](#no-unknown-use-value-key)               | `error`         | ключ объектного `useValue`, которого нет у предоставляемого типа, — только ключи                          |
+| [`no-instance-lifecycle-spy`](#no-instance-lifecycle-spy)             | `warn`          | `vi.spyOn(component, 'ngOnInit')` — спай на хуке, который Angular не вызывает                             |
+| [`no-compile-components`](#no-compile-components)                     | `error`         | `compileComponents()` под билдером, встраивающим ресурсы, — молчит, пока ему не скажут                    |
+| [`no-sync-testbed-await`](#no-sync-testbed-await)                     | `error`         | `await` на вызове TestBed, который отвечает самим TestBed или фикстурой, а не промисом                    |
+| [`no-private-member-access`](#no-private-member-access)               | `error`         | `private` / `protected`-член, добытый через скобки, каст или прототип                                     |
+| [`no-mocked-for-spy`](#no-mocked-for-spy)                             | `error`         | `Mocked<T>` в типовой позиции, где значение — спай                                                        |
+| [`prefer-as-spy`](#prefer-as-spy)                                     | `error`         | `TestBed.inject(X) as Spy<X>` — каст, который больше не компилируется                                     |
+| [`no-ts-expect-error-on-double`](#no-ts-expect-error-on-double)       | `error`         | `@ts-expect-error` / `@ts-ignore` над `nextWith`, `mockReturnValue`, … дубля                              |
+| [`no-jasmine-globals`](#no-jasmine-globals)                           | `error`         | `jasmine.*`, голые `spyOn(` / `fail(` / `pending(` и `.withContext(`                                      |
+| [`jasmine-namespace-without-entry`](#jasmine-namespace-without-entry) | `error`         | `.and` / `.calls` / `.withArgs` в файле, который нигде не ставит слой совместимости                       |
+| [`no-save-arguments-by-value`](#no-save-arguments-by-value)           | `error`         | `spy.calls.saveArgumentsByValue()` — здесь это no-op                                                      |
+| [`prefer-native-spy-api`](#prefer-native-spy-api)                     | `error`         | `.and` / `.calls` там, где то же самое умеет собственный API спая                                         |
 
 У шести есть опции: [`prefer-create-spy-from-class`](#prefer-create-spy-from-class),
 [`no-stub-class-double`](#no-stub-class-double) и [`no-structural-double`](#no-structural-double)
@@ -919,6 +920,64 @@ observer, записывающий геометрию, которую хелпе
 будет.
 
 **Severity.** `error`. Зелёный и неверный, и ущерб переходит между файлами.
+
+## no-hand-assigned-global {#no-hand-assigned-global}
+
+**`error`** · без правки · только синтаксис
+
+**Что сообщает.** Дубль, присвоенный прямо в свойство глобального объекта, —
+`global.fetch = vi.fn(…)`, `window.matchMedia = vi.fn()`, `window.localStorage = { getItem: vi.fn() }`
+— в файле, где ничто не возвращает оригинал в teardown-хуке. Восстановление, написанное внутри теста,
+а не в хуке, получает отдельное сообщение.
+
+**На чём решает.** То же чтение, что у [`prefer-observer-stub`](#prefer-observer-stub): получатель —
+`global`, `globalThis`, `self` или `window`, касты снимаются; ключ точечный или строковый литерал; а
+значение — **дубль**: мок раннера (`vi.fn()` голый или настроенный), выражение класса, функция, имя,
+связанное с одним из них, или объектный литерал, внутри которого где-то есть `vi.fn()`. Затем весь
+файл читается один раз, в конце, в поисках восстановления того же глобального свойства: присваивания
+значения, которое не дубль, или `delete`. Восстановление внутри `afterEach`, `afterAll` или
+`onTestFinished` гасит отчёт, потому что хук выполняется при любом исходе проверок. Восстановление
+в любом другом месте превращает отчёт в сообщение `restoreInTest`.
+
+Сообщение зависит от глобального имени. `fetch`, `XMLHttpRequest`, `WebSocket` и `EventSource`
+отправляют к `mockValueProp`, к `vi.stubGlobal` с `unstubGlobals` и к
+[`blockNetwork()`](/ru/utilities/setup#_5-keeping-the-run-off-the-network) — для спеки, которой нужно
+лишь не выходить в сеть. `localStorage` и `sessionStorage` отправляют к
+[`stubWebStorage()`](/ru/utilities/setup#stub-web-storage). Любое другое глобальное имя — к
+`mockValueProp(globalThis, name, value)` и `vi.stubGlobal`.
+
+**Находка и как её закрыть.**
+
+```ts
+beforeEach(() => {
+  global.fetch = vi.fn(() => Promise.resolve({ json: () => Promise.resolve(user) })) as never; // ❌
+});
+```
+
+```ts
+beforeEach(() => {
+  mockValueProp(globalThis, 'fetch', vi.fn().mockResolvedValue(Response.json(user)));
+  // откат зарегистрирован в restoreMockedProps(), который setupAutoSpy() запускает после каждого теста
+});
+```
+
+**Зачем это в `recommended`.** Голое присваивание — единственный вид мока, до которого не
+дотягивается ни одна очистка раннера. `vi.restoreAllMocks()` восстанавливает спаи,
+`vi.unstubAllGlobals()` — то, что поставил `vi.stubGlobal`, а `restoreMockedProps()` — то, что прошло
+через `mockValueProp`. Подделка затем отвечает каждому следующему тесту файла, а при
+`isolate: false` — каждому следующему файлу воркера, где компонент, которого никто не трогал, вдруг
+получает заготовленный ответ. Именно эту форму показывает большинство туториалов по `fetch` и
+сгенерированных шпаргалок — обычно без восстановления.
+
+**Границы.** Алиас глобального объекта (`const g = globalThis`) недосягаем. Как и восстановление,
+которое живёт в хелпере, вызываемом из хуков спеки: правило видит только присваивания и `delete`,
+написанные в самом файле. Для дубля, который намеренно должен жить весь прогон, — например,
+поставленного в setup-файле, — ответ построчный disable. Три глобальных observer оставлены
+[`prefer-observer-stub`](#prefer-observer-stub), а `Object.defineProperty(globalThis, …)` —
+[`no-object-define-property`](#no-object-define-property), так что одна строка никогда не получает
+двух отчётов.
+
+**Severity.** `error`. Дубль переживает тест, который его поставил, а при `isolate: false` — и файл.
 
 ## prefer-provide-activated-route {#prefer-provide-activated-route}
 

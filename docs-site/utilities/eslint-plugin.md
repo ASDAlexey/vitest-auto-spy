@@ -1,6 +1,6 @@
 ---
 title: ESLint plugin
-description: Thirty-eight flat-config lint rules that steer a suite onto the auto-spy helpers, grouped by subject, every one an error by default bar the four that report a cost or a heuristic, with the dial documented and the false-positive cases named.
+description: Thirty-nine flat-config lint rules that steer a suite onto the auto-spy helpers, grouped by subject, every one an error by default bar the four that report a cost or a heuristic, with the dial documented and the false-positive cases named.
 ---
 
 # ESLint plugin
@@ -22,7 +22,7 @@ which a subpath export of this package can never be.
 
 **How this page is laid out.** [Adding it](#adding-it-to-your-project) is the four things a first
 config needs. [Which apply to you](#which-of-the-twenty-apply-to-you) answers the question a
-Vitest-only project asks — four of the thirty-eight are about a dialect you may not speak.
+Vitest-only project asks — four of the thirty-nine are about a dialect you may not speak.
 [Rules](#rules) is the reference table, in seven groups. [Tuning](#tuning-it-for-your-project) is
 every dial, including the three rules that can report on correct code. Everything after that is
 _why_ — one section per rule, for when a report has arrived and you want to know what it saved you
@@ -80,7 +80,7 @@ need different severities.
 
 ### 3. Type information is optional, and three rules want it {#_3-type-information-is-optional-and-one-rule-wants-it}
 
-Thirty-five of the thirty-eight are syntactic: they read the file's own AST and never ask the type checker.
+Thirty-six of the thirty-nine are syntactic: they read the file's own AST and never ask the type checker.
 So the plugin works with `parserOptions.project` unset, adds nothing measurable to lint time, and
 does not need your specs to be in a `tsconfig` — which matters in the repositories where they are
 not.
@@ -124,17 +124,17 @@ npx eslint . --format stylish | tail -30   # the summary tells you which rule do
 Whatever is left is either a real finding or a rule you would rather not enforce yet. Both are
 answered below.
 
-## Which of the thirty-eight apply to you {#which-of-the-twenty-apply-to-you}
+## Which of the thirty-nine apply to you {#which-of-the-twenty-apply-to-you}
 
 Reasonable question if you came straight to Vitest and have never written a line of Jasmine: **four
 of these rules are about a dialect you do not speak.** They are still on, and the reason is not
 principle — it is that they cannot fire on your code.
 
-| You are                                    | What the plugin does for you                                                                            |
-| ------------------------------------------ | ------------------------------------------------------------------------------------------------------- |
-| writing Vitest, never used Jasmine or Jest | the thirty-two core rules work; **the four jasmine rules are inert** — leave them on and never see them |
-| migrating off `jest-auto-spies` / Jest     | the core rules do the work, `no-done-callback` and `prefer-as-spy` most of it                           |
-| migrating off `jasmine-auto-spies`         | all thirty-eight, with `prefer-native-spy-api` set to `'off'` until the bridge is gone                  |
+| You are                                    | What the plugin does for you                                                                             |
+| ------------------------------------------ | -------------------------------------------------------------------------------------------------------- |
+| writing Vitest, never used Jasmine or Jest | the thirty-five core rules work; **the four jasmine rules are inert** — leave them on and never see them |
+| migrating off `jest-auto-spies` / Jest     | the core rules do the work, `no-done-callback` and `prefer-as-spy` most of it                            |
+| migrating off `jasmine-auto-spies`         | all thirty-nine, with `prefer-native-spy-api` set to `'off'` until the bridge is gone                    |
 
 ### If you never used Jasmine
 
@@ -181,7 +181,7 @@ never jasmine's.
 ### If you are coming from Jest
 
 There is no separate Jest rule set, because most of what a Jest suite has to unlearn is already in
-the core thirty-two — these are the ones that carry a migration:
+the core thirty-five — these are the ones that carry a migration:
 
 | Rule                           | What it catches in a Jest suite                                                                                                                                                                                                                               |
 | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -204,7 +204,7 @@ that file needs). See [Migrating from jest-auto-spies](/migrating).
 
 ### If you are coming from Jasmine
 
-All thirty-eight apply, and the four in the last group are the ones written for you. Two are pure
+All thirty-nine apply, and the four in the last group are the ones written for you. Two are pure
 diagnosis — `no-jasmine-globals` and `no-save-arguments-by-value` name silent behaviour changes that
 survive a rename — and `jasmine-namespace-without-entry` catches the spy built before the layer was
 installed. The fourth, `prefer-native-spy-api`, reports the bridge itself, so it is the one line of
@@ -280,15 +280,16 @@ never awaited, the callback returned first — or was reached and could not fail
 
 Not about a single test but about what one file leaves behind for the next.
 
-| Rule                                                                                                 | Flags                                                                                                                                         | Fix     |       Without it        |
-| ---------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- | ------- | :---------------------: |
-| [`prefer-create-spy-from-class`](#two-things-these-rules-learned-the-hard-way)                       | an object literal of two or more `vi.fn()`s → `createSpyFromClass` / `createAutoMock`, unless it is a factory's own seed                      | —       |           red           |
-| [`no-stub-class-double`](/utilities/eslint-rules#no-stub-class-double)                               | a class whose fields are `vi.fn()`s → `createSpyFromClass` / `provideAutoSpy`, the stub class deleted; `warn`                                 | —       |           red           |
-| [`no-structural-double`](/utilities/eslint-rules#no-structural-double)                               | an object of `vi.fn()`s bound to a name declared `{ load: Mock }` → `createAutoMock<T>()`; `warn`                                             | —       |           red           |
-| [`no-shared-module-level-mock`](#a-double-built-once-per-worker-not-once-per-test)                   | an **exported** value holding `vi.fn()`s → export a factory that returns it                                                                   | —       |          green          |
-| [`no-object-define-property`](#no-object-define-property-%E2%80%94-nothing-puts-the-descriptor-back) | `Object.defineProperty` in a spec → `mockReadonlyProp` / `mockValueProp`                                                                      | suggest |          green          |
-| [`no-import-time-spread`](#the-spread-that-only-fails-under-a-bundler)                               | `export const x = [...Imported]` at module scope → a `TypeError`, or a silently empty object, while the bundle loads                          | suggest | red _(by construction)_ |
-| [`prefer-observer-stub`](#the-observer-stub-everybody-writes-again)                                  | a hand-rolled `IntersectionObserver` / `ResizeObserver` / `MutationObserver` written into a global → `stubIntersectionObserver()` and friends | —       |          green          |
+| Rule                                                                                                 | Flags                                                                                                                                               | Fix     |       Without it        |
+| ---------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- | ------- | :---------------------: |
+| [`prefer-create-spy-from-class`](#two-things-these-rules-learned-the-hard-way)                       | an object literal of two or more `vi.fn()`s → `createSpyFromClass` / `createAutoMock`, unless it is a factory's own seed                            | —       |           red           |
+| [`no-stub-class-double`](/utilities/eslint-rules#no-stub-class-double)                               | a class whose fields are `vi.fn()`s → `createSpyFromClass` / `provideAutoSpy`, the stub class deleted; `warn`                                       | —       |           red           |
+| [`no-structural-double`](/utilities/eslint-rules#no-structural-double)                               | an object of `vi.fn()`s bound to a name declared `{ load: Mock }` → `createAutoMock<T>()`; `warn`                                                   | —       |           red           |
+| [`no-shared-module-level-mock`](#a-double-built-once-per-worker-not-once-per-test)                   | an **exported** value holding `vi.fn()`s → export a factory that returns it                                                                         | —       |          green          |
+| [`no-object-define-property`](#no-object-define-property-%E2%80%94-nothing-puts-the-descriptor-back) | `Object.defineProperty` in a spec → `mockReadonlyProp` / `mockValueProp`                                                                            | suggest |          green          |
+| [`no-import-time-spread`](#the-spread-that-only-fails-under-a-bundler)                               | `export const x = [...Imported]` at module scope → a `TypeError`, or a silently empty object, while the bundle loads                                | suggest | red _(by construction)_ |
+| [`prefer-observer-stub`](#the-observer-stub-everybody-writes-again)                                  | a hand-rolled `IntersectionObserver` / `ResizeObserver` / `MutationObserver` written into a global → `stubIntersectionObserver()` and friends       | —       |          green          |
+| [`no-hand-assigned-global`](#a-global-assigned-by-hand)                                              | `global.fetch = vi.fn(…)` and any other double assigned to a global with no teardown restore → `mockValueProp` / `vi.stubGlobal` / `blockNetwork()` | —       |          green          |
 
 ### Angular DI and the TestBed
 
@@ -1123,7 +1124,7 @@ double in a `jest-auto-spies` suite, and every one of them fails with `TS2352` u
 
 ## The four jasmine rules
 
-They steer in the opposite direction from the rest of the plugin. The other thirty-two push a Vitest
+They steer in the opposite direction from the rest of the plugin. The other thirty-five push a Vitest
 suite towards this library's API; these four are about a suite that has not arrived yet — one
 running on [`vitest-auto-spy/jasmine`](/migrating-jasmine), or one that thinks it is.
 
@@ -1223,7 +1224,7 @@ this rule declines. See [Migrating from jasmine-auto-spies](/migrating-jasmine).
 
 ## Which rules fix, and why so few
 
-Three of the thirty-eight rewrite the source on their own, thirteen offer the rewrite as a suggestion, and
+Three of the thirty-nine rewrite the source on their own, thirteen offer the rewrite as a suggestion, and
 the split is about what a wrong guess costs rather than about how hard the rewrite is.
 
 `no-mocked-for-spy` touches nothing but a **declaration**. Get it wrong and the file stops
@@ -1541,6 +1542,29 @@ is not, because
 [`no-object-define-property`](#no-object-define-property-%E2%80%94-nothing-puts-the-descriptor-back)
 already reports every `defineProperty` in a spec and names the same helper family; two reports on one
 line saying the same thing is how a rule gets switched off.
+
+### A global assigned by hand
+
+`global.fetch = vi.fn(() => Promise.resolve({ json: () => … }))` is the first thing most `fetch`
+tutorials show, and generated cheat sheets copy it without a restore. It is also the one mock no
+cleanup reaches: `vi.restoreAllMocks()` restores spies, `vi.unstubAllGlobals()` restores
+`vi.stubGlobal`, `restoreMockedProps()` restores `mockValueProp`, and a bare assignment is none of
+the three. The fake then answers every later test of the file, and under `isolate: false` every later
+file of the worker.
+
+[`no-hand-assigned-global`](/utilities/eslint-rules#no-hand-assigned-global) reports the assignment
+unless the same file puts the original back in `afterEach`, `afterAll` or `onTestFinished`. That
+spelling is correct and stays silent. A restore written as the last line of the `it` is reported,
+because the first red assertion skips it. The repair is one line that carries its own undo:
+
+```ts
+mockValueProp(globalThis, 'fetch', vi.fn().mockResolvedValue(Response.json(user)));
+```
+
+For a spec that only needs to stay off the network, [`blockNetwork()`](/utilities/setup#_5-keeping-the-run-off-the-network)
+closes `fetch`, `XMLHttpRequest` and `sendBeacon` for every test. `localStorage` and `sessionStorage`
+have [`stubWebStorage()`](/utilities/setup#stub-web-storage). The three observer globals stay with
+`prefer-observer-stub`, so one line never draws two reports.
 
 ### `no-dead-schemas` — the charm that protects nobody
 
