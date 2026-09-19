@@ -216,6 +216,7 @@ export {
   type ModuleNamespace,
   type ModuleNamespaceOptions,
 } from './lib/module-mocks';
+export { adoptMock, type AdoptMockOptions, type AdoptedMock } from './lib/adopt-mock';
 
 // Duplicate-install detection (`setupAutoSpy()` turns this into a failed run)
 export { describeDuplicateCopies, getPackageCopies } from './lib/package-identity';

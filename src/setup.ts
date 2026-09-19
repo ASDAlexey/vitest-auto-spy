@@ -80,5 +80,13 @@ export {
   type StopTrackingTimers,
 } from './lib/stray-timers';
 export { getWatchedTimerGlobals, restoreTimerGlobals } from './lib/timer-globals';
-export { BLOCKED_FETCH_MESSAGE, BLOCKED_XHR_MESSAGE, blockNetwork, type BlockNetworkOptions, type XhrBlockMode } from './lib/network-stub';
+export {
+  BLOCKED_FETCH_MESSAGE,
+  BLOCKED_XHR_MESSAGE,
+  blockNetwork,
+  type BlockNetworkOptions,
+  stubResponse,
+  type StubResponseInit,
+  type XhrBlockMode,
+} from './lib/network-stub';
 export { restoreWebStorage, type RestoreWebStorageOptions } from './lib/web-storage';
