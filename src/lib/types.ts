@@ -441,6 +441,29 @@ export interface SpyOptions {
    * augmentation, or one only present under some `lib`, can still be named.
    */
   overload?: OverloadChoice | Record<string, OverloadChoice>;
+  /**
+   * The getter names `gettersToSpyOn` was called with, so the {@link AddAccessorsSpies} bag offers
+   * exactly the members the runtime built — a key in neither this list nor
+   * {@link SpyOptions.settersToSpyOn} is a compile error instead of a `Mock` that reads
+   * `undefined` at runtime.
+   *
+   * ```ts
+   * const thermo = createSpyFromClass<Thermo, { gettersToSpyOn: ['level'] }>(Thermo, {
+   *   gettersToSpyOn: ['level'],
+   * });
+   * thermo.accessorSpies.getters.level.mockReturnValue(3);
+   * thermo.accessorSpies.setters.level(3); // a declared pair is mirrored into both bags
+   * ```
+   *
+   * A type-level echo of a value the factory already takes, and no more: the names still reach the
+   * runtime through the configuration argument, and an options type that pins no list — the default
+   * `Spy<T>` among them — keeps the bag over every key of `T`, exactly as before this field
+   * existed, because a list the options leave open is a list the type cannot see. A non-literal
+   * `string[]` pins no name either and falls back to the same every-key bag.
+   */
+  gettersToSpyOn?: readonly string[];
+  /** The setter names `settersToSpyOn` was called with — see {@link SpyOptions.gettersToSpyOn}. */
+  settersToSpyOn?: readonly string[];
 }
 
 /** The choice that applies to one member: the map's entry, the flat value, or the default. */
@@ -491,6 +514,30 @@ export type SpyDisposable = {
 };
 
 /**
+ * One configured accessor list off `Spy<T>`'s options, or `undefined` for a list the options never
+ * pinned down.
+ *
+ * Read through a conditional rather than `Options['gettersToSpyOn']`, because an indexed access
+ * errors on an options type that omits the field — `Spy<T, { overload: 'first' }>` is legal and
+ * stays legal. The probe requires the property, so the merely optional declaration on
+ * {@link SpyOptions} itself also reads as never pinned, which is what keeps a default `Spy<T>` on
+ * the every-key bag.
+ */
+type ConfiguredAccessorList<Options extends SpyOptions, Name extends 'gettersToSpyOn' | 'settersToSpyOn'> =
+  Options extends Record<Name, infer List> ? Exclude<List, undefined> : undefined;
+
+/** The element keys of one configured accessor list; an unpinned list contributes none. */
+type AccessorListKeys<List extends readonly string[] | undefined> = List extends readonly (infer Keys)[] ? Keys : never;
+
+/** The bag itself, over whichever keys {@link AddAccessorsSpies} settled on. */
+type AccessorSpiesBag<T, Keys extends keyof T> = {
+  accessorSpies: {
+    getters: { [K in Keys]: Mock<() => T[K]> };
+    setters: { [K in Keys]: Mock<(value: T[K]) => void> };
+  };
+};
+
+/**
  * The `accessorSpies` bag added to every auto-spy.
  *
  * Each half is typed against the member it stands for, not as a bare `Mock`: `Mock` is
@@ -499,13 +546,29 @@ export type SpyDisposable = {
  * `MockInstance<Method>` (see {@link AddSpyMethodsByReturnTypes}). `Mock<…>` rather than
  * `MockInstance<…>` keeps the call signature the bag has always had, so a spec that invokes the
  * accessor spy directly still compiles.
+ *
+ * **The keys are the configured lists, not all of `T`.** The runtime builds the bag from nothing
+ * but `gettersToSpyOn` / `settersToSpyOn` (plus `autoSpyAccessors` discovery), so the total bag
+ * this type used to map over `keyof T` typed `spy.accessorSpies.setters.name` as a callable `Mock`
+ * on a double no setter was configured on — and the read answered `undefined` at runtime, three
+ * steps from the configuration that caused it. The two parameters carry those lists from
+ * {@link SpyOptions}; each defaults to `undefined`, a list the options never pinned, and two
+ * unpinned lists select the every-key bag `Spy<T>` has always had — through the same plain mapped
+ * type as before, so a double nobody narrowed pays nothing for the option existing.
+ *
+ * A pinned list narrows **both halves** to the union of the two: the runtime promotes a configured
+ * getter into the setter list when the prototype declares the pair (and the other way round), so a
+ * key in either list can honestly sit in both bags. A `string` element — a non-literal list —
+ * widens the union right back to every string key, so such a configuration degrades to the old
+ * bag instead of collapsing it to `never`.
  */
-export type AddAccessorsSpies<T> = {
-  accessorSpies: {
-    getters: { [K in keyof T]: Mock<() => T[K]> };
-    setters: { [K in keyof T]: Mock<(value: T[K]) => void> };
-  };
-};
+export type AddAccessorsSpies<
+  T,
+  Getters extends readonly string[] | undefined = undefined,
+  Setters extends readonly string[] | undefined = undefined,
+> = [Getters, Setters] extends [undefined, undefined]
+  ? AccessorSpiesBag<T, keyof T>
+  : AccessorSpiesBag<T, Extract<keyof T, AccessorListKeys<Getters> | AccessorListKeys<Setters>>>;
 
 /**
  * A recursively-mocked `T`: object properties become nested deep mocks (so
@@ -526,6 +589,8 @@ export type DeepMockProxy<T> = SpyDisposable & {
  * let cart: Spy<CartService>;
  * // a generated client whose useful overload is the first one:
  * let cinemas: Spy<VenuesService, { overload: 'first' }>;
+ * // the accessorSpies bag keyed by the configured accessor lists:
+ * let thermo: Spy<Thermo, { gettersToSpyOn: ['level'] }>;
  * ```
  *
  * @remarks
@@ -558,7 +623,11 @@ export type DeepMockProxy<T> = SpyDisposable & {
  * {@link Mutable} stays the secondary answer for a spec that would rather write plain assignments to
  * plain data members. It does not help on a spied accessor either.
  */
-export type Spy<T, Options extends SpyOptions = SpyOptions> = AddAccessorsSpies<T> &
+export type Spy<T, Options extends SpyOptions = SpyOptions> = AddAccessorsSpies<
+  T,
+  ConfiguredAccessorList<Options, 'gettersToSpyOn'>,
+  ConfiguredAccessorList<Options, 'settersToSpyOn'>
+> &
   SpyDisposable & {
     [K in keyof T]: Required<T>[K] extends Func
       ? AddSpyMethodsByReturnTypes<SelectOverload<Required<T>[K], Options, K>>
@@ -849,6 +918,10 @@ export interface ClassSpyConfiguration<T> extends StrictSpyConfiguration {
    * accessor there is reported at runtime, with the reason. For a **signal-valued** getter prefer
    * `mockSignalProp(service, 'state', initial)` (`/angular`): a spied getter returns `undefined`
    * until it is configured, while a real signal keeps everything downstream of it reactive.
+   *
+   * These names reach the *type of* the {@link AddAccessorsSpies} bag only through the `Options`
+   * type argument — see {@link SpyOptions.gettersToSpyOn}; from this list alone the bag stays over
+   * every key of `T`.
    */
   gettersToSpyOn?: AccessorKeysOf<T>[];
   /** Setters to replace with a spied accessor. See {@link gettersToSpyOn}. */
