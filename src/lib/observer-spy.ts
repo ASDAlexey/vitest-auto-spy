@@ -29,6 +29,7 @@
 import type { Observable, Subscription } from 'rxjs';
 
 import { DISPOSE } from './dispose-symbol';
+import { DOCS_RXJS, withDocs } from './message-link';
 
 /** Upstream's one configuration flag. */
 export interface ObserverSpyConfig {
@@ -62,18 +63,24 @@ function ignoreTheOtherEnding(): void {
 /** The stream ended the other way round from what the waiter was promised. */
 function endedOtherwise(waitedFor: 'an error' | 'completion', happened: string): Error {
   return new Error(
-    `[vitest-auto-spy] this spy's observable ${happened}, so the promise from ${waitedFor === 'completion' ? 'onComplete()' : 'onError()'} ` +
-      `can never resolve: ${waitedFor} is not coming. Read receivedComplete() / receivedError(), or await ` +
-      '`expectCompletion(source$)` / `expectError(source$)`, which fail with a message naming the stream.',
+    withDocs(
+      `[vitest-auto-spy] this spy's observable ${happened}, so the promise from ${waitedFor === 'completion' ? 'onComplete()' : 'onError()'} ` +
+        `can never resolve: ${waitedFor} is not coming. Read receivedComplete() / receivedError(), or await ` +
+        '`expectCompletion(source$)` / `expectError(source$)`, which fail with a message naming the stream.',
+      DOCS_RXJS,
+    ),
   );
 }
 
 /** Nothing was emitted, and the caller asked for a value anyway. */
 function noValue(what: string): Error {
   return new Error(
-    `[vitest-auto-spy] ${what}, but the observable emitted nothing. ` +
-      'Check `receivedNext()` first, read `getLastValue()` (which admits `undefined`), or await ' +
-      '`expectEmission(source$)`, which fails with a timeout naming the stream instead of reading past its end.',
+    withDocs(
+      `[vitest-auto-spy] ${what}, but the observable emitted nothing. ` +
+        'Check `receivedNext()` first, read `getLastValue()` (which admits `undefined`), or await ' +
+        '`expectEmission(source$)`, which fails with a timeout naming the stream instead of reading past its end.',
+      DOCS_RXJS,
+    ),
   );
 }
 
@@ -122,9 +129,12 @@ export class ObserverSpy<T> {
   #assertNoUnexpectedError(): void {
     if (this.#receivedError && !this.#expectErrors) {
       throw new Error(
-        `[vitest-auto-spy] the observable errored, and this spy was not configured to expect that: ${String(this.#error)}. ` +
-          'Pass `{ expectErrors: true }` to subscribeSpyTo (or call `.expectErrors()`) and read `getError()`, ' +
-          'or await `expectError(source$)`, which resolves with the error itself.',
+        withDocs(
+          `[vitest-auto-spy] the observable errored, and this spy was not configured to expect that: ${String(this.#error)}. ` +
+            'Pass `{ expectErrors: true }` to subscribeSpyTo (or call `.expectErrors()`) and read `getError()`, ' +
+            'or await `expectError(source$)`, which resolves with the error itself.',
+          DOCS_RXJS,
+        ),
         { cause: this.#error },
       );
     }
