@@ -12,10 +12,18 @@
  * because `sideEffects` in `package.json` lists entry files only, and a bundler
  * drops a bare import of a module it believes to be pure. The Bun and `node:test`
  * entries register their own adapter and deliberately do not call this.
+ *
+ * Registration is guarded: an adapter a runtime entry (`vitest-auto-spy/bun`,
+ * `…/node`) installed first stays, so importing a Vitest entry later cannot
+ * replace it.
  */
-import { registerMockAdapter } from './mock-adapter';
+import { hasMockAdapter, registerMockAdapter } from './mock-adapter';
 import { vitestMockAdapter } from './vitest-adapter';
 
 export function useVitestAdapter(): void {
+  if (hasMockAdapter()) {
+    return;
+  }
+
   registerMockAdapter(vitestMockAdapter);
 }

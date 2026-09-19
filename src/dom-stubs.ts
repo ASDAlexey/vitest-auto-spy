@@ -17,16 +17,9 @@
  * from the root still puts back everything patched here — the journal lives on `globalThis` for
  * exactly this reason — and `setupAutoSpy()` still sweeps it between tests.
  */
-import { hasMockAdapter, registerMockAdapter } from './lib/mock-adapter';
-import { vitestMockAdapter } from './lib/vitest-adapter';
+import { useVitestAdapter } from './lib/use-vitest-adapter';
 
-// The stubs mint spies, and this entry may be imported without the core — but it is not
-// runtime-specific, so register the default Vitest adapter only when no runtime entry
-// (`vitest-auto-spy/bun`, `…/node`, imported first) has installed its own. Same shape as
-// `vitest-auto-spy/console`.
-if (!hasMockAdapter()) {
-  registerMockAdapter(vitestMockAdapter);
-}
+useVitestAdapter();
 
 // A `<video>` / `<audio>` that answers — jsdom implements neither beyond the element itself
 export { stubMediaElement, type MediaElementState, type MediaElementStub, type MediaElementStubOptions } from './lib/media-element-stub';

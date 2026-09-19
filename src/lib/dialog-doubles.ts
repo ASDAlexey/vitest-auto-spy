@@ -26,6 +26,7 @@ import { type Observable, ReplaySubject } from 'rxjs';
 
 import { DOCS_LINKS, withDocs } from './docs-links';
 import { createFunctionSpy } from './function-spy';
+import { getMockAdapter } from './mock-adapter';
 import type { AddSpyMethodsByReturnTypes } from './types';
 
 /** The half of Material's `MatDialogRef` a double stands in for: how the dialog closes. */
@@ -151,7 +152,9 @@ export function createMatDialogRef<Ref extends DialogRefLike>(
   };
   const close = createFunctionSpy<(result?: DialogResult<Ref>) => void>(`${RefClass.name}.close`);
 
-  close.mockImplementation(emitClose);
+  // Through the adapter, not `.mockImplementation` — the spy is built by whichever engine
+  // registered the adapter, and a node:test / bun mock does not carry Vitest's member.
+  getMockAdapter().restoreImplementation(close, emitClose);
 
   if (init.closedWith !== undefined) {
     emitClose(init.closedWith);

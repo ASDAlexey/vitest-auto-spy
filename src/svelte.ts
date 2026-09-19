@@ -31,14 +31,8 @@
  * render(Cart, { props: { store: cartStore } });
  * ```
  */
-import { hasMockAdapter, registerMockAdapter } from './lib/mock-adapter';
-import { vitestMockAdapter } from './lib/vitest-adapter';
+import { useVitestAdapter } from './lib/use-vitest-adapter';
 
-// Svelte suites run on Vitest. This entry may be imported on its own (it
-// re-exports the core below), so register the default adapter here too — unless a
-// runtime entry (`vitest-auto-spy/bun`, `…/node`) already installed its own.
-if (!hasMockAdapter()) {
-  registerMockAdapter(vitestMockAdapter);
-}
+useVitestAdapter();
 
 export * from './auto-spy';

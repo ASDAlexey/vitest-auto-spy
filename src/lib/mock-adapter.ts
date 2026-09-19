@@ -65,10 +65,9 @@ export function registerMockAdapter(adapter: MockAdapter): void {
 }
 
 /**
- * Whether an entry has already registered an adapter. Side-effect entries that
- * are not runtime-specific (e.g. `vitest-auto-spy/console`) check this before
- * registering the default Vitest adapter, so they never stomp a runtime
- * adapter installed by `vitest-auto-spy/bun` / `…/node`.
+ * Whether an entry has already registered an adapter. `useVitestAdapter()` checks
+ * this before installing the default Vitest adapter, so importing a Vitest entry
+ * never stomps a runtime adapter installed by `vitest-auto-spy/bun` / `…/node`.
  */
 export function hasMockAdapter(): boolean {
   return registeredAdapter !== undefined;

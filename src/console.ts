@@ -21,15 +21,9 @@
  * once per worker — unless `setupAutoSpy({ strayConsole })` owns the console, where it installs nothing.
  */
 import { consoleSpiesForImport } from './lib/console-spy';
-import { hasMockAdapter, registerMockAdapter } from './lib/mock-adapter';
-import { vitestMockAdapter } from './lib/vitest-adapter';
+import { useVitestAdapter } from './lib/use-vitest-adapter';
 
-// This entry may be imported without the core, so it needs an adapter — but it
-// is not runtime-specific: register the default Vitest adapter only when no
-// runtime entry (e.g. `vitest-auto-spy/bun`, imported first) installed its own.
-if (!hasMockAdapter()) {
-  registerMockAdapter(vitestMockAdapter);
-}
+useVitestAdapter();
 
 export const {
   consoleDebugSpy,
