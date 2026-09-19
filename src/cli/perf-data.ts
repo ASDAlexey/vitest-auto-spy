@@ -113,8 +113,8 @@ export interface Phase {
 /** The five phases Vitest measures per file. `transform` is the sixth and is a whole-run number. */
 type FileKey = 'environment' | 'imports' | 'prepare' | 'setup' | 'tests';
 
+/** `environment` is not among them: it is measured once per worker, not once per file — see `environmentOf`. */
 const FILE_PHASES: readonly (readonly [PhaseName, FileKey])[] = [
-  ['environment', 'environment'],
   ['import', 'imports'],
   ['tests', 'tests'],
   ['setup', 'setup'],
@@ -266,9 +266,28 @@ export function medianOf(values: readonly number[]): number {
   return (high + low) / 2;
 }
 
+/**
+ * What the run spent building environments, counted once per worker rather than once per file.
+ *
+ * Vitest measures it once: `_environmentTime` is a module-scope variable set inside
+ * `setupBaseEnvironment`, which runs per worker, and `runBaseTests` then copies it into
+ * `state.durations.environment` for **every** file that worker runs. Summing the per-file numbers
+ * therefore multiplies one start-up by the files behind it — on a 672-file shard across 13 workers
+ * that is 126.4 s against the 2.44 s actually spent, inflated 51.7×, which is enough to make the
+ * phase dominate any report with many files per worker.
+ *
+ * Files of one worker carry the identical float, so the distinct values are the environments the run
+ * built. Two workers landing on the same `performance.now()` difference would be counted once; that
+ * undercounts by one environment where the alternative overcounts by the file count.
+ */
+export function environmentOf(files: readonly PerfFile[]): number {
+  return [...new Set(files.map((file) => file.environment))].reduce((total, ms) => total + ms, 0);
+}
+
 /** The six phases, largest share first. A phase with no time is kept — its absence is information. */
 export function phasesOf(run: PerfRun): Phase[] {
   const raw: readonly (readonly [PhaseName, number])[] = [
+    ['environment', environmentOf(run.files)],
     ...FILE_PHASES.map(([name, key]): readonly [PhaseName, number] => [name, sumOf(run, key)]),
     ['transform', run.transform],
   ];

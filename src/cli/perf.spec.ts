@@ -6,6 +6,10 @@
  * on `document is not defined` — the rule is allowed to say "undecided" about anything, and never
  * allowed to be wrong. And the **numbers** are pinned to what the reporter read, because a perf
  * tool that rounds, guesses or invents is worse than no perf tool.
+ *
+ * The reporter's own rules live in `perf-reporter.spec.ts`, the gate's in `perf-gate.spec.ts` and
+ * the baseline's in `perf-baseline.spec.ts`; this file keeps the run source, the analysis rules
+ * and the rendering that crosses them.
  */
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -13,15 +17,14 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { findBarrelImports, isBarrel, reachOf } from './checks/barrels';
 import { DOM_FREE_RULE, findDomFreeSpecs, packageOf, readAliases } from './checks/dom-free';
 import { buildGraph } from './checks/graph';
-import { pathExists, readTextFile, writeTextFile } from './fs-scan';
+import { pathExists, writeTextFile } from './fs-scan';
 import type { CliIo } from './main';
-import type { GateRequest } from './perf';
 import { analysePerf, declaresNoIsolation, formatPhases, nothingToDo, renderPerf } from './perf';
-import { BASELINE_DEFAULTS } from './perf-baseline';
 import type { PerfFile, PerfRun } from './perf-data';
 import {
   PERF_OUTPUT_ENV,
   PERF_REPORTER_ENV,
+  environmentOf,
   formatMs,
   formatShare,
   measuredNothing,
@@ -30,10 +33,7 @@ import {
   shareOf,
   totalOf,
 } from './perf-data';
-import type { GateOptions } from './perf-gate';
-import { GATE_DEFAULTS, measuredFiles } from './perf-gate';
-import PerfReporter from './perf-reporter';
-import type { PerfTestModule } from './perf-reporter';
+import { cleanRepo, file, recorder, run } from './perf-fixtures';
 import type { PerfRunOptions, PerfSource, Spawn, SpawnRequest } from './perf-run';
 import { commandTakesPaths, perfRemeasure, readPerfRun, reporterPath, shellQuote, spawnProcess, withPaths } from './perf-run';
 import { readProfile } from './profile';
@@ -43,59 +43,19 @@ afterEach(() => {
   removeTempRepos();
 });
 
-const file = (path: string, over: Partial<PerfFile> = {}): PerfFile => ({
-  file: path,
-  environment: 0,
-  prepare: 0,
-  setup: 0,
-  imports: 0,
-  tests: 0,
-  testCount: 1,
-  cases: [],
-  ...over,
-});
-
-const run = (over: Partial<PerfRun> = {}): PerfRun => ({ version: 2, root: '/repo', transform: 0, wall: 0, failed: 0, files: [], ...over });
-
 const checks = (findings: readonly { check: string }[]): string[] => findings.map((finding) => finding.check);
 
-interface Recorder extends CliIo {
-  readonly stdout: string[];
-  readonly stderr: string[];
-}
-
-function recorder(): Recorder {
-  const stdout: string[] = [];
-  const stderr: string[] = [];
-
-  return { stdout, stderr, out: (line) => stdout.push(line), err: (line) => stderr.push(line) };
-}
-
-const CLEAN_SPEC = `import { expect, it } from 'vitest';\nimport { add } from './add';\n\nit('adds', () => {\n  expect(add(1, 2)).toBe(3);\n});\n`;
-
-const CLEAN_SOURCE = `export function add(a: number, b: number): number {\n  return a + b;\n}\n`;
-
-/** A repository whose specs are all provably DOM-free, plus one that is provably not. */
-function cleanRepo(specCount: number, over: Readonly<Record<string, string>> = {}): string {
-  const files: Record<string, string> = {
-    'package.json': JSON.stringify({ devDependencies: { vitest: '^4' } }),
-    'src/add.ts': CLEAN_SOURCE,
-  };
-
-  for (let index = 0; index < specCount; index += 1) {
-    files[`src/case-${index}.spec.ts`] = CLEAN_SPEC;
-  }
-
-  return createTempRepo({ ...files, ...over });
-}
-
-/** A run in which environment setup dominates and every spec cost the same. */
+/**
+ * A run in which environment setup dominates and every spec cost the same. One environment per file,
+ * which is what `isolate: true` produces — the analysis counts an environment once per distinct
+ * value, because Vitest repeats a single worker's number across the files that worker ran.
+ */
 function heavyRun(root: string, specs: readonly string[], environment: number): PerfRun {
   return run({
     root,
     transform: 100,
     wall: 1_000,
-    files: specs.map((spec) => file(join(root, spec), { environment, tests: 10 })),
+    files: specs.map((spec, index) => file(join(root, spec), { environment: environment - index, tests: 10 })),
   });
 }
 
@@ -168,6 +128,25 @@ describe('phasesOf', () => {
     expect(shareOf(phases, 'import')).toBe(0);
     expect(shareOf([], 'import')).toBe(0);
   });
+
+  it('counts an environment once per worker, not once per file', () => {
+    // Three files, two workers: Vitest copies one worker's number into every file it ran, so the
+    // 300 here is two environments of 100 and 200 — not the 500 a plain sum would report.
+    const files = [
+      file('/r/a.spec.ts', { environment: 100, tests: 10 }),
+      file('/r/b.spec.ts', { environment: 100, tests: 10 }),
+      file('/r/c.spec.ts', { environment: 200, tests: 10 }),
+    ];
+
+    expect(environmentOf(files)).toBe(300);
+    expect(phasesOf(run({ files })).find((phase) => phase.name === 'environment')?.ms).toBe(300);
+  });
+
+  it('counts a single environment once however many files shared it', () => {
+    const files = Array.from({ length: 20 }, (_unused, index) => file(`/r/case-${index}.spec.ts`, { environment: 50, tests: 1 }));
+
+    expect(environmentOf(files)).toBe(50);
+  });
 });
 
 describe('formatMs', () => {
@@ -176,106 +155,6 @@ describe('formatMs', () => {
     expect(formatMs(999.4)).toBe('999ms');
     expect(formatMs(8_910)).toBe('8.91s');
     expect(formatShare(0.5602)).toBe('56.0%');
-  });
-});
-
-describe('PerfReporter', () => {
-  const module = (moduleId: string): PerfTestModule => ({
-    moduleId,
-    diagnostic: () => ({ environmentSetupDuration: 1, prepareDuration: 2, collectDuration: 3, setupDuration: 4, duration: 5 }),
-  });
-
-  it('maps every diagnostic Vitest exposes onto the report', () => {
-    const reporter = new PerfReporter();
-
-    reporter.onInit({ config: { root: '/repo' }, state: { transformTime: 77 } });
-
-    const report = reporter.report([module('/repo/a.spec.ts')]);
-
-    expect(report.root).toBe('/repo');
-    expect(report.transform).toBe(77);
-    expect(report.files).toEqual([
-      { file: '/repo/a.spec.ts', environment: 1, prepare: 2, setup: 4, imports: 3, tests: 5, testCount: 0, cases: [] },
-    ]);
-  });
-
-  it('counts the bodies that finished and keeps the slowest few of them by name', () => {
-    const bodies = [
-      { fullName: 'suite > slow', diagnostic: () => ({ duration: 2_000 }) },
-      { fullName: 'suite > quick', diagnostic: () => ({ duration: 4 }) },
-      { name: 'unnamed parent', diagnostic: () => ({ duration: 900 }) },
-      { fullName: 'suite > skipped', diagnostic: () => undefined },
-      { fullName: 'suite > never ran' },
-    ];
-    const report = new PerfReporter().report([{ ...module('/repo/a.spec.ts'), children: { allTests: () => bodies } }]);
-
-    expect(report.files[0]?.testCount).toBe(3);
-    expect(report.files[0]?.cases).toEqual([
-      { name: 'suite > slow', ms: 2_000 },
-      { name: 'unnamed parent', ms: 900 },
-    ]);
-  });
-
-  it('names a body Vitest gave no name at all, and keeps at most five per file', () => {
-    const bodies = Array.from({ length: 7 }, (_, index) => ({
-      fullName: `case ${index}`,
-      diagnostic: () => ({ duration: 1_000 + index }),
-    }));
-    const report = new PerfReporter().report([{ ...module('/repo/a.spec.ts'), children: { allTests: () => bodies } }]);
-
-    expect(report.files[0]?.cases).toHaveLength(5);
-    expect(report.files[0]?.cases[0]).toEqual({ name: 'case 6', ms: 1_006 });
-  });
-
-  it('keeps one body per name, the slowest, because a name is not unique', () => {
-    const bodies = [
-      { fullName: 'suite > renders', diagnostic: () => ({ duration: 400 }) },
-      { fullName: 'suite > renders', diagnostic: () => ({ duration: 1_200 }) },
-      { fullName: 'suite > renders', diagnostic: () => ({ duration: 700 }) },
-    ];
-    const report = new PerfReporter().report([{ ...module('/repo/a.spec.ts'), children: { allTests: () => bodies } }]);
-
-    expect(report.files[0]?.testCount).toBe(3);
-    expect(report.files[0]?.cases).toEqual([{ name: 'suite > renders', ms: 1_200 }]);
-  });
-
-  it('falls back to a name of its own for a body Vitest named nothing', () => {
-    const report = new PerfReporter().report([
-      { ...module('/r/b.spec.ts'), children: { allTests: () => [{ diagnostic: () => ({ duration: 900 }) }] } },
-    ]);
-
-    expect(report.files[0]?.cases[0]?.name).toBe('(unnamed test)');
-  });
-  it('still reports when it was never initialised', () => {
-    const report = new PerfReporter().report([]);
-
-    expect(report.root).toBe('');
-    expect(report.transform).toBe(0);
-  });
-
-  it('writes the report to the file the environment names', () => {
-    const root = createTempRepo({ 'package.json': '{}' });
-    const target = join(root, 'out', 'perf.json');
-    const reporter = new PerfReporter();
-
-    process.env[PERF_OUTPUT_ENV] = target;
-
-    try {
-      reporter.onInit({ config: { root }, state: { transformTime: 1 } });
-      reporter.onTestRunEnd([module(join(root, 'a.spec.ts'))]);
-    } finally {
-      delete process.env[PERF_OUTPUT_ENV];
-    }
-
-    expect(parsePerfRun(readTextFile(target) ?? '')?.files).toHaveLength(1);
-  });
-
-  it('writes nothing, and says nothing, when no report was asked for', () => {
-    const reporter = new PerfReporter();
-
-    delete process.env[PERF_OUTPUT_ENV];
-
-    expect(() => reporter.onTestRunEnd([])).not.toThrow();
   });
 });
 
@@ -683,14 +562,6 @@ describe('findBarrelImports', () => {
   });
 });
 
-describe('measuredFiles', () => {
-  it('keys by repository-relative path and drops what is outside the repository', () => {
-    const measured = measuredFiles(run({ files: [file('/repo/src/a.spec.ts'), file('/elsewhere/b.spec.ts'), file('/repo')] }), '/repo');
-
-    expect([...measured.keys()]).toEqual(['src/a.spec.ts']);
-  });
-});
-
 describe('declaresNoIsolation', () => {
   it('reads the setting and not the prose about it', () => {
     const configured = buildGraph(
@@ -729,6 +600,47 @@ describe('analysePerf', () => {
     expect(analysis.findings[0]?.message).toContain('2 spec files reach no DOM');
     expect(analysis.findings[0]?.fix).toContain(DOM_FREE_RULE);
     expect(analysis.findings.every((finding) => finding.severity === 'info')).toBe(true);
+  });
+
+  it('says a move frees nothing while a DOM-using file shares the worker', () => {
+    const root = cleanRepo(1, { 'src/dom.spec.ts': `import { it } from 'vitest';\n\nit('x', () => {\n  document.title = '';\n});\n` });
+    // One environment value across both files is one worker running both: the DOM-using one rebuilds
+    // the environment whatever happens to its neighbour, so moving the neighbour buys nothing.
+    const shared = run({
+      root,
+      transform: 100,
+      wall: 1_000,
+      files: [
+        file(join(root, 'src/case-0.spec.ts'), { environment: 9_000, tests: 10 }),
+        file(join(root, 'src/dom.spec.ts'), { environment: 9_000, tests: 10 }),
+      ],
+    });
+    const analysis = analysePerf(shared, readProfile(root));
+
+    expect(checks(analysis.findings)).toContain('perf-environment');
+    expect(analysis.findings[0]?.message).toContain('frees no environment');
+    expect(analysis.findings[0]?.message).not.toContain('moving them frees');
+  });
+
+  it('prices the move when a whole worker is DOM-free, breaking ties by name', () => {
+    const root = cleanRepo(2);
+    // One environment value across both files is one worker whose every file is DOM-free: moving
+    // both actually retires that environment, and equally expensive candidates come out by name.
+    const shared = run({
+      root,
+      transform: 100,
+      wall: 1_000,
+      files: [
+        file(join(root, 'src/case-1.spec.ts'), { environment: 9_000, tests: 10 }),
+        file(join(root, 'src/case-0.spec.ts'), { environment: 9_000, tests: 10 }),
+      ],
+    });
+    const analysis = analysePerf(shared, readProfile(root));
+    const environment = analysis.findings.filter((finding) => finding.check === 'perf-environment-node-candidate');
+
+    expect(environment.map((finding) => finding.file)).toEqual(['src/case-0.spec.ts', 'src/case-1.spec.ts']);
+    expect(analysis.findings[0]?.message).toContain('2 spec files reach no DOM');
+    expect(analysis.findings[0]?.message).toContain('moving them frees');
   });
 
   it('caps the list and counts the rest', () => {
@@ -936,150 +848,6 @@ describe('renderPerf', () => {
   });
 });
 
-describe('renderPerf --gate', () => {
-  const GATE: GateOptions = { ...GATE_DEFAULTS };
-
-  /**
-   * Nine ordinary files and the ones the test is about. The file rule is relative to the median of
-   * the run it is in, so a one-file run has no outlier in it by construction — which is the rule
-   * working, and the reason every fixture here has a suite around its subject.
-   */
-  const gateRun = (root: string, files: readonly PerfFile[], wall = 1_000): PerfRun =>
-    run({
-      root,
-      wall,
-      files: [
-        ...Array.from({ length: 9 }, (_unused, index) => file(join(root, `src/ordinary-${index}.spec.ts`), { tests: 100, testCount: 40 })),
-        ...files,
-      ],
-    });
-
-  const gateOf = (over: Partial<GateRequest> = {}): GateRequest => ({
-    options: GATE,
-    remeasure: undefined,
-    trustSingle: false,
-    ...over,
-  });
-
-  const spec = (root: string, name: string, over: Partial<PerfFile>): PerfFile => file(join(root, name), over);
-
-  it('says so and exits 0 when nothing is over budget', () => {
-    const root = cleanRepo(1);
-    const io = recorder();
-    const source: PerfSource = { ok: true, run: gateRun(root, [spec(root, 'src/case-0.spec.ts', { tests: 200 })]), runFailed: false };
-
-    expect(renderPerf(source, readProfile(root), io, { gate: gateOf() })).toBe(0);
-    expect(io.stdout.join('\n')).toContain('perf gate: nothing over budget');
-  });
-
-  it('fails on a slow test body that is still slow when it is re-measured on its own', () => {
-    const root = cleanRepo(1);
-    const io = recorder();
-    const slow = spec(root, 'src/case-0.spec.ts', { tests: 4_000, testCount: 3, cases: [{ name: 'suite > waits', ms: 3_900 }] });
-    const source: PerfSource = { ok: true, run: gateRun(root, [slow]), runFailed: false };
-    const remeasure = (): PerfSource => ({
-      ok: true,
-      run: run({ root, files: [spec(root, 'src/case-0.spec.ts', { tests: 3_800, cases: [{ name: 'suite > waits', ms: 3_700 }] })] }),
-      runFailed: false,
-    });
-
-    expect(renderPerf(source, readProfile(root), io, { gate: gateOf({ remeasure }) })).toBe(1);
-
-    const out = io.stdout.join('\n');
-
-    expect(out).toContain('perf gate: re-measuring 1 file');
-    expect(out).toContain('error  perf-gate-slow-test src/case-0.spec.ts');
-    expect(out).toContain('`suite > waits` spent 3.90s in its body');
-    expect(out).toContain('Re-measured on its own: 3.70s, still over budget');
-  });
-
-  it('drops a candidate the second measurement does not reproduce, and exits 0', () => {
-    const root = cleanRepo(1);
-    const io = recorder();
-    const slow = spec(root, 'src/case-0.spec.ts', { tests: 4_000, cases: [{ name: 'suite > unlucky', ms: 3_900 }] });
-    const source: PerfSource = { ok: true, run: gateRun(root, [slow]), runFailed: false };
-    const remeasure = (): PerfSource => ({
-      ok: true,
-      run: run({ root, files: [spec(root, 'src/case-0.spec.ts', { tests: 120, cases: [] })] }),
-      runFailed: false,
-    });
-
-    expect(renderPerf(source, readProfile(root), io, { gate: gateOf({ remeasure }) })).toBe(0);
-
-    const out = io.stdout.join('\n');
-
-    expect(out).toContain('info   perf-gate-slow-test');
-    expect(out).toContain('not reported as a defect');
-    expect(out).toContain('sharing a worker');
-  });
-
-  it('warns rather than fails when there was no way to confirm, unless --no-confirm said to trust it', () => {
-    const root = cleanRepo(1);
-    const slow = spec(root, 'src/case-0.spec.ts', { tests: 9_000, testCount: 4 });
-    const source: PerfSource = { ok: true, run: gateRun(root, [slow]), runFailed: false };
-    const warned = recorder();
-    const trusted = recorder();
-
-    expect(renderPerf(source, readProfile(root), warned, { gate: gateOf() })).toBe(0);
-    expect(warned.stdout.join('\n')).toContain('warn   perf-gate-slow-file src/case-0.spec.ts');
-    expect(warned.stdout.join('\n')).toContain('never confirmed');
-
-    expect(renderPerf(source, readProfile(root), trusted, { gate: gateOf({ trustSingle: true }) })).toBe(1);
-    expect(trusted.stdout.join('\n')).toContain('error  perf-gate-slow-file');
-    expect(trusted.stdout.join('\n')).toContain('--no-confirm said that is enough');
-  });
-
-  it('says the confirmation pass itself failed, and confirms nothing', () => {
-    const root = cleanRepo(1);
-    const io = recorder();
-    const slow = spec(root, 'src/case-0.spec.ts', { tests: 9_000 });
-    const source: PerfSource = { ok: true, run: gateRun(root, [slow]), runFailed: false };
-    const broken = (): PerfSource => ({ ok: false, error: 'no vitest here' });
-
-    expect(renderPerf(source, readProfile(root), io, { gate: gateOf({ remeasure: broken }) })).toBe(0);
-    expect(io.stderr.join('\n')).toContain('The confirmation pass could not run');
-    expect(io.stdout.join('\n')).toContain('never confirmed');
-  });
-
-  it('treats a confirmation pass that failed or ran nothing as no confirmation', () => {
-    const root = cleanRepo(1);
-    const io = recorder();
-    const slow = spec(root, 'src/case-0.spec.ts', { tests: 9_000 });
-    const source: PerfSource = { ok: true, run: gateRun(root, [slow]), runFailed: false };
-    const red = (): PerfSource => ({
-      ok: true,
-      run: run({ root, files: [spec(root, 'src/case-0.spec.ts', { tests: 10 })] }),
-      runFailed: true,
-    });
-
-    expect(renderPerf(source, readProfile(root), io, { gate: gateOf({ remeasure: red }) })).toBe(0);
-    expect(io.stderr.join('\n')).toContain('The confirmation pass did not pass');
-  });
-
-  it('refuses to judge a run that did not pass, and exits 2', () => {
-    const root = cleanRepo(1);
-    const io = recorder();
-    const source: PerfSource = { ok: true, run: gateRun(root, [spec(root, 'src/case-0.spec.ts', { tests: 100 })]), runFailed: true };
-
-    expect(renderPerf(source, readProfile(root), io, { gate: gateOf() })).toBe(2);
-    expect(io.stderr.join('\n')).toContain('does not judge a run that did not pass');
-  });
-
-  it('fails on an explicit whole-run budget without re-measuring anything', () => {
-    const root = cleanRepo(1);
-    const io = recorder();
-    const source: PerfSource = {
-      ok: true,
-      run: gateRun(root, [spec(root, 'src/case-0.spec.ts', { tests: 100 })], 30_000),
-      runFailed: false,
-    };
-
-    expect(renderPerf(source, readProfile(root), io, { gate: gateOf({ options: { ...GATE, maxWallMs: 10_000 } }) })).toBe(1);
-    expect(io.stdout.join('\n')).toContain('error  perf-gate-wall');
-    expect(io.stdout.join('\n')).toContain('is not re-measured');
-  });
-});
-
 describe('measuredNothing', () => {
   it('is true for a run with no files at all, and for one whose files ran nothing', () => {
     expect(measuredNothing(run())).toBe(true);
@@ -1095,7 +863,7 @@ describe('measuredNothing', () => {
   });
 });
 
-describe('renderPerf, the wording of the two plurals', () => {
+describe('renderPerf, the wording of the plural', () => {
   it('counts files in the plural when more than one collected nothing', () => {
     const root = cleanRepo(1);
     const io = recorder();
@@ -1106,58 +874,6 @@ describe('renderPerf, the wording of the two plurals', () => {
 
     expect(renderPerf({ ok: true, run: empty, runFailed: true }, readProfile(root), io)).toBe(2);
     expect(io.stderr.join('\n')).toContain('2 test files were collected and 0 test bodies ran');
-  });
-
-  it('does not open a confirmation pass for a finding that names no file', () => {
-    const root = cleanRepo(1);
-    const io = recorder();
-    const source: PerfSource = {
-      ok: true,
-      run: run({ root, wall: 30_000, files: [file(join(root, 'src/case-0.spec.ts'), { tests: 100 })] }),
-      runFailed: false,
-    };
-    const remeasure = (): PerfSource => {
-      throw new Error('the whole-run finding must not be re-measured');
-    };
-
-    expect(
-      renderPerf(source, readProfile(root), io, {
-        gate: { options: { ...GATE_DEFAULTS, maxWallMs: 10_000 }, remeasure, trustSingle: false },
-      }),
-    ).toBe(1);
-    expect(io.stdout.join('\n')).not.toContain('re-measuring');
-  });
-
-  it('counts the re-measured files in the plural', () => {
-    const root = cleanRepo(1);
-    const io = recorder();
-    const ordinary = Array.from({ length: 9 }, (_unused, index) =>
-      file(join(root, `src/ordinary-${index}.spec.ts`), { tests: 100, testCount: 40 }),
-    );
-    const slow = ['src/a.spec.ts', 'src/b.spec.ts'].map((path) => file(join(root, path), { tests: 9_000 }));
-    const source: PerfSource = { ok: true, run: run({ root, files: [...ordinary, ...slow] }), runFailed: false };
-    const remeasure = (): PerfSource => ({ ok: true, run: run({ root, files: slow }), runFailed: false });
-
-    expect(renderPerf(source, readProfile(root), io, { gate: { options: GATE_DEFAULTS, remeasure, trustSingle: false } })).toBe(1);
-    expect(io.stdout.join('\n')).toContain('re-measuring 2 files on their own');
-  });
-});
-
-describe('PerfReporter, ordering', () => {
-  it('breaks a tie between two equally slow bodies by name, so the report is stable', () => {
-    const bodies = [
-      { fullName: 'b', diagnostic: () => ({ duration: 500 }) },
-      { fullName: 'a', diagnostic: () => ({ duration: 500 }) },
-    ];
-    const report = new PerfReporter().report([
-      {
-        moduleId: '/repo/a.spec.ts',
-        diagnostic: () => ({ environmentSetupDuration: 0, prepareDuration: 0, collectDuration: 0, setupDuration: 0, duration: 1_000 }),
-        children: { allTests: () => bodies },
-      },
-    ]);
-
-    expect(report.files[0]?.cases.map((entry) => entry.name)).toEqual(['a', 'b']);
   });
 });
 
@@ -1175,40 +891,7 @@ describe('the settings checks and where a runner config lives', () => {
   });
 });
 
-describe('renderPerf, a report measured somewhere else', () => {
-  const elsewhere = (prefix: string): PerfRun =>
-    run({
-      root: prefix,
-      wall: 1_000,
-      files: [`${prefix}/src/case-0.spec.ts`, `${prefix}/src/case-1.spec.ts`].map((path) => file(path, { tests: 100 })),
-    });
-
-  it('re-bases the paths onto the working directory, because CI clones somewhere else than a laptop', () => {
-    const root = cleanRepo(2);
-    const io = recorder();
-    const source: PerfSource = { ok: true, run: elsewhere('/builds/group/project'), runFailed: false };
-
-    expect(renderPerf(source, readProfile(root), io, { gate: { options: GATE_DEFAULTS, remeasure: undefined, trustSingle: false } })).toBe(
-      0,
-    );
-    expect(io.stdout.join('\n')).toContain('perf gate: nothing over budget');
-  });
-
-  it('refuses when even the report’s own root does not place the files here, instead of printing an all-clear', () => {
-    const root = cleanRepo(1);
-    const io = recorder();
-    const orphan = run({ root: '', wall: 1_000, files: [file('/elsewhere/src/a.spec.ts', { tests: 9_000 })] });
-
-    expect(
-      renderPerf({ ok: true, run: orphan, runFailed: false }, readProfile(root), io, {
-        gate: { options: GATE_DEFAULTS, remeasure: undefined, trustSingle: false },
-      }),
-    ).toBe(2);
-    expect(io.stderr.join('\n')).toContain('None of the 1 measured files is inside');
-    expect(io.stderr.join('\n')).toContain('records no root of its own');
-    expect(io.stdout).toEqual([]);
-  });
-
+describe('renderPerf, a report whose files sit elsewhere', () => {
   it('names the root it was written under when it has one', () => {
     const root = cleanRepo(1);
     const io = recorder();
@@ -1216,40 +899,6 @@ describe('renderPerf, a report measured somewhere else', () => {
 
     expect(renderPerf({ ok: true, run: orphan, runFailed: false }, readProfile(root), io)).toBe(2);
     expect(io.stderr.join('\n')).toContain('written under /builds/group/project');
-  });
-});
-
-describe('renderPerf --gate, the scope and the confirmation it was given', () => {
-  const runWith = (root: string, files: readonly PerfFile[]): PerfRun => run({ root, wall: 1_000, files });
-
-  const ordinary = (root: string): PerfFile[] =>
-    Array.from({ length: 9 }, (_unused, index) => file(join(root, `src/ordinary-${index}.spec.ts`), { tests: 100, testCount: 40 }));
-
-  it('refuses a --gate-only that matches nothing this run measured', () => {
-    const root = cleanRepo(1);
-    const io = recorder();
-    const source: PerfSource = { ok: true, run: runWith(root, ordinary(root)), runFailed: false };
-
-    expect(
-      renderPerf(source, readProfile(root), io, {
-        gate: { options: { ...GATE_DEFAULTS, only: ['libs/nothing-here'] }, remeasure: undefined, trustSingle: false },
-      }),
-    ).toBe(2);
-    expect(io.stderr.join('\n')).toContain('libs/nothing-here');
-    expect(io.stdout.join('\n')).not.toContain('nothing over budget');
-  });
-
-  it('confirms nothing when the command ignored the paths and re-ran the whole suite', () => {
-    const root = cleanRepo(1);
-    const io = recorder();
-    const slow = file(join(root, 'src/slow.spec.ts'), { tests: 9_000 });
-    const whole = runWith(root, [...ordinary(root), slow]);
-    const source: PerfSource = { ok: true, run: whole, runFailed: false };
-    const remeasure = (): PerfSource => ({ ok: true, run: whole, runFailed: false });
-
-    expect(renderPerf(source, readProfile(root), io, { gate: { options: GATE_DEFAULTS, remeasure, trustSingle: false } })).toBe(0);
-    expect(io.stderr.join('\n')).toContain('ignored the paths it was given');
-    expect(io.stdout.join('\n')).toContain('never confirmed');
   });
 });
 
@@ -1292,137 +941,12 @@ describe('renderPerf, the tables and the notes around the phases', () => {
     expect(hidden.stdout.join('\n')).not.toContain('over budget');
   });
 
-  it('says in one line that nothing is over budget, and leaves that line to the gate under --gate', () => {
-    const root = cleanRepo(1);
-    const plain = recorder();
-    const gated = recorder();
-    const quick: PerfSource = {
-      ok: true,
-      run: run({ root, wall: 900, files: [file(join(root, 'src/quick.spec.ts'), { tests: 40, testCount: 8 })] }),
-      runFailed: false,
-    };
-
-    expect(renderPerf(quick, readProfile(root), plain)).toBe(0);
-    expect(plain.stdout.join('\n')).toContain('Nothing over budget: no file over its budget and no test body over 1.00s');
-
-    expect(
-      renderPerf(quick, readProfile(root), gated, { gate: { options: GATE_DEFAULTS, remeasure: undefined, trustSingle: false } }),
-    ).toBe(0);
-    expect(gated.stdout.join('\n')).not.toContain('Nothing over budget:');
-    expect(gated.stdout.join('\n')).toContain('perf gate: nothing over budget');
-  });
-
   it('prints what the source had to say about itself, when it had something', () => {
     const root = cleanRepo(1);
     const io = recorder();
 
     expect(renderPerf({ ok: true, run: bigRun(root), runFailed: false, note: 'merged 3 reports' }, readProfile(root), io)).toBe(0);
     expect(io.stdout.join('\n')).toContain('merged 3 reports');
-  });
-});
-
-describe('renderPerf --baseline', () => {
-  const measured = (root: string, slow: number): PerfRun =>
-    run({
-      root,
-      wall: 5_000,
-      files: [
-        ...Array.from({ length: 9 }, (_unused, index) => file(join(root, `src/ordinary-${index}.spec.ts`), { tests: 100, testCount: 10 })),
-        file(join(root, 'src/grew.spec.ts'), { tests: slow, testCount: 10 }),
-      ],
-    });
-
-  it('records a baseline and says what it wrote, without judging anything', () => {
-    const root = cleanRepo(1);
-    const io = recorder();
-    const path = join(root, 'perf-baseline.json');
-
-    expect(
-      renderPerf({ ok: true, run: measured(root, 300), runFailed: false }, readProfile(root), io, {
-        baseline: { path, update: true, options: BASELINE_DEFAULTS },
-      }),
-    ).toBe(0);
-    expect(pathExists(path)).toBe(true);
-    expect(io.stdout.join('\n')).toContain('perf baseline: recorded 10 files');
-  });
-
-  it('fails the gate on a file that grew against it, and confirms that the way it confirms anything else', () => {
-    const root = cleanRepo(1);
-    const path = join(root, 'perf-baseline.json');
-    const recording = recorder();
-
-    renderPerf({ ok: true, run: measured(root, 300), runFailed: false }, readProfile(root), recording, {
-      baseline: { path, update: true, options: BASELINE_DEFAULTS },
-    });
-
-    const io = recorder();
-    const grown = measured(root, 3_000);
-    const remeasure = (): PerfSource => ({
-      ok: true,
-      run: run({ root, files: [file(join(root, 'src/grew.spec.ts'), { tests: 2_900 })] }),
-      runFailed: false,
-    });
-
-    expect(
-      renderPerf({ ok: true, run: grown, runFailed: false }, readProfile(root), io, {
-        baseline: { path, update: false, options: BASELINE_DEFAULTS },
-        gate: { options: GATE_DEFAULTS, remeasure, trustSingle: false },
-      }),
-    ).toBe(1);
-
-    const out = io.stdout.join('\n');
-
-    expect(out).toContain('error  perf-gate-regression src/grew.spec.ts');
-    expect(out).toContain('the share of the run they took when the baseline was recorded');
-  });
-
-  it('reports what drifted, and says so when there is no baseline to read at all', () => {
-    const root = cleanRepo(1);
-    const io = recorder();
-    const path = join(root, 'perf-baseline.json');
-
-    renderPerf({ ok: true, run: measured(root, 300), runFailed: false }, readProfile(root), recorder(), {
-      baseline: { path, update: true, options: BASELINE_DEFAULTS },
-    });
-
-    const withNewFile = run({
-      root,
-      files: [...measured(root, 300).files, file(join(root, 'src/new.spec.ts'), { tests: 100, testCount: 3 })],
-    });
-
-    expect(
-      renderPerf({ ok: true, run: withNewFile, runFailed: false }, readProfile(root), io, {
-        baseline: { path, update: false, options: BASELINE_DEFAULTS },
-      }),
-    ).toBe(0);
-    expect(io.stdout.join('\n')).toContain('1 files this run measured are not in it');
-
-    const missing = recorder();
-
-    expect(
-      renderPerf({ ok: true, run: measured(root, 300), runFailed: false }, readProfile(root), missing, {
-        baseline: { path: join(root, 'nowhere.json'), update: false, options: BASELINE_DEFAULTS },
-      }),
-    ).toBe(0);
-    expect(missing.stderr.join('\n')).toContain('No baseline to compare against');
-  });
-
-  it('reports a regression without a gate as a finding that fails nothing', () => {
-    const root = cleanRepo(1);
-    const path = join(root, 'perf-baseline.json');
-
-    renderPerf({ ok: true, run: measured(root, 300), runFailed: false }, readProfile(root), recorder(), {
-      baseline: { path, update: true, options: BASELINE_DEFAULTS },
-    });
-
-    const io = recorder();
-
-    expect(
-      renderPerf({ ok: true, run: measured(root, 3_000), runFailed: false }, readProfile(root), io, {
-        baseline: { path, update: false, options: BASELINE_DEFAULTS },
-      }),
-    ).toBe(0);
-    expect(io.stdout.join('\n')).toContain('perf-gate-regression');
   });
 });
 
@@ -1483,25 +1007,6 @@ describe('shellQuote', () => {
   it('quotes for the shell it will actually run in, which is not the same shell on Windows', () => {
     expect(shellQuote("a b'c.spec.ts", 'linux')).toBe("'a b'\\''c.spec.ts'");
     expect(shellQuote('a b"c.spec.ts', 'win32')).toBe('"a b""c.spec.ts"');
-  });
-});
-
-describe('renderPerf --gate-only, a scope that is partly right', () => {
-  it('says which entries matched nothing when some of them did match', () => {
-    const root = cleanRepo(1);
-    const io = recorder();
-    const measured = run({
-      root,
-      wall: 1_000,
-      files: [file(join(root, 'src/case-0.spec.ts'), { tests: 100 })],
-    });
-
-    expect(
-      renderPerf({ ok: true, run: measured, runFailed: false }, readProfile(root), io, {
-        gate: { options: { ...GATE_DEFAULTS, only: ['src', 'libs/gone'] }, remeasure: undefined, trustSingle: false },
-      }),
-    ).toBe(2);
-    expect(io.stderr.join('\n')).toContain('paths this run did not measure: libs/gone');
   });
 });
 

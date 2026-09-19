@@ -44,6 +44,22 @@ _Last released: **v5.17.1** — the git tag, `package.json` and `CHANGELOG.md` a
 
 ### Fixed
 
+- **`perf` counted one worker's environment once per file, and the phase was inflated by the file
+  count.** Vitest measures the environment once: `_environmentTime` is a module-scope variable set
+  inside `setupBaseEnvironment`, which runs per worker, and `runBaseTests` then copies it into
+  `state.durations.environment` for **every** file that worker runs. `phasesOf` summed those per-file
+  numbers, so one start-up was multiplied by the files behind it — on a 672-file shard across 13
+  workers, **126.4 s reported against the 2.44 s actually spent, inflated 51.7×**. That share fed
+  `perf-environment`, so the rule fired on arithmetic and named spec files to move to the `node`
+  environment for a saving that was not there; it also distorted every other phase's share, since it
+  was part of the total. Environments are now counted once per distinct value — files of one worker
+  carry the identical float — and `perf-environment` reports what moving its candidates would really
+  free: an environment is only saved when **every** file its worker ran is DOM-free, and the finding
+  says so outright when a DOM-using neighbour means the move frees nothing.
+- **The quiet verdict claimed more than the analysis checked.** With no findings `perf` ended `No
+phase is over 30.0% of the total…`, but only `environment`, `import` and the three phases isolation
+  pays per file have a dominance rule — `setup` and `transform` have none, and a run printing
+  `setup 35.0%` got that line anyway. It now names the phases it has advice for.
 - **The perf gate's file rule judged file size and runner speed instead of slowness.** A file was over
   budget when it was over `--max-file-ms` and `--factor` × the median **file**. On a 2 023-file consumer
   suite the median file is 8.9 ms and five tests, so ten times it never came near the 5 s floor and the

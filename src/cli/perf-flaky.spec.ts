@@ -139,7 +139,7 @@ describe('analysePerf, flaky tests and heap', () => {
   it('lists the five largest heaps in megabytes, and keeps them next to the other findings of a heavy run', () => {
     const root = repo();
     const files = [0, 1, 2, 3, 4, 5].map((index) =>
-      file(root, `src/case-${index}.spec.ts`, { heap: (index + 1) * 1_048_576, environment: 2_000 }),
+      file(root, `src/case-${index}.spec.ts`, { heap: (index + 1) * 1_048_576, environment: 2_000 + index }),
     );
     const findings = analysePerf(run(root, [...files, file(root, 'src/none.spec.ts', { heap: 1_048_576 })]), readProfile(root)).findings;
     const heap = findings.find((entry) => entry.check === 'perf-heap');

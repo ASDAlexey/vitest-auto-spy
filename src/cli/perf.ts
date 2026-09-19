@@ -119,6 +119,24 @@ function nodeCandidates(specs: readonly string[], measured: ReadonlyMap<string, 
     .sort((a, b) => b.ms - a.ms || a.spec.localeCompare(b.spec));
 }
 
+/**
+ * What moving these specs to `node` would actually free. An environment belongs to a worker, not to
+ * a file, so it is only saved when **every** file that worker ran is DOM-free; a single DOM-using
+ * file left behind rebuilds it and the move buys nothing. Files of one worker carry the identical
+ * `environment` value, which is what groups them here.
+ */
+function movableEnvironment(measured: ReadonlyMap<string, PerfFile>, domFree: ReadonlySet<string>): number {
+  const workers = new Map<number, { files: number; free: number }>();
+
+  for (const [spec, file] of measured) {
+    const worker = workers.get(file.environment) ?? { files: 0, free: 0 };
+
+    workers.set(file.environment, { files: worker.files + 1, free: worker.free + (domFree.has(spec) ? 1 : 0) });
+  }
+
+  return [...workers].reduce((total, [ms, worker]) => (worker.files === worker.free ? total + ms : total), 0);
+}
+
 function environmentFindings(
   phases: readonly Phase[],
   profile: Profile,
@@ -132,11 +150,15 @@ function environmentFindings(
   const domFree = findDomFreeSpecs(profile, graph);
   const undecided = domFree.undecided;
   const ranked = nodeCandidates(domFree.specs, measured);
-  const movable = ranked.reduce((sum, entry) => sum + entry.ms, 0);
+  const movable = movableEnvironment(measured, new Set(domFree.specs));
+  const saving =
+    movable === 0
+      ? 'none of them shares a worker only with other DOM-free files, so moving them alone frees no environment'
+      : `moving them frees ${formatMs(movable)}`;
   const summary =
     ranked.length === 0
       ? `No spec file could be proved DOM-free, so this names none; ${undecided} were left undecided.`
-      : `${ranked.length} spec files reach no DOM and spent ${formatMs(movable)} of it.${remainder(ranked.length)} ${undecided} more were left undecided.`;
+      : `${ranked.length} spec files reach no DOM, and ${saving}.${remainder(ranked.length)} ${undecided} more were left undecided.`;
 
   return [
     {
@@ -149,7 +171,7 @@ function environmentFindings(
       check: 'perf-environment-node-candidate',
       severity: 'info',
       file: entry.spec,
-      message: `Mentions no DOM name and imports no package off the DOM-free list; ${formatMs(entry.ms)} of this run went on building an environment for it.`,
+      message: `Mentions no DOM name and imports no package off the DOM-free list; the worker that ran it spent ${formatMs(entry.ms)} building the environment it shares with the rest of that worker's files.`,
       fix: 'Put `// @vitest-environment node` in a docblock at the top of the file, or group these specs into a project whose `environment` is `node`.',
     })),
   ];
@@ -333,7 +355,7 @@ export function analysePerf(run: PerfRun, profile: Profile, failOnFlaky = false)
 export function nothingToDo(analysis: PerfAnalysis): string {
   return analysis.total < QUIET_MS
     ? `Nothing here is worth your time — the whole run costs ${formatMs(analysis.total)} of CPU time.`
-    : `No phase is over ${formatShare(DOMINATES)} of the total and no rule found a file to name. Nothing here is worth your time.`;
+    : `No phase this command has advice for — environment, import, or the three isolation pays per file — is over ${formatShare(DOMINATES)} of the total, and no rule found a file to name. Nothing here is worth your time.`;
 }
 
 /** The phase table, largest share first — the answer to "where did the time go". */
