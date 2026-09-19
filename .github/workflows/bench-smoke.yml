@@ -22,10 +22,17 @@ on:
     branches: [master, main]
   pull_request:
 
+# A new commit supersedes the revision it replaced — cancel that run's smoke instead of queueing
+# behind it.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   smoke:
     name: Benchmark harness smoke
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: read
     steps:

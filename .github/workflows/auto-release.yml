@@ -92,6 +92,7 @@ jobs:
       && (github.event_name == 'workflow_dispatch'
       || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'))
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: read
       actions: read # read the CI run's conclusion for this sha
@@ -252,6 +253,7 @@ jobs:
     needs: build
     if: needs.build.outputs.bump != 'none'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: write # push the bump commit/tag and create the GitHub Release
       id-token: write # the OIDC token npm exchanges for a publish credential

@@ -19,6 +19,7 @@ jobs:
   test:
     name: Test (Node ${{ matrix.node }}, ${{ matrix.lane }})
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     # Per job rather than workflow-wide, so a job added later has to name what it needs. Every job
     # here only reads the repository.
     permissions:
@@ -37,11 +38,12 @@ jobs:
           node-version: ${{ matrix.node }}
           cache: npm
 
-      # The lockfile is generated with npm 11; pin it so `npm ci` interprets the dependency tree the
-      # same way. Only Node 22 bundles npm 10 — 24 and 26 ship 11, and reinstalling it cost 4-7 s a job.
+      # The lockfile is generated with npm 11; pin it — exact, and the same 11.19.1 as
+      # auto-release.yml — so `npm ci` interprets the dependency tree the same way everywhere.
+      # Only Node 22 bundles npm 10 — 24 and 26 ship 11, and reinstalling it cost 4-7 s a job.
       - name: Pin npm
         if: matrix.node == 22
-        run: npm i -g npm@11
+        run: npm i -g npm@11.19.1
 
       - run: npm ci --no-audit --no-fund
 
@@ -121,9 +123,25 @@ jobs:
         if: matrix.lane == 'coverage'
         run: npm run size:entries:check
 
+      # The README badge quotes the size of this same fresh dist. auto-release rewrites it at
+      # release time; this catches the drift between a code change and the release that follows it.
+      - name: Minzip badge is current
+        if: matrix.lane == 'coverage'
+        run: npm run size:badge:check
+
       - name: Module-graph baseline
         if: matrix.lane == 'coverage'
         run: npm run cold-import:check
+
+      # Only the coverage lane writes `coverage/`, and the HTML report in it is the fastest way to
+      # see the hole a red run reported — it dies with the runner unless it is uploaded.
+      - name: Upload coverage report
+        if: failure() && matrix.lane == 'coverage'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: coverage-node-${{ matrix.node }}
+          path: coverage/
+          retention-days: 7
 
   # Nothing below depends on which Node runs it — the same lint, the same formatter, the same
   # generated files, checked against the same lockfile. Running them once per Node major produced
@@ -135,6 +153,7 @@ jobs:
   static:
     name: Static checks (${{ matrix.half }})
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: read
     strategy:
@@ -237,6 +256,7 @@ jobs:
   bun:
     name: Test (Bun ${{ matrix.bun }})
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: read
     strategy:
@@ -278,7 +298,7 @@ jobs:
       # The published artifact, not the source: `bun-angular` is ESM-only and is loaded as a
       # preload, which is the one code path a source-only run never exercises.
       - name: Test (built bun-angular entry as preload)
-        run: bun test --preload ./dist/bun-angular.js ./src/bun-tests
+        run: npm run test:bun:preload
 
   # The Angular peer range is a claim, and until this job existed nothing checked it: the matrixes
   # above vary Node and Bun and install exactly one Angular. Both ways this package has broken a
@@ -292,6 +312,7 @@ jobs:
   angular-range:
     name: Angular ${{ matrix.angular }} (link + types)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: read
     strategy:
@@ -444,6 +465,7 @@ jobs:
   peer-floor:
     name: Peers (vitest ${{ matrix.vitest }}, rxjs ${{ matrix.rxjs }})
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: read
     strategy:

@@ -476,7 +476,7 @@ function main() {
       ...warning,
       ...head,
       ...groups.flatMap((group) => renderGroup(group, t, aligned, positionals.length)),
-      `${aligned ? '  ' : ''}${t.reproduce}: ${aligned ? '' : '`'}npm ci && npm ci --prefix bench && npm run bench:vs${aligned ? '' : '`'}`,
+      `${aligned ? '  ' : ''}${t.reproduce}: ${aligned ? '' : '`'}npm ci && npm ci --prefix bench && npm run bench:vs:precise${aligned ? '' : '`'}`,
       '',
     ].join('\n'),
   );

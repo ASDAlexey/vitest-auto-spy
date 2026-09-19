@@ -21,6 +21,7 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: read
       pages: read # `configure-pages` reads the site's settings; enabling it is the deploy job's business
@@ -38,6 +39,14 @@ jobs:
         with:
           bun-version: 1.4.0
 
+      # `setup-bun` caches only the Bun executable, not the packages `bun install` downloads — this
+      # is the docs tree's counterpart to the `cache: npm` every Node job in this fleet gets.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.bun/install/cache
+          key: bun-docs-site-${{ hashFiles('docs-site/bun.lock') }}
+          restore-keys: bun-docs-site-
+
       - name: Install dependencies
         run: bun install
 
@@ -53,6 +62,7 @@ jobs:
   deploy:
     needs: build
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       pages: write
       id-token: write
@@ -76,6 +86,7 @@ jobs:
   indexnow:
     needs: deploy
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: read
     continue-on-error: true

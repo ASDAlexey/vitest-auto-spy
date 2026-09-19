@@ -28,10 +28,17 @@ on:
       - 'package-lock.json'
       - '.github/workflows/bench.yml'
 
+# A superseded commit's measurement is noise: every trigger here serves the newest revision of the
+# branch, so cancel the run it replaced instead of queueing ten minutes behind it.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   head-to-head:
     name: Head-to-head vs other libraries
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     permissions:
       contents: read
     steps:
@@ -45,10 +52,11 @@ jobs:
             package-lock.json
             bench/package-lock.json
 
-      # The lockfile is generated with npm 11; pin it so `npm ci` interprets the dependency tree
-      # the same way and stays in sync.
+      # The lockfile is generated with npm 11; pin it — exact, and the same 11.19.1 as
+      # auto-release.yml — so `npm ci` interprets the dependency tree the same way and stays in
+      # sync.
       - name: Pin npm
-        run: npm i -g npm@11
+        run: npm i -g npm@11.19.1
 
       - run: npm ci
 
@@ -72,13 +80,16 @@ jobs:
 
       # One job, one machine, every arm back-to-back. Splitting the arms across matrix jobs would
       # compare two different runners and report the difference as a library difference.
-      # `bench:vs` writes bench-results.json and prints the rendered table itself, so this step is
-      # the measurement and the next one only re-renders it into the summary.
+      #
+      # `--precise` — seven whole passes at double iteration count — for the same reason the
+      # Angular arm below repeats five times: a single pass of the head-to-head flaps by 20-30 %,
+      # and this table is the published one. `bench:vs` prints the rendered table itself and
+      # leaves one results file per pass; the next step re-renders them merged into the summary.
       - name: Run benchmarks
-        run: npm run bench:vs
+        run: npm run bench:vs:precise
 
       - name: Publish table to the job summary
-        run: node scripts/bench-report.mjs bench-results.json >> "$GITHUB_STEP_SUMMARY"
+        run: node scripts/bench-report.mjs bench-results.*.json >> "$GITHUB_STEP_SUMMARY"
 
       # The table above gates nothing, and an absolute threshold on a shared runner cannot gate it:
       # p75 here swings tens of percent between runs of identical code. `bench:check` compares each
@@ -105,11 +116,11 @@ jobs:
       - name: Compare against the Angular baseline
         run: npm run bench:check -- bench-results.angular.json --baseline bench-angular/baseline.json >> "$GITHUB_STEP_SUMMARY"
 
+      # `always()`: a mid-run failure still leaves the passes that did complete, and those
+      # measurements are exactly the evidence the failure needs.
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
         with:
           name: bench-results
-          path: |
-            bench-results.json
-            bench-results.self.json
-            bench-results.angular.json
+          path: bench-results.*.json
           retention-days: 90

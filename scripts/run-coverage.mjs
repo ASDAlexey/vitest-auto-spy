@@ -125,12 +125,19 @@ function explain(result) {
     report.push('', `${files.passed} of ${files.total} test files passed.`);
   }
 
-  report.push(
-    '',
-    allSpecsPassed
-      ? 'Every spec passed, so the rows above are uncovered code: cover them.'
-      : 'A test failed, so read the run above — the coverage numbers are a consequence.',
-  );
+  if (allSpecsPassed) {
+    report.push('', 'Every spec passed, so the rows above are uncovered code: cover them.');
+  } else if (files !== null) {
+    report.push('', 'A test failed, so read the run above — the coverage numbers are a consequence.');
+  } else {
+    // Vitest reshaped its summary line and every pattern above missed it; the fallback verdict
+    // would blame a test failure that may not have happened.
+    report.push('', 'The vitest summary line could not be parsed — no verdict on the specs, read the run above.');
+    annotate(
+      'Coverage summary unreadable',
+      'The `Test Files  N passed (M)` line was not found in the vitest output, so the spec verdict was skipped rather than guessed.',
+    );
+  }
 
   report.push('─'.repeat(78), '');
   process.stdout.write(report.join('\n'));

@@ -39,6 +39,7 @@ concurrency:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     # On the job, not the workflow: there is one job here today, and a second one added later must
     # ask for the publishing credential rather than inherit it.
     permissions:
