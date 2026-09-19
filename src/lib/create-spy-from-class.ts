@@ -461,6 +461,29 @@ const lazyGuards = new WeakMap<object, UnstubbedGuard>();
  */
 const lazyAccessors = new Map<PropertyKey, PropertyDescriptor>();
 
+// Vitest's spyOn calls an accessor's getter with no receiver; the forwarder it gets instead reaches
+// the double's own spy through the call's `this`, and mockRestore() brings that same spy back.
+function forwarderFor(methodName: PropertyKey): Func {
+  return function (this: object | undefined, ...args: unknown[]): unknown {
+    if (this === undefined) {
+      throw new TypeError(
+        withDocs(
+          `[vitest-auto-spy] '${String(methodName)}' was called off its double after vi.spyOn; configure the method directly.`,
+          DOCS_LINKS.createSpyFromClass,
+        ),
+      );
+    }
+
+    const members = membersOfSealedDouble(this);
+    const kept = members.get(methodName);
+    const spy: Func = isCallable(kept) ? kept : createFunctionSpy(String(methodName), lazyGuards.get(this));
+
+    members.set(methodName, spy);
+
+    return Reflect.apply(spy, this, args);
+  };
+}
+
 function lazyAccessorFor(methodName: PropertyKey): PropertyDescriptor {
   let accessor = lazyAccessors.get(methodName);
 
@@ -468,11 +491,18 @@ function lazyAccessorFor(methodName: PropertyKey): PropertyDescriptor {
     accessor = {
       configurable: true,
       enumerable: true,
-      get(this: object): unknown {
-        const sealed = Object.isExtensible(this) ? undefined : membersOfSealedDouble(this);
+      get(this: object | undefined): unknown {
+        if (this === undefined) {
+          return forwarderFor(methodName);
+        }
 
-        if (sealed?.has(methodName)) {
-          return sealed.get(methodName);
+        const kept = sealedDoubleMembers.get(this);
+
+        if (kept?.has(methodName)) {
+          const member = kept.get(methodName);
+          materializeMethodSpy(this, methodName, member);
+
+          return member;
         }
 
         const spy = createFunctionSpy(String(methodName), lazyGuards.get(this));

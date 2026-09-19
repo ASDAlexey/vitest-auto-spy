@@ -363,6 +363,58 @@ describe('createSpyFromClass — lazy placeholders', () => {
   });
 });
 
+describe('createSpyFromClass — vi.spyOn on a method nobody has read yet', () => {
+  it('wraps it instead of throwing "Invalid value used as weak map key"', () => {
+    const cart = createSpyFromClass(Cart);
+
+    const total = vi.spyOn(cart, 'total').mockReturnValue(3);
+
+    expect(cart.total()).toBe(3);
+    expect(total).toHaveBeenCalledTimes(1);
+  });
+
+  it("forwards an unconfigured call to the double's own spy, strict guard included", () => {
+    takeStrictViolations();
+    const cart = createSpyFromClass(Cart, { strict: true });
+    const checkout = vi.spyOn(cart, 'checkout');
+
+    expect(() => cart.checkout(1, 'now')).toThrow('Nothing configured Cart.checkout');
+    expect(takeStrictViolations()).toHaveLength(1);
+
+    checkout.mockRestore();
+
+    expect(cart.checkout).toHaveBeenCalledWith(1, 'now');
+    cart.checkout.calledWith(2, 'later').mockReturnValue('queued');
+    expect(cart.checkout(2, 'later')).toBe('queued');
+  });
+
+  it('keeps one spy per double and per method behind the wrappers', () => {
+    const first = createSpyFromClass(Cart);
+    const second = createSpyFromClass(Cart);
+
+    vi.spyOn(first, 'total');
+    vi.spyOn(first, 'load');
+    vi.spyOn(second, 'total');
+
+    first.total();
+    first.total();
+    second.total();
+    vi.restoreAllMocks();
+
+    expect(first.total).toHaveBeenCalledTimes(2);
+    expect(second.total).toHaveBeenCalledTimes(1);
+    expect(first.load).not.toHaveBeenCalled();
+  });
+
+  it('names the problem when the wrapped method is called without its double', () => {
+    const cart = createSpyFromClass(Cart);
+    vi.spyOn(cart, 'total');
+    const detached = cart.total;
+
+    expect(() => Reflect.apply(detached, undefined, [])).toThrow("'total' was called off its double");
+  });
+});
+
 describe('createSpyFromClass — prototypes the chain used to stop short of', () => {
   class NullRooted {}
   Object.setPrototypeOf(NullRooted.prototype, null);
