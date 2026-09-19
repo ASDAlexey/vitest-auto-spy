@@ -21,6 +21,8 @@ import { createTempRepo, removeTempRepos } from './temp-repo';
 
 beforeEach(() => {
   vi.stubEnv('NO_COLOR', '1');
+  vi.stubEnv(PERF_OUTPUT_ENV, undefined);
+  vi.stubEnv(PERF_PROFILE_ENV, undefined);
 });
 
 afterEach(() => {

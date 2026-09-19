@@ -12,7 +12,7 @@
  * and the rendering that crosses them.
  */
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { findBarrelImports, isBarrel, reachOf } from './checks/barrels';
 import { DOM_FREE_RULE, findDomFreeSpecs, packageOf, readAliases } from './checks/dom-free';
@@ -23,6 +23,7 @@ import { analysePerf, declaresNoIsolation, formatPhases, nothingToDo, renderPerf
 import type { PerfFile, PerfRun } from './perf-data';
 import {
   PERF_OUTPUT_ENV,
+  PERF_PROFILE_ENV,
   PERF_REPORTER_ENV,
   environmentOf,
   formatMs,
@@ -39,7 +40,15 @@ import { commandTakesPaths, perfRemeasure, readPerfRun, reporterPath, shellQuote
 import { readProfile } from './profile';
 import { createTempRepo, removeTempRepos } from './temp-repo';
 
+// Under `vitest-auto-spy perf` these are set for the whole suite, and readPerfRun reads them.
+beforeEach(() => {
+  vi.stubEnv(PERF_OUTPUT_ENV, undefined);
+  vi.stubEnv(PERF_PROFILE_ENV, undefined);
+  vi.stubEnv(PERF_REPORTER_ENV, undefined);
+});
+
 afterEach(() => {
+  vi.unstubAllEnvs();
   removeTempRepos();
 });
 
