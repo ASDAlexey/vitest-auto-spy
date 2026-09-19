@@ -390,6 +390,10 @@ jobs:
     if: >-
       always()
       && inputs.alias_ref != ''
+    # The ceiling for the called workflow: without it GitHub rejects this whole file at startup.
+    permissions:
+      contents: read
+      id-token: write
     uses: ./.github/workflows/publish-alias.yml
     with:
       ref: ${{ inputs.alias_ref || needs.build.outputs.version }}
