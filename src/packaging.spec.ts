@@ -62,6 +62,20 @@ describe('the published manifest', () => {
     expect(manifest.peerDependenciesMeta['vitest']?.optional).toBe(true);
   });
 
+  // 5.9.0–5.18.0 declared @angular/forms >=22, and npm refuses the install on every Angular 20/21 app.
+  it('declares every Angular peer from the floor the CI Angular matrix installs', () => {
+    const job = workflows.get('ci.yml')?.jobs?.['angular-range'] as WorkflowJob & {
+      strategy: { matrix: { angular: string[] } };
+    };
+    const floor = Math.min(...job.strategy.matrix.angular.map(Number));
+    const angular = Object.entries(manifest.peerDependencies).filter(([name]) => name.startsWith('@angular/'));
+
+    expect(angular.length).toBeGreaterThan(0);
+    for (const [name, range] of angular) {
+      expect({ name, range }).toEqual({ name, range: `>=${floor}.0.0` });
+    }
+  });
+
   it('names the emitted chunks in sideEffects, whatever their content hash', () => {
     const matches = (file: string): boolean =>
       manifest.sideEffects.some((pattern) => {
