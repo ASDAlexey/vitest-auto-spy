@@ -202,6 +202,11 @@ registration. That is the conservative half of the design: walking the prototype
 registration on a widely-extended base change the composition of doubles in files nobody was looking
 at, which is the failure this removes rather than relocates.
 
+**`createSpyFromInstance` reads it too**, keyed by the class the object's `constructor` names and
+merged the same way. A bare object literal and a `Object.create(null)` dictionary resolve no
+registration — their constructor is `Object` or nothing, and nobody means a per-class configuration
+for those.
+
 **A second registration for the same class replaces the first.** Two registrations for one class in
 one suite is the drift this exists to remove, and quietly combining them would hide it.
 
