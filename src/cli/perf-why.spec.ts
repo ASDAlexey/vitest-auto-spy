@@ -8,10 +8,9 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { writeTextFile } from './fs-scan';
-import type { CliIo } from './main';
 import { renderPerf } from './perf';
-import type { PerfFile, PerfRun } from './perf-data';
 import { PERF_OUTPUT_ENV, PERF_PROFILE_ENV } from './perf-data';
+import { file, ordinary, recorder, run } from './perf-fixtures';
 import { GATE_DEFAULTS } from './perf-gate';
 import type { CpuProfile } from './perf-profile';
 import type { PerfRunOptions, PerfSource, Spawn } from './perf-run';
@@ -28,26 +27,6 @@ afterEach(() => {
   vi.unstubAllEnvs();
   removeTempRepos();
 });
-
-const file = (path: string, over: Partial<PerfFile> = {}): PerfFile => ({
-  file: path,
-  environment: 0,
-  prepare: 0,
-  setup: 0,
-  imports: 0,
-  tests: 0,
-  testCount: 1,
-  cases: [],
-  ...over,
-});
-
-const run = (root: string, files: readonly PerfFile[]): PerfRun => ({ version: 2, root, transform: 0, wall: 1_000, failed: 0, files });
-
-function recorder(): CliIo & { readonly stdout: string[] } {
-  const stdout: string[] = [];
-
-  return { stdout, out: (line) => stdout.push(line), err: () => undefined };
-}
 
 /** Two samples of 3 ms: one inside a hook through `setUp` in the spec, one in a package. */
 const profileOf = (specPath: string): CpuProfile => ({
@@ -78,7 +57,7 @@ describe('perfRemeasure, the profile half', () => {
     const spawn: Spawn = (request) => {
       handed = request.env[PERF_PROFILE_ENV] ?? '';
       writeTextFile(join(handed, '1.json'), JSON.stringify({ file: specPath, profile: profileOf(specPath) }));
-      writeTextFile(request.env[PERF_OUTPUT_ENV] ?? '', JSON.stringify(run(root, [file(specPath, { tests: 1 })])));
+      writeTextFile(request.env[PERF_OUTPUT_ENV] ?? '', JSON.stringify(run({ root, files: [file(specPath, { tests: 1 })] })));
 
       return { status: 0 };
     };
@@ -90,33 +69,33 @@ describe('perfRemeasure, the profile half', () => {
 });
 
 describe('renderPerf --gate, why a confirmed file is slow', () => {
-  const ordinary = (root: string): PerfFile[] =>
-    Array.from({ length: 9 }, (_unused, index) => file(join(root, `src/ordinary-${index}.spec.ts`), { tests: 100, testCount: 40 }));
-
   it('prints the slowest tests and where the profile says the time went, between the message and the fix', () => {
     const root = createTempRepo({ 'package.json': '{}', 'src/slow.spec.ts': 'test("x", () => {});\n' });
     const specPath = join(root, 'src/slow.spec.ts');
     const source: PerfSource = {
       ok: true,
-      run: run(root, [...ordinary(root), file(specPath, { tests: 9_000, testCount: 30 })]),
+      run: run({ root, files: [...ordinary(root), file(specPath, { tests: 9_000, testCount: 30 })] }),
       runFailed: false,
     };
     const remeasure = (): PerfSource => ({
       ok: true,
       runFailed: false,
-      run: run(root, [
-        file(specPath, {
-          tests: 8_000,
-          testCount: 30,
-          cases: [
-            { name: 'renders', ms: 40 },
-            { name: 'opens the menu', ms: 90 },
-            { name: 'closes it', ms: 60 },
-            { name: 'focuses', ms: 10 },
-            { name: 'blurs', ms: 10 },
-          ],
-        }),
-      ]),
+      run: run({
+        root,
+        files: [
+          file(specPath, {
+            tests: 8_000,
+            testCount: 30,
+            cases: [
+              { name: 'renders', ms: 40 },
+              { name: 'opens the menu', ms: 90 },
+              { name: 'closes it', ms: 60 },
+              { name: 'focuses', ms: 10 },
+              { name: 'blurs', ms: 10 },
+            ],
+          }),
+        ],
+      }),
       profiles: new Map([[specPath, profileOf(specPath)]]),
     });
     const io = recorder();
@@ -144,20 +123,22 @@ describe('renderPerf --gate, why a confirmed file is slow', () => {
     const luckyPath = join(root, 'src/lucky.spec.ts');
     const source: PerfSource = {
       ok: true,
-      run: run(root, [
-        ...ordinary(root),
-        file(slowPath, { tests: 9_000, testCount: 30 }),
-        file(luckyPath, { tests: 9_000, testCount: 30 }),
-      ]),
+      run: run({
+        root,
+        files: [...ordinary(root), file(slowPath, { tests: 9_000, testCount: 30 }), file(luckyPath, { tests: 9_000, testCount: 30 })],
+      }),
       runFailed: false,
     };
     const remeasure = (): PerfSource => ({
       ok: true,
       runFailed: false,
-      run: run(root, [
-        file(slowPath, { tests: 8_000, testCount: 30, cases: [{ name: 'waits', ms: 70 }] }),
-        file(luckyPath, { tests: 400, testCount: 30, cases: [{ name: 'fine', ms: 20 }] }),
-      ]),
+      run: run({
+        root,
+        files: [
+          file(slowPath, { tests: 8_000, testCount: 30, cases: [{ name: 'waits', ms: 70 }] }),
+          file(luckyPath, { tests: 400, testCount: 30, cases: [{ name: 'fine', ms: 20 }] }),
+        ],
+      }),
     });
     const io = recorder();
 
@@ -176,22 +157,25 @@ describe('renderPerf --gate, why a confirmed file is slow', () => {
     const slowPath = join(root, 'src/slow.spec.ts');
     const source: PerfSource = {
       ok: true,
-      run: run(root, [...ordinary(root), file(slowPath, { tests: 9_000, testCount: 30 })]),
+      run: run({ root, files: [...ordinary(root), file(slowPath, { tests: 9_000, testCount: 30 })] }),
       runFailed: false,
     };
     const remeasure = (): PerfSource => ({
       ok: true,
       runFailed: false,
-      run: run(root, [
-        file(slowPath, {
-          tests: 8_000,
-          testCount: 30,
-          slowImports: [
-            { module: join(root, 'node_modules/@angular/material/fesm2022/table.mjs'), ms: 1_240 },
-            { module: join(root, 'src/player/player.component.ts'), ms: 310 },
-          ],
-        }),
-      ]),
+      run: run({
+        root,
+        files: [
+          file(slowPath, {
+            tests: 8_000,
+            testCount: 30,
+            slowImports: [
+              { module: join(root, 'node_modules/@angular/material/fesm2022/table.mjs'), ms: 1_240 },
+              { module: join(root, 'src/player/player.component.ts'), ms: 310 },
+            ],
+          }),
+        ],
+      }),
     });
     const io = recorder();
 
@@ -207,10 +191,14 @@ describe('renderPerf --gate, why a confirmed file is slow', () => {
     const slowPath = join(root, 'src/slow.spec.ts');
     const source: PerfSource = {
       ok: true,
-      run: run(root, [...ordinary(root), file(slowPath, { tests: 9_000, testCount: 30 })]),
+      run: run({ root, files: [...ordinary(root), file(slowPath, { tests: 9_000, testCount: 30 })] }),
       runFailed: false,
     };
-    const remeasure = (): PerfSource => ({ ok: true, runFailed: false, run: run(root, [file(slowPath, { tests: 8_000, testCount: 30 })]) });
+    const remeasure = (): PerfSource => ({
+      ok: true,
+      runFailed: false,
+      run: run({ root, files: [file(slowPath, { tests: 8_000, testCount: 30 })] }),
+    });
     const io = recorder();
 
     expect(renderPerf(source, readProfile(root), io, { gate: { options: GATE_DEFAULTS, remeasure, trustSingle: false } })).toBe(1);

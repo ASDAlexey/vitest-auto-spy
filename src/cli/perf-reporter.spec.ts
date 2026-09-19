@@ -8,14 +8,18 @@
  * every body is recorded, since a pass of a few suspect files is exactly where the fast ones are the
  * evidence.
  */
+import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { PERF_PROFILE_ENV } from './perf-data';
+import { readTextFile } from './fs-scan';
+import { PERF_OUTPUT_ENV, PERF_PROFILE_ENV, parsePerfRun } from './perf-data';
 import type { PerfProject, PerfTestModule } from './perf-reporter';
 import PerfReporter from './perf-reporter';
+import { createTempRepo, removeTempRepos } from './temp-repo';
 
 afterEach(() => {
   vi.unstubAllEnvs();
+  removeTempRepos();
 });
 
 const project = (limit?: number): PerfProject => ({
@@ -26,6 +30,11 @@ const moduleWith = (durations: readonly number[]): PerfTestModule => ({
   moduleId: '/repo/a.spec.ts',
   diagnostic: () => ({ environmentSetupDuration: 0, prepareDuration: 0, collectDuration: 0, setupDuration: 0, duration: 100 }),
   children: { allTests: () => durations.map((duration, index) => ({ fullName: `case ${index}`, diagnostic: () => ({ duration }) })) },
+});
+
+const module = (moduleId: string): PerfTestModule => ({
+  moduleId,
+  diagnostic: () => ({ environmentSetupDuration: 1, prepareDuration: 2, collectDuration: 3, setupDuration: 4, duration: 5 }),
 });
 
 describe('PerfReporter, a profiled pass', () => {
@@ -112,5 +121,118 @@ describe('PerfReporter, an ordinary run', () => {
     vi.stubEnv(PERF_PROFILE_ENV, undefined);
 
     expect(new PerfReporter().report([moduleWith([12, 150])]).files[0]?.cases).toEqual([{ name: 'case 1', ms: 150 }]);
+  });
+});
+
+describe('PerfReporter', () => {
+  it('maps every diagnostic Vitest exposes onto the report', () => {
+    const reporter = new PerfReporter();
+
+    reporter.onInit({ config: { root: '/repo' }, state: { transformTime: 77 } });
+
+    const report = reporter.report([module('/repo/a.spec.ts')]);
+
+    expect(report.root).toBe('/repo');
+    expect(report.transform).toBe(77);
+    expect(report.files).toEqual([
+      { file: '/repo/a.spec.ts', environment: 1, prepare: 2, setup: 4, imports: 3, tests: 5, testCount: 0, cases: [] },
+    ]);
+  });
+
+  it('counts the bodies that finished and keeps the slowest few of them by name', () => {
+    const bodies = [
+      { fullName: 'suite > slow', diagnostic: () => ({ duration: 2_000 }) },
+      { fullName: 'suite > quick', diagnostic: () => ({ duration: 4 }) },
+      { name: 'unnamed parent', diagnostic: () => ({ duration: 900 }) },
+      { fullName: 'suite > skipped', diagnostic: () => undefined },
+      { fullName: 'suite > never ran' },
+    ];
+    const report = new PerfReporter().report([{ ...module('/repo/a.spec.ts'), children: { allTests: () => bodies } }]);
+
+    expect(report.files[0]?.testCount).toBe(3);
+    expect(report.files[0]?.cases).toEqual([
+      { name: 'suite > slow', ms: 2_000 },
+      { name: 'unnamed parent', ms: 900 },
+    ]);
+  });
+
+  it('names a body Vitest gave no name at all, and keeps at most five per file', () => {
+    const bodies = Array.from({ length: 7 }, (_, index) => ({
+      fullName: `case ${index}`,
+      diagnostic: () => ({ duration: 1_000 + index }),
+    }));
+    const report = new PerfReporter().report([{ ...module('/repo/a.spec.ts'), children: { allTests: () => bodies } }]);
+
+    expect(report.files[0]?.cases).toHaveLength(5);
+    expect(report.files[0]?.cases[0]).toEqual({ name: 'case 6', ms: 1_006 });
+  });
+
+  it('keeps one body per name, the slowest, because a name is not unique', () => {
+    const bodies = [
+      { fullName: 'suite > renders', diagnostic: () => ({ duration: 400 }) },
+      { fullName: 'suite > renders', diagnostic: () => ({ duration: 1_200 }) },
+      { fullName: 'suite > renders', diagnostic: () => ({ duration: 700 }) },
+    ];
+    const report = new PerfReporter().report([{ ...module('/repo/a.spec.ts'), children: { allTests: () => bodies } }]);
+
+    expect(report.files[0]?.testCount).toBe(3);
+    expect(report.files[0]?.cases).toEqual([{ name: 'suite > renders', ms: 1_200 }]);
+  });
+
+  it('falls back to a name of its own for a body Vitest named nothing', () => {
+    const report = new PerfReporter().report([
+      { ...module('/r/b.spec.ts'), children: { allTests: () => [{ diagnostic: () => ({ duration: 900 }) }] } },
+    ]);
+
+    expect(report.files[0]?.cases[0]?.name).toBe('(unnamed test)');
+  });
+  it('still reports when it was never initialised', () => {
+    const report = new PerfReporter().report([]);
+
+    expect(report.root).toBe('');
+    expect(report.transform).toBe(0);
+  });
+
+  it('writes the report to the file the environment names', () => {
+    const root = createTempRepo({ 'package.json': '{}' });
+    const target = join(root, 'out', 'perf.json');
+    const reporter = new PerfReporter();
+
+    process.env[PERF_OUTPUT_ENV] = target;
+
+    try {
+      reporter.onInit({ config: { root }, state: { transformTime: 1 } });
+      reporter.onTestRunEnd([module(join(root, 'a.spec.ts'))]);
+    } finally {
+      delete process.env[PERF_OUTPUT_ENV];
+    }
+
+    expect(parsePerfRun(readTextFile(target) ?? '')?.files).toHaveLength(1);
+  });
+
+  it('writes nothing, and says nothing, when no report was asked for', () => {
+    const reporter = new PerfReporter();
+
+    delete process.env[PERF_OUTPUT_ENV];
+
+    expect(() => reporter.onTestRunEnd([])).not.toThrow();
+  });
+});
+
+describe('PerfReporter, ordering', () => {
+  it('breaks a tie between two equally slow bodies by name, so the report is stable', () => {
+    const bodies = [
+      { fullName: 'b', diagnostic: () => ({ duration: 500 }) },
+      { fullName: 'a', diagnostic: () => ({ duration: 500 }) },
+    ];
+    const report = new PerfReporter().report([
+      {
+        moduleId: '/repo/a.spec.ts',
+        diagnostic: () => ({ environmentSetupDuration: 0, prepareDuration: 0, collectDuration: 0, setupDuration: 0, duration: 1_000 }),
+        children: { allTests: () => bodies },
+      },
+    ]);
+
+    expect(report.files[0]?.cases.map((entry) => entry.name)).toEqual(['a', 'b']);
   });
 });

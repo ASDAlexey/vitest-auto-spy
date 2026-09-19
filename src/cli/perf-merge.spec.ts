@@ -10,8 +10,9 @@
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import type { PerfFile, PerfRun } from './perf-data';
+import type { PerfRun } from './perf-data';
 import { PERF_FORMAT_VERSION } from './perf-data';
+import { file, run } from './perf-fixtures';
 import type { MergeInput } from './perf-merge';
 import { describeMerge, mergeRuns, readRuns, resolveReportPaths } from './perf-merge';
 import { createTempRepo, removeTempRepos } from './temp-repo';
@@ -19,20 +20,6 @@ import { createTempRepo, removeTempRepos } from './temp-repo';
 afterEach(() => {
   removeTempRepos();
 });
-
-const file = (path: string, over: Partial<PerfFile> = {}): PerfFile => ({
-  file: path,
-  environment: 0,
-  prepare: 0,
-  setup: 0,
-  imports: 0,
-  tests: 0,
-  testCount: 1,
-  cases: [],
-  ...over,
-});
-
-const run = (over: Partial<PerfRun> = {}): PerfRun => ({ version: 2, root: '/repo', transform: 0, wall: 0, failed: 0, files: [], ...over });
 
 const input = (path: string, over: Partial<PerfRun> = {}): MergeInput => ({ path, run: run(over) });
 

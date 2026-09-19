@@ -7,10 +7,15 @@
  * same verdict — and **silence must be the default in every case where the evidence is missing**: a
  * file that ran nothing, a file the baseline never saw, a file the baseline has that this shard did
  * not run. Every test below is one of those two, or the arithmetic they rest on.
+ *
+ * The `renderPerf --baseline` sections at the end are the same ratchet end to end — the flag, the
+ * exit code and the lines a CI job reads.
  */
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
+import { pathExists } from './fs-scan';
+import { renderPerf } from './perf';
 import {
   BASELINE_DEFAULTS,
   PERF_BASELINE_VERSION,
@@ -24,6 +29,10 @@ import {
   writeBaseline,
 } from './perf-baseline';
 import type { PerfFile, PerfRun } from './perf-data';
+import { cleanRepo, file, ordinary, recorder, run } from './perf-fixtures';
+import { GATE_DEFAULTS } from './perf-gate';
+import type { PerfSource } from './perf-run';
+import { readProfile } from './profile';
 import { createTempRepo, removeTempRepos } from './temp-repo';
 
 afterEach(() => {
@@ -31,23 +40,6 @@ afterEach(() => {
 });
 
 const ROOT = '/repo';
-
-const file = (path: string, over: Partial<PerfFile> = {}): PerfFile => ({
-  file: join(ROOT, path),
-  environment: 0,
-  prepare: 0,
-  setup: 0,
-  imports: 0,
-  tests: 0,
-  testCount: 4,
-  cases: [],
-  ...over,
-});
-
-const run = (files: readonly PerfFile[]): PerfRun => ({ version: 2, root: ROOT, transform: 0, wall: 1_000, failed: 0, files });
-
-/** Nine files at 100 ms, so the median of anything they are mixed into is 100. */
-const ordinary = (): PerfFile[] => Array.from({ length: 9 }, (_unused, index) => file(`src/ordinary-${index}.spec.ts`, { tests: 100 }));
 
 const baselineOf = (files: Readonly<Record<string, number>>, median = 100): PerfBaseline => ({
   version: PERF_BASELINE_VERSION,
@@ -59,7 +51,7 @@ const paths = (regressions: readonly { file: string }[]): string[] => regression
 
 describe('buildBaseline', () => {
   it('records each file as a multiple of the median of its own run, not as milliseconds', () => {
-    const baseline = buildBaseline(run([...ordinary(), file('src/slow.spec.ts', { tests: 300 })]), ROOT);
+    const baseline = buildBaseline(run({ files: [...ordinary(ROOT), file(join(ROOT, 'src/slow.spec.ts'), { tests: 300 })] }), ROOT);
 
     expect(baseline.median).toBe(100);
     expect(baseline.files['src/slow.spec.ts']).toBe(3);
@@ -68,15 +60,21 @@ describe('buildBaseline', () => {
   });
 
   it('is unmoved by a machine that runs the whole suite five times slower', () => {
-    const laptop = [...ordinary(), file('src/slow.spec.ts', { tests: 300 })];
+    const laptop = [...ordinary(ROOT), file(join(ROOT, 'src/slow.spec.ts'), { tests: 300 })];
     const runner = laptop.map((entry) => ({ ...entry, tests: entry.tests * 5 }));
 
-    expect(buildBaseline(run(runner), ROOT).files).toEqual(buildBaseline(run(laptop), ROOT).files);
+    expect(buildBaseline(run({ files: runner }), ROOT).files).toEqual(buildBaseline(run({ files: laptop }), ROOT).files);
   });
 
   it('keeps a ratio to three decimals, so the committed file does not churn on noise', () => {
     const baseline = buildBaseline(
-      run([file('a.spec.ts', { tests: 1 }), file('b.spec.ts', { tests: 3 }), file('c.spec.ts', { tests: 3 })]),
+      run({
+        files: [
+          file(join(ROOT, 'a.spec.ts'), { tests: 1 }),
+          file(join(ROOT, 'b.spec.ts'), { tests: 3 }),
+          file(join(ROOT, 'c.spec.ts'), { tests: 3 }),
+        ],
+      }),
       ROOT,
     );
 
@@ -84,22 +82,28 @@ describe('buildBaseline', () => {
   });
 
   it('does not record a file that ran no test body: zero is not evidence that it is fast', () => {
-    const baseline = buildBaseline(run([...ordinary(), file('src/skipped.spec.ts', { tests: 0, testCount: 0 })]), ROOT);
+    const baseline = buildBaseline(
+      run({ files: [...ordinary(ROOT), file(join(ROOT, 'src/skipped.spec.ts'), { tests: 0, testCount: 0 })] }),
+      ROOT,
+    );
 
     expect(Object.keys(baseline.files)).not.toContain('src/skipped.spec.ts');
   });
 
   it('records a file a version 1 report gave no test count for, because its time says it ran', () => {
-    const baseline = buildBaseline(run([...ordinary(), file('src/counted.spec.ts', { tests: 900, testCount: 0 })]), ROOT);
+    const baseline = buildBaseline(
+      run({ files: [...ordinary(ROOT), file(join(ROOT, 'src/counted.spec.ts'), { tests: 900, testCount: 0 })] }),
+      ROOT,
+    );
 
     expect(baseline.files['src/counted.spec.ts']).toBe(9);
   });
 
   it('records nothing when the run has no median to divide by, rather than a file full of Infinity', () => {
-    const empty = buildBaseline(run([file('a.spec.ts'), file('b.spec.ts')]), ROOT);
+    const empty = buildBaseline(run({ files: [file(join(ROOT, 'a.spec.ts')), file(join(ROOT, 'b.spec.ts'))] }), ROOT);
 
     expect(empty).toEqual({ version: PERF_BASELINE_VERSION, median: 0, files: {} });
-    expect(buildBaseline(run([]), ROOT).files).toEqual({});
+    expect(buildBaseline(run({ files: [] }), ROOT).files).toEqual({});
   });
 });
 
@@ -190,7 +194,7 @@ describe('baselineRegressions', () => {
   });
 
   it('reports a file whose ratio to the median grew by the factor and is over the floor', () => {
-    const measured = run([...ordinary(), file('src/slow.spec.ts', { tests: 900 })]);
+    const measured = run({ files: [...ordinary(ROOT), file(join(ROOT, 'src/slow.spec.ts'), { tests: 900 })] });
     const [regression, ...rest] = baselineRegressions(measured, ROOT, baselineOf({ 'src/slow.spec.ts': 3 }), BASELINE_DEFAULTS);
 
     expect(rest).toEqual([]);
@@ -198,59 +202,65 @@ describe('baselineRegressions', () => {
   });
 
   it('reports nothing when the ratio grew but the file is under the floor', () => {
-    const measured = run([...ordinary(), file('src/quick.spec.ts', { tests: 400 })]);
+    const measured = run({ files: [...ordinary(ROOT), file(join(ROOT, 'src/quick.spec.ts'), { tests: 400 })] });
 
     expect(baselineRegressions(measured, ROOT, baselineOf({ 'src/quick.spec.ts': 0.5 }), BASELINE_DEFAULTS)).toEqual([]);
   });
 
   it('reports nothing when the file is over the floor but its ratio did not grow', () => {
-    const measured = run([...ordinary(), file('src/slow.spec.ts', { tests: 900 })]);
+    const measured = run({ files: [...ordinary(ROOT), file(join(ROOT, 'src/slow.spec.ts'), { tests: 900 })] });
 
     expect(baselineRegressions(measured, ROOT, baselineOf({ 'src/slow.spec.ts': 9 }), BASELINE_DEFAULTS)).toEqual([]);
   });
 
   it('reports nothing for a file the baseline does not know: it is new, not slower', () => {
-    const measured = run([...ordinary(), file('src/new.spec.ts', { tests: 900 })]);
+    const measured = run({ files: [...ordinary(ROOT), file(join(ROOT, 'src/new.spec.ts'), { tests: 900 })] });
 
     expect(baselineRegressions(measured, ROOT, baselineOf({ 'src/other.spec.ts': 1 }), BASELINE_DEFAULTS)).toEqual([]);
   });
 
   it('never compares against a recorded ratio of 0, which would make every measurement infinite', () => {
-    const measured = run([...ordinary(), file('src/slow.spec.ts', { tests: 900 })]);
+    const measured = run({ files: [...ordinary(ROOT), file(join(ROOT, 'src/slow.spec.ts'), { tests: 900 })] });
 
     expect(baselineRegressions(measured, ROOT, baselineOf({ 'src/slow.spec.ts': 0 }), BASELINE_DEFAULTS)).toEqual([]);
   });
 
   it('reports nothing about a file that ran no test body, whatever the thresholds are', () => {
-    const measured = run([...ordinary(), file('src/skipped.spec.ts', { tests: 0, testCount: 0 })]);
+    const measured = run({ files: [...ordinary(ROOT), file(join(ROOT, 'src/skipped.spec.ts'), { tests: 0, testCount: 0 })] });
 
     expect(baselineRegressions(measured, ROOT, baselineOf({ 'src/skipped.spec.ts': 3 }), { factor: 0, floorMs: 0 })).toEqual([]);
   });
 
   it('compares nothing when this run has no median: a missing denominator is not a regression', () => {
-    const measured = run([file('src/a.spec.ts'), file('src/b.spec.ts')]);
+    const measured = run({ files: [file(join(ROOT, 'src/a.spec.ts')), file(join(ROOT, 'src/b.spec.ts'))] });
 
     expect(baselineRegressions(measured, ROOT, baselineOf({ 'src/a.spec.ts': 3 }), { factor: 1, floorMs: 0 })).toEqual([]);
   });
 
   it('reaches the same verdict on a runner where every file takes five times as long', () => {
-    const laptop = [...ordinary(), file('src/slow.spec.ts', { tests: 900 })];
+    const laptop = [...ordinary(ROOT), file(join(ROOT, 'src/slow.spec.ts'), { tests: 900 })];
     const runner = laptop.map((entry) => ({ ...entry, tests: entry.tests * 5 }));
     const baseline = baselineOf({ 'src/slow.spec.ts': 3 });
     const verdict = (files: readonly PerfFile[]): unknown =>
-      baselineRegressions(run(files), ROOT, baseline, BASELINE_DEFAULTS).map(({ file: path, ratio, grewBy }) => ({ path, ratio, grewBy }));
+      baselineRegressions(run({ files }), ROOT, baseline, BASELINE_DEFAULTS).map(({ file: path, ratio, grewBy }) => ({
+        path,
+        ratio,
+        grewBy,
+      }));
 
     expect(verdict(runner)).toEqual([{ path: 'src/slow.spec.ts', ratio: 9, grewBy: 3 }]);
     expect(verdict(laptop)).toEqual(verdict(runner));
   });
 
   it('sorts by how much the file grew, and by path when two grew the same', () => {
-    const measured = run([
-      ...ordinary(),
-      file('src/b.spec.ts', { tests: 900 }),
-      file('src/a.spec.ts', { tests: 900 }),
-      file('src/worst.spec.ts', { tests: 1_500 }),
-    ]);
+    const measured = run({
+      files: [
+        ...ordinary(ROOT),
+        file(join(ROOT, 'src/b.spec.ts'), { tests: 900 }),
+        file(join(ROOT, 'src/a.spec.ts'), { tests: 900 }),
+        file(join(ROOT, 'src/worst.spec.ts'), { tests: 1_500 }),
+      ],
+    });
     const baseline = baselineOf({ 'src/a.spec.ts': 3, 'src/b.spec.ts': 3, 'src/worst.spec.ts': 3 });
 
     expect(paths(baselineRegressions(measured, ROOT, baseline, BASELINE_DEFAULTS))).toEqual([
@@ -263,11 +273,13 @@ describe('baselineRegressions', () => {
 
 describe('baselineDrift', () => {
   it('names what the baseline knows and this run did not measure, and what this run added', () => {
-    const measured = run([
-      file('src/kept.spec.ts', { tests: 100 }),
-      file('src/newer.spec.ts', { tests: 100 }),
-      file('src/new.spec.ts', { tests: 100 }),
-    ]);
+    const measured = run({
+      files: [
+        file(join(ROOT, 'src/kept.spec.ts'), { tests: 100 }),
+        file(join(ROOT, 'src/newer.spec.ts'), { tests: 100 }),
+        file(join(ROOT, 'src/new.spec.ts'), { tests: 100 }),
+      ],
+    });
     const baseline = baselineOf({ 'src/kept.spec.ts': 1, 'src/gone.spec.ts': 1, 'src/absent.spec.ts': 1 });
 
     expect(baselineDrift(measured, ROOT, baseline)).toEqual({
@@ -277,11 +289,118 @@ describe('baselineDrift', () => {
   });
 
   it('counts a file that ran nothing as neither added nor measured', () => {
-    const measured = run([file('src/kept.spec.ts', { tests: 100 }), file('src/skipped.spec.ts', { tests: 0, testCount: 0 })]);
+    const measured = run({
+      files: [file(join(ROOT, 'src/kept.spec.ts'), { tests: 100 }), file(join(ROOT, 'src/skipped.spec.ts'), { tests: 0, testCount: 0 })],
+    });
 
     expect(baselineDrift(measured, ROOT, baselineOf({ 'src/kept.spec.ts': 1, 'src/skipped.spec.ts': 1 }))).toEqual({
       missing: ['src/skipped.spec.ts'],
       added: [],
     });
+  });
+});
+
+describe('renderPerf --baseline', () => {
+  const measured = (root: string, slow: number): PerfRun =>
+    run({
+      root,
+      wall: 5_000,
+      files: [
+        ...Array.from({ length: 9 }, (_unused, index) => file(join(root, `src/ordinary-${index}.spec.ts`), { tests: 100, testCount: 10 })),
+        file(join(root, 'src/grew.spec.ts'), { tests: slow, testCount: 10 }),
+      ],
+    });
+
+  it('records a baseline and says what it wrote, without judging anything', () => {
+    const root = cleanRepo(1);
+    const io = recorder();
+    const path = join(root, 'perf-baseline.json');
+
+    expect(
+      renderPerf({ ok: true, run: measured(root, 300), runFailed: false }, readProfile(root), io, {
+        baseline: { path, update: true, options: BASELINE_DEFAULTS },
+      }),
+    ).toBe(0);
+    expect(pathExists(path)).toBe(true);
+    expect(io.stdout.join('\n')).toContain('perf baseline: recorded 10 files');
+  });
+
+  it('fails the gate on a file that grew against it, and confirms that the way it confirms anything else', () => {
+    const root = cleanRepo(1);
+    const path = join(root, 'perf-baseline.json');
+    const recording = recorder();
+
+    renderPerf({ ok: true, run: measured(root, 300), runFailed: false }, readProfile(root), recording, {
+      baseline: { path, update: true, options: BASELINE_DEFAULTS },
+    });
+
+    const io = recorder();
+    const grown = measured(root, 3_000);
+    const remeasure = (): PerfSource => ({
+      ok: true,
+      run: run({ root, files: [file(join(root, 'src/grew.spec.ts'), { tests: 2_900 })] }),
+      runFailed: false,
+    });
+
+    expect(
+      renderPerf({ ok: true, run: grown, runFailed: false }, readProfile(root), io, {
+        baseline: { path, update: false, options: BASELINE_DEFAULTS },
+        gate: { options: GATE_DEFAULTS, remeasure, trustSingle: false },
+      }),
+    ).toBe(1);
+
+    const out = io.stdout.join('\n');
+
+    expect(out).toContain('error  perf-gate-regression src/grew.spec.ts');
+    expect(out).toContain('the share of the run they took when the baseline was recorded');
+  });
+
+  it('reports what drifted, and says so when there is no baseline to read at all', () => {
+    const root = cleanRepo(1);
+    const io = recorder();
+    const path = join(root, 'perf-baseline.json');
+
+    renderPerf({ ok: true, run: measured(root, 300), runFailed: false }, readProfile(root), recorder(), {
+      baseline: { path, update: true, options: BASELINE_DEFAULTS },
+    });
+
+    const withNewFile = run({
+      root,
+      files: [...measured(root, 300).files, file(join(root, 'src/new.spec.ts'), { tests: 100, testCount: 3 })],
+    });
+
+    expect(
+      renderPerf({ ok: true, run: withNewFile, runFailed: false }, readProfile(root), io, {
+        baseline: { path, update: false, options: BASELINE_DEFAULTS },
+      }),
+    ).toBe(0);
+    expect(io.stdout.join('\n')).toContain('1 files this run measured are not in it');
+
+    const missing = recorder();
+
+    expect(
+      renderPerf({ ok: true, run: measured(root, 300), runFailed: false }, readProfile(root), missing, {
+        baseline: { path: join(root, 'nowhere.json'), update: false, options: BASELINE_DEFAULTS },
+      }),
+    ).toBe(0);
+    expect(missing.stderr.join('\n')).toContain('No baseline to compare against');
+  });
+
+  it('reports a regression without a gate as a finding that fails nothing', () => {
+    const root = cleanRepo(1);
+    const path = join(root, 'perf-baseline.json');
+
+    renderPerf({ ok: true, run: measured(root, 300), runFailed: false }, readProfile(root), recorder(), {
+      baseline: { path, update: true, options: BASELINE_DEFAULTS },
+    });
+
+    const io = recorder();
+
+    expect(
+      renderPerf({ ok: true, run: measured(root, 3_000), runFailed: false }, readProfile(root), io, {
+        baseline: { path, update: false, options: BASELINE_DEFAULTS },
+      }),
+    ).toBe(0);
+    expect(io.stdout.join('\n')).toContain('perf-gate-regression');
   });
 });
