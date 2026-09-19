@@ -239,12 +239,15 @@ function mergeObjects(base: Record<string, unknown>, written: Record<string, unk
 export function mergeAutoSpyDefaults<T>(
   ObjectClass: ClassType<T>,
   local: ClassSpyConfiguration<T> | OnlyMethodKeysOf<T>[] | undefined,
+  onlyMembers?: readonly PropertyKey[],
 ): ClassSpyConfiguration<T> | OnlyMethodKeysOf<T>[] | undefined {
-  const defaults = registry().get(ObjectClass);
+  const registered = registry().get(ObjectClass);
 
-  if (!defaults) {
+  if (!registered) {
     return local;
   }
+
+  const defaults = onlyMembers ? restrictRegistration(registered, new Set(onlyMembers)) : registered;
 
   // The bare-array form is `methodsToSpyOn` spelled short; normalising it here keeps the merge one
   // shape rather than two, and hands the result back in the form the caller could have written.
@@ -262,6 +265,21 @@ export function mergeRegisteredDefaults(key: object, written: Record<string, unk
   const defaults = registry().get(key);
 
   return defaults ? mergeInto(defaults, written) : written;
+}
+
+// What a registration may still say to an instance whose call site listed the only methods to spy:
+// how those methods behave, never which other members to replace.
+function restrictRegistration(registered: Registration, kept: ReadonlySet<unknown>): Registration {
+  const { strict, onUnstubbedCall, onUnstubbedRead } = registered;
+  const returns = Object.entries(Object.getOwnPropertyDescriptors(baseObject(registered['returns'])));
+
+  return {
+    strict,
+    onUnstubbedCall,
+    onUnstubbedRead,
+    returns: Object.defineProperties({}, Object.fromEntries(returns.filter(([name]) => kept.has(name)))),
+    selfReturning: baseList(registered['selfReturning']).filter((name) => kept.has(name)),
+  };
 }
 
 function mergeInto(defaults: Registration, written: Record<string, unknown>): Record<string, unknown> {
