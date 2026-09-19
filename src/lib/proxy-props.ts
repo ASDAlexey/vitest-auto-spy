@@ -188,7 +188,6 @@ export function readStoredAccessor(store: ProxyPropStore, key: string | symbol, 
   return accessor.get?.call(receiver);
 }
 
-/** Returned by {@link readStoredAccessor} when the key has no patched accessor. */
 /**
  * The three traps that route every write into `store`.
  *
@@ -213,6 +212,7 @@ export function storeWriteTraps<T extends object>(
   };
 }
 
+/** Returned by {@link readStoredAccessor} when the key has no patched accessor. */
 export const NOT_STORED = Symbol('vitest-auto-spy.notStored');
 
 /**
