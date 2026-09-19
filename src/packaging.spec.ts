@@ -123,9 +123,29 @@ describe('every workflow', () => {
       expect(workflow.permissions, `${name} declares workflow-wide permissions`).toBeUndefined();
 
       for (const [job, definition] of Object.entries(workflow.jobs ?? {})) {
-        // A job that calls a reusable workflow inherits nothing — the called workflow declares its own.
-        if (definition.uses === undefined) {
-          expect(definition.permissions, `${name}: job ${job}`).toBeDefined();
+        expect(definition.permissions, `${name}: job ${job}`).toBeDefined();
+      }
+    }
+  });
+
+  // A called workflow gets at most what its caller job grants; asking for more is a startup_failure.
+  it('grants a reusable workflow every permission its jobs ask for', () => {
+    const LEVEL: Record<string, number> = { none: 0, read: 1, write: 2 };
+
+    for (const [name, workflow] of workflows) {
+      for (const [job, caller] of Object.entries(workflow.jobs ?? {})) {
+        const called = caller.uses?.startsWith('./.github/workflows/')
+          ? workflows.get(caller.uses.slice('./.github/workflows/'.length))
+          : undefined;
+
+        for (const child of Object.values(called?.jobs ?? {})) {
+          for (const [scope, level] of Object.entries(child.permissions ?? {})) {
+            const granted = caller.permissions?.[scope] ?? 'none';
+
+            expect(LEVEL[granted], `${name}: job ${job} grants ${scope}: ${granted}, needs ${level}`).toBeGreaterThanOrEqual(
+              LEVEL[level] ?? 0,
+            );
+          }
         }
       }
     }
