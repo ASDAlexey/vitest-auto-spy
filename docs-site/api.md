@@ -136,7 +136,10 @@ class, where the erased members leave the empty-prototype fallback unable to fir
 `lazySpies` (build each method spy on first access — the `provideAutoSpy` default on Angular; `'proxy'` swaps the per-method placeholder for one trap object, which is faster to build on a very wide class and [costs more on every other axis](/core/performance#where-the-remaining-memory-is-and-lazyspies-proxy)), plus
 the two strict-mode fields below. `createSpyFromInstance` takes the same configuration minus
 `lazySpies` and `fillMissing`, the two that describe a double being built rather than an object being
-patched: the members already exist, and an instance is not an erased `abstract` declaration.
+patched: the members already exist, and an instance is not an erased `abstract` declaration. It
+reports the same misconfigurations the class factory does — an `onlyMethodsToSpyOn` name the object
+has no callable for, a `gettersToSpyOn` / `settersToSpyOn` name that is a method — judged against the
+live object, so an arrow-function field counts as a member.
 
 Method discovery reads **every own key**, so a method stored under a symbol is spied like any other,
 and `resetAutoSpy` reaches it. The symbols the language and the runtime own are deliberately left
@@ -187,8 +190,8 @@ therefore offers it one value per call it tries, so `.values` is a list of candi
 it is a list of matches.
 
 **`registerAutoSpyDefaults(Class, config)`** — a `ClassSpyConfiguration` registered once, from a
-setup file, that every `createSpyFromClass(Class)` / `provideAutoSpy(Class)` starts from and the call
-site **merges** into: lists unioned, `returns` and `overrides` merged key by key, scalars won by the
+setup file, that every `createSpyFromClass(Class)` / `provideAutoSpy(Class)` /
+`createSpyFromInstance(instance of Class)` starts from and the call site **merges** into: lists unioned, `returns` and `overrides` merged key by key, scalars won by the
 call site. `registerAutoSpyDefaults([[Class, config], …])` registers several at once, each row
 checked against its own class; `AutoSpyDefaultEntry<T>` is that row's type, for a row built outside
 the literal. `clearAutoSpyDefaults(Class)` drops one registration, `clearAutoSpyDefaults()` all of
@@ -246,7 +249,9 @@ structural `SubjectLike<T>` when it is not. See [rxjs in the types](/runtimes/rx
 **`AddSpyMethodsByReturnTypes<Method>`** — the per-method surface: the mock itself intersected with
 `calledWith` / `mustBeCalledWith`, plus the `Promise` or `Observable` helper bundle when the return
 type earns one. A method whose return type is `any` keeps `mockReturnValue` on its `calledWith`
-chain along with the promise and observable helpers, because at run time it has all of them.
+chain along with the promise and observable helpers, because at run time it has all of them —
+`AddCalledWithAny<Method>` is that chain and `AnyReturnHelpers` the helper bundle, both exported for
+a signature built outside `Spy<T>`.
 
 A method spy also answers `new`, which is what an SDK factory reached through `createAutoMock` or
 `mockDeep` needs: `new sdk.Client()` yields the spy the factory would have returned, or whatever a
@@ -257,6 +262,8 @@ call site casts.
 **`Spy<T, Options>`** — the second parameter is `{ overload?: 'first' | 'last' }`. `Parameters` and
 `ReturnType` read the **last** signature of an overloaded method, which on a generated API client is
 `observe: 'events'` — the one nobody calls. `Overload<F, 0>` names one signature on its own.
+`Options` also takes `gettersToSpyOn` / `settersToSpyOn` as tuples, which key the `accessorSpies` bag
+by the configured names only — see [`accessorSpies` keyed by the lists](/core/spy-typing#accessorspies-keyed-by-the-configured-lists).
 
 **`DeepPartial<T>`** — what `createMock` / `createAutoMock` take: partial at every depth, and a key
 `T` does not have is still rejected at every depth. Built-ins (`Date`, `Map`, `Promise`, functions)

@@ -69,6 +69,14 @@ that never waited for CI. The handful of entries that change what a green spec d
   nobody at all. It now warns once per property and points at `nextWith()` / `returnSubject()`, or at
   configuring the property before anybody subscribes.
 
+- **`Spy<T, { gettersToSpyOn: [...] }>` keys the `accessorSpies` bag by the configured names.** The
+  runtime builds the bag from the two lists alone, but the type used to map over every key of `T`,
+  so `spy.accessorSpies.setters.name` compiled on a double with no setter configured and read
+  `undefined` at run time. Repeating the lists in the options type argument narrows both halves to
+  their union — a declared pair is mirrored, as the runtime mirrors it. Opt-in: the default `Spy<T>`
+  and a non-literal `string[]` keep the every-key bag, and the `types:budget` fixture pays nothing
+  for the field existing.
+
 - **`./package.json` is in the export map.** A tool resolving `vitest-auto-spy/package.json` — a
   Storybook builder, an Nx plugin, a dependency helper — no longer gets
   `ERR_PACKAGE_PATH_NOT_EXPORTED`.
@@ -174,6 +182,24 @@ that never waited for CI. The handful of entries that change what a green spec d
   consumer's initialiser each time. A matching mode is now a no-op — unless the platform is gone,
   which is checked rather than assumed — so "one initialisation, no resets" is finally true.
 
+- **`createSpyFromInstance` honours `registerAutoSpyDefaults` and reports what the class factory
+  reports.** The registration of the class the object's `constructor` names is merged under the call
+  site's configuration, in the class factory's order; an object literal and a null-prototype
+  dictionary resolve none. An `onlyMethodsToSpyOn` name the object has no callable for and a
+  `gettersToSpyOn` / `settersToSpyOn` name that is a method are reported — judged against the live
+  object, so an arrow-function field counts — where the instance path used to accept both in
+  silence. **Behaviour change**: a registration now reaches instance doubles of that class, and under
+  `misconfiguration: 'throw'` a wrong name throws.
+
+- **Every runtime message ends in a `Docs:` line.** The warnings and errors that still went out
+  without one — `flushEventLoopUntil`, the never-awaited emission waits, `setEmissionTimeout`,
+  `expectEmissions(source$, 0)`, `installPerTest`, `stubObserver(...).last` and the three
+  `/observer-spy` reader errors — carry the link to their page now, on a line of its own so a
+  terminal keeps it clickable, and `createAutoMock`'s misconfiguration report links the by-type page
+  instead of the class one. A spec matching
+  a whole message with `toThrow('…')` still matches; one comparing it with `toBe` sees the extra
+  line.
+
 - **`installProxyZonePatch()` no longer stacks a Proxy layer per spec file.** An explicit call from a
   setup file under `isolate: false` wrapped its own wrapper: 200 layers at 200 files. A re-install is
   a no-op now, and so is its undo.
@@ -252,7 +278,8 @@ that never waited for CI. The handful of entries that change what a green spec d
 
 - **A method typed `any` lost `mockReturnValue` from its `calledWith` chain.** The return type
   matched the promise branch first, so the chain offered `resolveWith` and nothing to set a plain
-  value with. `any` has its own branch now and carries both, which is what the runtime always did.
+  value with. `any` has its own branch now and carries both, which is what the runtime always did;
+  the chain and its helper bundle are exported as `AddCalledWithAny<Method>` and `AnyReturnHelpers`.
 
 - **`promisify(setTimeout)` threw under `trackStrayTimers`.** The wrapper did not carry
   `Symbol.for('nodejs.util.promisify.custom')` from the original, so a NestJS or Node backend hitting
@@ -403,9 +430,11 @@ that never waited for CI. The handful of entries that change what a green spec d
   builds spied accessors reachable through `Object.getOwnPropertyDescriptor(obj, name).get`, as
   jasmine documents.
 
-- **Importing `/react`, `/svelte`, `/vue` or `/nestjs` replaced a mock adapter another entry had
-  already registered.** They register only when there is none, as `/console` and `/dom-stubs` already
-  did. Those entries still import `vitest` and so still do not load on `bun:test` or `node:test` — a
+- **Importing the root entry, `/react`, `/svelte`, `/vue` or `/nestjs` replaced a mock adapter another
+  entry had already registered.** They register only when there is none, as `/console` and
+  `/dom-stubs` already did, so `import 'vitest-auto-spy'` after `vitest-auto-spy/node` no longer
+  swaps the `node:test` adapter for Vitest's. `createMatDialogRef` wires its `close` through the
+  adapter too, instead of calling Vitest's `mockImplementation` on a spy another engine built. Those entries still import `vitest` and so still do not load on `bun:test` or `node:test` — a
   Nest unit there needs a runner-agnostic entry, which is in `TODO.md`.
 
 - **The codemod read the words of a line comment as imported names.** An import clause carrying
@@ -443,6 +472,17 @@ that never waited for CI. The handful of entries that change what a green spec d
 - **`init --check` went red on every version bump.** The managed block is compared without the
   version stamp now, so an upgrade that changed nothing else passes a consumer's CI; a plain `init`
   still refreshes the stamp.
+
+- **`perf` counted one worker's environment once per file.** Vitest measures the environment once per
+  worker and copies that number into the report of every file the worker ran, so the sum multiplied
+  one start-up by the files behind it — on a 672-file shard across 13 workers, **126.4 s reported
+  against the 2.44 s actually spent, inflated 51.7×**. That share fed `perf-environment`, which then
+  fired on arithmetic and named spec files to move to the `node` environment for a saving that was
+  not there, and it skewed every other phase's share. Environments are counted once per distinct
+  value now, and the finding prices the move: a worker's environment is saved only when **every**
+  file it ran is DOM-free, and it says so outright when a DOM-using neighbour means the move frees
+  nothing. The quiet verdict also stopped claiming `No phase is over 30.0%` for `setup` and
+  `transform`, which have no rule; it names the phases it has advice for.
 
 - **Two parametrised cases whose names differ only in a number shared one Code Quality
   fingerprint.** Digits inside backticks are kept, so `returns 200` and `returns 404` stay two
@@ -497,10 +537,14 @@ cross-chunk import wiring is
 gone: `/setup` min+gzip **18 266 → 17 111 B (−6.3 %)**, `/react` and `/svelte` −253 B, `/vue` −241 B,
 `/node` −239 B, while `./bun` gains 348 B and `./bun-angular` 333 B — fewer entries are left in the
 chunked pass to share with. The repair round's code adds +2.4…3.6 kB to the solo rows on top, so
-across all entries this release lands at 283.6 → 317.0 kB and the badge moves 17 614 → 20 085 B. The
+across all entries this release lands at 283.6 → 319.2 kB and the badge moves 17 614 → 20 312 B —
+the last 2.3 kB of that (317.0 → 319.2 kB, +0…227 B per entry, `.` +227 B or +1.1 %) is the late
+round: the `Docs:` links above, `createSpyFromInstance`'s two reports and the adapter guard, and one
+more module in the cold-import graph of eight entries (`message-link`, split out so the size-pinned
+`/observer-spy` bridge takes one URL rather than the whole catalogue). The
 module graph is what the time came out of: `/setup` 13 → 2 modules (−37.9 kB),
 `/react`, `/vue` and `/svelte` 14 → 2, `/node` 11 → 2. The emission change alone leaves declarations
-byte-identical; the type surface this release adds is the two option types above, and `types:budget`
+byte-identical; the type surface this release adds is the two option types above (`CaptureArgOptions`, `SpyClassOptions`), `AddCalledWithAny` / `AnyReturnHelpers` and the accessor lists on `SpyOptions`, and `types:budget`
 and `test:types` stay green.
 
 **Memory, per double**: an untouched 100-method lazy double retains 215 B instead of 25 593 B and a

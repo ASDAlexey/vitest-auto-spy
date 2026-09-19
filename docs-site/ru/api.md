@@ -134,6 +134,9 @@ description: Все экспорты vitest-auto-spy и его подпутей,
 методов удерживать 100 кБ), плюс два поля строгого режима ниже. `createSpyFromInstance` принимает ту
 же конфигурацию за вычетом `lazySpies` и `fillMissing` — двух полей, которые описывают строящийся
 дубль, а не патчащийся объект: члены уже существуют, а экземпляр — не стёртое `abstract`-объявление.
+Он сообщает о тех же ошибках конфигурации, что и фабрика по классу, — имя в `onlyMethodsToSpyOn`, для
+которого у объекта нет вызываемого члена, имя в `gettersToSpyOn` / `settersToSpyOn`, которое на деле
+метод, — и судит по живому объекту, так что поле со стрелочной функцией считается членом.
 
 **`AutoMockConfiguration`** (третий аргумент `createAutoMock` / `provideAutoSpyForToken`):
 `observablePropsToSpyOn` (тип не говорит, какие члены являются Observable, поэтому незаданный член
@@ -166,8 +169,8 @@ description: Все экспорты vitest-auto-spy и его подпутей,
 `{ complete?, delay? }`.
 
 **`registerAutoSpyDefaults(Class, config)`** — `ClassSpyConfiguration`, зарегистрированная один раз
-из setup-файла: с неё начинается каждый `createSpyFromClass(Class)` / `provideAutoSpy(Class)`, а
-место вызова **сливается** с ней — списки объединяются, `returns` и `overrides` сливаются по ключам,
+из setup-файла: с неё начинается каждый `createSpyFromClass(Class)` / `provideAutoSpy(Class)` /
+`createSpyFromInstance(экземпляр Class)`, а место вызова **сливается** с ней — списки объединяются, `returns` и `overrides` сливаются по ключам,
 скаляры выигрывает место вызова. `registerAutoSpyDefaults([[Class, config], …])` регистрирует
 несколько сразу, и каждая строка проверяется по своему классу; `AutoSpyDefaultEntry<T>` — тип этой
 строки, для строки, собранной вне литерала. `clearAutoSpyDefaults(Class)` снимает одну регистрацию,
@@ -223,12 +226,17 @@ _обращения_ к свойству: цепочка, идущая чере�
 
 **`AddSpyMethodsByReturnTypes<Method>`** — поверхность одного метода: сам мок, пересечённый с
 `calledWith` / `mustBeCalledWith`, плюс набор хелперов для `Promise` или `Observable`, когда тип
-возврата его заслуживает.
+возврата его заслуживает. Метод с типом возврата `any` сохраняет `mockReturnValue` на цепочке
+`calledWith` вместе с хелперами промиса и потока, потому что во время выполнения у него есть все они,
+— `AddCalledWithAny<Method>` это та самая цепочка, а `AnyReturnHelpers` набор хелперов; оба
+экспортированы для сигнатуры, собранной вне `Spy<T>`.
 
 **`Spy<T, Options>`** — второй параметр это `{ overload?: 'first' | 'last' }`. `Parameters` и
 `ReturnType` читают **последнюю** сигнатуру перегруженного метода, а в сгенерированном API-клиенте
 это `observe: 'events'` — та, которую никто не вызывает. `Overload<F, 0>` называет одну сигнатуру
-отдельно.
+отдельно. `Options` принимает ещё `gettersToSpyOn` / `settersToSpyOn` кортежами, и тогда мешок
+`accessorSpies` содержит только названные ключи — см.
+[`accessorSpies` по настроенным спискам](/ru/core/spy-typing#accessorspies-keyed-by-the-configured-lists).
 
 **`DeepPartial<T>`** — то, что принимают `createMock` / `createAutoMock`: частичный на любой глубине,
 и ключ, которого у `T` нет, отвергается тоже на любой глубине. Встроенные типы (`Date`, `Map`,

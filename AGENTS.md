@@ -815,7 +815,8 @@ winning, scalars decided by the call site when it names the key. The bare-array 
 walking the prototype chain would let one registration change doubles in files nobody was looking at.
 A second registration for the same class replaces the first, because two of them in one suite is the
 drift this removes rather than a merge to perform. `clearAutoSpyDefaults(Class)` drops one,
-`clearAutoSpyDefaults()` the lot.
+`clearAutoSpyDefaults()` the lot. `createSpyFromInstance(obj)` reads the registration of the class
+`obj.constructor` names, merged the same way; an object literal resolves none.
 
 A setup file that registers more than a handful of classes can say them as one table instead of one
 call each. Rows apply in order, and each is checked against **its own** class — a key `Router` does
@@ -946,6 +947,12 @@ descriptor, so it only ever adds what the class already has, and a read-only mem
 Before 3.5.0 the assignment landed on the no-op setter the scaffolding installs: the write vanished,
 `accessorSpies.setters.theme` was `undefined`, and the failure read
 `Cannot read properties of undefined` three steps from the configuration behind it.
+
+The bag is typed over every key of `T` unless the lists are repeated in the options type argument —
+`createSpyFromClass<Settings, { gettersToSpyOn: ['theme'] }>(Settings, { gettersToSpyOn: ['theme'] })`
+keys both halves by exactly the configured names, so `accessorSpies.setters.other` is a compile error
+instead of an `undefined` at run time. Use it when a spec reaches into the bag by name; a
+non-literal `string[]` falls back to the every-key bag.
 
 Only spy a getter when the spec asserts that it was **read**. To make one _answer_ something, on a
 spy that already exists, the pair above is one line — and it needs no `gettersToSpyOn` at the
@@ -3163,10 +3170,14 @@ wants **Angular >= 20** and a declared `@angular/platform-browser`; on 18 or 19 
 loading, because the zoneless provider was still called
 `provideExperimentalZonelessChangeDetection` there.
 
-It re-exports everything in this section except `registerSignalMatchers`,
-`registerResourceMatchers`, `mockSignalProp` / `mockResourceProp` and the TestBed diagnostics — the
-matchers and diagnostics need the runner's `expect.extend` and suite-level hooks, and the `mock*Prop`
-family is not re-exported there either.
+It exports the core, `provideAutoSpy` / `injectSpy`, `renderShallow`, `createWithAutoSpies`,
+`setInputs`, `runEffect`, `settleResource`, `trackEffectRuns` / `trackRecomputations` and
+`stable` / `flushEffects` — nothing else from this section. The matcher registrars
+(`registerSignalMatchers`, `registerDirectiveMatchers`, `registerResourceMatchers`) need the runner's
+`expect.extend` and the TestBed diagnostics its suite-level hooks; the overrides, `extendWithAutoSpies`,
+`provideAutoSpyForToken`, `trackInjections`, `setupAngularTestEnv`, the stub factories and the
+`mock*Prop`, platform and dialog doubles are simply not routed to Bun. Import them from `/angular`
+under Vitest.
 
 ---
 

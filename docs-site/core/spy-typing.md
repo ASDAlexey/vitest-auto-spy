@@ -341,6 +341,29 @@ getter with a value of another type learns about it here, on the line that does 
 It is `Mock<…>` and not `MockInstance<…>` on purpose: the bag has always been callable, so
 `accessorSpies.setters.theme('dark')` and `accessorSpies.getters.theme()` compile exactly as before.
 
+## `accessorSpies` keyed by the configured lists
+
+The runtime builds the bag from `gettersToSpyOn` / `settersToSpyOn` and nothing else, but the type
+has no way to see a list passed as a value — so by default the bag is keyed by every member of `T`,
+and `spy.accessorSpies.setters.name` compiles on a double where no setter was configured and reads
+`undefined` at run time. Repeat the lists in the options argument and the bag is keyed by exactly
+those names:
+
+```ts
+const thermo = createSpyFromClass<Thermo, { gettersToSpyOn: ['level'] }>(Thermo, {
+  gettersToSpyOn: ['level'],
+});
+
+thermo.accessorSpies.getters.level.mockReturnValue(3); // ✅
+thermo.accessorSpies.setters.level(3); // ✅ a declared pair is mirrored into both bags
+thermo.accessorSpies.getters.unit; // ❌ TS2339 — `unit` is in no configured list
+```
+
+Both bags take the union of the two lists, because the runtime promotes one half of a pair the
+class declares into the other. It is opt-in and costs nothing when unused: an options type that pins
+no list — the default `Spy<T>` among them — and a non-literal `string[]` both keep the every-key bag.
+The same `Spy<Thermo, { gettersToSpyOn: ['level'] }>` works as a variable's declared type.
+
 ## `readonly` survives onto the double, and `mockValueProp` is the answer
 
 `Spy<T>` and `DeepMockProxy<T>` are homomorphic mapped types, so a member the source type declares

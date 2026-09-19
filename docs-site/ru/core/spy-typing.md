@@ -343,6 +343,30 @@ settings.accessorSpies.getters.count.mockReturnValue('three'); // ❌ TS2345
 `accessorSpies.setters.theme('dark')` и `accessorSpies.getters.theme()` компилируются ровно как
 прежде.
 
+## `accessorSpies` по настроенным спискам {#accessorspies-keyed-by-the-configured-lists}
+
+Рантайм строит мешок только из `gettersToSpyOn` / `settersToSpyOn`, но тип не видит список,
+переданный значением, — поэтому по умолчанию мешок содержит ключ на каждый член `T`, и
+`spy.accessorSpies.setters.name` компилируется на дубле, где сеттер не настраивали, а во время
+выполнения читает `undefined`. Повторите списки в аргументе опций — и в мешке останутся ровно эти
+имена:
+
+```ts
+const thermo = createSpyFromClass<Thermo, { gettersToSpyOn: ['level'] }>(Thermo, {
+  gettersToSpyOn: ['level'],
+});
+
+thermo.accessorSpies.getters.level.mockReturnValue(3); // ✅
+thermo.accessorSpies.setters.level(3); // ✅ объявленная пара отражается в оба мешка
+thermo.accessorSpies.getters.unit; // ❌ TS2339 — `unit` нет ни в одном списке
+```
+
+Оба мешка берут объединение двух списков, потому что рантайм достраивает вторую половину пары,
+которую объявляет класс. Это опционально и ничего не стоит, если не пользоваться: тип опций, не
+фиксирующий ни одного списка, — включая `Spy<T>` по умолчанию, — и нелитеральный `string[]`
+оставляют мешок по всем ключам. Тот же `Spy<Thermo, { gettersToSpyOn: ['level'] }>` работает и как
+объявленный тип переменной.
+
 ## `readonly` доезжает до дубля, и ответ на это — `mockValueProp` {#readonly-survives-onto-the-double-and-mockvalueprop-is-the-answer}
 
 `Spy<T>` и `DeepMockProxy<T>` — гомоморфные отображённые типы, поэтому член, объявленный в исходном
