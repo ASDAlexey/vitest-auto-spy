@@ -86,7 +86,15 @@ bun test              # добавьте --isolate, чтобы получить 
 | `stable` / `flushEffects`                 |       ✅        | ожидание в zoneless-режиме                                     |
 | всё ядро (`createSpyFromClass`, …)        |       ✅        | реэкспортируется из этой точки входа                           |
 | `registerSignalMatchers`                  |       ❌        | нужен `expect.extend` раннера — только Vitest                  |
+| `registerDirectiveMatchers`               |       ❌        | нужен `expect.extend` раннера — только Vitest                  |
+| `registerResourceMatchers`                |       ❌        | нужен `expect.extend` раннера — только Vitest                  |
 | диагностика TestBed (`instrumentTestBed`) |       ❌        | нужны хуки раннера уровня набора — только Vitest               |
+| остальное из `/angular`                   |       ❌        | в Bun не проброшено — см. ниже                                 |
+
+«Остальное» — это хирургия над TestBed, которую `vitest-auto-spy/angular` несёт на Vitest: проверки
+переопределений и диагностики, `extendWithAutoSpies`, `provideAutoSpyForToken` с дефолтами по токену,
+`trackInjections`, `setupAngularTestEnv`, фабрики заглушек, дубли свойств ресурса и сигнала, дубли
+платформы и диалогов. Ничего из этого эта точка входа не экспортирует.
 
 ## Стили {#stylesheets}
 
