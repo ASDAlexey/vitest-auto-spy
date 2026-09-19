@@ -160,6 +160,43 @@ which is where this file's `[~]` entries went on 2026-09-10 — a decision is no
       the rule follows only a `const` used once in the same scope, which is the case worth having and
       the one that cannot go wrong. Measured demand: 4 of 7 findings on the 1771-file suite.
 
+## Mocking follow-ups, 2026-09-19
+
+- [ ] **The passthrough family and an unmatched `calledWith`.** `createSpyFromInstance(obj, { passthrough: true })`,
+      `adoptMock` and `moduleNamespace(actual, { passthrough: true })` all hand a configured method
+      over whole, so an argument list no `calledWith` matches answers `undefined`, not the real or
+      previous implementation. jasmine's `withArgs` + `callThrough` falls back instead, and "one
+      special case, real otherwise" reads better that way. It is one seam in `function-spy.ts` (a
+      fallback distinct from the strict guard) and has to change for all three together, or none.
+- [ ] **Passthrough, on demand only:** a named getter passed through to the real read (needs the
+      accessor spy to take the original getter as its scaffold, so a reset returns to it), and
+      lifecycle hooks recorded while still running for real (let a guard opt into `FRAMEWORK_HOOKS`,
+      which would also dedupe the third copy of that list in `create-spy-from-instance.ts`).
+- [ ] **Storybook's instrumented `expect` rejects an own-engine spy** with
+      `[Function] is not a spy or a call to a spy!`: it wraps any function argument without own
+      enumerable keys, and a fast spy keeps its `mock*` members on a shared prototype. One own
+      enumerable key per spy would fix it at a per-spy memory cost and a change to `Object.keys` /
+      spread / snapshot shape; documented workaround until decided. Revisit the recipe when
+      `@storybook/addon-vitest` accepts Vitest 5.
+- [ ] **Should `mockReset: true` drop `calledWith` rules on auto-spies?** Today it drops
+      `mockReturnValue` / `mockImplementation` and keeps the rules ("reset the mock", not "reset the
+      double"); `resetAutoSpy` drops both. vitest-mock-extended's `mockReset` clears `calledWith`, so a
+      migrant may expect that. Documented as behaviour.
+- [ ] **A permanent MSW regression spec for `blockNetwork`** needs `msw` as a devDependency. The unit
+      spec pins the detection with a staged `Symbol.for('fetch-interceptor')`; the live shape
+      (`setupServer` in `beforeAll`, `blockNetwork()` in `beforeEach`, a handled `fetch` resolving, an
+      unhandled XHR failing with the blocked marker) is in the research handoff. Under jsdom MSW needs
+      the `node:stream/web` globals, under happy-dom `BroadcastChannel`.
+- [ ] **`blockNetwork` against MSW's browser `setupWorker`** (Vitest browser mode) is unchecked. The
+      worker sets no interceptor symbol, so `blockNetwork: { fetch: false }` is probably needed there.
+- [ ] **A deep node's `mockReturnValue(…)` returns the raw spy, not the Proxy node**, so chaining
+      `vi.spyOn(node, 'x').mockReturnValue(…)` hands back the raw spy. Same calls, but calling it
+      directly bypasses `selfReturning` and child materialisation.
+- [ ] **Bun: the `settledResults` polyfill of an adopted mock** starts empty while `mock.calls` already
+      holds the pre-adoption calls, so their indices disagree.
+- [ ] `docs-site/core/introduction.md` still opens with the spy "powered by your test runner's mock
+      primitive (`vi.fn()` …)"; since 4.1 the default engine is the library's own.
+
 ## `doctor` — the catalogue is a fifth built
 
 `npx vitest-auto-spy doctor` ships, and what every check has in common is that **nothing consumes the

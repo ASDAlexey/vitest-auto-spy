@@ -8,6 +8,112 @@ reason.
 
 Shipped work is not here either — it is in `CHANGELOG.md` and in git history.
 
+## Mocking gaps from a survey of other libraries, 2026-09-19
+
+- **`mockDeep` arrays are on by default, not behind a flag.** The types have always promised it:
+  `DeepMockProxy<T>` is a homomorphic mapped type, so `Item[]` maps to an array of deep mocks and
+  `mock.items.map` is typed as `Array.prototype.map`; nobody could have relied on the runtime
+  disagreeing without also fighting the types. The one behaviour that changes for a reasonable type
+  is a numeric-keyed dictionary (`Record<number, T>`), where reads by key keep answering deep nodes
+  and only `Array.isArray` / `Object.keys` change. The view fills skipped indices lazily (a `has`
+  trap, not eager filling), so a dictionary read at id 123456 costs one node. Symbol keys stay
+  `undefined` on nodes that are not arrays: iterating a node remains a `TypeError` and `from(node)`
+  still refuses it.
+- **`fallbackMockImplementation` is per node, with a fixed precedence.** Wired through the strict-mode
+  seam, because its question is "did anything configure this node". So a `calledWith` miss answers
+  `undefined`, not the fallback (vitest-mock-extended falls back per call); `mustBeCalledWith` is the
+  per-call contract. Precedence: configuration > fallback > `selfReturning`. The suite-wide
+  `setupAutoSpy({ strict })` stays out of deep trees, so no option is silently overridden by a suite
+  default. Angular lifecycle names are not exempted: a deep node is named by its path, and Angular
+  does not call `ngOnDestroy` on a `useValue`. The options object is the second argument; the migrated
+  first-argument form is a compile error.
+- [~] **No option for a callback passthrough (`$transaction`).** A documented one-liner,
+  `method.mockImplementation((run) => run(asInstance(mock)))`. An option on a deep tree applies to
+  every node, and a node cannot know which argument is the callback, whether to await it or what to
+  pass it; it would also fire on `on('event', handler)`, invoking handlers the code only registers.
+- [~] **A deep node's diff label stays `[Function undefined]`.** Snapshots print
+  `[MockFunction mockDeep.repo.find]`; the assertion diff labels a function by its `name`, and on a
+  node `name` / `toString` are members of the mocked type. The only lever, `Symbol.toPrimitive` on
+  nodes, would change what code under test renders for an unseeded member (`${user.name}`) and outrank
+  a spec's own `node.toString.mockReturnValue(…)`.
+- **`vi.spyOn` on a deep node goes through `has`, not the descriptor.** Answering through the
+  descriptor would change `mock*Prop`, which records it to choose between restore and delete. The
+  same repair was **not** taken for `createAutoMock` (the consumer-bump entry below), and there is a
+  second reason besides lifecycle hooks: Vitest's `isAsymmetric` tests
+  `typeof obj === 'object' && 'asymmetricMatch' in obj`, so an auto-mock answering `in` like `get`
+  would be taken for an asymmetric matcher by `toEqual` and `toHaveBeenCalledWith`. A deep node is a
+  function, so the check never reaches it.
+- **`passthrough` lives on `createSpyFromInstance` only** — a class factory has no real method to
+  run. Named `passthrough`, not `spy: true` (everything here is a spy) nor `callThrough` (already the
+  jasmine per-spy strategy, which a passthrough spy honours). Any configuration takes the whole
+  method; `resetAutoSpy` returns it to the real one. An explicit `strict: true` / `onUnstubbedCall`
+  beside it throws; a suite-wide or registered strict yields for members with a real method.
+  Lifecycle hooks, callables with their own API (Angular signals) and classes stay real, because a
+  spy there breaks the real object. Accessors are not passed through: doing it right needs the
+  accessor spy to take the original getter as its scaffold, so a reset returns to the real read.
+- **`adoptMock`, not `mockFn`.** vitest-mock-extended's `mockFn` creates a mock; this one takes over
+  an existing one. It refuses `node:test`'s `mock.fn()`: there is no `getMockImplementation`, and
+  `mock.restoreAll()` / `mock.reset()` put the original implementation back over the dispatch
+  silently, which under the standard `afterEach(() => mock.restoreAll())` fails every test quietly.
+  A call-through mock (`vi.spyOn` without an implementation, `vi.mock(path, { spy: true })`) reports
+  `getMockImplementation() === undefined`, and the original is unreachable through public API, so an
+  adopted one answers `undefined` when unconfigured; call-through is built from the start instead.
+- **Module passthrough is an option on `moduleNamespace`**, the same guard seam and rules as the
+  instance one. The `createSpyFromInstance({ ...await importOriginal() }, { passthrough: true })`
+  spelling works too and is not documented separately: one way is enough.
+- **`blockNetwork` detects an applied `@mswjs/interceptors` fetch interceptor** by
+  `Symbol.for('fetch-interceptor')` and leaves `fetch` to it. Chosen over an `allowMsw` option: nobody
+  who calls `server.listen()` wants its handlers silently disabled, so an opt-in would be a trap with
+  a switch. Not chosen: subscribing to the interceptor to reject unhandled requests ourselves, which
+  couples to its listener order and controller state and outlives `restoreMockedProps()`.
+- **`stubResponse` takes one `body` decided by shape** (plain data → JSON, anything else → `BodyInit`),
+  not separate `json` / `text` fields; a string is always sent as text.
+- **"The Vitest config flags do not touch auto-spies since 4.1" was false.** The sweep sentinel routes
+  `clearMocks` / `mockReset` to every auto-spy; `restoreMocks` reaches none. The measured table is
+  documented, and `setupAutoSpy()` deliberately adds no clearing of its own.
+- **`no-hand-assigned-global` is its own rule**, not an extension of the hand-rolled-doubles module,
+  which reads object literals and their DI carve-outs; an assignment into a global is a different
+  shape whose carve-outs are restores. It reuses `prefer-observer-stub`'s receiver and double reading,
+  a teardown-hook restore silences it, and it ships at `error` because the finding is syntactic.
+- **"`setupAutoSpy` covers Bun" was false.** `/setup` registers Vitest hooks. Bun hygiene is documented
+  as a preload `afterEach`, verified on Bun 1.4.0; a `/bun` setup entry would be new runtime surface.
+- [~] **Browser-mode `vi.spyOn(namespace, …)` gets no diagnostic of ours.** `@vitest/spy` already
+  throws `Cannot spy on export …`; a docs line is enough.
+- **Task recipes live under `docs-site/guides/`** as their own search-entry pages (classes,
+  `localStorage`, Prisma, Storybook with Angular) rather than sections of `recipes.md`, which stays the
+  Angular-at-scale page. Hook tuples are documented as literals: a Proxy double is not iterable, and a
+  tuple is data. [~] No `/storybook` adapter; Storybook's `fn()` is not wired into the engine.
+
+## Four findings from a consumer's 5.19.0 bump, 2026-09-19
+
+- **`vi.spyOn` on an unread lazy method: a forwarder, not per-double getters and not an error.** Vitest
+  reads an accessor by calling its getter bare, so the shared pair cannot know its double. Going back
+  to one pair per double would buy it back at 25 kB an untouched 100-method double, the regression
+  5.19.0 removed. Throwing a named error was the cheaper repair, and it would have kept failing the
+  specs that worked through 5.18. The forwarder keeps them working; what it gives up is `calledWith`
+  on the wrapper `vi.spyOn` returns — `vi.spyOn` never typed one, so no spec could be using it.
+- [~] `vi.spyOn` on a `createAutoMock` member nobody read fails as it always did, with Vitest's
+  `The property "load" is not defined on the object`. The proxy's `has` answers false for a member
+  it has not minted, and it has to: answering true would make Angular and RxJS see lifecycle hooks
+  and protocol members on every auto-mock.
+- **`injectSpy(GenericClass)` falls back to the constraint.** A constructor that takes `T` hands
+  TypeScript a `never[]` inference, and nothing a signature can say reaches the declared default
+  instead: `unknown[]` rejects a constructor with a typed parameter, `any[]` answers `X<any>`, which is
+  the failure the explicit-argument advice exists for, and a conditional `infer` reads constraints,
+  never defaults. So the class-token overload now refuses an instantiation with a member inferred as
+  `never`, and the next overload reads the class at its constraint. A member that is `never` on
+  purpose lands on the same overload and comes out the same, since the class is not generic. A class
+  whose `T` reaches only a method parameter still infers `never` there, as it did.
+- **`createSpyFromInstance` with an only-list takes the registration's behaviour, not its members.**
+  The alternative was to keep the merge and report it under `misconfiguration`; that would have made
+  the spec that asked for one method pay for a registration it cannot opt out of, where the call
+  site's only-list already says which members may change. The class factory keeps the full merge: its
+  double is built, so a registered getter completes it rather than replacing something real.
+- [~] **`createMock(undefined)` stays `{}`, with no report and no overload.** At run time the literal
+  and a forwarded optional `overrides` parameter are the same call, so a report would fire on every
+  fixture helper written that way; an overload without the optional parameter rejects the same
+  helpers at compile time. Documented instead, with the one-line repair: pass `undefined` itself.
+
 ## The type-instantiation budget now measures the opt-in surfaces, 2026-09-19
 
 `npm run types:budget` (`scripts/check-type-budget.mjs`) budgets the delta between two generated
