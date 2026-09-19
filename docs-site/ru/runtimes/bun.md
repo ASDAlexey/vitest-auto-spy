@@ -85,6 +85,47 @@ bun test
 ошибку. На Bun различайте вызовы по точным аргументам или берите `mockImplementation`, когда ответ
 действительно зависит от формы аргумента.
 
+## Между тестами ничего не восстанавливается {#nothing-is-restored-between-tests}
+
+У `bun:test` нет аналога `restoreMocks` или `clearMocks` из Vitest. `spyOn(obj, 'm')` остаётся на
+объекте после конца своего теста, и следующий тест вызывает спай, а не метод. Спай, настроенный одним
+тестом, сохраняет свой ответ и записанные вызовы. Патч `mockValueProp` тоже остаётся на месте.
+Собственный ответ Bun — `mock.restore()` в `afterEach`.
+
+[`setupAutoSpy()`](/ru/utilities/setup) делает это на Vitest, но `vitest-auto-spy/setup` регистрирует
+хуки Vitest, и Bun-энтрипойнта у него нет. На Bun те же две строки пишутся в preload:
+
+```ts
+// bun-test-setup.ts
+import { afterEach, mock } from 'bun:test';
+import { restoreMockedProps } from 'vitest-auto-spy/bun';
+
+afterEach(() => {
+  restoreMockedProps(); // mockValueProp, mockReadonlyProp и остальные
+  mock.restore(); // каждый spyOn
+});
+```
+
+```toml
+# bunfig.toml
+[test]
+preload = ["./bun-test-setup.ts"]
+```
+
+Авто-спаям от этого ничего не нужно. `createSpyFromClass(X)` строит новый объект и никогда не трогает
+`X`, поэтому спай, созданный в `beforeEach`, уходит вместе со своим тестом. Состояние из теста в тест
+переносит только спай, созданный один раз в начале файла. Создавайте его в `beforeEach` или вызывайте
+там `resetAutoSpy(spy)`.
+
+**Моку модуля тоже место в preload.** `mock.module()` подменяет экспорты модуля везде, где он
+импортирован, но к этому моменту исходный модуль уже выполнился. Его побочные эффекты случились, а
+значение, которое другой модуль вычислил из него при импорте, остаётся настоящим. Замерено на Bun 1.4:
+потребитель, экспортирующий `greeting = greet()`, после `mock.module()` в тесте всё ещё читает
+`'real'`, а когда тот же вызов переезжает в файл `--preload` — `'mocked'`. `mock.restore()` не
+отменяет `mock.module()`: мок живёт до конца процесса. Энтрипойнт
+[`vitest-auto-spy/bun-angular`](/ru/runtimes/bun-angular) — preload по той же причине: его хук
+инлайна шаблонов видит только модули, загруженные после него.
+
 ## Флаги тест-раннера Bun 1.4 {#bun-1-4-test-runner-flags}
 
 Bun 1.4 превратил `bun test` в раннер с теми средствами управления расписанием, которые нужны большому

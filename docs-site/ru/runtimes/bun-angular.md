@@ -129,6 +129,36 @@ await registerDomGlobals({
 где не упомянут ни хелпер, ни свойство. Отказ по ключу вне этой пятёрки проходит молча: встроенный объект
 хоста, сохранивший свою реализацию, — задокументированный исход, а не проблема.
 
+### Что preload сбрасывает, а что оставляет вам {#what-the-preload-resets-and-what-it-leaves-to-you}
+
+Энтрипойнт сбрасывает тестовый модуль после каждого теста — и больше ничего. `bun:test` сам тоже ничего
+не восстанавливает: `spyOn` и патч `mockValueProp` переживают свой тест, а `setupAutoSpy()` работает
+только на Vitest (см. [Bun → Между тестами ничего не восстанавливается](/ru/runtimes/bun#nothing-is-restored-between-tests)).
+Тот же preload — место и для восстановления, и для любого `mock.module()`, который должен примениться
+до импорта кода под тестом:
+
+```toml
+# bunfig.toml
+[test]
+preload = ["vitest-auto-spy/bun-angular", "./bun-test-setup.ts"]
+```
+
+```ts
+// bun-test-setup.ts
+import { afterEach, mock } from 'bun:test';
+import { restoreMockedProps } from 'vitest-auto-spy/bun-angular';
+
+mock.module('./src/app/analytics', () => ({ track: () => undefined }));
+
+afterEach(() => {
+  restoreMockedProps();
+  mock.restore();
+});
+```
+
+Спаям из `provideAutoSpy` ничего из этого не нужно: они строятся на каждый `TestBed`, и сброс после
+каждого теста их выбрасывает.
+
 ## О чём стоит знать {#limits-worth-knowing}
 
 - **Сигнальный `input()` не привязывается.** Bun компилирует компонент JIT-компилятором, а тот

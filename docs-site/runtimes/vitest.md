@@ -203,6 +203,30 @@ message with `assertionResults: []`. So the triage rule that does work is the na
 
 Everything else in the list is a bystander, and re-running is what tells you which was which.
 
+## Browser mode: module exports are read-only
+
+In the default Node pool, Vitest loads your modules through its own module runner, and the namespace
+object behind `import * as api from './api'` can be patched: `vi.spyOn(api, 'load')` works there
+(and still misses calls made from inside `api.ts`, which reach the local function, not the export).
+[Browser mode](https://vitest.dev/guide/browser/) hands modules to the browser's native ESM loader,
+where a module namespace is sealed, and the same line throws:
+
+```text
+Cannot spy on export "load". Module namespace is not configurable in ESM.
+```
+
+That is `@vitest/spy`'s own message, reproduced by loading the module through Node's native ESM
+loader. A suite that is green under jsdom or happy-dom can go red on its first export spy after the
+switch, with nothing in the spec changed. An Angular suite meets this when it turns on the `browsers`
+option of `@angular/build:unit-test` for visual or interaction tests.
+
+The doubles this library builds never touch a module namespace. `createSpyFromClass(Api)` reads
+`Api.prototype` and returns a new object, `provideAutoSpy(Api)` hands that object to DI, and
+`vi.spyOn(Api.prototype, 'load')` patches a prototype, which is an ordinary object under both
+loaders. All three work unchanged in browser mode. For a function exported from a module, Vitest's
+replacement is `vi.mock('./api', { spy: true })`: it keeps the real implementations and makes every
+export a spy. [`assertMocked`](/utilities/module-mocks) then confirms that the mock applied.
+
 ## The Angular subpath
 
 An Angular suite imports from `vitest-auto-spy/angular` instead — it registers the same Vitest

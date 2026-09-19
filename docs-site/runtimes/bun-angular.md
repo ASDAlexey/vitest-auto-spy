@@ -141,6 +141,36 @@ instead of letting the run fail later as `document is not defined` in a spec tha
 helper nor the property. A refused key outside those five stays quiet: a host built-in keeping its
 own implementation is the documented outcome, not a problem.
 
+### What the preload resets, and what it leaves to you
+
+The entry resets the testing module after each test, and nothing else. `bun:test` restores nothing on
+its own either: a `spyOn` and a `mockValueProp` patch outlive their test, and `setupAutoSpy()` is
+Vitest-only (see [Bun → Nothing is restored between tests](/runtimes/bun#nothing-is-restored-between-tests)).
+The same preload is the place for both the restore and any `mock.module()` that has to apply before
+the code under test is imported:
+
+```toml
+# bunfig.toml
+[test]
+preload = ["vitest-auto-spy/bun-angular", "./bun-test-setup.ts"]
+```
+
+```ts
+// bun-test-setup.ts
+import { afterEach, mock } from 'bun:test';
+import { restoreMockedProps } from 'vitest-auto-spy/bun-angular';
+
+mock.module('./src/app/analytics', () => ({ track: () => undefined }));
+
+afterEach(() => {
+  restoreMockedProps();
+  mock.restore();
+});
+```
+
+Spies from `provideAutoSpy` need none of this: they are built per `TestBed`, and the reset after each
+test discards them.
+
 ## Limits worth knowing
 
 - **A signal `input()` does not bind.** Bun compiles a component with the JIT compiler, which

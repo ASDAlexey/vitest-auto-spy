@@ -83,6 +83,47 @@ holding one is stored as an ordinary argument and matches nothing — `read.call
 answers `undefined` for `read(7)` rather than throwing. On Bun, dispatch on exact arguments, or use
 `mockImplementation` when the answer really does depend on the shape of an argument.
 
+## Nothing is restored between tests
+
+`bun:test` has no counterpart to Vitest's `restoreMocks` or `clearMocks`. A `spyOn(obj, 'm')` stays
+on the object after its test ends, and the next test calls the spy, not the method. A spy that one
+test configured keeps its answer and its recorded calls. A `mockValueProp` patch stays in place too.
+Bun's own answer is `mock.restore()` in an `afterEach`.
+
+[`setupAutoSpy()`](/utilities/setup) does this on Vitest, but `vitest-auto-spy/setup` registers
+Vitest hooks and has no Bun entry. On Bun, write the same two lines into a preload:
+
+```ts
+// bun-test-setup.ts
+import { afterEach, mock } from 'bun:test';
+import { restoreMockedProps } from 'vitest-auto-spy/bun';
+
+afterEach(() => {
+  restoreMockedProps(); // mockValueProp, mockReadonlyProp and the rest
+  mock.restore(); // every spyOn
+});
+```
+
+```toml
+# bunfig.toml
+[test]
+preload = ["./bun-test-setup.ts"]
+```
+
+Auto-spies need nothing from this. `createSpyFromClass(X)` builds a new object and never touches
+`X`, so a spy created in `beforeEach` goes away with its test. Only a spy created once at the top of
+a file carries state from one test to the next. Create it in `beforeEach`, or call
+`resetAutoSpy(spy)` there.
+
+**A module mock belongs in the preload as well.** `mock.module()` swaps a module's exports
+wherever the module is imported, but by then the original module has already run. Its side effects
+have happened, and a value another module computed from it at import time stays real. Measured on
+Bun 1.4: a consumer that exports `greeting = greet()` still reads `'real'` after a
+`mock.module()` in the test, and reads `'mocked'` when the same call moves into a `--preload` file.
+`mock.restore()` does not undo `mock.module()`: the mock stays for the rest of the process. The
+[`vitest-auto-spy/bun-angular`](/runtimes/bun-angular) entry is a preload for the same reason. Its
+template-inlining hook only sees modules loaded after it.
+
 ## Bun 1.4 test-runner flags
 
 Bun 1.4 turned `bun test` into a runner with the scheduling controls a large suite needs. Nothing in
