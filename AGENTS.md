@@ -3936,6 +3936,28 @@ diagnostic and is free to change: print it, never assert on it.
 | a bare `vi.spyOn(console, 'error')` to keep a spec quiet                        | `.mockImplementation(() => undefined)` — without it the line still prints                                        |
 | `mockReadonlyProp(c, 'items', vi.fn(() => []))`                                 | `mockReadonlyProp(c, 'items', signal([]))` — a real signal                                                       |
 | `spy.m.mockReturnValue(subject$)` for a `vi.fn(() => subject$)`                 | `spy.m.mockImplementation(() => subject$)` — the variable is re-read                                             |
+| `const overrides = { m: vi.fn(() => of(x)) }` hoisted out of the call           | `const overrides: DeepPartial<X> = { … }` — checked against `X` where it is written                              |
+
+**A hand-rolled double trips `rxjs-x/finnish`, and a double from this package does not.** The rule
+reports any name whose type is an `Observable` **or whose call signature returns one**
+(`couldReturnObservable`). `vi.fn()` and `vi.spyOn()` hand back a callable mock carrying the
+signature of the method it stands for, so a double for a method returning an `Observable` reads to
+the rule as a stream and it asks for a `$` — on a spy, where the `$` would lie about what the
+variable holds. `functions: false` gives no relief: that option is about function _declarations_,
+not a variable holding one. A `Spy<T>` from `createSpyFromClass`, `provideAutoSpy` or
+`createAutoMock` is an ordinary object instead — the Observable sits on its members, not on the
+variable — so nothing is reported, and neither the name nor the assertion has to be bent. Measured
+on an Angular workspace of 1771 spec files: the rule named seven sites, every one a hand-rolled
+`vi.fn`/`vi.spyOn`, and none on a double built here.
+
+The overrides bag is the one shape worth knowing in detail, because the repair is not a rename.
+Written inline, `provideAutoSpy(X, { overrides: { m: vi.fn(() => of(x)) } })` is invisible to the
+rule — an object literal inside a call is skipped. Hoisted into a `const` it is reported **per key**,
+and the key cannot be renamed: it is the method's name on `X`. What clears it is the annotation the
+bag should carry anyway, `const overrides: DeepPartial<X> = { … }` — the rule skips a literal whose
+variable is annotated, and the bag starts being checked against `X` where it is written rather than
+only at the call. For a spy whose name is genuinely free, `*Spy` plus a `names` exemption in the
+rule's own options says the same thing once for the whole repository.
 
 **The one mechanical rename in a migration that is not equivalent.** `vi.fn(() => x)` reads `x`
 when the double is _called_; `mockReturnValue(x)` freezes the value `x` had when the double was
