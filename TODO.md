@@ -104,6 +104,21 @@ which is where this file's `[~]` entries went on 2026-09-10 — a decision is no
 
 ## Diagnostics
 
+- [ ] **Nothing catches a setup module that stopped being evaluated per file.** §10 already names the
+      trap — `@angular/build:unit-test` under `--coverage` serves every test file as a wrapper around
+      the built bundle, the wrapper is invalidated per file and the bundle behind it is not, so
+      `setupAutoSpy()` runs once per **worker** and only the first file of each worker gets root
+      hooks. It is documented and still expensive to meet: on the Angular suite that hit it, one
+      shard came back with **120 failures, 85 of them `the timers APIs are not mocked`** — a message
+      that sends the reader into the spec it names, which is fine on its own and fails only behind a
+      file that ran before it. Prose cannot reach someone who did not read it; this one is cheap to
+      detect. Record the `expect.getState().testPath` the registration belongs to, and from a hook
+      that survives (it was registered once, which is the whole problem) compare it with the current
+      one — a mismatch means the per-file registration never happened, and the report can name the
+      builder, the coverage flag and the three ways out. Worth pricing the remedies §10 offers while
+      the change is open: `--isolate` was measured on that suite at **150 s against 107 s** for the
+      same shard, and the third way — rewriting the wrapper to call an exported
+      `installPerFileHooks()` — costs nothing at run time and is what they shipped.
 - [ ] **`explainSpy` cannot see a symbol-keyed method.** Methods behind a symbol key are spied and
       reset now, but the report enumerates string keys, so they are missing from the one place a
       reader goes to ask what a double is configured with. The change is small and local to
@@ -134,6 +149,16 @@ which is where this file's `[~]` entries went on 2026-09-10 — a decision is no
       holding a **union** of classes, and a `#private` field — the second is unreachable by bracket
       access, by a cast and by `Object.getPrototypeOf` alike, so there is nothing to report for it.
       The union case is the one worth building, and it is worth building when a suite produces it.
+- [ ] **A rule for an overrides bag hoisted without its type.** `provideAutoSpy(X, { overrides })`
+      checks the bag at the call, so hoisting it into an un-annotated `const` loses nothing at
+      compile time and the shape looks harmless — until the bag drifts from `X` and the error lands
+      on the call site rather than on the literal, or until a type-aware rule reads the _inferred_
+      type of the const and reports its keys (`rxjs-x/finnish` does exactly that, per §18). The
+      repair is one annotation, `const overrides: DeepPartial<X> = { … }`, which also moves the check
+      to where the bag is written. It is the same reach `no-structural-double` declines through a
+      factory — the bag travels to the call as a variable — so the shape to settle first is whether
+      the rule follows only a `const` used once in the same scope, which is the case worth having and
+      the one that cannot go wrong. Measured demand: 4 of 7 findings on the 1771-file suite.
 
 ## `doctor` — the catalogue is a fifth built
 
