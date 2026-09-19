@@ -17,6 +17,10 @@ import { currentSpecFile } from './spec-file';
 import { isAutoSpyLike } from './spy-mark';
 import type { ClassSpyConfiguration, ClassType, DeepPartial, OnlyMethodKeysOf, Spy, SpyOptions } from './types';
 
+type NoMemberInferredNever<T> = true extends { [K in keyof T]-?: [T[K]] extends [never] ? true : false }[keyof T] ? never : unknown;
+
+type InstanceAtConstraint<Class> = Class extends abstract new (...args: never[]) => infer Instance ? Instance : never;
+
 /** `{ provide, useValue }` shape consumed by Angular's `providers`. */
 export type AngularValueProvider<T> = { provide: ClassType<T>; useValue: Spy<T> };
 
@@ -156,7 +160,16 @@ export function provideAutoSpyForToken<T>(
  * `read(): unknown` where the class says `read(): RemoteConfigDefaults`. Splitting the class case
  * into its own overload is the whole fix; the union survives underneath it for tokens.
  */
-export function injectSpy<T, Options extends SpyOptions = SpyOptions>(token: abstract new (...args: never[]) => T): Spy<T, Options>;
+export function injectSpy<T, Options extends SpyOptions = SpyOptions>(
+  token: NoMemberInferredNever<T> & (abstract new (...args: never[]) => T),
+): Spy<T, Options>;
+/**
+ * A generic class whose constructor takes its own type parameter: the overload above infers that
+ * parameter from `never[]`, so the class is read at its constraint instead — `unknown` when it has none.
+ */
+export function injectSpy<Class extends abstract new (...args: never[]) => unknown, Options extends SpyOptions = SpyOptions>(
+  token: Class,
+): Spy<InstanceAtConstraint<Class>, Options>;
 /** A token, or a class whose statics the call site names — the shape the union was written for. */
 export function injectSpy<T, Options extends SpyOptions = SpyOptions>(token: ClassType<T> | InjectionToken<T>): Spy<T, Options>;
 export function injectSpy<T, Options extends SpyOptions = SpyOptions>(

@@ -6,10 +6,12 @@
  * factory reads `T` back from the list there and rejects the call (`spy.test-d.ts`). The cases
  * below fail the moment the signature starts inferring from the configuration again.
  */
-import type { InputSignal, Type } from '@angular/core';
+import { InjectionToken, type InputSignal, type Type } from '@angular/core';
 import { describe, expectTypeOf, it } from 'vitest';
+import type { Mock } from 'vitest';
 
-import { createComponentStub, overrideAutoSpy, provideAutoSpy } from '../angular';
+import { createComponentStub, injectSpy, overrideAutoSpy, provideAutoSpy } from '../angular';
+import type { Spy } from '../auto-spy';
 
 interface FlagDefaults {
   beta: boolean;
@@ -86,5 +88,52 @@ describe('createComponentStub', () => {
     createComponentStub(ChartComponent, { reset: 'nope' });
     // @ts-expect-error -- ChartComponent has no member called zoom
     createComponentStub(ChartComponent, { zoom: 1 });
+  });
+});
+
+declare class ModalHost {
+  close(): void;
+}
+
+declare class ModalRef<T = unknown> {
+  constructor(data: T, host: ModalHost);
+  get data(): T;
+  close(result?: string): void;
+}
+
+declare class ConfigService<T extends object = FlagDefaults> {
+  constructor(defaults: T, host: ModalHost);
+  get config(): Readonly<T>;
+}
+
+declare class InjectedFlags<T extends object = FlagDefaults> {
+  constructor(host: ModalHost);
+  get flags(): Readonly<T>;
+}
+
+const PLAIN = new InjectionToken<Plain>('plain');
+
+describe('injectSpy on a generic class', () => {
+  it('reads a class whose constructor takes its type parameter at the default, not at never', () => {
+    expectTypeOf(injectSpy(ModalRef)).toEqualTypeOf<Spy<ModalRef<unknown>>>();
+
+    const ref: Spy<ModalRef> = injectSpy(ModalRef);
+    ref.accessorSpies.getters.data.mockReturnValue({ id: 1 });
+  });
+
+  it('falls back to the constraint when the constructor takes a constrained parameter', () => {
+    expectTypeOf(injectSpy(ConfigService).accessorSpies.getters.config).toEqualTypeOf<Mock<() => Readonly<object>>>();
+  });
+
+  it('keeps the declared default when the constructor does not take the parameter', () => {
+    expectTypeOf(injectSpy(InjectedFlags).accessorSpies.getters.flags).toEqualTypeOf<Mock<() => Readonly<FlagDefaults>>>();
+  });
+
+  it('takes an explicit instantiation, a plain class and a token as before', () => {
+    expectTypeOf(injectSpy<ConfigService<{ alpha: boolean }>>(ConfigService).accessorSpies.getters.config).toEqualTypeOf<
+      Mock<() => Readonly<{ alpha: boolean }>>
+    >();
+    expectTypeOf(injectSpy(Plain).load).returns.toEqualTypeOf<number>();
+    expectTypeOf(injectSpy(PLAIN)).toEqualTypeOf<Spy<Plain>>();
   });
 });
