@@ -8,6 +8,37 @@ reason.
 
 Shipped work is not here either — it is in `CHANGELOG.md` and in git history.
 
+## The type-instantiation budget now measures the opt-in surfaces, 2026-09-19
+
+`npm run types:budget` (`scripts/check-type-budget.mjs`) budgets the delta between two generated
+programs: a fixture declaring 30 `createSpyFromClass` spies over an 80-member class with 600
+member touches, and a control with the same class and imports but no spies. Until today that
+delta was the cost of `Spy<T>` and nothing else, through two blind spots the 5.19 release made
+expensive. Both programs import the root entry, so a type that merely rides the barrel —
+`captureArg`/`ArgCaptor`, `ConstructorSpy`/`SpyClassOptions`, `moduleNamespace`, the prop-mock
+and emission helpers — is declared in each program and instantiated in neither: its cost cancels
+out of the delta, and a heavy conditional there could never fail the gate. And the opt-in entries
+were in no program at all: `/signal-forms`, whose `createForm` returns Angular's `FieldTree`, and
+the jasmine entry's `JasmineSpy<T>` with `.and`/`.calls`/`.withArgs`, paid by every migrating
+suite, were measured nowhere.
+
+The treatment program now carries a second fixture, `surfaces.ts`, which the control does not
+include; it instantiates each of those types once against the same fixture class. Measured
+2026-09-19, TypeScript 6.0.3, on a tree carrying that day's edits to `lib/types.ts`: total
+43 143, control 14 226, delta 28 917, budget raised 12 500 → 34 700 — the same ~20 % headroom the
+previous baselines kept. The surfaces carry 17 400 of the delta: ~2 100 the 5.19 root-barrel
+types, ~4 850 the jasmine surface, ~10 500 `/signal-forms`, the largest because `FieldTree` is
+Angular's. On the pre-widening scope the same day measured delta 11 517, so the figures quoted in
+"Undersold moats" below — delta 9 126 against a budget of 11 000, from 2026-09-02 — are
+superseded twice over: first by the 2026-09-12 re-baseline (10 410 / 12 500), now by this one.
+The gate's own cost barely moved: 1.0 → 1.1 s wall for the whole check.
+
+- [~] Per-member granularity is not attempted. The fixture makes one real use of each type, not
+  of every member of every type, and the per-surface split above came from dropping one surface
+  at a time from a scratch copy of the script. The budget is a tripwire against degeneration, not
+  an accounting system; a member heavy enough to matter drags its declaring type's instantiation
+  count up with it.
+
 ## Three trades the audit round settled, 2026-09-17
 
 Two of them reverse an entry further down this file, which is why they are written here rather than

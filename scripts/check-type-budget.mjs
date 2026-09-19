@@ -19,6 +19,17 @@
  * TypeScript version, so a run that differs from the last one is a change in the types, never
  * noise.
  *
+ * The treatment program also carries a second fixture, `surfaces.ts`, which the control does not
+ * include. Both programs import the root barrel, so a type that merely rides the barrel is
+ * declared in each program and instantiated in neither — its cost cancels out of the delta, and a
+ * heavy conditional there could never fail this gate. That was not hypothetical: everything the
+ * root entry gained in 5.19 (`captureArg`/`ArgCaptor`, `ConstructorSpy`/`SpyClassOptions`,
+ * `moduleNamespace`, the prop-mock and emission helpers) sat in that blind spot, and the opt-in
+ * entries — `/signal-forms` with Angular's `FieldTree`, the jasmine `JasmineSpy` surface — were
+ * imported by no program at all. `surfaces.ts` instantiates each of them once against the same
+ * fixture class, so what the delta measures is the consumer-paid cost of every public surface,
+ * not only `Spy<T>`.
+ *
  * The fixture is generated rather than committed because a 600-line file under `src/` would be
  * linted, scanned by jscpd and type-checked by the main gate for no benefit; `--print` shows it.
  *
@@ -43,22 +54,28 @@ const SPIES = 30;
 const TOUCHES = 600;
 
 /**
- * Instantiations attributable to `Spy<T>` on the fixture above: measured delta plus ~20 % headroom.
+ * Instantiations attributable to the measured spy surface on the fixtures above: measured delta
+ * plus ~20 % headroom.
  *
- * Baseline 2026-09-12, TypeScript 6.0.3: total 23 265, control 12 855, delta 10 410.
- * Previous baseline 2026-09-02, TypeScript 5.9.3: total 19 933, control 10 807, delta 9 126.
+ * Baseline 2026-09-19, TypeScript 6.0.3: total 43 143, control 14 226, delta 28 917. The scope
+ * widened the same day — the treatment program gained `surfaces.ts`, which instantiates the 5.19
+ * root-barrel types, the jasmine `JasmineSpy` surface and `/signal-forms`, none of which the
+ * delta could see before (barrel riders cancelled against the control; the opt-in entries were in
+ * no program at all). Figures recorded before the widening are a different quantity and are not
+ * comparable to this one.
  *
- * **The re-baseline is not a regression.** The control program — the same fixture and the same
- * imports, with no spies and no touches — rose 10 807 → 12 855 on its own (+18.9 %), while the
- * delta rose +14.1 %: the toolchain moved a major version and the library grew typed features in
- * the same path (per-method overload maps, `selfReturning`, the optional / inherited member fix).
- * Had `Spy<T>` degenerated, the delta would have risen *faster* than the control, not slower.
+ * The surfaces carry 17 400 of the delta on the baseline tree: ~2 100 the 5.19 root-barrel
+ * types, ~4 850 the jasmine surface, ~10 500 `/signal-forms`, whose `FieldTree` is Angular's and
+ * is what a consumer of that entry pays. On the pre-widening scope the same toolchain measured
+ * delta 11 517 (2026-09-19, with that day's edits to `lib/types.ts`), against the recorded
+ * 10 410 (2026-09-12, TypeScript 6.0.3) and 9 126 (2026-09-02, TypeScript 5.9.3).
  *
- * A deep-proxy regression roughly doubles the delta, so 20 % catches it while leaving room for a
- * helper or two. Raise this only together with the number in `docs-site/comparison.md`
- * ("Type-check cost"), and only with the control's own movement measured next to it.
+ * A deep-proxy regression roughly doubles the `Spy<T>` part of the delta, so 20 % headroom
+ * catches it while leaving room for a helper or two. Raise this only together with the number in
+ * `docs-site/comparison.md` ("Type-check cost"), and only with the control's own movement
+ * measured next to it.
  */
-const BUDGET = 12_500;
+const BUDGET = 34_700;
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const require = createRequire(import.meta.url);
@@ -173,7 +190,166 @@ function fixture(withSpies) {
   return lines.join('\n');
 }
 
-function tsconfig(fixtureFile) {
+/**
+ * The opt-in surfaces fixture: one real use of every type the root barrel and the opt-in entries
+ * carry, so none of them can hide behind the control's cancellation — both programs import the
+ * root entry, and a type that is only declared, never instantiated, costs both sides equally and
+ * drops out of the delta.
+ *
+ * It is a separate file because the control must not include it: an import in the shared fixture
+ * would put these types on both sides of the subtraction again. Every import is referenced at
+ * least once, because an unused import is elided and an uninstantiated type costs nothing —
+ * `Spy<T>` itself is exercised the same way, through a fixture-class instantiation rather than a
+ * name.
+ */
+function surfacesFixture(mainLabel) {
+  return [
+    `import { required } from '@angular/forms/signals';`,
+    `import { of } from 'rxjs';`,
+    `import { expect } from 'vitest';`,
+    `import {`,
+    `  assertMocked,`,
+    `  captureArg,`,
+    `  countMockedProps,`,
+    `  createSpyClass,`,
+    `  expectCompletion,`,
+    `  expectEmission,`,
+    `  expectEmissions,`,
+    `  expectError,`,
+    `  expectNoEmission,`,
+    `  mockAccessorsProp,`,
+    `  mockReadonlyProp,`,
+    `  mockValueProp,`,
+    `  moduleNamespace,`,
+    `  reportPropsOutsideHooks,`,
+    `  restoreMockedProps,`,
+    `  setEmissionTimeout,`,
+    `  type AccessorImplementations,`,
+    `  type ArgCaptor,`,
+    `  type AssertMockedOptions,`,
+    `  type CallbackSubscribable,`,
+    `  type CaptureArgOptions,`,
+    `  type ConstructorSpy,`,
+    `  type EmissionObserver,`,
+    `  type EmissionOptions,`,
+    `  type EmissionSource,`,
+    `  type ModuleNamespace,`,
+    `  type ModuleNamespaceOptions,`,
+    `  type RestoreProp,`,
+    `  type SpyClassOptions,`,
+    `  type SubscribableLike,`,
+    `} from 'vitest-auto-spy';`,
+    `import {`,
+    `  createFunctionSpy as createJasmineFunctionSpy,`,
+    `  createSpyFromClass as createJasmineSpyFromClass,`,
+    `  createSpyObj,`,
+    `  provideAutoSpy,`,
+    `  type AngularValueProvider,`,
+    `  type JasmineClassSpyConfiguration,`,
+    `  type JasmineSpy,`,
+    `  type SpyObj,`,
+    `} from 'vitest-auto-spy/jasmine';`,
+    `import { createForm, registerFormMatchers, type CreateFormOptions, type FieldErrorMatch } from 'vitest-auto-spy/signal-forms';`,
+    ``,
+    `import { Fixture } from './${mainLabel}';`,
+    ``,
+    `const captorOptions: CaptureArgOptions = { where: (value) => typeof value === 'number' };`,
+    `const numberCaptor: ArgCaptor<number> = captureArg<number>(captorOptions);`,
+    `const idCaptor: ArgCaptor<{ id: number }> = captureArg<{ id: number }>();`,
+    `void numberCaptor.values.length;`,
+    `void idCaptor.captured;`,
+    `numberCaptor.reset();`,
+    ``,
+    `const classOptions: SpyClassOptions = { statics: true };`,
+    `const FixtureSpyClass: ConstructorSpy<Fixture> = createSpyClass(Fixture, { onlyMethodsToSpyOn: ['m0', 'm1', 'm3'] }, classOptions);`,
+    `void FixtureSpyClass.calls.length;`,
+    `void FixtureSpyClass.instances.length;`,
+    ``,
+    `const namespaceOptions: ModuleNamespaceOptions = { lenient: true };`,
+    `const namespace: ModuleNamespace<{ load: (id: number) => void }> = moduleNamespace({ load: () => undefined }, namespaceOptions);`,
+    `void namespace.load;`,
+    `void namespace.default;`,
+    `const mockedOptions: AssertMockedOptions = { specifier: 'surfaces-ns', exports: ['load'] };`,
+    `void assertMocked(namespace, mockedOptions);`,
+    ``,
+    `const host = { version: 1, label: 'x' };`,
+    `const accessors: AccessorImplementations = { get: () => 'patched' };`,
+    `const restoreValue: RestoreProp = mockValueProp(host, 'version', 2);`,
+    `const restoreReadonly: RestoreProp = mockReadonlyProp(host, 'label', 'readonly');`,
+    `const restoreAccessors: RestoreProp = mockAccessorsProp(host, 'label', accessors);`,
+    `restoreValue();`,
+    `restoreReadonly();`,
+    `restoreAccessors();`,
+    `void countMockedProps();`,
+    `reportPropsOutsideHooks('warn');`,
+    `restoreMockedProps();`,
+    ``,
+    `const numbers$ = of(1, 2);`,
+    `const numbersSource: EmissionSource<number> = numbers$;`,
+    `const emissionOptions: EmissionOptions<number> = { label: 'numbers', timeout: 50, until: (value) => value > 0 };`,
+    `const customSource: SubscribableLike<number> = {`,
+    `  subscribe(observer) {`,
+    `    observer.next?.(1);`,
+    `    return { unsubscribe: () => undefined };`,
+    `  },`,
+    `};`,
+    `const callbackSource: CallbackSubscribable<number> = {`,
+    `  subscribe(next) {`,
+    `    next(1);`,
+    `    return { unsubscribe: () => undefined };`,
+    `  },`,
+    `};`,
+    `const observer: EmissionObserver<number> = {`,
+    `  next: (value) => { void value; },`,
+    `  error: (error) => { void error; },`,
+    `  complete: () => undefined,`,
+    `};`,
+    `void numbersSource;`,
+    `void observer;`,
+    `void expectEmission(numbers$, emissionOptions);`,
+    `void expectEmissions(numbers$, 2);`,
+    `void expectNoEmission(numbers$);`,
+    `void expectCompletion(customSource);`,
+    `void expectError(callbackSource);`,
+    `setEmissionTimeout(5000);`,
+    ``,
+    `const jasmineConfig: JasmineClassSpyConfiguration<Fixture> = { methodsToSpyOn: ['m0'] };`,
+    `const jspy: JasmineSpy<Fixture> = createJasmineSpyFromClass(Fixture, jasmineConfig);`,
+    `jspy.m0.and.returnValue('m0');`,
+    `jspy.m1.and.resolveTo({ id: 1, name: 'm1' });`,
+    `jspy.m2.and.nextWith([1]);`,
+    `jspy.m3.withArgs(1, 'b').and.returnValue(true);`,
+    `void jspy.m0.calls.count();`,
+    `void jspy.m0.calls.mostRecent();`,
+    `jspy.accessorSpies.getters.m9.and.returnValue('m9');`,
+    ``,
+    `const fnSpy = createJasmineFunctionSpy<() => string>('fn');`,
+    `fnSpy.and.returnValue('fn');`,
+    ``,
+    `const provider: AngularValueProvider<Fixture> = provideAutoSpy(Fixture);`,
+    `void provider.useValue.m0.and.returnValue('m0');`,
+    ``,
+    `const store: SpyObj<'load' | 'save', 'id'> = createSpyObj('store', ['load', 'save'], { id: 7 });`,
+    `store.load.and.returnValue(undefined);`,
+    `void store.id;`,
+    ``,
+    `const formOptions: CreateFormOptions = {};`,
+    `const expected: readonly FieldErrorMatch[] = [{ kind: 'required', message: 'Email is required' }];`,
+    `const user = createForm(`,
+    `  { email: '', name: '' },`,
+    `  (path) => {`,
+    `    required(path.email, { message: 'Email is required' });`,
+    `    required(path.name);`,
+    `  },`,
+    `  formOptions,`,
+    `);`,
+    `expect(user.email).toHaveFieldErrors(expected);`,
+    `registerFormMatchers();`,
+    '',
+  ].join('\n');
+}
+
+function tsconfig(files) {
   return JSON.stringify(
     {
       extends: join(REPO, 'tsconfig.json'),
@@ -185,11 +361,15 @@ function tsconfig(fixtureFile) {
         typeRoots: [join(REPO, 'node_modules', '@types')],
         paths: {
           'vitest-auto-spy': [join(REPO, 'src', 'index.ts')],
+          'vitest-auto-spy/jasmine': [join(REPO, 'src', 'jasmine.ts')],
           'vitest-auto-spy/rxjs': [join(REPO, 'src', 'rxjs.ts')],
+          'vitest-auto-spy/signal-forms': [join(REPO, 'src', 'signal-forms.ts')],
           rxjs: [join(REPO, 'node_modules', 'rxjs')],
+          vitest: [join(REPO, 'node_modules', 'vitest')],
+          '@angular/forms/signals': [join(REPO, 'node_modules', '@angular', 'forms', 'types', 'signals.d.ts')],
         },
       },
-      include: [fixtureFile],
+      include: files,
     },
     null,
     2,
@@ -197,12 +377,21 @@ function tsconfig(fixtureFile) {
 }
 
 /** Type-check one generated program and return its `Instantiations:` count. */
-function instantiations(dir, label, withSpies) {
+function instantiations(dir, label, { withSpies, withSurfaces = false }) {
   const fixtureFile = join(dir, `${label}.ts`);
   const configFile = join(dir, `tsconfig.${label}.json`);
+  const files = [fixtureFile];
 
   writeFileSync(fixtureFile, fixture(withSpies));
-  writeFileSync(configFile, tsconfig(fixtureFile));
+
+  if (withSurfaces) {
+    const surfacesFile = join(dir, 'surfaces.ts');
+
+    writeFileSync(surfacesFile, surfacesFixture(label));
+    files.push(surfacesFile);
+  }
+
+  writeFileSync(configFile, tsconfig(files));
 
   const tsc = require.resolve('typescript/lib/tsc.js');
   const result = spawnSync(process.execPath, [tsc, '--extendedDiagnostics', '-p', configFile], { encoding: 'utf8', cwd: REPO });
@@ -224,7 +413,7 @@ function main() {
   const args = new Set(process.argv.slice(2));
 
   if (args.has('--print')) {
-    process.stdout.write(fixture(true));
+    process.stdout.write([fixture(true), surfacesFixture('fixture')].join('\n'));
 
     return;
   }
@@ -234,14 +423,14 @@ function main() {
   let control;
 
   try {
-    total = instantiations(dir, 'fixture', true);
-    control = instantiations(dir, 'control', false);
+    total = instantiations(dir, 'fixture', { withSpies: true, withSurfaces: true });
+    control = instantiations(dir, 'control', { withSpies: false });
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 
   const delta = total - control;
-  const shape = `${MEMBERS} members, ${SPIES} spies, ${TOUCHES} touches`;
+  const shape = `${MEMBERS} members, ${SPIES} spies, ${TOUCHES} touches, opt-in surfaces`;
   const summary = `total ${total}, control ${control}, delta ${delta} (budget ${BUDGET}; ${shape})`;
 
   if (args.has('--measure')) {
@@ -252,11 +441,11 @@ function main() {
 
   if (delta > BUDGET) {
     fail(
-      `Spy<T> costs ${delta} type instantiations on the fixture (${shape}), over the budget of ${BUDGET}.\n` +
+      `The measured spy surface costs ${delta} type instantiations on the fixture (${shape}), over the budget of ${BUDGET}.\n` +
         `  ${summary}\n` +
-        `  The change made Spy<T> or its helpers heavier for every consumer's tsc run — reconsider it. ` +
-        `If the growth is deliberate, raise BUDGET in scripts/check-type-budget.mjs together with the ` +
-        `number in docs-site/comparison.md ("Type-check cost").`,
+        `  The change made Spy<T>, its helpers, or one of the measured opt-in surfaces heavier for every ` +
+        `consumer's tsc run — reconsider it. If the growth is deliberate, raise BUDGET in ` +
+        `scripts/check-type-budget.mjs together with the number in docs-site/comparison.md ("Type-check cost").`,
     );
   }
 
