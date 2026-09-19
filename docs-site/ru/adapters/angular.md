@@ -427,6 +427,27 @@ expect(instance.checkout()).toBe(100);
 [`renderShallow`](#shallow-component-rendering) или обычный `configureTestingModule`.
 :::
 
+## Спай на настоящий сервис без подмены {#spying-a-real-service-without-replacing-it}
+
+Когда тесту нужен настоящий сервис — его зависимости, его сигналы, его побочные эффекты — и нужно
+лишь проверить, что вызвал компонент, возьмите сервис из инжектора и поставьте на него спай на месте:
+
+```ts
+const cart = createSpyFromInstance(TestBed.inject(CartService), { passthrough: true });
+const fixture = TestBed.createComponent(CartComponent);
+
+fixture.componentInstance.addOne();
+
+expect(cart.add).toHaveBeenCalledWith(5); // выполнился настоящий CartService с настоящими зависимостями
+cart.checkout.resolveWith('declined'); // с этого места дублем стал только checkout
+```
+
+`passthrough` записывает каждый вызов и выполняет настоящий метод, пока тест его не настроит. DI-граф
+остаётся настоящим, `ɵprov` не трогается, поля `signal()` сохраняют `set`/`update`, а teardown TestBed
+вызывает настоящий `ngOnDestroy` — хуки жизненного цикла намеренно остаются без спаев. `setupAutoSpy()`
+восстанавливает экземпляр после теста. Правила — в
+[`createSpyFromClass` → `passthrough`](/ru/core/create-spy-from-class#passthrough).
+
 ## Ожидание в zoneless-режиме {#zoneless-waiting}
 
 ```ts
@@ -1698,6 +1719,14 @@ expect(fixture.nativeElement.querySelector('.play')).toHaveFocus();
 ```ts
 const config = injectSpy<FeatureFlagService>(FeatureFlagService);
 ```
+
+Без аргумента `injectSpy(X)` сохраняет объявленное умолчание, если конструктор не принимает параметр
+типа. Если принимает — `constructor(public data: T, …)`, форма большинства ссылок на модалки, — класс
+читается по **ограничению**: `ModalRef<T = unknown>` даёт `Spy<ModalRef<unknown>>`, а
+`ConfigService<T extends Config = Defaults>` — `Spy<ConfigService<Config>>`. В 5.19.0 здесь выводился
+`never`, и типизированный мешок `accessorSpies` превращал это в ошибку присваивания. Умолчание
+конструктор TypeScript не отдаёт, поэтому пишите аргумент явно, когда спеке нужно именно умолчание или
+конкретная инстанциация: `injectSpy<ModalRef<PurchaseOptions>>(ModalRef)`.
 
 ## Zone и zoneless в одном прогоне {#zone-and-zoneless-in-the-same-run}
 

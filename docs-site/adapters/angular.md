@@ -450,6 +450,27 @@ returned by `provideHttpClient()` and friends. A class that needs those belongs 
 [`renderShallow`](#shallow-component-rendering), or a plain `configureTestingModule`.
 :::
 
+## Spying a real service without replacing it
+
+When the test wants the real service — its dependencies, its signals, its side effects — and only
+needs to assert what the component called, take it from the injector and spy it in place:
+
+```ts
+const cart = createSpyFromInstance(TestBed.inject(CartService), { passthrough: true });
+const fixture = TestBed.createComponent(CartComponent);
+
+fixture.componentInstance.addOne();
+
+expect(cart.add).toHaveBeenCalledWith(5); // the real CartService ran, with its real dependencies
+cart.checkout.resolveWith('declined'); // only checkout is a double from here on
+```
+
+`passthrough` records every call and runs the real method until the test configures it. The DI graph
+stays real, `ɵprov` is untouched, `signal()` fields keep their `set`/`update`, and TestBed's teardown
+calls the real `ngOnDestroy` — lifecycle hooks are left unspied on purpose. `setupAutoSpy()` restores
+the instance after the test. The rules are on
+[`createSpyFromClass` → `passthrough`](/core/create-spy-from-class#passthrough).
+
 ## Zoneless waiting
 
 ```ts
@@ -1772,6 +1793,14 @@ nothing in the message about type parameters:
 ```ts
 const config = injectSpy<FeatureFlagService>(FeatureFlagService);
 ```
+
+Without the argument, `injectSpy(X)` keeps a declared default when the constructor does not take the
+type parameter. When it does — `constructor(public data: T, …)`, the shape of most modal refs — the
+class is read at its **constraint**: `ModalRef<T = unknown>` gives `Spy<ModalRef<unknown>>`, and
+`ConfigService<T extends Config = Defaults>` gives `Spy<ConfigService<Config>>`. 5.19.0 inferred
+`never` there, which the typed `accessorSpies` bag turned into an assignment error. A constructor
+cannot hand TypeScript the default, so spell the argument out when the default or one instantiation
+is what the spec means: `injectSpy<ModalRef<PurchaseOptions>>(ModalRef)`.
 
 ## Zone and zoneless in the same run
 
