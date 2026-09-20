@@ -104,6 +104,16 @@ const PLUGIN_NAME = 'vitest-auto-spy';
  * **The three console rules decide on facts, not on a reading of the code**, so they are `error`: on the
  * 1759-file consumer they report 0, 6 in 2 files, and 32 of the 39 files that import `/console`.
  *
+ * **`prefer-stub-response` is `error` on the same footing as `no-hand-assigned-global`**, the rule it
+ * is shaped after: the evidence is the line itself. An object literal cast to `Response` answers the
+ * members it lists and `undefined` for the rest, and the repair is a helper this package already
+ * ships — no heuristic, and no migration to gate. It also arrives the way a rule wants to: the
+ * consumer that provoked it had converted its three `fetch` specs by hand before the rule existed,
+ * so on the day it ships it reports **zero** there, an `error` nobody has to negotiate. What keeps
+ * it that cheap is the one discrimination it makes: `Response` has to resolve to the global, so an
+ * Express handler's `Response` or a generated client's envelope — where `stubResponse` is not the
+ * repair — is never reported.
+ *
  * **`no-mistyped-use-value` and `no-unknown-use-value-key` decide on the checker's answer**, so both are
  * `error` — and neither is in `typeErrors`, because `useValue` is `any` and the finding compiles.
  * **`no-instance-lifecycle-spy` is `warn`**: the rule cannot see whether a spec reaches the instance spy
@@ -167,6 +177,7 @@ const recommendedRules: Record<string, RuleSeverity> = {
   [`${PLUGIN_NAME}/no-structural-double`]: 'warn',
   [`${PLUGIN_NAME}/prefer-observer-stub`]: 'error',
   [`${PLUGIN_NAME}/no-hand-assigned-global`]: 'error',
+  [`${PLUGIN_NAME}/prefer-stub-response`]: 'error',
   [`${PLUGIN_NAME}/prefer-provide-activated-route`]: 'error',
   [`${PLUGIN_NAME}/no-passthrough-console-spy`]: 'error',
   [`${PLUGIN_NAME}/no-console-in-spec`]: 'error',

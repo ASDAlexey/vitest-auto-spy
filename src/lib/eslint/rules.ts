@@ -100,6 +100,7 @@ import {
 import { preferSetInputs } from './set-inputs';
 import { noRedundantSmokeTest } from './smoke-test';
 import { noStubClassDouble } from './stub-class';
+import { preferStubResponse } from './stub-response';
 import { type EsNamedCall, type SubscribeRepair, enclosingSubscribe, helperAssertions, repairFor } from './subscribe-repair';
 import { noSyncTestbedAwait } from './testbed-await';
 import { INSTANTIATES_THE_MODULE, OVERRIDES_THE_MODULE, RESETS_THE_MODULE, type TestBedOrdering, breaksAnOverride } from './testbed-order';
@@ -689,6 +690,7 @@ export const rules: Record<string, RuleModule> = {
   'prefer-render-shallow': preferRenderShallow,
   'prefer-observer-stub': preferObserverStub,
   'no-hand-assigned-global': noHandAssignedGlobal,
+  'prefer-stub-response': preferStubResponse,
   'prefer-provide-activated-route': preferProvideActivatedRoute,
   'no-stub-class-double': noStubClassDouble,
   'no-structural-double': noStructuralDouble,
