@@ -20,7 +20,7 @@ is taken once, in a setup file — and because four of the five hang off the sam
 `TestBed.configureTestingModule` hook the
 [timing diagnostics](/adapters/angular#where-a-spec-spends-its-time) already install. The whole
 family ships in its own entry — `vitest-auto-spy/angular/diagnostics` — which it moved to from
-`vitest-auto-spy/angular` in 6.0, so that importing spies no longer evaluates the instrumentation a
+`vitest-auto-spy/angular` in 5.21.0, so that importing spies no longer evaluates the instrumentation a
 suite that never turns it on should not pay for.
 
 | Member              | Default | Fails when                                                                         |

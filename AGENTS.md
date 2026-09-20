@@ -62,9 +62,9 @@ Add-ons, orthogonal to the runner:
 | Run diagnostics     | `vitest-auto-spy/diagnostics`         | `compareTestRuns`, `summarizeTestRun`, `formatTestRunComparison`, `diffByField`. **Moved off the root in 4.0.0**                                                                                                                                                                |
 | Angular HTTP        | `vitest-auto-spy/angular-http`        | `provideHttpTesting`, `expectRequest` — `httpResource()` / `HttpClient` (§13). Optional `@angular/common` peer, this entry only                                                                                                                                                 |
 | Angular router      | `vitest-auto-spy/angular-router`      | `provideActivatedRoute`, `injectActivatedRoute` — an `ActivatedRoute` whose streams and snapshot share one record; `provideRouterDouble`, `injectRouterDouble` — a `Router` whose URL, `routerState` and `events` agree (§13). Optional `@angular/router` peer, this entry only |
-| Angular diagnostics | `vitest-auto-spy/angular/diagnostics` | `enableAngularDiagnostics` and the whole TestBed timing family (§13). Companion to `/angular` like `/angular-http` — no core re-export; **moved off `/angular` in 6.0** so importing spies stops evaluating it                                                                  |
-| Angular doubles     | `vitest-auto-spy/angular/doubles`     | The Material dialog trio and the `Window`/`Document` platform doubles (§13). Companion to `/angular`; registers the Vitest adapter, so its doubles spy out of the box; **moved off `/angular` in 6.0**                                                                          |
-| Angular matchers    | `vitest-auto-spy/angular/matchers`    | `registerDirectiveMatchers`, `registerResourceMatchers`, `registerSignalMatchers` (§13). Companion to `/angular` — no core re-export; **moved off `/angular` in 6.0**                                                                                                           |
+| Angular diagnostics | `vitest-auto-spy/angular/diagnostics` | `enableAngularDiagnostics` and the whole TestBed timing family (§13). Companion to `/angular` like `/angular-http` — no core re-export; **moved off `/angular` in 5.21.0** so importing spies stops evaluating it                                                               |
+| Angular doubles     | `vitest-auto-spy/angular/doubles`     | The Material dialog trio and the `Window`/`Document` platform doubles (§13). Companion to `/angular`; registers the Vitest adapter, so its doubles spy out of the box; **moved off `/angular` in 5.21.0**                                                                       |
+| Angular matchers    | `vitest-auto-spy/angular/matchers`    | `registerDirectiveMatchers`, `registerResourceMatchers`, `registerSignalMatchers` (§13). Companion to `/angular` — no core re-export; **moved off `/angular` in 5.21.0**                                                                                                        |
 | Signal forms        | `vitest-auto-spy/signal-forms`        | `createForm`, `registerFormMatchers` — a signal form built where `form()` can inject, and `toHaveFieldErrors` over what it produced (§13). Optional `@angular/forms` peer, this entry only; Angular 22+                                                                         |
 | Setup helpers       | `vitest-auto-spy/setup`               | `setupAutoSpy()`, `setupFakeTimers()`, `blockNetwork()`, `stubResponse()`; the entry imports Vitest, so it is not for `bun test`                                                                                                                                                |
 | Zone patch          | `import 'vitest-auto-spy/zone'`       | `fakeAsync` / `waitForAsync` on Vitest (§14)                                                                                                                                                                                                                                    |
@@ -2286,7 +2286,7 @@ zone.js alike. The entry needs **Angular >= 20** (§1); on 16 or 17 it does not 
 `ɵSIGNAL` is not there to import.
 
 **Niche Angular helpers ship in narrow companion subpaths, never in `/angular`** — the pattern of
-`/angular-http`, `/angular-router` and `/signal-forms`, and since 6.0 of `/angular/diagnostics`,
+`/angular-http`, `/angular-router` and `/signal-forms`, and since 5.21.0 of `/angular/diagnostics`,
 `/angular/doubles` and `/angular/matchers`. An import of `/angular` evaluates its whole graph, so a
 helper a suite names once in a setup file must not ride along with every `provideAutoSpy` import;
 the diagnostics, doubles and matcher registrars left on that rule (`trackInjections` stays —
@@ -4140,7 +4140,12 @@ the eaten glob below came from.
 
 Two of its checks are about this package's own names. `helper-from-wrong-entry` catches a named
 import taken from an entry that does not export it — `provideAutoSpy` from the root rather than
-`/angular` or `/nestjs`, `expectRequest` from anywhere but `/angular-http`. `no-unawaited-helper`
+`/angular` or `/nestjs`, `expectRequest` from anywhere but `/angular-http`. It reads both directions
+of the 5.21.0 Angular split — one of the thirty-two moved names still taken from `/angular`, and a
+core name taken from `/angular/diagnostics`, `/angular/doubles` or `/angular/matchers`, which export
+none of them — which makes it what fails that upgrade rather than a compiler: a repository green on
+5.20.0 exits 1 here with no test run, and the fix line names the companion to move to.
+`no-unawaited-helper`
 catches an `expectEmission` / `expectError` / `stable` / `flushEventLoop` called as a bare statement
 and dropped, so the promise settles after the test ended and its assertion reports into a later test
 or nowhere. Both resolve the name against a table **generated from this package's own `exports`

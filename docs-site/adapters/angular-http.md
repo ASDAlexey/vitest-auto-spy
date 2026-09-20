@@ -185,7 +185,7 @@ that import this entry and on nobody else.
 
 Two consequences worth stating plainly:
 
-- Like [`/angular-router`](/adapters/angular-router) — and, since 6.0, the `/angular/diagnostics`,
+- Like [`/angular-router`](/adapters/angular-router) — and, since 5.21.0, the `/angular/diagnostics`,
   `/angular/doubles` and `/angular/matchers` companions — and unlike every other subpath, this one
   does **not** re-export the core. It is a companion to `vitest-auto-spy/angular`, which stays the
   import for spies, `TestBed` helpers and `settleResource`.

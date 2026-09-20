@@ -808,6 +808,13 @@ it was changed; what shipped out of it is in `CHANGELOG.md`, what was deliberate
   there is no epoch to compare against — and without the sweep the patch stays put, so there is
   nothing to report either.
 
+  Both entries above are still the decision, but one clause each has been overtaken and should not be
+  re-derived from. 5.21.0 stamps every journal entry with the spec file that recorded it, so "the file
+  this patch belongs to" **is** now something the journal can see; and the patch staying put is what
+  the cross-file report reads, so there is something to report after all — just not the outside-hook
+  shape, which still needs the epoch. What neither buys is re-applying a patch per test, which remains
+  declined for the reason given: it defeats `restoreMockedProps()`.
+
 - [~] **A diagnostic that recognises `restoreMocks: true`** and fails with a message. It was the
   other candidate against accessor spies not surviving that flag, and it is the wrong one: it
   would report a breakage where there is no longer one to report, now that the Vitest and Rstest

@@ -20,7 +20,7 @@ enableAngularDiagnostics({ pendingRequests: false }); // или выборочн
 висят на том же хуке `TestBed.configureTestingModule`, который уже ставит
 [диагностика таймингов](/ru/adapters/angular#where-a-spec-spends-its-time). Вся семья живёт в
 собственной точке входа — `vitest-auto-spy/angular/diagnostics`, куда она переехала из
-`vitest-auto-spy/angular` в 6.0: импорт спаев больше не исполняет инструментацию, которую не
+`vitest-auto-spy/angular` в 5.21.0: импорт спаев больше не исполняет инструментацию, которую не
 включили.
 
 | Член               | По умолчанию | Падает, когда                                                                      |

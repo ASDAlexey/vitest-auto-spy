@@ -119,6 +119,19 @@ which is where this file's `[~]` entries went on 2026-09-10 — a decision is no
       the change is open: `--isolate` was measured on that suite at **150 s against 107 s** for the
       same shard, and the third way — rewriting the wrapper to call an exported
       `installPerFileHooks()` — costs nothing at run time and is what they shipped.
+- [ ] **`tableApplies` assumes a helper only moves between entries in a major, and 5.21.0 broke the
+      assumption.** Thirty-two names left `/angular` for three companions in a **minor**, so within
+      one major the export map can now be ahead of the install. The gate compares majors alone, which
+      leaves one case wrong: a newer CLI read against an older install, which is what
+      `npx vitest-auto-spy@latest doctor` is in a repository pinned at 5.20.x. It reports
+      `helper-from-wrong-entry` on a correct `/angular` import and hands back a fix naming an entry
+      that install does not publish, so
+      following it turns working code into `ERR_PACKAGE_PATH_NOT_EXPORTED`. That is the one shape of
+      false positive this check cannot afford, its whole value being the zero-false-positive claim.
+      Narrowing the gate to the full version is not the answer: it would go silent on every older
+      5.x and drop the true findings with the false one. The table knows the version it describes,
+      so the finding could carry it when the two disagree — what this needs first is a decision on
+      that message, not a patch.
 - [ ] **`explainSpy` cannot see a symbol-keyed method.** Methods behind a symbol key are spied and
       reset now, but the report enumerates string keys, so they are missing from the one place a
       reader goes to ask what a double is configured with. The change is small and local to

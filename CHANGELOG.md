@@ -163,8 +163,43 @@ arrays and unmocked-call failures in `mockDeep`, a real `Response` for a stubbed
   import lines in one file. `trackInjections` stays in `vitest-auto-spy/angular`: `createWithAutoSpies`
   needs its module either way, so moving the name would break imports for no bytes back.
 
+  **`doctor` makes the migration mandatory, and says so before a test runs.** Each moved name still
+  imported from `/angular` is a `helper-from-wrong-entry` **error** naming the companion to move it
+  to, so a repository green on 5.20.0 exits 1 on the upgrade with nothing yet executed — the same
+  shape of behaviour change as 5.20.0's `scan-cap-reached`. That is the point of it: the compiler
+  covers the spec files a `tsconfig` program reaches, and `doctor` covers the ones it does not, which
+  on the consumer suite this was measured against is where the one unmigrated file turned out to be.
+  The move also shipped **inside 5.21.0**, a minor — the split commit carried no `BREAKING CHANGE:`
+  footer, so the automation bumped accordingly. Documentation that dated it to a `6.0` has been
+  corrected to the version that actually carries it.
+
 ### Fixed
 
+- **`doctor` could not see an import from the three new Angular companions at all.** The specifier
+  group of the CLI's import scanner accepted one path segment — `vitest-auto-spy/angular` — so
+  `vitest-auto-spy/angular/diagnostics`, `/angular/doubles` and `/angular/matchers` matched nothing
+  and every import from them was invisible. The table already knew the entries and the repair text
+  already named them; only the scanner was behind, which is why the migration direction worked and
+  its opposite did not: `import { provideAutoSpy } from 'vitest-auto-spy/angular/doubles'` — the
+  mistake the split makes easy, since that entry registers the mock adapter and sits next to the
+  doubles a spec already imports — went unreported although the entry exports no such name. It is a
+  `helper-from-wrong-entry` error again, and `no-unawaited-helper` reads the same scanner, where the
+  blindness was latent because no awaitable helper lives on a nested entry today.
+- **The `mock*Prop` journal warning counted patches that had already been taken off.** The per-patch
+  undo marks its entry rather than splicing it out of the journal, which keeps a spec that stubs in a
+  loop from going quadratic — so a file that restores every patch by hand, the documented shape for a
+  suite with no `setupAutoSpy`, left a non-empty journal holding nothing. The next file of the worker
+  was then told that _N_ patches "are still in the journal", that "the patches are still on their
+  objects" and to call `restoreMockedProps()`; all three were false, and the sweep it named had
+  nothing to put back. Only patches still in place are counted now, which is how `countMockedProps()`
+  has always read the same journal.
+- **`sideEffects` did not name two of the three new entries.** `vitest-auto-spy/angular/doubles`
+  registers the mock adapter at module scope and `/angular/matchers` imports `@angular/compiler` for
+  its own side effect, and the manifest called both pure — while `angular.js`, which does the same
+  registration, was listed. A bundler honouring the field may drop such a module, and the mock
+  adapter or the compiler goes with it. `check-dist.mjs` could not catch it: its rule is about a dist
+  file reached only by a bare relative import, not about an entry's own top-level statements, so the
+  manifest suite now asserts the property directly over every ESM entry in `exports`.
 - **`vi.spyOn(double, 'method')` on a method nobody had read threw
   `TypeError: Invalid value used as weak map key`.** A regression in 5.19.0: the lazy placeholder is one
   accessor pair shared by every double and reads its double through `this`, and Vitest reads an

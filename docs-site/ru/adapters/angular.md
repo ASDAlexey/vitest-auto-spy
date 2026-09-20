@@ -8,7 +8,7 @@ description: provideAutoSpy, injectSpy, extendWithAutoSpies, renderShallow, crea
 Точка входа `vitest-auto-spy/angular` добавляет `provideAutoSpy` — короткую запись для регистрации
 auto-spy в `TestBed`, — а вместе с ним `injectSpy`, поверхностный рендер компонентов, создание
 объекта через DI, ожидание в zoneless-режиме и мокеры свойств-сигналов и readonly-свойств.
-Регистраторы матчеров, диагностика `TestBed` и дубли платформы и диалогов переехали в 6.0 в три
+Регистраторы матчеров, диагностика `TestBed` и дубли платформы и диалогов переехали в 5.21.0 в три
 узких спутника — [`/angular/matchers`](#asserting-a-signal), [`/angular/diagnostics`](#where-a-spec-spends-its-time)
 и [`/angular/doubles`](#window-and-document-without-losing-the-real-one) — чтобы импорт спаев
 перестал исполнять код, который спека не вызывает.

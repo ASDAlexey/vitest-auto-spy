@@ -201,8 +201,12 @@ That is also why they are `doctor` checks and not lint rules: a per-file linter 
 Both are conservative on purpose.
 
 - The table describes one major version. `doctor` reads the version actually installed in the
-  repository and stays silent when the majors differ, because a helper moves between entries only
-  in a major.
+  repository and stays silent when the majors differ. The rule of thumb behind that — a helper only
+  moves between entries in a major — stopped holding in 5.21.0, when thirty-two of them left
+  `/angular` for three companions in a minor. Within one major the table can therefore be ahead of
+  the install, which matters in one direction: run a **newer** CLI than the installed copy
+  (`npx vitest-auto-spy@latest doctor` against a pinned 5.20.x) and the entry a fix names may not be
+  published there yet. Run the CLI the repository installed and the two cannot disagree.
 - `no-unawaited-helper` reports one shape and one only — a call that both begins a statement and
   ends one. Anything the promise could still flow out of is left alone: `await`, `return`, an
   assignment, an argument, a `.then`, a concise arrow body, an explicit `void`. So is a method of

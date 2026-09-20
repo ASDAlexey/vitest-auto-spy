@@ -8,7 +8,7 @@ description: provideAutoSpy, injectSpy, extendWithAutoSpies, renderShallow, crea
 The `vitest-auto-spy/angular` entry adds `provideAutoSpy` — a shorthand for providing an auto-spy
 in a `TestBed` — plus `injectSpy`, shallow component rendering, DI-driven instantiation, zoneless
 waiting and the signal/readonly property mockers. The matcher registrars, the `TestBed` diagnostics
-and the platform/dialog doubles moved to three narrow companions in 6.0 —
+and the platform/dialog doubles moved to three narrow companions in 5.21.0 —
 [`/angular/matchers`](#asserting-a-signal), [`/angular/diagnostics`](#where-a-spec-spends-its-time)
 and [`/angular/doubles`](#window-and-document-without-losing-the-real-one) — so a spec importing
 spies stops evaluating code it never calls.
