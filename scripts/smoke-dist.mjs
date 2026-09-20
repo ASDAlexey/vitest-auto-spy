@@ -401,14 +401,14 @@ const CROSS_ENTRY = [
     `,
   },
   {
-    // Same shape for the dialog ref: `close` is spied in `dist/angular.js`, and `afterClosed()` is a
-    // ReplaySubject(1) rather than Material's Subject, so a subscription opened after the close is
-    // the assertion a spec actually writes.
-    name: 'diagnostics/explainSpy reads the close spy of a dialog ref built by angular',
-    entries: ['./node', './angular', './diagnostics'],
+    // Same shape for the dialog ref: `close` is spied in `dist/angular-doubles.js`, and
+    // `afterClosed()` is a ReplaySubject(1) rather than Material's Subject, so a subscription opened
+    // after the close is the assertion a spec actually writes.
+    name: 'diagnostics/explainSpy reads the close spy of a dialog ref built by angular-doubles',
+    entries: ['./node', './angular/doubles', './diagnostics'],
     body: `
       await import(NODE);
-      const { createMatDialogRef } = await import(ANGULAR);
+      const { createMatDialogRef } = await import(ANGULAR_DOUBLES);
       const { explainSpy } = await import(DIAGNOSTICS);
 
       class MatDialogRef {
@@ -581,9 +581,9 @@ function checkEntriesLoad(entries) {
   return failures;
 }
 
-/** `./angular-http` → `ANGULAR_HTTP`; the package root, which has no name of its own, is `INDEX`. */
+/** `./angular-http` → `ANGULAR_HTTP`, `./angular/doubles` → `ANGULAR_DOUBLES`; the root is `INDEX`. */
 function constantName(subpath) {
-  return subpath === '.' ? 'INDEX' : subpath.replace('./', '').toUpperCase().replaceAll('-', '_');
+  return subpath === '.' ? 'INDEX' : subpath.replace('./', '').toUpperCase().replaceAll(/[-/]/g, '_');
 }
 
 function checkCrossEntry(entries) {
