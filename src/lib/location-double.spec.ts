@@ -1,0 +1,151 @@
+/**
+ * The claim is "Angular's own recording fake, in the family shape" — so the specs read the journal
+ * and the state through the public surface a component uses (`path()`, `getState()`,
+ * `onUrlChange()`), not through the private fields, and the errors are asserted by the sentence a
+ * reader meets, not by a matcher on a substring.
+ */
+import { Location, LocationStrategy } from '@angular/common';
+import { MockLocationStrategy, SpyLocation } from '@angular/common/testing';
+import { Component, Injector, inject } from '@angular/core';
+import { TestBed } from '@angular/core/testing';
+import { describe, expect, it } from 'vitest';
+
+import { createLocationDouble, injectLocationDouble, provideLocationDouble } from './location-double';
+
+@Component({
+  selector: 'vas-whereami',
+  standalone: true,
+  template: `<span>{{ where }}</span>`,
+})
+class WhereAmI {
+  private readonly location = inject(Location);
+
+  readonly where = this.location.path();
+}
+
+describe('provideLocationDouble', () => {
+  it('provides the SpyLocation and the MockLocationStrategy Angular ships', () => {
+    TestBed.configureTestingModule({ providers: [provideLocationDouble()] });
+
+    expect(TestBed.inject(Location)).toBeInstanceOf(SpyLocation);
+    expect(TestBed.inject(LocationStrategy)).toBeInstanceOf(MockLocationStrategy);
+  });
+
+  it('hands every injector a double of its own', () => {
+    TestBed.configureTestingModule({ providers: [provideLocationDouble()] });
+
+    const elsewhere = Injector.create({ providers: [...provideLocationDouble()] });
+
+    expect(injectLocationDouble()).not.toBe(injectLocationDouble(elsewhere));
+  });
+
+  it('moves a state the component reads back', () => {
+    TestBed.configureTestingModule({ providers: [provideLocationDouble()] });
+
+    const location = injectLocationDouble();
+
+    location.go('/reports', 'tab=7', { from: 'menu' });
+
+    expect(location.path()).toBe('/reports');
+    expect(location.getState()).toEqual({ from: 'menu' });
+    expect(location.urlChanges).toEqual(['/reports?tab=7']);
+  });
+
+  it('reads through DI in a component', () => {
+    TestBed.configureTestingModule({ providers: [provideLocationDouble()] });
+
+    expect(TestBed.createComponent(WhereAmI).componentInstance.where).toBe('');
+  });
+
+  it('reads the double from an injector it is given', () => {
+    const injector = Injector.create({ providers: [...provideLocationDouble()] });
+
+    expect(injectLocationDouble(injector)).toBeInstanceOf(SpyLocation);
+  });
+});
+
+describe('the history the double keeps', () => {
+  it('answers the back button, and tells the subscribers rather than the journal', () => {
+    TestBed.configureTestingModule({ providers: [provideLocationDouble()] });
+
+    const location = injectLocationDouble();
+    const pops: string[] = [];
+
+    location.subscribe((event) => pops.push(`${event.type} ${event.url}`));
+    location.go('/away');
+    location.back();
+
+    expect(location.path()).toBe('');
+    expect(location.urlChanges).toEqual(['/away']);
+    expect(pops).toEqual(['popstate ']);
+  });
+
+  it('does not journal a move that lands where it already stood', () => {
+    TestBed.configureTestingModule({ providers: [provideLocationDouble()] });
+
+    const location = injectLocationDouble();
+
+    location.go('/once');
+    location.go('/once');
+
+    expect(location.urlChanges).toEqual(['/once']);
+  });
+});
+
+describe('the browser half of the contract', () => {
+  it('simulateUrlPop tells the onUrlChange listeners', () => {
+    TestBed.configureTestingModule({ providers: [provideLocationDouble()] });
+
+    const location = injectLocationDouble();
+    const seen: string[] = [];
+
+    location.onUrlChange((url, state) => seen.push(`${url} ${state === undefined ? 'no state' : 'state'}`));
+    location.simulateUrlPop('/restored');
+
+    expect(seen).toEqual(['/restored no state']);
+  });
+
+  it('simulateHashChange records the round trip a hash change makes', () => {
+    TestBed.configureTestingModule({ providers: [provideLocationDouble()] });
+
+    const location = injectLocationDouble();
+
+    location.simulateHashChange('/section');
+
+    expect(location.path()).toBe('/section');
+    expect(location.urlChanges).toEqual(['hash: /section']);
+  });
+});
+
+describe('injectLocationDouble failures', () => {
+  it('names the provider that won when it is not the double', () => {
+    TestBed.configureTestingModule({
+      providers: [provideLocationDouble(), { provide: Location, useValue: { path: () => '/other' } }],
+    });
+
+    expect(() => injectLocationDouble()).toThrow(
+      'the Location here is a plain object, not the SpyLocation provideLocationDouble() provides',
+    );
+  });
+
+  it('names the real Location a TestBed without the double hands out', () => {
+    expect(() => injectLocationDouble()).toThrow('the Location here is an instance of Location');
+  });
+
+  it('says so when an injector has no Location at all', () => {
+    const injector = Injector.create({ providers: [] });
+
+    expect(() => injectLocationDouble(injector)).toThrow('nothing provides Location here');
+  });
+});
+
+describe('createLocationDouble', () => {
+  it('keeps the journal without a TestBed', () => {
+    const location = createLocationDouble();
+
+    location.go('/standalone');
+
+    expect(location.path()).toBe('/standalone');
+    expect(location.urlChanges).toEqual(['/standalone']);
+  });
+});
