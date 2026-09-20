@@ -8,7 +8,7 @@
  * `expectRequest`, and the list of requests that *were* made is the whole reason the message is
  * worth more than `expectOne`'s.
  */
-import { HttpClient, HttpErrorResponse, httpResource, provideHttpClient } from '@angular/common/http';
+import { HttpClient, HttpErrorResponse, type HttpRequest, httpResource, provideHttpClient } from '@angular/common/http';
 import { Component } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { beforeEach, describe, expect, it } from 'vitest';
@@ -148,11 +148,54 @@ describe('provideHttpTesting', () => {
     expect(() => expectNoRequest('/api/products', { method: 'GET' })).toThrow(/matched GET \/api\/products/);
   });
 
+  it('names the predicate in a failure, so the reader can find what was asked for', () => {
+    TestBed.inject(HttpClient).get('/api/product').subscribe();
+
+    const isProductsRequest = (request: HttpRequest<unknown>): boolean => request.url === '/api/products';
+
+    expect(() => expectRequest(isProductsRequest)).toThrow(/no request matched a predicate \(isProductsRequest\)/);
+  });
+
+  it('names the predicate when an absence claim is broken', () => {
+    TestBed.inject(HttpClient).get('/api/products').subscribe();
+
+    const isProductsRequest = (request: HttpRequest<unknown>): boolean => request.url === '/api/products';
+
+    expect(() => expectNoRequest(isProductsRequest)).toThrow(
+      /1 request\(s\) matched a predicate \(isProductsRequest\): GET \/api\/products/,
+    );
+  });
+
   it('fails a test that ends holding an unanswered request', () => {
     TestBed.inject(HttpClient).get('/api/products').subscribe();
 
     expect(verifyNoPendingRequests).toThrow(/ended with 1 unanswered request\(s\): GET \/api\/products/);
     expect(verifyNoPendingRequests).not.toThrow();
+  });
+
+  it('holds a cancelled request against the test, like Angular verify() does by default', () => {
+    TestBed.inject(HttpClient).get('/api/products').subscribe().unsubscribe();
+
+    expect(verifyNoPendingRequests).toThrow(/ended with 1 unanswered request\(s\): GET \/api\/products/);
+  });
+
+  it('lets cancelled requests be ignored, without excusing the ones still waiting', () => {
+    TestBed.inject(HttpClient).get('/api/cancelled').subscribe().unsubscribe();
+    TestBed.inject(HttpClient).get('/api/waiting').subscribe();
+
+    expect(() => verifyNoPendingRequests({ ignoreCancelled: true })).toThrow(/ended with 1 unanswered request\(s\): GET \/api\/waiting/);
+  });
+
+  it('passes, asked to ignore cancelled requests, when cancelling is all the test did', () => {
+    TestBed.inject(HttpClient).get('/api/cancelled').subscribe().unsubscribe();
+
+    expect(() => verifyNoPendingRequests({ ignoreCancelled: true })).not.toThrow();
+  });
+
+  it('ignores cancelled requests at teardown when the suite opted in', () => {
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({ providers: [...provideHttpTesting({ verifyOnTeardown: { ignoreCancelled: true } })] });
+    TestBed.inject(HttpClient).get('/api/cancelled-at-teardown').subscribe().unsubscribe();
   });
 
   it('leaves the teardown check off when the suite turned it off', () => {

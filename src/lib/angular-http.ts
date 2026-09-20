@@ -59,8 +59,12 @@ export interface HttpTestingOptions {
    * A request nobody flushed is a spec whose code under test is still waiting on a response — every
    * assertion after that call is about a state the test never reached. Left alone it also leaks:
    * the next test's `expectRequest` matches a request the previous one made.
+   *
+   * An object keeps the check on and carries its option to it: `{ ignoreCancelled: true }` is the
+   * same opt-in as `verifyNoPendingRequests({ ignoreCancelled: true })` — a request the code under
+   * test cancelled, by unsubscribing, no longer fails the test.
    */
-  verifyOnTeardown?: boolean;
+  verifyOnTeardown?: boolean | { ignoreCancelled?: boolean };
 }
 
 /** The body types `TestRequest#flush` takes, read off Angular rather than restated here. */
@@ -158,7 +162,7 @@ function runningTest(): unknown {
  * Arm the end-of-test check from the module's own initializer, so it reaches every test that builds one —
  * in every spec file of a worker, and from a provider list hoisted to a constant.
  */
-function armVerification(): void {
+function armVerification(ignoreCancelled: boolean): void {
   const current = runningTest();
 
   if (current === undefined || current === armedTest) {
@@ -169,7 +173,7 @@ function armVerification(): void {
   snapshotOnReset();
   onTestFinished(() => {
     armedTest = undefined;
-    verifyOnTeardown(verifyNoPendingRequests);
+    verifyOnTeardown(() => verifyNoPendingRequests({ ignoreCancelled }));
   });
 }
 
@@ -189,8 +193,15 @@ export function provideHttpTesting(options: HttpTestingOptions = {}): (Environme
   assertAngularInternals();
 
   const providers = [provideHttpClient(), provideHttpClientTesting()];
+  const verify = options.verifyOnTeardown;
 
-  return options.verifyOnTeardown === false ? providers : [...providers, provideEnvironmentInitializer(armVerification)];
+  if (verify === false) {
+    return providers;
+  }
+
+  const ignoreCancelled = typeof verify === 'object' ? verify.ignoreCancelled === true : false;
+
+  return [...providers, provideEnvironmentInitializer(() => armVerification(ignoreCancelled))];
 }
 
 /**
@@ -212,7 +223,13 @@ function describeMatcher(matcher: RequestMatcher, options: ExpectRequestOptions)
   }
 
   if (typeof matcher === 'function') {
-    return `${method}a predicate`;
+    // The name is the only handle on a predicate; without it the reader has every predicate in the
+    // spec file and no way to tell which one was asked for. `matcher` is skipped: an anonymous
+    // default picks up the parameter's name, which is ours, not the reader's.
+    const anonymous = matcher.name === '' || matcher.name === 'matcher';
+    const named = anonymous ? '' : ` (${matcher.name})`;
+
+    return `${method}a predicate${named}`;
   }
 
   return `${method}${String(matcher)}`;
@@ -407,10 +424,15 @@ export function expectNoRequest(matcher: RequestMatcher = () => true, options: E
  * it — and because a suite that turned `verifyOnTeardown` off still wants it in the two specs where
  * it matters.
  *
+ * `ignoreCancelled: true` is the opt-in `HttpTestingController.verify({ ignoreCancelled })` names:
+ * a request the code under test cancelled — an unsubscribed `httpResource()`, a `takeUntil` that
+ * cut a call — is taken but no longer held against the test. Default `false`, like Angular's own.
+ *
  * A no-op when the test configured no HTTP testing at all.
  */
-export function verifyNoPendingRequests(): void {
-  const open = [...openAtReset.splice(0), ...takeLiveRequests()];
+export function verifyNoPendingRequests(options: { ignoreCancelled?: boolean } = {}): void {
+  const taken = [...openAtReset.splice(0), ...takeLiveRequests()];
+  const open = options.ignoreCancelled === true ? taken.filter((request) => !request.cancelled) : taken;
 
   if (open.length === 0) {
     return;
