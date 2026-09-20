@@ -10,7 +10,7 @@
 import type { InjectionToken, Provider } from '@angular/core';
 import { describe, expectTypeOf, it } from 'vitest';
 
-import { createDocumentDouble, createWindowDouble, provideDocumentDouble, provideWindowDouble } from '../angular';
+import { createDocumentDouble, createWindowDouble, provideDocumentDouble, provideWindowDouble } from '../angular-doubles';
 
 interface AppWindow extends Window {
   appBuildId: string;

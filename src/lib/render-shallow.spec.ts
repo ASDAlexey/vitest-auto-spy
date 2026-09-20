@@ -22,7 +22,8 @@ import {
 import { By } from '@angular/platform-browser';
 import { beforeEach, describe, expect, it } from 'vitest';
 
-import { disableAngularDiagnostics, enableAngularDiagnostics, injectSpy, provideAutoSpy } from '../angular';
+import { injectSpy, provideAutoSpy } from '../angular';
+import { disableAngularDiagnostics, enableAngularDiagnostics } from '../angular-diagnostics';
 import { renderShallow } from './render-shallow';
 
 @Injectable({ providedIn: 'root' })

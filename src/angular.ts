@@ -28,18 +28,10 @@ export {
   overrideComponentProvider,
   type AutoSpyOverride,
 } from './lib/angular-overrides';
-export {
-  assertNoPendingRequests,
-  assertNoShadowedProviders,
-  disableAngularDiagnostics,
-  enableAngularDiagnostics,
-  type AngularDiagnosticsOptions,
-} from './lib/angular-diagnostics';
 export { trackInjections, type InjectionLog, type TrackInjectionsOptions, type TrackedProvider } from './lib/track-injections';
 export { setupAngularTestEnv, type AngularTestEnvMode, type AngularTestEnvOptions } from './lib/angular-test-env';
 export { createDirectiveHost, type DirectiveHostOptions } from './lib/directive-host';
 export { createComponentStub, type ComponentStubOptions } from './lib/component-stub';
-export { registerDirectiveMatchers } from './lib/directive-matchers';
 
 export {
   mockAccessorsProp,
@@ -65,26 +57,6 @@ export {
   type ResourceDoubleStatus,
 } from './lib/resource-prop';
 export { mockSignalProp } from './lib/signal-prop';
-export { registerResourceMatchers, type ResourceLike } from './lib/resource-matchers';
-export { registerSignalMatchers, type SignalLike } from './lib/signal-matchers';
-export {
-  createDocumentDouble,
-  createWindowDouble,
-  provideDocumentDouble,
-  provideWindowDouble,
-  type PlatformOverrides,
-} from './lib/platform-doubles';
-
-export {
-  disableTestBedDiagnostics,
-  enableTestBedDiagnostics,
-  formatSpecTiming,
-  getTestBedTiming,
-  instrumentTestBed,
-  reportSpecTiming,
-  type SpecTiming,
-  type TestBedDiagnosticsOptions,
-} from './lib/testbed-diagnostics';
 
 export {
   expectCompletion,
@@ -99,17 +71,3 @@ export {
   type EmissionSource,
   type SubscribableLike,
 } from './lib/expect-emission';
-
-// The Material dialog trio, and the only place this package names Material at all: the token and the
-// ref class are arguments precisely so that `@angular/material` stays out of its dependencies.
-export {
-  createMatDialogRef,
-  injectMatDialogRef,
-  provideMatDialogData,
-  provideMatDialogRef,
-  type DialogComponent,
-  type DialogRefLike,
-  type DialogResult,
-  type MatDialogRefDouble,
-  type MatDialogRefInit,
-} from './lib/dialog-doubles';

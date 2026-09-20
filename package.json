@@ -142,6 +142,21 @@
       "import": "./dist/angular.js",
       "default": "./dist/angular.js"
     },
+    "./angular/diagnostics": {
+      "types": "./dist/angular-diagnostics.d.ts",
+      "import": "./dist/angular-diagnostics.js",
+      "default": "./dist/angular-diagnostics.js"
+    },
+    "./angular/doubles": {
+      "types": "./dist/angular-doubles.d.ts",
+      "import": "./dist/angular-doubles.js",
+      "default": "./dist/angular-doubles.js"
+    },
+    "./angular/matchers": {
+      "types": "./dist/angular-matchers.d.ts",
+      "import": "./dist/angular-matchers.js",
+      "default": "./dist/angular-matchers.js"
+    },
     "./angular-http": {
       "types": "./dist/angular-http.d.ts",
       "import": "./dist/angular-http.js",

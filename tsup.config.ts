@@ -39,6 +39,9 @@ const OUT_DIR = 'dist';
 
 // Every ESM entry except the solo ones below, built together so they share the emitted chunks.
 const CHUNKED_ENTRIES = [
+  'src/angular-diagnostics.ts',
+  'src/angular-doubles.ts',
+  'src/angular-matchers.ts',
   'src/angular-http.ts',
   'src/angular-router.ts',
   'src/bun.ts',

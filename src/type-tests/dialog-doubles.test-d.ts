@@ -17,7 +17,7 @@ import {
   injectMatDialogRef,
   provideMatDialogData,
   provideMatDialogRef,
-} from '../angular';
+} from '../angular-doubles';
 
 declare class MatDialogRef<T, R = unknown> {
   componentInstance: T;

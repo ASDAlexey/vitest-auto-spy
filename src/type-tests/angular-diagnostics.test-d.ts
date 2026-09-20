@@ -8,7 +8,7 @@
  */
 import { describe, expectTypeOf, it } from 'vitest';
 
-import { type AngularDiagnosticsOptions, disableAngularDiagnostics, enableAngularDiagnostics } from '../angular';
+import { type AngularDiagnosticsOptions, disableAngularDiagnostics, enableAngularDiagnostics } from '../angular-diagnostics';
 
 describe('AngularDiagnosticsOptions', () => {
   it('declares every check as a boolean switch, and nothing wider', () => {
