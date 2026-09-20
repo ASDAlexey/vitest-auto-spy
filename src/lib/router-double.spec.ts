@@ -25,7 +25,7 @@ import { describe, expect, it } from 'vitest';
 
 import '../angular';
 import { provideActivatedRoute } from './angular-router';
-import { createRouterDouble, injectRouterDouble, provideRouterDouble } from './router-double';
+import { collectRouterEvents, createRouterDouble, injectRouterDouble, provideRouterDouble } from './router-double';
 
 @Component({
   selector: 'vas-nav',
@@ -183,6 +183,74 @@ describe('emitNavigation', () => {
 
     expect(seen).toHaveLength(1);
     expect(seen[0]?.urlAfterRedirects).toBe('/products/8');
+  });
+
+  it('resolves once the terminal event is out and the navigation it ended is cleared', async () => {
+    const { router, emitNavigation, setCurrentNavigation } = createRouterDouble();
+
+    setCurrentNavigation({ extras: { state: { from: 'the card' } } });
+
+    await emitNavigation('/checkout');
+
+    expect(router.url).toBe('/checkout');
+    expect(router.currentNavigation()).toBeNull();
+  });
+
+  it('resolves for an event that ends no navigation too, with the state it left', async () => {
+    const { router, emitNavigation } = createRouterDouble();
+
+    await emitNavigation(new NavigationStart(3, '/checkout'));
+
+    expect(router.currentNavigation()?.id).toBe(3);
+    expect(router.url).toBe('/');
+  });
+
+  it('is ignorable, the way every caller of the fire-and-forget original called it', () => {
+    const { router, emitNavigation } = createRouterDouble();
+
+    emitNavigation('/products/8');
+
+    expect(router.url).toBe('/products/8');
+  });
+});
+
+describe('collectRouterEvents', () => {
+  it('starts the recording empty: where the router stands is not something it emitted', async () => {
+    const { router, emitNavigation } = createRouterDouble({ url: '/products/7' });
+    const events = collectRouterEvents(router.events);
+
+    expect(events.events).toEqual([]);
+
+    await emitNavigation('/products/8');
+
+    events.expect([[NavigationEnd, '/products/8']]);
+  });
+
+  it('asserts the class of every event and the URL it carries', async () => {
+    const { router, emitNavigation } = createRouterDouble();
+    const events = collectRouterEvents(router.events);
+
+    await emitNavigation(new NavigationStart(2, '/checkout'));
+    await emitNavigation(new NavigationEnd(2, '/checkout', '/checkout'));
+    emitNavigation(new Scroll(new NavigationEnd(2, '/checkout', '/checkout'), [0, 0], null));
+
+    events.expect([[NavigationStart, '/checkout'], [NavigationEnd, '/checkout'], [Scroll]]);
+  });
+
+  it('names a recording that disagrees with the expectation', async () => {
+    const { router, emitNavigation } = createRouterDouble();
+    const events = collectRouterEvents(router.events);
+
+    await emitNavigation(new NavigationStart(2, '/checkout'));
+
+    expect(() =>
+      events.expect([
+        [NavigationStart, '/checkout'],
+        [NavigationEnd, '/checkout'],
+      ]),
+    ).toThrow(/length/);
+    expect(() => events.expect([[NavigationEnd, '/checkout']])).toThrow(/NavigationEnd/);
+    expect(() => events.expect([[NavigationStart, '/wrong']])).toThrow(/checkout/);
   });
 });
 

@@ -17,12 +17,13 @@
  *
  * Navigation itself stays a spy, because a navigation in an application is asynchronous, runs
  * guards and can be cancelled: a double that moved its own URL on `navigate()` would be testing the
- * double. `setUrl()` and `emitNavigation()` are how the spec moves it.
+ * double. `setUrl()` and `emitNavigation()` are how the spec moves it, and `collectRouterEvents()`
+ * turns the events that follow into a one-line assertion.
  *
  * Lives behind `vitest-auto-spy/angular-router` with the `ActivatedRoute` double, for the same
  * reason: `@angular/router` is an optional peer, paid for by the suites that import this entry.
  */
-import { type FactoryProvider, type Injector, type Signal, type WritableSignal, signal } from '@angular/core';
+import { type FactoryProvider, type Injector, type Signal, type Type, type WritableSignal, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import {
   DefaultUrlSerializer,
@@ -41,7 +42,8 @@ import {
   type UrlTree,
   createUrlTreeFromSnapshot,
 } from '@angular/router';
-import { BehaviorSubject, type Observable } from 'rxjs';
+import { BehaviorSubject, type Observable, skip } from 'rxjs';
+import { expect, onTestFinished } from 'vitest';
 
 import { createActivatedRoute } from './angular-router';
 import { DOCS_LINKS, withDocs } from './docs-links';
@@ -79,8 +81,15 @@ export interface RouterDouble {
    * and `extras` is empty.
    */
   setCurrentNavigation(navigation?: NavigationInit | null): void;
-  /** Push an event through `router.events`. A `NavigationEnd`, or a URL, moves the URL with it. */
-  emitNavigation(event?: RouterNavigationEvent | string): void;
+  /**
+   * Push an event through `router.events`. A `NavigationEnd`, or a URL, moves the URL with it.
+   *
+   * Resolves once the event has been delivered and a navigation it ended has been cleared — the
+   * moment `navigate()` resolves in an application — so a spec that awaits it reads the settled
+   * router. The work itself is synchronous: a caller that ignores the promise, the way every
+   * caller of the fire-and-forget original did, sees the same state on the next line.
+   */
+  emitNavigation(event?: RouterNavigationEvent | string): Promise<void>;
 }
 
 /** The double's one piece of state, and the parts of Angular's own shape kept in step with it. */
@@ -346,7 +355,7 @@ export function createRouterDouble(init: RouterDoubleInit = {}): RouterDouble {
     setCurrentNavigation: (navigation?: NavigationInit | null): void => {
       inFlight.set(navigation === null ? null : navigationOf(navigation ?? {}));
     },
-    emitNavigation: (event?: RouterNavigationEvent | string): void => {
+    emitNavigation: async (event?: RouterNavigationEvent | string): Promise<void> => {
       const next = typeof event === 'object' ? event : new NavigationEnd(++navigationId, event ?? state.url(), event ?? state.url());
 
       if (next instanceof NavigationEnd) {
@@ -429,4 +438,59 @@ export function injectRouterDouble(injector?: Injector): RouterDouble {
   }
 
   return double;
+}
+
+/** One event the spec expects: the class it is an instance of, and the URL it carries when the pair names one. */
+export type RouterEventPair = readonly [Type<RouterNavigationEvent>, string?];
+
+/** What {@link collectRouterEvents} hands back: the recording, and the assertion over it. */
+export interface RouterEventsHandle {
+  /** Every event emitted since the collection started, in order. */
+  readonly events: readonly RouterNavigationEvent[];
+  /** Assert the recording: one `[class, url?]` pair per event, in order, none left over. */
+  expect(pairs: readonly RouterEventPair[]): void;
+}
+
+/**
+ * Record what a double's `events` emits, and assert it in one line, the way Angular's own router
+ * specs do — a class and a URL per event, rather than a hand-rolled array of `instanceof` checks.
+ *
+ * ```ts
+ * const events = collectRouterEvents(router.events);
+ *
+ * await router.emitNavigation(new NavigationStart(2, '/checkout'));
+ * await router.emitNavigation(new NavigationEnd(2, '/checkout', '/checkout'));
+ *
+ * events.expect([
+ *   [NavigationStart, '/checkout'],
+ *   [NavigationEnd, '/checkout'],
+ * ]);
+ * ```
+ *
+ * The recording starts empty: the double's `events` is a `BehaviorSubject`, and the value it replays
+ * on subscribe is where the router stands, not something it emitted. The subscription ends with the
+ * test that started the recording.
+ */
+export function collectRouterEvents(source: Router['events']): RouterEventsHandle {
+  const recorded: RouterNavigationEvent[] = [];
+  const subscription = source.pipe(skip(1)).subscribe((event: RouterNavigationEvent) => recorded.push(event));
+
+  onTestFinished(() => subscription.unsubscribe());
+
+  return {
+    events: recorded,
+    expect: (pairs: readonly RouterEventPair[]): void => {
+      expect(recorded).toHaveLength(pairs.length);
+
+      for (const [index, [eventClass, url]] of pairs.entries()) {
+        const event = recorded[index];
+
+        expect(event?.constructor.name).toBe(eventClass.name);
+
+        if (url !== undefined && event !== undefined) {
+          expect(Reflect.get(event, 'url')).toBe(url);
+        }
+      }
+    },
+  };
 }
