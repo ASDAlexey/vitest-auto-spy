@@ -1179,10 +1179,10 @@ Deliberately **not** in it, each for a reason:
   than a test, and a callback scheduled after the previous file's sweep is charged to the next one:
   the count can fail a file that scheduled nothing. `timers` names who really scheduled each, so it is
   one line to opt in once a suite has read them: `onStrayTimers: ({ timers }) => expect(timers).toEqual([])`.
-- **`enableAngularDiagnostics()`** — it lives in `vitest-auto-spy/angular` and needs the TestBed
-  environment first. Call it in the same setup file as the Angular half of strict: on a 1759-file
-  Angular consumer it found real defects in 25 files and 324 tests, and cost nothing measurable
-  (12.5 s against 13.4 s for the full run).
+- **`enableAngularDiagnostics()`** — it lives in `vitest-auto-spy/angular/diagnostics` and needs the
+  TestBed environment first. Call it in the same setup file as the Angular half of strict: on a
+  1759-file Angular consumer it found real defects in 25 files and 324 tests, and cost nothing
+  measurable (12.5 s against 13.4 s for the full run).
 
 ## Misconfiguration reports that fail at the call {#misconfiguration-reports-that-fail-at-the-call}
 

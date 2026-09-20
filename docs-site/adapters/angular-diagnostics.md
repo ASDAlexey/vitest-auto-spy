@@ -7,7 +7,7 @@ description: enableAngularDiagnostics — five silent Angular-testing failures (
 
 ```ts
 // vitest.setup.ts — after the Angular test environment is initialised
-import { enableAngularDiagnostics } from 'vitest-auto-spy/angular';
+import { enableAngularDiagnostics } from 'vitest-auto-spy/angular/diagnostics';
 
 enableAngularDiagnostics(); // all five
 enableAngularDiagnostics({ pendingRequests: false }); // or pick
@@ -18,7 +18,10 @@ nothing says so, and the test passes for a reason its author did not intend. The
 rather than five helpers because turning a suite from "passes" into "passes for the stated reason"
 is taken once, in a setup file — and because four of the five hang off the same
 `TestBed.configureTestingModule` hook the
-[timing diagnostics](/adapters/angular#where-a-spec-spends-its-time) already install.
+[timing diagnostics](/adapters/angular#where-a-spec-spends-its-time) already install. The whole
+family ships in its own entry — `vitest-auto-spy/angular/diagnostics` — which it moved to from
+`vitest-auto-spy/angular` in 6.0, so that importing spies no longer evaluates the instrumentation a
+suite that never turns it on should not pay for.
 
 | Member              | Default | Fails when                                                                         |
 | ------------------- | ------- | ---------------------------------------------------------------------------------- |
@@ -32,7 +35,8 @@ Every member defaults to `true`; pass `false` to leave one out. Calling `enableA
 again **replaces** the previous selection rather than adding to it. The per-test hooks are
 registered by every call made outside a test, on the file — or `describe` — being collected, which
 is what a setup file needs: under `isolate: false` Vitest re-runs the setup file for every spec file
-while `vitest-auto-spy/angular` stays loaded for the whole worker, and until this release the hooks
+while `vitest-auto-spy/angular/diagnostics` stays loaded for the whole worker, and until this
+release the hooks
 were registered once per module, so only the **first** spec file of each worker was checked. A
 second call in the same file does not run anything twice, and a call from inside a test only
 re-configures the group.
@@ -68,7 +72,7 @@ and in the setup file, so that every spec file registers its hooks:
 ```ts
 // vitest.setup.ts
 import { getTestBed } from '@angular/core/testing';
-import { enableAngularDiagnostics } from 'vitest-auto-spy/angular';
+import { enableAngularDiagnostics } from 'vitest-auto-spy/angular/diagnostics';
 
 getTestBed().initTestEnvironment(BrowserTestingModule, platformBrowserTesting());
 
@@ -242,7 +246,7 @@ The same check, exported for mid-test use — after the arrange step, before the
 depend on it:
 
 ```ts
-import { assertNoPendingRequests } from 'vitest-auto-spy/angular';
+import { assertNoPendingRequests } from 'vitest-auto-spy/angular/diagnostics';
 
 facade.load();
 controller.expectOne('/api/users').flush([]);

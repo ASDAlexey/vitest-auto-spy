@@ -103,7 +103,8 @@ bun test              # add --isolate for a fresh global per file
 | TestBed diagnostics (`instrumentTestBed`) |      ❌      | needs suite-level runner hooks — Vitest only           |
 | the rest of `/angular`                    |      ❌      | not routed to Bun — see below                          |
 
-"The rest" is the TestBed surgery `vitest-auto-spy/angular` carries on Vitest: the override and
+"The rest" is the TestBed surgery the Angular entries carry on Vitest — `vitest-auto-spy/angular`
+itself plus its `/angular/diagnostics` and `/angular/doubles` companions: the override and
 diagnostics assertions, `extendWithAutoSpies`, `provideAutoSpyForToken` with the token-keyed
 defaults, `trackInjections`, `setupAngularTestEnv`, the stub factories, the resource and signal prop
 doubles, and the platform and dialog doubles. None of it is exported from this entry.

@@ -152,7 +152,7 @@ export default defineConfig({
   fails the run on a duplicate installed copy of the package.
 
 Registering [signal matchers](/adapters/angular) (`toHaveSignalValue`) is a third setup-file
-candidate for Angular suites: `registerSignalMatchers()` from `vitest-auto-spy/angular`.
+candidate for Angular suites: `registerSignalMatchers()` from `vitest-auto-spy/angular/matchers`.
 
 ## Isolation
 

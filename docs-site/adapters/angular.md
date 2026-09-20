@@ -7,7 +7,11 @@ description: provideAutoSpy, injectSpy, extendWithAutoSpies, renderShallow, crea
 
 The `vitest-auto-spy/angular` entry adds `provideAutoSpy` — a shorthand for providing an auto-spy
 in a `TestBed` — plus `injectSpy`, shallow component rendering, DI-driven instantiation, zoneless
-waiting, a signal matcher, `TestBed` diagnostics and the signal/readonly property mockers.
+waiting and the signal/readonly property mockers. The matcher registrars, the `TestBed` diagnostics
+and the platform/dialog doubles moved to three narrow companions in 6.0 —
+[`/angular/matchers`](#asserting-a-signal), [`/angular/diagnostics`](#where-a-spec-spends-its-time)
+and [`/angular/doubles`](#window-and-document-without-losing-the-real-one) — so a spec importing
+spies stops evaluating code it never calls.
 
 ```ts
 import { injectSpy, provideAutoSpy } from 'vitest-auto-spy/angular';
@@ -34,8 +38,10 @@ Angular wiring (`@analogjs/vite-plugin-angular` plus a TestBed setup file).
 ::: tip Running the same suite on Bun
 `bun test` cannot run Angular specs out of the box — Bun ships no DOM and cannot resolve
 `templateUrl`. [`vitest-auto-spy/bun-angular`](/runtimes/bun-angular) closes both from one preload
-and re-exports everything on this page except `registerSignalMatchers` and the `TestBed`
-diagnostics, which need the runner's `expect.extend` and suite-level hooks.
+and re-exports everything on this page except `registerSignalMatchers`, `registerResourceMatchers`
+and `registerDirectiveMatchers`, which need the runner's `expect.extend` — they live in
+`vitest-auto-spy/angular/matchers`, a Vitest-only companion, like the `TestBed` diagnostics in
+`vitest-auto-spy/angular/diagnostics`.
 :::
 
 ## Fixtures instead of `let` + `beforeEach` — `extendWithAutoSpies`
@@ -686,7 +692,8 @@ export class ProductListComponent {
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
-import { flushEffects, registerResourceMatchers, renderShallow, settleResource, stable } from 'vitest-auto-spy/angular';
+import { flushEffects, renderShallow, settleResource, stable } from 'vitest-auto-spy/angular';
+import { registerResourceMatchers } from 'vitest-auto-spy/angular/matchers';
 
 registerResourceMatchers(); // once, in the setup file
 
@@ -962,7 +969,7 @@ happened to think of, and the spec fails somewhere that has nothing to do with w
 instead:
 
 ```ts
-import { provideDocumentDouble, provideWindowDouble } from 'vitest-auto-spy/angular';
+import { provideDocumentDouble, provideWindowDouble } from 'vitest-auto-spy/angular/doubles';
 
 TestBed.configureTestingModule({
   providers: [provideWindowDouble(WINDOW, { screen: { width: 1920, height: 1080 } }), provideDocumentDouble({ visibilityState: 'hidden' })],
@@ -1038,7 +1045,8 @@ passes whether or not `close()` was ever called.
 
 ```ts
 import { MAT_DIALOG_DATA, MatDialogRef } from '@angular/material/dialog';
-import { expectEmission, injectMatDialogRef, provideMatDialogData, provideMatDialogRef } from 'vitest-auto-spy/angular';
+import { expectEmission } from 'vitest-auto-spy/angular';
+import { injectMatDialogRef, provideMatDialogData, provideMatDialogRef } from 'vitest-auto-spy/angular/doubles';
 
 TestBed.configureTestingModule({
   providers: [provideMatDialogData<EditUserData>(MAT_DIALOG_DATA, { id: 7, name: 'Ada' }), provideMatDialogRef(MatDialogRef)],
@@ -1469,7 +1477,7 @@ report it produces is correct.
 ## Asserting a signal
 
 ```ts
-import { registerSignalMatchers } from 'vitest-auto-spy/angular';
+import { registerSignalMatchers } from 'vitest-auto-spy/angular/matchers';
 
 registerSignalMatchers(); // once, in your setup file
 
@@ -1601,7 +1609,7 @@ the property, so a replaced one breaks the host's next write with
 
 ```ts
 // vitest.setup.ts
-import { enableTestBedDiagnostics } from 'vitest-auto-spy/angular';
+import { enableTestBedDiagnostics } from 'vitest-auto-spy/angular/diagnostics';
 
 if (process.env['SPEC_TIMING']) {
   enableTestBedDiagnostics();
@@ -1843,7 +1851,8 @@ dependencies of it.
 ## A host for a directive under test
 
 ```ts
-import { createDirectiveHost, registerDirectiveMatchers } from 'vitest-auto-spy/angular';
+import { createDirectiveHost } from 'vitest-auto-spy/angular';
+import { registerDirectiveMatchers } from 'vitest-auto-spy/angular/matchers';
 
 const Host = createDirectiveHost({
   template: `<div [appTruncate]="enabled" [truncateText]="text"></div>`,

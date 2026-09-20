@@ -343,6 +343,11 @@ export default defineConfig({
           'which vitest test is slow, why is my vitest suite slow, find slow test files vitest, why is this spec slow, ' +
           'slowTestThreshold, vitest cpu profile per test file, profile a vitest test, fail ci on slow tests, perf gate, ' +
           'test slow on ci fast locally, beforeEach too slow, jsdom slow tests, angular TestBed slow tests, ' +
+          'toHaveSignalValue, expect a signal value vitest, toBeTruthy passes for a signal, signal is a function, test a computed signal, ' +
+          'assert resource status angular, resource pending resolver error in test, toHaveDirectiveApplied, assert a directive is applied, ' +
+          'pending requests after an angular test, unflushed http request in spec, provider shadowed by component providers, ' +
+          'dead NgModule import, schemas next to a standalone component, TestBed time per spec file, how much time went into TestBed, ' +
+          'spec timing breakdown angular, enableAngularDiagnostics, enableTestBedDiagnostics, angular diagnostics, ' +
           'vitest coverage slow, coverage.include slow, isIncluded, picomatch, custom coverage provider, ' +
           'customProviderModule, cobertura too large, gitlab coverage not showing, ' +
           'bun test, bun 1.4, angular on bun, node:test, angular testing, renderShallow, shallow rendering, zoneless, signal testing, ' +
