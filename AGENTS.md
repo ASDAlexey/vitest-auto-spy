@@ -53,19 +53,22 @@ adapter installed and spies fail at runtime.
 
 Add-ons, orthogonal to the runner:
 
-| Add-on            | Import                           | Needed for                                                                                                                                                                                                                                                                      |
-| ----------------- | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Observable spies  | `import 'vitest-auto-spy/rxjs'`  | `nextWith` & friends. **Side-effect import, once**, and in a file the `tsconfig` includes (§4)                                                                                                                                                                                  |
-| observer-spy shim | `vitest-auto-spy/observer-spy`   | `subscribeSpyTo` — the `@hirez_io/observer-spy` surface (§20). Its own entry so `/rxjs` does not carry it                                                                                                                                                                       |
-| Console spies     | `vitest-auto-spy/console`        | silent typed spies over the global `console` — `installConsoleSpies()` per test, `restoreConsole()` after                                                                                                                                                                       |
-| DOM stubs         | `vitest-auto-spy/dom-stubs`      | `stubIntersectionObserver` / `stubResizeObserver` / `stubMutationObserver` / `stubObserver`, `stubMediaElement`, `stubAbortController`, `stubWebStorage` (§12), `intersectionEntry` / `resizeEntry` / `mutationRecord`. **Moved off the root in 4.0.0**                         |
-| Run diagnostics   | `vitest-auto-spy/diagnostics`    | `compareTestRuns`, `summarizeTestRun`, `formatTestRunComparison`, `diffByField`. **Moved off the root in 4.0.0**                                                                                                                                                                |
-| Angular HTTP      | `vitest-auto-spy/angular-http`   | `provideHttpTesting`, `expectRequest` — `httpResource()` / `HttpClient` (§13). Optional `@angular/common` peer, this entry only                                                                                                                                                 |
-| Angular router    | `vitest-auto-spy/angular-router` | `provideActivatedRoute`, `injectActivatedRoute` — an `ActivatedRoute` whose streams and snapshot share one record; `provideRouterDouble`, `injectRouterDouble` — a `Router` whose URL, `routerState` and `events` agree (§13). Optional `@angular/router` peer, this entry only |
-| Signal forms      | `vitest-auto-spy/signal-forms`   | `createForm`, `registerFormMatchers` — a signal form built where `form()` can inject, and `toHaveFieldErrors` over what it produced (§13). Optional `@angular/forms` peer, this entry only; Angular 22+                                                                         |
-| Setup helpers     | `vitest-auto-spy/setup`          | `setupAutoSpy()`, `setupFakeTimers()`, `blockNetwork()`, `stubResponse()`; the entry imports Vitest, so it is not for `bun test`                                                                                                                                                |
-| Zone patch        | `import 'vitest-auto-spy/zone'`  | `fakeAsync` / `waitForAsync` on Vitest (§14)                                                                                                                                                                                                                                    |
-| jasmine compat    | `vitest-auto-spy/jasmine`        | `.and` / `.calls` / `.withArgs`, the `jasmine` namespace (§20)                                                                                                                                                                                                                  |
+| Add-on              | Import                                | Needed for                                                                                                                                                                                                                                                                      |
+| ------------------- | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Observable spies    | `import 'vitest-auto-spy/rxjs'`       | `nextWith` & friends. **Side-effect import, once**, and in a file the `tsconfig` includes (§4)                                                                                                                                                                                  |
+| observer-spy shim   | `vitest-auto-spy/observer-spy`        | `subscribeSpyTo` — the `@hirez_io/observer-spy` surface (§20). Its own entry so `/rxjs` does not carry it                                                                                                                                                                       |
+| Console spies       | `vitest-auto-spy/console`             | silent typed spies over the global `console` — `installConsoleSpies()` per test, `restoreConsole()` after                                                                                                                                                                       |
+| DOM stubs           | `vitest-auto-spy/dom-stubs`           | `stubIntersectionObserver` / `stubResizeObserver` / `stubMutationObserver` / `stubObserver`, `stubMediaElement`, `stubAbortController`, `stubWebStorage` (§12), `intersectionEntry` / `resizeEntry` / `mutationRecord`. **Moved off the root in 4.0.0**                         |
+| Run diagnostics     | `vitest-auto-spy/diagnostics`         | `compareTestRuns`, `summarizeTestRun`, `formatTestRunComparison`, `diffByField`. **Moved off the root in 4.0.0**                                                                                                                                                                |
+| Angular HTTP        | `vitest-auto-spy/angular-http`        | `provideHttpTesting`, `expectRequest` — `httpResource()` / `HttpClient` (§13). Optional `@angular/common` peer, this entry only                                                                                                                                                 |
+| Angular router      | `vitest-auto-spy/angular-router`      | `provideActivatedRoute`, `injectActivatedRoute` — an `ActivatedRoute` whose streams and snapshot share one record; `provideRouterDouble`, `injectRouterDouble` — a `Router` whose URL, `routerState` and `events` agree (§13). Optional `@angular/router` peer, this entry only |
+| Angular diagnostics | `vitest-auto-spy/angular/diagnostics` | `enableAngularDiagnostics` and the whole TestBed timing family (§13). Companion to `/angular` like `/angular-http` — no core re-export; **moved off `/angular` in 6.0** so importing spies stops evaluating it                                                                  |
+| Angular doubles     | `vitest-auto-spy/angular/doubles`     | The Material dialog trio and the `Window`/`Document` platform doubles (§13). Companion to `/angular`; registers the Vitest adapter, so its doubles spy out of the box; **moved off `/angular` in 6.0**                                                                          |
+| Angular matchers    | `vitest-auto-spy/angular/matchers`    | `registerDirectiveMatchers`, `registerResourceMatchers`, `registerSignalMatchers` (§13). Companion to `/angular` — no core re-export; **moved off `/angular` in 6.0**                                                                                                           |
+| Signal forms        | `vitest-auto-spy/signal-forms`        | `createForm`, `registerFormMatchers` — a signal form built where `form()` can inject, and `toHaveFieldErrors` over what it produced (§13). Optional `@angular/forms` peer, this entry only; Angular 22+                                                                         |
+| Setup helpers       | `vitest-auto-spy/setup`               | `setupAutoSpy()`, `setupFakeTimers()`, `blockNetwork()`, `stubResponse()`; the entry imports Vitest, so it is not for `bun test`                                                                                                                                                |
+| Zone patch          | `import 'vitest-auto-spy/zone'`       | `fakeAsync` / `waitForAsync` on Vitest (§14)                                                                                                                                                                                                                                    |
+| jasmine compat      | `vitest-auto-spy/jasmine`             | `.and` / `.calls` / `.withArgs`, the `jasmine` namespace (§20)                                                                                                                                                                                                                  |
 
 `vitest-auto-spy/jasmine` is Vitest-only, because it registers the Vitest adapter. On `bun test` and
 `node --test` call `enableJasmineCompat()` from `vitest-auto-spy/jasmine-compat` instead.
@@ -1991,7 +1994,7 @@ an unconfigured call returns — a semantic switch, not a grade; the name was ta
 stray-timer counts (the sweep fails the file from `afterAll`, and a callback scheduled after the
 previous file's sweep is charged to the next — opt in with
 `onStrayTimers: ({ timers }) => expect(timers).toEqual([])`, whose diff names each one's file), and
-`enableAngularDiagnostics()`, which lives in `/angular` — call it in the same setup file as the Angular half of strict.
+`enableAngularDiagnostics()`, which lives in `/angular/diagnostics` — call it in the same setup file as the Angular half of strict.
 
 `misconfiguration: 'throw'` on its own makes the library's misuse reports — an `onlyMethodsToSpyOn`
 typo, `gettersToSpyOn` naming a method, a `returns` key no spy answers to, `injectSpy` handed a real
@@ -2281,6 +2284,13 @@ const myService = injectSpy(MyService); // Spy<MyService>
 `{ lazySpies: false }` to opt out. The spies never touch `NgZone`, so they work zoneless and with
 zone.js alike. The entry needs **Angular >= 20** (§1); on 16 or 17 it does not link at all, because
 `ɵSIGNAL` is not there to import.
+
+**Niche Angular helpers ship in narrow companion subpaths, never in `/angular`** — the pattern of
+`/angular-http`, `/angular-router` and `/signal-forms`, and since 6.0 of `/angular/diagnostics`,
+`/angular/doubles` and `/angular/matchers`. An import of `/angular` evaluates its whole graph, so a
+helper a suite names once in a setup file must not ride along with every `provideAutoSpy` import;
+the diagnostics, doubles and matcher registrars left on that rule (`trackInjections` stays —
+`createWithAutoSpies` needs its module).
 
 ### The same thing as fixtures — `extendWithAutoSpies` (Vitest 4.1+)
 
@@ -2625,7 +2635,7 @@ replace a stack inside `@angular/core` with a line naming what is missing.
 ```ts
 // vitest.setup.ts — AFTER getTestBed().initTestEnvironment(…), because Vitest runs
 // afterEach hooks in reverse registration order and this one must run before the teardown.
-import { enableAngularDiagnostics } from 'vitest-auto-spy/angular';
+import { enableAngularDiagnostics } from 'vitest-auto-spy/angular/diagnostics';
 
 enableAngularDiagnostics(); // { ngModuleScopes, deadSchemas, unspiedProviders, pendingRequests }
 ```
@@ -2886,7 +2896,7 @@ that owns them (assert through `component.form.tags()`), and custom controls —
 ### `window` and `document` over the real ones — `provideWindowDouble` / `provideDocumentDouble`
 
 ```ts
-import { provideDocumentDouble, provideWindowDouble } from 'vitest-auto-spy/angular';
+import { provideDocumentDouble, provideWindowDouble } from 'vitest-auto-spy/angular/doubles';
 
 TestBed.configureTestingModule({
   providers: [
@@ -2945,7 +2955,8 @@ Five things to know:
 
 ```ts
 import { MAT_DIALOG_DATA, MatDialogRef } from '@angular/material/dialog';
-import { expectEmission, injectMatDialogRef, provideMatDialogData, provideMatDialogRef } from 'vitest-auto-spy/angular';
+import { expectEmission } from 'vitest-auto-spy/angular';
+import { injectMatDialogRef, provideMatDialogData, provideMatDialogRef } from 'vitest-auto-spy/angular/doubles';
 
 TestBed.configureTestingModule({
   providers: [provideMatDialogData<EditUserData>(MAT_DIALOG_DATA, { id: 7, name: 'Ada' }), provideMatDialogRef(MatDialogRef)],
@@ -3170,11 +3181,11 @@ service.products.set([edited]); // the component's own optimistic write — stat
 expect(products.reload).toHaveBeenCalled(); // reload is spied, answers true, and re-issues nothing
 
 // signal assertions
-registerSignalMatchers(); // once, in the setup file
+registerSignalMatchers(); // once, in the setup file — /angular/matchers
 expect(component.total).toHaveSignalValue(3);
 
 // resource assertions — value AND status, which is the whole point
-registerResourceMatchers(); // once, in the setup file
+registerResourceMatchers(); // once, in the setup file — /angular/matchers
 expect(component.products).toBeLoading();
 expect(component.products).toHaveResourceValue([product]);
 expect(component.products).toHaveResourceError(/503/);
@@ -3238,7 +3249,7 @@ now throws, naming what it received.
 Per-file timing, to find which specs actually pay for `TestBed`:
 
 ```ts
-import { enableTestBedDiagnostics } from 'vitest-auto-spy/angular';
+import { enableTestBedDiagnostics } from 'vitest-auto-spy/angular/diagnostics';
 
 if (process.env['SPEC_TIMING']) {
   enableTestBedDiagnostics();
@@ -3268,7 +3279,8 @@ It exports the core, `provideAutoSpy` / `injectSpy`, `renderShallow`, `createWit
 `expect.extend` and the TestBed diagnostics its suite-level hooks; the overrides, `extendWithAutoSpies`,
 `provideAutoSpyForToken`, `trackInjections`, `setupAngularTestEnv`, the stub factories and the
 `mock*Prop`, platform and dialog doubles are simply not routed to Bun. Import them from `/angular`
-under Vitest.
+under Vitest, and the registrars, doubles and diagnostics from their companion entries
+(`/angular/matchers`, `/angular/doubles`, `/angular/diagnostics`).
 
 ---
 
