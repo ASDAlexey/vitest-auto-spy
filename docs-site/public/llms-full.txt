@@ -4047,29 +4047,37 @@ prune reaches only one and the run dies out of memory.
 
 ## Bundle size
 
-The badge says 20.1 kB min+gzip, and that is the whole core entry bundled together. It is also the
+The badge says 22.5 kB min+gzip, and that is the whole core entry bundled together. It is also the
 largest number a consumer can pay for the core, because entries are separate subpaths and a project
 only pays for the ones it imports:
 
 | Imported                                      |    min+gzip |
 | --------------------------------------------- | ----------: |
-| `.` — the core entry, what the badge measures | **20.1 kB** |
-| `vitest-auto-spy/angular`                     |     30.4 kB |
-| `vitest-auto-spy/react` / `/vue` / `/svelte`  |     20.1 kB |
-| `vitest-auto-spy/setup`                       |     18.9 kB |
-| `vitest-auto-spy/node`                        |     19.0 kB |
-| `vitest-auto-spy/dom-stubs`                   |      5.8 kB |
+| `.` — the core entry, what the badge measures | **22.5 kB** |
+| `vitest-auto-spy/angular`                     |     26.3 kB |
+| `vitest-auto-spy/angular/doubles`             |      9.6 kB |
+| `vitest-auto-spy/angular/diagnostics`         |      5.9 kB |
+| `vitest-auto-spy/angular/matchers`            |      1.7 kB |
+| `vitest-auto-spy/react` / `/vue` / `/svelte`  |     22.5 kB |
+| `vitest-auto-spy/setup`                       |     19.5 kB |
+| `vitest-auto-spy/node`                        |     21.3 kB |
+| `vitest-auto-spy/dom-stubs`                   |      6.4 kB |
 | `vitest-auto-spy/rxjs`                        |      2.6 kB |
-| `vitest-auto-spy/angular-router`              |      8.4 kB |
+| `vitest-auto-spy/angular-router`              |      8.5 kB |
 | `vitest-auto-spy/signal-forms`                |      1.4 kB |
 | `vitest-auto-spy/zone`                        |      1.1 kB |
+
+**The three Angular companion rows are not an addition, they are `/angular` taken apart.** A project
+that used to import everything from `vitest-auto-spy/angular` paid 30.4 kB in every Angular spec
+file; it now pays 26.3 kB there and the companion rows once, in the setup file that calls
+`enableAngularDiagnostics`, `registerSignalMatchers` or the Material dialog doubles.
 
 **The framework rows are not a framework tax.** `react`, `vue` and `svelte` weigh what the core
 weighs, within a rounding error of each other, because that is what they are: `src/react.ts` is a
 barrel — a `registerMockAdapter` call and `export * from './auto-spy'` — and its own code is seven
 bytes in the bundle. Nobody should go looking for weight in it.
 
-Every figure here is the committed baseline in `size-entries.json` as of 2026-09-17, which is what
+Every figure here is the committed baseline in `size-entries.json` as of 2026-09-20, which is what
 `size:entries:check` and the badge both read; an earlier edition of this table quoted 15.1, 18.7 and
 14.5 kB for the first three rows, taken before the defaults registry, the outside-a-hook report and
 the shadowed-provider check. `/dom-stubs` last moved for `stubWebStorage`, +256 B, and `/angular` for
@@ -4119,10 +4127,18 @@ The repair round that ships in the same release then moved every runtime row bac
 than the emission change had saved: the structural matcher behind nested matchers, symbol-keyed and
 static-member discovery, the teardown and guard modules `/setup` now carries, and the Angular
 internals canary put +2.4…3.6 kB on the solo rows — the root entry 17.6 → 20.1 kB, `/angular`
-26.9 → 30.4 kB, `/setup` 17.1 → 18.9 kB — and +0.1…1.3 kB on the chunked ones. Every figure above is
-the final tree, measured 2026-09-17.
+26.9 → 30.4 kB, `/setup` 17.1 → 18.9 kB — and +0.1…1.3 kB on the chunked ones.
 
-`npm run size:entries` prints all twenty-three and compares them against a committed baseline, so an entry
+Two releases then moved the table to what it says now. v5.20.0 put +1.74…1.79 kB on every row that
+carries the core — `mockDeep` arrays and `fallbackMockImplementation`, `createSpyFromInstance`
+passthrough and its only-list rules, `adoptMock` and `moduleNamespace` passthrough — taking the root
+entry 20.3 → 22.1 kB, with `/setup` +0.36 kB for `stubResponse` and the MSW check and
+`/eslint-plugin` +1.01 kB for `no-hand-assigned-global`. v5.21.0 split `/angular` into the three
+companion rows above, 30.4 → 26.3 kB, and added +0.2…0.4 kB to the core rows for the patch journal's
+per-entry file stamp and the weak-keyed defaults registry. Every figure above is the final tree,
+measured 2026-09-20.
+
+`npm run size:entries` prints all twenty-six and compares them against a committed baseline, so an entry
 that quietly gains a second copy of the core fails a check instead of being noticed a release later.
 
 None of this reaches a production bundle in any case: the package is a devDependency, and the
@@ -4130,7 +4146,9 @@ framework adapters, rxjs layer, console spies and setup helpers each live behind
 
 ### What is in the download
 
-The published tarball is **818 kB** over **84 files** (`npm pack --dry-run`, 2026-09-17). An
+The published tarball is **867 kB** over **96 files** (`npm pack --dry-run`, 2026-09-20) against
+3.2 MB unpacked; the twelve files the Angular split and the two CLI JSON reports added are most of
+the move from the 818 kB over 84 files this page reported on 2026-09-17. An
 intermediate measurement of this same tree — after the standalone bundles described below, before
 the repair round's code — read 751 kB over 82 files; the edition before that measured 584 kB across
 84 files against 1 560 kB of `dist/` on 2026-09-12, before three releases. An
@@ -4140,12 +4158,13 @@ package had thirteen subpaths, no command-line tool, and an ESLint entry a sixth
 size. Comparing them to today's is comparing two different packages.
 
 Where the bytes are is more useful than the total. The two largest JavaScript files in the package,
-`dist/cli.js` at 244 kB and `dist/angular.js` at 186 kB, sit on opposite sides of that line: the
-first is the `vitest-auto-spy` executable — grown by the codemod's parse-what-it-wrote check and
-the perf tooling — which **no spec file ever loads**; the second is large on purpose, built unsplit
-so it carries its own copy of what it needs rather than reaching a shared chunk through the loader.
-`dist/eslint-plugin.cjs` at 178 kB belongs with the executable, and `dist/index.js` at 130 kB with
-`/angular`. `tsup.config.ts` records the measurement behind that decision — root plus `/angular`
+`dist/cli.js` at 252 kB and `dist/eslint-plugin.cjs` at 180 kB, sit on the far side of the line a
+spec run ever crosses: the first is the `vitest-auto-spy` executable — grown by the codemod's
+parse-what-it-wrote check, the perf tooling and the JSON reports — and the second is loaded by
+ESLint, so **no spec file ever loads either**. `dist/angular.js` at 160 kB and `dist/index.js` at
+144 kB are the two a spec does load, and they are large on purpose, built unsplit so each carries its
+own copy of what it needs rather than reaching a shared chunk through the loader.
+`tsup.config.ts` records the measurement behind that decision — root plus `/angular`
 plus `/setup` goes 7.7 → 5.9 ms under Node's native loader, and `/setup` alone 5.6 → 3.1 ms, on the
 numbers below. Disk is the cheap side of that trade.
 

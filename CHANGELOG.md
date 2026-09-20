@@ -10,20 +10,55 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+Three repairs the 5.21.0 Angular split left behind, every one of them silent: `doctor` could not
+see an import from the new companion entries at all, so the migration it makes mandatory went
+unchecked in the direction the split makes easy to get wrong; the property-mock journal warned the
+next spec file about patches a spec had already taken off; and the `sideEffects` manifest called two
+of the three new entries pure, which lets a bundler drop the mock adapter or the compiler import.
+
+### Fixed
+
+- **`doctor` could not see an import from the three new Angular companions at all.** The specifier
+  group of the CLI's import scanner accepted one path segment — `vitest-auto-spy/angular` — so
+  `vitest-auto-spy/angular/diagnostics`, `/angular/doubles` and `/angular/matchers` matched nothing
+  and every import from them was invisible. The table already knew the entries and the repair text
+  already named them; only the scanner was behind, which is why the migration direction worked and
+  its opposite did not: `import { provideAutoSpy } from 'vitest-auto-spy/angular/doubles'` — the
+  mistake the split makes easy, since that entry registers the mock adapter and sits next to the
+  doubles a spec already imports — went unreported although the entry exports no such name. It is a
+  `helper-from-wrong-entry` error again, and `no-unawaited-helper` reads the same scanner, where the
+  blindness was latent because no awaitable helper lives on a nested entry today.
+- **The `mock*Prop` journal warning counted patches that had already been taken off.** The per-patch
+  undo marks its entry rather than splicing it out of the journal, which keeps a spec that stubs in a
+  loop from going quadratic — so a file that restores every patch by hand, the documented shape for a
+  suite with no `setupAutoSpy`, left a non-empty journal holding nothing. The next file of the worker
+  was then told that _N_ patches "are still in the journal", that "the patches are still on their
+  objects" and to call `restoreMockedProps()`; all three were false, and the sweep it named had
+  nothing to put back. Only patches still in place are counted now, which is how `countMockedProps()`
+  has always read the same journal.
+- **`sideEffects` did not name two of the three new entries.** `vitest-auto-spy/angular/doubles`
+  registers the mock adapter at module scope and `/angular/matchers` imports `@angular/compiler` for
+  its own side effect, and the manifest called both pure — while `angular.js`, which does the same
+  registration, was listed. A bundler honouring the field may drop such a module, and the mock
+  adapter or the compiler goes with it. `check-dist.mjs` could not catch it: its rule is about a dist
+  file reached only by a bare relative import, not about an entry's own top-level statements, so the
+  manifest suite now asserts the property directly over every ESM entry in `exports`.
+
+### Documentation
+
+- **The Angular split was dated to a `6.0`** on every surface — the docs site and its Russian
+  translation, `README.md`, `AGENTS.md`, the API page, `llms-full.txt` and the CLI pages — because the
+  move was written up before the automation decided the version. It shipped in 5.21.0, a minor, and
+  every surface now says so.
+
+## [5.21.0] - 2026-09-20
+
 **Breaking, and worth it: the diagnostics, doubles and matcher registrars left
 `vitest-auto-spy/angular` for three narrow companion entries** — `angular/diagnostics`,
 `angular/doubles`, `angular/matchers` — so a spec importing `provideAutoSpy` stops evaluating the
 TestBed instrumentation and the Material dialog doubles it never calls. `/angular` loses 14.3 % of
 its min+gzip size and 25 kB of its module graph; migration is one import line per group, mapped
 under **Removed** below.
-
-The `doctor` and `perf` reports, read against a 2 015-file consumer suite: what they print, how wide,
-and the four places where the printed numbers or words did not match what was measured.
-
-And the mocking gaps a survey of other libraries turned up: a real object observed instead of
-replaced (`passthrough`), a `vi.mock` factory's `vi.fn()` with typed `calledWith` (`adoptMock`),
-arrays and unmocked-call failures in `mockDeep`, a real `Response` for a stubbed `fetch`, and
-`blockNetwork` no longer switching MSW off.
 
 ### Added
 
@@ -46,6 +81,66 @@ arrays and unmocked-call failures in `mockDeep`, a real `Response` for a stubbed
   The keys are now weak — a default lives exactly as long as its class or `InjectionToken` — while
   `clearAutoSpyDefaults()` still empties the registry for every copy of the package at once, which is
   what a `Map.clear()` swap would have silently broken for the second bundle a spec imports.
+
+### Removed
+
+- **Breaking: thirty-two exports left `vitest-auto-spy/angular` for three narrow entries.** Every
+  entry of this package is deliberately listed in `sideEffects` — minifying the published code costs
+  the consumer's bundler its `/* @__PURE__ */` proof — so nothing tree-shakes an entry away, and a
+  spec importing `provideAutoSpy` evaluated the whole 193 kB graph, TestBed instrumentation and
+  Material dialog doubles included. What moved where:
+
+  | Import from `vitest-auto-spy/angular` | Now import from |
+  | --- | --- |
+  | `enableAngularDiagnostics`, `disableAngularDiagnostics`, `assertNoPendingRequests`, `assertNoShadowedProviders`, `AngularDiagnosticsOptions` | `vitest-auto-spy/angular/diagnostics` |
+  | `enableTestBedDiagnostics`, `disableTestBedDiagnostics`, `instrumentTestBed`, `getTestBedTiming`, `formatSpecTiming`, `reportSpecTiming`, `SpecTiming`, `TestBedDiagnosticsOptions` | `vitest-auto-spy/angular/diagnostics` |
+  | `createMatDialogRef`, `injectMatDialogRef`, `provideMatDialogData`, `provideMatDialogRef`, `DialogComponent`, `DialogRefLike`, `DialogResult`, `MatDialogRefDouble`, `MatDialogRefInit` | `vitest-auto-spy/angular/doubles` |
+  | `createWindowDouble`, `createDocumentDouble`, `provideWindowDouble`, `provideDocumentDouble`, `PlatformOverrides` | `vitest-auto-spy/angular/doubles` |
+  | `registerDirectiveMatchers`, `registerResourceMatchers`, `registerSignalMatchers`, `ResourceLike`, `SignalLike` | `vitest-auto-spy/angular/matchers` |
+
+  The moved groups are setup-file helpers a suite calls once, so for most projects this is three
+  import lines in one file. `trackInjections` stays in `vitest-auto-spy/angular`: `createWithAutoSpies`
+  needs its module either way, so moving the name would break imports for no bytes back.
+
+  **`doctor` makes the migration mandatory, and says so before a test runs.** Each moved name still
+  imported from `/angular` is a `helper-from-wrong-entry` **error** naming the companion to move it
+  to, so a repository green on 5.20.0 exits 1 on the upgrade with nothing yet executed — the same
+  shape of behaviour change as 5.20.0's `scan-cap-reached`. That is the point of it: the compiler
+  covers the spec files a `tsconfig` program reaches, and `doctor` covers the ones it does not, which
+  on the consumer suite this was measured against is where the one unmigrated file turned out to be.
+
+  **A breaking change in a minor, deliberately.** The split commit carried no `BREAKING CHANGE:`
+  footer, so the automation bumped the minor, and the release went out that way rather than being
+  re-tagged: nothing is removed from the package, every moved name is still exported from an entry of
+  it, and `doctor` names the one line to change per group before a test runs.
+
+### Size
+
+**`/angular` shrinks 30.7 → 26.3 kB min+gzip (−4.38 kB, −14.3 %)** and its module graph
+**193 → 168 kB raw** (72 → 65 source modules): the diagnostics, doubles and matcher code a spec never
+calls left for the three narrow entries above. Those carry what moved — `5.90 kB` diagnostics,
+`9.64 kB` doubles, `1.68 kB` matchers — loaded by the setup files that ask for them instead of by
+every spec file of an Angular project. A cold `import('vitest-auto-spy/angular')` in a fresh process
+measures 92 → 65–70 ms, though most of that delta is the Angular JIT work the diagnostics modules
+used to trigger, not the library's own bytes.
+
+The two memory changes above reach every core-carrying entry through the shared chunk: **+0.2…+0.4 kB**
+each on `.`, `/bun`, `/node`, `/rstest`, `/react`, `/vue`, `/svelte` and `/setup` (the journal's
+per-entry file stamp and the weak-keyed defaults facade), `/dom-stubs` +0.46 kB on chunk attribution.
+Nothing else moves by more than 0.13 kB.
+
+## [5.20.0] - 2026-09-19
+
+The `doctor` and `perf` reports, read against a 2 015-file consumer suite: what they print, how wide,
+and the four places where the printed numbers or words did not match what was measured.
+
+And the mocking gaps a survey of other libraries turned up: a real object observed instead of
+replaced (`passthrough`), a `vi.mock` factory's `vi.fn()` with typed `calledWith` (`adoptMock`),
+arrays and unmocked-call failures in `mockDeep`, a real `Response` for a stubbed `fetch`, and
+`blockNetwork` no longer switching MSW off.
+
+### Added
+
 - **`--format json` on `doctor` and `perf`.** One JSON document on stdout and nothing else:
   `schema`, `command`, `version`, `cwd`, `exitCode`, `tally` and every finding (`check`, `severity`,
   `file`, `message`, `fix`, `details` without terminal color). `doctor` adds what it scanned;
@@ -143,63 +238,8 @@ arrays and unmocked-call failures in `mockDeep`, a real `Response` for a stubbed
   its first index read. Reads by key keep answering deep mocks; `Array.isArray` and `Object.keys`
   now see an array.
 
-### Removed
-
-- **Breaking: thirty-two exports left `vitest-auto-spy/angular` for three narrow entries.** Every
-  entry of this package is deliberately listed in `sideEffects` — minifying the published code costs
-  the consumer's bundler its `/* @__PURE__ */` proof — so nothing tree-shakes an entry away, and a
-  spec importing `provideAutoSpy` evaluated the whole 193 kB graph, TestBed instrumentation and
-  Material dialog doubles included. What moved where:
-
-  | Import from `vitest-auto-spy/angular` | Now import from |
-  | --- | --- |
-  | `enableAngularDiagnostics`, `disableAngularDiagnostics`, `assertNoPendingRequests`, `assertNoShadowedProviders`, `AngularDiagnosticsOptions` | `vitest-auto-spy/angular/diagnostics` |
-  | `enableTestBedDiagnostics`, `disableTestBedDiagnostics`, `instrumentTestBed`, `getTestBedTiming`, `formatSpecTiming`, `reportSpecTiming`, `SpecTiming`, `TestBedDiagnosticsOptions` | `vitest-auto-spy/angular/diagnostics` |
-  | `createMatDialogRef`, `injectMatDialogRef`, `provideMatDialogData`, `provideMatDialogRef`, `DialogComponent`, `DialogRefLike`, `DialogResult`, `MatDialogRefDouble`, `MatDialogRefInit` | `vitest-auto-spy/angular/doubles` |
-  | `createWindowDouble`, `createDocumentDouble`, `provideWindowDouble`, `provideDocumentDouble`, `PlatformOverrides` | `vitest-auto-spy/angular/doubles` |
-  | `registerDirectiveMatchers`, `registerResourceMatchers`, `registerSignalMatchers`, `ResourceLike`, `SignalLike` | `vitest-auto-spy/angular/matchers` |
-
-  The moved groups are setup-file helpers a suite calls once, so for most projects this is three
-  import lines in one file. `trackInjections` stays in `vitest-auto-spy/angular`: `createWithAutoSpies`
-  needs its module either way, so moving the name would break imports for no bytes back.
-
-  **`doctor` makes the migration mandatory, and says so before a test runs.** Each moved name still
-  imported from `/angular` is a `helper-from-wrong-entry` **error** naming the companion to move it
-  to, so a repository green on 5.20.0 exits 1 on the upgrade with nothing yet executed — the same
-  shape of behaviour change as 5.20.0's `scan-cap-reached`. That is the point of it: the compiler
-  covers the spec files a `tsconfig` program reaches, and `doctor` covers the ones it does not, which
-  on the consumer suite this was measured against is where the one unmigrated file turned out to be.
-  The move also shipped **inside 5.21.0**, a minor — the split commit carried no `BREAKING CHANGE:`
-  footer, so the automation bumped accordingly. Documentation that dated it to a `6.0` has been
-  corrected to the version that actually carries it.
-
 ### Fixed
 
-- **`doctor` could not see an import from the three new Angular companions at all.** The specifier
-  group of the CLI's import scanner accepted one path segment — `vitest-auto-spy/angular` — so
-  `vitest-auto-spy/angular/diagnostics`, `/angular/doubles` and `/angular/matchers` matched nothing
-  and every import from them was invisible. The table already knew the entries and the repair text
-  already named them; only the scanner was behind, which is why the migration direction worked and
-  its opposite did not: `import { provideAutoSpy } from 'vitest-auto-spy/angular/doubles'` — the
-  mistake the split makes easy, since that entry registers the mock adapter and sits next to the
-  doubles a spec already imports — went unreported although the entry exports no such name. It is a
-  `helper-from-wrong-entry` error again, and `no-unawaited-helper` reads the same scanner, where the
-  blindness was latent because no awaitable helper lives on a nested entry today.
-- **The `mock*Prop` journal warning counted patches that had already been taken off.** The per-patch
-  undo marks its entry rather than splicing it out of the journal, which keeps a spec that stubs in a
-  loop from going quadratic — so a file that restores every patch by hand, the documented shape for a
-  suite with no `setupAutoSpy`, left a non-empty journal holding nothing. The next file of the worker
-  was then told that _N_ patches "are still in the journal", that "the patches are still on their
-  objects" and to call `restoreMockedProps()`; all three were false, and the sweep it named had
-  nothing to put back. Only patches still in place are counted now, which is how `countMockedProps()`
-  has always read the same journal.
-- **`sideEffects` did not name two of the three new entries.** `vitest-auto-spy/angular/doubles`
-  registers the mock adapter at module scope and `/angular/matchers` imports `@angular/compiler` for
-  its own side effect, and the manifest called both pure — while `angular.js`, which does the same
-  registration, was listed. A bundler honouring the field may drop such a module, and the mock
-  adapter or the compiler goes with it. `check-dist.mjs` could not catch it: its rule is about a dist
-  file reached only by a bare relative import, not about an entry's own top-level statements, so the
-  manifest suite now asserts the property directly over every ESM entry in `exports`.
 - **`vi.spyOn(double, 'method')` on a method nobody had read threw
   `TypeError: Invalid value used as weak map key`.** A regression in 5.19.0: the lazy placeholder is one
   accessor pair shared by every double and reads its double through `this`, and Vitest reads an
@@ -290,19 +330,6 @@ arrays and unmocked-call failures in `mockDeep`, a real `Response` for a stubbed
 
 ### Size
 
-**`/angular` shrinks 30.7 → 26.3 kB min+gzip (−4.38 kB, −14.3 %)** and its module graph
-**193 → 168 kB raw** (72 → 65 source modules): the diagnostics, doubles and matcher code a spec never
-calls left for the three narrow entries above. Those carry what moved — `5.90 kB` diagnostics,
-`9.64 kB` doubles, `1.68 kB` matchers — loaded by the setup files that ask for them instead of by
-every spec file of an Angular project. A cold `import('vitest-auto-spy/angular')` in a fresh process
-measures 92 → 65–70 ms, though most of that delta is the Angular JIT work the diagnostics modules
-used to trigger, not the library's own bytes.
-
-The two memory changes above reach every core-carrying entry through the shared chunk: **+0.2…+0.4 kB**
-each on `.`, `/bun`, `/node`, `/rstest`, `/react`, `/vue`, `/svelte` and `/setup` (the journal's
-per-entry file stamp and the weak-keyed defaults facade), `/dom-stubs` +0.46 kB on chunk attribution.
-Nothing else moves by more than 0.13 kB.
-
 The root entry grows **20.3 → 22.1 kB** min+gzip (+1.79 kB): `mockDeep` arrays and
 `fallbackMockImplementation` ~0.43 kB, `createSpyFromInstance` passthrough and the only-list rules
 ~0.65 kB, `adoptMock` and `moduleNamespace` passthrough ~0.59 kB, the rest ~0.1 kB. `/bun`, `/bun-angular`,
@@ -317,7 +344,6 @@ module it did not load before.
   argument without own enumerable keys. Use `expect` from `vitest` in those stories, or
   `setSpyEngine('runner')`. See the Storybook recipe. `@storybook/addon-vitest` 10.6 does not accept
   Vitest 5 yet.
-
 ## [5.19.0] - 2026-09-17
 
 An audit of the whole library — the spy core and argument matching, async, RxJS and timers, Angular,
@@ -6670,7 +6696,9 @@ by hand there, in more than one place, by more than one person.
   `mockAccessorsProp`.
 - Dual ESM + CJS build with type declarations; 100% test coverage.
 
-[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.19.0...HEAD
+[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.21.0...HEAD
+[5.21.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.20.0...v5.21.0
+[5.20.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.19.0...v5.20.0
 [5.19.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.18.0...v5.19.0
 [5.18.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.17.1...v5.18.0
 [5.17.1]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.17.0...v5.17.1
