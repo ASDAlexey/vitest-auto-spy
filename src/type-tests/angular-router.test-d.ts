@@ -7,10 +7,24 @@
  * and that a misspelled part of the route is a compile error rather than a key nobody reads.
  */
 import type { Provider } from '@angular/core';
-import { type ActivatedRoute, type ActivatedRouteSnapshot, type Params, UrlSegment } from '@angular/router';
+import {
+  type ActivatedRoute,
+  type ActivatedRouteSnapshot,
+  type Params,
+  type Event as RouterNavigationEvent,
+  UrlSegment,
+} from '@angular/router';
 import { describe, expectTypeOf, it } from 'vitest';
 
-import { type ActivatedRouteDouble, createActivatedRoute, injectActivatedRoute, provideActivatedRoute } from '../angular-router';
+import {
+  type ActivatedRouteDouble,
+  type RouterEventPair,
+  collectRouterEvents,
+  createActivatedRoute,
+  createRouterDouble,
+  injectActivatedRoute,
+  provideActivatedRoute,
+} from '../angular-router';
 
 describe('provideActivatedRoute', () => {
   it('is a provider, for a providers array as it is', () => {
@@ -29,6 +43,17 @@ describe('provideActivatedRoute', () => {
 
     // @ts-expect-error — a fragment is a string or null
     provideActivatedRoute({ fragment: 7 });
+  });
+
+  it('takes a title and a resolve record, typed the way Angular reads them back', () => {
+    const chair = { id: 7 };
+
+    provideActivatedRoute({ title: 'Product 7', resolve: { product: () => chair } });
+
+    expectTypeOf(createActivatedRoute({ title: 'Product 7' }).route.snapshot.title).toEqualTypeOf<string | undefined>();
+
+    // @ts-expect-error — a title is a string; the route's own strategy resolves it
+    provideActivatedRoute({ title: 7 });
   });
 });
 
@@ -50,5 +75,22 @@ describe('the double', () => {
 
     // @ts-expect-error — `route` is the route itself, not something to assign
     double.route = createActivatedRoute().route;
+  });
+});
+
+describe('the router double', () => {
+  it('resolves emitNavigation, so a spec can await the settled router', () => {
+    const { emitNavigation } = createRouterDouble();
+
+    expectTypeOf(emitNavigation('/checkout')).toEqualTypeOf<Promise<void>>();
+    expectTypeOf(emitNavigation()).toEqualTypeOf<Promise<void>>();
+  });
+
+  it('types the event recording by the events it holds', () => {
+    const { router } = createRouterDouble();
+    const events = collectRouterEvents(router.events);
+
+    expectTypeOf(events.events).toEqualTypeOf<readonly RouterNavigationEvent[]>();
+    expectTypeOf(events.expect).parameter(0).toEqualTypeOf<readonly RouterEventPair[]>();
   });
 });

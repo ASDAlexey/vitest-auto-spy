@@ -24,6 +24,7 @@ import {
   type Data,
   PRIMARY_OUTLET,
   type Params,
+  type ResolveData,
   type Route,
   RouterState,
   RouterStateSnapshot,
@@ -41,6 +42,8 @@ export interface ActivatedRouteChange {
   queryParams?: Params;
   /** Static and resolved data — `data` and `snapshot.data`. */
   data?: Data;
+  /** The route's title — `route.title` and `snapshot.title`. Angular carries it inside `data`; so does the double. */
+  title?: string;
   /** The URL fragment — `fragment` and `snapshot.fragment`. */
   fragment?: string | null;
   /** The matched URL segments. A string is split on `/`; pass `UrlSegment`s for matrix parameters. */
@@ -55,6 +58,8 @@ export interface ActivatedRouteInit extends ActivatedRouteChange {
   component?: Type<unknown> | null;
   /** The `Route` it matched — `routeConfig` and `snapshot.routeConfig`. Default `null`. */
   routeConfig?: Route | null;
+  /** The resolve record — the snapshot's own `_resolve`, kept apart from `data` as Angular keeps it. */
+  resolve?: ResolveData;
 }
 
 /** The handle a spec drives the route through. The route itself stays exactly Angular's shape. */
@@ -78,7 +83,11 @@ export interface ActivatedRouteDouble {
 export interface RouteState {
   params: Params;
   queryParams: Params;
+  /** The data the route exposes — the title, when there is one, already inside it. */
   data: Data;
+  /** The title on its own, for the wiring check; `data` above is what the route answers with. */
+  title: string | undefined;
+  resolve: ResolveData;
   fragment: string | null;
   url: UrlSegment[];
 }
@@ -112,17 +121,27 @@ function initialState(init: ActivatedRouteInit): RouteState {
   return {
     params: init.params ?? {},
     queryParams: init.queryParams ?? {},
-    data: init.data ?? {},
+    data: withTitle(init.data ?? {}, init.title, routeTitleKey()),
+    title: init.title,
+    resolve: init.resolve ?? {},
     fragment: init.fragment === undefined ? null : init.fragment,
     url: toSegments(init.url ?? []),
   };
 }
 
 function nextState(current: RouteState, change: ActivatedRouteChange): RouteState {
+  const title = change.title ?? current.title;
+  const data =
+    current.title !== undefined || title !== undefined || change.data !== undefined
+      ? withTitle(change.data ?? current.data, title, routeTitleKey())
+      : current.data;
+
   return {
     params: change.params ?? current.params,
     queryParams: change.queryParams ?? current.queryParams,
-    data: change.data ?? current.data,
+    data,
+    title,
+    resolve: current.resolve,
     fragment: change.fragment === undefined ? current.fragment : change.fragment,
     url: change.url === undefined ? current.url : toSegments(change.url),
   };
@@ -154,6 +173,72 @@ function sameSegments(a: UrlSegment[], b: UrlSegment[]): boolean {
   return a.length === b.length && a.every((segment, index) => sameRecord(segment, Object(b[index])));
 }
 
+let titleKey: symbol | null | undefined;
+
+/**
+ * Read the symbol a title getter takes off `data`, by handing it a record that answers every read
+ * with `undefined` and remembers the symbol keys it was asked for.
+ *
+ * Angular keeps a route's title inside its `data` under `RouteTitleKey`, a symbol the router never
+ * exports, and a fresh `Symbol('RouteTitle')` would not answer — symbols compare by identity. So
+ * the key is learned from the getter itself, once, and the title is stored under the key Angular
+ * will read. `null` means the getter read no symbol: a router that stopped carrying the title in
+ * `data`, which the wiring error in {@link withTitle} names.
+ *
+ * The getter is a parameter so a spec can drive both halves: one that reads a symbol, one that
+ * reads nothing.
+ */
+export function readTitleKey(readTitle: (data: Data) => unknown): symbol | null {
+  let seen: symbol | undefined;
+  const recording: Data = new Proxy(
+    {},
+    {
+      get: (_target: object, key: string | symbol): unknown => {
+        if (typeof key === 'symbol') {
+          seen = key;
+        }
+
+        return undefined;
+      },
+    },
+  );
+
+  readTitle(recording);
+
+  return seen ?? null;
+}
+
+function routeTitleKey(): symbol | null {
+  if (titleKey === undefined) {
+    const probe: ActivatedRouteSnapshot = Object.create(ActivatedRouteSnapshot.prototype);
+
+    titleKey = readTitleKey((data: Data) => {
+      probe.data = data;
+
+      return probe.title;
+    });
+  }
+
+  return titleKey;
+}
+
+/**
+ * The data record with a title in it, where the router's own resolver leaves it — so `snapshot.title`,
+ * `route.title` (which maps `data` through the same key) and a real `TitleStrategy` all read the title
+ * this record carries, the same way they read one a navigation produced.
+ */
+export function withTitle(data: Data, title: string | undefined, key: symbol | null): Data {
+  if (title === undefined) {
+    return data;
+  }
+
+  if (key === null) {
+    throw routeWiringError('route.snapshot.title');
+  }
+
+  return { ...data, [key]: title };
+}
+
 /** A snapshot of `state`, placed in a one-node tree so `root`, `parent`, `children` answer instead of throwing. */
 function buildSnapshot(state: RouteState, fixed: FixedParts): { snapshot: ActivatedRouteSnapshot; tree: RouterStateSnapshot } {
   const args = [
@@ -165,13 +250,25 @@ function buildSnapshot(state: RouteState, fixed: FixedParts): { snapshot: Activa
     fixed.outlet,
     fixed.component,
     fixed.routeConfig,
-    {},
+    state.resolve,
   ];
   const snapshot: ActivatedRouteSnapshot = Reflect.construct(ActivatedRouteSnapshot, args);
   const path = `/${state.url.map((segment) => segment.path).join('/')}`;
   const tree: RouterStateSnapshot = Reflect.construct(RouterStateSnapshot, [path, { value: snapshot, children: [] }]);
 
   return { snapshot, tree };
+}
+
+/** The one failure this file reports: a member Angular's own wiring did not put the double's value into. */
+function routeWiringError(member: string): Error {
+  return new Error(
+    withDocs(
+      `[vitest-auto-spy] provideActivatedRoute: the installed @angular/router does not wire ActivatedRoute the way ` +
+        `Angular 20 to 22 does — ${member} does not hold what the double passed in. ` +
+        'Please report it with the @angular/router version; until then, provide the route by hand.',
+      DOCS_LINKS.angularRouter,
+    ),
+  );
 }
 
 /**
@@ -193,6 +290,8 @@ export function assertRouteWiring(route: ActivatedRoute, streams: Streams, state
     ['snapshot.params', route.snapshot.params, state.params],
     ['snapshot.queryParams', route.snapshot.queryParams, state.queryParams],
     ['snapshot.data', route.snapshot.data, state.data],
+    ['snapshot.title', route.snapshot.title, state.title],
+    ['snapshot._resolve', Reflect.get(route.snapshot, '_resolve'), state.resolve],
     ['snapshot.fragment', route.snapshot.fragment, state.fragment],
     ['snapshot.url', route.snapshot.url, state.url],
     ['snapshot.root', route.snapshot.root, route.snapshot],
@@ -201,14 +300,7 @@ export function assertRouteWiring(route: ActivatedRoute, streams: Streams, state
   const broken = expected.find(([, actual, wanted]) => actual !== wanted);
 
   if (broken !== undefined) {
-    throw new Error(
-      withDocs(
-        `[vitest-auto-spy] provideActivatedRoute: the installed @angular/router does not wire ActivatedRoute the way ` +
-          `Angular 20 to 22 does — route.${broken[0]} does not hold what the double passed in. ` +
-          'Please report it with the @angular/router version; until then, provide the route by hand.',
-        DOCS_LINKS.angularRouter,
-      ),
-    );
+    throw routeWiringError(`route.${broken[0]}`);
   }
 }
 

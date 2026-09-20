@@ -7,11 +7,28 @@
 import { Component, inject } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { TestBed } from '@angular/core/testing';
-import { ActivatedRoute, ActivatedRouteSnapshot, type Params, Router, UrlSegment, convertToParamMap, provideRouter } from '@angular/router';
+import {
+  ActivatedRoute,
+  ActivatedRouteSnapshot,
+  type Data,
+  type Params,
+  type ResolveData,
+  Router,
+  UrlSegment,
+  convertToParamMap,
+  provideRouter,
+} from '@angular/router';
 import { BehaviorSubject, type Observable, firstValueFrom, map } from 'rxjs';
 import { describe, expect, it } from 'vitest';
 
-import { assertRouteWiring, createActivatedRoute, injectActivatedRoute, provideActivatedRoute } from './angular-router';
+import {
+  assertRouteWiring,
+  createActivatedRoute,
+  injectActivatedRoute,
+  provideActivatedRoute,
+  readTitleKey,
+  withTitle,
+} from './angular-router';
 
 function current<T>(source: Observable<T>): Promise<T> {
   return firstValueFrom(source);
@@ -273,6 +290,105 @@ describe('createActivatedRoute — emits only what changed', () => {
   });
 });
 
+describe('createActivatedRoute — resolve and title', () => {
+  it('carries the resolve record on the snapshot, apart from data as Angular keeps it', () => {
+    const resolve: ResolveData = { user: () => 'resolved' };
+    const { route } = createActivatedRoute({ data: { kind: 'list' }, resolve });
+
+    expect(Reflect.get(route.snapshot, '_resolve')).toBe(resolve);
+    expect(route.snapshot.data).toEqual({ kind: 'list' });
+  });
+
+  it('exposes the title through the key Angular reads it with: inside data', async () => {
+    const { route } = createActivatedRoute({ data: { kind: 'list' }, title: 'Products' });
+
+    expect(route.snapshot.title).toBe('Products');
+    expect(Object.getOwnPropertySymbols(route.snapshot.data).map((key) => key.description)).toContain('RouteTitle');
+    expect(await current(route.title)).toBe('Products');
+    expect(await current(route.data)).toBe(route.snapshot.data);
+  });
+
+  it('answers no title the way an untitled route does', async () => {
+    const { route } = createActivatedRoute();
+
+    expect(route.snapshot.title).toBeUndefined();
+    expect(await current(route.title)).toBeUndefined();
+  });
+
+  it('moves a title change through data, the stream a component reads the title from', async () => {
+    const double = createActivatedRoute({ title: 'Products' });
+    const titles: (string | undefined)[] = [];
+
+    double.route.title.subscribe((title) => titles.push(title));
+    double.set({ title: 'Product 7' });
+
+    expect(double.route.snapshot.title).toBe('Product 7');
+    expect(titles).toEqual(['Products', 'Product 7']);
+    expect(await current(double.route.title)).toBe('Product 7');
+  });
+
+  it('counts the title as data: a title alone emits data, and nothing else', () => {
+    const double = createActivatedRoute({ title: 'Products' });
+    const order: string[] = [];
+
+    record(double.route.queryParams, order, 'queryParams');
+    record(double.route.fragment, order, 'fragment');
+    record(double.route.params, order, 'params');
+    record(double.route.url, order, 'url');
+    record(double.route.data, order, 'data');
+
+    double.set({ title: 'Product 7' });
+
+    expect(order).toEqual(['data']);
+  });
+
+  it('says nothing for a title equal to the current one, as for any other part', () => {
+    const double = createActivatedRoute({ title: 'Products' });
+    const emitted: string[] = [];
+
+    record(double.route.data, emitted, 'data');
+
+    double.set({ title: 'Products' });
+
+    expect(emitted).toEqual([]);
+  });
+
+  it('keeps the title when the data around it is replaced', async () => {
+    const double = createActivatedRoute({ title: 'Products' });
+
+    double.setData({ kind: 'list' });
+
+    expect(double.route.snapshot.title).toBe('Products');
+    expect(double.route.snapshot.data['kind']).toBe('list');
+    expect(await current(double.route.title)).toBe('Products');
+  });
+});
+
+describe('readTitleKey and withTitle', () => {
+  it('finds the key a title getter reads off the data record it is handed', () => {
+    const probe = Symbol('a probe of the spec');
+
+    expect(readTitleKey((data) => Reflect.get(data, probe))).toBe(probe);
+  });
+
+  it('answers null for a getter that reads no symbol, and ignores the string keys it reads', () => {
+    expect(readTitleKey(() => undefined)).toBeNull();
+    expect(readTitleKey((data) => data['kind'])).toBeNull();
+  });
+
+  it('merges the title into the data record under the key it is given', () => {
+    const key = Symbol('RouteTitle');
+    const data: Data = { kind: 'list' };
+
+    expect(withTitle(data, 'Products', key)).toEqual({ kind: 'list', [key]: 'Products' });
+    expect(withTitle(data, undefined, key)).toBe(data);
+  });
+
+  it('names a router whose title getter reads no key, rather than storing a title nothing reads', () => {
+    expect(() => withTitle({}, 'Products', null)).toThrow(/route\.snapshot\.title does not hold what the double passed in/);
+  });
+});
+
 describe('provideActivatedRoute', () => {
   it('drives a component that reads the route, through a real TestBed', () => {
     TestBed.configureTestingModule({ providers: [provideActivatedRoute({ params: { id: '7' } })] });
@@ -350,7 +466,7 @@ describe('injectActivatedRoute — what it says when it cannot help', () => {
 describe('assertRouteWiring', () => {
   it('names the member a reordered constructor would have put in the wrong place', () => {
     const { route } = createActivatedRoute();
-    const state = { params: {}, queryParams: {}, data: {}, fragment: null, url: [] };
+    const state = { params: {}, queryParams: {}, data: {}, title: undefined, resolve: {}, fragment: null, url: [] };
     const streams = {
       params: new BehaviorSubject<Params>({}),
       queryParams: new BehaviorSubject<Params>({}),
