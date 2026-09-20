@@ -199,6 +199,9 @@ export {
 // Saying which branch of a union a test got, so the failure names the shape it actually had
 export { narrow } from './lib/narrow';
 
+// A call-order journal — the sequence across collaborators, which per-method spies cannot express
+export { createLog, type CallLog } from './lib/call-log';
+
 // A fixture built from a model instance: its getters read once, as data
 export { withOverrides } from './lib/with-overrides';
 
