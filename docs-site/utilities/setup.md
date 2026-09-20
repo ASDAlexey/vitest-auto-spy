@@ -1224,6 +1224,11 @@ half: a `trackStrayRejections()` read only through `countStrayRejections()`, or 
 through `countMockedProps()`. **A counter empties nothing.** Read through the flush, or let
 `setupAutoSpy()` own the teardown and use the counters for the assertion they are there for.
 
+Nor does the per-patch undo empty anything: it marks its entry rather than splicing it out, so that a
+spec stubbing in a loop does not go quadratic. The journal stays as long as it was, with nothing left
+on those objects — its length is not the number of live patches, which is why `countMockedProps()`
+and the report about patches held from an earlier spec file both read past the marked entries.
+
 ## Under `test.concurrent`
 
 The rollbacks hold; the attribution of a finding does not.

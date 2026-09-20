@@ -7,7 +7,7 @@
  * the Bun adapter registers itself from, and an `exports` map with no `./package.json` in it.
  */
 import { load } from 'js-yaml';
-import { readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 
 interface WorkflowStep {
@@ -52,6 +52,49 @@ function steps(workflow: Workflow): WorkflowStep[] {
 /** `uses: owner/action@<sha> # v1.2.3` — the only pin a mutable tag cannot be moved under. */
 const PINNED = /^[^@]+@[0-9a-f]{40}$/;
 
+/** The `sideEffects` globs as matchers over a flat `dist/`, as a bundler reads them. */
+function declaredSideEffect(file: string): boolean {
+  return manifest.sideEffects.some((pattern) => {
+    const tail = pattern.startsWith('**/') ? pattern.slice(3) : pattern;
+
+    return new RegExp(`^${tail.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '[^/]*')}$`).test(file);
+  });
+}
+
+/**
+ * A statement that runs when the module is imported: a bare `import 'x';`, or a call at column
+ * zero, which is how every entry here registers its mock adapter (`useVitestAdapter();`).
+ */
+const IMPORT_TIME_EFFECT = /^(?:import ['"]|[A-Za-z_$][\w$]*\()/m;
+
+/** The ESM target of one `exports` entry, through the two shapes this map uses. */
+function esmTarget(target: unknown): string | undefined {
+  if (typeof target === 'string') {
+    return target;
+  }
+
+  const imported: unknown = Reflect.get(Object(target), 'import');
+  const built: unknown = typeof imported === 'string' ? imported : Reflect.get(Object(imported), 'default');
+
+  return typeof built === 'string' ? built : undefined;
+}
+
+/** Every ESM entry of the `exports` map, as its `dist/` filename and the source it is built from. */
+function esmEntries(): { file: string; source: string }[] {
+  return Object.values(manifest.exports).flatMap((target) => {
+    const built = esmTarget(target);
+
+    if (built === undefined || !built.endsWith('.js')) {
+      return [];
+    }
+
+    const file = built.replace('./dist/', '');
+    const source = `src/${file.replace(/\.js$/, '.ts')}`;
+
+    return existsSync(source) ? [{ file, source: readFileSync(source, 'utf8') }] : [];
+  });
+}
+
 describe('the published manifest', () => {
   it('exports package.json, so a tool can resolve the manifest', () => {
     expect(manifest.exports['./package.json']).toBe('./package.json');
@@ -77,20 +120,29 @@ describe('the published manifest', () => {
   });
 
   it('names the emitted chunks in sideEffects, whatever their content hash', () => {
-    const matches = (file: string): boolean =>
-      manifest.sideEffects.some((pattern) => {
-        const tail = pattern.startsWith('**/') ? pattern.slice(3) : pattern;
-
-        return new RegExp(`^${tail.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '[^/]*')}$`).test(file);
-      });
-
     // `src/bun.ts` registers the Bun adapter at module scope and `src/bun-angular.ts` imports it
     // for that side effect alone, so esbuild puts the registration in a shared chunk that both
     // entries reach with a bare import. A bundler is free to drop a bare import of a file the
     // manifest calls pure, and the consumer then gets "No mock adapter registered".
-    expect(matches('chunk-M6VMOOZ2.js')).toBe(true);
-    expect(matches('bun.js')).toBe(true);
-    expect(matches('setup.js')).toBe(true);
+    expect(declaredSideEffect('chunk-M6VMOOZ2.js')).toBe(true);
+    expect(declaredSideEffect('bun.js')).toBe(true);
+    expect(declaredSideEffect('setup.js')).toBe(true);
+  });
+
+  /**
+   * The same failure one level up, and the one the Angular split walked into: `src/angular-doubles.ts`
+   * registers the mock adapter at module scope and `src/angular-matchers.ts` imports `@angular/compiler`
+   * for its own side effect, and neither entry was named in `sideEffects` — while `angular.js`, which
+   * does the same registration, was. `check-dist.mjs` cannot see it: its rule is about a dist file
+   * reached only by a bare relative import, not about an entry's own top-level statements.
+   *
+   * One direction only. Declaring a pure entry costs a consumer's bundler some tree-shaking and can
+   * never break it, which is why `/angular-http`, `/jasmine-compat` and `/observer-spy` stay listed.
+   */
+  it('names every entry whose module does something on import', () => {
+    const undeclared = esmEntries().filter(({ file, source }) => IMPORT_TIME_EFFECT.test(source) && !declaredSideEffect(file));
+
+    expect(undeclared.map(({ file }) => file)).toEqual([]);
   });
 });
 
