@@ -10,6 +10,13 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+**Breaking, and worth it: the diagnostics, doubles and matcher registrars left
+`vitest-auto-spy/angular` for three narrow companion entries** — `angular/diagnostics`,
+`angular/doubles`, `angular/matchers` — so a spec importing `provideAutoSpy` stops evaluating the
+TestBed instrumentation and the Material dialog doubles it never calls. `/angular` loses 14.3 % of
+its min+gzip size and 25 kB of its module graph; migration is one import line per group, mapped
+under **Removed** below.
+
 The `doctor` and `perf` reports, read against a 2 015-file consumer suite: what they print, how wide,
 and the four places where the printed numbers or words did not match what was measured.
 
@@ -20,6 +27,25 @@ arrays and unmocked-call failures in `mockDeep`, a real `Response` for a stubbed
 
 ### Added
 
+- **`vitest-auto-spy/angular/diagnostics`, `/angular/doubles` and `/angular/matchers`** — three
+  narrow Angular companion entries under the same rule as `/angular-http` and `/angular-router`:
+  helpers a setup file names once, not ones a spec imports from every file. The diagnostics entry
+  carries `enableAngularDiagnostics` and the whole `TestBed` timing family, the doubles entry the
+  Material dialog trio and the `Window`/`Document` platform doubles (it registers the mock adapter,
+  so its doubles spy out of the box), the matchers entry the three `register*Matchers` calls. None
+  of them re-exports the core — they sit next to `vitest-auto-spy/angular`, not in front of it.
+- **A property-mock journal that survives into the next spec file is now reported.** The `mock*Prop`
+  helpers keep every patch — its object and the original descriptor — in a journal on `globalThis`
+  until `restoreMockedProps()` sweeps it, and a suite that never installed `setupAutoSpy()` held all
+  of it for the worker's life without a word. The journal now warns once per file transition while
+  the entries are still being held: how many patches, which file most recently added them, and the
+  two ways out — the sweep or the setup. Swept journals and in-file accumulation stay silent.
+- **Registered spy defaults no longer outlive the class they were registered for.** The shared
+  registry on `globalThis` keyed its entries strongly, so every `registerAutoSpyDefaults(Class, …)`
+  held the class and its config for the worker's life even after the last spec touching it was done.
+  The keys are now weak — a default lives exactly as long as its class or `InjectionToken` — while
+  `clearAutoSpyDefaults()` still empties the registry for every copy of the package at once, which is
+  what a `Map.clear()` swap would have silently broken for the second bundle a spec imports.
 - **`--format json` on `doctor` and `perf`.** One JSON document on stdout and nothing else:
   `schema`, `command`, `version`, `cwd`, `exitCode`, `tally` and every finding (`check`, `severity`,
   `file`, `message`, `fix`, `details` without terminal color). `doctor` adds what it scanned;
@@ -117,6 +143,26 @@ arrays and unmocked-call failures in `mockDeep`, a real `Response` for a stubbed
   its first index read. Reads by key keep answering deep mocks; `Array.isArray` and `Object.keys`
   now see an array.
 
+### Removed
+
+- **Breaking: thirty-two exports left `vitest-auto-spy/angular` for three narrow entries.** Every
+  entry of this package is deliberately listed in `sideEffects` — minifying the published code costs
+  the consumer's bundler its `/* @__PURE__ */` proof — so nothing tree-shakes an entry away, and a
+  spec importing `provideAutoSpy` evaluated the whole 193 kB graph, TestBed instrumentation and
+  Material dialog doubles included. What moved where:
+
+  | Import from `vitest-auto-spy/angular` | Now import from |
+  | --- | --- |
+  | `enableAngularDiagnostics`, `disableAngularDiagnostics`, `assertNoPendingRequests`, `assertNoShadowedProviders`, `AngularDiagnosticsOptions` | `vitest-auto-spy/angular/diagnostics` |
+  | `enableTestBedDiagnostics`, `disableTestBedDiagnostics`, `instrumentTestBed`, `getTestBedTiming`, `formatSpecTiming`, `reportSpecTiming`, `SpecTiming`, `TestBedDiagnosticsOptions` | `vitest-auto-spy/angular/diagnostics` |
+  | `createMatDialogRef`, `injectMatDialogRef`, `provideMatDialogData`, `provideMatDialogRef`, `DialogComponent`, `DialogRefLike`, `DialogResult`, `MatDialogRefDouble`, `MatDialogRefInit` | `vitest-auto-spy/angular/doubles` |
+  | `createWindowDouble`, `createDocumentDouble`, `provideWindowDouble`, `provideDocumentDouble`, `PlatformOverrides` | `vitest-auto-spy/angular/doubles` |
+  | `registerDirectiveMatchers`, `registerResourceMatchers`, `registerSignalMatchers`, `ResourceLike`, `SignalLike` | `vitest-auto-spy/angular/matchers` |
+
+  The moved groups are setup-file helpers a suite calls once, so for most projects this is three
+  import lines in one file. `trackInjections` stays in `vitest-auto-spy/angular`: `createWithAutoSpies`
+  needs its module either way, so moving the name would break imports for no bytes back.
+
 ### Fixed
 
 - **`vi.spyOn(double, 'method')` on a method nobody had read threw
@@ -208,6 +254,19 @@ arrays and unmocked-call failures in `mockDeep`, a real `Response` for a stubbed
   Angular provider list, and `vitest-mock-extended`'s `vitest >=4.0.0` peer range.
 
 ### Size
+
+**`/angular` shrinks 30.7 → 26.3 kB min+gzip (−4.38 kB, −14.3 %)** and its module graph
+**193 → 168 kB raw** (72 → 65 source modules): the diagnostics, doubles and matcher code a spec never
+calls left for the three narrow entries above. Those carry what moved — `5.90 kB` diagnostics,
+`9.64 kB` doubles, `1.68 kB` matchers — loaded by the setup files that ask for them instead of by
+every spec file of an Angular project. A cold `import('vitest-auto-spy/angular')` in a fresh process
+measures 92 → 65–70 ms, though most of that delta is the Angular JIT work the diagnostics modules
+used to trigger, not the library's own bytes.
+
+The two memory changes above reach every core-carrying entry through the shared chunk: **+0.2…+0.4 kB**
+each on `.`, `/bun`, `/node`, `/rstest`, `/react`, `/vue`, `/svelte` and `/setup` (the journal's
+per-entry file stamp and the weak-keyed defaults facade), `/dom-stubs` +0.46 kB on chunk attribution.
+Nothing else moves by more than 0.13 kB.
 
 The root entry grows **20.3 → 22.1 kB** min+gzip (+1.79 kB): `mockDeep` arrays and
 `fallbackMockImplementation` ~0.43 kB, `createSpyFromInstance` passthrough and the only-list rules
