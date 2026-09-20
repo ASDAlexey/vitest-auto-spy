@@ -353,4 +353,46 @@ describe('journal entries held across spec files', () => {
 
     warn.mockRestore();
   });
+
+  it('says nothing about a patch the previous file already took off through its own undo', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const object = { value: 'real' };
+
+    // The documented shape for a suite with no `setupAutoSpy`: the per-patch undo, called in the
+    // file's own teardown. The entry is marked rather than spliced out, so the journal is still
+    // non-empty — and the property is back on its object, which is what makes it not held.
+    inSpecFile('/held/undone.spec.ts', () => {
+      const restore = mockValueProp(object, 'value', 'patched');
+
+      restore();
+    });
+
+    expect(countMockedProps()).toBe(0);
+
+    inSpecFile('/held/after-undone.spec.ts', () => mockValueProp({ value: 'real' }, 'value', 'patched'));
+
+    expect(object.value).toBe('real');
+    expect(warn).not.toHaveBeenCalled();
+
+    warn.mockRestore();
+  });
+
+  it('counts only what is still in place when the previous file undid some of its patches', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    inSpecFile('/held/partial.spec.ts', () => {
+      const restore = mockValueProp({ value: 'real' }, 'value', 'patched');
+
+      restore();
+      mockValueProp({ other: 'real' }, 'other', 'patched');
+    });
+
+    inSpecFile('/held/after-partial.spec.ts', () => mockValueProp({ value: 'real' }, 'value', 'patched'));
+
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0]?.[0]).toContain('1 mock*Prop patch(es) from earlier spec files');
+    expect(warn.mock.calls[0]?.[0]).toContain('most recently /held/partial.spec.ts');
+
+    warn.mockRestore();
+  });
 });

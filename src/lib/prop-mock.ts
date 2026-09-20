@@ -119,6 +119,14 @@ function describeSpecFile(file: unknown): string {
  * non-empty and nothing in it belongs to the file now running. A sweep in between empties the
  * journal and keeps the report quiet — and patches piling up inside one file are that file's own
  * business, which is why only the file comparison fires this.
+ *
+ * **An undone entry is not held**, and counting one was this report's first defect. A patch the
+ * caller took off through its own `RestoreProp` is marked rather than spliced out, so it stays in
+ * the array with nothing left on its object — and a suite that restores every patch by hand, which
+ * is the documented shape for a suite with no `setupAutoSpy`, is exactly the suite this report
+ * fired at. Every clause of the message was false for it: the property was back, and the sweep it
+ * named had nothing to put back. {@link countMockedProps} has always read the journal this way;
+ * the two now answer "how many are still in place" the same.
  */
 function reportHeldEntries(patches: readonly PatchedProp[], file: unknown): void {
   // Before the scan: once the report has fired for a file, every later record of that file can only
@@ -131,7 +139,7 @@ function reportHeldEntries(patches: readonly PatchedProp[], file: unknown): void
   let latestFile: unknown;
 
   for (const patch of patches) {
-    if (patch.file === file) {
+    if (patch.undone || patch.file === file) {
       continue;
     }
 
