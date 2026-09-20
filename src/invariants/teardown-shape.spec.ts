@@ -14,6 +14,13 @@
  * anything below {@link MAX_GROWTH} is a curve a suite can live with. No millisecond figure appears
  * in an assertion, because on a shared CI runner a millisecond figure is a measurement of the
  * runner.
+ *
+ * The ratio is taken **per rep and then reduced**, not by dividing the two medians. The two sizes of
+ * one rep are adjacent in time and so share whatever the scheduler was doing; dividing medians
+ * compares two samples that need not, and a busy runner then lands on the larger size as growth it
+ * did not cause. Measured across one idle and three deliberately loaded runs, dividing the medians
+ * spread 4.18–5.26 and reached 6.37 on a 16-slot audit box, while the median of the per-rep ratios
+ * stayed within 4.05–4.55. A quadratic path is ~16× in every rep, so no power is lost.
  */
 import { describe, expect, it, vi } from 'vitest';
 
@@ -136,6 +143,7 @@ describe('architecture invariant: teardown shape', () => {
     it(`grows no worse than linearly from ${SMALL_COUNT} to ${LARGE_COUNT} doubles — ${arm.label}`, () => {
       const smallSamples: number[] = [];
       const largeSamples: number[] = [];
+      const ratios: number[] = [];
 
       // Interleaved rather than one size after the other: a runner that slows down midway through
       // would otherwise land entirely on whichever size was measured last, and show up as growth.
@@ -146,12 +154,13 @@ describe('architecture invariant: teardown shape', () => {
         if (rep >= WARMUP_REPS) {
           smallSamples.push(smallMs);
           largeSamples.push(largeMs);
+          ratios.push(largeMs / smallMs);
         }
       }
 
       const smallMedian = median(smallSamples);
       const largeMedian = median(largeSamples);
-      const growth = largeMedian / smallMedian;
+      const growth = median(ratios);
 
       console.log(
         `teardown shape — ${arm.label}: ${SMALL_COUNT} → ${smallMedian.toFixed(3)} ms, ` +
