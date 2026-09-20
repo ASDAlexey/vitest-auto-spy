@@ -181,6 +181,7 @@ it('loads', async () => {
 | a `vi.mock` factory's `vi.fn()` needs `calledWith` / `resolveWith`                                | `adoptMock(api.load).calledWith(7).resolveWith(…)` — same object, history kept                                                                                                    |
 | real module, one case configured                                                                  | `vi.mock('x', async (orig) => moduleNamespace(await orig(), { passthrough: true }))`                                                                                              |
 | feeding a stubbed `fetch`                                                                         | `vi.fn(async () => stubResponse({ body: data }))` from `/setup` — a real `Response`, no `as Response`; a body reads once                                                          |
+| a backend that answers the JSON literal `null`                                                    | `stubResponse({ body: null })` — the literal, not "no body"; `undefined` or an omitted `body` is the way to send none                                                             |
 | MSW handlers not answering under `setupAutoSpy({ blockNetwork: true })`                           | upgrade — `blockNetwork` now leaves `fetch` to MSW's interceptor; end the handlers with `http.all('*', () => HttpResponse.error())`                                               |
 | `mockDeep` member read by index, or an unmocked call that should fail                             | `mock.items[0].x = 1` makes a real array (re-read `mock.items` after); `mockDeep<T>({}, { fallbackMockImplementation: () => { throw … } })` — options are the **second** argument |
 | mocking `PrismaClient`                                                                            | `mockDeep<PrismaClient>()` + `resolveWith` / `rejectWith` / `resolveWithPerCall`; `$transaction.mockImplementation((run) => run(asInstance(prisma)))`                             |
@@ -428,7 +429,7 @@ npx vitest-auto-spy codemod --verify  # after a migration: anything the transfor
 Most of this library's guarantees are type-level, so a green run that does not type-check is not
 done. Report failures with their output rather than describing them as passing.
 
-**After any `eslint --fix` over specs, run `npx tsc --noEmit`.** The thirty-nine rules in
+**After any `eslint --fix` over specs, run `npx tsc --noEmit`.** The forty rules in
 `vitest-auto-spy/eslint-plugin` are lint, not typecheck: `no-mocked-for-spy` rewrites a declaration
 to `Spy<T>` and cannot see what the name is assigned two lines below, so a clean lint pass is not
 evidence that the types still hold. Where it cannot prove the rename it downgrades to a suggestion —

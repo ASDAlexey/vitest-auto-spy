@@ -33,6 +33,9 @@ export const DOCS_LINKS = {
   // The migration guide, not an adapter page: everything that reports through this link is a jasmine
   // idiom that has no exact counterpart here, and that page is where the counterparts are listed.
   jasmine: `${DOCS}/migrating-jasmine`,
+  // The router page, not its own: a reader who hits this link came from the Location double, which
+  // lives in the same URL family as the route and the router — and the page they land on says so.
+  angularLocation: `${DOCS}/adapters/angular-router`,
   mediaElement: `${DOCS}/utilities/media-element`,
   moduleMocks: `${DOCS}/utilities/module-mocks`,
   nestjs: `${DOCS}/adapters/nestjs`,

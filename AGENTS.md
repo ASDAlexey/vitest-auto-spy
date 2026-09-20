@@ -1300,6 +1300,29 @@ line that triggers the source, because the `await` is the same statement as the 
 the test deadlocks against a source that only emits once something pokes it. Hold the promise
 first, poke, then await.
 
+### `createLog()` — the order between the spies
+
+```ts
+const log = createLog<'drop-cache' | 'flush-telemetry' | 'stop-engine'>();
+
+engine.onShutdown(log.fn('drop-cache'));
+engine.onShutdown(log.fn('stop-engine'));
+engine.onShutdown(log.fn('flush-telemetry'));
+
+engine.shutdown();
+
+expect(log.result()).toBe('drop-cache; flush-telemetry; stop-engine'); // fails with the real order
+```
+
+Emission helpers answer a sequence _within one source_. The order of calls **across** collaborators
+is the gap `toHaveBeenCalled` papers over — three green checks that would accept the sequence
+backwards — and `toHaveBeenCalledBefore` covers pairwise. One journal the code under test writes into
+(`add`, `fn(value)` for a labelled callback, `clear`, `items`, `result()`) makes the sequence a
+single comparable value; `T` is a string union so a step nobody declared is a compile error. In
+Angular, provide it and let the component report its own lifecycle:
+`providers: [{ provide: PANEL_LOG, useValue: log }]`. Ported from Angular's own `Log`, which the
+framework keeps three copies of.
+
 ---
 
 ## 9. Patching properties (and putting them back)
@@ -1659,6 +1682,14 @@ a behaviour change —`stubConstructor(globalThis, 'WebSocket', …)` is the too
   Plain data in `body` goes out as JSON with `application/json`; an `ok` that disagrees with
   `status` throws. A body can be read once: for a stub answering several calls use
   `mockImplementation(async () => stubResponse(…))`, not `mockResolvedValue`.
+- **`body: null` is the JSON literal, and only `undefined` or an omitted `body` send no body.** It
+  reverses what the field used to mean: `null` sent no body, so `.json()` threw
+  `Unexpected end of JSON input` on it while `0`, `false`, `[]` and `{}` round-tripped — the one
+  literal a reader had no reason to expect to be different, and the shape a backend answering
+  "nothing here" (an empty login, an absent profile) really sends. A spec that meant "no body"
+  drops the field. `{ body: null, status: 204 }` throws by name rather than letting the constructor
+  raise "Response with null body status cannot have body" about a field whose old meaning was the
+  opposite; 205 and 304 are the same.
 - `blockNetwork` leaves `fetch` alone while `Symbol.for('fetch-interceptor')` is on `globalThis`
   (MSW `setupServer`, nock 14), so MSW handlers keep answering; XHR stays blocked for what MSW does
   not handle. MSW's `onUnhandledRequest: 'error'` exempts asset-looking URLs (`.svg`, `.json`,
@@ -2755,11 +2786,11 @@ is `undefined` on the `{ params: of(…) }` one, and a spec that updates one hal
 no navigation produces. `provideActivatedRoute(init)` provides **Angular's own `ActivatedRoute`**
 built over one record, so every stream, both `ParamMap`s and `snapshot` read the same values.
 
-| Call                              | Does                                                                                                                                               |
-| --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `provideActivatedRoute(init?)`    | a `FactoryProvider` — a fresh route per injector; `init`: `params`, `queryParams`, `data`, `fragment`, `url`, `outlet`, `component`, `routeConfig` |
-| `injectActivatedRoute(injector?)` | the handle: `.route`, `setParams`, `setQueryParams`, `setData`, `setFragment`, `setUrl`, `set({ … })`                                              |
-| `createActivatedRoute(init?)`     | the same handle without a `TestBed` — for `new Page(route)`, or a guard given `route.snapshot`                                                     |
+| Call                              | Does                                                                                                                                                                   |
+| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `provideActivatedRoute(init?)`    | a `FactoryProvider` — a fresh route per injector; `init`: `params`, `queryParams`, `data`, `title`, `fragment`, `url`, `outlet`, `component`, `routeConfig`, `resolve` |
+| `injectActivatedRoute(injector?)` | the handle: `.route`, `setParams`, `setQueryParams`, `setData`, `setFragment`, `setUrl`, `set({ … })`                                                                  |
+| `createActivatedRoute(init?)`     | the same handle without a `TestBed` — for `new Page(route)`, or a guard given `route.snapshot`                                                                         |
 
 A setter behaves like the router after a navigation: it **replaces** (not merges) that part, builds
 a new snapshot first, then emits only the streams whose value changed (router equality: same keys,
@@ -2773,11 +2804,14 @@ Four things to know:
   still works as `relativeTo` for `router.createUrlTree`.
 - **One node, no tree.** `root` is the route itself, `parent` / `firstChild` are `null`. For
   `route.parent.params` patch that member with `mockReadonlyProp`, or use `RouterTestingHarness`.
-- **No `title`, no navigation, no input binding** — `title` emits `undefined`, `Router.navigate`
-  does not move it (the setters do), and `withComponentInputBinding()` is the outlet's job
-  (`fixture.componentRef.setInput`).
+- **`title` is given, not resolved; no navigation, no input binding.** `provideActivatedRoute({
+title: 'Product 7' })` answers `route.snapshot.title` — the double puts the string under the
+  router's own `RouteTitleKey`, read off the installed router, and does not run a `title: () => …`
+  resolver. `Router.navigate` does not move it (the setters do), and `withComponentInputBinding()`
+  is the outlet's job (`fixture.componentRef.setInput`).
 - **Its own entry, like `/angular-http`.** It does not re-export the core, imports no runner, and is
-  the only file that reaches `@angular/router` — an optional peer.
+  the only file that reaches `@angular/router` — an optional peer. The `Location` double below wraps
+  `@angular/common/testing`, which `@angular/router` itself depends on, so it adds no peer.
 
 ### `Router` from one URL — `vitest-auto-spy/angular-router`
 
@@ -2803,6 +2837,7 @@ redirect a guard builds. `provideRouterDouble(init)` keeps one URL and derives t
 | `provideRouterDouble(init?)`    | a `FactoryProvider` for the `Router` token — a fresh router per injector; `init` is `{ url }`, default `'/'`                       |
 | `injectRouterDouble(injector?)` | the handle: `.router`, `.navigate`, `.navigateByUrl`, `setUrl(url)`, `emitNavigation(event?)`, `setCurrentNavigation(navigation?)` |
 | `createRouterDouble(init?)`     | the same handle without a `TestBed` — for `new AuthGuard(router)`                                                                  |
+| `collectRouterEvents(events)`   | the recording of what `router.events` emits, `expect([[Class, url], …])` in one line — Angular's own integration-spec idiom        |
 
 Unlike the route, this is **not** an instance of Angular's class: a real `Router` drags the whole
 routing stack in. It is a structural double that answers `url` (serialized as the real router does),
@@ -2821,7 +2856,9 @@ Five things to know:
   `url`. `setUrl()` and `emitNavigation()` move it; `RouterTestingHarness` over a real
   `provideRouter()` is what tests a navigation.
 - **`emitNavigation()` takes what you have** — nothing, a URL string, or an event you built. A
-  `NavigationEnd` moves the URL with it; any other event does not.
+  `NavigationEnd` moves the URL with it; any other event does not. It resolves once the event is
+  delivered and a navigation it ended is back to `null` — the moment `navigate()` resolves in an
+  application; the work is synchronous, so ignoring the promise changes nothing.
 - **The navigation in flight follows the events, and a terminal event ends it _after_ delivering
   it.** `setCurrentNavigation({ extras: { state } })` puts one up and `setCurrentNavigation(null)`
   ends it; a `NavigationStart` pushed through `emitNavigation()` starts one with that event's id,
@@ -2838,6 +2875,28 @@ Five things to know:
   real router, which is what `injectRouterDouble()` says by name.
 - **It builds spies**, so a runtime entry has to be imported in the suite (`vitest-auto-spy/angular`
   in the same file, or the setup file); the route double needs none.
+
+### `Location` from Angular's own testing classes — `vitest-auto-spy/angular-router`
+
+```ts
+import { injectLocationDouble, provideLocationDouble } from 'vitest-auto-spy/angular-router';
+
+TestBed.configureTestingModule({ providers: [provideLocationDouble()] });
+
+const location = injectLocationDouble();
+
+location.go('/reports/7');
+location.simulateUrlPop('/'); // the popstate no method call can cause
+```
+
+**A wrap, not a rival.** Angular ships the double — `SpyLocation` with a real history array, a
+`urlChanges` journal for assertions, and `simulateUrlPop()` / `simulateHashChange()` for the
+browser's half of the contract — and this entry puts it in the family shape of the route and the
+router: one provider call, an `injectLocationDouble()` whose errors name the instance that won
+(`Location` is `providedIn: 'root'`, so the quiet failure is the real `Location` nobody configured).
+`createLocationDouble()` is the same without a `TestBed`. One asymmetry worth knowing: `back()` and
+`forward()` wake the popstate subscribers but do not write `urlChanges` — the journal holds what the
+app asked for, the subscribers carry what the browser did.
 
 ### Signal forms — `vitest-auto-spy/signal-forms`
 
@@ -3640,6 +3699,7 @@ blanket downgrade so those keep their severity; do not copy the two names into a
 | `prefer-set-inputs`               | `warn`  | suggest           | a run of `fixture.componentRef.setInput('title', v)` on one fixture → `await setInputs(fixture, { title: v })` — the name is resolved against the compiled definition before the first write (an undeclared one is an `NG0303` and no change) and the value is typed. The run collapses into one call and a `detectChanges()` under it goes; offered, not applied, because `stable()` ticks and a zone.js suite answers that with `NG0101`                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | `prefer-observer-stub`            | `error` | —                 | a hand-rolled observer global → `stubIntersectionObserver()` / `stubResizeObserver()` / `stubMutationObserver()`; the manual save-and-restore goes too, `restoreMockedProps()` runs the undo                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | `no-hand-assigned-global`         | `error` | —                 | a double assigned to a global (`global.fetch = vi.fn()`, `window.matchMedia = vi.fn()`, `window.localStorage = { getItem: vi.fn() }`) with no restore in `afterEach` / `afterAll` / `onTestFinished` → `mockValueProp(globalThis, name, value)` or `vi.stubGlobal` + `unstubGlobals`; `blockNetwork()` for network globals, `stubWebStorage()` for the storages; the three observers stay with `prefer-observer-stub`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `prefer-stub-response`            | `error` | —                 | an object literal cast to `Response` (`as Response`, `as unknown as Response`, `<Response>{ … }`) or `createMock<Response>(…)` / `createAutoMock<Response>(…)` → `stubResponse({ body })` from `/setup`; the literal answers `undefined` for every member it does not list (`status`, `headers`, `text()`) and the cast is what makes that compile. `Response` must resolve to the **global**, so an Express handler's or a generated client's `Response` is never reported                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | `prefer-provide-activated-route`  | `error` | —                 | a hand-built `ActivatedRoute` — any `useValue` / `useClass` / `useFactory` / `useExisting`, and `provideAutoSpy(ActivatedRoute)` too → `provideActivatedRoute({ … })`; the double knows either the streams or the snapshot, never both, and `injectActivatedRoute().setParams(…)` moves them together mid-test                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | `no-passthrough-console-spy`      | `error` | suggest           | `vi.spyOn(console, m)` nothing gives an implementation — it calls through and prints → `installConsoleSpies()` + `consoleXSpy`, or `.mockImplementation(() => undefined)`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | `no-console-in-spec`              | `error` | —                 | a spec calling `console.x(…)` itself, or `console.x = …`, which nothing restores → absorb the code's output through `vitest-auto-spy/console`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
@@ -3657,7 +3717,7 @@ blanket downgrade so those keep their severity; do not copy the two names into a
 | `no-save-arguments-by-value`      | `error` | —                 | `spy.calls.saveArgumentsByValue()` — a no-op here, so the spec silently asserts on post-mutation state                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | `prefer-native-spy-api`           | `error` | `--fix` / suggest | `.and` / `.calls` where the spy's own API says the same thing — turn it on for the last mile off the jasmine shim                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 
-Thirty-nine rules, **every one an `error` since 4.0.0 except `prefer-render-shallow`,
+Forty rules, **every one an `error` since 4.0.0 except `prefer-render-shallow`,
 `no-stub-class-double`, `no-structural-double`, `no-instance-lifecycle-spy` and `prefer-set-inputs`**; four fix on their own, thirteen offer suggestions. Thirty-six are syntactic; `no-private-member-access`, `no-mistyped-use-value` and
 `no-unknown-use-value-key` read types, and all three report nothing at all without `parserOptions.project` / `projectService`
 rather than guessing. `no-compile-components` waits the same way for a fact no file holds — which
