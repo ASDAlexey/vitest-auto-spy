@@ -7,7 +7,7 @@
  *
  * The rest of the helpers' behaviour is covered from the public entry in `src/auto-spy.spec.ts`.
  */
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { beginPropEpoch, countMockedProps, mockValueProp, reportPropsOutsideHooks, restoreMockedProps } from './prop-mock';
 
@@ -236,6 +236,120 @@ describe('a patch applied outside a per-test hook', () => {
     sweepAfterANewTest(() => mockValueProp({ value: 'real' }, 'value', 'patched'));
 
     expect(warn).not.toHaveBeenCalled();
+
+    warn.mockRestore();
+  });
+});
+
+/**
+ * The journal nobody sweeps: without `setupAutoSpy` — or a `restoreMockedProps()` of one's own in a
+ * teardown hook — the entries of one spec file are still in it when the next file of the same worker
+ * records. The patches stay on their objects, every entry pins its object and descriptor for the
+ * rest of the worker, and the failure has no home: the next file reads a member somebody else
+ * mocked. The report fires at the first patch that arriving file records, once per transition.
+ */
+describe('journal entries held across spec files', () => {
+  const worker: unknown = Reflect.get(globalThis, '__vitest_worker__');
+  const ownFile: unknown = Reflect.get(Object(worker), 'filepath');
+
+  /** Record `patch` as if it ran in `file`, the way the worker's `filepath` says which file is running. */
+  const inSpecFile = (file: unknown, patch: () => void): void => {
+    Reflect.set(Object(worker), 'filepath', file);
+
+    try {
+      patch();
+    } finally {
+      Reflect.set(Object(worker), 'filepath', ownFile);
+    }
+  };
+
+  // A leak from an earlier file of this worker (`isolate: false`) would otherwise be graded and
+  // reported as this spec's when the cleanup here sweeps it.
+  const sweepQuietly = (): void => {
+    reportPropsOutsideHooks('off');
+    restoreMockedProps();
+    reportPropsOutsideHooks('warn');
+  };
+
+  beforeEach(sweepQuietly);
+  afterEach(sweepQuietly);
+
+  it("warns when the next file records over a journal still holding the previous file's patches", () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    inSpecFile('/held/first.spec.ts', () => mockValueProp({ value: 'real' }, 'value', 'patched'));
+    inSpecFile('/held/second.spec.ts', () => mockValueProp({ value: 'real' }, 'value', 'patched'));
+
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0]?.[0]).toContain('1 mock*Prop patch(es) from earlier spec files');
+    expect(warn.mock.calls[0]?.[0]).toContain('most recently /held/first.spec.ts');
+    expect(warn.mock.calls[0]?.[0]).toContain('restoreMockedProps()');
+    expect(warn.mock.calls[0]?.[0]).toContain('setupAutoSpy');
+
+    warn.mockRestore();
+  });
+
+  it('names the transition once, not once per patch the new file records', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    inSpecFile('/held/third.spec.ts', () => mockValueProp({ value: 'real' }, 'value', 'patched'));
+    inSpecFile('/held/fourth.spec.ts', () => mockValueProp({ value: 'real' }, 'value', 'patched'));
+    inSpecFile('/held/fourth.spec.ts', () => mockValueProp({ value: 'real' }, 'value', 'patched'));
+
+    expect(warn).toHaveBeenCalledTimes(1);
+
+    warn.mockRestore();
+  });
+
+  it('says nothing when the journal was swept empty between the files', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    inSpecFile('/held/fifth.spec.ts', () => mockValueProp({ value: 'real' }, 'value', 'patched'));
+    // The teardown the report exists to suggest, doing its work between the two files.
+    restoreMockedProps();
+    expect(countMockedProps()).toBe(0);
+    inSpecFile('/held/sixth.spec.ts', () => mockValueProp({ value: 'real' }, 'value', 'patched'));
+
+    expect(warn).not.toHaveBeenCalled();
+
+    warn.mockRestore();
+  });
+
+  it('says nothing about patches piling up inside one file', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    inSpecFile('/held/seventh.spec.ts', () => {
+      mockValueProp({ value: 'real' }, 'value', 'patched');
+      mockValueProp({ other: 'real' }, 'other', 'patched');
+    });
+
+    expect(warn).not.toHaveBeenCalled();
+
+    warn.mockRestore();
+  });
+
+  it('warns again on the next transition, counting everything still held', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    inSpecFile('/held/eighth.spec.ts', () => mockValueProp({ value: 'real' }, 'value', 'patched'));
+    inSpecFile('/held/ninth.spec.ts', () => mockValueProp({ value: 'real' }, 'value', 'patched'));
+    inSpecFile('/held/tenth.spec.ts', () => mockValueProp({ value: 'real' }, 'value', 'patched'));
+
+    expect(warn).toHaveBeenCalledTimes(2);
+    expect(warn.mock.calls[1]?.[0]).toContain('2 mock*Prop patch(es) from earlier spec files');
+    expect(warn.mock.calls[1]?.[0]).toContain('most recently /held/ninth.spec.ts');
+
+    warn.mockRestore();
+  });
+
+  it('names the previous file even when the runner never named it', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    inSpecFile(undefined, () => mockValueProp({ value: 'real' }, 'value', 'patched'));
+    mockValueProp({ value: 'real' }, 'value', 'patched');
+
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0]?.[0]).toContain('a file this runner did not name');
 
     warn.mockRestore();
   });

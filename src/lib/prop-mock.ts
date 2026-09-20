@@ -31,6 +31,8 @@ interface PatchedProp {
   undone: boolean;
   /** Which test was running when the patch was applied — see {@link beginPropEpoch}. */
   epoch: number;
+  /** Which spec file was running when the patch was recorded — the comparison behind {@link reportHeldEntries}. */
+  file: unknown;
 }
 
 /**
@@ -89,11 +91,82 @@ function getPatchedProps(): PatchedProp[] {
 }
 
 /**
+ * The file the held-entry report last fired for, so a transition is named once rather than once per
+ * patch the arriving file records.
+ *
+ * Module scope rather than a home on the journal, matching `reportedIn` below: the worst a second
+ * copy of this module — one per entry bundle — or a `resetModules()` re-instantiation can do is
+ * print the line twice. It never changes what is reported as held, and never touches a restore.
+ */
+let reportedHeldIn: unknown;
+
+/** `currentSpecFile()` is `unknown` by design: a runner that never names its files still has its entries held, and the report says so instead of printing `undefined`. */
+function describeSpecFile(file: unknown): string {
+  return typeof file === 'string' ? file : 'a file this runner did not name';
+}
+
+/**
+ * Say, once per spec file, that the journal is still holding patches recorded in another one.
+ *
+ * Nothing but `restoreMockedProps()` — or `setupAutoSpy`, which calls it after every test — ever
+ * empties the journal, and a worker a runner reuses across files (Vitest's `isolate: false`,
+ * bun:test throughout) carries the patches of file one into file two. What that costs the next file
+ * is silent: its tests read members somebody else mocked, or a much later sweep takes off a patch
+ * three files old, and nothing in the output names the file either came from. Every entry also pins
+ * its object and the original descriptor for the rest of the worker.
+ *
+ * The first patch a file records is the one moment this is visible without hooks: the journal is
+ * non-empty and nothing in it belongs to the file now running. A sweep in between empties the
+ * journal and keeps the report quiet — and patches piling up inside one file are that file's own
+ * business, which is why only the file comparison fires this.
+ */
+function reportHeldEntries(patches: readonly PatchedProp[], file: unknown): void {
+  // Before the scan: once the report has fired for a file, every later record of that file can only
+  // add in-file neighbours — and the journal can be long by then.
+  if (reportedHeldIn === file) {
+    return;
+  }
+
+  let held = 0;
+  let latestFile: unknown;
+
+  for (const patch of patches) {
+    if (patch.file === file) {
+      continue;
+    }
+
+    held += 1;
+    latestFile = patch.file;
+  }
+
+  if (held === 0) {
+    return;
+  }
+
+  reportedHeldIn = file;
+
+  libraryWarn(
+    withDocs(
+      `[vitest-auto-spy] ${held} mock*Prop patch(es) from earlier spec files — most recently ${describeSpecFile(latestFile)} — are still in the journal while this file records another.\n` +
+        'The patches are still on their objects, and every entry holds its object and the original descriptor for the rest of the worker. ' +
+        "Call restoreMockedProps() to sweep what is left — vi.restoreAllMocks() does not — or install setupAutoSpy() from 'vitest-auto-spy/setup', which sweeps after every test.",
+      DOCS_LINKS.setup,
+    ),
+  );
+}
+
+/**
  * Record the descriptor a helper has just overwritten and hand back the undo for *this* patch
  * alone — for the common case of a stub that must come off inside one test rather than at the end
  * of the file. {@link restoreMockedProps} undoes whatever is left.
  */
 function rememberProp<T>(object: T, property: PropertyKey, descriptor: PropertyDescriptor | undefined): RestoreProp {
+  const file = currentSpecFile();
+  const patches = getPatchedProps();
+
+  // Before the push, so the entry about to be made is not counted among those holding it.
+  reportHeldEntries(patches, file);
+
   const patch: PatchedProp = {
     // The helpers only ever patch objects; the cast bridges the generic `T` of the public API.
     // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- `T` is unconstrained on the public signatures, but every caller passes an object (a service instance, a class prototype or a global).
@@ -102,9 +175,10 @@ function rememberProp<T>(object: T, property: PropertyKey, descriptor: PropertyD
     descriptor,
     undone: false,
     epoch: propEpoch().current,
+    file,
   };
 
-  getPatchedProps().push(patch);
+  patches.push(patch);
 
   return () => {
     // Marked rather than spliced out of the journal: `indexOf` + `splice` is linear in the number of
