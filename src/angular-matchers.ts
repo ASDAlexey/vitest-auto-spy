@@ -8,7 +8,7 @@
  *
  * A companion to `vitest-auto-spy/angular`, under the same rule as `/angular-http`: a narrow entry
  * for helpers a suite registers once in its setup file rather than imports from every spec. They
- * left `/angular` in 6.0 so that importing spies does not evaluate matcher code the project never
+ * left `/angular` in 5.21.0 so that importing spies does not evaluate matcher code the project never
  * registers.
  *
  * Each registrar augments the runner's `expect` on its own; register the one a suite wants and

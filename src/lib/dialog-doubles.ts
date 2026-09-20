@@ -15,7 +15,9 @@
  * is still typed against the token the spec passed and the result against the `close()` of the class
  * it passed.
  *
- * rxjs is imported here and nowhere else under `vitest-auto-spy/angular`, deliberately: a component
+ * rxjs is imported here and, bar `/angular-router`, nowhere else in the Angular entry family — and
+ * since the split moved this module to `vitest-auto-spy/angular/doubles` it no longer reaches
+ * `vitest-auto-spy/angular` at all. Deliberately, in either place: a component
  * pipes `afterClosed()`, so the stream has to be a real `Observable` rather than something
  * subscribable. `@angular/core` has rxjs as a peer dependency of its own, so a suite that can import
  * this entry already has it.

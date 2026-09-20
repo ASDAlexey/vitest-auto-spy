@@ -7,7 +7,7 @@
  *
  * A companion to `vitest-auto-spy/angular`, under the same rule as `/angular-http`: a narrow entry
  * for the doubles most suites never reach — the Material dialog trio and the `Window`/`Document`
- * platform doubles — which left `/angular` in 6.0 so that importing spies does not evaluate them.
+ * platform doubles — which left `/angular` in 5.21.0 so that importing spies does not evaluate them.
  *
  * The dialog ref is built through the library's own spy engine, so this entry registers the
  * Vitest mock adapter on import, exactly as `vitest-auto-spy/angular` does.

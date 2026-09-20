@@ -147,7 +147,7 @@ export function provideAutoSpyForToken<T>(
  * When the injector hands back a real instance rather than a double, that is reported — a provider
  * the spec forgot to register is otherwise found much later, when `.mockReturnValue` is called on
  * the real method. It is a `console.warn`, once per token and spec file; raise it to a thrown failure
- * with `enableAngularDiagnostics({ unspiedProviders: true })` from `vitest-auto-spy/angular`, or for
+ * with `enableAngularDiagnostics({ unspiedProviders: true })` from `vitest-auto-spy/angular/diagnostics`, or for
  * every misconfiguration report at once with `setupAutoSpy({ misconfiguration: 'throw' })`.
  */
 /**

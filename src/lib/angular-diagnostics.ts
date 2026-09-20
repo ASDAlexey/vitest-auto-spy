@@ -9,7 +9,7 @@
  *
  * ```ts
  * // vitest.setup.ts — after the Angular test environment is initialised
- * import { enableAngularDiagnostics } from 'vitest-auto-spy/angular';
+ * import { enableAngularDiagnostics } from 'vitest-auto-spy/angular/diagnostics';
  *
  * enableAngularDiagnostics();                           // all four
  * enableAngularDiagnostics({ pendingRequests: false }); // or pick

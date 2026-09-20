@@ -8,7 +8,7 @@
  *
  * A companion to `vitest-auto-spy/angular`, under the same rule as `/angular-http`: a narrow entry
  * for helpers a suite calls once from its setup file rather than from every spec. They left
- * `/angular` in 6.0 so that importing spies no longer evaluates the diagnostics machinery a run
+ * `/angular` in 5.21.0 so that importing spies no longer evaluates the diagnostics machinery a run
  * that never turns it on should not pay for — the checks of `angular-diagnostics` and the timing
  * half of `testbed-diagnostics`.
  *

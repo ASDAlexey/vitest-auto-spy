@@ -276,7 +276,7 @@ export function reportSpecTiming(timing: SpecTiming): void {
  *
  * ```ts
  * // vitest.setup.ts
- * import { enableTestBedDiagnostics } from 'vitest-auto-spy/angular';
+ * import { enableTestBedDiagnostics } from 'vitest-auto-spy/angular/diagnostics';
  *
  * if (process.env['SPEC_TIMING']) {
  *   enableTestBedDiagnostics();
