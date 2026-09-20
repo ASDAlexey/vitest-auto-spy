@@ -67,18 +67,58 @@ request(s): GET /api/products.
 TestBed.configureTestingModule({ providers: [...provideHttpTesting({ verifyOnTeardown: false })] });
 ```
 
-::: tip Это хук, и регистрирует его импорт
-`provideHttpTesting()` не может зарегистрировать хук сам, и об этом стоит знать, потому что обычно
-библиотеки на этом месте делают вид, что всё в порядке. Замерено на Vitest 4.1: `afterEach()`,
-вызванный изнутри выполняющегося `beforeEach` — а именно там живёт `configureTestingModule`, —
-принимается и затем не выполняется никогда, потому что сюита, к которой он бы присоединился, уже
-закончила сбор. `onTestFinished()` там _легален_, но выполняется после всех `afterEach`, а к этому
-моменту teardown Angular уже уничтожил инжектор и спрашивать не у кого.
+### `ignoreCancelled` {#ignorecancelled}
 
-Поэтому хук регистрируется один раз, пока импортируется файл спеки, и не делает ровным счётом
-ничего, пока какой-нибудь тест из этого файла не вызовет `provideHttpTesting()`. По той же причине
-импорт этой точки входа имеет побочный эффект и перечислен в `sideEffects`.
+Объект оставляет проверку включённой и передаёт ей одну опцию. **Отменённый** запрос — тот, который
+код под тестом забрал обратно, отписавшись: `httpResource()`, у которого сигнал изменился раньше,
+чем пришёл первый ответ, или `switchMap`, уронивший свою внутреннюю подписку. Собственный
+`HttpTestingController.verify()` у Angular принимает `{ ignoreCancelled }` начиная с Angular 5
+ровно для этой формы, а здесь та же опция доходит до проверки при завершении теста:
+
+```ts
+TestBed.configureTestingModule({
+  providers: [...provideHttpTesting({ verifyOnTeardown: { ignoreCancelled: true } })],
+});
+```
+
+Браться за неё стоит потому, что альтернатива — всё или ничего. Сюита, в которой один
+`httpResource()` остался без отписки и простить его нечем, выключает проверку **целиком** — и тогда
+каждый остальной тест файла тоже перестаёт проверяться, а ведь ради этой гарантии опция и
+существует. `false` и `{ ignoreCancelled: false }` значат то же, что раньше значило `true`: не
+прощается ничего.
+
+::: tip Проверку взводит модуль, а не импорт
+Каждый модуль, собранный из этих провайдеров, взводит проверку для того теста, который его собрал, —
+через environment initializer. Поэтому она достаёт до каждого файла спек воркера под
+`isolate: false`, до списка провайдеров, вынесенного в константу, и до спреда, сделанного дважды
+(который взводит её один раз). Раньше это был `afterEach`, регистрировавшийся при импорте точки
+входа, а под `isolate: false` точка входа импортируется один раз на воркер: проверялся только первый
+файл спек, который её импортировал.
+
+Проверка выполняется в `onTestFinished`, после всех `afterEach` — то есть после teardown Angular и
+после собственного `getTestBed().resetTestingModule()` сюиты, что бы ни говорил `sequence.hooks`.
+Она всё равно видит то, что оставалось открытым, потому что сброс инстанса `TestBed` внутри этого
+теста сначала забирает открытые запросы, и она никогда не просит контроллер у сброшенного
+`TestBed`: это собрало бы свежий модуль, и `configureTestingModule` следующего теста отказался бы
+работать.
+
+Модулю, собранному в `beforeAll`, ронять нечего, поэтому он не взводит ничего — забирайте его
+запросы через `verifyNoPendingRequests()`, если они важны.
 :::
+
+Единственное, что нужно инициализатору сверх ангуляровского, — собственный отчёт раннера о том,
+какой тест сейчас выполняется. Там, где его нет — любой раннер, кроме Vitest, включая `bun:test` и
+`node:test`, — он говорит об этом один раз на воркер, вместо того чтобы молча ничего не взвести:
+
+```
+[vitest-auto-spy] provideHttpTesting(): globalThis.__vitest_worker__ is not there, so the runner
+does not say which test is running and the end-of-test check cannot arm. Call
+`verifyNoPendingRequests()` yourself, or report the runner and version — under bun:test and
+node:test this entry has no hook to use.
+```
+
+Всё остальное на этой странице там работает; хук нужен только автоматической проверке при
+завершении, а `verifyNoPendingRequests()` — та же проверка, написанная руками.
 
 ## `expectRequest(matcher, options?)` {#expectrequest-matcher-options}
 
@@ -126,7 +166,7 @@ expectNoRequest('/api/products'); // ответил кэш; наружу нич�
 другое утверждение, и иначе проверка прошла бы по неверной причине. Без аргумента означает
 «не запрашивалось вообще ничего».
 
-## `verifyNoPendingRequests()` {#verifynopendingrequests}
+## `verifyNoPendingRequests(options?)` {#verifynopendingrequests-options}
 
 Проверка из teardown, вызываемая руками. Полезна в середине теста — после подготовки, до проверок,
 которые от неё зависят, — и в тех двух спеках сюиты, где `verifyOnTeardown` выключили:
@@ -134,7 +174,12 @@ expectNoRequest('/api/products'); // ответил кэш; наружу нич�
 ```ts
 await expectRequest('/api/products').flush([]);
 verifyNoPendingRequests(); // больше наружу ничего не ушло
+verifyNoPendingRequests({ ignoreCancelled: true }); // …кроме того, от чего код под тестом отписался
 ```
+
+`{ ignoreCancelled: true }` — та же опция, которую принимает
+[`verifyOnTeardown`](#ignorecancelled), и та самая, которую `HttpTestingController.verify()`
+называет начиная с Angular 5.
 
 Ничего не делает, если тест вообще не настраивал HTTP-тестирование.
 

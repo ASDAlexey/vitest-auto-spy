@@ -67,6 +67,25 @@ Turn it off for a suite that asserts requests some other way:
 TestBed.configureTestingModule({ providers: [...provideHttpTesting({ verifyOnTeardown: false })] });
 ```
 
+### `ignoreCancelled`
+
+An object keeps the check armed and carries one option to it. A **cancelled** request is one the
+code under test took back by unsubscribing — an `httpResource()` whose signal changed before the
+first response arrived, a `switchMap` that dropped its inner subscription. Angular's own
+`HttpTestingController.verify()` has taken `{ ignoreCancelled }` since Angular 5 for exactly that
+shape, and this threads it to the end-of-test check:
+
+```ts
+TestBed.configureTestingModule({
+  providers: [...provideHttpTesting({ verifyOnTeardown: { ignoreCancelled: true } })],
+});
+```
+
+It is worth reaching for because the alternative is all-or-nothing. A suite with one unsubscribed
+`httpResource()` and no way to forgive it turns the check **off** — and then every other test in the
+file stops being checked too, which is the guarantee the option exists to keep. `false` and
+`{ ignoreCancelled: false }` mean the same thing as `true` did before: nothing is forgiven.
+
 ::: tip The module arms the check, not the import
 Every module built from these providers arms the check for the test that built it, through an
 environment initializer — so it reaches every spec file of a worker under `isolate: false`, a
@@ -144,7 +163,7 @@ Ticks first, like `expectRequest` — a request that has simply not been issued 
 claim, and the assertion would otherwise pass for the wrong reason. With no argument it means
 "nothing at all was requested".
 
-## `verifyNoPendingRequests()`
+## `verifyNoPendingRequests(options?)`
 
 The teardown check, callable by hand. Worth it mid-test — after the arrange step, before the
 assertions that depend on it — and in the two specs of a suite that turned `verifyOnTeardown` off:
@@ -152,7 +171,12 @@ assertions that depend on it — and in the two specs of a suite that turned `ve
 ```ts
 await expectRequest('/api/products').flush([]);
 verifyNoPendingRequests(); // nothing else went out
+verifyNoPendingRequests({ ignoreCancelled: true }); // …except what the code under test unsubscribed from
 ```
+
+`{ ignoreCancelled: true }` is the same opt-in
+[`verifyOnTeardown`](#ignorecancelled) takes, and the one
+`HttpTestingController.verify()` has named since Angular 5.
 
 A no-op when the test configured no HTTP testing at all, and when the testing module has already
 been reset — except for the requests that reset took, which it reports.

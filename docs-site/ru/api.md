@@ -86,7 +86,7 @@ description: Все экспорты vitest-auto-spy и его подпутей,
 | `trackRecomputations(signal)` / `trackEffectRuns(effectRef)`                                                 | Считает, сколько раз пересчитался `computed()` / выполнился `effect()`; `{ count, stop() }`, снимается `restoreMockedProps()` (`/angular`)                                                                                                                                                      |
 | `provideHttpTesting(options?)`                                                                               | `provideHttpClient()` и `provideHttpClientTesting()` в одном спреде, плюс проверка на неотвеченные запросы при завершении (`/angular-http`)                                                                                                                                                     |
 | `expectRequest(matcher, opts?)`                                                                              | Тикает, находит единственный подходящий запрос, затем делает ему `flush` / `error` **вместе с дожиданием** — `httpResource()` и `HttpClient` (`/angular-http`)                                                                                                                                  |
-| `expectNoRequest(matcher?, opts?)` / `verifyNoPendingRequests()`                                             | Проверяет, что ничего не запрашивали / что ничего не осталось без ответа (`/angular-http`)                                                                                                                                                                                                      |
+| `expectNoRequest(matcher?, opts?)` / `verifyNoPendingRequests(opts?)`                                        | Проверяет, что ничего не запрашивали / что ничего не осталось без ответа; `{ ignoreCancelled: true }` прощает запрос, от которого код под тестом отписался, — то же самое делает `provideHttpTesting({ verifyOnTeardown: { ignoreCancelled: true } })` при завершении теста (`/angular-http`)   |
 | `provideActivatedRoute(init?)`                                                                               | `ActivatedRoute`, у которого потоки, оба `ParamMap` и снимок собраны из одной записи, — собственный класс Angular (`/angular-router`)                                                                                                                                                           |
 | `injectActivatedRoute(injector?)` / `createActivatedRoute(init?)`                                            | Хендл, чьи сеттеры двигают потоки и снимок вместе, — из `TestBed` или без него (`/angular-router`)                                                                                                                                                                                              |
 | `provideRouterDouble(init?)`                                                                                 | `Router` поверх одного URL: `url`, `routerState` и `events` согласованы, а `navigate` и `navigateByUrl` — спаи, резолвящиеся в `true` (`/angular-router`)                                                                                                                                       |
@@ -258,7 +258,8 @@ _обращения_ к свойству: цепочка, идущая чере�
 `AccessorKeysOf<T>`, `MethodReturns<T>`, `PropStubValue<V>`, `SpyOptions`, `Overloads<F>`,
 `AutoSpyDefaultEntry<T>`, `ArgCaptor<T>` и `CaptureArgOptions` (что возвращает `captureArg` и какой
 `{ where }` он принимает), `SpyClassOptions` (те самые `{ statics }` у `createSpyClass`),
-`AddThrowHelper` (тот самый `failWith`, который несёт каждый спай метода) экспортируются из ядра тоже;
+`AddThrowHelper` (тот самый `failWith`, который несёт каждый спай метода), `CallLog<T>` (журнал,
+который возвращает `createLog`) экспортируются из ядра тоже;
 `/angular` добавляет `AutoSpyTokenDefaults<T>` (регистрацию токена), `AutoSpyFixture`, `SpiedFixtures<Spec>` и `ExtendWithAutoSpiesOptions` для
 `extendWithAutoSpies`, `ComponentStubOptions` для `createComponentStub`; `/angular/diagnostics`
 добавляет `AngularDiagnosticsOptions`, `SpecTiming` и `TestBedDiagnosticsOptions`;
@@ -268,8 +269,9 @@ _обращения_ к свойству: цепочка, идущая чере�
 `WebStorageKey`, `WebStorageStub` и `WebStorageStubOptions` для `stubWebStorage`; `/angular-http` добавляет `RequestMatcher`, `RequestExpectation`, `ResponseBody`,
 `FlushOptions`, `RequestErrorOptions`, `ExpectRequestOptions` и `HttpTestingOptions` для
 `expectRequest` и `provideHttpTesting`; `/angular-router` добавляет `ActivatedRouteInit`,
-`ActivatedRouteChange` и `ActivatedRouteDouble` для маршрутных хелперов и `RouterDoubleInit` с
-`RouterDouble` — для роутерных; `/nestjs` добавляет `NestUnit<T>`, `NestUnitSpies`,
+`ActivatedRouteChange` и `ActivatedRouteDouble` для маршрутных хелперов, `RouterDoubleInit` с
+`RouterDouble` — для роутерных, `LocationDouble` — для дубля `Location`, а `RouterEventPair` и
+`RouterEventsHandle` — для `collectRouterEvents`; `/nestjs` добавляет `NestUnit<T>`, `NestUnitSpies`,
 `NestUnitClass<T>`, `NestUnitProvider` и `CreateNestUnitOptions` для `createNestUnit`;
 `/node` добавляет `StopTrackingNodeMocks` — ручку отключения, которую отдаёт `trackNodeMocks()`;
 `/setup` добавляет `RestoreWebStorageOptions`, чьё единственное поле `view` называет окно, из

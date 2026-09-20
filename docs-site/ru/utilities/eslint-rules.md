@@ -1017,7 +1017,7 @@ vi.spyOn(globalThis, 'fetch').mockImplementation(async () => stubResponse({ body
 читает один из этих членов, уходит в ветку по `undefined`, которую настоящий ответ выдать не мог, и
 тест зелёный на пути, которого не существует. Это тот самый дефект, ради которого существует строгий
 пресет, — только обычный объектный литерал не дубль, про который библиотека знает, так что за ним
-никто не следил. [`stubResponse`](/ru/utilities/setup#answering-a-stubbed-fetch-stubresponse) собирает
+никто не следил. [`stubResponse`](/ru/utilities/setup#answering-a-stubbed-fetch-—-stubresponse) собирает
 собственный `Response` платформы, поэтому настоящий каждый член.
 
 **Границы.** Дубль за фабрикой недостижим — то же ограничение, что у

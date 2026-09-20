@@ -86,7 +86,7 @@ The exported surface of `vitest-auto-spy` and its subpaths.
 | `trackRecomputations(signal)` / `trackEffectRuns(effectRef)`                                                 | Count how often a `computed()` recomputes / an `effect()` runs; `{ count, stop() }`, undone by `restoreMockedProps()` (`/angular`)                                                                                                                                                        |
 | `provideHttpTesting(options?)`                                                                               | `provideHttpClient()` and `provideHttpClientTesting()` in one spread, plus a teardown check for unanswered requests (`/angular-http`)                                                                                                                                                     |
 | `expectRequest(matcher, opts?)`                                                                              | Tick, find the one matching request, then `flush` / `error` it **with the settling included** — `httpResource()` and `HttpClient` (`/angular-http`)                                                                                                                                       |
-| `expectNoRequest(matcher?, opts?)` / `verifyNoPendingRequests()`                                             | Assert that nothing was requested / that nothing was left unanswered (`/angular-http`)                                                                                                                                                                                                    |
+| `expectNoRequest(matcher?, opts?)` / `verifyNoPendingRequests(opts?)`                                        | Assert that nothing was requested / that nothing was left unanswered; `{ ignoreCancelled: true }` forgives a request the code under test unsubscribed from, as `provideHttpTesting({ verifyOnTeardown: { ignoreCancelled: true } })` does at teardown (`/angular-http`)                   |
 | `provideActivatedRoute(init?)`                                                                               | An `ActivatedRoute` whose streams, `paramMap`s and snapshot are built from one record, as Angular's own class (`/angular-router`)                                                                                                                                                         |
 | `injectActivatedRoute(injector?)` / `createActivatedRoute(init?)`                                            | The handle whose setters move the streams and the snapshot together — from the `TestBed`, or built without one (`/angular-router`)                                                                                                                                                        |
 | `provideRouterDouble(init?)`                                                                                 | A `Router` over one URL: `url`, `routerState`, `events` and `currentNavigation()` agree, and `navigate` / `navigateByUrl` are spies resolving `true` (`/angular-router`)                                                                                                                  |
@@ -284,7 +284,8 @@ a `NodeList` stays assignable to the mapping of itself.
 `AccessorKeysOf<T>`, `MethodReturns<T>`, `PropStubValue<V>`, `SpyOptions`, `Overloads<F>`,
 `AutoSpyDefaultEntry<T>`, `ArgCaptor<T>` and `CaptureArgOptions` (what `captureArg` returns and the
 `{ where }` it takes), `SpyClassOptions` (the `{ statics }` of `createSpyClass`),
-`AddThrowHelper` (the `failWith` every method spy carries) are exported from the core as well;
+`AddThrowHelper` (the `failWith` every method spy carries), `CallLog<T>` (the journal `createLog`
+hands back) are exported from the core as well;
 `/angular` adds `AutoSpyTokenDefaults<T>` (a token's registration), `AutoSpyFixture`, `SpiedFixtures<Spec>` and `ExtendWithAutoSpiesOptions` for
 `extendWithAutoSpies`, `ComponentStubOptions` for `createComponentStub`, `RunCounter` (the
 `{ count, stop() }` of `trackRecomputations` and `trackEffectRuns`) and `MockResourceOptions` /
@@ -296,8 +297,9 @@ ones; `/angular/matchers` adds `ResourceLike` and `SignalLike`; `/dom-stubs` add
 `WebStorageKey`, `WebStorageStub` and `WebStorageStubOptions` for `stubWebStorage`; `/angular-http` adds `RequestMatcher`, `RequestExpectation`, `ResponseBody`,
 `FlushOptions`, `RequestErrorOptions`, `ExpectRequestOptions` and `HttpTestingOptions` for
 `expectRequest` and `provideHttpTesting`; `/angular-router` adds `ActivatedRouteInit`,
-`ActivatedRouteChange` and `ActivatedRouteDouble` for its route helpers, and `RouterDoubleInit`, `NavigationInit` and
-`RouterDouble` for its router ones; `/nestjs` adds `NestUnit<T>`, `NestUnitSpies`,
+`ActivatedRouteChange` and `ActivatedRouteDouble` for its route helpers, `RouterDoubleInit`, `NavigationInit` and
+`RouterDouble` for its router ones, `LocationDouble` for the `Location` one, and `RouterEventPair` /
+`RouterEventsHandle` for `collectRouterEvents`; `/nestjs` adds `NestUnit<T>`, `NestUnitSpies`,
 `NestUnitClass<T>`, `NestUnitProvider` and `CreateNestUnitOptions` for `createNestUnit`;
 `/node` adds `StopTrackingNodeMocks`, the disarm handle `trackNodeMocks()` hands back;
 `/setup` adds `RestoreWebStorageOptions`, whose one field `view` names the window

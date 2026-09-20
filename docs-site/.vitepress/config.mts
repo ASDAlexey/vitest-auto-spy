@@ -433,7 +433,16 @@ export default defineConfig({
           'errors() toEqual fails, RequiredValidationError fieldTree, FieldTree in a test, ' +
           'change an input after the first render, componentRef.setInput in a test, NG0303 in a spec, setInputs, ' +
           'count signal recomputations, did the effect run again, trackRecomputations, trackEffectRuns, ' +
-          'resource idle state test, mockResourceProp status idle, no-sync-testbed-await, prefer-provide-activated-route, ',
+          'resource idle state test, mockResourceProp status idle, no-sync-testbed-await, prefer-provide-activated-route, ' +
+          'mock Location angular test, SpyLocation vitest, location.back in a test, MockLocationStrategy, ' +
+          'assert where a redirect landed angular, urlChanges journal, simulate popstate angular test, ' +
+          'provideLocationDouble, injectLocationDouble, createLocationDouble, Location providedIn root test, ' +
+          'assert router event sequence, collect router.events in a test, NavigationStart NavigationEnd order, collectRouterEvents, ' +
+          'assert call order across mocks, which mock was called first, toHaveBeenCalledBefore chain, ' +
+          'call order journal, createLog, angular Log testing utility, order of calls between spies, ' +
+          'verify ignoreCancelled, httpResource cancelled request verify, unsubscribed request fails teardown, ' +
+          'HttpTestingController.verify ignoreCancelled, verifyOnTeardown ignoreCancelled, ' +
+          'as Response cast in a test, fake Response object literal, createMock<Response>, prefer-stub-response, stubResponse, ',
       },
     ],
     // max-image-preview:large is what lets Google and Yandex use the OG image in a result card.

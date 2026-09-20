@@ -99,6 +99,13 @@ new entries pure, which lets a bundler drop the mock adapter or the compiler imp
   beside the route and the router — the URL family — and adds no peer of its own:
   `@angular/router` already depends on `@angular/common`, whose testing classes the double wraps.
 
+  **The weight.** `/angular-router` goes from 8.49 kB to 9.05 kB min+gzip — **+0.56 kB, +6.5 %** —
+  for this double, `collectRouterEvents` and the `resolve` / `title` fields together; the double is
+  the largest of the three at 975 B measured on its own, and less than that inside the entry, which
+  already imports what it wraps. It is paid only by a spec that imports this entry: the core is
+  +0.07 kB (+0.3 %), `/angular` did not move at all, and `SpyLocation` appears in
+  `dist/angular-router.js` and in no other chunk.
+
 - **`resolve` and `title` on `ActivatedRouteInit`.** A route's snapshot carries a resolved-data
   record in its own field, and a title inside `data` under a symbol `@angular/router` never exports
   — so `snapshot.title` read `undefined` for every double-built route, and a `TitleStrategy` spec
@@ -131,6 +138,8 @@ new entries pure, which lets a bundler drop the mock adapter or the compiler imp
   to let one unsubscribed `httpResource()` through was throwing away the guarantee for every other
   test. Predicate matchers in a failure message also name the predicate now
   (`a predicate (wantsProductList)`), where every predicate in the file read identically.
+  `/angular-http` grows 3.37 kB → 3.48 kB min+gzip (**+0.11 kB, +3.3 %**) for both — a percentage
+  that is large only because the entry is small; the same bytes are 0.3 % of the core.
 
 ### Fixed
 

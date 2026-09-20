@@ -1020,7 +1020,7 @@ vi.spyOn(globalThis, 'fetch').mockImplementation(async () => stubResponse({ body
 code under test reads one of those, takes a branch on `undefined` that the real response could never
 have produced, and the test is green on a path that does not exist. It is the defect the strict
 preset exists to catch, except that a plain object literal is not a double the library knows about,
-so no guard was watching. [`stubResponse`](/utilities/setup#answering-a-stubbed-fetch-stubresponse)
+so no guard was watching. [`stubResponse`](/utilities/setup#answering-a-stubbed-fetch-—-stubresponse)
 builds the platform's own `Response`, so every member is real.
 
 **Limits.** A double built behind a factory is out of reach, the same limit

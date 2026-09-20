@@ -359,7 +359,7 @@ expect(navigate).toHaveBeenCalledWith(['/login']);
 `providedIn: 'root'`, а `provideRouter()` токен заново не выдаёт, поэтому явный провайдер выигрывает
 в любом порядке.
 
-## `collectRouterEvents(events)`
+## `collectRouterEvents(events)` {#collectrouterevents-events}
 
 ```ts
 import { NavigationEnd, NavigationStart } from '@angular/router';

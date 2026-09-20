@@ -13352,7 +13352,7 @@ vi.spyOn(globalThis, 'fetch').mockImplementation(async () => stubResponse({ body
 code under test reads one of those, takes a branch on `undefined` that the real response could never
 have produced, and the test is green on a path that does not exist. It is the defect the strict
 preset exists to catch, except that a plain object literal is not a double the library knows about,
-so no guard was watching. [`stubResponse`](https://asdalexey.github.io/vitest-auto-spy/utilities/setup#answering-a-stubbed-fetch-stubresponse)
+so no guard was watching. [`stubResponse`](https://asdalexey.github.io/vitest-auto-spy/utilities/setup#answering-a-stubbed-fetch-—-stubresponse)
 builds the platform's own `Response`, so every member is real.
 
 **Limits.** A double built behind a factory is out of reach, the same limit
@@ -18603,6 +18603,25 @@ Turn it off for a suite that asserts requests some other way:
 TestBed.configureTestingModule({ providers: [...provideHttpTesting({ verifyOnTeardown: false })] });
 ```
 
+### `ignoreCancelled`
+
+An object keeps the check armed and carries one option to it. A **cancelled** request is one the
+code under test took back by unsubscribing — an `httpResource()` whose signal changed before the
+first response arrived, a `switchMap` that dropped its inner subscription. Angular's own
+`HttpTestingController.verify()` has taken `{ ignoreCancelled }` since Angular 5 for exactly that
+shape, and this threads it to the end-of-test check:
+
+```ts
+TestBed.configureTestingModule({
+  providers: [...provideHttpTesting({ verifyOnTeardown: { ignoreCancelled: true } })],
+});
+```
+
+It is worth reaching for because the alternative is all-or-nothing. A suite with one unsubscribed
+`httpResource()` and no way to forgive it turns the check **off** — and then every other test in the
+file stops being checked too, which is the guarantee the option exists to keep. `false` and
+`{ ignoreCancelled: false }` mean the same thing as `true` did before: nothing is forgiven.
+
 **The module arms the check, not the import**
 Every module built from these providers arms the check for the test that built it, through an
 environment initializer — so it reaches every spec file of a worker under `isolate: false`, a
@@ -18679,7 +18698,7 @@ Ticks first, like `expectRequest` — a request that has simply not been issued 
 claim, and the assertion would otherwise pass for the wrong reason. With no argument it means
 "nothing at all was requested".
 
-## `verifyNoPendingRequests()`
+## `verifyNoPendingRequests(options?)`
 
 The teardown check, callable by hand. Worth it mid-test — after the arrange step, before the
 assertions that depend on it — and in the two specs of a suite that turned `verifyOnTeardown` off:
@@ -18687,7 +18706,12 @@ assertions that depend on it — and in the two specs of a suite that turned `ve
 ```ts
 await expectRequest('/api/products').flush([]);
 verifyNoPendingRequests(); // nothing else went out
+verifyNoPendingRequests({ ignoreCancelled: true }); // …except what the code under test unsubscribed from
 ```
+
+`{ ignoreCancelled: true }` is the same opt-in
+[`verifyOnTeardown`](#ignorecancelled) takes, and the one
+`HttpTestingController.verify()` has named since Angular 5.
 
 A no-op when the test configured no HTTP testing at all, and when the testing module has already
 been reset — except for the requests that reset took, which it reports.
@@ -23611,7 +23635,7 @@ The exported surface of `vitest-auto-spy` and its subpaths.
 | `trackRecomputations(signal)` / `trackEffectRuns(effectRef)`                                                 | Count how often a `computed()` recomputes / an `effect()` runs; `{ count, stop() }`, undone by `restoreMockedProps()` (`/angular`)                                                                                                                                                        |
 | `provideHttpTesting(options?)`                                                                               | `provideHttpClient()` and `provideHttpClientTesting()` in one spread, plus a teardown check for unanswered requests (`/angular-http`)                                                                                                                                                     |
 | `expectRequest(matcher, opts?)`                                                                              | Tick, find the one matching request, then `flush` / `error` it **with the settling included** — `httpResource()` and `HttpClient` (`/angular-http`)                                                                                                                                       |
-| `expectNoRequest(matcher?, opts?)` / `verifyNoPendingRequests()`                                             | Assert that nothing was requested / that nothing was left unanswered (`/angular-http`)                                                                                                                                                                                                    |
+| `expectNoRequest(matcher?, opts?)` / `verifyNoPendingRequests(opts?)`                                        | Assert that nothing was requested / that nothing was left unanswered; `{ ignoreCancelled: true }` forgives a request the code under test unsubscribed from, as `provideHttpTesting({ verifyOnTeardown: { ignoreCancelled: true } })` does at teardown (`/angular-http`)                   |
 | `provideActivatedRoute(init?)`                                                                               | An `ActivatedRoute` whose streams, `paramMap`s and snapshot are built from one record, as Angular's own class (`/angular-router`)                                                                                                                                                         |
 | `injectActivatedRoute(injector?)` / `createActivatedRoute(init?)`                                            | The handle whose setters move the streams and the snapshot together — from the `TestBed`, or built without one (`/angular-router`)                                                                                                                                                        |
 | `provideRouterDouble(init?)`                                                                                 | A `Router` over one URL: `url`, `routerState`, `events` and `currentNavigation()` agree, and `navigate` / `navigateByUrl` are spies resolving `true` (`/angular-router`)                                                                                                                  |
@@ -23809,7 +23833,8 @@ a `NodeList` stays assignable to the mapping of itself.
 `AccessorKeysOf<T>`, `MethodReturns<T>`, `PropStubValue<V>`, `SpyOptions`, `Overloads<F>`,
 `AutoSpyDefaultEntry<T>`, `ArgCaptor<T>` and `CaptureArgOptions` (what `captureArg` returns and the
 `{ where }` it takes), `SpyClassOptions` (the `{ statics }` of `createSpyClass`),
-`AddThrowHelper` (the `failWith` every method spy carries) are exported from the core as well;
+`AddThrowHelper` (the `failWith` every method spy carries), `CallLog<T>` (the journal `createLog`
+hands back) are exported from the core as well;
 `/angular` adds `AutoSpyTokenDefaults<T>` (a token's registration), `AutoSpyFixture`, `SpiedFixtures<Spec>` and `ExtendWithAutoSpiesOptions` for
 `extendWithAutoSpies`, `ComponentStubOptions` for `createComponentStub`, `RunCounter` (the
 `{ count, stop() }` of `trackRecomputations` and `trackEffectRuns`) and `MockResourceOptions` /
@@ -23821,8 +23846,9 @@ ones; `/angular/matchers` adds `ResourceLike` and `SignalLike`; `/dom-stubs` add
 `WebStorageKey`, `WebStorageStub` and `WebStorageStubOptions` for `stubWebStorage`; `/angular-http` adds `RequestMatcher`, `RequestExpectation`, `ResponseBody`,
 `FlushOptions`, `RequestErrorOptions`, `ExpectRequestOptions` and `HttpTestingOptions` for
 `expectRequest` and `provideHttpTesting`; `/angular-router` adds `ActivatedRouteInit`,
-`ActivatedRouteChange` and `ActivatedRouteDouble` for its route helpers, and `RouterDoubleInit`, `NavigationInit` and
-`RouterDouble` for its router ones; `/nestjs` adds `NestUnit<T>`, `NestUnitSpies`,
+`ActivatedRouteChange` and `ActivatedRouteDouble` for its route helpers, `RouterDoubleInit`, `NavigationInit` and
+`RouterDouble` for its router ones, `LocationDouble` for the `Location` one, and `RouterEventPair` /
+`RouterEventsHandle` for `collectRouterEvents`; `/nestjs` adds `NestUnit<T>`, `NestUnitSpies`,
 `NestUnitClass<T>`, `NestUnitProvider` and `CreateNestUnitOptions` for `createNestUnit`;
 `/node` adds `StopTrackingNodeMocks`, the disarm handle `trackNodeMocks()` hands back;
 `/setup` adds `RestoreWebStorageOptions`, whose one field `view` names the window
