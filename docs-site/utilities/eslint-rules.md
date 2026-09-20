@@ -1,6 +1,6 @@
 ---
 title: ESLint rules
-description: A reference section for each of the thirty-nine rules — what it reports, what it decides on, why it is in recommended, where it reports working code, and why its severity is what it is.
+description: A reference section for each of the forty rules — what it reports, what it decides on, why it is in recommended, where it reports working code, and why its severity is what it is.
 ---
 
 # ESLint rules
@@ -34,7 +34,7 @@ Every section answers the same six questions:
 
 <!-- The id is frozen on purpose: configs already point at #the-twenty-five-rules. Keep it when the rule count changes. -->
 
-## The thirty-nine rules {#the-twenty-five-rules}
+## The forty rules {#the-twenty-five-rules}
 
 Grouped by subject, the same grouping the [setup page](/utilities/eslint-plugin) uses. Every rule is
 an `error` except five.
@@ -55,6 +55,7 @@ an `error` except five.
 | [`no-import-time-spread`](#no-import-time-spread)                     | `error`          | a spread of an imported binding evaluated at module scope                                   |
 | [`prefer-observer-stub`](#prefer-observer-stub)                       | `error`          | an observer global replaced by hand or through the runner                                   |
 | [`no-hand-assigned-global`](#no-hand-assigned-global)                 | `error`          | `global.fetch = vi.fn()` — a double assigned to a global that no teardown puts back         |
+| [`prefer-stub-response`](#prefer-stub-response)                       | `error`          | an object literal cast to `Response`, or `createMock<Response>(…)` — half a response        |
 | [`prefer-provide-activated-route`](#prefer-provide-activated-route)   | `error`          | an `ActivatedRoute` provided as a hand-built object, class or factory — half a route        |
 | [`no-passthrough-console-spy`](#no-passthrough-console-spy)           | `error`          | `vi.spyOn(console, m)` nothing gives an implementation — it calls through and prints        |
 | [`no-console-in-spec`](#no-console-in-spec)                           | `error`          | a spec that calls a console method, or replaces one by assignment                           |
@@ -981,6 +982,55 @@ run, such as one installed in a setup file on purpose. The three observer global
 
 **Severity.** `error`. The double outlives the test that installed it, and under `isolate: false` it
 outlives the file.
+
+## prefer-stub-response
+
+**`error`** · no fix · syntax only
+
+**Reports.** A `Response` written by hand for a stubbed `fetch`: an object literal cast to
+`Response` — `{ ok: true, json: async () => data } as Response`, the double cast
+`as unknown as Response`, or the angle-bracket `<Response>{ … }` — and a
+`createMock<Response>(…)` / `createAutoMock<Response>(…)` call.
+
+**Decides on.** Two facts written on the line: the type an assertion names, and the type argument a
+helper is handed. Nothing here needs a program, which is what
+[`no-sync-testbed-await`](#no-sync-testbed-await) relies on for the same reason. The cast is read
+through its own nesting, so `as unknown as Response` is one report rather than none.
+
+One discrimination keeps it honest: `Response` has to resolve to the **global**. A name the file
+imports (`import { type Response } from 'express'`) or declares (a generated client's envelope, a
+domain type of the same name) has a binding with a definition and is never reported — for those
+`stubResponse` builds the wrong object, so naming it would be wrong advice. A binding with no
+definitions is the global too, which is what `languageOptions.globals` puts in scope for a project
+that declares its environment.
+
+**Finding, and the repair.**
+
+```ts
+vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: true, json: async () => user } as Response); // ❌
+```
+
+```ts
+vi.spyOn(globalThis, 'fetch').mockImplementation(async () => stubResponse({ body: user }));
+```
+
+**Why it is recommended.** The literal answers the two or three members its author thought of and
+`undefined` for every other one — `status`, `statusText`, `headers`, `url`, `text()`,
+`arrayBuffer()`, `clone()`. The cast is what makes that compile, and it is also what hides it: the
+code under test reads one of those, takes a branch on `undefined` that the real response could never
+have produced, and the test is green on a path that does not exist. It is the defect the strict
+preset exists to catch, except that a plain object literal is not a double the library knows about,
+so no guard was watching. [`stubResponse`](/utilities/setup#answering-a-stubbed-fetch-stubresponse)
+builds the platform's own `Response`, so every member is real.
+
+**Limits.** A double built behind a factory is out of reach, the same limit
+[`no-structural-double`](#no-structural-double) has: `buildResponse()` returning the cast literal is
+reported where the cast is written and nowhere else. A `Response` assembled member by member onto a
+`const` with a type annotation is not a cast and is not reported either.
+
+**Severity.** `error`. The evidence is the line, the repair is a helper this package ships, and
+there is no migration to gate — a suite that already builds its responses with `stubResponse` sees
+nothing.
 
 ## prefer-provide-activated-route
 

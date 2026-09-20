@@ -37,6 +37,7 @@ const RU_LABEL: Record<string, string> = {
 
   'Explaining a double': 'Разбор дубля',
   'Console spies': 'Спаи консоли',
+  'Call log': 'Журнал вызовов',
   'Test-run hygiene': 'Гигиена прогона',
   'Fake timers': 'Фейковые таймеры',
   'Observer stubs': 'Заглушки Observer',
@@ -119,6 +120,7 @@ const SIDEBAR = [
     items: [
       { text: 'Explaining a double', link: '/utilities/explain-spy' },
       { text: 'Console spies', link: '/utilities/console' },
+      { text: 'Call log', link: '/utilities/call-log' },
       { text: 'Test-run hygiene', link: '/utilities/setup' },
       { text: 'Fake timers', link: '/utilities/fake-timers' },
       { text: 'Observer stubs', link: '/utilities/observer-stubs' },

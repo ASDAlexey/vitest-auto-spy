@@ -396,4 +396,5 @@ These account for the large majority of broken specs, and every one of them is c
       which [`setupAutoSpy()`](/utilities/setup) restores; `blockNetwork()` for a spec that only
       has to stay offline, and [`stubResponse({ body })`](/utilities/setup#answering-a-stubbed-fetch-—-stubresponse)
       for the `Response` itself. The [`no-hand-assigned-global`](/utilities/eslint-rules#no-hand-assigned-global)
-      rule reports the bare form.
+      rule reports the bare form, and [`prefer-stub-response`](/utilities/eslint-rules#prefer-stub-response)
+      the `{ ok: true, json } as Response` handed back from it.

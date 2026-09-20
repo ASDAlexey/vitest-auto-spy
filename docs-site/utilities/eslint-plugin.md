@@ -1,6 +1,6 @@
 ---
 title: ESLint plugin
-description: Thirty-nine flat-config lint rules that steer a suite onto the auto-spy helpers, grouped by subject, every one an error by default bar the four that report a cost or a heuristic, with the dial documented and the false-positive cases named.
+description: Forty flat-config lint rules that steer a suite onto the auto-spy helpers, grouped by subject, every one an error by default bar the four that report a cost or a heuristic, with the dial documented and the false-positive cases named.
 ---
 
 # ESLint plugin
@@ -22,7 +22,7 @@ which a subpath export of this package can never be.
 
 **How this page is laid out.** [Adding it](#adding-it-to-your-project) is the four things a first
 config needs. [Which apply to you](#which-of-the-twenty-apply-to-you) answers the question a
-Vitest-only project asks — four of the thirty-nine are about a dialect you may not speak.
+Vitest-only project asks — four of the forty are about a dialect you may not speak.
 [Rules](#rules) is the reference table, in seven groups. [Tuning](#tuning-it-for-your-project) is
 every dial, including the three rules that can report on correct code. Everything after that is
 _why_ — one section per rule, for when a report has arrived and you want to know what it saved you
@@ -80,7 +80,7 @@ need different severities.
 
 ### 3. Type information is optional, and three rules want it {#_3-type-information-is-optional-and-one-rule-wants-it}
 
-Thirty-six of the thirty-nine are syntactic: they read the file's own AST and never ask the type checker.
+Thirty-seven of the forty are syntactic: they read the file's own AST and never ask the type checker.
 So the plugin works with `parserOptions.project` unset, adds nothing measurable to lint time, and
 does not need your specs to be in a `tsconfig` — which matters in the repositories where they are
 not.
@@ -124,7 +124,7 @@ npx eslint . --format stylish | tail -30   # the summary tells you which rule do
 Whatever is left is either a real finding or a rule you would rather not enforce yet. Both are
 answered below.
 
-## Which of the thirty-nine apply to you {#which-of-the-twenty-apply-to-you}
+## Which of the forty apply to you {#which-of-the-twenty-apply-to-you}
 
 Reasonable question if you came straight to Vitest and have never written a line of Jasmine: **four
 of these rules are about a dialect you do not speak.** They are still on, and the reason is not
@@ -134,7 +134,7 @@ principle — it is that they cannot fire on your code.
 | ------------------------------------------ | -------------------------------------------------------------------------------------------------------- |
 | writing Vitest, never used Jasmine or Jest | the thirty-five core rules work; **the four jasmine rules are inert** — leave them on and never see them |
 | migrating off `jest-auto-spies` / Jest     | the core rules do the work, `no-done-callback` and `prefer-as-spy` most of it                            |
-| migrating off `jasmine-auto-spies`         | all thirty-nine, with `prefer-native-spy-api` set to `'off'` until the bridge is gone                    |
+| migrating off `jasmine-auto-spies`         | all forty, with `prefer-native-spy-api` set to `'off'` until the bridge is gone                          |
 
 ### If you never used Jasmine
 
@@ -204,7 +204,7 @@ that file needs). See [Migrating from jest-auto-spies](/migrating).
 
 ### If you are coming from Jasmine
 
-All thirty-nine apply, and the four in the last group are the ones written for you. Two are pure
+All forty apply, and the four in the last group are the ones written for you. Two are pure
 diagnosis — `no-jasmine-globals` and `no-save-arguments-by-value` name silent behaviour changes that
 survive a rename — and `jasmine-namespace-without-entry` catches the spy built before the layer was
 installed. The fourth, `prefer-native-spy-api`, reports the bridge itself, so it is the one line of
@@ -290,6 +290,7 @@ Not about a single test but about what one file leaves behind for the next.
 | [`no-import-time-spread`](#the-spread-that-only-fails-under-a-bundler)                               | `export const x = [...Imported]` at module scope → a `TypeError`, or a silently empty object, while the bundle loads                                | suggest | red _(by construction)_ |
 | [`prefer-observer-stub`](#the-observer-stub-everybody-writes-again)                                  | a hand-rolled `IntersectionObserver` / `ResizeObserver` / `MutationObserver` written into a global → `stubIntersectionObserver()` and friends       | —       |          green          |
 | [`no-hand-assigned-global`](#a-global-assigned-by-hand)                                              | `global.fetch = vi.fn(…)` and any other double assigned to a global with no teardown restore → `mockValueProp` / `vi.stubGlobal` / `blockNetwork()` | —       |          green          |
+| [`prefer-stub-response`](#a-response-written-by-hand)                                                | an object literal cast to `Response`, or `createMock<Response>(…)` → `stubResponse({ body })`                                                       | —       |          green          |
 
 ### Angular DI and the TestBed
 
@@ -1224,11 +1225,11 @@ this rule declines. See [Migrating from jasmine-auto-spies](/migrating-jasmine).
 
 ## Which rules fix, and why so few
 
-Three of the thirty-nine rewrite the source on their own, thirteen offer the rewrite as a suggestion, and
+Four of the forty rewrite the source on their own, thirteen offer the rewrite as a suggestion, and
 the split is about what a wrong guess costs rather than about how hard the rewrite is.
 
 `no-mocked-for-spy` touches nothing but a **declaration**. Get it wrong and the file stops
-compiling — the loudest and cheapest failure a codebase has — so it is one of the three rules that run
+compiling — the loudest and cheapest failure a codebase has — so it is one of the four rules that run
 under `--fix`, and it does the whole edit:
 
 ```ts
@@ -1565,6 +1566,33 @@ For a spec that only needs to stay off the network, [`blockNetwork()`](/utilitie
 closes `fetch`, `XMLHttpRequest` and `sendBeacon` for every test. `localStorage` and `sessionStorage`
 have [`stubWebStorage()`](/utilities/setup#stub-web-storage). The three observer globals stay with
 `prefer-observer-stub`, so one line never draws two reports.
+
+### A `Response` written by hand
+
+The other half of the same spec. Once `fetch` is replaced, something has to be handed back, and the
+line every tutorial shows is a cast over two members:
+
+```ts
+vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: true, json: async () => user } as Response); // ❌
+```
+
+Everything the author did not think of answers `undefined` — `status`, `statusText`, `headers`,
+`url`, `text()`, `clone()` — and the cast is what makes that compile. The code under test then
+branches on a value the real response could never have produced, and the test is green on a path
+that does not exist. It is the same defect the strict preset catches on a double the library built;
+a plain object literal is not one, so nothing was watching.
+
+[`prefer-stub-response`](/utilities/eslint-rules#prefer-stub-response) reports the cast, the
+`as unknown as Response` spelling of it, and `createMock<Response>(…)`. The repair builds the
+platform's own:
+
+```ts
+vi.spyOn(globalThis, 'fetch').mockImplementation(async () => stubResponse({ body: user }));
+```
+
+`Response` has to resolve to the **global** for the rule to fire, so an Express handler's
+`Response` or a generated client's envelope of the same name is left alone — `stubResponse` builds
+the wrong object for those, and naming it would be wrong advice.
 
 ### `no-dead-schemas` — the charm that protects nobody
 

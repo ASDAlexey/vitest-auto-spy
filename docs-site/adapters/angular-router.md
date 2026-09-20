@@ -1,12 +1,13 @@
 ---
 title: Angular router
-description: provideActivatedRoute and provideRouterDouble — Angular's own ActivatedRoute over one record, and a Router whose URL, routerState and events cannot disagree, with navigate already spied.
+description: provideActivatedRoute, provideRouterDouble and provideLocationDouble — Angular's own ActivatedRoute over one record, a Router whose URL, routerState and events cannot disagree with navigate already spied, and the SpyLocation wrap for where either lands.
 ---
 
 # Angular router
 
-Two doubles live here: the `ActivatedRoute` a component reads, and the [`Router`](#the-router-double)
-it navigates with. Neither needs the other, and a spec that needs both lists both.
+Three doubles live here: the `ActivatedRoute` a component reads, the [`Router`](#the-router-double)
+it navigates with, and Angular's own [`Location`](#the-location-double) for where either of them
+lands. None needs the others, and a spec that needs several lists several.
 
 ```ts
 import { injectActivatedRoute, provideActivatedRoute } from 'vitest-auto-spy/angular-router';
@@ -53,16 +54,18 @@ TestBed.configureTestingModule({
 });
 ```
 
-| `init` member | Reaches                                                      | Default     |
-| ------------- | ------------------------------------------------------------ | ----------- |
-| `params`      | `params`, `paramMap`, `snapshot.params`, `snapshot.paramMap` | `{}`        |
-| `queryParams` | `queryParams`, `queryParamMap` and their snapshot twins      | `{}`        |
-| `data`        | `data`, `snapshot.data`                                      | `{}`        |
-| `fragment`    | `fragment`, `snapshot.fragment`                              | `null`      |
-| `url`         | `url`, `snapshot.url` — a string is split on `/`             | `[]`        |
-| `outlet`      | `outlet`, `snapshot.outlet`                                  | `'primary'` |
-| `component`   | `component`, `snapshot.component`                            | `null`      |
-| `routeConfig` | `routeConfig`, `snapshot.routeConfig`                        | `null`      |
+| `init` member | Reaches                                                                                                                                               | Default     |
+| ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- | ----------- |
+| `params`      | `params`, `paramMap`, `snapshot.params`, `snapshot.paramMap`                                                                                          | `{}`        |
+| `queryParams` | `queryParams`, `queryParamMap` and their snapshot twins                                                                                               | `{}`        |
+| `data`        | `data`, `snapshot.data`                                                                                                                               | `{}`        |
+| `title`       | `route.title`, `snapshot.title` — stored under the router's own `RouteTitleKey`, which the double reads off the installed router rather than guessing | `undefined` |
+| `fragment`    | `fragment`, `snapshot.fragment`                                                                                                                       | `null`      |
+| `url`         | `url`, `snapshot.url` — a string is split on `/`                                                                                                      | `[]`        |
+| `outlet`      | `outlet`, `snapshot.outlet`                                                                                                                           | `'primary'` |
+| `component`   | `component`, `snapshot.component`                                                                                                                     | `null`      |
+| `routeConfig` | `routeConfig`, `snapshot.routeConfig`                                                                                                                 | `null`      |
+| `resolve`     | `snapshot`'s resolved-data record, kept apart from `data` as Angular keeps it                                                                         | `{}`        |
 
 A string `url` gives segments without matrix parameters; pass `UrlSegment`s
 (`[new UrlSegment('products', { color: 'red' })]`) when the code reads them.
@@ -162,8 +165,10 @@ supports.
   `route.firstChild` needs a tree; patch the one member with
   [`mockReadonlyProp`](/adapters/angular#signal-readonly-property-mocking) or navigate a real router
   with `RouterTestingHarness` when the tree is what is under test.
-- **No `title`.** The router stores a resolved title in `data` under a private symbol, so `title`
-  emits `undefined` here, as it does for a route nobody gave a title.
+- **`title` is the record's, not a resolver's.** `provideActivatedRoute({ title: 'Product 7' })`
+  answers `route.snapshot.title` — the router reads a title out of `data` under a symbol it never
+  exports, and the double puts yours there, learning the symbol from the installed router. What it
+  does not do is _resolve_ a `title: () => …` on the `routeConfig`; give the finished string.
 - **No navigation.** `Router.navigate()` does not move this route; the setters do. When the
   navigation itself is under test, that is `RouterTestingHarness`'s job.
 - **No input binding.** `withComponentInputBinding()` is the outlet's work; set the input with
@@ -248,13 +253,18 @@ pass `fixture.debugElement.injector` when the router is in a component's own `pr
 | `navigate`                          | the spied `navigate()` — assert on it, or answer with `resolveWith(false)`               |
 | `navigateByUrl`                     | the spied `navigateByUrl()`, the same way                                                |
 | `setUrl(url)`                       | put the router at a URL: `url`, `routerState` and the root route move together, silently |
-| `emitNavigation(event?)`            | push an event through `router.events`                                                    |
+| `emitNavigation(event?)`            | push an event through `router.events`; resolves once the router has settled after it     |
 | `setCurrentNavigation(navigation?)` | put a navigation in flight, or end it with `null`                                        |
 
 `emitNavigation()` takes what the spec has: nothing (re-announce the current URL), a URL string (a
 `NavigationEnd` for it, built for you), or an event you built — `new NavigationEnd(1, '/a', '/a')`,
 `new NavigationStart(1, '/a')`, anything in the union. A `NavigationEnd` moves the URL with it, the
 way the real router's does; every other event leaves it where it was.
+
+It also **returns a promise**, resolved once the event has been delivered and a navigation it ended
+is back to `null` — the moment `navigate()` resolves in an application. The work is synchronous, so
+a caller that ignores the promise sees the same state on the next line; a spec that `await`s it
+reads a settled router without guessing how many ticks that takes.
 
 Two things follow from `events` being a `BehaviorSubject` rather than the `Subject` a real router
 exposes:
@@ -349,15 +359,79 @@ Unlike the route, the double does not need to be listed after `provideRouter()`:
 `providedIn: 'root'`, and `provideRouter()` does not re-provide the token, so an explicit provider
 wins in either order.
 
+## `collectRouterEvents(events)`
+
+```ts
+import { NavigationEnd, NavigationStart } from '@angular/router';
+import { collectRouterEvents, injectRouterDouble } from 'vitest-auto-spy/angular-router';
+
+const router = injectRouterDouble();
+const events = collectRouterEvents(router.router.events);
+
+await router.emitNavigation(new NavigationStart(2, '/checkout'));
+await router.emitNavigation('/checkout');
+
+events.expect([
+  [NavigationStart, '/checkout'],
+  [NavigationEnd, '/checkout'],
+]);
+```
+
+What a component does with the router often depends on the _sequence_ of events, and a hand-rolled
+collector — an array, a subscription, a pile of `instanceof` checks — says nothing until it is read
+back. This is Angular's own integration-spec idiom in one call: the recording starts empty (the
+`BehaviorSubject`'s seed is where the router stands, not something it emitted), ends with the test
+that started it, and `expect()` takes one `[class, url?]` pair per event in order — a mismatch fails
+naming the event and the URL that was there instead.
+
+The handle's `events` array is the recording itself, for the assertions that are not a plain
+sequence.
+
+## The Location double
+
+```ts
+import { injectLocationDouble, provideLocationDouble } from 'vitest-auto-spy/angular-router';
+
+TestBed.configureTestingModule({ providers: [provideLocationDouble()] });
+
+const location = injectLocationDouble();
+
+location.go('/reports/7');
+expect(location.urlChanges).toEqual(['/reports/7']);
+
+location.simulateUrlPop('/'); // the popstate no method call can cause
+```
+
+Where the route and the router stop, `Location` is what answers: where a redirect landed, what the
+back button did. The hand-rolled `{ provide: Location, useValue: { path: vi.fn() } }` has the hole
+every hand-rolled double has — it answers the members its author thought of — and the quiet variant
+is worse: `Location` is `providedIn: 'root'`, so a spec that forgot the provider gets the platform's
+real one and nothing a test does to it lands anywhere. `injectLocationDouble()` names that failure
+by instance, the way `injectActivatedRoute()` does.
+
+**This is a wrap, not a rival.** Angular ships the double: `SpyLocation` keeps a real history array
+with an index, `urlChanges` is the journal of every move for the assertion, and
+`simulateUrlPop()` / `simulateHashChange()` are the browser's half of the contract — the events no
+test can cause by calling methods, because in an application the browser causes them.
+`provideLocationDouble()` provides it with `MockLocationStrategy` in one line;
+`createLocationDouble()` is the same without a `TestBed`.
+
+`go()`, `back()` and `historyGo()` move the history; `path()` and `getState()` read it back. Note
+the one asymmetry that surprises a first read: `back()` and `forward()` fire the popstate
+subscribers but do **not** write `urlChanges` — the journal holds what the app asked for, the
+subscribers carry what the browser did.
+
 ## Its own entry, and an optional peer
 
 `vitest-auto-spy/angular-router` is the only part of the package that imports `@angular/router`, so
 `@angular/router` is an **optional** peer, paid for by the suites that import this entry — the same
 reason [`vitest-auto-spy/angular-http`](/adapters/angular-http) holds `@angular/common` on its own.
+The `Location` double adds no peer of its own: it wraps the classes of `@angular/common/testing`,
+and `@angular/router` already depends on `@angular/common`.
 
 - Like `/angular-http` it does **not** re-export the core; it is a companion to
   `vitest-auto-spy/angular`.
 - It registers no hooks and no mock adapter and imports nothing from a test runner, so it works the
   same under [`bun test`](/runtimes/bun-angular).
-- The entry weighs **6.4 kB min+gzip** (6396 B, measured the way the README badge is: esbuild
+- The entry weighs **9.05 kB min+gzip** (9048 B, measured the way the README badge is: esbuild
   bundle, minified, gzipped, peers external).

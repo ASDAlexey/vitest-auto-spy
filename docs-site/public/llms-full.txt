@@ -4063,7 +4063,7 @@ only pays for the ones it imports:
 | `vitest-auto-spy/node`                        |     21.3 kB |
 | `vitest-auto-spy/dom-stubs`                   |      6.4 kB |
 | `vitest-auto-spy/rxjs`                        |      2.6 kB |
-| `vitest-auto-spy/angular-router`              |      8.5 kB |
+| `vitest-auto-spy/angular-router`              |      9.1 kB |
 | `vitest-auto-spy/signal-forms`                |      1.4 kB |
 | `vitest-auto-spy/zone`                        |      1.1 kB |
 
@@ -4102,7 +4102,10 @@ router's own `DefaultUrlSerializer`, `createUrlTreeFromSnapshot` and `RouterStat
 rather than a structural stand-in guessing at it, which is the whole reason the double cannot
 contradict itself; it then took another 390 B (6411 B → 6801 B, +6.1 %) for the navigation in flight —
 `currentNavigation()`, `setCurrentNavigation()` and the event bookkeeping that ends one. The
-dispatch-replacement report added 338 B more (6801 B → 7139 B, +5.0 %) — another runtime row.
+dispatch-replacement report added 338 B more (6801 B → 7139 B, +5.0 %) — another runtime row. The
+`Location` double then moved it again, 8492 B → 9048 B (+6.5 %): the wrap over `@angular/common/testing`
+is mostly Angular's own `SpyLocation` arriving in the entry, with `collectRouterEvents()` and the
+`resolve`/`title` record fields on top — the URL family now pays for its third member.
 `/eslint-plugin` is +1.77 kB for the rules of the previous two releases, +1122 B
 (31295 B → 32417 B, +3.6 %) for `no-redundant-smoke-test`, and then +371 B in two fixes
 (32417 B → 32788 B, +1.1 %) — the subject the rule weighs and the doubles `prefer-create-spy-from-class`
@@ -4135,8 +4138,9 @@ passthrough and its only-list rules, `adoptMock` and `moduleNamespace` passthrou
 entry 20.3 → 22.1 kB, with `/setup` +0.36 kB for `stubResponse` and the MSW check and
 `/eslint-plugin` +1.01 kB for `no-hand-assigned-global`. v5.21.0 split `/angular` into the three
 companion rows above, 30.4 → 26.3 kB, and added +0.2…0.4 kB to the core rows for the patch journal's
-per-entry file stamp and the weak-keyed defaults registry. Every figure above is the final tree,
-measured 2026-09-20.
+per-entry file stamp and the weak-keyed defaults registry. Since then `/eslint-plugin` is +0.87 kB
+for `prefer-stub-response` and `/setup` +0.11 kB for the JSON `null` body. Every figure above is the
+final tree, measured 2026-09-20.
 
 `npm run size:entries` prints all twenty-six and compares them against a committed baseline, so an entry
 that quietly gains a second copy of the core fails a check instead of being noticed a release later.
@@ -7293,6 +7297,96 @@ expect(fakeConsole.info).toHaveBeenCalledWith('done');
 
 ---
 
+Source: https://asdalexey.github.io/vitest-auto-spy/utilities/call-log
+
+# Call log
+
+```ts
+import { createLog } from 'vitest-auto-spy';
+
+const log = createLog<'drop-cache' | 'flush-telemetry' | 'stop-engine'>();
+
+engine.onShutdown(log.fn('drop-cache'));
+engine.onShutdown(log.fn('flush-telemetry'));
+engine.onShutdown(log.fn('stop-engine'));
+
+engine.shutdown();
+
+expect(log.result()).toBe('drop-cache; flush-telemetry; stop-engine');
+```
+
+A spy answers whether its one method ran. Order across collaborators is a different question — it
+lives _between_ the spies, and the shapes available for it degrade quickly:
+
+- one `toHaveBeenCalled` per spy passes in any of the six orders three calls can arrive in — three
+  green checks that would accept the sequence backwards;
+- `toHaveBeenCalledBefore` pins it only pairwise, a chain that grows with the square of the
+  collaborators — and it says nothing about a call the spec forgot to name;
+- an array of timestamps the spec maintains by hand is a journal with none of the assertions.
+
+One journal the code under test writes into makes the sequence a single comparable value, and a
+failure prints the real order as a diff rather than `expected spy to be called before spy`.
+
+Ported from Angular's own `Log` (`packages/core/testing/src/logger.ts`) — the class Angular keeps
+three copies of across core, router and forms, because it is the idiomatic answer wherever the
+subject is a sequence: lifecycle hooks, guards, resolvers, teardown.
+
+## The members
+
+| Member       | What it does                                                                        |
+| ------------ | ----------------------------------------------------------------------------------- |
+| `add(value)` | append one entry — a collaborator's report of where it got to                       |
+| `fn(value)`  | a callback that records `value` when it runs — for handlers, hooks, guard methods   |
+| `clear()`    | drop every entry: a fresh journal without a fresh identity                          |
+| `items`      | the entries so far, in order — each read an independent copy                        |
+| `result()`   | the journal as one line: entries joined with `'; '`, `''` when nothing was recorded |
+
+`fn()` is typed as taking nothing, so it slots wherever a handler fits and ignores whatever the
+caller passes it — the places that want a callback, not a call.
+
+`T` is constrained to strings on purpose: what `fn()` labels a callback with is a name, a word a
+human reads in `result()`. A literal union makes the vocabulary part of the type —
+`createLog<'init' | 'ready' | 'destroy'>()` rejects a step the log never declared, where the
+unconstrained journal would record the typo and hand back a green test.
+
+## The Angular recipe: the log is the collaborator
+
+The journal's worth is highest when the production code records its own sequence into it. Through
+DI, that is one provider:
+
+```ts
+const PANEL_LOG = new InjectionToken<CallLog<'init' | 'ready' | 'destroy'>>('panel log');
+
+@Component({ selector: 'panel', template: '' })
+class Panel {
+  private readonly log = inject(PANEL_LOG);
+
+  ngOnInit(): void {
+    this.log.add('init');
+  }
+
+  ngAfterViewInit(): void {
+    this.log.add('ready');
+  }
+
+  ngOnDestroy(): void {
+    this.log.add('destroy');
+  }
+}
+
+const log = createLog<'init' | 'ready' | 'destroy'>();
+
+TestBed.configureTestingModule({ providers: [{ provide: PANEL_LOG, useValue: log }] });
+TestBed.createComponent(Panel).destroy();
+
+expect(log.result()).toBe('init; ready; destroy');
+```
+
+Nothing here knows Angular or any runner — the module imports nothing — so the same journal works
+unchanged on Vitest, `bun test` and `node:test`, and in a plain unit test without a `TestBed` at all.
+
+---
+
 Source: https://asdalexey.github.io/vitest-auto-spy/utilities/setup
 
 # Test-run hygiene
@@ -7612,19 +7706,39 @@ vi.spyOn(globalThis, 'fetch').mockResolvedValue(stubResponse({ body: { id: 1, na
 vi.spyOn(globalThis, 'fetch').mockResolvedValue(stubResponse({ ok: false, status: 404 }));
 ```
 
-| field        | default                          | what it does                                                                           |
-| ------------ | -------------------------------- | -------------------------------------------------------------------------------------- |
-| `body`       | no body                          | plain object, array, number, boolean → JSON with `application/json`; else as is        |
-| `status`     | `200`, or `500` when `ok: false` | the status; a status the platform refuses (`0`, `600`) throws the platform's own error |
-| `ok`         | derived from `status`            | shorthand for the status class; an `ok` that disagrees with `status` throws            |
-| `statusText` | `''`                             | as given                                                                               |
-| `headers`    | —                                | any `HeadersInit`; a `content-type` set here wins over the JSON one                    |
-| `url`        | `''`                             | what `response.url` reads — Angular's fetch backend reports it as the request's URL    |
+| field        | default                          | what it does                                                                            |
+| ------------ | -------------------------------- | --------------------------------------------------------------------------------------- |
+| `body`       | no body                          | plain object, array, number, boolean, `null` → JSON with `application/json`; else as is |
+| `status`     | `200`, or `500` when `ok: false` | the status; a status the platform refuses (`0`, `600`) throws the platform's own error  |
+| `ok`         | derived from `status`            | shorthand for the status class; an `ok` that disagrees with `status` throws             |
+| `statusText` | `''`                             | as given                                                                                |
+| `headers`    | —                                | any `HeadersInit`; a `content-type` set here wins over the JSON one                     |
+| `url`        | `''`                             | what `response.url` reads — Angular's fetch backend reports it as the request's URL     |
 
 A string is sent as it is, not as a JSON string. `Blob`, `ArrayBuffer`, typed-array, `FormData`,
 `URLSearchParams` and `ReadableStream` bodies go to the constructor untouched — with one catch under jsdom, whose `Blob`
 and `FormData` are jsdom's own and are not readable by Node's `Response`: pass a string or bytes
 there.
+
+**`null` is the JSON literal, and `undefined` is "no body".** A backend that reports "nothing here"
+as a JSON `null` — an empty login, an absent profile — is a real shape, and the code under test
+parses it like any other:
+
+```ts
+await stubResponse({ body: null }).json(); // → null, content type application/json
+await stubResponse({ body: undefined }).text(); // → '', no content type, .json() rejects
+await stubResponse({}).text(); // → the same: an omitted body is no body
+```
+
+**This reversed a released contract.** `null` used to mean "no body", indistinguishable from
+omitting the field, so `.json()` on it threw `Unexpected end of JSON input` while `0`, `false`, `[]`
+and `{}` all round-tripped — a trap rather than a preference, since nothing told the reader this
+one literal was different. There is one way to say "no body" and every caller already reaches for
+it, which is what leaves `null` free to mean what it means in JSON. A spec that relied on the old
+reading drops the field, or writes `body: undefined`. The one place that says so out loud is
+`{ body: null, status: 204 }`: a 204, 205 or 304 carries no body, so it now throws by name rather
+than letting the constructor raise "Response with null body status cannot have body" about a field
+whose old meaning was the opposite.
 
 **A `Response` body can be read once.** `mockResolvedValue(stubResponse(…))` hands the same object
 to every call, so the second `response.json()` rejects with "Body is unusable". A stub that answers
@@ -10453,7 +10567,7 @@ which a subpath export of this package can never be.
 
 **How this page is laid out.** [Adding it](#adding-it-to-your-project) is the four things a first
 config needs. [Which apply to you](#which-of-the-twenty-apply-to-you) answers the question a
-Vitest-only project asks — four of the thirty-nine are about a dialect you may not speak.
+Vitest-only project asks — four of the forty are about a dialect you may not speak.
 [Rules](#rules) is the reference table, in seven groups. [Tuning](#tuning-it-for-your-project) is
 every dial, including the three rules that can report on correct code. Everything after that is
 _why_ — one section per rule, for when a report has arrived and you want to know what it saved you
@@ -10511,7 +10625,7 @@ need different severities.
 
 ### 3. Type information is optional, and three rules want it
 
-Thirty-six of the thirty-nine are syntactic: they read the file's own AST and never ask the type checker.
+Thirty-seven of the forty are syntactic: they read the file's own AST and never ask the type checker.
 So the plugin works with `parserOptions.project` unset, adds nothing measurable to lint time, and
 does not need your specs to be in a `tsconfig` — which matters in the repositories where they are
 not.
@@ -10555,7 +10669,7 @@ npx eslint . --format stylish | tail -30   # the summary tells you which rule do
 Whatever is left is either a real finding or a rule you would rather not enforce yet. Both are
 answered below.
 
-## Which of the thirty-nine apply to you
+## Which of the forty apply to you
 
 Reasonable question if you came straight to Vitest and have never written a line of Jasmine: **four
 of these rules are about a dialect you do not speak.** They are still on, and the reason is not
@@ -10565,7 +10679,7 @@ principle — it is that they cannot fire on your code.
 | ------------------------------------------ | -------------------------------------------------------------------------------------------------------- |
 | writing Vitest, never used Jasmine or Jest | the thirty-five core rules work; **the four jasmine rules are inert** — leave them on and never see them |
 | migrating off `jest-auto-spies` / Jest     | the core rules do the work, `no-done-callback` and `prefer-as-spy` most of it                            |
-| migrating off `jasmine-auto-spies`         | all thirty-nine, with `prefer-native-spy-api` set to `'off'` until the bridge is gone                    |
+| migrating off `jasmine-auto-spies`         | all forty, with `prefer-native-spy-api` set to `'off'` until the bridge is gone                          |
 
 ### If you never used Jasmine
 
@@ -10634,7 +10748,7 @@ that file needs). See [Migrating from jest-auto-spies](https://asdalexey.github.
 
 ### If you are coming from Jasmine
 
-All thirty-nine apply, and the four in the last group are the ones written for you. Two are pure
+All forty apply, and the four in the last group are the ones written for you. Two are pure
 diagnosis — `no-jasmine-globals` and `no-save-arguments-by-value` name silent behaviour changes that
 survive a rename — and `jasmine-namespace-without-entry` catches the spy built before the layer was
 installed. The fourth, `prefer-native-spy-api`, reports the bridge itself, so it is the one line of
@@ -10720,6 +10834,7 @@ Not about a single test but about what one file leaves behind for the next.
 | [`no-import-time-spread`](#the-spread-that-only-fails-under-a-bundler)                               | `export const x = [...Imported]` at module scope → a `TypeError`, or a silently empty object, while the bundle loads                                | suggest | red _(by construction)_ |
 | [`prefer-observer-stub`](#the-observer-stub-everybody-writes-again)                                  | a hand-rolled `IntersectionObserver` / `ResizeObserver` / `MutationObserver` written into a global → `stubIntersectionObserver()` and friends       | —       |          green          |
 | [`no-hand-assigned-global`](#a-global-assigned-by-hand)                                              | `global.fetch = vi.fn(…)` and any other double assigned to a global with no teardown restore → `mockValueProp` / `vi.stubGlobal` / `blockNetwork()` | —       |          green          |
+| [`prefer-stub-response`](#a-response-written-by-hand)                                                | an object literal cast to `Response`, or `createMock<Response>(…)` → `stubResponse({ body })`                                                       | —       |          green          |
 
 ### Angular DI and the TestBed
 
@@ -11653,11 +11768,11 @@ this rule declines. See [Migrating from jasmine-auto-spies](https://asdalexey.gi
 
 ## Which rules fix, and why so few
 
-Three of the thirty-nine rewrite the source on their own, thirteen offer the rewrite as a suggestion, and
+Four of the forty rewrite the source on their own, thirteen offer the rewrite as a suggestion, and
 the split is about what a wrong guess costs rather than about how hard the rewrite is.
 
 `no-mocked-for-spy` touches nothing but a **declaration**. Get it wrong and the file stops
-compiling — the loudest and cheapest failure a codebase has — so it is one of the three rules that run
+compiling — the loudest and cheapest failure a codebase has — so it is one of the four rules that run
 under `--fix`, and it does the whole edit:
 
 ```ts
@@ -11994,6 +12109,33 @@ closes `fetch`, `XMLHttpRequest` and `sendBeacon` for every test. `localStorage`
 have [`stubWebStorage()`](https://asdalexey.github.io/vitest-auto-spy/utilities/setup#stub-web-storage). The three observer globals stay with
 `prefer-observer-stub`, so one line never draws two reports.
 
+### A `Response` written by hand
+
+The other half of the same spec. Once `fetch` is replaced, something has to be handed back, and the
+line every tutorial shows is a cast over two members:
+
+```ts
+vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: true, json: async () => user } as Response); // ❌
+```
+
+Everything the author did not think of answers `undefined` — `status`, `statusText`, `headers`,
+`url`, `text()`, `clone()` — and the cast is what makes that compile. The code under test then
+branches on a value the real response could never have produced, and the test is green on a path
+that does not exist. It is the same defect the strict preset catches on a double the library built;
+a plain object literal is not one, so nothing was watching.
+
+[`prefer-stub-response`](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-rules#prefer-stub-response) reports the cast, the
+`as unknown as Response` spelling of it, and `createMock<Response>(…)`. The repair builds the
+platform's own:
+
+```ts
+vi.spyOn(globalThis, 'fetch').mockImplementation(async () => stubResponse({ body: user }));
+```
+
+`Response` has to resolve to the **global** for the rule to fire, so an Express handler's
+`Response` or a generated client's envelope of the same name is left alone — `stubResponse` builds
+the wrong object for those, and naming it would be wrong advice.
+
 ### `no-dead-schemas` — the charm that protects nobody
 
 A schema is a property of the module's **`declarations`**. `NO_ERRORS_SCHEMA` tells the compiler to
@@ -12224,7 +12366,7 @@ Every section answers the same six questions:
 
 <!-- The id is frozen on purpose: configs already point at #the-twenty-five-rules. Keep it when the rule count changes. -->
 
-## The thirty-nine rules
+## The forty rules
 
 Grouped by subject, the same grouping the [setup page](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-plugin) uses. Every rule is
 an `error` except five.
@@ -12245,6 +12387,7 @@ an `error` except five.
 | [`no-import-time-spread`](#no-import-time-spread)                     | `error`          | a spread of an imported binding evaluated at module scope                                   |
 | [`prefer-observer-stub`](#prefer-observer-stub)                       | `error`          | an observer global replaced by hand or through the runner                                   |
 | [`no-hand-assigned-global`](#no-hand-assigned-global)                 | `error`          | `global.fetch = vi.fn()` — a double assigned to a global that no teardown puts back         |
+| [`prefer-stub-response`](#prefer-stub-response)                       | `error`          | an object literal cast to `Response`, or `createMock<Response>(…)` — half a response        |
 | [`prefer-provide-activated-route`](#prefer-provide-activated-route)   | `error`          | an `ActivatedRoute` provided as a hand-built object, class or factory — half a route        |
 | [`no-passthrough-console-spy`](#no-passthrough-console-spy)           | `error`          | `vi.spyOn(console, m)` nothing gives an implementation — it calls through and prints        |
 | [`no-console-in-spec`](#no-console-in-spec)                           | `error`          | a spec that calls a console method, or replaces one by assignment                           |
@@ -13171,6 +13314,55 @@ run, such as one installed in a setup file on purpose. The three observer global
 
 **Severity.** `error`. The double outlives the test that installed it, and under `isolate: false` it
 outlives the file.
+
+## prefer-stub-response
+
+**`error`** · no fix · syntax only
+
+**Reports.** A `Response` written by hand for a stubbed `fetch`: an object literal cast to
+`Response` — `{ ok: true, json: async () => data } as Response`, the double cast
+`as unknown as Response`, or the angle-bracket `<Response>{ … }` — and a
+`createMock<Response>(…)` / `createAutoMock<Response>(…)` call.
+
+**Decides on.** Two facts written on the line: the type an assertion names, and the type argument a
+helper is handed. Nothing here needs a program, which is what
+[`no-sync-testbed-await`](#no-sync-testbed-await) relies on for the same reason. The cast is read
+through its own nesting, so `as unknown as Response` is one report rather than none.
+
+One discrimination keeps it honest: `Response` has to resolve to the **global**. A name the file
+imports (`import { type Response } from 'express'`) or declares (a generated client's envelope, a
+domain type of the same name) has a binding with a definition and is never reported — for those
+`stubResponse` builds the wrong object, so naming it would be wrong advice. A binding with no
+definitions is the global too, which is what `languageOptions.globals` puts in scope for a project
+that declares its environment.
+
+**Finding, and the repair.**
+
+```ts
+vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: true, json: async () => user } as Response); // ❌
+```
+
+```ts
+vi.spyOn(globalThis, 'fetch').mockImplementation(async () => stubResponse({ body: user }));
+```
+
+**Why it is recommended.** The literal answers the two or three members its author thought of and
+`undefined` for every other one — `status`, `statusText`, `headers`, `url`, `text()`,
+`arrayBuffer()`, `clone()`. The cast is what makes that compile, and it is also what hides it: the
+code under test reads one of those, takes a branch on `undefined` that the real response could never
+have produced, and the test is green on a path that does not exist. It is the defect the strict
+preset exists to catch, except that a plain object literal is not a double the library knows about,
+so no guard was watching. [`stubResponse`](https://asdalexey.github.io/vitest-auto-spy/utilities/setup#answering-a-stubbed-fetch-stubresponse)
+builds the platform's own `Response`, so every member is real.
+
+**Limits.** A double built behind a factory is out of reach, the same limit
+[`no-structural-double`](#no-structural-double) has: `buildResponse()` returning the cast literal is
+reported where the cast is written and nowhere else. A `Response` assembled member by member onto a
+`const` with a type annotation is not a cast and is not reported either.
+
+**Severity.** `error`. The evidence is the line, the repair is a helper this package ships, and
+there is no migration to gate — a suite that already builds its responses with `stubResponse` sees
+nothing.
 
 ## prefer-provide-activated-route
 
@@ -16191,7 +16383,7 @@ cheap to fix while the cursor is still on the line and expensive to find afterwa
 one of them **passes**.
 
 There is one channel, and it is already in the package:
-[`vitest-auto-spy/eslint-plugin`](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-plugin). Thirty-nine rules over a real syntax tree,
+[`vitest-auto-spy/eslint-plugin`](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-plugin). Forty rules over a real syntax tree,
 with a fix or a suggestion where the rewrite is decidable — the same rules in the editor and in CI,
 so nothing passes locally and fails on the build. No editor needs a plugin of this package's own;
 it needs its ESLint integration switched on, which every IDE below has.
@@ -16199,7 +16391,7 @@ it needs its ESLint integration switched on, which every IDE below has.
 ## WebStorm and the other JetBrains IDEs
 
 WebStorm, IntelliJ IDEA Ultimate, PhpStorm, PyCharm Professional and RubyMine all run ESLint
-natively, so the rules light up **inline, with no plugin to install** — the same thirty-nine checks, in
+natively, so the rules light up **inline, with no plugin to install** — the same forty checks, in
 the editor, in the Problems tool window, and under **Code → Inspect Code** for the whole project.
 
 Install and configure once:
@@ -16243,14 +16435,14 @@ still hand-rolls its doubles" question actually needs.
 
 **A native JetBrains plugin is not planned**
 A plugin in the JetBrains Marketplace would duplicate an integration the IDE already has, and would
-then have to keep a second copy of thirty-nine rules — in Kotlin — in step with the TypeScript ones.
+then have to keep a second copy of forty rules — in Kotlin — in step with the TypeScript ones.
 Where the ESLint route genuinely cannot reach (a repository with no ESLint at all), the honest fix
 is four lines of `eslint.config.js`, not a second implementation.
 
 ## VS Code, Cursor, Windsurf, VSCodium
 
 Install the [ESLint extension](https://marketplace.visualstudio.com/items?itemName=dbaeumer.vscode-eslint)
-and the flat config above is enough: the same thirty-nine rules, inline and in the Problems panel.
+and the flat config above is enough: the same forty rules, inline and in the Problems panel.
 
 ```jsonc
 // .vscode/settings.json
@@ -18569,8 +18761,9 @@ Source: https://asdalexey.github.io/vitest-auto-spy/adapters/angular-router
 
 # Angular router
 
-Two doubles live here: the `ActivatedRoute` a component reads, and the [`Router`](#the-router-double)
-it navigates with. Neither needs the other, and a spec that needs both lists both.
+Three doubles live here: the `ActivatedRoute` a component reads, the [`Router`](#the-router-double)
+it navigates with, and Angular's own [`Location`](#the-location-double) for where either of them
+lands. None needs the others, and a spec that needs several lists several.
 
 ```ts
 import { injectActivatedRoute, provideActivatedRoute } from 'vitest-auto-spy/angular-router';
@@ -18617,16 +18810,18 @@ TestBed.configureTestingModule({
 });
 ```
 
-| `init` member | Reaches                                                      | Default     |
-| ------------- | ------------------------------------------------------------ | ----------- |
-| `params`      | `params`, `paramMap`, `snapshot.params`, `snapshot.paramMap` | `{}`        |
-| `queryParams` | `queryParams`, `queryParamMap` and their snapshot twins      | `{}`        |
-| `data`        | `data`, `snapshot.data`                                      | `{}`        |
-| `fragment`    | `fragment`, `snapshot.fragment`                              | `null`      |
-| `url`         | `url`, `snapshot.url` — a string is split on `/`             | `[]`        |
-| `outlet`      | `outlet`, `snapshot.outlet`                                  | `'primary'` |
-| `component`   | `component`, `snapshot.component`                            | `null`      |
-| `routeConfig` | `routeConfig`, `snapshot.routeConfig`                        | `null`      |
+| `init` member | Reaches                                                                                                                                               | Default     |
+| ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- | ----------- |
+| `params`      | `params`, `paramMap`, `snapshot.params`, `snapshot.paramMap`                                                                                          | `{}`        |
+| `queryParams` | `queryParams`, `queryParamMap` and their snapshot twins                                                                                               | `{}`        |
+| `data`        | `data`, `snapshot.data`                                                                                                                               | `{}`        |
+| `title`       | `route.title`, `snapshot.title` — stored under the router's own `RouteTitleKey`, which the double reads off the installed router rather than guessing | `undefined` |
+| `fragment`    | `fragment`, `snapshot.fragment`                                                                                                                       | `null`      |
+| `url`         | `url`, `snapshot.url` — a string is split on `/`                                                                                                      | `[]`        |
+| `outlet`      | `outlet`, `snapshot.outlet`                                                                                                                           | `'primary'` |
+| `component`   | `component`, `snapshot.component`                                                                                                                     | `null`      |
+| `routeConfig` | `routeConfig`, `snapshot.routeConfig`                                                                                                                 | `null`      |
+| `resolve`     | `snapshot`'s resolved-data record, kept apart from `data` as Angular keeps it                                                                         | `{}`        |
 
 A string `url` gives segments without matrix parameters; pass `UrlSegment`s
 (`[new UrlSegment('products', { color: 'red' })]`) when the code reads them.
@@ -18725,8 +18920,10 @@ supports.
   `route.firstChild` needs a tree; patch the one member with
   [`mockReadonlyProp`](https://asdalexey.github.io/vitest-auto-spy/adapters/angular#signal-readonly-property-mocking) or navigate a real router
   with `RouterTestingHarness` when the tree is what is under test.
-- **No `title`.** The router stores a resolved title in `data` under a private symbol, so `title`
-  emits `undefined` here, as it does for a route nobody gave a title.
+- **`title` is the record's, not a resolver's.** `provideActivatedRoute({ title: 'Product 7' })`
+  answers `route.snapshot.title` — the router reads a title out of `data` under a symbol it never
+  exports, and the double puts yours there, learning the symbol from the installed router. What it
+  does not do is _resolve_ a `title: () => …` on the `routeConfig`; give the finished string.
 - **No navigation.** `Router.navigate()` does not move this route; the setters do. When the
   navigation itself is under test, that is `RouterTestingHarness`'s job.
 - **No input binding.** `withComponentInputBinding()` is the outlet's work; set the input with
@@ -18811,13 +19008,18 @@ pass `fixture.debugElement.injector` when the router is in a component's own `pr
 | `navigate`                          | the spied `navigate()` — assert on it, or answer with `resolveWith(false)`               |
 | `navigateByUrl`                     | the spied `navigateByUrl()`, the same way                                                |
 | `setUrl(url)`                       | put the router at a URL: `url`, `routerState` and the root route move together, silently |
-| `emitNavigation(event?)`            | push an event through `router.events`                                                    |
+| `emitNavigation(event?)`            | push an event through `router.events`; resolves once the router has settled after it     |
 | `setCurrentNavigation(navigation?)` | put a navigation in flight, or end it with `null`                                        |
 
 `emitNavigation()` takes what the spec has: nothing (re-announce the current URL), a URL string (a
 `NavigationEnd` for it, built for you), or an event you built — `new NavigationEnd(1, '/a', '/a')`,
 `new NavigationStart(1, '/a')`, anything in the union. A `NavigationEnd` moves the URL with it, the
 way the real router's does; every other event leaves it where it was.
+
+It also **returns a promise**, resolved once the event has been delivered and a navigation it ended
+is back to `null` — the moment `navigate()` resolves in an application. The work is synchronous, so
+a caller that ignores the promise sees the same state on the next line; a spec that `await`s it
+reads a settled router without guessing how many ticks that takes.
 
 Two things follow from `events` being a `BehaviorSubject` rather than the `Subject` a real router
 exposes:
@@ -18912,17 +19114,81 @@ Unlike the route, the double does not need to be listed after `provideRouter()`:
 `providedIn: 'root'`, and `provideRouter()` does not re-provide the token, so an explicit provider
 wins in either order.
 
+## `collectRouterEvents(events)`
+
+```ts
+import { NavigationEnd, NavigationStart } from '@angular/router';
+import { collectRouterEvents, injectRouterDouble } from 'vitest-auto-spy/angular-router';
+
+const router = injectRouterDouble();
+const events = collectRouterEvents(router.router.events);
+
+await router.emitNavigation(new NavigationStart(2, '/checkout'));
+await router.emitNavigation('/checkout');
+
+events.expect([
+  [NavigationStart, '/checkout'],
+  [NavigationEnd, '/checkout'],
+]);
+```
+
+What a component does with the router often depends on the _sequence_ of events, and a hand-rolled
+collector — an array, a subscription, a pile of `instanceof` checks — says nothing until it is read
+back. This is Angular's own integration-spec idiom in one call: the recording starts empty (the
+`BehaviorSubject`'s seed is where the router stands, not something it emitted), ends with the test
+that started it, and `expect()` takes one `[class, url?]` pair per event in order — a mismatch fails
+naming the event and the URL that was there instead.
+
+The handle's `events` array is the recording itself, for the assertions that are not a plain
+sequence.
+
+## The Location double
+
+```ts
+import { injectLocationDouble, provideLocationDouble } from 'vitest-auto-spy/angular-router';
+
+TestBed.configureTestingModule({ providers: [provideLocationDouble()] });
+
+const location = injectLocationDouble();
+
+location.go('/reports/7');
+expect(location.urlChanges).toEqual(['/reports/7']);
+
+location.simulateUrlPop('/'); // the popstate no method call can cause
+```
+
+Where the route and the router stop, `Location` is what answers: where a redirect landed, what the
+back button did. The hand-rolled `{ provide: Location, useValue: { path: vi.fn() } }` has the hole
+every hand-rolled double has — it answers the members its author thought of — and the quiet variant
+is worse: `Location` is `providedIn: 'root'`, so a spec that forgot the provider gets the platform's
+real one and nothing a test does to it lands anywhere. `injectLocationDouble()` names that failure
+by instance, the way `injectActivatedRoute()` does.
+
+**This is a wrap, not a rival.** Angular ships the double: `SpyLocation` keeps a real history array
+with an index, `urlChanges` is the journal of every move for the assertion, and
+`simulateUrlPop()` / `simulateHashChange()` are the browser's half of the contract — the events no
+test can cause by calling methods, because in an application the browser causes them.
+`provideLocationDouble()` provides it with `MockLocationStrategy` in one line;
+`createLocationDouble()` is the same without a `TestBed`.
+
+`go()`, `back()` and `historyGo()` move the history; `path()` and `getState()` read it back. Note
+the one asymmetry that surprises a first read: `back()` and `forward()` fire the popstate
+subscribers but do **not** write `urlChanges` — the journal holds what the app asked for, the
+subscribers carry what the browser did.
+
 ## Its own entry, and an optional peer
 
 `vitest-auto-spy/angular-router` is the only part of the package that imports `@angular/router`, so
 `@angular/router` is an **optional** peer, paid for by the suites that import this entry — the same
 reason [`vitest-auto-spy/angular-http`](https://asdalexey.github.io/vitest-auto-spy/adapters/angular-http) holds `@angular/common` on its own.
+The `Location` double adds no peer of its own: it wraps the classes of `@angular/common/testing`,
+and `@angular/router` already depends on `@angular/common`.
 
 - Like `/angular-http` it does **not** re-export the core; it is a companion to
   `vitest-auto-spy/angular`.
 - It registers no hooks and no mock adapter and imports nothing from a test runner, so it works the
   same under [`bun test`](https://asdalexey.github.io/vitest-auto-spy/runtimes/bun-angular).
-- The entry weighs **6.4 kB min+gzip** (6396 B, measured the way the README badge is: esbuild
+- The entry weighs **9.05 kB min+gzip** (9048 B, measured the way the README badge is: esbuild
   bundle, minified, gzipped, peers external).
 
 ---
@@ -21078,7 +21344,7 @@ Beyond the runner swap, everything the old API did not have:
 [`renderShallow` and `createWithAutoSpies`](https://asdalexey.github.io/vitest-auto-spy/adapters/angular),
 [observable assertions](https://asdalexey.github.io/vitest-auto-spy/core/observable-assertions),
 [fake timers that settle](https://asdalexey.github.io/vitest-auto-spy/utilities/fake-timers),
-[console spies](https://asdalexey.github.io/vitest-auto-spy/utilities/console), [thirty-nine ESLint rules](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-plugin),
+[console spies](https://asdalexey.github.io/vitest-auto-spy/utilities/console), [forty ESLint rules](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-plugin),
 Bun and `node:test` support — and [Angular's `TestBed` under `bun test`](https://asdalexey.github.io/vitest-auto-spy/runtimes/bun-angular).
 
 ## Did the migration lose a test?
@@ -22300,7 +22566,7 @@ Short and factual.
   ways an AOT test bundle fails half an hour later in someone else's spec.
 - **Beyond Vitest**, the same API runs on `bun:test` and `node:test`, and Angular's `TestBed` runs
   [under `bun test`](https://asdalexey.github.io/vitest-auto-spy/runtimes/bun-angular).
-- **[Thirty-nine lint rules](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-plugin)** versioned with the API they recommend.
+- **[Forty lint rules](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-plugin)** versioned with the API they recommend.
 
 ## Did the migration lose a test?
 
@@ -22965,7 +23231,7 @@ Nothing in this package's spy path touches `NgZone` either, so the two coexist w
   rather than typing the real service as a double.
 - **The same API off Angular** — [`bun:test`](https://asdalexey.github.io/vitest-auto-spy/runtimes/bun), [`node:test`](https://asdalexey.github.io/vitest-auto-spy/runtimes/node), NestJS,
   React, Vue, Svelte, and Angular's `TestBed` [under `bun test`](https://asdalexey.github.io/vitest-auto-spy/runtimes/bun-angular).
-- **[Thirty-nine lint rules](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-plugin)** versioned with the API they recommend.
+- **[Forty lint rules](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-plugin)** versioned with the API they recommend.
 
 ## Versions this was written against
 
@@ -23300,7 +23566,7 @@ The exported surface of `vitest-auto-spy` and its subpaths.
 | `injectMatDialogRef(RefClass, injector?)` / `createMatDialogRef(RefClass, init?)`                            | The dialog handle: the spied `close`, `emitClose(result?)`, and an `afterClosed()` that still answers after the close (`/angular/doubles`)                                                                                                                                                |
 | `createWindowDouble(overrides?)` / `createDocumentDouble(overrides?)`                                        | The same two doubles without a `TestBed` (`/angular/doubles`)                                                                                                                                                                                                                             |
 | `blockNetwork(options?)`                                                                                     | Close `fetch`, XHR and `sendBeacon`, naming what was requested (`/setup`)                                                                                                                                                                                                                 |
-| `stubResponse(init?)`                                                                                        | A real `Response` for a stubbed `fetch` — `body` (plain data → JSON), `status`, `ok`, `statusText`, `headers`, `url`; no cast (`/setup`)                                                                                                                                                  |
+| `stubResponse(init?)`                                                                                        | A real `Response` for a stubbed `fetch` — `body` (plain data and `null` → JSON, `undefined` → no body), `status`, `ok`, `statusText`, `headers`, `url`; no cast (`/setup`)                                                                                                                |
 | `trackStrayRejections()` / `countStrayRejections()` / `flushStrayRejections()`                               | Read back the promise rejections zone.js swallowed into `console.error` (`/setup`)                                                                                                                                                                                                        |
 | `trackMockRegistry()` / `keepMockRegistered(mock)` / `pruneMockRegistry()`                                   | Keep `@vitest/spy`'s ever-growing mock registry to the mocks that outlive a file (`/setup`)                                                                                                                                                                                               |
 | `trackNodeMocks()` / `pruneNodeMocks()` / `countNodeMocks()`                                                 | Give this library its own `node:test` `MockTracker`, so a dropped spy is actually freed (`/node`)                                                                                                                                                                                         |
@@ -23329,6 +23595,7 @@ The exported surface of `vitest-auto-spy` and its subpaths.
 | `captureArg<T>(options?)`                                                                                    | Take hold of an argument the code under test built, rather than describing it — for assertions, not `calledWith`. `{ where }` narrows which values it accepts, and is what makes `.values` a list of matches rather than of candidates                                                    |
 | `explainSpy(spy, method?)` (`/diagnostics`)                                                                  | Every configured argument list next to every recorded call, each attributed to the config it hit — before anything failed                                                                                                                                                                 |
 | `narrow(value, predicate)` / `narrow.byKey` / `narrow.defined` / `narrow.observable`                         | The branch of a union a test knows it got, failing with the shape the value actually had — an object with no prototype is named rather than throwing                                                                                                                                      |
+| `createLog<T extends string>()`                                                                              | A call-order journal every collaborator reports to — `add` / `fn(value)` / `clear` / `items` / `result()` — where per-method spies pass in any order; Angular's own `Log`, shipped once and runner-free                                                                                   |
 | `withOverrides(model, overrides?)`                                                                           | A fixture from a model instance: its getters read once, as data                                                                                                                                                                                                                           |
 | `compareTestRuns(a, b, root?)` / `formatTestRunComparison(diff)` / `summarizeTestRun(report, root?)`         | Whether a migration lost a test — the set of names and how often each was used, which counters cannot answer                                                                                                                                                                              |
 | `installProxyZonePatch(opts?)`                                                                               | `fakeAsync` / `waitForAsync` on Vitest (`/zone`, which installs it on import)                                                                                                                                                                                                             |
@@ -23348,7 +23615,9 @@ The exported surface of `vitest-auto-spy` and its subpaths.
 | `provideActivatedRoute(init?)`                                                                               | An `ActivatedRoute` whose streams, `paramMap`s and snapshot are built from one record, as Angular's own class (`/angular-router`)                                                                                                                                                         |
 | `injectActivatedRoute(injector?)` / `createActivatedRoute(init?)`                                            | The handle whose setters move the streams and the snapshot together — from the `TestBed`, or built without one (`/angular-router`)                                                                                                                                                        |
 | `provideRouterDouble(init?)`                                                                                 | A `Router` over one URL: `url`, `routerState`, `events` and `currentNavigation()` agree, and `navigate` / `navigateByUrl` are spies resolving `true` (`/angular-router`)                                                                                                                  |
-| `injectRouterDouble(injector?)` / `createRouterDouble(init?)`                                                | The handle: the two navigation spies, `setUrl(url)`, `emitNavigation(event?)` and `setCurrentNavigation(navigation?)` — from the `TestBed`, or built without one (`/angular-router`)                                                                                                      |
+| `injectRouterDouble(injector?)` / `createRouterDouble(init?)`                                                | The handle: the two navigation spies, `setUrl(url)`, `emitNavigation(event?)` — resolving once the router has settled — and `setCurrentNavigation(navigation?)` — from the `TestBed`, or built without one (`/angular-router`)                                                            |
+| `collectRouterEvents(events)`                                                                                | The recording of what the double's `events` emits, asserted in one line — `expect([[NavigationStart, '/checkout'], …])`, one class-and-URL pair per event (`/angular-router`)                                                                                                             |
+| `provideLocationDouble()` / `injectLocationDouble(injector?)` / `createLocationDouble()`                     | Angular's own `SpyLocation` and `MockLocationStrategy`, one call — a real history, the `urlChanges` journal, `simulateUrlPop()` for the popstate no method call can cause (`/angular-router`)                                                                                             |
 | `createForm(model, schema?, options?)`                                                                       | Angular's own signal `form()`, built in the `TestBed`'s injection context (`/signal-forms`)                                                                                                                                                                                               |
 | `registerFormMatchers()`                                                                                     | Adds `expect(field).toHaveFieldErrors(['required'])` — the whole error set of a field, by kind (`/signal-forms`)                                                                                                                                                                          |
 | `registerResourceMatchers()`                                                                                 | Adds `toBeLoading` / `toHaveResourceValue` / `toHaveResourceError`; the value matcher fails an unresolved resource, and an argument that is not a resource throws instead of passing under `.not` (`/angular/matchers`)                                                                   |
@@ -23361,7 +23630,7 @@ The exported surface of `vitest-auto-spy` and its subpaths.
 | `consoleDebugSpy` … `consoleWarnSpy`                                                                         | Silent typed spies replacing the global `console` methods on import (`/console`)                                                                                                                                                                                                          |
 | `installConsoleSpies()` / `resetConsoleSpies()` / `restoreConsole()`                                         | Install / clear / undo the console spies (`/console`)                                                                                                                                                                                                                                     |
 | `errorHandler`                                                                                               | The `mustBeCalledWith` argument-mismatch error helper                                                                                                                                                                                                                                     |
-| `vitest-auto-spy/eslint-plugin`                                                                              | Thirty-nine flat-config lint rules that steer a suite onto these helpers                                                                                                                                                                                                                  |
+| `vitest-auto-spy/eslint-plugin`                                                                              | Forty flat-config lint rules that steer a suite onto these helpers                                                                                                                                                                                                                        |
 
 ## Helper surface by return type
 
@@ -24123,7 +24392,7 @@ alongside it:
   of, kept to the mocks that outlive a file. On `isolate: false` it is what makes `clearMocks` cost
   more with every test already run, and what keeps a whole run's recorded arguments — and the
   component trees behind them — alive in one worker.
-- [Thirty-nine ESLint rules](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-plugin) versioned together with the API they recommend, and
+- [Forty ESLint rules](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-plugin) versioned together with the API they recommend, and
   [`setupAutoSpy()`](https://asdalexey.github.io/vitest-auto-spy/utilities/setup) for the test-run hygiene a shared environment needs.
 - [Per-file `TestBed` diagnostics](https://asdalexey.github.io/vitest-auto-spy/adapters/angular#where-a-spec-spends-its-time) — which specs
   actually pay for `TestBed`, and by how much.
@@ -24555,4 +24824,5 @@ These account for the large majority of broken specs, and every one of them is c
       which [`setupAutoSpy()`](https://asdalexey.github.io/vitest-auto-spy/utilities/setup) restores; `blockNetwork()` for a spec that only
       has to stay offline, and [`stubResponse({ body })`](https://asdalexey.github.io/vitest-auto-spy/utilities/setup#answering-a-stubbed-fetch-—-stubresponse)
       for the `Response` itself. The [`no-hand-assigned-global`](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-rules#no-hand-assigned-global)
-      rule reports the bare form.
+      rule reports the bare form, and [`prefer-stub-response`](https://asdalexey.github.io/vitest-auto-spy/utilities/eslint-rules#prefer-stub-response)
+      the `{ ok: true, json } as Response` handed back from it.

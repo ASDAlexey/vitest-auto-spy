@@ -682,7 +682,7 @@ only pays for the ones it imports:
 | `vitest-auto-spy/node`                        |     21.3 kB |
 | `vitest-auto-spy/dom-stubs`                   |      6.4 kB |
 | `vitest-auto-spy/rxjs`                        |      2.6 kB |
-| `vitest-auto-spy/angular-router`              |      8.5 kB |
+| `vitest-auto-spy/angular-router`              |      9.1 kB |
 | `vitest-auto-spy/signal-forms`                |      1.4 kB |
 | `vitest-auto-spy/zone`                        |      1.1 kB |
 
@@ -721,7 +721,10 @@ router's own `DefaultUrlSerializer`, `createUrlTreeFromSnapshot` and `RouterStat
 rather than a structural stand-in guessing at it, which is the whole reason the double cannot
 contradict itself; it then took another 390 B (6411 B → 6801 B, +6.1 %) for the navigation in flight —
 `currentNavigation()`, `setCurrentNavigation()` and the event bookkeeping that ends one. The
-dispatch-replacement report added 338 B more (6801 B → 7139 B, +5.0 %) — another runtime row.
+dispatch-replacement report added 338 B more (6801 B → 7139 B, +5.0 %) — another runtime row. The
+`Location` double then moved it again, 8492 B → 9048 B (+6.5 %): the wrap over `@angular/common/testing`
+is mostly Angular's own `SpyLocation` arriving in the entry, with `collectRouterEvents()` and the
+`resolve`/`title` record fields on top — the URL family now pays for its third member.
 `/eslint-plugin` is +1.77 kB for the rules of the previous two releases, +1122 B
 (31295 B → 32417 B, +3.6 %) for `no-redundant-smoke-test`, and then +371 B in two fixes
 (32417 B → 32788 B, +1.1 %) — the subject the rule weighs and the doubles `prefer-create-spy-from-class`
@@ -754,8 +757,9 @@ passthrough and its only-list rules, `adoptMock` and `moduleNamespace` passthrou
 entry 20.3 → 22.1 kB, with `/setup` +0.36 kB for `stubResponse` and the MSW check and
 `/eslint-plugin` +1.01 kB for `no-hand-assigned-global`. v5.21.0 split `/angular` into the three
 companion rows above, 30.4 → 26.3 kB, and added +0.2…0.4 kB to the core rows for the patch journal's
-per-entry file stamp and the weak-keyed defaults registry. Every figure above is the final tree,
-measured 2026-09-20.
+per-entry file stamp and the weak-keyed defaults registry. Since then `/eslint-plugin` is +0.87 kB
+for `prefer-stub-response` and `/setup` +0.11 kB for the JSON `null` body. Every figure above is the
+final tree, measured 2026-09-20.
 
 `npm run size:entries` prints all twenty-six and compares them against a committed baseline, so an entry
 that quietly gains a second copy of the core fails a check instead of being noticed a release later.

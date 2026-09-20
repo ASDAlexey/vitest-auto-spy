@@ -322,19 +322,39 @@ vi.spyOn(globalThis, 'fetch').mockResolvedValue(stubResponse({ body: { id: 1, na
 vi.spyOn(globalThis, 'fetch').mockResolvedValue(stubResponse({ ok: false, status: 404 }));
 ```
 
-| field        | default                          | what it does                                                                           |
-| ------------ | -------------------------------- | -------------------------------------------------------------------------------------- |
-| `body`       | no body                          | plain object, array, number, boolean → JSON with `application/json`; else as is        |
-| `status`     | `200`, or `500` when `ok: false` | the status; a status the platform refuses (`0`, `600`) throws the platform's own error |
-| `ok`         | derived from `status`            | shorthand for the status class; an `ok` that disagrees with `status` throws            |
-| `statusText` | `''`                             | as given                                                                               |
-| `headers`    | —                                | any `HeadersInit`; a `content-type` set here wins over the JSON one                    |
-| `url`        | `''`                             | what `response.url` reads — Angular's fetch backend reports it as the request's URL    |
+| field        | default                          | what it does                                                                            |
+| ------------ | -------------------------------- | --------------------------------------------------------------------------------------- |
+| `body`       | no body                          | plain object, array, number, boolean, `null` → JSON with `application/json`; else as is |
+| `status`     | `200`, or `500` when `ok: false` | the status; a status the platform refuses (`0`, `600`) throws the platform's own error  |
+| `ok`         | derived from `status`            | shorthand for the status class; an `ok` that disagrees with `status` throws             |
+| `statusText` | `''`                             | as given                                                                                |
+| `headers`    | —                                | any `HeadersInit`; a `content-type` set here wins over the JSON one                     |
+| `url`        | `''`                             | what `response.url` reads — Angular's fetch backend reports it as the request's URL     |
 
 A string is sent as it is, not as a JSON string. `Blob`, `ArrayBuffer`, typed-array, `FormData`,
 `URLSearchParams` and `ReadableStream` bodies go to the constructor untouched — with one catch under jsdom, whose `Blob`
 and `FormData` are jsdom's own and are not readable by Node's `Response`: pass a string or bytes
 there.
+
+**`null` is the JSON literal, and `undefined` is "no body".** A backend that reports "nothing here"
+as a JSON `null` — an empty login, an absent profile — is a real shape, and the code under test
+parses it like any other:
+
+```ts
+await stubResponse({ body: null }).json(); // → null, content type application/json
+await stubResponse({ body: undefined }).text(); // → '', no content type, .json() rejects
+await stubResponse({}).text(); // → the same: an omitted body is no body
+```
+
+**This reversed a released contract.** `null` used to mean "no body", indistinguishable from
+omitting the field, so `.json()` on it threw `Unexpected end of JSON input` while `0`, `false`, `[]`
+and `{}` all round-tripped — a trap rather than a preference, since nothing told the reader this
+one literal was different. There is one way to say "no body" and every caller already reaches for
+it, which is what leaves `null` free to mean what it means in JSON. A spec that relied on the old
+reading drops the field, or writes `body: undefined`. The one place that says so out loud is
+`{ body: null, status: 204 }`: a 204, 205 or 304 carries no body, so it now throws by name rather
+than letting the constructor raise "Response with null body status cannot have body" about a field
+whose old meaning was the opposite.
 
 **A `Response` body can be read once.** `mockResolvedValue(stubResponse(…))` hands the same object
 to every call, so the second `response.json()` rejects with "Body is unusable". A stub that answers
