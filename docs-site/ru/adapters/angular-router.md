@@ -1,12 +1,13 @@
 ---
 title: Роутер Angular
-description: provideActivatedRoute и provideRouterDouble — собственный ActivatedRoute Angular поверх одной записи и Router, у которого URL, routerState и events не могут разойтись, а navigate уже спай.
+description: provideActivatedRoute, provideRouterDouble и provideLocationDouble — собственный ActivatedRoute Angular поверх одной записи, Router, у которого URL, routerState и events не могут разойтись (navigate уже спай), и обвязка SpyLocation для того, куда оба приземляются.
 ---
 
 # Роутер Angular
 
-Здесь живут два дубля: `ActivatedRoute`, который читает компонент, и [`Router`](#the-router-double),
-которым он навигирует. Друг без друга они обходятся, а спека, которой нужны оба, объявляет оба.
+Здесь живут три дубля: `ActivatedRoute`, который читает компонент, [`Router`](#the-router-double),
+которым он навигирует, и собственный [`Location`](#the-location-double) Angular — то, куда оба
+приземляются. Друг без друга они обходятся, а спека, которой нужно несколько, объявляет несколько.
 
 ```ts
 import { injectActivatedRoute, provideActivatedRoute } from 'vitest-auto-spy/angular-router';
@@ -53,16 +54,18 @@ TestBed.configureTestingModule({
 });
 ```
 
-| Поле `init`   | Куда попадает                                                | По умолчанию |
-| ------------- | ------------------------------------------------------------ | ------------ |
-| `params`      | `params`, `paramMap`, `snapshot.params`, `snapshot.paramMap` | `{}`         |
-| `queryParams` | `queryParams`, `queryParamMap` и их двойники в снимке        | `{}`         |
-| `data`        | `data`, `snapshot.data`                                      | `{}`         |
-| `fragment`    | `fragment`, `snapshot.fragment`                              | `null`       |
-| `url`         | `url`, `snapshot.url` — строка режется по `/`                | `[]`         |
-| `outlet`      | `outlet`, `snapshot.outlet`                                  | `'primary'`  |
-| `component`   | `component`, `snapshot.component`                            | `null`       |
-| `routeConfig` | `routeConfig`, `snapshot.routeConfig`                        | `null`       |
+| Поле `init`   | Куда попадает                                                                                                                                        | По умолчанию |
+| ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | ------------ |
+| `params`      | `params`, `paramMap`, `snapshot.params`, `snapshot.paramMap`                                                                                         | `{}`         |
+| `queryParams` | `queryParams`, `queryParamMap` и их двойники в снимке                                                                                                | `{}`         |
+| `data`        | `data`, `snapshot.data`                                                                                                                              | `{}`         |
+| `title`       | `route.title`, `snapshot.title` — кладётся под собственный `RouteTitleKey` роутера, который дубль считывает с установленного роутера, а не угадывает | `undefined`  |
+| `fragment`    | `fragment`, `snapshot.fragment`                                                                                                                      | `null`       |
+| `url`         | `url`, `snapshot.url` — строка режется по `/`                                                                                                        | `[]`         |
+| `outlet`      | `outlet`, `snapshot.outlet`                                                                                                                          | `'primary'`  |
+| `component`   | `component`, `snapshot.component`                                                                                                                    | `null`       |
+| `routeConfig` | `routeConfig`, `snapshot.routeConfig`                                                                                                                | `null`       |
+| `resolve`     | запись вычисленных данных снимка, отдельно от `data` — как хранит её сам Angular                                                                     | `{}`         |
 
 Строковый `url` даёт сегменты без матричных параметров; передайте `UrlSegment`
 (`[new UrlSegment('products', { color: 'red' })]`), если код их читает.
@@ -164,8 +167,10 @@ expect(page.productId()).toBe('8');
   `route.firstChild`, нужно дерево; подмените один член через
   [`mockReadonlyProp`](/ru/adapters/angular#signal-readonly-property-mocking) или ведите настоящий
   роутер через `RouterTestingHarness`, когда под тестом само дерево.
-- **Нет `title`.** Роутер хранит вычисленный заголовок в `data` под приватным символом, поэтому
-  `title` здесь выпускает `undefined` — как у маршрута, которому заголовок никто не дал.
+- **`title` — из записи, а не из резолвера.** `provideActivatedRoute({ title: 'Product 7' })` отвечает
+  на `route.snapshot.title`: роутер читает заголовок из `data` под символом, который не экспортирует,
+  и дубль кладёт ваш туда, узнав символ у установленного роутера. Чего он не делает — так это
+  _вычисляет_ `title: () => …` из `routeConfig`; передавайте готовую строку.
 - **Нет навигации.** `Router.navigate()` этот маршрут не двигает — его двигают сеттеры. Когда под
   тестом сама навигация, это работа `RouterTestingHarness`.
 - **Нет привязки инпутов.** `withComponentInputBinding()` — работа аутлета; задайте инпут через
@@ -244,19 +249,24 @@ router.navigate.resolveWith(false);
 Хендл роутера, который `provideRouterDouble()` положил в инжектор теста. Читает `TestBed`; передайте
 `fixture.debugElement.injector`, когда роутер лежит в собственных `providers` компонента.
 
-| Член                                | Что делает                                                                                |
-| ----------------------------------- | ----------------------------------------------------------------------------------------- |
-| `router`                            | то значение, которое каждый инжектор в тесте выдаёт на `Router`                           |
-| `navigate`                          | спай `navigate()` — проверяйте его или отвечайте через `resolveWith(false)`               |
-| `navigateByUrl`                     | спай `navigateByUrl()`, точно так же                                                      |
-| `setUrl(url)`                       | поставить роутер на URL: `url`, `routerState` и корневой маршрут двигаются вместе и молча |
-| `emitNavigation(event?)`            | протолкнуть событие через `router.events`                                                 |
-| `setCurrentNavigation(navigation?)` | поставить навигацию в полёт или завершить её через `null`                                 |
+| Член                                | Что делает                                                                                 |
+| ----------------------------------- | ------------------------------------------------------------------------------------------ |
+| `router`                            | то значение, которое каждый инжектор в тесте выдаёт на `Router`                            |
+| `navigate`                          | спай `navigate()` — проверяйте его или отвечайте через `resolveWith(false)`                |
+| `navigateByUrl`                     | спай `navigateByUrl()`, точно так же                                                       |
+| `setUrl(url)`                       | поставить роутер на URL: `url`, `routerState` и корневой маршрут двигаются вместе и молча  |
+| `emitNavigation(event?)`            | протолкнуть событие через `router.events`; резолвится, когда роутер после него устаканился |
+| `setCurrentNavigation(navigation?)` | поставить навигацию в полёт или завершить её через `null`                                  |
 
 `emitNavigation()` принимает то, что есть у спеки: ничего (объявить текущий URL заново), строку URL
 (`NavigationEnd` для неё соберут за вас) или собранное вами событие — `new NavigationEnd(1, '/a', '/a')`,
 `new NavigationStart(1, '/a')`, что угодно из объединения. `NavigationEnd` двигает URL вместе с
 собой, как это делает настоящий роутер; любое другое событие оставляет URL на месте.
+
+Он же **возвращает промис**, который резолвится, когда событие доставлено, а завершённая им навигация
+вернулась в `null` — тот самый момент, когда в приложении резолвится `navigate()`. Работа синхронная,
+поэтому игнорирующий промис вызов видит то же состояние на следующей строке, а спека с `await` читает
+устаканившийся роутер, не гадая, сколько тиков на это нужно.
 
 Из того, что `events` — `BehaviorSubject`, а не `Subject`, который выставляет настоящий роутер,
 следуют две вещи:
@@ -349,15 +359,77 @@ expect(navigate).toHaveBeenCalledWith(['/login']);
 `providedIn: 'root'`, а `provideRouter()` токен заново не выдаёт, поэтому явный провайдер выигрывает
 в любом порядке.
 
+## `collectRouterEvents(events)`
+
+```ts
+import { NavigationEnd, NavigationStart } from '@angular/router';
+import { collectRouterEvents, injectRouterDouble } from 'vitest-auto-spy/angular-router';
+
+const router = injectRouterDouble();
+const events = collectRouterEvents(router.router.events);
+
+await router.emitNavigation(new NavigationStart(2, '/checkout'));
+await router.emitNavigation('/checkout');
+
+events.expect([
+  [NavigationStart, '/checkout'],
+  [NavigationEnd, '/checkout'],
+]);
+```
+
+Что компонент делает с роутером, часто зависит от _последовательности_ событий, а самодельный
+коллектор — массив, подписка, куча `instanceof`-проверок — ничего не говорит, пока его не прочитают
+обратно. Это идиома собственных интеграционных спеков Angular в одном вызове: запись начинается
+пустой (сея `BehaviorSubject` — это где роутер стоит, а не то, что он выпускал), заканчивается вместе
+с тестом, который её начал, а `expect()` принимает по одной паре `[класс, url?]` на событие по
+порядку — несовпадение падает, называя событие и URL, который был там вместо него.
+
+Массив `events` хендла — сама запись, для утверждений, которые не сводятся к простой
+последовательности.
+
+## Дубль Location {#the-location-double}
+
+```ts
+import { injectLocationDouble, provideLocationDouble } from 'vitest-auto-spy/angular-router';
+
+TestBed.configureTestingModule({ providers: [provideLocationDouble()] });
+
+const location = injectLocationDouble();
+
+location.go('/reports/7');
+expect(location.urlChanges).toEqual(['/reports/7']);
+
+location.simulateUrlPop('/'); // popstate, которого не вызвать методом
+```
+
+Там, где заканчиваются маршрут и роутер, отвечает `Location`: куда приземлился редирект, что сделал
+кнопка «назад». У самодельного `{ provide: Location, useValue: { path: vi.fn() } }` дыра, общая для
+всех самодельных дублей, — он отвечает на члены, о которых вспомнил автор, — а тихий вариант хуже:
+`Location` объявлен `providedIn: 'root'`, поэтому спека без провайдера получает настоящий, и ничего,
+что тест в него делает, никуда не попадает. `injectLocationDouble()` называет это падение по
+инстансу — так же, как это делает `injectActivatedRoute()`.
+
+**Это обвязка, а не конкурент.** Дубль уже лежит в Angular: `SpyLocation` держит настоящий массив
+истории с индексом, `urlChanges` — журнал каждого хода для утверждений, а `simulateUrlPop()` /
+`simulateHashChange()` — половина контракта со стороны браузера: события, которые тест не может
+вызвать методами, потому что в приложении их вызывает браузер. `provideLocationDouble()` выдаёт его
+вместе с `MockLocationStrategy` одной строкой; `createLocationDouble()` — то же без `TestBed`.
+
+`go()`, `back()` и `historyGo()` двигают историю; `path()` и `getState()` читают её обратно. Одна
+асимметрия, которая удивляет при первом чтении: `back()` и `forward()` будят подписчиков popstate,
+но **не** пишут `urlChanges` — журнал хранит то, что попросило приложение, подписчики несут то, что
+сделал браузер.
+
 ## Отдельный вход и опциональная peer-зависимость {#its-own-entry-and-an-optional-peer}
 
 `vitest-auto-spy/angular-router` — единственная часть пакета, которая импортирует `@angular/router`,
 поэтому `@angular/router` — **опциональная** peer-зависимость, за которую платят только сюиты,
 импортирующие этот вход, — по той же причине [`vitest-auto-spy/angular-http`](/ru/adapters/angular-http)
-в одиночку держит `@angular/common`.
+в одиночку держит `@angular/common`. Дубль `Location` новой peer-зависимости не добавляет: он
+оборачивает классы `@angular/common/testing`, а `@angular/router` и так зависит от `@angular/common`.
 
 - Как и `/angular-http`, он **не** реэкспортирует ядро; это спутник `vitest-auto-spy/angular`.
 - Он не регистрирует ни хуков, ни мок-адаптера и ничего не импортирует из тест-раннера, поэтому
   точно так же работает под [`bun test`](/ru/runtimes/bun-angular).
-- Вход весит **6.4 kB min+gzip** (6396 B, замерено так же, как для бейджа в README: бандл esbuild,
+- Вход весит **9.05 kB min+gzip** (9048 B, замерено так же, как для бейджа в README: бандл esbuild,
   минифицированный, gzip, пиры внешние).

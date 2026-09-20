@@ -401,4 +401,6 @@ Docs: https://asdalexey.github.io/vitest-auto-spy/runtimes/rxjs
       [`setupAutoSpy()`](/ru/utilities/setup); `blockNetwork()` — для спеки, которой нужно лишь не
       ходить в сеть, и [`stubResponse({ body })`](/ru/utilities/setup#answering-a-stubbed-fetch-—-stubresponse)
       — для самого `Response`. Голую форму ловит правило
-      [`no-hand-assigned-global`](/ru/utilities/eslint-rules#no-hand-assigned-global).
+      [`no-hand-assigned-global`](/ru/utilities/eslint-rules#no-hand-assigned-global), а
+      [`prefer-stub-response`](/ru/utilities/eslint-rules#prefer-stub-response) — тот
+      `{ ok: true, json } as Response`, который из неё возвращают.

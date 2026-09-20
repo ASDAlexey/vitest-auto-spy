@@ -1,6 +1,6 @@
 ---
 title: Правила ESLint
-description: По разделу на каждое из тридцати девяти правил — что оно сообщает, на чём принимает решение, зачем оно в recommended, где сообщает о работающем коде и почему у него именно такая severity.
+description: По разделу на каждое из сорока правил — что оно сообщает, на чём принимает решение, зачем оно в recommended, где сообщает о работающем коде и почему у него именно такая severity.
 ---
 
 # Правила ESLint
@@ -35,7 +35,7 @@ description: По разделу на каждое из тридцати дев�
 
 <!-- The id is frozen on purpose: configs already point at #the-twenty-five-rules. Keep it when the rule count changes. -->
 
-## Тридцать девять правил {#the-twenty-five-rules}
+## Сорок правил {#the-twenty-five-rules}
 
 Сгруппированы по темам — так же, как на [странице настройки](/ru/utilities/eslint-plugin). Все
 правила — `error`, кроме пяти.
@@ -56,6 +56,7 @@ description: По разделу на каждое из тридцати дев�
 | [`no-import-time-spread`](#no-import-time-spread)                     | `error`         | спред импортированного биндинга, вычисляемый на уровне модуля                                             |
 | [`prefer-observer-stub`](#prefer-observer-stub)                       | `error`         | глобальный observer, подменённый руками или через раннер                                                  |
 | [`no-hand-assigned-global`](#no-hand-assigned-global)                 | `error`         | `global.fetch = vi.fn()` — дубль, присвоенный в глобальный объект, который никакой teardown не возвращает |
+| [`prefer-stub-response`](#prefer-stub-response)                       | `error`         | объектный литерал, приведённый к `Response`, или `createMock<Response>(…)` — половина ответа              |
 | [`prefer-provide-activated-route`](#prefer-provide-activated-route)   | `error`         | `ActivatedRoute`, предоставленный как собранный руками объект, класс или фабрика, — полмаршрута           |
 | [`no-passthrough-console-spy`](#no-passthrough-console-spy)           | `error`         | `vi.spyOn(console, m)`, которому ничто не дало реализации, — вызывает оригинал и печатает                 |
 | [`no-console-in-spec`](#no-console-in-spec)                           | `error`         | спека, которая вызывает метод консоли или подменяет его присваиванием                                     |
@@ -978,6 +979,55 @@ beforeEach(() => {
 двух отчётов.
 
 **Severity.** `error`. Дубль переживает тест, который его поставил, а при `isolate: false` — и файл.
+
+## prefer-stub-response {#prefer-stub-response}
+
+**`error`** · без фикса · только синтаксис
+
+**Сообщает про.** `Response`, собранный руками для заглушенного `fetch`: объектный литерал,
+приведённый к `Response` — `{ ok: true, json: async () => data } as Response`, двойной каст
+`as unknown as Response` или угловая форма `<Response>{ … }`, — и вызов `createMock<Response>(…)` /
+`createAutoMock<Response>(…)`.
+
+**Решает по.** Двум фактам, написанным в самой строке: тип, который называет приведение, и
+типовой аргумент, который получил хелпер. Программа типов здесь не нужна — на это же опирается
+[`no-sync-testbed-await`](#no-sync-testbed-await). Каст читается сквозь собственную вложенность, так
+что `as unknown as Response` — это одно сообщение, а не ноль.
+
+Одно различение держит правило честным: `Response` обязан разрешаться в **глобал**. Имя, которое
+файл импортирует (`import { type Response } from 'express'`) или объявляет сам (конверт
+сгенерированного клиента, доменный тип с тем же именем), имеет биндинг с определением и никогда не
+сообщается — для них `stubResponse` собирает не тот объект, и назвать его было бы плохим советом.
+Биндинг без определений — это тоже глобал: именно такой кладёт в область видимости
+`languageOptions.globals` у проекта, который объявляет свою среду.
+
+**Находка и починка.**
+
+```ts
+vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: true, json: async () => user } as Response); // ❌
+```
+
+```ts
+vi.spyOn(globalThis, 'fetch').mockImplementation(async () => stubResponse({ body: user }));
+```
+
+**Почему оно в recommended.** Литерал отвечает на два-три члена, о которых подумал автор, и
+`undefined` на все остальные — `status`, `statusText`, `headers`, `url`, `text()`, `arrayBuffer()`,
+`clone()`. Каст — это то, что позволяет такому скомпилироваться, и он же это прячет: проверяемый код
+читает один из этих членов, уходит в ветку по `undefined`, которую настоящий ответ выдать не мог, и
+тест зелёный на пути, которого не существует. Это тот самый дефект, ради которого существует строгий
+пресет, — только обычный объектный литерал не дубль, про который библиотека знает, так что за ним
+никто не следил. [`stubResponse`](/ru/utilities/setup#answering-a-stubbed-fetch-stubresponse) собирает
+собственный `Response` платформы, поэтому настоящий каждый член.
+
+**Границы.** Дубль за фабрикой недостижим — то же ограничение, что у
+[`no-structural-double`](#no-structural-double): `buildResponse()`, возвращающий приведённый литерал,
+сообщается там, где написан каст, и больше нигде. `Response`, собранный по членам на `const` с
+аннотацией типа, — не каст и тоже не сообщается.
+
+**Строгость.** `error`. Доказательство — сама строка, починка — хелпер, который пакет уже поставляет,
+и никакой миграции тут гейтить не нужно: сюита, которая уже собирает ответы через `stubResponse`, не
+увидит ничего.
 
 ## prefer-provide-activated-route {#prefer-provide-activated-route}
 
