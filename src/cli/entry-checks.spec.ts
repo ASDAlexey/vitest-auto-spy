@@ -119,6 +119,20 @@ describe('findEntryImports', () => {
 
     expect(findEntryImports(source)).toEqual([{ entry: 'vitest-auto-spy/angular', name: 'provideAutoSpy', local: 'provideAutoSpy' }]);
   });
+
+  it('reads the two-segment Angular companion subpaths, which a one-segment pattern did not match at all', () => {
+    const source = [
+      "import { enableAngularDiagnostics } from 'vitest-auto-spy/angular/diagnostics';",
+      "import { provideWindowDouble } from 'vitest-auto-spy/angular/doubles';",
+      "import { registerSignalMatchers } from 'vitest-auto-spy/angular/matchers';",
+    ].join('\n');
+
+    expect(findEntryImports(source)).toEqual([
+      { entry: 'vitest-auto-spy/angular/diagnostics', name: 'enableAngularDiagnostics', local: 'enableAngularDiagnostics' },
+      { entry: 'vitest-auto-spy/angular/doubles', name: 'provideWindowDouble', local: 'provideWindowDouble' },
+      { entry: 'vitest-auto-spy/angular/matchers', name: 'registerSignalMatchers', local: 'registerSignalMatchers' },
+    ]);
+  });
 });
 
 describe('the generated table', () => {
@@ -219,6 +233,26 @@ describe('checkHelperEntry', () => {
     const findings = helperFindings({ 'src/a.spec.ts': "import { flushEventLoop } from 'vitest-auto-spy/angular';" });
 
     expect(findings[0]?.fix).toContain('Change the specifier to `vitest-auto-spy`.');
+  });
+
+  it('names the companion subpath a helper that left `/angular` now lives in', () => {
+    const findings = helperFindings({ 'src/a.spec.ts': "import { provideWindowDouble } from 'vitest-auto-spy/angular';" });
+
+    expect(checks(findings)).toEqual(['helper-from-wrong-entry']);
+    expect(findings[0]?.fix).toContain('Change the specifier to `vitest-auto-spy/angular/doubles`.');
+  });
+
+  it('reports a spy factory taken from a companion subpath, which exports none of them', () => {
+    // The mistake the split makes easy: `/angular/doubles` registers the mock adapter and sits next
+    // to the doubles a spec already imports, so it reads like the entry the spies come from too.
+    const findings = helperFindings({
+      'package.json': JSON.stringify({ devDependencies: { '@angular/core': '22.1.5' } }),
+      'src/a.spec.ts': "import { provideAutoSpy } from 'vitest-auto-spy/angular/doubles';",
+    });
+
+    expect(checks(findings)).toEqual(['helper-from-wrong-entry']);
+    expect(findings[0]?.message).toContain('`provideAutoSpy` from `vitest-auto-spy/angular/doubles`');
+    expect(findings[0]?.fix).toContain('Change the specifier to `vitest-auto-spy/angular`.');
   });
 
   it('stays quiet about a correct import, an unpublished entry, an unknown name and a quoted one', () => {

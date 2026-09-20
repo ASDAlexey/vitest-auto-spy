@@ -43,7 +43,13 @@ export interface EntryImport {
   readonly local: string;
 }
 
-const IMPORT = /\bimport\s+(?:type\s+)?([\s\w$*,{}]*?)\s*from\s*["'](vitest-auto-spy(?:\/[\w-]+)?)["']/g;
+/**
+ * Two path segments, not one. `vitest-auto-spy/angular/diagnostics`, `/angular/doubles` and
+ * `/angular/matchers` are published entries, and a one-segment pattern matched none of them — so
+ * every import from the three was invisible to the checks below, `helper-from-wrong-entry`
+ * included, on exactly the files most likely to get the new specifier wrong.
+ */
+const IMPORT = /\bimport\s+(?:type\s+)?([\s\w$*,{}]*?)\s*from\s*["'](vitest-auto-spy(?:\/[\w-]+){0,2})["']/g;
 const BRACED = /{([^}]*)}/g;
 const RENAME = ' as ';
 
@@ -164,9 +170,15 @@ export function installedVersion(cwd: string): string | undefined {
 /**
  * Whether the generated table describes the version the repository resolves.
  *
- * A helper moves between entries only in a major, so matching majors is the whole condition. An
- * unreadable or unparsable version falls back to reporting: the CLI is normally run from the
- * installed package, and staying silent because one lockfile is unusual is the worse mistake.
+ * Matching majors is the whole condition, and 5.21.0 showed that it is not quite the invariant this
+ * comment used to claim: thirty-two helpers moved out of `/angular` into three companion entries in
+ * a **minor**. Within one major the table can therefore be ahead of the install, and the case it is
+ * wrong about is a newer CLI (`npx vitest-auto-spy@latest doctor`) read against an older install —
+ * the fix text then names an entry that install does not publish. `TODO.md` carries it; the gate is
+ * left as it is rather than narrowed here, because going silent on every older 5.x would drop the
+ * true findings as well. An unreadable or unparsable version falls back to reporting: the CLI is
+ * normally run from the installed package, and staying silent because one lockfile is unusual is the
+ * worse mistake.
  */
 export function tableApplies(cwd: string): boolean {
   const installed = installedVersion(cwd);
