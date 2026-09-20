@@ -104,6 +104,21 @@
       "import": "./angular.js",
       "default": "./angular.js"
     },
+    "./angular/diagnostics": {
+      "types": "./angular/diagnostics.d.ts",
+      "import": "./angular/diagnostics.js",
+      "default": "./angular/diagnostics.js"
+    },
+    "./angular/doubles": {
+      "types": "./angular/doubles.d.ts",
+      "import": "./angular/doubles.js",
+      "default": "./angular/doubles.js"
+    },
+    "./angular/matchers": {
+      "types": "./angular/matchers.d.ts",
+      "import": "./angular/matchers.js",
+      "default": "./angular/matchers.js"
+    },
     "./angular-http": {
       "types": "./angular-http.d.ts",
       "import": "./angular-http.js",
@@ -166,7 +181,8 @@
     "*.cjs",
     "*.d.ts",
     "*.d.cts",
-    "README.md"
+    "README.md",
+    "angular"
   ],
   "dependencies": {
     "vitest-auto-spy": "^5.20.0"
@@ -224,6 +240,9 @@
     "./jasmine-compat.js",
     "./observer-spy.js",
     "./angular.js",
+    "./angular/diagnostics.js",
+    "./angular/doubles.js",
+    "./angular/matchers.js",
     "./angular-http.js",
     "./angular-router.js",
     "./signal-forms.js",

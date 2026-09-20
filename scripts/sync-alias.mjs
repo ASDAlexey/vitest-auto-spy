@@ -15,7 +15,7 @@
  *   node scripts/sync-alias.mjs           # write
  *   node scripts/sync-alias.mjs --check   # fail when out of sync
  */
-import { readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -62,7 +62,9 @@ const entries = Object.entries(root.exports)
  */
 function hasDefaultExport(stem) {
   try {
-    return /^export default /m.test(readFileSync(join(ROOT, 'src', `${stem}.ts`), 'utf8'));
+    // A nested subpath (`angular/diagnostics`) names its source flat (`angular-diagnostics.ts`) —
+    // the file tsup builds from, and the one that exists on disk.
+    return /^export default /m.test(readFileSync(join(ROOT, 'src', `${stem.replaceAll('/', '-')}.ts`), 'utf8'));
   } catch {
     return false;
   }
@@ -85,10 +87,7 @@ for (const { stem, target, dual } of entries) {
     // `module.exports = plugin` there, so the stub returns the plugin object itself and the
     // declaration has to be an `export =` — a `default` on it is the masquerading-default bug this
     // package already shipped once.
-    files.set(
-      `${stem}.d.cts`,
-      hasDefault ? `import entry = require('${target}');\n\nexport = entry;\n` : reexport,
-    );
+    files.set(`${stem}.d.cts`, hasDefault ? `import entry = require('${target}');\n\nexport = entry;\n` : reexport);
   }
 }
 
@@ -112,13 +111,16 @@ if ('./package.json' in root.exports) {
 const alias = JSON.parse(readFileSync(join(ALIAS_DIR, 'package.json'), 'utf8'));
 
 // Only the generated half is overwritten — name, description and keywords stay hand-written.
+// npm's `files` globs stay at the top level, so a nested stub ships by naming its directory.
+const nestedDirs = [...new Set([...files.keys()].filter((name) => name.includes('/')).map((name) => name.split('/')[0]))];
+
 const generated = {
   version: root.version,
   main: './index.js',
   module: './index.js',
   types: './index.d.ts',
   exports: exportsMap,
-  files: ['*.js', '*.cjs', '*.d.ts', '*.d.cts', 'README.md'],
+  files: ['*.js', '*.cjs', '*.d.ts', '*.d.cts', 'README.md', ...nestedDirs],
   // Every entry registers a mock adapter (or installs a patch) on import, so no stub is prunable.
   sideEffects: [...files.keys()].filter((name) => name.endsWith('.js') || name.endsWith('.cjs')).map((name) => `./${name}`),
   dependencies: { [CANONICAL]: `^${root.version}` },
@@ -154,7 +156,7 @@ for (const [name, content] of files) {
 }
 
 /** Stubs left behind by an entry point that has since been renamed or dropped its CJS build. */
-const orphans = readdirSync(ALIAS_DIR).filter((name) => /\.(?:js|cjs|d\.ts|d\.cts)$/.test(name) && !files.has(name));
+const orphans = readdirSync(ALIAS_DIR, { recursive: true }).filter((name) => /\.(?:js|cjs|d\.ts|d\.cts)$/.test(name) && !files.has(name));
 
 if (check) {
   const problems = [...stale, ...orphans.map((name) => `${name} (orphan)`)];
@@ -169,6 +171,7 @@ if (check) {
   writeFileSync(join(ALIAS_DIR, 'package.json'), manifest);
 
   for (const [name, content] of files) {
+    mkdirSync(dirname(join(ALIAS_DIR, name)), { recursive: true });
     writeFileSync(join(ALIAS_DIR, name), content);
   }
 
