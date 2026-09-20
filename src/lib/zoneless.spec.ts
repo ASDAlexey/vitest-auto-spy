@@ -3,7 +3,7 @@
  * effects. These specs assert exactly that difference: state that only an effect produces is
  * missing before the helper and present after it.
  */
-import { Component, effect, signal } from '@angular/core';
+import { Component, PendingTasks, effect, inject, signal } from '@angular/core';
 import { describe, expect, it } from 'vitest';
 
 import { mockValueProp } from './prop-mock';
@@ -17,6 +17,42 @@ class EffectsComponent {
 
   constructor() {
     effect(() => this.seen.push(this.source()));
+  }
+}
+
+@Component({ selector: 'app-throwing-effect', template: '' })
+class ThrowingEffectComponent {
+  readonly arm = signal(false);
+
+  constructor() {
+    effect(() => {
+      if (this.arm()) {
+        throw new Error('armed effect throws');
+      }
+    });
+  }
+}
+
+/**
+ * Unstable from a `PendingTasks` entry until a real timer arms a throwing effect, so the error
+ * lands while `whenStable()` is pending — the moment TestBed's application error handler is
+ * waiting to reject somebody.
+ */
+@Component({ selector: 'app-late-throwing-effect', template: '' })
+class LateThrowingEffectComponent {
+  readonly arm = signal(false);
+
+  constructor() {
+    effect(() => {
+      if (this.arm()) {
+        throw new Error('late effect throws');
+      }
+    });
+    const removeTask = inject(PendingTasks).add();
+    setTimeout(() => {
+      this.arm.set(true);
+      removeTask();
+    }, 0);
   }
 }
 
@@ -62,6 +98,33 @@ describe('stable', () => {
     await stable(fixture, { timeout: 0 });
 
     expect(component.seen).toContain(11);
+  });
+
+  it('rejects with the application error when an effect throws while effects flush', async () => {
+    const { fixture, component } = renderShallow(ThrowingEffectComponent);
+
+    component.arm.set(true);
+
+    const rejection = await stable(fixture).then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+
+    expect(rejection).toBeInstanceOf(Error);
+    expect((rejection as Error).message).toBe('armed effect throws');
+  });
+
+  it('rejects with the application error that lands while it awaits, instead of hanging to the watchdog', async () => {
+    const { fixture } = renderShallow(LateThrowingEffectComponent);
+
+    const rejection = await stable(fixture).then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+
+    expect(rejection).toBeInstanceOf(Error);
+    expect((rejection as Error).message).toBe('late effect throws');
+    expect((rejection as Error).message).not.toContain('[vitest-auto-spy]');
   });
 });
 
