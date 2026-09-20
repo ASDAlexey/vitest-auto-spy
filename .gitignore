@@ -1,6 +1,8 @@
 node_modules/
 dist/
+# `coverage-*/` catches ad-hoc runs with `--coverage.reportsDirectory=` — each one is an 18 MB report.
 coverage/
+coverage-*/
 .vitest/
 *.tgz
 .DS_Store
