@@ -46,6 +46,21 @@ afterEach(() => {
   clearAutoSpyDefaults();
 });
 
+describe('the registry on globalThis', () => {
+  it('serves what an older copy of the package left in the slot', () => {
+    // The file's first registry read happens here, so what the slot holds at this moment is what
+    // the module adopts. A copy from before the weak registry leaves a plain Map, and its four
+    // methods are the whole contract — a run mixing the two versions shares that one registry
+    // rather than splitting the suite between two.
+    globalThis.__vitestAutoSpyDefaults__ = new Map<object, Record<string, unknown>>([[RouterLike, { gettersToSpyOn: ['url'] }]]);
+
+    expect(mergeAutoSpyDefaults(RouterLike, { instanceMethodsToSpyOn: ['reload'] })).toEqual({
+      gettersToSpyOn: ['url'],
+      instanceMethodsToSpyOn: ['reload'],
+    });
+  });
+});
+
 describe('registerAutoSpyDefaults', () => {
   it('composes a double from the registration alone', () => {
     registerAutoSpyDefaults(RouterLike, { observablePropsToSpyOn: ['events'], gettersToSpyOn: ['url'] });

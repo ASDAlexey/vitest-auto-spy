@@ -41,33 +41,83 @@ type Registration = Record<string, unknown>;
 
 /**
  * On `globalThis`, not in the module: tsup inlines this file into every entry bundle, so a
- * module-level `Map` would give the setup file that registers and the spec that creates two
+ * module-level registry would give the setup file that registers and the spec that creates two
  * registries whenever they import from different entry points — `vitest-auto-spy` and
  * `vitest-auto-spy/vue`, say — and the defaults would silently not apply.
  */
 declare global {
   // A `globalThis` augmentation has to be declared with `var`.
-  var __vitestAutoSpyDefaults__: Map<object, Registration> | undefined;
+  var __vitestAutoSpyDefaults__: SpyDefaultsRegistry | undefined;
+}
+
+/** The registry's four operations — the whole of what this file ever does to it. */
+interface SpyDefaultsRegistry {
+  set(key: object, config: Registration): void;
+  get(key: object): Registration | undefined;
+  delete(key: object): boolean;
+  clear(): void;
 }
 
 /**
- * Keyed by the class object itself.
+ * Keyed by the class object itself, and weakly: a default is a fact about a class and must not
+ * outlive it, while the worker's `globalThis` outlives every module graph — a strong `Map` here
+ * held every registered class and its config for the worker's lifetime.
  *
- * A plain `Map` rather than a `WeakMap`, deliberately: the registry is filled once from a setup
- * file and holds a handful of classes that the module graph is keeping alive anyway, and
- * `clearAutoSpyDefaults()` has to be able to empty it — which a `WeakMap` cannot do without a
- * second structure that would defeat the weakness it was chosen for.
+ * What the global holds is four methods over an inner `WeakMap`, not the `WeakMap` itself.
+ * `clearAutoSpyDefaults()` has to empty the registry for every bundle copy at once, and a
+ * `WeakMap` cannot be emptied — installing a fresh one on `globalThis` would strand the copies
+ * that already cached the old registry and leave them serving the very registrations the clear
+ * came to drop. The facade's `clear()` drops its inner map, and every copy reads through the
+ * facade, so an emptying is as visible as a `Map.clear()` was.
  */
 /**
- * The reference is cached per bundle, the map itself is not: every bundle ends up holding the same
- * `Map`, and a `globalThis` read on the creation path is not free — reading it per
+ * The reference is cached per bundle, the registry itself is not: every bundle ends up holding the
+ * same facade, and a `globalThis` read on the creation path is not free — reading it per
  * `createSpyFromClass` cost 1.2 µs a spy on the 100-method probe, which is more than the merge it
  * guards.
  */
-let sharedRegistry: Map<object, Registration> | undefined;
+let sharedRegistry: SpyDefaultsRegistry | undefined;
 
-function registry(): Map<object, Registration> {
-  return (sharedRegistry ??= globalThis.__vitestAutoSpyDefaults__ ??= new Map());
+function registry(): SpyDefaultsRegistry {
+  return (sharedRegistry ??= adoptRegistry());
+}
+
+function adoptRegistry(): SpyDefaultsRegistry {
+  const existing: unknown = globalThis.__vitestAutoSpyDefaults__;
+
+  if (isRegistry(existing)) {
+    return existing;
+  }
+
+  return (globalThis.__vitestAutoSpyDefaults__ = createRegistry());
+}
+
+const REGISTRY_METHODS: readonly (keyof SpyDefaultsRegistry)[] = ['set', 'get', 'delete', 'clear'];
+
+/**
+ * A plain `Map` — what a copy from before the facade leaves in the slot — passes this check on
+ * purpose: its four methods work, so a run mixing the two versions shares one registry (holding
+ * keys strongly, which is the older copy's behavior anyway) instead of splitting the suite
+ * between two that each half of it reads.
+ */
+function isRegistry(value: unknown): value is SpyDefaultsRegistry {
+  return REGISTRY_METHODS.every((method) => typeof Reflect.get(Object(value), method) === 'function');
+}
+
+/** The registry this file installs: weak inside, `clear()` empties it for every holder at once. */
+function createRegistry(): SpyDefaultsRegistry {
+  let entries = new WeakMap<object, Registration>();
+
+  return {
+    set: (key: object, config: Registration): void => {
+      entries.set(key, config);
+    },
+    get: (key: object): Registration | undefined => entries.get(key),
+    delete: (key: object): boolean => entries.delete(key),
+    clear: (): void => {
+      entries = new WeakMap<object, Registration>();
+    },
+  };
 }
 
 /** One row of {@link registerAutoSpyDefaults}' many-at-once form: a class and the configuration to register for it. */

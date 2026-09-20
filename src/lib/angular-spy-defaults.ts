@@ -2,8 +2,8 @@
  * `registerAutoSpyDefaults` as `vitest-auto-spy/angular` exports it: the core's overloads, plus the
  * key the core cannot name — an `InjectionToken`.
  *
- * The registry never cared what its key is: it is a `Map` keyed by object identity, and a token is an
- * object exactly as a class is. What kept tokens out was the signature, because the core entry is
+ * The registry never cared what its key is: it is keyed by object identity — weakly, so a default
+ * dies with its class — and a token is an object exactly as a class is. What kept tokens out was the signature, because the core entry is
  * framework-agnostic and may not mention `InjectionToken`. So the registration is the same call and
  * the same registry; only this entry, which already depends on Angular, can type it.
  *

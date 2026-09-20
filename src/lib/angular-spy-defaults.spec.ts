@@ -51,6 +51,21 @@ function logger(overrides?: Partial<AppLogger>, config?: Parameters<typeof provi
   return TestBed.inject(LOGGER);
 }
 
+describe('the registry on globalThis', () => {
+  it('replaces a stranger in the slot rather than adopting it', () => {
+    // The file's first registry read happens here. Anything without the four methods is not the
+    // registry — adopting it would throw on the first `.set` — so the slot is claimed with a
+    // fresh one and the registration lands there.
+    globalThis.__vitestAutoSpyDefaults__ = {} as typeof globalThis.__vitestAutoSpyDefaults__;
+
+    registerAutoSpyDefaults(LOGGER, { returns: { info: undefined } });
+
+    TestBed.configureTestingModule({ providers: [provideAutoSpyForToken(LOGGER)] });
+
+    expect(TestBed.inject(LOGGER).info('signed in')).toBeUndefined();
+  });
+});
+
 describe('registerAutoSpyDefaults with an InjectionToken', () => {
   it('composes the token double from the registration alone', () => {
     registerAutoSpyDefaults(LOGGER, {
