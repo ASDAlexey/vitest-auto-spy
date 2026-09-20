@@ -307,9 +307,18 @@ function describeTarget(input: unknown): string {
 /** What {@link stubResponse} builds a `Response` from. Every field is optional. */
 export interface StubResponseInit {
   /**
-   * A plain object, an array, a number or a boolean is sent as JSON with an `application/json`
-   * content type; a string, `Blob`, `ArrayBuffer`, typed array, `FormData`, `URLSearchParams` or
-   * `ReadableStream` is sent as it is. `null` and `undefined` send no body.
+   * A plain object, an array, a number, a boolean or `null` is sent as JSON with an
+   * `application/json` content type; a string, `Blob`, `ArrayBuffer`, typed array, `FormData`,
+   * `URLSearchParams` or `ReadableStream` is sent as it is. `undefined`, and an omitted `body`,
+   * send no body at all.
+   *
+   * `null` is the JSON literal, not the absence of one — `.json()` answers `null`, the way it
+   * answers `0`, `false`, `[]` and `{}` for their literals. A backend that reports "nothing here"
+   * as a JSON `null` is a real shape, and a stub that could not express it was a trap rather than
+   * a preference: every other falsy literal round-tripped, so nothing warned the reader that this
+   * one would come back as an empty body whose `.json()` throws `Unexpected end of JSON input`.
+   * There is one way to say "no body" and every caller already reaches for it, which is what
+   * leaves `null` free to mean what it means in JSON.
    */
   body?: unknown;
   /** Default `200`, or `500` when `ok` is `false`. */
@@ -345,6 +354,16 @@ export function stubResponse(init: StubResponseInit = {}): Response {
   const headers = new Headers(init.headers);
   const json = isJsonBody(init.body);
 
+  // `null` is a body now — the JSON literal — and these three statuses carry none, so the
+  // constructor would raise "Response with null body status cannot have body" about the one field
+  // whose old meaning was the opposite. Said here instead, because that is the migration: a caller
+  // who wrote `body: null` for "no body" has to drop the field, and no platform error says so.
+  if (init.body === null && NULL_BODY_STATUSES.has(status)) {
+    throw new TypeError(
+      `[vitest-auto-spy] stubResponse() was given body: null with status ${status}, which carries no body — null is sent as the JSON literal, so omit body (or pass undefined) for no body at all`,
+    );
+  }
+
   if (json && !headers.has('content-type')) {
     headers.set('content-type', 'application/json');
   }
@@ -362,14 +381,19 @@ export function stubResponse(init: StubResponseInit = {}): Response {
   return response;
 }
 
+/** The statuses the platform refuses a body on, so that `body: null` can name itself in the error. */
+const NULL_BODY_STATUSES = new Set([204, 205, 304]);
+
 // Decided by shape rather than `instanceof`: under a DOM environment a `Blob` or a `FormData` can
-// come from another realm, and it is the plain data that needs serialising anyway.
+// come from another realm, and it is the plain data that needs serialising anyway. `null` is in
+// the first line rather than falling through to `typeof body === 'object'`, which it satisfies —
+// that fall-through is what used to send it as no body at all.
 function isJsonBody(body: unknown): boolean {
-  if (typeof body === 'number' || typeof body === 'boolean' || Array.isArray(body)) {
+  if (body === null || typeof body === 'number' || typeof body === 'boolean' || Array.isArray(body)) {
     return true;
   }
 
-  if (typeof body !== 'object' || body === null) {
+  if (typeof body !== 'object') {
     return false;
   }
 
