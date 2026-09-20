@@ -7,7 +7,7 @@ description: enableAngularDiagnostics — пять молчаливых пров
 
 ```ts
 // vitest.setup.ts — после инициализации тестового окружения Angular
-import { enableAngularDiagnostics } from 'vitest-auto-spy/angular';
+import { enableAngularDiagnostics } from 'vitest-auto-spy/angular/diagnostics';
 
 enableAngularDiagnostics(); // все пять
 enableAngularDiagnostics({ pendingRequests: false }); // или выборочно
@@ -18,7 +18,10 @@ enableAngularDiagnostics({ pendingRequests: false }); // или выборочн
 Они едут одной группой, а не пятью хелперами, потому что перевод сюиты из «проходит» в «проходит
 по заявленной причине» — решение, принимаемое один раз, в setup-файле, — и потому что четыре из пяти
 висят на том же хуке `TestBed.configureTestingModule`, который уже ставит
-[диагностика таймингов](/ru/adapters/angular#where-a-spec-spends-its-time).
+[диагностика таймингов](/ru/adapters/angular#where-a-spec-spends-its-time). Вся семья живёт в
+собственной точке входа — `vitest-auto-spy/angular/diagnostics`, куда она переехала из
+`vitest-auto-spy/angular` в 6.0: импорт спаев больше не исполняет инструментацию, которую не
+включили.
 
 | Член               | По умолчанию | Падает, когда                                                                      |
 | ------------------ | ------------ | ---------------------------------------------------------------------------------- |
@@ -63,7 +66,7 @@ Vitest выполняет хуки `afterEach` в **обратном поряд�
 ```ts
 // vitest.setup.ts
 import { getTestBed } from '@angular/core/testing';
-import { enableAngularDiagnostics } from 'vitest-auto-spy/angular';
+import { enableAngularDiagnostics } from 'vitest-auto-spy/angular/diagnostics';
 
 getTestBed().initTestEnvironment(BrowserTestingModule, platformBrowserTesting());
 
@@ -207,7 +210,7 @@ TestBed зарегистрирован позже, уничтожила бы и�
 которые от неё зависят:
 
 ```ts
-import { assertNoPendingRequests } from 'vitest-auto-spy/angular';
+import { assertNoPendingRequests } from 'vitest-auto-spy/angular/diagnostics';
 
 facade.load();
 controller.expectOne('/api/users').flush([]);

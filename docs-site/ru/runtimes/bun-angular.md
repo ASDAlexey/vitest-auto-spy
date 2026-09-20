@@ -91,7 +91,8 @@ bun test              # добавьте --isolate, чтобы получить 
 | диагностика TestBed (`instrumentTestBed`) |       ❌        | нужны хуки раннера уровня набора — только Vitest               |
 | остальное из `/angular`                   |       ❌        | в Bun не проброшено — см. ниже                                 |
 
-«Остальное» — это хирургия над TestBed, которую `vitest-auto-spy/angular` несёт на Vitest: проверки
+«Остальное» — это хирургия над TestBed, которую несут на Vitest ангуляровские точки входа — сам
+`vitest-auto-spy/angular` плюс его спутники `/angular/diagnostics` и `/angular/doubles`: проверки
 переопределений и диагностики, `extendWithAutoSpies`, `provideAutoSpyForToken` с дефолтами по токену,
 `trackInjections`, `setupAngularTestEnv`, фабрики заглушек, дубли свойств ресурса и сигнала, дубли
 платформы и диалогов. Ничего из этого эта точка входа не экспортирует.

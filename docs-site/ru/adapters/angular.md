@@ -7,8 +7,11 @@ description: provideAutoSpy, injectSpy, extendWithAutoSpies, renderShallow, crea
 
 Точка входа `vitest-auto-spy/angular` добавляет `provideAutoSpy` — короткую запись для регистрации
 auto-spy в `TestBed`, — а вместе с ним `injectSpy`, поверхностный рендер компонентов, создание
-объекта через DI, ожидание в zoneless-режиме, матчер для сигналов, диагностику `TestBed` и мокеры
-свойств-сигналов и readonly-свойств.
+объекта через DI, ожидание в zoneless-режиме и мокеры свойств-сигналов и readonly-свойств.
+Регистраторы матчеров, диагностика `TestBed` и дубли платформы и диалогов переехали в 6.0 в три
+узких спутника — [`/angular/matchers`](#asserting-a-signal), [`/angular/diagnostics`](#where-a-spec-spends-its-time)
+и [`/angular/doubles`](#window-and-document-without-losing-the-real-one) — чтобы импорт спаев
+перестал исполнять код, который спека не вызывает.
 
 ```ts
 import { injectSpy, provideAutoSpy } from 'vitest-auto-spy/angular';
@@ -35,8 +38,10 @@ Angular — ничто здесь не трогает `NgZone` и детекци
 ::: tip Та же сюита на Bun
 `bun test` не запускает ангуляровские спеки из коробки — в Bun нет DOM и он не умеет разрешать
 `templateUrl`. [`vitest-auto-spy/bun-angular`](/ru/runtimes/bun-angular) закрывает обе дыры одним
-прелоадом и реэкспортирует всё с этой страницы, кроме `registerSignalMatchers` и диагностики
-`TestBed`, которым нужны `expect.extend` раннера и хуки уровня сюиты.
+прелоадом и реэкспортирует всё с этой страницы, кроме `registerSignalMatchers`,
+`registerResourceMatchers` и `registerDirectiveMatchers`, которым нужен `expect.extend` раннера, —
+они живут в `vitest-auto-spy/angular/matchers`, спутнике только для Vitest, как и диагностика
+`TestBed` в `vitest-auto-spy/angular/diagnostics`.
 :::
 
 ## Фикстуры вместо `let` + `beforeEach` — `extendWithAutoSpies` {#fixtures-instead-of-let-beforeeach-—-extendwithautospies}
@@ -663,7 +668,8 @@ export class ProductListComponent {
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
-import { flushEffects, registerResourceMatchers, renderShallow, settleResource, stable } from 'vitest-auto-spy/angular';
+import { flushEffects, renderShallow, settleResource, stable } from 'vitest-auto-spy/angular';
+import { registerResourceMatchers } from 'vitest-auto-spy/angular/matchers';
 
 registerResourceMatchers(); // один раз, в setup-файле
 
@@ -910,7 +916,7 @@ expect(synced.count).toBe(0);
 настоящего jsdom-объекта**:
 
 ```ts
-import { provideDocumentDouble, provideWindowDouble } from 'vitest-auto-spy/angular';
+import { provideDocumentDouble, provideWindowDouble } from 'vitest-auto-spy/angular/doubles';
 
 TestBed.configureTestingModule({
   providers: [provideWindowDouble(WINDOW, { screen: { width: 1920, height: 1080 } }), provideDocumentDouble({ visibilityState: 'hidden' })],
@@ -977,7 +983,8 @@ TestBed.configureTestingModule({
 
 ```ts
 import { MAT_DIALOG_DATA, MatDialogRef } from '@angular/material/dialog';
-import { expectEmission, injectMatDialogRef, provideMatDialogData, provideMatDialogRef } from 'vitest-auto-spy/angular';
+import { expectEmission } from 'vitest-auto-spy/angular';
+import { injectMatDialogRef, provideMatDialogData, provideMatDialogRef } from 'vitest-auto-spy/angular/doubles';
 
 TestBed.configureTestingModule({
   providers: [provideMatDialogData<EditUserData>(MAT_DIALOG_DATA, { id: 7, name: 'Ada' }), provideMatDialogRef(MatDialogRef)],
@@ -1412,7 +1419,7 @@ Vitest вызовет `initialize()`, поэтому в момент подме�
 ## Проверка сигнала {#asserting-a-signal}
 
 ```ts
-import { registerSignalMatchers } from 'vitest-auto-spy/angular';
+import { registerSignalMatchers } from 'vitest-auto-spy/angular/matchers';
 
 registerSignalMatchers(); // один раз, в вашем файле настройки
 
@@ -1527,7 +1534,7 @@ Readonly-сигнал, который уже прочитал живой пот�
 
 ```ts
 // vitest.setup.ts
-import { enableTestBedDiagnostics } from 'vitest-auto-spy/angular';
+import { enableTestBedDiagnostics } from 'vitest-auto-spy/angular/diagnostics';
 
 if (process.env['SPEC_TIMING']) {
   enableTestBedDiagnostics();
@@ -1764,7 +1771,8 @@ providers because it has already been called`, и сообщение не наз
 ## Хост для директивы под тестом {#a-host-for-a-directive-under-test}
 
 ```ts
-import { createDirectiveHost, registerDirectiveMatchers } from 'vitest-auto-spy/angular';
+import { createDirectiveHost } from 'vitest-auto-spy/angular';
+import { registerDirectiveMatchers } from 'vitest-auto-spy/angular/matchers';
 
 const Host = createDirectiveHost({
   template: `<div [appTruncate]="enabled" [truncateText]="text"></div>`,

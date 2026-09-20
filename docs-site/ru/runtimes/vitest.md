@@ -151,7 +151,7 @@ export default defineConfig({
   роняет прогон, если в дереве оказалась вторая установленная копия пакета.
 
 Регистрация [матчеров для сигналов](/ru/adapters/angular) (`toHaveSignalValue`) — третий кандидат в
-setup-файл для Angular-наборов: `registerSignalMatchers()` из `vitest-auto-spy/angular`.
+setup-файл для Angular-наборов: `registerSignalMatchers()` из `vitest-auto-spy/angular/matchers`.
 
 ## Изоляция {#isolation}
 

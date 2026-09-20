@@ -1146,7 +1146,7 @@ setupAutoSpy({ preset: 'strict' });
   может уронить файл, который ничего не планировал. Кто на самом деле запланировал каждый, называет
   `timers`, так что включается одной строкой, когда сюита их уже прочитала:
   `onStrayTimers: ({ timers }) => expect(timers).toEqual([])`.
-- **`enableAngularDiagnostics()`** — живёт в `vitest-auto-spy/angular` и требует сначала окружения
+- **`enableAngularDiagnostics()`** — живёт в `vitest-auto-spy/angular/diagnostics` и требует сначала окружения
   TestBed. Вызывайте его в том же setup-файле как Angular-половину строгости: на Angular-потребителе
   в 1759 файлов он нашёл настоящие дефекты в 25 файлах и 324 тестах и не стоил ничего измеримого
   (12,5 с против 13,4 с на полный прогон).

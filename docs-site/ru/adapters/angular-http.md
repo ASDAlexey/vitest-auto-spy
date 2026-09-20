@@ -166,7 +166,8 @@ verifyNoPendingRequests(); // больше наружу ничего не ушл
 
 Два следствия, которые стоит проговорить прямо:
 
-- Как и [`/angular-router`](/ru/adapters/angular-router), и в отличие от всех остальных подпутей, этот
+- Как и [`/angular-router`](/ru/adapters/angular-router) — и с 6.0 спутники `/angular/diagnostics`,
+  `/angular/doubles` и `/angular/matchers` — и в отличие от всех остальных подпутей, этот
   **не** реэкспортирует ядро. Он спутник `vitest-auto-spy/angular`, который остаётся импортом для
   спаев, хелперов `TestBed` и `settleResource`.
 - Точка входа весит **2.5 kB min+gzip** (2459 B, замерено так же, как для бейджа в README: бандл
