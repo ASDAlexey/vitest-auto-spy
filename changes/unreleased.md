@@ -21,6 +21,13 @@ arrays and unmocked-call failures in `mockDeep`, a real `Response` for a stubbed
 
 ### Added
 
+- **`prefer-stub-response`, in `recommended` at `error`.** Reports a `Response` written by hand for a
+  stubbed `fetch` — an object literal cast to `Response` (`as Response`, `as unknown as Response`,
+  `<Response>{ … }`) and `createMock<Response>(…)` / `createAutoMock<Response>(…)` — and names
+  `stubResponse({ body })`. Such a literal answers `undefined` for every member it does not list, and
+  the cast is what makes that compile. Syntax only, no program needed; `Response` has to resolve to
+  the **global**, so an Express handler's or a generated client's `Response` is never reported.
+
 - **`--format json` on `doctor` and `perf`.** One JSON document on stdout and nothing else:
   `schema`, `command`, `version`, `cwd`, `exitCode`, `tally` and every finding (`check`, `severity`,
   `file`, `message`, `fix`, `details` without terminal color). `doctor` adds what it scanned;
@@ -86,6 +93,15 @@ arrays and unmocked-call failures in `mockDeep`, a real `Response` for a stubbed
   of a hook is reported too, because the first red assertion skips it.
 
 ### Changed
+
+- **`stubResponse({ body: null })` sends the JSON literal `null`, where it used to send no body.**
+  A behaviour change to a documented contract, and deliberate: `null` was the one JSON literal that
+  did not round-trip — `0`, `false`, `[]` and `{}` all did, while `.json()` on `null` threw
+  `Unexpected end of JSON input`, so `body: null` was indistinguishable from omitting the field. A
+  backend that answers "nothing here" as a JSON `null` is a real shape, and it could not be stubbed.
+  **Migration**: "no body" is `undefined` or an omitted `body`, so a spec that meant that drops the
+  field. `{ body: null, status: 204 }` (205, 304) now throws by name, because those statuses carry
+  no body.
 
 - **One cause is printed once.** Findings of one check with one fix are a single block — the message
   once when every place says the same, each file's own line otherwise, the fix once. On the consumer

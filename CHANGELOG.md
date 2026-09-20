@@ -10,11 +10,127 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
-Three repairs the 5.21.0 Angular split left behind, every one of them silent: `doctor` could not
-see an import from the new companion entries at all, so the migration it makes mandatory went
-unchecked in the direction the split makes easy to get wrong; the property-mock journal warned the
-next spec file about patches a spec had already taken off; and the `sideEffects` manifest called two
-of the three new entries pure, which lets a bundler drop the mock adapter or the compiler import.
+One deliberate reversal of a released contract — `stubResponse({ body: null })` now sends the JSON
+literal instead of no body — with a lint rule beside it for the shape it replaces. Plus three
+repairs the 5.21.0 Angular split left behind, every one of them silent: `doctor` could not see an
+import from the new companion entries at all, so the migration it makes mandatory went unchecked in
+the direction the split makes easy to get wrong; the property-mock journal warned the next spec file
+about patches a spec had already taken off; and the `sideEffects` manifest called two of the three
+new entries pure, which lets a bundler drop the mock adapter or the compiler import.
+
+### Changed
+
+- **`stubResponse({ body: null })` sends the JSON literal `null`, where it used to send no body at
+  all.** This is a behaviour change to a documented contract, and it is deliberate: `null` was the
+  one JSON literal that did not round-trip. `0`, `false`, `[]`, `{}` and every plain object went out
+  as JSON and came back from `.json()`; `null` fell through `isJsonBody` — `typeof null === 'object'`
+  — into the "not JSON" branch, where `body ?? null` sent nothing, so `.json()` threw
+  `SyntaxError: Unexpected end of JSON input` and `body: null` was indistinguishable from omitting
+  the field. That is a trap rather than a preference: a reader who has watched `body: 0` work has no
+  reason to expect this one to behave differently, and nothing said so.
+
+  What found it is the shape a backend really answers. A consumer's spec covers "the backend
+  answered an empty login", which on the wire is the literal `null` — the production guard parses
+  the body and throws on it. Converted to `stubResponse({ body })` the test went red on
+  `TypeError: Cannot read properties of undefined (reading 'indexOf')`, raised while parsing an
+  empty body: an error the spec never asserted, about a branch that was not the one under test. The
+  workaround there was to serialise by hand — `stubResponse({ body: JSON.stringify(value), headers:
+  { 'content-type': 'application/json' } })` — which works, because a string body is sent as it is,
+  and which puts back by hand the one thing `stubResponse` exists to get right.
+
+  **Migration.** "No body" is `undefined` or an omitted `body`, which is the spelling every caller
+  already reaches for; that is what leaves `null` free to mean what it means in JSON. A spec that
+  relied on `null` meaning "no body" drops the field. The realistic breakage is narrow: such a
+  caller got an empty body and now gets `"null"` with an `application/json` content type — almost
+  certainly what they wanted, since `.json()` threw on the old one. The one case that fails loudly
+  instead of quietly changing is `{ body: null, status: 204 }` (205 and 304 likewise): those
+  statuses carry no body, so `stubResponse` throws by name — `was given body: null with status 204,
+  which carries no body` — rather than letting the constructor raise "Response with null body status
+  cannot have body" about a field whose old meaning was the opposite of a body.
+
+### Added
+
+- **`prefer-stub-response`, in `recommended` at `error`.** It reports a `Response` written by hand
+  for a stubbed `fetch`: an object literal cast to `Response` (`as Response`, the
+  `as unknown as Response` spelling reached for when the single cast stops compiling, and
+  `<Response>{ … }`), or a `createMock<Response>(…)` / `createAutoMock<Response>(…)` call. Such a
+  literal answers the two or three members its author thought of and `undefined` for the rest —
+  `status`, `statusText`, `headers`, `url`, `text()`, `arrayBuffer()`, `clone()` — and the cast is
+  what makes that compile as well as what hides it: the code under test branches on a value the real
+  response could never have produced, and the test is green on a path that does not exist. It is the
+  defect `strict` exists to catch, except that a plain object literal is not a double the library
+  knows about, so no guard was watching.
+
+  Both shapes are **visible in the syntax**, so the rule needs no type information — the same
+  footing `no-sync-testbed-await` stands on. One discrimination keeps it honest: `Response` has to
+  resolve to the **global**. A name the file imports (`import { type Response } from 'express'`) or
+  declares itself (a generated client's envelope, a domain type of the same name) has a binding with
+  a definition and is never reported, because `stubResponse` builds the wrong object for those and
+  naming it would be wrong advice. A binding with no definitions counts as the global, which is what
+  `languageOptions.globals` puts in scope for a project that declares its environment.
+
+  `error` rather than a graded severity, for the reason `no-hand-assigned-global` is: the evidence
+  is the line, the repair is a helper this package ships, and there is no migration to gate. It also
+  arrives the way a rule wants to — the consumer that provoked it had already converted its three
+  `fetch` specs by hand, so on the day it ships it reports **zero** there.
+
+- **`createLog()` — the order of calls across collaborators, as one comparable value.** A spy
+  answers whether its one method ran; order lives *between* the spies, and the shapes available for
+  it degrade quickly — one `toHaveBeenCalled` per spy passes in any of the six orders three calls can
+  arrive in, and `toHaveBeenCalledBefore` pins it pairwise with a chain that grows with the square of
+  the collaborators. `createLog<'drop-cache' | 'flush-telemetry'>()` hands back the journal
+  (`add`, `fn(value)` for a labelled callback, `clear`, `items`, `result()` — entries joined with
+  `'; '`), a spec hands `log.fn(…)` to every collaborator, and the assertion is one line naming the
+  whole sequence, failing with the order that actually ran. `T` is a string union on purpose, so a
+  step nobody declared is a compile error rather than a typo the journal records. Ported from
+  Angular's own `Log`, which the framework keeps three copies of across core, router and forms;
+  nothing in the module imports a runner, so the same journal works on Vitest, `bun test` and
+  `node:test`.
+
+- **`provideLocationDouble()` / `injectLocationDouble()` / `createLocationDouble()` — Angular's own
+  `Location` double, in the family shape.** Angular ships the answer to "where did the redirect
+  land, what did the back button do" — `SpyLocation`, with a real history array, a `urlChanges`
+  journal for assertions, and `simulateUrlPop()` / `simulateHashChange()` for the browser's half of
+  the contract — and this wraps it rather than rival it: `provideLocationDouble()` provides it with
+  `MockLocationStrategy` in one line, and `injectLocationDouble()` names the instance that won when
+  the double is not what the injector hands out. That failure is the quiet one worth naming:
+  `Location` is `providedIn: 'root'`, so a spec that forgot the provider gets the platform's real
+  `Location` and nothing a test does to it lands anywhere. Lives in `vitest-auto-spy/angular-router`
+  beside the route and the router — the URL family — and adds no peer of its own:
+  `@angular/router` already depends on `@angular/common`, whose testing classes the double wraps.
+
+- **`resolve` and `title` on `ActivatedRouteInit`.** A route's snapshot carries a resolved-data
+  record in its own field, and a title inside `data` under a symbol `@angular/router` never exports
+  — so `snapshot.title` read `undefined` for every double-built route, and a `TitleStrategy` spec
+  had nowhere to put its title. `provideActivatedRoute({ title: 'Product 7', resolve: { product:
+  productResolver } })` answers `route.snapshot.title` with the string and keeps the resolve record
+  where Angular keeps it. The `RouteTitleKey` symbol is learned from the installed router's own
+  title getter — handed a recording proxy, asked once — rather than guessed, and a router major that
+  stops carrying titles in `data` fails the wiring check with the member named, as a constructor
+  reordering already does.
+
+- **`emitNavigation()` resolves.** It was fire-and-forget; now it returns a promise resolved once
+  the event has been delivered and a navigation it ended is back to `null` — the moment `navigate()`
+  resolves in an application. The work is synchronous, so a caller that ignores the promise sees the
+  same state on the next line; a spec that `await`s it reads a settled router without guessing how
+  many ticks that takes.
+
+- **`collectRouterEvents(events)` — the sequence of router events in one assertion.** Angular's own
+  integration specs collect `router.events` into an array and assert it with pairs of
+  `[EventClass, url]`; the same idiom by hand in a consumer spec is an array, a subscription and a
+  pile of `instanceof` checks that say nothing until read back. The recording starts empty (the
+  double's `events` is a `BehaviorSubject`, and its seed is where the router stands, not something
+  it emitted), ends with the test that started it, and `expect([[NavigationStart, '/checkout'],
+  [NavigationEnd, '/checkout']])` fails naming the event and the URL that was there instead.
+
+- **`verifyNoPendingRequests({ ignoreCancelled })`, and the same opt-in on
+  `verifyOnTeardown`.** `HttpTestingController.verify()` has taken `{ ignoreCancelled }` since
+  Angular 5 — a request the code under test cancelled, by unsubscribing, is taken but no longer held
+  against the test — and `provideHttpTesting({ verifyOnTeardown: { ignoreCancelled: true } })` now
+  threads the same opt-in to the end-of-test check, where a suite that turned the check off entirely
+  to let one unsubscribed `httpResource()` through was throwing away the guarantee for every other
+  test. Predicate matchers in a failure message also name the predicate now
+  (`a predicate (wantsProductList)`), where every predicate in the file read identically.
 
 ### Fixed
 

@@ -8,6 +8,33 @@ reason.
 
 Shipped work is not here either — it is in `CHANGELOG.md` and in git history.
 
+## `stubResponse({ body: null })` and the rule beside it, 2026-09-20
+
+- **`null` serialises; `undefined` and an omitted `body` are the only way to say "no body".** The
+  alternative considered was a third state — an explicit `noBody: true`, or a sentinel — which would
+  have kept `body: null` meaning what it meant. It was rejected because it adds a field to say what
+  the field already says: there is one spelling of "no body" and every caller already writes it, so
+  the literal `null` is free without a new name. The change is a reversal of a released contract and
+  is written up as such in `CHANGELOG.md`; what makes it worth the reversal is that `null` was the
+  one JSON literal that did not round-trip, which is a trap rather than a preference.
+- **`{ body: null, status: 204 }` throws instead of quietly sending no body.** Keeping the old
+  behaviour for exactly the statuses that carry no body was the other option, and it is the worse
+  one: it would leave a single corner of the API where `null` still means the opposite of what it
+  means everywhere else, and nothing in the spec would say so. Letting the platform throw was not
+  enough either — its "Response with null body status cannot have body" names a body where the
+  caller thinks it asked for none. So the message is the library's own and names the migration.
+- [~] **No `--fix` and no suggestion on `prefer-stub-response`.** The mapping is not mechanical.
+  `json: async () => data` is `body: data` only when the arrow is exactly that shape; `ok: true` is
+  not a field to copy but a value `stubResponse` derives from `status`, and copying it produces the
+  `ok`/`status` disagreement the helper throws on; a member with no counterpart in
+  `StubResponseInit` — `body` as a stream the spec built, a `clone` the author wrote — has nowhere
+  to go, and dropping it silently is worse than not offering the edit. The message carries the whole
+  repair instead, which is what the rules that report a shape rather than a spelling do.
+- [~] **The rule does not read types, and will not.** A type-aware version could recognise a
+  `Response` behind an alias or a factory, which is the limit it ships with. It would also make the
+  rule wait for `parserOptions.project`, and the two shapes that matter — a cast and a type argument
+  — are written on the line either way. The same trade `no-sync-testbed-await` made.
+
 ## Mocking gaps from a survey of other libraries, 2026-09-19
 
 - **`mockDeep` arrays are on by default, not behind a flag.** The types have always promised it:
