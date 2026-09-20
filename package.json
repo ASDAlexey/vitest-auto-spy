@@ -232,6 +232,8 @@
     "**/rstest.js",
     "src/rstest.ts",
     "**/angular.js",
+    "**/angular-doubles.js",
+    "**/angular-matchers.js",
     "**/angular-http.js",
     "**/nestjs.js",
     "**/react.js",
