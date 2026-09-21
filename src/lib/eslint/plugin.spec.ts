@@ -26,26 +26,33 @@ describe('the plugin', () => {
     // The README and AGENTS.md tables say the same thing in prose; this is what keeps them honest.
     expect(named((rule) => rule.meta.fixable !== undefined)).toEqual([
       'no-mocked-for-spy',
+      'no-redundant-mock-reset',
       'prefer-as-spy',
       'prefer-native-spy-api',
       'prefer-provide-auto-spy',
     ]);
-    // `no-mocked-for-spy` and `prefer-native-spy-api` declare both: the same edit is applied where
-    // the file settles it and offered where something outside the file has to agree.
+    // `no-mocked-for-spy`, `no-redundant-mock-reset` and `prefer-native-spy-api` declare both: the
+    // same edit is applied where the file settles it and offered where something outside the file —
+    // or, for the reset, somewhere else inside it — has to agree.
     expect(named((rule) => rule.meta.hasSuggestions !== undefined)).toEqual([
       'no-compile-components',
       'no-expect-in-subscribe',
       'no-import-time-spread',
+      'no-mock-cast',
       'no-mocked-for-spy',
       'no-object-define-property',
       'no-overridden-provider',
       'no-passthrough-console-spy',
+      'no-redundant-mock-reset',
       'no-redundant-smoke-test',
+      'no-reflect-member-access',
       'no-sync-testbed-await',
+      'prefer-create-mock',
       'prefer-inject-spy',
       'prefer-native-spy-api',
       'prefer-render-shallow',
       'prefer-set-inputs',
+      'prefer-settle-dynamic-import',
     ]);
   });
 
@@ -61,7 +68,7 @@ describe('the plugin', () => {
     // itself wherever it cannot read a file's registrations in full, and `prefer-native-spy-api`
     // flags a bridge that is still needed. Documented overrides, not severities.
     //
-    // Five rules are graded, and the reason differs between them.
+    // Seven rules are graded, and the reason differs between them.
     //
     // `prefer-render-shallow` is graded on the *kind* of thing it says: the others name something
     // wrong or dead, while this one names a file that could render more cheaply. Moving onto
@@ -82,21 +89,39 @@ describe('the plugin', () => {
     // `no-instance-lifecycle-spy` is graded on the evidence too: a spec that calls the hook itself
     // does reach the instance spy, and the syntax cannot tell that spec from one that relies on Angular.
     //
+    // `prefer-create-mock` is graded on what its repair costs, the same reading as `prefer-set-inputs`
+    // below and not the same as the two heuristics above: the evidence is exact — an object literal
+    // and the type it claims are both written on the line — and the finding is a fixture the
+    // compiler was never allowed to read. What is graded is the migration. Accepting the suggestion
+    // makes the compiler read that literal, so every fixture that has drifted becomes a compile
+    // error the same day; on a 2 032-file consumer the rule reports 1 200 times across 327 files,
+    // which at `error` would be a first upgrade nobody can land in one branch. `off` would be the
+    // wrong end of the same mistake, so the assertion pins `warn` rather than allowing "not error".
+    //
     // `prefer-set-inputs` is graded on what its repair costs. The finding is a fact in the line —
     // `setInput` takes a name Angular checks against nothing — but `setInputs` awaits `stable()`,
     // whose `TestBed.tick()` re-enters the zone's own tick under zone.js: on the same 1771-file
     // consumer the rule reports 504 times in 140 files, and accepting every suggestion turns 57 of
     // 105 green files red on NG0101. That makes adoption a migration a project takes file by file.
     //
-    // `off` would be the wrong end of the same mistake in all four cases, so the assertions pin the
-    // values rather than allowing "not error".
+    // `no-unasserted-argument` is graded on what its repair needs, which is the one thing the rule
+    // cannot supply: the arguments the call should have been made with. Every `error` here either
+    // names an edit or names a helper; this one names a question for the author. Both of its
+    // readings are evidence out of the file rather than a style preference, which is why it is in
+    // `recommended` at all — 175 findings in 90 of one consumer's 2032 spec files, against the 1941
+    // in 360 the blunt `vitest/prefer-called-with` reports on the same tree.
+    //
+    // `off` would be the wrong end of the same mistake in all of these cases, so the assertions pin
+    // the values rather than allowing "not error".
     expect(new Set(levels)).toEqual(new Set(['error', 'warn']));
     expect(plugin.configs.recommended.rules['vitest-auto-spy/prefer-render-shallow']).toBe('warn');
     expect(plugin.configs.recommended.rules['vitest-auto-spy/no-stub-class-double']).toBe('warn');
     expect(plugin.configs.recommended.rules['vitest-auto-spy/no-structural-double']).toBe('warn');
     expect(plugin.configs.recommended.rules['vitest-auto-spy/no-instance-lifecycle-spy']).toBe('warn');
     expect(plugin.configs.recommended.rules['vitest-auto-spy/prefer-set-inputs']).toBe('warn');
-    expect(levels.filter((level) => level !== 'error')).toHaveLength(5);
+    expect(plugin.configs.recommended.rules['vitest-auto-spy/prefer-create-mock']).toBe('warn');
+    expect(plugin.configs.recommended.rules['vitest-auto-spy/no-unasserted-argument']).toBe('warn');
+    expect(levels.filter((level) => level !== 'error')).toHaveLength(7);
     expect(levels).toHaveLength(Object.keys(rules).length);
   });
 

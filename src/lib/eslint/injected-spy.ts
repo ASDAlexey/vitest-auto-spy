@@ -10,7 +10,8 @@
  * reports the instance being re-spied with `vi.spyOn`, which is a run-time defect; `prefer-as-spy`
  * reports the cast, which is a correct intention spelled in a way the compiler no longer takes.
  */
-import { PACKAGE, bindingState, dropNamedImport, initializerOf, insertImport } from './bindings';
+import { PACKAGE, bindingState, dropNamedImport, findBinding, initializerOf, insertImport } from './bindings';
+import { defineRule } from './define-rule';
 import {
   type EsCallExpression,
   type EsFix,
@@ -19,6 +20,7 @@ import {
   type EsTypeReference,
   type EsVariable,
   type RuleContext,
+  type RuleModule,
   type SuggestionDescriptor,
   isCallExpression,
   isIdentifier,
@@ -217,3 +219,40 @@ export function asSpyFixes(context: RuleContext, fixer: EsFixer, node: EsSpyCast
 
   return edits;
 }
+
+/** `TestBed.inject(X) as Spy<X>` → `asSpy(TestBed.inject(X))`. */
+export const preferAsSpy: RuleModule = defineRule({
+  anchor: '-reading-a-spy-back-from-di',
+  description: 'Read a spy back out of the container with asSpy(), not with a cast to Spy<T>',
+  fixable: true,
+  messages: {
+    preferAsSpy:
+      'A cast is not how a spy comes back out of a container. `TestBed.inject(X) as Spy<X>` is the line a `jest-auto-spies` suite carries in every file, and it stops compiling here: `Spy<T>` adds `accessorSpies` and the per-method helpers, so neither type sufficiently overlaps the other and the line fails with `TS2352: Conversion of type ‘X’ to type ‘Spy<X>’ may be a mistake`. `asSpy(...)` makes exactly the same assertion as a typed identity function — the same object at run time, the same claim, no cast — and `injectSpy(X)` is that with the `TestBed.inject` folded in. Neither is for the object under test: a service a spec exercises is not a double, and typing it as the class is the repair there.',
+  },
+  create: (context) => ({
+    'TSAsExpression[typeAnnotation.type="TSTypeReference"][typeAnnotation.typeName.name="Spy"]': (node: EsSpyCast): void => {
+      const spy = findBinding(context.sourceCode.getScope(node), 'Spy');
+
+      // A `Spy` the file declares itself is not this library's, whatever it is called — and unlike
+      // `no-mocked-for-spy`, which reports a `Mocked<T>` it cannot rewrite because the *declaration*
+      // is wrong either way, there is nothing to say about a cast to somebody else's type.
+      if (spy && !spy.defs.some((definition) => definition.type === 'ImportBinding')) {
+        return;
+      }
+
+      const value = assertedValue(node);
+
+      if (!value) {
+        return;
+      }
+
+      const rewritable = bindingState(context.sourceCode.getScope(node), 'asSpy') !== 'taken';
+
+      context.report(
+        rewritable
+          ? { node, messageId: 'preferAsSpy', fix: (fixer: EsFixer): EsFix[] => asSpyFixes(context, fixer, node, value, spy) }
+          : { node, messageId: 'preferAsSpy' },
+      );
+    },
+  }),
+});

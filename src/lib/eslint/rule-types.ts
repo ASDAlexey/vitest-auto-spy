@@ -333,6 +333,8 @@ export interface RuleContext {
   readonly sourceCode: EsSourceCode;
   /** Whatever the ESLint config passed after the severity, validated against `meta.schema`. */
   readonly options: readonly unknown[];
+  /** The file being linted. One rule reads it: `no-redundant-mock-reset` searches upwards for the runner config. */
+  readonly filename: string;
   report(descriptor: ReportDescriptor): void;
 }
 
@@ -723,11 +725,11 @@ export function hasAncestor(node: EsNode, matches: (candidate: EsNode) => boolea
  * asking the question upward — which callback is this expression actually the body of — so the walk
  * is manual.
  */
-export function enclosingFunction(node: EsNode): EsNode | undefined {
+export function enclosingFunction(node: EsNode): EsFunction | undefined {
   let current = node;
 
   while (current.type !== 'Program') {
-    if (FUNCTION_TYPES.has(current.type)) {
+    if (isFunctionNode(current)) {
       return current;
     }
 

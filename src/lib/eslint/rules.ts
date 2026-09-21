@@ -40,31 +40,34 @@
  * rule: `prefer-inject-spy` would then advertise a fix for the shape it can only ever suggest one
  * for, and `--fix` over a suite would look as though it had left its own reports behind.
  */
+import { noVacuousAbsenceAssertion } from './absence-assertion';
 import { type EsPromiseExecutor, type EsSubscribeCall, awaitedRewriteFor } from './await-emission';
 import { bindingState, findBinding } from './bindings';
+import { noUnassertedArgument } from './called-arguments';
 import { noCompileComponents } from './compile-components';
 import { noConsoleInSpec, noImportTimeConsoleSpies, noPassthroughConsoleSpy } from './console-rules';
 import { noConstantExpect } from './constant-expect';
 import { noDeadSchemas } from './dead-schemas';
 import { noStructuralDouble } from './declared-double';
 import { defineRule } from './define-rule';
+import { preferSettleDynamicImport } from './dynamic-import';
+import { noMockCast, preferCreateMock } from './fixture-casts';
 import { isFloatingChain, isPromiseCallback } from './floating-assertion';
 import { noHandAssignedGlobal } from './global-assignment';
 import { countRunnerFns, insideFactorySeed, insideModuleMock, minRunnerFns, substitutesADependency } from './hand-rolled-doubles';
 import { lazyValueSuggestion, runsAtImportTime, spreadFailureMode, spreadOfImport } from './import-time-spread';
 import {
-  type EsSpyCast,
   INJECTED_SPY_SCHEMA,
-  asSpyFixes,
-  assertedValue,
   injectSpySuggestion,
   injectedFromVariable,
   isTestBedInject,
   keepsTheRealInstance,
+  preferAsSpy,
 } from './injected-spy';
 import { jasmineRules } from './jasmine-rules';
 import { noInstanceLifecycleSpy } from './lifecycle-spy';
 import { noMistypedUseValue } from './mistyped-use-value';
+import { noRedundantMockReset } from './mock-reset';
 import { type EsMockedTypeName, namesOneType, rewritesTheWholeDeclaration, spyTypeFixes } from './mocked-declaration';
 import { preferObserverStub } from './observer-stub';
 import { noOverriddenProvider } from './overridden-provider';
@@ -72,6 +75,7 @@ import { preferRenderShallow } from './prefer-render-shallow';
 import { noPrivateMemberAccess } from './private-access';
 import { patchKey, propHelperSuggestion } from './prop-helpers';
 import { preferProvideAutoSpy } from './provide-auto-spy';
+import { noReflectMemberAccess } from './reflect-access';
 import { preferProvideActivatedRoute } from './route-double';
 import {
   type EsArrayExpression,
@@ -97,6 +101,7 @@ import {
   isMemberExpression,
   memberName,
 } from './rule-types';
+import { noSelfCalledSpy } from './self-called-spy';
 import { preferSetInputs } from './set-inputs';
 import { noRedundantSmokeTest } from './smoke-test';
 import { noStubClassDouble } from './stub-class';
@@ -408,43 +413,6 @@ const noMockedForSpy = defineRule({
   },
 });
 
-/** `TestBed.inject(X) as Spy<X>` → `asSpy(TestBed.inject(X))`. */
-const preferAsSpy = defineRule({
-  anchor: '-reading-a-spy-back-from-di',
-  description: 'Read a spy back out of the container with asSpy(), not with a cast to Spy<T>',
-  fixable: true,
-  messages: {
-    preferAsSpy:
-      'A cast is not how a spy comes back out of a container. `TestBed.inject(X) as Spy<X>` is the line a `jest-auto-spies` suite carries in every file, and it stops compiling here: `Spy<T>` adds `accessorSpies` and the per-method helpers, so neither type sufficiently overlaps the other and the line fails with `TS2352: Conversion of type ‘X’ to type ‘Spy<X>’ may be a mistake`. `asSpy(...)` makes exactly the same assertion as a typed identity function — the same object at run time, the same claim, no cast — and `injectSpy(X)` is that with the `TestBed.inject` folded in. Neither is for the object under test: a service a spec exercises is not a double, and typing it as the class is the repair there.',
-  },
-  create: (context) => ({
-    'TSAsExpression[typeAnnotation.type="TSTypeReference"][typeAnnotation.typeName.name="Spy"]': (node: EsSpyCast): void => {
-      const spy = findBinding(context.sourceCode.getScope(node), 'Spy');
-
-      // A `Spy` the file declares itself is not this library's, whatever it is called — and unlike
-      // `no-mocked-for-spy`, which reports a `Mocked<T>` it cannot rewrite because the *declaration*
-      // is wrong either way, there is nothing to say about a cast to somebody else's type.
-      if (spy && !spy.defs.some((definition) => definition.type === 'ImportBinding')) {
-        return;
-      }
-
-      const value = assertedValue(node);
-
-      if (!value) {
-        return;
-      }
-
-      const rewritable = bindingState(context.sourceCode.getScope(node), 'asSpy') !== 'taken';
-
-      context.report(
-        rewritable
-          ? { node, messageId: 'preferAsSpy', fix: (fixer: EsFixer): EsFix[] => asSpyFixes(context, fixer, node, value, spy) }
-          : { node, messageId: 'preferAsSpy' },
-      );
-    },
-  }),
-});
-
 /**
  * Whether `node` is the first parameter of a test callback this rule has already reported.
  *
@@ -675,6 +643,7 @@ export const rules: Record<string, RuleModule> = {
   'prefer-inject-spy': preferInjectSpy,
   'no-object-define-property': noObjectDefineProperty,
   'no-expect-in-subscribe': noExpectInSubscribe,
+  'no-vacuous-absence-assertion': noVacuousAbsenceAssertion,
   'no-shared-module-level-mock': noSharedModuleLevelMock,
   'no-mocked-for-spy': noMockedForSpy,
   'prefer-as-spy': preferAsSpy,
@@ -684,6 +653,7 @@ export const rules: Record<string, RuleModule> = {
   'no-overridden-provider': noOverriddenProvider,
   'no-inject-before-override': noInjectBeforeOverride,
   'no-private-member-access': noPrivateMemberAccess,
+  'no-reflect-member-access': noReflectMemberAccess,
   'no-dead-schemas': noDeadSchemas,
   'no-import-time-spread': noImportTimeSpread,
   'no-unregistered-inject-spy': noUnregisteredInjectSpy,
@@ -691,6 +661,9 @@ export const rules: Record<string, RuleModule> = {
   'prefer-observer-stub': preferObserverStub,
   'no-hand-assigned-global': noHandAssignedGlobal,
   'prefer-stub-response': preferStubResponse,
+  'prefer-settle-dynamic-import': preferSettleDynamicImport,
+  'prefer-create-mock': preferCreateMock,
+  'no-mock-cast': noMockCast,
   'prefer-provide-activated-route': preferProvideActivatedRoute,
   'no-stub-class-double': noStubClassDouble,
   'no-structural-double': noStructuralDouble,
@@ -703,8 +676,11 @@ export const rules: Record<string, RuleModule> = {
   'no-ts-expect-error-on-double': noTsExpectErrorOnDouble,
   'no-constant-expect': noConstantExpect,
   'no-compile-components': noCompileComponents,
+  'no-redundant-mock-reset': noRedundantMockReset,
+  'no-unasserted-argument': noUnassertedArgument,
   'no-sync-testbed-await': noSyncTestbedAwait,
   'no-redundant-smoke-test': noRedundantSmokeTest,
+  'no-self-called-spy': noSelfCalledSpy,
   'prefer-set-inputs': preferSetInputs,
   ...jasmineRules,
 };

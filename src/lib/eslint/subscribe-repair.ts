@@ -124,7 +124,7 @@ export interface EsNamedCall extends EsCallExpression {
 }
 
 /** The function a name is bound to in this file — declared or assigned, either spelling. */
-function localFunction(context: RuleContext, identifier: EsIdentifier): EsNode | undefined {
+export function localFunction(context: RuleContext, identifier: EsIdentifier): EsNode | undefined {
   const scope = context.sourceCode.getScope(identifier);
   const binding = findBinding(scope, identifier.name);
   const declared = binding?.defs.map((definition) => definition.node).find(isFunctionNode);
