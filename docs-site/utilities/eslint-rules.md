@@ -1,6 +1,6 @@
 ---
 title: ESLint rules
-description: A reference section for each of the forty rules — what it reports, what it decides on, why it is in recommended, where it reports working code, and why its severity is what it is.
+description: A reference section for each of the forty-eight rules — what it reports, what it decides on, why it is in recommended, where it reports working code, and why its severity is what it is.
 ---
 
 # ESLint rules
@@ -34,53 +34,61 @@ Every section answers the same six questions:
 
 <!-- The id is frozen on purpose: configs already point at #the-twenty-five-rules. Keep it when the rule count changes. -->
 
-## The forty rules {#the-twenty-five-rules}
+## The forty-eight rules {#the-twenty-five-rules}
 
 Grouped by subject, the same grouping the [setup page](/utilities/eslint-plugin) uses. Every rule is
 an `error` except five.
 
-| Rule                                                                  | In `recommended` | Reports                                                                                     |
-| --------------------------------------------------------------------- | ---------------- | ------------------------------------------------------------------------------------------- |
-| [`no-expect-in-subscribe`](#no-expect-in-subscribe)                   | `error`          | `expect()` inside a `subscribe` callback — it runs only if the stream emits                 |
-| [`no-floating-assertion`](#no-floating-assertion)                     | `error`          | `expect()` in a `.then()` chain nothing awaits                                              |
-| [`no-done-callback`](#no-done-callback)                               | `error`          | a first parameter that is called, passed on or unused, and `done.fail(…)` beneath it        |
-| [`no-bare-called-with`](#no-bare-called-with)                         | `error`          | `calledWith(…)` / `mustBeCalledWith(…)` as a statement of its own                           |
-| [`no-constant-expect`](#no-constant-expect)                           | `error`          | `expect(true).toBe(true)` — a value spelled out in the spec, under a matcher it decides     |
-| [`no-redundant-smoke-test`](#no-redundant-smoke-test)                 | `error`          | a test whose whole body asserts the subject exists, beside tests that already run its setup |
-| [`prefer-create-spy-from-class`](#prefer-create-spy-from-class)       | `error`          | an object literal of two or more `vi.fn()`s                                                 |
-| [`no-stub-class-double`](#no-stub-class-double)                       | `warn`           | a class whose fields are `vi.fn()`s — the same double with a `new` in front of it           |
-| [`no-structural-double`](#no-structural-double)                       | `warn`           | an object of `vi.fn()`s bound to a name declared as an object of Vitest `Mock`s             |
-| [`no-shared-module-level-mock`](#no-shared-module-level-mock)         | `error`          | an **exported** value that builds `vi.fn()`s while the module loads                         |
-| [`no-object-define-property`](#no-object-define-property)             | `error`          | `Object.defineProperty` / `defineProperties` in a spec                                      |
-| [`no-import-time-spread`](#no-import-time-spread)                     | `error`          | a spread of an imported binding evaluated at module scope                                   |
-| [`prefer-observer-stub`](#prefer-observer-stub)                       | `error`          | an observer global replaced by hand or through the runner                                   |
-| [`no-hand-assigned-global`](#no-hand-assigned-global)                 | `error`          | `global.fetch = vi.fn()` — a double assigned to a global that no teardown puts back         |
-| [`prefer-stub-response`](#prefer-stub-response)                       | `error`          | an object literal cast to `Response`, or `createMock<Response>(…)` — half a response        |
-| [`prefer-provide-activated-route`](#prefer-provide-activated-route)   | `error`          | an `ActivatedRoute` provided as a hand-built object, class or factory — half a route        |
-| [`no-passthrough-console-spy`](#no-passthrough-console-spy)           | `error`          | `vi.spyOn(console, m)` nothing gives an implementation — it calls through and prints        |
-| [`no-console-in-spec`](#no-console-in-spec)                           | `error`          | a spec that calls a console method, or replaces one by assignment                           |
-| [`no-import-time-console-spies`](#no-import-time-console-spies)       | `error`          | an import of `vitest-auto-spy/console` in a file that never calls `installConsoleSpies()`   |
-| [`prefer-provide-auto-spy`](#prefer-provide-auto-spy)                 | `error`          | a provider that hand-rolls a service double, or spells `provideAutoSpy` out                 |
-| [`prefer-inject-spy`](#prefer-inject-spy)                             | `error`          | `vi.spyOn` over the instance `TestBed.inject` handed back                                   |
-| [`no-unregistered-inject-spy`](#no-unregistered-inject-spy)           | `error`          | `injectSpy(X)` for a token this file never registered as an auto-spy                        |
-| [`prefer-render-shallow`](#prefer-render-shallow)                     | `warn`           | `TestBed.createComponent` in a file that never reads the rendered template                  |
-| [`prefer-set-inputs`](#prefer-set-inputs)                             | `warn`           | a run of `fixture.componentRef.setInput(…)` — a name Angular checks against nothing         |
-| [`no-overridden-provider`](#no-overridden-provider)                   | `error`          | a provider a later one, or a `TestBed.overrideProvider`, replaces                           |
-| [`no-inject-before-override`](#no-inject-before-override)             | `error`          | an injection in a hook, in a suite that still calls `TestBed.override*`                     |
-| [`no-dead-schemas`](#no-dead-schemas)                                 | `error`          | `schemas` on a testing module that declares nothing                                         |
-| [`no-mistyped-use-value`](#no-mistyped-use-value)                     | `error`          | a `useValue` that does not fit the primitive type its `InjectionToken` declares             |
-| [`no-unknown-use-value-key`](#no-unknown-use-value-key)               | `error`          | a key of an object `useValue` the provided type does not have — keys only                   |
-| [`no-instance-lifecycle-spy`](#no-instance-lifecycle-spy)             | `warn`           | `vi.spyOn(component, 'ngOnInit')` — a hook spy Angular never calls                          |
-| [`no-compile-components`](#no-compile-components)                     | `error`          | `compileComponents()` under a builder that inlines resources — silent until told so         |
-| [`no-sync-testbed-await`](#no-sync-testbed-await)                     | `error`          | `await` on a TestBed call that answers the TestBed or a fixture, never a promise            |
-| [`no-private-member-access`](#no-private-member-access)               | `error`          | a `private` / `protected` member reached through brackets, a cast, or the prototype         |
-| [`no-mocked-for-spy`](#no-mocked-for-spy)                             | `error`          | `Mocked<T>` in a type position where the value is a spy                                     |
-| [`prefer-as-spy`](#prefer-as-spy)                                     | `error`          | `TestBed.inject(X) as Spy<X>` — a cast that no longer compiles                              |
-| [`no-ts-expect-error-on-double`](#no-ts-expect-error-on-double)       | `error`          | `@ts-expect-error` / `@ts-ignore` above a double's `nextWith`, `mockReturnValue`, …         |
-| [`no-jasmine-globals`](#no-jasmine-globals)                           | `error`          | `jasmine.*`, bare `spyOn(` / `fail(` / `pending(`, and `.withContext(`                      |
-| [`jasmine-namespace-without-entry`](#jasmine-namespace-without-entry) | `error`          | `.and` / `.calls` / `.withArgs` in a file that installs the compatibility layer nowhere     |
-| [`no-save-arguments-by-value`](#no-save-arguments-by-value)           | `error`          | `spy.calls.saveArgumentsByValue()` — a no-op here                                           |
-| [`prefer-native-spy-api`](#prefer-native-spy-api)                     | `error`          | `.and` / `.calls` where the spy's own API says the same thing                               |
+| Rule                                                                  | In `recommended` | Reports                                                                                          |
+| --------------------------------------------------------------------- | ---------------- | ------------------------------------------------------------------------------------------------ |
+| [`no-expect-in-subscribe`](#no-expect-in-subscribe)                   | `error`          | `expect()` inside a `subscribe` callback — it runs only if the stream emits                      |
+| [`no-vacuous-absence-assertion`](#no-vacuous-absence-assertion)       | `error`          | a test whose every assertion a stream that never emits already satisfies                         |
+| [`no-floating-assertion`](#no-floating-assertion)                     | `error`          | `expect()` in a `.then()` chain nothing awaits                                                   |
+| [`no-done-callback`](#no-done-callback)                               | `error`          | a first parameter that is called, passed on or unused, and `done.fail(…)` beneath it             |
+| [`no-bare-called-with`](#no-bare-called-with)                         | `error`          | `calledWith(…)` / `mustBeCalledWith(…)` as a statement of its own                                |
+| [`no-constant-expect`](#no-constant-expect)                           | `error`          | `expect(true).toBe(true)` — a value spelled out in the spec, under a matcher it decides          |
+| [`no-redundant-smoke-test`](#no-redundant-smoke-test)                 | `error`          | a test whose whole body asserts the subject exists, beside tests that already run its setup      |
+| [`no-self-called-spy`](#no-self-called-spy)                           | `error`          | a test that calls the spied method itself and then asserts that it was called                    |
+| [`prefer-settle-dynamic-import`](#prefer-settle-dynamic-import)       | `error`          | `await import('…')` in a test body — it waits for the module, not for the code under test        |
+| [`no-unasserted-argument`](#no-unasserted-argument)                   | `warn`           | a bare `toHaveBeenCalled()` where the file itself shows the arguments are what the test is about |
+| [`prefer-create-mock`](#prefer-create-mock)                           | `warn`           | an object literal under `as SomeType` — a cast passes an excess key and a missing one            |
+| [`no-mock-cast`](#no-mock-cast)                                       | `error`          | `TestBed.inject(S).m as Mock` — `Mock` is `Mock<any>`, so the arguments stop being compared      |
+| [`prefer-create-spy-from-class`](#prefer-create-spy-from-class)       | `error`          | an object literal of two or more `vi.fn()`s                                                      |
+| [`no-stub-class-double`](#no-stub-class-double)                       | `warn`           | a class whose fields are `vi.fn()`s — the same double with a `new` in front of it                |
+| [`no-structural-double`](#no-structural-double)                       | `warn`           | an object of `vi.fn()`s bound to a name declared as an object of Vitest `Mock`s                  |
+| [`no-shared-module-level-mock`](#no-shared-module-level-mock)         | `error`          | an **exported** value that builds `vi.fn()`s while the module loads                              |
+| [`no-object-define-property`](#no-object-define-property)             | `error`          | `Object.defineProperty` / `defineProperties` in a spec                                           |
+| [`no-import-time-spread`](#no-import-time-spread)                     | `error`          | a spread of an imported binding evaluated at module scope                                        |
+| [`prefer-observer-stub`](#prefer-observer-stub)                       | `error`          | an observer global replaced by hand or through the runner                                        |
+| [`no-hand-assigned-global`](#no-hand-assigned-global)                 | `error`          | `global.fetch = vi.fn()` — a double assigned to a global that no teardown puts back              |
+| [`prefer-stub-response`](#prefer-stub-response)                       | `error`          | an object literal cast to `Response`, or `createMock<Response>(…)` — half a response             |
+| [`no-redundant-mock-reset`](#no-redundant-mock-reset)                 | `error`          | a mock reset in a hook the runner already performs between tests                                 |
+| [`prefer-provide-activated-route`](#prefer-provide-activated-route)   | `error`          | an `ActivatedRoute` provided as a hand-built object, class or factory — half a route             |
+| [`no-passthrough-console-spy`](#no-passthrough-console-spy)           | `error`          | `vi.spyOn(console, m)` nothing gives an implementation — it calls through and prints             |
+| [`no-console-in-spec`](#no-console-in-spec)                           | `error`          | a spec that calls a console method, or replaces one by assignment                                |
+| [`no-import-time-console-spies`](#no-import-time-console-spies)       | `error`          | an import of `vitest-auto-spy/console` in a file that never calls `installConsoleSpies()`        |
+| [`prefer-provide-auto-spy`](#prefer-provide-auto-spy)                 | `error`          | a provider that hand-rolls a service double, or spells `provideAutoSpy` out                      |
+| [`prefer-inject-spy`](#prefer-inject-spy)                             | `error`          | `vi.spyOn` over the instance `TestBed.inject` handed back                                        |
+| [`no-unregistered-inject-spy`](#no-unregistered-inject-spy)           | `error`          | `injectSpy(X)` for a token this file never registered as an auto-spy                             |
+| [`prefer-render-shallow`](#prefer-render-shallow)                     | `warn`           | `TestBed.createComponent` in a file that never reads the rendered template                       |
+| [`prefer-set-inputs`](#prefer-set-inputs)                             | `warn`           | a run of `fixture.componentRef.setInput(…)` — a name Angular checks against nothing              |
+| [`no-overridden-provider`](#no-overridden-provider)                   | `error`          | a provider a later one, or a `TestBed.overrideProvider`, replaces                                |
+| [`no-inject-before-override`](#no-inject-before-override)             | `error`          | an injection in a hook, in a suite that still calls `TestBed.override*`                          |
+| [`no-dead-schemas`](#no-dead-schemas)                                 | `error`          | `schemas` on a testing module that declares nothing                                              |
+| [`no-mistyped-use-value`](#no-mistyped-use-value)                     | `error`          | a `useValue` that does not fit the primitive type its `InjectionToken` declares                  |
+| [`no-unknown-use-value-key`](#no-unknown-use-value-key)               | `error`          | a key of an object `useValue` the provided type does not have — keys only                        |
+| [`no-instance-lifecycle-spy`](#no-instance-lifecycle-spy)             | `warn`           | `vi.spyOn(component, 'ngOnInit')` — a hook spy Angular never calls                               |
+| [`no-compile-components`](#no-compile-components)                     | `error`          | `compileComponents()` under a builder that inlines resources — silent until told so              |
+| [`no-sync-testbed-await`](#no-sync-testbed-await)                     | `error`          | `await` on a TestBed call that answers the TestBed or a fixture, never a promise                 |
+| [`no-private-member-access`](#no-private-member-access)               | `error`          | a `private` / `protected` member reached through brackets, a cast, or the prototype              |
+| [`no-reflect-member-access`](#no-reflect-member-access)               | `error`          | `Reflect.get` / `Reflect.set` on a subject the test holds — a key no compiler checks             |
+| [`no-mocked-for-spy`](#no-mocked-for-spy)                             | `error`          | `Mocked<T>` in a type position where the value is a spy                                          |
+| [`prefer-as-spy`](#prefer-as-spy)                                     | `error`          | `TestBed.inject(X) as Spy<X>` — a cast that no longer compiles                                   |
+| [`no-ts-expect-error-on-double`](#no-ts-expect-error-on-double)       | `error`          | `@ts-expect-error` / `@ts-ignore` above a double's `nextWith`, `mockReturnValue`, …              |
+| [`no-jasmine-globals`](#no-jasmine-globals)                           | `error`          | `jasmine.*`, bare `spyOn(` / `fail(` / `pending(`, and `.withContext(`                           |
+| [`jasmine-namespace-without-entry`](#jasmine-namespace-without-entry) | `error`          | `.and` / `.calls` / `.withArgs` in a file that installs the compatibility layer nowhere          |
+| [`no-save-arguments-by-value`](#no-save-arguments-by-value)           | `error`          | `spy.calls.saveArgumentsByValue()` — a no-op here                                                |
+| [`prefer-native-spy-api`](#prefer-native-spy-api)                     | `error`          | `.and` / `.calls` where the spy's own API says the same thing                                    |
 
 Six of them have options: [`prefer-create-spy-from-class`](#prefer-create-spy-from-class),
 [`no-stub-class-double`](#no-stub-class-double) and
@@ -160,6 +168,93 @@ handlers, a test callback that takes the Vitest context, a `done` mentioned more
 
 **Severity.** `error`. The finding is a test that passes while asserting nothing, and the repair is
 mechanical for most of the population.
+
+## no-vacuous-absence-assertion
+
+**`error`** · no fix · syntax and scope only
+
+**Reports.** A test in which **every** assertion holds on the state "nothing happened" — where the
+value under assertion is a variable the test declared and only a `subscribe` callback writes, or a
+`vi.fn()` the test hands straight to `subscribe`.
+
+**Decides on.** Three facts, all of them in the file.
+
+- **The carrier.** A `const` / `let` declared inside this test whose every write, the declaration
+  aside, sits inside a `subscribe` callback of the same test — the assignment form
+  (`subscribe((r) => (chips = r))`) and the `push` form (`subscribe((r) => seen.push(r))`) both
+  count — or a name bound to `vi.fn()` that the test hands to `subscribe` and calls nowhere itself.
+- **What silence leaves there**, read as the source text of the initialiser (`'undefined'` for a
+  `let` with none). An equality matcher repeating that text (`let chips = []` …
+  `expect(chips).toEqual([])`) holds on silence; so do `toBeUndefined` / `not.toBeDefined` where the
+  declaration holds `undefined`, `toBeNull` where it holds `null`, `toBeFalsy` / `not.toBeTruthy`
+  where it holds any falsy literal, `toHaveLength(0)` where it holds `[]` or `''`, and
+  `not.toHaveBeenCalled` / `not.toHaveBeenCalledWith` / `toHaveBeenCalledTimes(0)` on any subject.
+  This is deliberately literal rather than by matcher family: `toBeNull()` on a `let` with no
+  initialiser does fail on silence, and is not reported.
+- **That nothing else in the test could fail.** Every other `expect()` in the test is weighed the
+  same way, and a single one that a silent source could fail silences the rule.
+
+**Finding, and the repair.**
+
+```ts
+it('yields an empty list when no sub-genre resolved to an address', () => {
+  let chips: MusicGenreChip[] = [];
+
+  load$(quickLinks).subscribe((result) => (chips = result)); // ❌ the test is green if this never runs
+
+  expect(chips).toEqual([]);
+  expect(music.getMusicShelfById).not.toHaveBeenCalled();
+});
+```
+
+```ts
+it('asks for no shelf when no sub-genre resolved to an address', async () => {
+  await expectNoEmission(load$(quickLinks));
+
+  expect(music.getMusicShelfById).not.toHaveBeenCalled();
+});
+```
+
+…when silence is the claim, or [`expectEmission`](/core/observable-assertions) when the empty list
+is:
+
+```ts
+expect(await expectEmission(load$(quickLinks))).toEqual([]);
+```
+
+**Why it is recommended.** Proved by mutation, twice, on a 2 030-file Angular suite. Replacing the
+production source of the file above with one that never emits failed three of its siblings and left
+this test green; the same swap in a promo-banner service failed four tests and left two, both of
+this shape. Two tests further down that same music file capture into `let chips: … | null = null`
+and assert `toEqual([])`, which _does_ fail on silence — the author knew the idiom and did not apply
+it everywhere, which is what a linter is for. On that suite the rule reports **39 times across 33
+files**, 22 of them a written capture and 17 a `vi.fn()` handed to `subscribe`.
+
+It is the other half of [`no-expect-in-subscribe`](#no-expect-in-subscribe): that one reports the
+assertion a silent stream never reaches, this one the assertion a silent stream satisfies.
+
+**Limits.** A test that also asserts something positive is never reported, even where one of its
+lines is vacuous — the strongest single site on the consumer is a `let result: void | undefined`
+capture beside three `toHaveBeenCalledWith` assertions, and it stays silent. Only `expect()` counts
+as an assertion, so `assert.exists(…)` and an awaited `expectCompletion(…)` do not hold the rule
+off. A test that reaches its assertions through a helper of its own is skipped entirely, since the
+rule cannot weigh what the helper asserts. A chain it cannot read to the end — `resolves`,
+`rejects`, a matcher taken as a value — counts as an assertion that can fail, which can only make
+the rule quieter.
+
+**Severity.** `error`. The evidence is the declaration and the matchers, both in the file; the
+finding is a test that proves nothing about the source it names; and the repair is one test at a
+time, not a migration. It does not arrive at zero on a large suite, and that is the same position
+[`prefer-settle-dynamic-import`](#prefer-settle-dynamic-import) ships in: which findings block a
+merge stays one line of config.
+
+**No fix, and no suggestion.** The repair is not an edit at the reported node. It deletes the
+declaration, replaces the subscription with an awaited helper, drops the assertion, makes the
+callback `async` and adds an import — five coordinated edits — and `expectNoEmission` asserts
+something _stronger_ than the line it replaces, so a wrongly accepted suggestion turns a green test
+red with a message about the helper rather than about the code. The message carries the whole
+repair instead, which is what [`prefer-stub-response`](#prefer-stub-response) does for the same
+reason.
 
 ## no-floating-assertion
 
@@ -444,6 +539,68 @@ read as one test, whatever the table holds.
 
 **Severity.** `error`. The finding is a fact about the file: nothing the code under test does can
 change the answer, and the repair is a deletion.
+
+## no-self-called-spy
+
+**`error`** · no fix · syntax and scope only
+
+**Reports.** Inside one test body: `vi.spyOn(obj, 'm')`, then a direct `obj.m(…)` written by the test
+itself **after** it, then a positive `toHaveBeenCalled*` on that same member.
+
+**Decides on.** Three positions in one test, matched on the text of the object and the name of the
+member. Order is the whole rule: the same three shapes in another order are ordinary arrangement — a
+spec that puts the subject into a state, installs the spy afterwards and then drives the production
+path is doing exactly the right thing.
+
+**Finding, and the repair.**
+
+```ts
+it('relays subscribeClick from children', () => {
+  const emitSpy = vi.spyOn(component.subscribeClick, 'emit');
+  component.subscribeClick.emit(payload); // ❌ the test makes its own assertion true
+  expect(emitSpy).toHaveBeenCalledWith(payload);
+});
+```
+
+```ts
+it('relays subscribeClick from children', () => {
+  const emitSpy = vi.spyOn(component.subscribeClick, 'emit');
+  renderShallow(Parent).query(ChildComponent).subscribeClick.emit(payload);
+
+  expect(emitSpy).toHaveBeenCalledWith(payload);
+});
+```
+
+**Why it is recommended.** The test above proves that `EventEmitter.emit` calls `EventEmitter.emit`.
+Delete the `(subscribeClick)="…"` binding its title names and it stays green: it survives the removal
+of the behaviour it claims to check, which is the one failure it cannot report.
+
+**It is a quiet rule, and that is said out loud.** On the 2 030-file consumer it was measured against
+it reports **5 sites in 3 files** — three `EventEmitter.emit` relays in one component spec and two
+more of the same shape elsewhere. That is below the bar a count would set, and it is not what the
+rule is in `recommended` for: what it costs a suite is nothing (no finding on a spec that drives the
+production path), and what it catches is a test with no subject in it at all.
+
+**Limits.** A **negated** assertion is never reported, nor `toHaveBeenCalledTimes(0)`: "it was not
+called" is not made true by a call. Neither is a call whose record a `mockClear` / `mockReset` /
+`mockRestore` / `vi.clearAllMocks()` drops before the assertion reads it — that is the spec saying in
+its own text that the assertion is about the production path, and five sites in one file of the
+measured consumer are exactly that. Nor an assertion whose arguments are not the ones the call
+passed: `expect(component.scale.set).toHaveBeenCalledWith(3)` under an arranging
+`component.scale.set(2)` cannot be satisfied by that line. The argument check compares source text,
+so it errs quiet — the same value spelled two ways is a finding this rule lets through rather than a
+report it has to defend. A spy installed in a **hook** is out of scope: it is shared by every test of
+the block, and most of them drive the production path. A call from **inside a callback** is not the
+test calling it; the code under test is.
+
+**No fix, and no suggestion.** There is no edit at the reported node. The repair is to drive whatever
+should make the call — dispatch the DOM event, emit on the collaborator's double, call the public
+method that should relay — and that is a judgement about what the test meant, which
+[`no-vacuous-absence-assertion`](#no-vacuous-absence-assertion) declines for the same reason. The
+message carries the whole repair instead.
+
+**Severity.** `error`. The evidence is three lines of the file in one order, nothing is decided on a
+heuristic, and what it reports is a test that proves nothing about the code it names.
 
 ## prefer-create-spy-from-class
 
@@ -1031,6 +1188,385 @@ reported where the cast is written and nowhere else. A `Response` assembled memb
 **Severity.** `error`. The evidence is the line, the repair is a helper this package ships, and
 there is no migration to gate — a suite that already builds its responses with `stubResponse` sees
 nothing.
+
+## prefer-settle-dynamic-import
+
+**`error`** · suggestion · syntax only
+
+**Reports.** A dynamic `import()` the spec itself waits for, written in a test body or a hook:
+`await import('./thing')`, the destructured `const { Thing } = await import('./thing')`, and
+`import('./thing').then(…)`.
+
+**Decides on.** Two facts in the file. What is on the `import()` — an `await` parent, or a `.then`
+member call — and which function it sits in: the report is made only where the innermost enclosing
+function is the runner's own callback (`it`, `test`, `beforeEach`, `beforeAll`, `afterEach`,
+`afterAll`, in their `.only`, `.skip` and `.each` spellings). No program, the same footing
+[`no-sync-testbed-await`](#no-sync-testbed-await) stands on.
+
+That one reading is what settles every exemption, because each shape where the helper is the wrong
+advice puts a function of its own between the callback and the import: a `vi.mock` / `vi.doMock`
+factory, a lazy route's `loadComponent` / `loadChildren` in a fixture the spec hands to the router,
+a callback the spec gives the code under test, and `settleDynamicImport`'s own `() => import(…)`. A
+module-scope `import()` has no enclosing callback at all.
+
+**Finding, and the repair.**
+
+```ts
+// The click handler does `await import('./exit-from-app.component')` and then opens the dialog.
+button.click();
+await import('./exit-from-app.component'); // ❌
+expect(dialog.open).toHaveBeenCalled();
+```
+
+```ts
+button.click();
+await settleDynamicImport(() => import('./exit-from-app.component'));
+expect(dialog.open).toHaveBeenCalled();
+```
+
+The suggestion wraps the `import()` where it stands and adds the import of the helper, merging the
+specifier into an existing `vitest-auto-spy` import when the file has one.
+
+**Why it is recommended.** Awaiting the same specifier does wait for the **module** — the registry
+is shared, so the spec's `import()` resolves against the instance the code under test is already
+loading. It does not wait for that code's own continuation: the lines after _its_ `await`, which are
+the ones that open the dialog, set the signal or navigate, are queued behind the loader's microtask.
+The assertion therefore reads the state one turn early. Such a test is green only while the
+continuation is short enough to have drained by accident, and it turns red the day somebody adds a
+line to it — a flake with no bad line in it.
+[`settleDynamicImport`](/utilities/event-loop#settledynamicimport-load-turns) is the same load
+followed by `flushEventLoop(turns)`, which is the turn that continuation needs; `fakeAsync` /
+`tick()` / `flushMicrotasks()` cannot stand in for it, because they drive Angular's zone queues and
+the module loader is not one of them.
+
+Measured on an Angular monorepo of 2 030 spec files: **81 reports across 32 files**, and what makes
+the rule worth having is what sits beside them. Four of the reports in one file carry a hand-written
+`await Promise.resolve()` under the import — a `flushEventLoop(1)` spelled out — and eleven more
+sites of the same shape had already been moved into spec-local helpers called `flushPinCodeChunk`,
+`settleProfileSelectImport`, `settleModalImports`, `settleModalComponentImport` and
+`flushLazyImport`, two of them with a loop of five `await Promise.resolve()` under the import. The
+suite had rewritten this helper by hand eleven times before the rule existed, which is also why the
+limit below is a limit rather than a gap: those eleven are exactly the shape the rule declines to
+read.
+
+**Limits.** Two, and both are the same reading declining to guess. A spec-local
+`const load = async () => { await import('…'); }` is **not** reported: a named function whose body
+awaits an import is written identically whether the spec calls it itself or hands it to the code
+under test as a loader, and for the second `settleDynamicImport` would be wrong advice — nothing in
+the file settles which it is. And a callback something other than the runner invokes is out of
+scope for the same reason, `it('x', waitForAsync(async () => …))` included. Neither is silent about
+a defect the rule can prove; both are a rule that reports only what one file settles.
+
+**Severity.** `error`. The evidence is the line, the repair is one line the rule offers as an edit,
+and there is no migration to gate — adopting it is not a decision a suite takes file by file, the
+way [`prefer-set-inputs`](#prefer-set-inputs) is. It does not arrive at zero on a large suite the
+way [`prefer-stub-response`](#prefer-stub-response) did, and that is the argument for `error` rather
+than against it: 81 one-line findings in 32 of 2 030 files, each of them a test that waits for the
+wrong thing.
+
+## prefer-create-mock
+
+**`warn`** · suggestion · syntax only
+
+**Reports.** An object literal under a cast to a named type, in either spelling:
+`{ id: '1', isOffline: false } as Device` and `<Device>{ id: '1' }`.
+
+**Decides on.** Two facts written on the line — the cast's operand is an object literal, and the
+type it names is a reference. No program, the same footing
+[`prefer-stub-response`](#prefer-stub-response) and [`no-sync-testbed-await`](#no-sync-testbed-await)
+stand on.
+
+**Finding, and the repair.**
+
+```ts
+// `Device` declares eight fields and `isOffline` is not one of them.
+const device = { id: '1', name: 'TV', isOffline: false } as Device; // ❌
+expect(service.rename).toHaveBeenCalledWith({ ...device, name: 'Box' });
+```
+
+```ts
+const device = createMock<Device>({ id: '1', name: 'TV' });
+expect(service.rename).toHaveBeenCalledWith({ ...device, name: 'Box' });
+```
+
+The suggestion wraps the literal where it stands and imports `createMock`, merging the specifier
+into an existing `vitest-auto-spy` import when the file has one.
+
+**Why it is recommended.** A cast is not an assignment. `as T` asks whether the two types _overlap_,
+not whether the value is one of them, so it passes both directions an assignment refuses: the
+excess-property check is skipped, so a key `T` does not declare goes through, and a required field
+the fixture never sets goes through too. Neither type gate says anything — that is the point of the
+cast — and the object is then spread into the expected payload of a call assertion or handed to the
+code under test, so the spec pins a key the contract does not have, or covers a branch the real
+value could never reach. `createMock<T>` takes a `DeepPartial<T>` and answers a value typed `T`: the
+fields it does not name stay `undefined` at run time exactly as they did under the cast, and the
+excess key becomes a compile error on the literal.
+
+Measured on an Angular monorepo of 2 032 spec files: **1 200 reports across 327 files**, naming 217
+distinct types. Two facts from the same measurement are worth carrying. **None** of those 1 200
+literals contains a `vi.fn()` — so on that suite the rule and the hand-rolled-double rules
+([`prefer-create-spy-from-class`](#prefer-create-spy-from-class),
+[`no-structural-double`](#no-structural-double)) never report the same line; they are about
+collaborators and this one is about data. And **529** of the reports sit in a slot that already has
+a type — a call argument, a `nextWith`, a `mockReturnValue` — where the cast is not load-bearing at
+all but is switching off the check that slot would have done; there the first repair is to delete
+the cast and let the slot check the literal, with `createMock<T>` for whatever partial is left.
+
+**Where it stays silent.**
+
+- `as const`, which narrows a literal rather than claiming a type for it.
+- `as unknown` and `as any` — neither names a type to build a fixture of — and the double cast
+  `{ … } as unknown as T` built from them. The hop through `unknown` is there precisely because the
+  compiler refused the single cast, so `createMock<T>` would not compile either; it is a different
+  finding, with a ban of its own in most consumers.
+- A cast of anything that is not a literal: `raw as Device`, `load() as Device`, `[{ … }] as Device[]`.
+- A cast to an inline object type, `{ … } as { id: string }`, which the compiler already reads.
+- A literal inside one of this library's own factories — `createMock<Outer>({ inner: { … } as Inner })`,
+  a `provideAutoSpyForToken` seed, a `provideRouterDouble` bag. The recommended shape must not be a
+  violation of the rule that recommends it.
+- The type names another rule owns: `Response` ([`prefer-stub-response`](#prefer-stub-response)),
+  `Spy` ([`prefer-as-spy`](#prefer-as-spy)) and Vitest's `Mock` / `Mocked` family
+  ([`no-mocked-for-spy`](#no-mocked-for-spy), [`no-mock-cast`](#no-mock-cast)). A line drawing two
+  reports is a line a reader has to arbitrate.
+
+**Limits.** The rule reads no types, so it cannot tell a fixture that has drifted from one that
+happens to be complete — it reports the cast, and the compiler decides afterwards which of the two
+it was. That is the trade: the report is cheap and the evidence arrives on the next type-check. A
+type name that is a utility (`Partial<T>`, `Pick<T, …>`, `Record<…>`, `ReturnType<typeof f>` — 25 of
+the 1 200 above) is reported like any other; `createMock<Partial<T>>({ … })` compiles and still
+checks the keys, but a cast to `Partial<T>` in a slot that is already `Partial<T>` is usually just
+redundant, and deleting it is the better repair.
+
+**Severity.** `warn`, and it is the repair that is graded rather than the evidence — the same
+reading as [`prefer-set-inputs`](#prefer-set-inputs), not the heuristics behind
+[`no-structural-double`](#no-structural-double). The finding is exact: the literal and the type it
+claims are both on the line. What is graded is the migration. Accepting the suggestion lets the
+compiler read that literal, so every fixture that has drifted turns red the same day, and on the
+suite above that is 1 200 sites in 327 files — a first upgrade nobody lands in one branch. `off`
+would be the wrong end of the same mistake, which is why the plugin pins `warn` rather than leaving
+it unset.
+
+## no-mock-cast
+
+**`error`** · suggestion · syntax only
+
+**Reports.** A cast to Vitest's `Mock` or `MockInstance` over a **member access**:
+`TestBed.inject(Metrics).send as Mock`, `(shelves.getByGid.mockReturnValue as Mock)(…)`, and the
+`<Mock>svc.load` spelling. A parameterised `Mock<[string], void>` reports too.
+
+**Decides on.** The type name, the shape under it, and where the name comes from. The operand has to
+be a member access — a plain `fn as Mock` over a local `vi.fn()` is nobody's double and is left
+alone — and `Mock` has to resolve to a named import from `vitest`, `@rstest/core`, `bun:test` or
+`jest`, or to no binding at all, which is what a project with ambient runner types has in scope. A
+`Mock` the file declares, or imports from anywhere else, is somebody's domain type and is never
+reported.
+
+**Finding, and the repair.**
+
+```ts
+(TestBed.inject(DomainMetricsService).sendEvent as Mock).mockReturnValue(undefined); // ❌
+expect(TestBed.inject(DomainMetricsService).sendEvent).toHaveBeenCalledWith(payload);
+```
+
+```ts
+injectSpy(DomainMetricsService).sendEvent.mockReturnValue(undefined);
+expect(injectSpy(DomainMetricsService).sendEvent).toHaveBeenCalledWith(payload);
+```
+
+The suggestion writes `injectSpy(Token).member` whenever the token is in view — the member chain
+hanging off a `TestBed.inject(Token)` written in place, or off a name the file settled with one —
+and imports `injectSpy` from `vitest-auto-spy/angular`. It is offered rather than applied, and the
+reason is not the type system: `injectSpy` answers the double the container was _given_, so the
+rewrite is only right when that double is one this library built. A spec that provided a hand-rolled
+`{ provide: X, useValue: { m: vi.fn() } }` gets a run-time throw instead of a compile error, which
+is the one failure mode an unattended fix may not have —
+[`no-unregistered-inject-spy`](#no-unregistered-inject-spy) is what reports an accepted suggestion
+that landed on such a double.
+
+**Why it is recommended.** `Mock` with no parameters is `Mock<any>`. The cast does not _add_ the spy
+surface, it removes the signature: from there on `mockReturnValue` accepts anything, and
+`toHaveBeenCalledWith` compares nothing — the assertion keeps passing when the code under test calls
+the method with the wrong arguments. That is the same drift 5.19.0 exposed from the other side when
+`accessorSpies` became typed, and the repair costs nothing, because the member already _is_ a spy
+and is already typed from the real signature.
+
+The worst form gets its own message: `(shelves.getByGid.mockReturnValue as Mock)(of(shelf))` puts
+the cast on the member that installs the answer, so neither the value going in nor the method's own
+return type is checked by anything, and every assertion downstream is about a value the real
+collaborator could not have produced.
+
+Measured on an Angular monorepo of 2 032 spec files: **24 reports across 21 files** — 22 of the
+ordinary form and 2 of the configuration form, 22 of the 24 under `libs/**`. Fifteen carry the
+`injectSpy` edit; the rest name the repair without writing it.
+
+**What the neighbours do not cover.** [`no-mocked-for-spy`](#no-mocked-for-spy) reads a `Mocked<T>`
+_declaration_ and [`prefer-as-spy`](#prefer-as-spy) a cast to `Spy<T>` — both are about naming the
+whole double's surface, and neither sees a `Mock` standing in for one member's signature.
+[`no-structural-double`](#no-structural-double) wants a name declared as an object of `Mock`s, and
+[`no-stub-class-double`](#no-stub-class-double) a class of `vi.fn()` fields; both are about a double
+being built, where this one is about a double that already exists being read through a cast.
+
+**Severity.** `error`. The evidence is the line, the repair is offered as an edit, and the
+population is small enough to clear in one sitting — 24 sites on a 2 032-file suite, against the
+1 200 of [`prefer-create-mock`](#prefer-create-mock), which is why the two rules of one family are
+graded differently.
+
+## no-redundant-mock-reset
+
+**`error`** · `--fix` where the deletion is provably a no-op, otherwise a suggestion · syntax, plus
+the runner's configuration
+
+**Reports.** A mock reset written inside a `beforeEach` / `afterEach` / `beforeAll` / `afterAll`
+that the runner is already configured to perform between tests: `vi.clearAllMocks()`,
+`vi.resetAllMocks()`, `vi.restoreAllMocks()` and the per-mock `mockClear()` / `mockReset()` /
+`mockRestore()`.
+
+**Decides on.** Two things, and the second one is what makes this rule different from every other
+rule here.
+
+- **The call**, read off the callee — nothing more.
+- **What the runner resets**, which is not in the file being linted. The options come first:
+
+  ```js
+  'vitest-auto-spy/no-redundant-mock-reset': ['error', { clearMocks: true, restoreMocks: true }],
+  ```
+
+  Given at all, they are the answer. With no options the rule searches upwards from the linted
+  file's directory for `vitest.config.*` / `vite.config.*` and reads the first one it finds **as
+  text**, looking for `clearMocks: true`, `mockReset: true` and `restoreMocks: true`. Nothing is
+  evaluated and no module is loaded: a lint run has no business executing a project's config, and
+  these three values are literals in every config that sets them. **With neither an option nor a
+  config found, the rule reports nothing at all.**
+
+**The flag has to match the call, not the family.** The three options are not three grades of one
+thing, and reading them that way is how a rule like this turns into a rule that deletes lines a
+suite needs.
+
+| the runner option | what the runner calls between tests | which mocks it reaches                    |
+| ----------------- | ----------------------------------- | ----------------------------------------- |
+| `clearMocks`      | `vi.clearAllMocks()`                | every mock — forgets the recorded calls   |
+| `mockReset`       | `vi.resetAllMocks()`                | every mock — and drops the implementation |
+| `restoreMocks`    | `vi.restoreAllMocks()`              | **only** the spies `vi.spyOn` installed   |
+
+So `vi.restoreAllMocks()` in a hook is **not** redundant under `clearMocks: true` alone, and
+`vi.clearAllMocks()` is not redundant under `restoreMocks: true` alone — `restoreAllMocks` walks the
+originals `vi.spyOn` replaced and never sees a plain `vi.fn()`. Two subsumptions are provable and
+are the only ones used: `resetAllMocks` resets every registered mock, which includes clearing it;
+and `restoreMocks` covers a **per-mock** `mockClear` / `mockReset` / `mockRestore` where the file
+shows the receiver is a `vi.spyOn` spy — a `const spy = vi.spyOn(api, 'load')`, a `let` a hook fills
+once, or the call written inline. Where the receiver is a plain `vi.fn()`, or a name written more
+than once, nothing is reported.
+
+**Finding, and the repair.**
+
+```ts
+beforeEach(() => {
+  vi.clearAllMocks(); // ❌ under `clearMocks: true` the runner did exactly this a moment ago
+  TestBed.configureTestingModule({ providers: [provideAutoSpy(Api)] });
+});
+```
+
+Delete the line, and the hook with it where that is all the hook held.
+
+**Why the fix is rarer than the report.** Vitest resets in `onBeforeTryTask`, which runs **before**
+every test's `beforeEach` chain and after the previous test's `afterEach` chain. That makes a reset
+at the top of a hook look dead, and usually it is — but "usually" is not what an `--fix` may run on.
+Between the runner's reset and a statement inside a hook, two things can have run: the statements
+above it in the same hook, and every `beforeEach` of every enclosing `describe`, which the hook
+cannot see. Both touch mocks, and the reset wipes what they did — delete it and a seed survives into
+the test, which is a change of behaviour rather than a cleanup. So the edit is applied only where
+the file shows nothing could have run in between: the **first statement of a `beforeEach`, in a file
+that holds no other `beforeEach` and no `beforeAll`**. Everything else is a suggestion, which an
+editor shows and a human accepts. Measured on a 2032-file Angular suite against
+`{ clearMocks: true, restoreMocks: true }` — the flags its runner config actually sets — the rule
+reports **202 times in 167 files**, of which **19 carry the edit** and 183 a suggestion.
+
+**A reset in the middle of a test body is never reported.** That is a different thing entirely:
+there the call separates one arrangement from the next inside one test, and no runner option does
+that. The same suite holds **445 such calls in 132 files** and the rule is silent on every one of
+them, by construction rather than by exception — the report is made only where the innermost
+function around the call is the hook's own callback, so a reset inside an `onTestFinished(…)` the
+hook registers, inside an `if`, or inside a helper the hook calls is outside the rule as well.
+
+**Limits.** The search finds a runner config only where it is named the way the ecosystem names it.
+The suite above keeps its runner config at `tools/unit-test-bench/vitest-runner.config.ts`, chosen
+by the `@angular/build:unit-test` builder, so the search misses it entirely and the option is what
+makes the rule work there — that is the honest trade, not a defect. A project that would rather not
+have its disk read at lint time passes the flags as options, which skips the search.
+
+**Severity.** `error`, and the argument is the silence: a project that has said nothing gets nothing
+reported, so the rule cannot be wrong about a suite it knows nothing about. Where it does fire, the
+evidence is a flag the project set and a call that repeats it, and the repair is a deletion the rule
+either makes or offers. It is also the one rule here whose finding is pure cost — the line does
+nothing — which is the easiest kind of report to act on.
+
+## no-unasserted-argument
+
+**`warn`** · no fix · syntax and scope only
+
+**Reports.** A bare `expect(spy).toHaveBeenCalled()` in a test where the **file itself** shows the
+arguments are the point, on one of two readings.
+
+**Decides on.** Nothing outside the file, and nothing a type checker knows.
+
+1. **The same subject is pinned with `toHaveBeenCalledWith` in another test of this file.** The
+   author has already written down that the arguments of that call are part of the contract; this is
+   the site where they did not. A test that asserts both on the same subject is left alone — there
+   the arguments _are_ checked and the bare line is merely redundant.
+2. **The title of the test says `with`, and the body asserts nothing else.** Then the whole of what
+   the test claims is an argument list, and the whole of what it checks is that something ran. Any
+   assertion that is not another bare `toHaveBeenCalled()` silences this reading, because that
+   assertion may be where the arguments are checked — an equality on a result, a count, and a chain
+   the rule cannot read to the end (`resolves`, `rejects`) all count.
+
+Two subjects are the same subject when the **source text** of what `expect()` was handed is the
+same, whitespace aside. `expect(api.load)` and `expect(loadSpy)` are therefore two subjects even
+where they are one spy: the rule misses findings that way and invents none, which is the trade it is
+built on.
+
+**Finding, and the repair.**
+
+```ts
+it('emits rowFocused with the host element', () => {
+  component.onFocus();
+
+  expect(component.rowFocused.emit).toHaveBeenCalled(); // ❌ "with the host element" is untested
+});
+```
+
+```ts
+expect(component.rowFocused.emit).toHaveBeenCalledWith(host.nativeElement);
+```
+
+`expect.objectContaining({ … })` and `expect.any(Type)` cover the part of an argument the test does
+not decide, `toHaveBeenCalledExactlyOnceWith(…)` where once is part of the claim, and a double this
+package built takes [`mustBeCalledWith(…)`](/core/control-helpers) at the point it is configured,
+which fails at the call rather than after it.
+
+**Why it is narrow, and why that is the whole point.** The blunt version of this rule already
+exists: `vitest/prefer-called-with` reports **every** bare `toHaveBeenCalled`. It is not in its
+plugin's `recommended`, and on the 2032-file suite this one was measured against it reports **1941
+times across 360 files** — a number nobody acts on and everybody turns off. The two readings above
+report **175 times in 90 files** on the same tree: 151 on the first reading and 24 on the second.
+Both are the file disagreeing with itself, which is a finding; the other 1766 are a style opinion,
+which is not.
+
+The strongest single pair on that suite is two tests in one file whose bodies are identical and
+whose titles differ only in which argument the call is said to carry — the difference their titles
+promise does not exist in the code, and nothing but this rule would say so.
+
+**What is deliberately not reported.** `expect(spy).not.toHaveBeenCalled()`, which is a claim about
+the call and not about its arguments — there are no arguments to name. `toHaveBeenCalledTimes`,
+`toHaveBeenCalledOnce` and the other counting matchers, which assert something the bare one does
+not. And a bare call standing beside an assertion on a result: under the second reading that
+assertion silences the test outright, and under the first it does not, because the file has already
+said the arguments of _that subject_ matter.
+
+**Severity.** `warn`, and it is graded on what its repair needs rather than on its evidence. Both
+readings are facts out of the file, the way every `error` here decides — but the repair is the
+argument list the test should have named, and that is the one thing the rule cannot supply. Every
+`error` in this plugin either carries an edit or names a helper; this one carries a question for the
+author. A project that has answered them turns it up in the same line that turns the others down.
 
 ## prefer-provide-activated-route
 
@@ -2308,6 +2844,72 @@ about the design rather than a reason to step around the modifier.
 
 **Severity.** `error`. The finding is green and wrong in a way no run can report: a test that passes
 today and fails on a rename no caller could have noticed.
+
+## no-reflect-member-access
+
+**`error`** · suggestion on one of its three forms · syntax and scope only
+
+**Reports.** `Reflect.get(subject, 'member')` and `Reflect.set(subject, 'member', value)` where the
+key is a string literal and the subject is a value this file has in hand — a component, a service, a
+fixture, a double.
+
+**Decides on.** The binding behind the target, and the key. A bare identifier has to resolve to a
+declaration of the linted file that no `import` made; anything else — a member chain, a call's
+result — is a value the file computed and is read as a subject. The key has to be a string literal.
+Nothing here asks the type checker, which is the point rather than a limitation: this is the shape a
+suite reaches for precisely where the checker would have objected.
+
+**Finding, and the repair.**
+
+```ts
+expect(Reflect.get(component, 'viewTimeMin')()).toBe(0); // ❌ the key is a string nothing checks
+Reflect.set(service, 'savedData', null); // ❌ and this does not even write the member
+```
+
+```ts
+await setInputs(fixture, { seconds: 0 });
+expect(host.textContent).toContain('0 min'); // the public surface the member exists for
+```
+
+**Why it is recommended.** It is the second door out of
+[`no-private-member-access`](#no-private-member-access), and the one no compiler stands in.
+`component['x']` at least keeps the member where a type-aware rule can resolve it;
+`Reflect.get(component, 'x')` takes the name as an ordinary string argument, typed `any`, so neither
+the compiler nor a template gate nor a strict `tsc` pass has an opinion about it. The consumer this
+was measured on opened the door itself — its own `no-restricted-syntax` ban on double casts named
+`Reflect.get` / `Reflect.set` as the way out — and arrived at **214 sites in 50 of its 2 030 spec
+files**: 125 reads, 85 writes and 4 of the double form.
+
+`Reflect.set` is the half that outlives what it tests. It installs an **own** property over the
+prototype rather than writing the member, so renaming the field in production leaves the spec
+compiling, running, and writing a **dead** property nothing reads, while the
+`expect(spy).not.toHaveBeenCalled()` under it passes forever. Two such sites were found on the
+measured consumer by reading them, not by running anything: the test survives the deletion of the
+thing it was written for, which is the one failure no assertion in it can report.
+
+**The third message, and the only edit.** `Reflect.set(double, 'prop', value)` where the name holds
+something one of this library's factories built — `injectSpy`, `provideAutoSpy`,
+`provideAutoSpyForToken`, `createSpyFromClass` and the rest — is patching a double behind the
+library's back: no journal entry, no restore, so the patch is live for every later test of the file
+and, under `isolate: false`, for every later file of the worker. That one is offered as a suggestion,
+`mockValueProp(double, 'prop', value)`, which performs the same write and registers the undo with
+`restoreMockedProps()`. It is a suggestion rather than a fix for the reason
+[`no-object-define-property`](#no-object-define-property) is: registering an undo is a change between
+tests, which is the point of the repair and still a change.
+
+**Limits.** A computed key is never reported — `Reflect.get(component, method)` in a helper that
+takes the name as a parameter is the one shape where the string is not a member written out in the
+spec, and no advice here would repair it. Neither is `Reflect.apply`, `Reflect.has`,
+`Reflect.deleteProperty` or `Reflect.construct`: only the two that read and write a member are the
+bracket escape in another spelling. A name an `import` introduced is left alone as well, because a
+module namespace is nobody's subject and patching one is `vi.mock`'s business — a namespace a spec
+assigns to a `let` of its own through `await import(…)` is a local binding and **is** reported, which
+is the binding talking rather than an exception.
+
+**Severity.** `error`, and grading it below its twin would be the mistake. `no-private-member-access`
+is an `error`; if this one were a `warn`, `Reflect.get` would be the sanctioned way to silence it,
+and the rule would create the incentive it exists to remove. The evidence is entirely in the line, no
+heuristic decides anything, and the repair is the same one that rule names.
 
 ## no-mocked-for-spy
 

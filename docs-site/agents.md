@@ -398,3 +398,55 @@ These account for the large majority of broken specs, and every one of them is c
       for the `Response` itself. The [`no-hand-assigned-global`](/utilities/eslint-rules#no-hand-assigned-global)
       rule reports the bare form, and [`prefer-stub-response`](/utilities/eslint-rules#prefer-stub-response)
       the `{ ok: true, json } as Response` handed back from it.
+    - **`await import('./thing')` to settle a module the code under test lazy-loads.** It waits for
+      the module and not for the continuation of the handler that was loading it, so the assertion
+      runs a turn early. Use
+      [`settleDynamicImport(() => import('./thing'))`](/utilities/event-loop#settledynamicimport-load-turns),
+      which adds the `flushEventLoop(1)` that continuation needs;
+      [`prefer-settle-dynamic-import`](/utilities/eslint-rules#prefer-settle-dynamic-import) reports
+      the bare form.
+    - **A test whose every assertion holds on the stream having stayed silent.** A `let` only the
+      `subscribe` callback writes, asserted with `toEqual([])` against its own initialiser or with
+      `toBeUndefined` / `not.toHaveBeenCalled`, cannot tell an empty result from no result at all.
+      Say which one you mean — [`expectNoEmission(source$)`](/core/observable-assertions) for the
+      silence, `expect(await expectEmission(source$))` for the value; the
+      [`no-vacuous-absence-assertion`](/utilities/eslint-rules#no-vacuous-absence-assertion) rule
+      reports the hand-written form.
+    - **`{ id: '1', isOffline: false } as SomeType` for a fixture.** A cast asks whether the two types
+      overlap, not whether the value is one of them, so it passes a key the type does not declare —
+      the excess-property check is skipped — and a required field the fixture never sets. Both type
+      gates stay silent and the fixture then pins a key the contract does not have. Use
+      `createMock<SomeType>({ … })`, which takes a `DeepPartial<SomeType>` and answers a `SomeType`,
+      or simply delete the cast where the literal already sits in a typed slot;
+      [`prefer-create-mock`](/utilities/eslint-rules#prefer-create-mock) reports it.
+    - **`(TestBed.inject(S).m as Mock).mockReturnValue(…)`.** `Mock` with no parameters is
+      `Mock<any>`, so the cast removes the signature rather than adding the spy surface:
+      `toHaveBeenCalledWith` stops comparing arguments. The member already is a spy — read it with
+      `injectSpy(S).m`; [`no-mock-cast`](/utilities/eslint-rules#no-mock-cast) reports the cast.
+    - **`Reflect.get(component, 'privateField')` to read past a modifier.** The key is an ordinary
+      string argument, so nothing checks it — not the compiler, not a template gate, not a strict
+      `tsc` pass — and `Reflect.set` writes an **own** property over the prototype, so a rename in
+      production leaves the spec writing a dead property while the assertions under it pass forever.
+      Drive the member through the public API and assert the effect, or the rendered template on a
+      component; `mockValueProp` is the write that records its undo when a value really has to be
+      forced onto a double. [`no-reflect-member-access`](/utilities/eslint-rules#no-reflect-member-access)
+      reports it, and leaves `window` / `globalThis` alone, which is what the idiom is for.
+    - **A test that calls the spied method itself and then asserts it was called.**
+      `vi.spyOn(component.output, 'emit')`, then `component.output.emit(payload)`, then
+      `expect(spy).toHaveBeenCalledWith(payload)` proves that `emit` calls `emit` — delete the
+      template binding the title names and it stays green. Drive the real trigger instead;
+      [`no-self-called-spy`](/utilities/eslint-rules#no-self-called-spy) reports the order that gives
+      it away.
+    - **A mock reset in a hook that the runner already performs.** With `clearMocks`, `mockReset`
+      or `restoreMocks` on, Vitest resets before every test — ahead of the `beforeEach` chain and
+      behind the previous `afterEach` — so the same call written in a hook does the work twice and
+      reads as the line keeping the suite honest. Delete it;
+      [`no-redundant-mock-reset`](/utilities/eslint-rules#no-redundant-mock-reset) reports it once
+      it is told which flags are on, and leaves a reset inside a test body alone, because that one
+      separates two arrangements inside one test.
+    - **`expect(spy).toHaveBeenCalled()` where the arguments are what the test is about.** The bare
+      matcher passes on any arguments at all, so a test titled "…with the host element" that
+      asserts nothing else is green when the wrong node is passed. Name them —
+      `toHaveBeenCalledWith(…)`, or [`mustBeCalledWith(…)`](/core/control-helpers) where the
+      double is configured; [`no-unasserted-argument`](/utilities/eslint-rules#no-unasserted-argument)
+      reports the two shapes where the file itself says the arguments matter.

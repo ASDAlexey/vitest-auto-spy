@@ -28,6 +28,12 @@ await expectCompletion(service.purgeCache()); // asserts termination
 | `expectCompletion(source$, opts?)`       | `void`                               | the stream is still running when the timeout expires, or it errors          |
 | `expectError(source$, opts?)`            | the error, unwrapped                 | the stream completes or stays quiet instead of failing                      |
 
+The hand-written form of the third row — a `let` the `subscribe` callback fills, asserted with
+`toEqual([])` against its own initialiser — is what
+[`no-vacuous-absence-assertion`](/utilities/eslint-rules#no-vacuous-absence-assertion) reports: it
+passes whether the stream emitted the empty list or emitted nothing, and `expectNoEmission` is the
+half of that which fails when something arrives.
+
 ## The `await` is not optional
 
 Each helper subscribes at the call and settles through the promise, so a call nobody awaits is a

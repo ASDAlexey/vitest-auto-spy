@@ -404,3 +404,55 @@ Docs: https://asdalexey.github.io/vitest-auto-spy/runtimes/rxjs
       [`no-hand-assigned-global`](/ru/utilities/eslint-rules#no-hand-assigned-global), а
       [`prefer-stub-response`](/ru/utilities/eslint-rules#prefer-stub-response) — тот
       `{ ok: true, json } as Response`, который из неё возвращают.
+    - **`await import('./thing')`, чтобы дождаться модуля, который лениво грузит код под тестом.**
+      Оно дожидается модуля, а не продолжения обработчика, который его грузил, поэтому ассерт
+      выполняется на такт раньше. Нужен
+      [`settleDynamicImport(() => import('./thing'))`](/ru/utilities/event-loop#settledynamicimport-load-turns),
+      который добавляет тот самый `flushEventLoop(1)`; голую форму ловит
+      [`prefer-settle-dynamic-import`](/ru/utilities/eslint-rules#prefer-settle-dynamic-import).
+    - **Тест, каждое утверждение которого выполнено тем, что поток промолчал.** `let`, который пишет
+      только колбэк `subscribe`, проверенный через `toEqual([])` против собственного инициализатора
+      или через `toBeUndefined` / `not.toHaveBeenCalled`, не отличает пустой результат от отсутствия
+      результата. Скажите, что имеете в виду:
+      [`expectNoEmission(source$)`](/ru/core/observable-assertions) — про молчание,
+      `expect(await expectEmission(source$))` — про значение; написанную руками форму ловит правило
+      [`no-vacuous-absence-assertion`](/ru/utilities/eslint-rules#no-vacuous-absence-assertion).
+    - **`{ id: '1', isOffline: false } as SomeType` для фикстуры.** Каст спрашивает, пересекаются ли
+      два типа, а не является ли значение одним из них: проверка лишних свойств не выполняется, так
+      что проходит и ключ, которого тип не объявляет, и обязательное поле, которого в фикстуре нет.
+      Оба тайп-гейта молчат, а фикстура потом пинит ключ, которого в контракте нет. Нужен
+      `createMock<SomeType>({ … })` — он принимает `DeepPartial<SomeType>` и отвечает `SomeType`, —
+      либо просто удалить каст там, где литерал и так стоит в типизированном слоте; сообщает
+      [`prefer-create-mock`](/ru/utilities/eslint-rules#prefer-create-mock).
+    - **`(TestBed.inject(S).m as Mock).mockReturnValue(…)`.** `Mock` без параметров — это
+      `Mock<any>`, поэтому каст не добавляет поверхность спая, а убирает сигнатуру:
+      `toHaveBeenCalledWith` перестаёт сравнивать аргументы. Член и так спай — читайте его как
+      `injectSpy(S).m`; каст ловит [`no-mock-cast`](/ru/utilities/eslint-rules#no-mock-cast).
+    - **`Reflect.get(component, 'privateField')`, чтобы прочитать мимо модификатора.** Ключ здесь —
+      обычный строковый аргумент, и его не проверяет никто: ни компилятор, ни шаблонный гейт, ни
+      строгий проход `tsc`. А `Reflect.set` вешает **собственное** свойство поверх прототипа, так что
+      после переименования в продакшене спека пишет мёртвое свойство, а ассерты под ней проходят
+      вечно. Ведите член через публичный API и проверяйте эффект — на компоненте это отрендеренный
+      шаблон; `mockValueProp` — запись, которая регистрирует свой откат, если значение всё-таки
+      нужно продавить в дубль. Ловит
+      [`no-reflect-member-access`](/ru/utilities/eslint-rules#no-reflect-member-access), а `window` и
+      `globalThis` оставляет в покое — ради них идиома и существует.
+    - **Тест, который сам вызывает заспаенный метод, а потом утверждает, что его вызвали.**
+      `vi.spyOn(component.output, 'emit')`, затем `component.output.emit(payload)`, затем
+      `expect(spy).toHaveBeenCalledWith(payload)` доказывает, что `emit` вызывает `emit`: удалите
+      привязку в шаблоне, которую называет заголовок, — тест останется зелёным. Запускайте настоящий
+      триггер; выдающий себя порядок ловит
+      [`no-self-called-spy`](/ru/utilities/eslint-rules#no-self-called-spy).
+    - **Сброс моков в хуке, который раннер и так делает.** При включённых `clearMocks`, `mockReset`
+      или `restoreMocks` Vitest сбрасывает их перед каждым тестом — до цепочки `beforeEach` и после
+      предыдущего `afterEach`, — так что тот же вызов в хуке делает работу дважды, а читается как
+      строка, на которой держится честность сюиты. Её надо удалить;
+      [`no-redundant-mock-reset`](/ru/utilities/eslint-rules#no-redundant-mock-reset) сообщает про
+      неё, когда ему сказали, какие флаги включены, и не трогает сброс внутри теста: там он
+      разделяет две подготовки внутри одного теста.
+    - **`expect(spy).toHaveBeenCalled()` там, где тест как раз про аргументы.** Голый матчер
+      проходит на любых аргументах, поэтому тест с заголовком «…with the host element», который
+      больше ничего не утверждает, зелёный и когда передали не тот узел. Назовите их —
+      `toHaveBeenCalledWith(…)` или [`mustBeCalledWith(…)`](/ru/core/control-helpers) там, где
+      настраивается дубль; [`no-unasserted-argument`](/ru/utilities/eslint-rules#no-unasserted-argument)
+      сообщает про две формы, в которых сам файл говорит, что аргументы значимы.

@@ -442,7 +442,24 @@ export default defineConfig({
           'call order journal, createLog, angular Log testing utility, order of calls between spies, ' +
           'verify ignoreCancelled, httpResource cancelled request verify, unsubscribed request fails teardown, ' +
           'HttpTestingController.verify ignoreCancelled, verifyOnTeardown ignoreCancelled, ' +
-          'as Response cast in a test, fake Response object literal, createMock<Response>, prefer-stub-response, stubResponse, ',
+          'as Response cast in a test, fake Response object literal, createMock<Response>, prefer-stub-response, stubResponse, ' +
+          'await import in a test, dynamic import lazy component test, settleDynamicImport, prefer-settle-dynamic-import, ' +
+          'await Promise.resolve after dynamic import, lazy loaded modal not opened in test, ' +
+          'test passes when observable never emits, expect toEqual([]) after subscribe, assert stream stays silent, ' +
+          'expectNoEmission, no-vacuous-absence-assertion, not.toHaveBeenCalled on a subscribed vi.fn, ' +
+          'let captured in subscribe callback assertion, vacuous absence assertion, ' +
+          'object literal as SomeType in a test, cast hides excess property, createMock partial fixture, prefer-create-mock, ' +
+          'excess property check skipped by cast, fixture drifted from the interface, DeepPartial fixture typescript, ' +
+          'as Mock cast vitest, Mock<any> toHaveBeenCalledWith not checking arguments, no-mock-cast, ' +
+          'TestBed.inject as Mock, injectSpy instead of as Mock, mockReturnValue as Mock cast, ' +
+          'Reflect.get private member test, Reflect.set on component, no-reflect-member-access, ' +
+          'read a private field from a spec, write a private field from a spec, Reflect.set dead property, ' +
+          'test calls the spy itself, spyOn then emit then toHaveBeenCalled, no-self-called-spy, ' +
+          'test that proves emit calls emit, assert a call the test made, ' +
+          'vi.clearAllMocks in beforeEach redundant, clearMocks true already resets, restoreMocks vs clearMocks, ' +
+          'no-redundant-mock-reset, mockClear in a hook, remove vi.restoreAllMocks afterEach, ' +
+          'expect toHaveBeenCalled without arguments, assert call arguments in a test, prefer-called-with too noisy, ' +
+          'no-unasserted-argument, toHaveBeenCalledWith missing, test title says with but asserts nothing, ',
       },
     ],
     // max-image-preview:large is what lets Google and Yandex use the OG image in a result card.

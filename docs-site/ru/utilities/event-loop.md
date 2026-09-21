@@ -122,6 +122,11 @@ const module = await settleDynamicImport(() => import('@scope/lazy-feature'));
 а продолжение приземляется после тирдауна, выдавая восемь записей `NG0205: Injector has already
 been destroyed` под «Unhandled Errors», ни одного упавшего теста и ненулевой код выхода.
 
+Голый `await import('…')`, который этим заменяется, ловит правило
+[`prefer-settle-dynamic-import`](/ru/utilities/eslint-rules#prefer-settle-dynamic-import), и оборачивание
+оно предлагает правкой — так что сюите с включённым плагином не придётся искать такие строки
+чтением.
+
 ## Часы {#the-clock}
 
 ```ts

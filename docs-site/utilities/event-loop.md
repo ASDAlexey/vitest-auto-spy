@@ -121,6 +121,11 @@ Spinning `await Promise.resolve()` instead is worse than not waiting: the tests 
 continuation lands after teardown, producing eight `NG0205: Injector has already been destroyed`
 entries under "Unhandled Errors", no failing test, and a non-zero exit code.
 
+The bare `await import('…')` this replaces is what
+[`prefer-settle-dynamic-import`](/utilities/eslint-rules#prefer-settle-dynamic-import) reports, with
+the wrap offered as an edit — so a suite that has the plugin on does not have to find these by
+reading.
+
 ## The clock
 
 ```ts
