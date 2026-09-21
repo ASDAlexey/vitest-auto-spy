@@ -8,6 +8,314 @@ reason.
 
 Shipped work is not here either — it is in `CHANGELOG.md` and in git history.
 
+## `no-reflect-member-access` and `no-self-called-spy`, 2026-09-21
+
+- **The reflect rule is syntactic on purpose, where its twin is type-aware.**
+  `no-private-member-access` says nothing without a program, and that is right for it: `obj['x']` is
+  also how an index signature is read, so only the checker can tell a finding from
+  `process.env['KEY']`. `Reflect.get(obj, 'x')` has no such ambiguity — nobody reaches for it to read
+  an index signature — and asking the checker here would make the rule blind in exactly the place it
+  is needed, since this is the spelling a suite reaches for _because_ the checker objected to the
+  others. So the two rules are deliberately not one rule with two arms: they decide on different
+  evidence and one of them has to keep working with `parserOptions.project` unset.
+- **The subject is decided by the binding, not by a list of global names.** A deny-list of `window`,
+  `globalThis`, `self`, `document` would have been shorter and would have been wrong twice over: it
+  reports a spec-local `const win = …` alias, and it stays silent on every other ambient name a
+  project declares. Asking whether the identifier resolves to a declaration of the linted file that
+  no `import` made answers both, and it comes with a third answer for free — a module namespace
+  object is an import binding, so patching one is left to `vi.mock` without an exception list.
+- [~] **A namespace a spec assigns to its own `let` through `await import(…)` is reported**, although
+  a statically imported one is not. That reads as an inconsistency and is the binding talking: a
+  `let` the file declares is a value the file holds, and `Reflect.set` on it has the same dead-property
+  failure as on anything else. Four sites of exactly that shape are in the measured consumer. Spelling
+  an exception for it would have meant reading what the initialiser resolves to, which is the type
+  checker again.
+- [~] **`Reflect.apply`, `Reflect.has`, `Reflect.deleteProperty` and `Reflect.construct` are not
+  reported.** Only `get` and `set` are the bracket escape in another spelling; `deleteProperty` is the
+  closest of the rest and, on the measured consumer, its twenty sites are almost entirely on globals,
+  where the rule would be advice about the one idiom it is built to permit. A rule earns its arms from
+  findings.
+- **A write onto a double is a message of its own, and the only one with an edit.** The other two
+  reports are repaired by testing through the public surface, which is a judgement; this one has a
+  mechanical replacement that keeps the write and adds the undo, so it carries a suggestion for
+  `mockValueProp`. A suggestion rather than a `--fix`, matching `no-object-define-property`:
+  registering an undo changes what happens between tests, which is the point of the repair and still
+  a change. The edit was first built by handing `propHelperSuggestion` a synthetic `{ value }`
+  descriptor so the two rules would share one implementation of "which helper, and is the name free";
+  that was dropped — a fabricated node to satisfy a reader's shape is a trap for whoever changes
+  either side — in favour of the eight lines the replacement actually needs.
+- **`error`, at 214 findings in 50 files, and the count is not the argument.** The argument is that
+  grading it below `no-private-member-access` would make `Reflect.get` the sanctioned way to silence
+  that rule: the plugin would be shipping the incentive it exists to remove. `prefer-render-shallow`
+  and `prefer-set-inputs` are graded down because adoption is a migration; this repair is the same
+  one its twin already demands at `error`, so there is no second migration to gate.
+- **`no-self-called-spy` reports the call, not the assertion.** The assertion is the claim, but the
+  call is the line to delete, and pointing at it is what makes the report readable without the other
+  two lines in view. It also gives the right count on a test with two self-made calls under one
+  assertion: two lines to remove, two reports.
+- **Order was in the design from the start, and the measurement immediately paid for it.** Matching
+  the three shapes without their order reports `service.updateShelfState(…)` written _above_ its own
+  `vi.spyOn(service, 'updateShelfState')`, which is arrangement and correct. Two further
+  discriminations were bought by the same measurement rather than by reasoning: a `mockClear` between
+  the call and the assertion (five sites in one file), and a matcher whose arguments the call did not
+  pass (two sites). Both are the spec stating in its own text that the assertion is not about that
+  line.
+- [~] **The argument comparison is on source text, and therefore errs quiet.** `emit(payload)` under
+  `toHaveBeenCalledWith(payload)` matches; the same value spelled two ways does not, and that finding
+  is let through. The alternative is a structural comparison that still cannot know whether two
+  expressions evaluate alike, so it would buy noise rather than certainty.
+- [~] **A spy installed in a hook is out of scope.** The ordering across a `beforeEach` and a body is
+  decidable — the hook always runs first — so this is not a limit of the syntax. It is a limit of what
+  the shape means: such a spy is shared by every test of the block and most of them drive the
+  production path, so the rule would be deciding intent from position. Left at one test body, and said
+  so on the rule's page.
+- **Shipped at `error` on 5 findings in 3 files, with the count named rather than hidden.** A rule
+  that reports little is usually a rule that has not found its shape; this one has, and what it costs
+  a suite driving the production path is nothing. The honest statement is that it is quiet, not that
+  it is frequent, and the documentation says so in both languages.
+- **`max-lines` on `src/lib/eslint/rules.ts` needed nothing from these two.** Four lines — two
+  imports and two map entries — and the file is under its 500-line ceiling either way once
+  `prefer-as-spy` has moved out of it (see `prefer-create-mock`). The alternative recorded against
+  the first raise — a second map in the shape of `jasmineRules` — was not reached for: it remains
+  the right move at the next ceiling, and these two rules are not a family that would justify a map
+  of their own.
+
+## `no-redundant-mock-reset`, 2026-09-21
+
+- **The rule reads the runner's configuration, and reports nothing without it.** This is the first
+  rule here that needs a fact from outside the file and outside the type checker. The alternative —
+  report every reset written in a hook and let the project turn the rule off — is the shape that
+  makes a lint rule untrustworthy: in a project that sets none of the three flags, the hook is the
+  only reset there is, and the "fix" deletes the isolation between its tests. So the options come
+  first and the disk second, and with neither the rule is silent. A silent default is also what
+  makes `error` defensible: the rule cannot be wrong about a suite that has told it nothing.
+- **The flag matches the call, never the family.** `restoreMocks` is not a stronger `clearMocks`:
+  `vi.restoreAllMocks()` walks the spies `vi.spyOn` installed and never touches a plain `vi.fn()`,
+  read off `@vitest/spy`'s own `MOCK_RESTORE` set rather than off the documentation. So under
+  `clearMocks: true` alone a `vi.restoreAllMocks()` in a hook is **not** dead, and under
+  `restoreMocks: true` alone a `vi.clearAllMocks()` is not either. The two subsumptions used are the
+  provable ones — `resetAllMocks` resets every registered mock, which includes clearing it, and
+  `restoreMocks` covers a per-mock reset whose receiver the file shows to be a `vi.spyOn` spy. A
+  receiver that is a plain `vi.fn()`, or a name written more than once, is not reported at all.
+- **`--fix` is narrower than "the first statement of the hook", which is where the brief for this
+  rule stopped.** That reading is right about the runner — `clearModuleMocks` runs in
+  `onBeforeTryTask`, immediately in front of the `beforeEach` chain, verified in the installed
+  `vitest` rather than assumed — and wrong about the file: hooks of enclosing `describe`s run between
+  the runner's reset and a nested hook's first line, and they are exactly the lines that seed the
+  doubles the reset then wipes. An enclosing hook can also be written **after** the nested
+  `describe` in source order, so "no hook above this one" is not a position check. The edit is
+  therefore applied only where the file holds no other `beforeEach` and no `beforeAll` at all; on the
+  consumer that is 19 of 202 findings, and the other 183 are suggestions. The alternative of fixing
+  every first-statement reset was rejected on that reasoning, not on a count.
+- [~] **`afterEach` and `afterAll` are reported but never fixed**, even for a first statement. The
+  runner's reset does not immediately precede them — it follows them — so what a deletion changes is
+  what the _rest_ of the teardown sees: a later `afterEach` of an enclosing suite, an `afterAll`, an
+  `onTestFinished` callback. The next test starts on the same registry either way, which is why the
+  report stands; the deletion is a human's call, which is why it is a suggestion.
+- [~] **A reset in the middle of a test body is not reported, and not even read.** The rule looks at
+  the innermost function around the call and requires it to be the hook's own callback. That is one
+  check rather than a list of exemptions, and it settles the whole class at once: a reset inside an
+  `onTestFinished(…)` the hook registers, inside an `if`, inside a helper the hook calls, and the 445
+  mid-test resets the consumer carries in 132 files. Verified afterwards rather than asserted — every
+  one of the 202 reported locations was re-parsed and matched against the innermost enclosing
+  `it`/hook, and none of them landed in a test.
+- [~] **The config is read as text, not evaluated.** `vitest.config.ts` is a TypeScript module that
+  can import, call `defineConfig`, branch on `process.env` and merge presets; executing it during a
+  lint run would be a rule with side effects. Three regexes over the file's source answer the three
+  questions, and a project whose flags are computed rather than written passes them as options. The
+  cost is stated in the docs rather than hidden: the workspace this was measured on keeps its runner
+  config at `tools/unit-test-bench/vitest-runner.config.ts`, which the search does not find.
+- **`scripts/check-dist.mjs` gained `eslint-plugin.cjs` in `FILESYSTEM_ALLOWED`.** The invariant that
+  list defends is about the _library_: a spec must not behave differently because of a file nobody
+  wrote down. A lint rule is the other thing — it exists to read the project — and what it reads is
+  two config names, with `existsSync` and `readFileSync`, nothing evaluated. Left out of the list,
+  the whole plugin bundle would fail the check; the reason is written beside the entry so the next
+  reader does not take it for an erosion of the rule.
+- **No raise of `max-lines` on `src/lib/eslint/rules.ts` for these two either.** Four more lines on
+  a file that ends the release at 483 of 500. The alternative that was pre-approved — a second rule
+  map beside `jasmineRules` — stays unbuilt for the same reason it was rejected then: it is worth
+  doing for a family, not for a file that is still under its ceiling.
+
+## `no-unasserted-argument`, 2026-09-21
+
+- **The blunt rule exists and is not worth shipping again.** `vitest/prefer-called-with` reports
+  every bare `toHaveBeenCalled`: 1 941 sites in 360 files on the 2 032-file consumer, which is why it
+  is not in its own plugin's `recommended` and is off there. A rule of this shape earns its place
+  only by being _narrower_, and the narrowing has to be evidence rather than taste. The two readings
+  shipped are the file contradicting itself — a subject some other test pins with
+  `toHaveBeenCalledWith`, a title promising an argument list over a body that checks only that
+  something ran — which come to 175 in 90 files, 151 and 24.
+- **Subjects are matched by source text.** `expect(api.load)` and `expect(loadSpy)` are two subjects
+  even where they are one spy. Following a name to its binding was considered and dropped: it buys
+  findings in exchange for the risk of pairing two subjects that are not the same, and this rule's
+  whole licence to exist is that it does not invent findings. The direction of the error is stated on
+  the rule's page.
+- [~] **The `with` reading does not fire beside any other assertion.** An equality on a result, a
+  count, a chain the rule cannot read to the end (`resolves`, `rejects`) — each of those may be where
+  the arguments are actually checked, and none of them is worth a guess. A bare
+  `not.toHaveBeenCalled()` is the one thing that does not silence it, because it is a claim about the
+  call rather than about its arguments. Titles are matched on `\bwith\b`, so `without` and
+  `withdraws` are not matches; that was the first false positive found while writing the tests.
+- [~] **`toHaveBeenCalledTimes`, `toHaveBeenCalledOnce` and `not.toHaveBeenCalled()` are never
+  reported.** The counting matchers assert something the bare one does not, and a negative has no
+  arguments to name. Widening to them is what `vitest/prefer-called-with` already does, at the count
+  quoted above.
+- [~] **The first reading fires even where the test asserts a result as well.** A test that checks a
+  returned page and asserts the call bare is still the test that does not read arguments the file has
+  already declared significant. Silencing it would fold the first reading into the second and take
+  the count from 151 to a handful — the two readings are deliberately independent, one about the
+  file, the other about the test.
+- **`warn`, and graded on what the repair needs rather than on the evidence.** Both readings are
+  facts out of the file, which is how every `error` here decides. What is missing is the repair: the
+  argument list the test should have named is the one thing the rule cannot supply, so unlike every
+  `error` in this plugin it carries neither an edit nor the name of a helper that replaces the line —
+  it carries a question for the author. That is what the existing `warn`s have in common in spirit
+  (`prefer-set-inputs` is graded on what adoption costs, `no-stub-class-double` on the evidence), and
+  it makes six graded rules rather than five.
+
+## `no-vacuous-absence-assertion`, 2026-09-21
+
+- **The unit reported is the test, not the assertion.** An absence assertion is a perfectly good
+  line — "nothing yet" before the trigger is how half the consumer's stream tests are written, 58
+  assertions in 21 files — and what makes it worthless is the _absence of a sibling that could
+  fail_. So the rule weighs every `expect()` in the test and reports once, on the first vacuous one,
+  or not at all. Reporting per assertion was tried on paper and dropped: it turns the same 39
+  findings into a page of messages about lines that are individually correct.
+- **What silence satisfies is decided on the initialiser's source text, not on the matcher's
+  family.** `toBeNull()` reads like an absence matcher and is one only where the declaration holds
+  `null`; on a `let` with no initialiser it fails on silence, and reporting it would have been a
+  false positive on the very file the rule was measured against. The text comparison is whitespace-
+  insensitive and nothing more — `[]` and `[ ]` are the same initialiser, a `[...seed]` is not — so
+  every case it cannot decide makes the rule quieter rather than louder.
+- [~] **No `--fix` and no suggestion**, unlike `prefer-settle-dynamic-import`, which was the model
+  for everything else here. The repair is not an edit at the reported node: it deletes the capture's
+  declaration, replaces the `subscribe` statement with `await expectNoEmission(source$)`, drops the
+  assertion, makes the callback `async` and writes an import — five coordinated edits whose
+  equivalence depends on the vacuous assertion being the variable's only reader. And the helper
+  asserts something _stronger_ than the line it replaces, so a wrongly accepted suggestion does not
+  fail to compile (the bar the four `--fix` rules meet); it turns a green test red with a message
+  about `expectNoEmission` rather than about the code. `prefer-stub-response` declines for the same
+  reason and carries the repair in the message, which is what this one does.
+- [~] **`expectNoEmission` was not written for this rule.** The brief called for it as a new
+  counterpart to `expectEmission` so the suggestion would have somewhere to point; it has shipped
+  since 5.3.0, with the quiet-window timer, the `timeout` default of `0` and the teardown that stops
+  a stray window outliving the test. Nothing about it needed changing — what was missing was
+  anything pointing at it, which is the rule and the two documentation cross-links beside it.
+- [~] **Assertions inside the `subscribe` callback are not weighed.** They neither carry a finding
+  nor silence one, and they are `no-expect-in-subscribe`'s to report. Counting them as positive
+  would let a test hide behind an assertion that a silent stream never reaches, which is the same
+  defect wearing the other mask.
+- [~] **A test that asserts through a helper of its own is skipped entirely**, rather than having
+  the helper's assertions counted the way `no-expect-in-subscribe` counts them. One step through a
+  local name would cover most of it, and "most" is the wrong side of the trade here: a missed
+  positive assertion is a false report on a test that does check something.
+- **`error`, although it does not arrive at zero.** 39 findings on the consumer, each an independent
+  one-test repair with the evidence in the declaration and the matchers, is the position
+  `prefer-settle-dynamic-import` shipped in. The two rules graded down are graded on what adoption
+  costs — each is a migration a suite takes file by file — and this is not one.
+- **`max-lines` on `src/lib/eslint/rules.ts` was raised to 520 here and put back to 500 before the
+  release.** The file is a registration file that grows by exactly two lines per rule, an import and
+  a map entry, and rule 42 took it over the old ceiling; raising the ceiling was the smallest change
+  in front of one rule. It did not survive contact with the other seven: `prefer-as-spy` moved to
+  `injected-spy.ts` instead (see `prefer-create-mock` below), which freed more than the eight rules
+  cost, so the limit is the 500 it always was and the registration file is at 483 of it.
+
+## `prefer-create-mock` and `no-mock-cast`, 2026-09-21
+
+- **Two rules, not one, although the defect is the same.** A cast over an object literal and a cast
+  over a member of a double are the same move — `as T` asks whether the types overlap rather than
+  whether the value is one of them — but they have different repairs (`createMock<T>` against
+  `injectSpy(S).m`), different populations on the consumer they were measured on (1 200 against 24)
+  and, because of that, different severities. One rule with two messages would have forced the
+  larger population's grade onto the smaller one, and the small one is the one a suite can clear in
+  a sitting.
+- **`prefer-create-mock` is `warn`, and it is the repair that is graded, not the evidence.** The
+  finding is exact: the literal and the type it claims are on the line. What is graded is that
+  accepting the suggestion hands the literal to the compiler, so every fixture that has drifted goes
+  red the same day — 1 200 sites in 327 of 2 032 files. That redness _is_ the finding, which is the
+  argument for shipping the rule; it is also a migration nobody lands in one branch, which is the
+  argument against `error`. The same reading `prefer-set-inputs` gets, and deliberately not the
+  reading `no-structural-double` gets, which is graded on a heuristic rather than on a cost.
+- [~] **No `--fix` on either.** `prefer-create-mock` is the case above. `no-mock-cast` fails the
+  standard for a different reason: `injectSpy` answers the double the container was _given_, so on a
+  hand-rolled `{ provide: X, useValue: { m: vi.fn() } }` the rewrite is a run-time throw rather than
+  a compile error — the one failure mode the four `--fix` rules here are chosen for not having.
+  `no-unregistered-inject-spy` already reports an accepted suggestion that landed on such a double,
+  which is what makes offering it safe.
+- [~] **`{ … } as unknown as T` is not reported.** It is the worst-looking form, and it is the one
+  form `createMock<T>` cannot repair: the hop through `unknown` is there precisely because the
+  compiler refused the single cast, so the suggestion would not compile. Consumers ban it with a
+  `no-restricted-syntax` rule of their own (the library's own config does), and that is the right
+  place for it. Same reasoning as `prefer-as-spy`'s `assertedValue`, which declines the double cast
+  except where the value is provably a `TestBed.inject`.
+- [~] **A cast to a utility type — `Partial<T>`, `Pick<T, …>`, `Record<…>` — is reported like any
+  other**, 25 of the 1 200. Excluding them was considered: `createMock<Partial<T>>({ … })` reads
+  oddly. It still checks the keys, and the shape those 25 are actually in is a literal cast to
+  `Partial<T>` while sitting in a slot that is already `Partial<T>` — a cast that is simply
+  redundant, whose repair is deletion. The message names deletion as the first repair, so an
+  exclusion would have removed the report without removing the defect.
+- **529 of the 1 200 sit in a slot that already has a type** — a call argument, a `nextWith`, a
+  `mockReturnValue` — and that changed the message rather than the rule. There the cast is not
+  load-bearing: it is switching off the check the slot would have performed, so the first repair is
+  to delete it and let the slot read the literal, with `createMock<T>` for whatever partial is left.
+  A rule that only ever said "wrap it in `createMock`" would have been right about the defect and
+  wrong about half the repairs.
+- **Measured before the carve-out was written: none of the 1 200 literals contains a `vi.fn()`.**
+  The worry was that `prefer-create-mock` would report the same line as
+  `prefer-create-spy-from-class` or `no-structural-double` on a `useValue` double cast to its
+  service type. On that consumer it never happens — 11 of the reports are inside a `useValue` and
+  every one of them is data (`{ subscriberID: 'sub-1' } as AccountToken`) — so no exemption for
+  `useValue` was added. The carve-out that _is_ there is `insideFactorySeed`, the same one the
+  double rules read, plus the type names another rule owns (`Response`, `Spy`, `Mock*`).
+- [~] **`no-mock-cast` does not report a plain `fn as Mock`.** A local `vi.fn()` retyped is nobody's
+  double, and the advice — read the member off the double — has no member to name. The operand has
+  to be a member access for the repair to exist at all.
+- **`Mock` has to come from the runner, where `prefer-stub-response`'s `Response` has to be the
+  global.** The same question answered in opposite directions, and both are right: `stubResponse`
+  builds the platform's `Response`, so a `Response` with any declaration is somebody else's; a
+  Vitest `Mock` can only arrive by import, so an import from `vitest` / `@rstest/core` / `bun:test`
+  / `jest` — or no binding at all, for a project with ambient runner types — is the evidence, and a
+  `Mock` imported from anywhere else is a domain type.
+- **`prefer-as-spy` moved out of `rules.ts` into `injected-spy.ts`, and that is what kept
+  `max-lines` at 500.** Not a decision about the new rules, a consequence: `rules.ts` was two lines
+  under its 500-line ceiling and registering two more rules crossed it. The rule's whole helper set
+  (`assertedValue`, `asSpyFixes`, `EsSpyCast`) already lived in `injected-spy.ts`, whose own doc
+  comment already described it, so the move is where the file split was heading anyway — the same
+  reason the jasmine rules are in a module of their own. Two other rules in this release reached for
+  the other repair and raised the ceiling to 520 instead; the move is the one that was kept, and
+  with all eight rules registered the file counts 483 lines against the unchanged 500.
+
+## `prefer-settle-dynamic-import`, 2026-09-20
+
+- **The report is anchored on the innermost enclosing function, not on "is this inside a test".**
+  Reading ancestry — is there an `it()` anywhere above — would have caught more, and every extra
+  finding would have been wrong: a `vi.mock` factory, a lazy route's `loadComponent`, a callback the
+  spec hands to production code and `settleDynamicImport`'s own `() => import(…)` are all inside a
+  test by ancestry, and for none of them is the helper the repair. Asking which function actually
+  runs the `import()` settles all four with one check and no list of exempt property names to keep
+  in step.
+- [~] **A spec-local `const load = async () => { await import('…'); }` is not reported**, although
+  it is the shape the consumer had written eleven times, with names like `flushPinCodeChunk` and
+  `settleProfileSelectImport`. Reporting it needs the file to say who calls the function, and the
+  file does not: a named function whose body awaits an import is written identically whether the
+  spec calls it itself or hands it to the code under test as a loader, and for the second the advice
+  would be wrong. Heuristics were considered — the name, whether the function is ever passed as an
+  argument — and both fail on the same file. Documented as a limit on the rule's page instead.
+- [~] **No `--fix`.** The rewrite adds an event-loop turn, so it changes what the test does at run
+  time, and it has to write an import. The four rules here that fix on their own share one property
+  this does not have: a wrong edit can only fail to compile. Offered as a suggestion, which is where
+  `prefer-inject-spy` and `no-sync-testbed-await` sit for the same reason.
+- [~] **`await Promise.all([import('./a'), import('./b')])` is not reported.** The `await` is on the
+  `Promise.all`, not on the `import()`, and wrapping each loader is not the same edit — a spec
+  loading two modules at once wants one settle after both, which is a rewrite rather than a wrap.
+  Reading through the combinators (`all`, `allSettled`, `race`) was tried on paper and dropped: the
+  shape does not occur in the 2 030-file consumer, and a rule earns its exceptions from findings.
+- [~] **A callback something other than the runner invokes stays out of scope**, including
+  `it('x', waitForAsync(async () => …))`. The wrapper decides when and how the callback runs, and a
+  file that shows only the wrapper's name cannot say whether an extra turn is even reachable — under
+  `fakeAsync` a dynamic `import()` does not resolve at all, which is the note this package already
+  carries about the loader being outside the zone.
+
 ## `stubResponse({ body: null })` and the rule beside it, 2026-09-20
 
 - **`null` serialises; `undefined` and an omitted `body` are the only way to say "no body".** The

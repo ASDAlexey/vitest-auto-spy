@@ -10,6 +10,20 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+**Eight lint rules, which take the plugin to forty-eight.** Six of them report a test that is green
+and should not be: a test every assertion of which the stream never emitting already satisfies
+(`no-vacuous-absence-assertion`), a test that calls the spied method itself and then asserts the call
+(`no-self-called-spy`), a bare `toHaveBeenCalled()` where the file itself says the arguments are the
+point (`no-unasserted-argument`), a fixture cast past the compiler (`prefer-create-mock`), a `Mock`
+cast that takes the signature off a spy that already had one (`no-mock-cast`), and a private member
+reached through `Reflect`, where a rename leaves the spec writing a dead property
+(`no-reflect-member-access`). The other two report a line that is read wrong: `await import(…)` in a
+test body, which waits for the module rather than for the handler that was loading it
+(`prefer-settle-dynamic-import`), and a mock reset in a hook the runner already performs
+(`no-redundant-mock-reset`). Every one of them was measured on the same 2 032-file Angular consumer
+before it shipped — 1 940 findings in all — and the two whose repair is a migration rather than an
+edit are the two that ship at `warn`.
+
 One deliberate reversal of a released contract — `stubResponse({ body: null })` now sends the JSON
 literal instead of no body — with a lint rule beside it for the shape it replaces. Plus three
 repairs the 5.21.0 Angular split left behind, every one of them silent: `doctor` could not see an
@@ -49,6 +63,328 @@ new entries pure, which lets a bundler drop the mock adapter or the compiler imp
   cannot have body" about a field whose old meaning was the opposite of a body.
 
 ### Added
+
+- **`no-reflect-member-access`, in `recommended` at `error`.** It reports `Reflect.get(subject,
+  'member')` and `Reflect.set(subject, 'member', value)` where the key is a string literal and the
+  subject is a value the file has in hand — a component, a service, a fixture, a double.
+
+  It is the **second door** out of `no-private-member-access`, and the one no compiler stands in.
+  `component['x']` at least keeps the member where a type-aware rule can resolve it, which is what
+  that rule does with it; `Reflect.get(component, 'x')` takes the name as an ordinary string
+  argument, typed `any`, so neither the compiler nor a template gate nor a strict `tsc` pass has an
+  opinion about it. The consumer this was measured on opened the door itself — its own
+  `no-restricted-syntax` ban on double casts named `Reflect.get` / `Reflect.set` as the sanctioned
+  way around the cast.
+
+  **`Reflect.set` is the half that outlives what it tests.** It installs an **own** property over the
+  prototype rather than writing the member, so renaming the field in production leaves the spec
+  compiling, running, and writing a **dead** property nothing reads, while the
+  `expect(spy).not.toHaveBeenCalled()` under it passes forever. Two such sites were found on the
+  measured consumer by reading them: the test survives the deletion of the thing it was written for,
+  which is the one failure no assertion in it can report.
+
+  **Three messages, one of them with an edit.** A read and a write say different things, and
+  `Reflect.set(double, 'prop', value)` — where the name holds something `injectSpy`,
+  `provideAutoSpy`, `provideAutoSpyForToken`, `createSpyFromClass` or another of this library's
+  factories built — says a third: it patches a double behind the library's back, with no journal
+  entry and no restore, so the patch is live for every later test of the file and, under
+  `isolate: false`, for every later file of the worker. That one offers a suggestion,
+  `mockValueProp(double, 'prop', value)`, which performs the same write and registers the undo with
+  `restoreMockedProps()`. A suggestion rather than a `--fix`, for the reason
+  `no-object-define-property` is: registering an undo is a change between tests, which is the point
+  of the repair and still a change.
+
+  **Syntax and scope only, which is the point rather than a limitation**: this is the shape a suite
+  reaches for precisely where the checker would have objected, so a rule that needed the checker
+  would be blind to it. Silent on `Reflect.get(window, …)`, `globalThis` and any bare identifier the
+  file does not declare — the property the environment's type does not carry is what the idiom is
+  for. Silent on a name an `import` introduced, because a module namespace is nobody's subject and
+  patching one is `vi.mock`'s business; a namespace a spec assigns to a `let` of its own through
+  `await import(…)` is a local binding and **is** reported, which is the binding talking rather than
+  an exception. Silent on a computed key, and on `Reflect.apply`, `Reflect.has`,
+  `Reflect.deleteProperty` and `Reflect.construct`.
+
+  **Measured on the 2 030-file consumer: 214 sites in 50 files** — 125 reads, 85 writes and 4 of the
+  double form; 171 in 33 files under `apps/**` and 43 in 17 under `libs/**`. `error` rather than
+  `warn`, and grading it below its twin would be the mistake: `no-private-member-access` is an
+  `error`, and a `warn` here would make `Reflect.get` the sanctioned way to silence it — the rule
+  would create the incentive it exists to remove.
+
+- **`no-self-called-spy`, in `recommended` at `error`.** It reports a test that calls the spied
+  method itself and then asserts that it was called:
+
+  ```ts
+  it('relays subscribeClick from children', () => {
+    const emitSpy = vi.spyOn(component.subscribeClick, 'emit');
+    component.subscribeClick.emit(payload); // the test makes its own assertion true
+    expect(emitSpy).toHaveBeenCalledWith(payload);
+  });
+  ```
+
+  Nothing about the component is under test: the assertion proves that `EventEmitter.emit` calls
+  `EventEmitter.emit`. Delete the `(subscribeClick)="…"` binding the title names and the test stays
+  green — it survives the removal of the behaviour it claims to check, which is the one failure it
+  cannot report.
+
+  **Order is the whole rule.** The same three shapes in another order are ordinary arrangement, so a
+  finding needs the spy installed first, the direct call after it, and a positive `toHaveBeenCalled*`
+  after that — three ranges in order, inside one test body. Without that check the measured consumer
+  produced a false positive immediately: a `service.updateShelfState(…)` written *above* its own
+  `vi.spyOn(service, 'updateShelfState')`.
+
+  **Two more discriminations came out of the measurement**, and both are the spec saying in its own
+  text that the call is not what its assertion reads. A `mockClear` / `mockReset` / `mockRestore` /
+  `vi.clearAllMocks()` between the two drops the record the call left — five sites in one
+  navigation-switch file were exactly that. And a matcher that pins the arguments pins *which* call
+  it means: `expect(component.scale.set).toHaveBeenCalledWith(3)` under an arranging
+  `component.scale.set(2)` cannot be satisfied by that line. The argument check compares source text,
+  so it errs quiet.
+
+  Also silent on a negated assertion and `toHaveBeenCalledTimes(0)` ("it was not called" is not made
+  true by a call), on a call to a different member than the one spied (the ordinary delegation test),
+  on a call made from inside a callback rather than by the test body, and on a spy installed in a
+  hook, which is shared by every test of its block.
+
+  **It is a quiet rule, and that is said out loud: 5 sites in 3 files** on the 2 030-file consumer —
+  three `EventEmitter.emit` relays in one component spec and two more of the same shape elsewhere.
+  That is below the bar a count would set, and it is not what the rule is in `recommended` for: it
+  costs a suite that drives the production path nothing, and what it catches is a test with no
+  subject in it at all. No `--fix` and no suggestion — the repair is to drive whatever should make
+  the call, which is a judgement about what the test meant.
+- **`no-redundant-mock-reset`, in `recommended` at `error` — and silent until it knows the
+  configuration.** It reports a mock reset written inside a `beforeEach` / `afterEach` /
+  `beforeAll` / `afterAll` that the runner is already configured to perform between tests:
+  `vi.clearAllMocks()`, `vi.resetAllMocks()`, `vi.restoreAllMocks()` and the per-mock
+  `mockClear()` / `mockReset()` / `mockRestore()`. Vitest resets in `onBeforeTryTask`, which runs
+  ahead of every test's `beforeEach` chain and behind the previous test's `afterEach` chain, so the
+  hook does again what the runner has just done — and the line is not free: it reads as the thing
+  keeping the suite honest, so nobody deletes it, and the next author copies it into their hook too.
+
+  **The configuration is the hard part, and the rule refuses to guess at it.** Options first,
+  `['error', { clearMocks: true, restoreMocks: true, mockReset: true }]`; failing that, a search
+  upwards from the linted file for `vitest.config.*` / `vite.config.*`, read as **text** for a
+  `clearMocks: true` and its two siblings — nothing evaluated, no module loaded, because a lint run
+  has no business executing a project's config. With neither an option nor a config found, **nothing
+  is reported at all**: on the call alone the rule would be wrong in every project that leaves those
+  options off, where the hook is the only reset there is.
+
+  **The flag has to match the call, not the family.** The three options are not three grades of one
+  thing: `clearMocks` forgets the recorded calls, `mockReset` also drops the implementation, and
+  `restoreMocks` puts the original member back — over a population that differs as well, since
+  `vi.restoreAllMocks()` walks the spies `vi.spyOn` installed and never reaches a plain `vi.fn()`.
+  So a `vi.clearAllMocks()` in a hook is **not** redundant under `restoreMocks: true` alone, and a
+  `vi.restoreAllMocks()` is not redundant under `clearMocks: true` alone. Two subsumptions are
+  provable and are the only ones used: `vi.resetAllMocks()` resets every registered mock, which
+  includes clearing it; and `restoreMocks` covers a per-mock reset where the file shows the receiver
+  is a `vi.spyOn` spy.
+
+  **`--fix` is rarer than the report, and the reason is what a one-hook reading would miss.** A
+  reset at the top of a hook looks dead, and usually is — but between the runner's reset and that
+  line two things can have run: the statements above it in the same hook, and every `beforeEach` of
+  every enclosing `describe`, which the hook cannot see. Both touch mocks, and the reset wipes what
+  they did; deleting it lets a seed survive into the test, which is a change of behaviour rather
+  than a cleanup. So the edit is applied only where the file shows nothing could have run in
+  between — the first statement of a `beforeEach`, in a file holding no other `beforeEach` and no
+  `beforeAll` — and everything else is a suggestion. When the deletion empties the hook, the hook
+  goes with it.
+
+  **A reset in the middle of a test body is never reported.** There it separates one arrangement
+  from the next inside one test, and no runner option does that. Measured on an Angular monorepo of
+  2 032 spec files against the `{ clearMocks: true, restoreMocks: true }` its runner config actually
+  sets: **202 reports in 167 files** — 19 of them carrying the edit, 183 a suggestion — and **zero**
+  of the 445 mid-test resets in 132 files, verified by re-parsing every reported location rather
+  than by reading the rule. That suite is also where the search's limit is on display: its runner
+  config is `tools/unit-test-bench/vitest-runner.config.ts`, chosen by the `@angular/build:unit-test`
+  builder, so the upward search misses it entirely and the option is what makes the rule work
+  there — the honest trade, not a defect.
+
+- **`no-unasserted-argument`, in `recommended` at `warn`.** It reports a bare
+  `expect(spy).toHaveBeenCalled()` where the **file itself** shows the arguments are what the test
+  is about, on one of two readings: the same subject is pinned with `toHaveBeenCalledWith(…)` in
+  another test of the same file, or the test's title says `with` and its body asserts nothing but
+  bare calls. Two subjects are one subject when the source text handed to `expect()` matches,
+  whitespace aside — so `expect(api.load)` and `expect(loadSpy)` are two, which misses findings and
+  invents none.
+
+  **Narrow on purpose, because the blunt version already exists.** `vitest/prefer-called-with`
+  reports every bare `toHaveBeenCalled`; it is not in its plugin's `recommended`, and on the
+  2 032-file suite above it reports **1 941 times across 360 files** — a number nobody acts on. The
+  two readings here report **175 times in 90 files** on the same tree, 151 on the first and 24 on
+  the second. The strongest single pair is two tests in one file with identical bodies whose titles
+  differ only in which argument the call is said to carry: the difference the titles promise does
+  not exist in the code.
+
+  Never reported: `expect(spy).not.toHaveBeenCalled()`, which is a claim about the call rather than
+  about its arguments; `toHaveBeenCalledTimes` and the other counting matchers; and, under the
+  second reading, a bare call standing beside any assertion that is not another bare call. `warn`
+  rather than `error` because of what the repair needs — the argument list the test should have
+  named is the one thing the rule cannot supply, and every `error` in this plugin either carries an
+  edit or names a helper.
+
+- **`no-vacuous-absence-assertion`, in `recommended` at `error`.** It reports a test **every**
+  assertion of which is satisfied by the stream under it never emitting — the value asserted on
+  being a `const` / `let` the test declared and only a `subscribe` callback writes, or a `vi.fn()`
+  the test hands straight to `subscribe`:
+
+  ```ts
+  it('yields an empty list when no sub-genre resolved to an address', () => {
+    let chips: MusicGenreChip[] = [];
+
+    load$(quickLinks).subscribe((result) => (chips = result));
+
+    expect(chips).toEqual([]);
+    expect(music.getMusicShelfById).not.toHaveBeenCalled();
+  });
+  ```
+
+  `chips` is written by one thing, and both assertions hold on the value its *declaration* left
+  there. So the test passes whether the stream produced an empty list or produced nothing at all,
+  and those are not the same claim: the first is the behaviour the title names, the second is a
+  stream that is broken. `expectNoEmission` has been in the package since 5.3.0 and says the first
+  one out loud; nothing pointed at it.
+
+  **Proved by mutation, twice.** On an Angular monorepo of 2 030 spec files, the production source
+  of the file above was replaced with one that never emits: three of its siblings failed and this
+  test stayed green. The same swap in a promo-banner service failed four tests and left two, both of
+  this shape. Two tests further down that same music file capture into
+  `let chips: … | null = null` and assert `toEqual([])`, which *does* fail on silence — the author
+  knew the idiom and did not apply it everywhere, which is what a linter is for. The rule reports
+  **39 times across 33 files** there, 22 of them a written capture and 17 a `vi.fn()` handed to
+  `subscribe`.
+
+  **What silence satisfies is read literally, not by matcher family.** The initialiser is compared
+  as source text (`'undefined'` for a `let` with none), so an equality matcher repeating it holds;
+  `toBeUndefined` / `not.toBeDefined` hold on `undefined`, `toBeNull` on `null`, `toBeFalsy` /
+  `not.toBeTruthy` on any falsy literal, `toHaveLength(0)` on `[]` or `''`, and
+  `not.toHaveBeenCalled` / `not.toHaveBeenCalledWith` / `toHaveBeenCalledTimes(0)` on any subject.
+  `toBeNull()` on a `let` with no initialiser is therefore **not** reported: `undefined` is not
+  `null`, and that assertion does fail.
+
+  **One assertion that could fail silences the rule**, and that is the condition the whole design
+  rests on: it is what leaves alone the shape the same suite writes 58 times in 21 files — assert
+  the absence, trigger the source, assert the value. It also costs a real finding, a
+  `let result: void | undefined` capture beside three `toHaveBeenCalledWith` assertions, and that is
+  the trade rather than an oversight: the alternative is reporting a line inside a test that does
+  check something, where the repair is a judgement rather than an edit.
+
+  **No `--fix` and no suggestion.** The repair is not an edit at the reported node — it deletes the
+  declaration, replaces the subscription with an awaited helper, drops the assertion, makes the
+  callback `async` and adds an import — and `expectNoEmission` asserts something *stronger* than the
+  line it replaces, so a wrongly accepted suggestion turns a green test red with a message about the
+  helper rather than about the code. The message carries the whole repair instead, which is what
+  `prefer-stub-response` does for the same reason.
+
+  It is the other half of `no-expect-in-subscribe`: that one reports the assertion a silent stream
+  never reaches, this one the assertion a silent stream satisfies.
+- **`prefer-create-mock` (`warn` in `recommended`) and `no-mock-cast` (`error`) — two casts that
+  keep a fixture compiling while taking it out of the compiler's reach.** They are one defect
+  written in two places, which is why they arrive together.
+
+  `prefer-create-mock` reports an object literal under a cast to a named type —
+  `{ id: '1', isOffline: false } as Device`, and the `<Device>{ … }` spelling — and names
+  `createMock<Device>({ … })`. A cast is not an assignment: `as T` asks whether the two types
+  _overlap_, not whether the value is one of them, so the excess-property check is skipped and a key
+  `T` does not declare goes through, while in the other direction a required field the fixture never
+  sets goes through as well. Both type gates stay silent — that is what the cast is for — and the
+  same object is then spread into the expected payload of a call assertion, so the spec pins a key
+  the contract does not have. The evidence that found it: a `Device` fixture in a consumer carrying
+  `isOffline: false`, where the interface declares eight fields and none of them is that one.
+  `createMock<T>` takes a `DeepPartial<T>` and answers a value typed `T` — the fields it does not
+  name stay `undefined` at run time exactly as they did under the cast, and the excess key becomes a
+  compile error on the literal.
+
+  `no-mock-cast` reports a cast to Vitest's `Mock` or `MockInstance` over a **member access** —
+  `TestBed.inject(Metrics).send as Mock` — and names `injectSpy(Metrics).send`, which the suggestion
+  writes whenever the token is in view (a `TestBed.inject(Token)` on the line, or a name the file
+  settled with one). `Mock` with no parameters is `Mock<any>`, so the cast does not add the spy
+  surface, it removes the signature: `mockReturnValue` accepts anything from there on and
+  `toHaveBeenCalledWith` stops comparing arguments, which leaves the assertion passing when the code
+  under test calls the method with the wrong ones. The worse form gets a message of its own —
+  `(shelves.getByGid.mockReturnValue as Mock)(of(shelf))` puts the cast on the member that installs
+  the answer, so neither the value going in nor the method's own return type is checked by anything.
+
+  **Measured on an Angular monorepo of 2 032 spec files**: 1 200 casts over a literal in 327 files,
+  naming 217 distinct types, and 24 casts to `Mock` in 21 files (22 ordinary, 2 of the configuration
+  form). Two facts out of the same measurement. **None** of the 1 200 literals contains a `vi.fn()`,
+  so neither rule ever collides with `prefer-create-spy-from-class` or `no-structural-double` there:
+  those are about collaborators and these are about data. And **529** of the 1 200 sit in a slot that
+  already has a type — a call argument, a `nextWith`, a `mockReturnValue` — where the cast is not
+  load-bearing but is switching off the check that slot would have done; the message names deleting
+  the cast as the first repair there, with `createMock<T>` for whatever partial is left.
+
+  **Why one is `warn` and the other `error`.** Both findings are exact — the value and the type it
+  claims are written on the same line — so neither is graded on its evidence. `prefer-create-mock` is
+  graded on the migration: accepting the suggestion hands the literal to the compiler, so every
+  fixture that has drifted turns red the same day, and 1 200 sites in 327 files is not an upgrade
+  anybody lands in one branch. That redness is the finding rather than a side effect, which is the
+  argument for shipping the rule and for shipping it as a suggestion behind a `warn`, the same
+  reading `prefer-set-inputs` gets. `no-mock-cast` is 24 sites and one sitting.
+
+  **Suggestions, not fixes, in both cases.** `prefer-create-mock` cannot be applied unattended for
+  the reason above. `no-mock-cast` cannot for a different one: `injectSpy` answers the double the
+  container was *given*, so the rewrite is only right when that double is one this library built —
+  a hand-rolled `{ provide: X, useValue: { m: vi.fn() } }` turns it into a run-time throw rather
+  than a compile error, which is the one failure mode an unattended fix may not have.
+  `no-unregistered-inject-spy` is what reports an accepted suggestion that landed on such a double.
+
+  **Syntax only, and narrowed where another rule already speaks.** `prefer-create-mock` stays silent
+  on `as const`, on `as unknown` / `as any` and the double cast built from them (the hop through
+  `unknown` is there because the compiler refused the single cast, so `createMock<T>` would not
+  compile either), on a cast of anything that is not an object literal, on a cast to an inline object
+  type, on a literal inside one of this library's own factories, and on the type names other rules
+  own — `Response`, `Spy`, and the `Mock` / `Mocked` family. `no-mock-cast` requires the `Mock` to
+  resolve to a named import from `vitest` / `@rstest/core` / `bun:test` / `jest`, or to no binding at
+  all, so a domain type called `Mock` is never reported.
+
+- **`prefer-settle-dynamic-import`, in `recommended` at `error`.** It reports a dynamic `import()`
+  the spec itself waits for inside a test body or a hook — `await import('./thing')`, the
+  destructured `const { Thing } = await import('./thing')`, and `import('./thing').then(…)` — and
+  names `await settleDynamicImport(() => import('./thing'))`.
+
+  The defect is not the wait; it is **what** is waited for. Production code that lazy-loads on an
+  interaction leaves the spec with no promise to hold on to, so the spec loads the same specifier
+  itself, and that part works: the registry is shared, so the second `import()` resolves against the
+  instance the first one is already loading. What it does not wait for is the handler's own
+  continuation — the lines after *its* `await`, the ones that open the dialog, set the signal or
+  navigate. Those are queued behind the loader's microtask, so the assertion reads the state one
+  turn early. Such a test is green only while the continuation is short enough to have drained by
+  accident, and it turns red the day somebody adds a line to it: a flake with no bad line in it.
+  `settleDynamicImport(load, turns = 1)` has existed since 5.1.0 and is exactly that `await`
+  followed by `flushEventLoop(turns)`; nothing pointed at it.
+
+  **What proves it is the suite that had already half-written the helper.** Measured on an Angular
+  monorepo of 2 030 spec files, the rule reports **81 times across 32 files** — and four of those
+  reports, in one file, carry a hand-written `await Promise.resolve()` on the line underneath, which
+  is `flushEventLoop(1)` spelled out. Eleven further sites of the same shape had already been lifted
+  into spec-local helpers named `flushPinCodeChunk`, `settleProfileSelectImport`,
+  `settleModalImports`, `settleModalComponentImport` and `flushLazyImport`, two of them with a loop
+  of five `await Promise.resolve()` under the import, each with a comment explaining that the module
+  loader runs outside the zone and outside fake timers. The suite wrote this helper by hand eleven
+  times before the rule existed.
+
+  **Suggestion, not a fix.** The rewrite adds an event-loop turn, which is a change to what the test
+  does at run time, and it has to import a name — neither is the "decidable from the file, and a
+  wrong guess can only fail to compile" standard the four `--fix` rules here meet. So the edit is
+  offered: it wraps the `import()` where it stands and merges `settleDynamicImport` into an existing
+  `vitest-auto-spy` import when the file has one.
+
+  **`error`, although it does not arrive at zero.** `prefer-stub-response` shipped silent on the
+  consumer that provoked it; this one ships with 81 findings there, and that is still the right
+  grade. The two rules graded down — `prefer-render-shallow` and `prefer-set-inputs` — are graded on
+  what adoption costs: each is a migration a suite takes file by file. This one is 81 independent
+  one-line repairs, every one of them a test that waits for the wrong thing, with the evidence in
+  the line and no heuristic in the decision. Which findings block a merge stays one line of config.
+
+  **Syntax only, and deliberately narrow.** The report is made only where the innermost function
+  around the `import()` is the runner's own callback (`it` / `test` / `beforeEach` / `beforeAll` /
+  `afterEach` / `afterAll`, `.only`, `.skip` and `.each` included). That one reading settles every
+  exemption at once, because each shape where the helper would be wrong advice puts a function of
+  its own in between: a `vi.mock` / `vi.doMock` factory, a lazy route's `loadComponent` /
+  `loadChildren` in a fixture handed to the router, a callback the spec gives the code under test,
+  and `settleDynamicImport`'s own `() => import(…)`. It also costs the rule the eleven helpers
+  above, and that is the honest limit rather than an oversight: a named function whose body awaits
+  an import is written identically whether the spec calls it or the code under test does, and the
+  file does not say which.
 
 - **`prefer-stub-response`, in `recommended` at `error`.** It reports a `Response` written by hand
   for a stubbed `fetch`: an object literal cast to `Response` (`as Response`, the
@@ -459,7 +795,7 @@ The root entry grows **20.3 → 22.1 kB** min+gzip (+1.79 kB): `mockDeep` arrays
 `fallbackMockImplementation` ~0.43 kB, `createSpyFromInstance` passthrough and the only-list rules
 ~0.65 kB, `adoptMock` and `moduleNamespace` passthrough ~0.59 kB, the rest ~0.1 kB. `/bun`, `/bun-angular`,
 `/node`, `/rstest`, `/react`, `/vue` and `/svelte` carry the same core (+1.74 to +1.79 kB), `/setup` +0.36 kB
-for `stubResponse` and the MSW check, `/eslint-plugin` +1.01 kB for the new rule. No entry loads a
+for `stubResponse` and the MSW check, `/eslint-plugin` **37.7 → 40.5 kB** (+2.71 kB) for the new rules. No entry loads a
 module it did not load before.
 
 ### Known limitations
