@@ -56,7 +56,7 @@
     },
     "./eslint-plugin": {
       "modules": 2,
-      "bytes": 186538
+      "bytes": 232776
     },
     "./jasmine": {
       "modules": 14,

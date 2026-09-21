@@ -46,7 +46,20 @@ const CLI_BUNDLE = 'cli.js';
 // consumer's run, and writing the measurement to a file is the whole of what it does.
 // `perf-profiler.js` is the fifth: the setup file that reporter adds to a confirmation pass, which writes
 // one CPU profile per spec file and is never loaded by an ordinary run.
-const FILESYSTEM_ALLOWED = new Set([CLI_BUNDLE, 'bun-angular.js', 'setup.js', 'perf-reporter.js', 'perf-profiler.js']);
+// `eslint-plugin.cjs` is the sixth, and it is the one that needs saying: the rule above is about the
+// *library* — a spec must not behave differently because of a file nobody wrote down. A lint rule is
+// the other thing. `no-redundant-mock-reset` cannot decide anything without knowing what the runner
+// resets between tests, and that is written in `vitest.config.*` / `vite.config.*`; the read is
+// `existsSync` + `readFileSync` on those names alone, nothing is evaluated, and a project that would
+// rather not have its disk read passes the flags as rule options instead, which skips the search.
+const FILESYSTEM_ALLOWED = new Set([
+  CLI_BUNDLE,
+  'bun-angular.js',
+  'setup.js',
+  'perf-reporter.js',
+  'perf-profiler.js',
+  'eslint-plugin.cjs',
+]);
 // `rxjs` is the entry that *is* the observable layer; `observer-spy` is the `@hirez_io/observer-spy`
 // port, which has no meaning without it. Both are opt-in subpaths nobody reaches without rxjs.
 const RXJS_TYPES_ALLOWED = new Set(['rxjs', 'observer-spy']);
