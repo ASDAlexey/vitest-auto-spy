@@ -24,44 +24,6 @@ test body, which waits for the module rather than for the handler that was loadi
 before it shipped — 1 940 findings in all — and the two whose repair is a migration rather than an
 edit are the two that ship at `warn`.
 
-One deliberate reversal of a released contract — `stubResponse({ body: null })` now sends the JSON
-literal instead of no body — with a lint rule beside it for the shape it replaces. Plus three
-repairs the 5.21.0 Angular split left behind, every one of them silent: `doctor` could not see an
-import from the new companion entries at all, so the migration it makes mandatory went unchecked in
-the direction the split makes easy to get wrong; the property-mock journal warned the next spec file
-about patches a spec had already taken off; and the `sideEffects` manifest called two of the three
-new entries pure, which lets a bundler drop the mock adapter or the compiler import.
-
-### Changed
-
-- **`stubResponse({ body: null })` sends the JSON literal `null`, where it used to send no body at
-  all.** This is a behaviour change to a documented contract, and it is deliberate: `null` was the
-  one JSON literal that did not round-trip. `0`, `false`, `[]`, `{}` and every plain object went out
-  as JSON and came back from `.json()`; `null` fell through `isJsonBody` — `typeof null === 'object'`
-  — into the "not JSON" branch, where `body ?? null` sent nothing, so `.json()` threw
-  `SyntaxError: Unexpected end of JSON input` and `body: null` was indistinguishable from omitting
-  the field. That is a trap rather than a preference: a reader who has watched `body: 0` work has no
-  reason to expect this one to behave differently, and nothing said so.
-
-  What found it is the shape a backend really answers. A consumer's spec covers "the backend
-  answered an empty login", which on the wire is the literal `null` — the production guard parses
-  the body and throws on it. Converted to `stubResponse({ body })` the test went red on
-  `TypeError: Cannot read properties of undefined (reading 'indexOf')`, raised while parsing an
-  empty body: an error the spec never asserted, about a branch that was not the one under test. The
-  workaround there was to serialise by hand — `stubResponse({ body: JSON.stringify(value), headers:
-  { 'content-type': 'application/json' } })` — which works, because a string body is sent as it is,
-  and which puts back by hand the one thing `stubResponse` exists to get right.
-
-  **Migration.** "No body" is `undefined` or an omitted `body`, which is the spelling every caller
-  already reaches for; that is what leaves `null` free to mean what it means in JSON. A spec that
-  relied on `null` meaning "no body" drops the field. The realistic breakage is narrow: such a
-  caller got an empty body and now gets `"null"` with an `application/json` content type — almost
-  certainly what they wanted, since `.json()` threw on the old one. The one case that fails loudly
-  instead of quietly changing is `{ body: null, status: 204 }` (205 and 304 likewise): those
-  statuses carry no body, so `stubResponse` throws by name — `was given body: null with status 204,
-  which carries no body` — rather than letting the constructor raise "Response with null body status
-  cannot have body" about a field whose old meaning was the opposite of a body.
-
 ### Added
 
 - **`no-reflect-member-access`, in `recommended` at `error`.** It reports `Reflect.get(subject,
@@ -386,6 +348,57 @@ new entries pure, which lets a bundler drop the mock adapter or the compiler imp
   an import is written identically whether the spec calls it or the code under test does, and the
   file does not say which.
 
+### Size
+
+`/eslint-plugin` **37.69 → 47.24 kB** min+gzip (+9.55 kB, +25.3 %), and it is the eight rules: measured
+by stubbing each module out of the bundle, `absence-assertion` (`no-vacuous-absence-assertion`)
+1.79 kB, `fixture-casts` (`prefer-create-mock` + `no-mock-cast`) 1.70 kB, `mock-reset` with its
+config reader (`no-redundant-mock-reset`) 1.51 kB, `self-called-spy` 1.24 kB, `reflect-access`
+1.15 kB, `called-arguments` (`no-unasserted-argument`) 0.87 kB, `dynamic-import`
+(`prefer-settle-dynamic-import`) 0.83 kB — 9.17 kB together, the rest being the registry and the
+recommended config. It is a lint-time entry ESLint loads and no test run imports; the `node:fs` read
+`no-redundant-mock-reset` adds lives in it alone. Every runtime entry is byte-identical to 5.22.0,
+and heap per spied method is unchanged at 2.92 kB.
+
+## [5.22.0] - 2026-09-20
+
+One deliberate reversal of a released contract — `stubResponse({ body: null })` now sends the JSON
+literal instead of no body — with a lint rule beside it for the shape it replaces. Beside it,
+`createLog()` for call order across collaborators, Angular's own `Location` double, `resolve` and
+`title` on the route double, `collectRouterEvents`, and `ignoreCancelled` on the HTTP teardown check.
+
+### Changed
+
+- **`stubResponse({ body: null })` sends the JSON literal `null`, where it used to send no body at
+  all.** This is a behaviour change to a documented contract, and it is deliberate: `null` was the
+  one JSON literal that did not round-trip. `0`, `false`, `[]`, `{}` and every plain object went out
+  as JSON and came back from `.json()`; `null` fell through `isJsonBody` — `typeof null === 'object'`
+  — into the "not JSON" branch, where `body ?? null` sent nothing, so `.json()` threw
+  `SyntaxError: Unexpected end of JSON input` and `body: null` was indistinguishable from omitting
+  the field. That is a trap rather than a preference: a reader who has watched `body: 0` work has no
+  reason to expect this one to behave differently, and nothing said so.
+
+  What found it is the shape a backend really answers. A consumer's spec covers "the backend
+  answered an empty login", which on the wire is the literal `null` — the production guard parses
+  the body and throws on it. Converted to `stubResponse({ body })` the test went red on
+  `TypeError: Cannot read properties of undefined (reading 'indexOf')`, raised while parsing an
+  empty body: an error the spec never asserted, about a branch that was not the one under test. The
+  workaround there was to serialise by hand — `stubResponse({ body: JSON.stringify(value), headers:
+  { 'content-type': 'application/json' } })` — which works, because a string body is sent as it is,
+  and which puts back by hand the one thing `stubResponse` exists to get right.
+
+  **Migration.** "No body" is `undefined` or an omitted `body`, which is the spelling every caller
+  already reaches for; that is what leaves `null` free to mean what it means in JSON. A spec that
+  relied on `null` meaning "no body" drops the field. The realistic breakage is narrow: such a
+  caller got an empty body and now gets `"null"` with an `application/json` content type — almost
+  certainly what they wanted, since `.json()` threw on the old one. The one case that fails loudly
+  instead of quietly changing is `{ body: null, status: 204 }` (205 and 304 likewise): those
+  statuses carry no body, so `stubResponse` throws by name — `was given body: null with status 204,
+  which carries no body` — rather than letting the constructor raise "Response with null body status
+  cannot have body" about a field whose old meaning was the opposite of a body.
+
+### Added
+
 - **`prefer-stub-response`, in `recommended` at `error`.** It reports a `Response` written by hand
   for a stubbed `fetch`: an object literal cast to `Response` (`as Response`, the
   `as unknown as Response` spelling reached for when the single cast stops compiling, and
@@ -476,6 +489,14 @@ new entries pure, which lets a bundler drop the mock adapter or the compiler imp
   (`a predicate (wantsProductList)`), where every predicate in the file read identically.
   `/angular-http` grows 3.37 kB → 3.48 kB min+gzip (**+0.11 kB, +3.3 %**) for both — a percentage
   that is large only because the entry is small; the same bytes are 0.3 % of the core.
+
+## [5.21.1] - 2026-09-20
+
+Three repairs the 5.21.0 Angular split left behind, every one of them silent: `doctor` could not
+see an import from the new companion entries at all, so the migration it makes mandatory went
+unchecked in the direction the split makes easy to get wrong; the property-mock journal warned the
+next spec file about patches a spec had already taken off; and the `sideEffects` manifest called two
+of the three new entries pure, which lets a bundler drop the mock adapter or the compiler import.
 
 ### Fixed
 
@@ -795,7 +816,7 @@ The root entry grows **20.3 → 22.1 kB** min+gzip (+1.79 kB): `mockDeep` arrays
 `fallbackMockImplementation` ~0.43 kB, `createSpyFromInstance` passthrough and the only-list rules
 ~0.65 kB, `adoptMock` and `moduleNamespace` passthrough ~0.59 kB, the rest ~0.1 kB. `/bun`, `/bun-angular`,
 `/node`, `/rstest`, `/react`, `/vue` and `/svelte` carry the same core (+1.74 to +1.79 kB), `/setup` +0.36 kB
-for `stubResponse` and the MSW check, `/eslint-plugin` **37.7 → 40.5 kB** (+2.71 kB) for the new rules. No entry loads a
+for `stubResponse` and the MSW check, `/eslint-plugin` +1.01 kB for the new rule. No entry loads a
 module it did not load before.
 
 ### Known limitations
@@ -7157,7 +7178,9 @@ by hand there, in more than one place, by more than one person.
   `mockAccessorsProp`.
 - Dual ESM + CJS build with type declarations; 100% test coverage.
 
-[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.21.0...HEAD
+[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.22.0...HEAD
+[5.22.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.21.1...v5.22.0
+[5.21.1]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.21.0...v5.21.1
 [5.21.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.20.0...v5.21.0
 [5.20.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.19.0...v5.20.0
 [5.19.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.18.0...v5.19.0
