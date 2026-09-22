@@ -46,7 +46,7 @@ describe('provideLocationDouble', () => {
 
     location.go('/reports', 'tab=7', { from: 'menu' });
 
-    expect(location.path()).toBe('/reports');
+    expect(location.path()).toBe('/reports?tab=7');
     expect(location.getState()).toEqual({ from: 'menu' });
     expect(location.urlChanges).toEqual(['/reports?tab=7']);
   });
@@ -89,6 +89,67 @@ describe('the history the double keeps', () => {
     location.go('/once');
 
     expect(location.urlChanges).toEqual(['/once']);
+  });
+});
+
+/** The real `Location` over the strategy the double pairs with — the reference the double has to agree with. */
+function realLocation(): Location {
+  TestBed.configureTestingModule({ providers: [{ provide: LocationStrategy, useClass: MockLocationStrategy }] });
+
+  return TestBed.inject(Location);
+}
+
+/**
+ * What a caller reads back after each step, on either `Location`. No `back()`: the real `Location`
+ * over `MockLocationStrategy` rebuilds the previous URL from its journal, `replace: ` prefix included.
+ */
+function readBack(location: Location): string[] {
+  location.go('/reports', 'tab=7');
+  const afterGo = location.path();
+
+  location.replaceState('/reports', 'tab=8&sort=asc');
+
+  return [afterGo, location.path(), String(location.isCurrentPathEqualTo('/reports', 'tab=8&sort=asc'))];
+}
+
+describe('path() agrees with the real Location', () => {
+  it('answers the query go() and replaceState() were given, as the real Location does', () => {
+    const expected = readBack(realLocation());
+
+    TestBed.resetTestingModule();
+
+    expect(expected).toEqual(['/reports?tab=7', '/reports?tab=8&sort=asc', 'true']);
+    expect(readBack(createLocationDouble())).toEqual(expected);
+  });
+
+  it('keeps a query that arrived inside the path, the way the router writes it', () => {
+    const location = createLocationDouble();
+
+    location.go('/search?q=cats');
+
+    expect(location.path()).toBe('/search?q=cats');
+    expect(location.urlChanges).toEqual(['/search?q=cats']);
+  });
+
+  it('keeps the query across the back button, and tells the popstate subscribers', () => {
+    const location = createLocationDouble();
+    const pops: string[] = [];
+
+    location.go('/a', 'x=1');
+    location.go('/b');
+    location.subscribe((event) => pops.push(String(event.url)));
+    location.back();
+
+    expect(location.path()).toBe('/a?x=1');
+    expect(pops).toEqual(['/a?x=1']);
+  });
+
+  it('names the Angular internal it reads when the history is not where it was', () => {
+    const location = createLocationDouble();
+
+    Object.defineProperty(location, '_history', { value: undefined });
+
+    expect(() => location.path()).toThrow(/no longer carries SpyLocation#_history/);
   });
 });
 

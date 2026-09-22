@@ -20,16 +20,47 @@
  * and `@angular/router` itself depends on `@angular/common`, so the suites that import this entry
  * already have the package the double comes from. Re-implementing Angular's history semantics here
  * would be a second copy to fall out of step with the first.
+ *
+ * **One member is corrected.** `SpyLocation` keeps the query of `go(path, query)` and
+ * `replaceState(path, query)` beside the path, and its `path()` returns the path alone — where the
+ * real `Location.path()` answers `/reports?tab=7`. Code that splits `path()` on `?` reads no
+ * query from Angular's fake, so the double answers what the real `Location` would.
  */
-import { Location } from '@angular/common';
-import { SpyLocation, provideLocationMocks } from '@angular/common/testing';
+import { Location, LocationStrategy } from '@angular/common';
+import { MockLocationStrategy, SpyLocation } from '@angular/common/testing';
 import { type Injector, type Provider } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 
+import { angularInternalsError } from './angular-internals';
 import { DOCS_LINKS, withDocs } from './docs-links';
 
 /** What `injectLocationDouble()` and `createLocationDouble()` hand back: Angular's own recording fake. */
 export type LocationDouble = SpyLocation;
+
+/** The query of the entry the history stands on — kept by `SpyLocation` in a field it never reads back. */
+function currentQuery(location: SpyLocation): string {
+  const history: unknown = Reflect.get(location, '_history');
+  const index: unknown = Reflect.get(location, '_historyIndex');
+  const entry: unknown = Array.isArray(history) && typeof index === 'number' ? history[index] : undefined;
+  const query: unknown = Reflect.get(Object(entry), 'query');
+
+  if (typeof query !== 'string') {
+    throw angularInternalsError(
+      'SpyLocation#_history[…].query',
+      '`provideLocationDouble()` can no longer answer the query in `path()`, as the real `Location` does.',
+    );
+  }
+
+  return query;
+}
+
+class QueryAwareSpyLocation extends SpyLocation {
+  override path(): string {
+    const query = currentQuery(this);
+
+    return super.path() + Location.normalizeQueryParams(query);
+  }
+}
 
 function describeInstance(instance: object): string {
   const prototype = Reflect.getPrototypeOf(instance);
@@ -47,16 +78,19 @@ function describeInstance(instance: object): string {
  *
  * const location = injectLocationDouble();
  *
- * location.go('/reports/7'); // urlChanges records it; path() reads it back
+ * location.go('/reports', 'tab=7'); // urlChanges records it; path() reads '/reports?tab=7' back
  * location.simulateUrlPop('/'); // the popstate no method call can cause
  * ```
  *
- * Returns the provider pair Angular ships (`SpyLocation` for `Location`, `MockLocationStrategy` for
- * `LocationStrategy`) — a new array every call, so a list hoisted to a module constant still hands
+ * Returns the pair `provideLocationMocks()` ships (a `SpyLocation` for `Location`, whose `path()` keeps
+ * the query, and `MockLocationStrategy` for `LocationStrategy`) — a new array every call, so a list hoisted to a module constant still hands
  * each injector a double of its own.
  */
 export function provideLocationDouble(): Provider[] {
-  return [...provideLocationMocks()];
+  return [
+    { provide: Location, useFactory: createLocationDouble },
+    { provide: LocationStrategy, useClass: MockLocationStrategy },
+  ];
 }
 
 /**
@@ -106,5 +140,5 @@ export function injectLocationDouble(injector?: Injector): LocationDouble {
  * ```
  */
 export function createLocationDouble(): LocationDouble {
-  return new SpyLocation();
+  return new QueryAwareSpyLocation();
 }
