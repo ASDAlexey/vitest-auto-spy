@@ -2,7 +2,7 @@
   "entries": {
     ".": 22561,
     "./bun": 21238,
-    "./bun-angular": 27430,
+    "./bun-angular": 27413,
     "./node": 21365,
     "./rstest": 22768,
     "./rxjs": 2635,
@@ -12,12 +12,12 @@
     "./jasmine": 15757,
     "./jasmine-compat": 2178,
     "./observer-spy": 1272,
-    "./angular": 26320,
-    "./angular/diagnostics": 5909,
+    "./angular": 26318,
+    "./angular/diagnostics": 6036,
     "./angular/doubles": 9650,
     "./angular/matchers": 1681,
-    "./angular-http": 3478,
-    "./angular-router": 9048,
+    "./angular-http": 3474,
+    "./angular-router": 9373,
     "./signal-forms": 1415,
     "./nestjs": 14941,
     "./react": 22561,
@@ -25,7 +25,7 @@
     "./svelte": 22561,
     "./setup": 19650,
     "./zone": 1144,
-    "./eslint-plugin": 47236
+    "./eslint-plugin": 48616
   },
   "note": "Baseline for scripts/size-entries.mjs: min+gzip bytes per entry point, peers external. Regenerate with `npm run size:entries:update` and explain the diff in the commit."
 }
