@@ -31,7 +31,8 @@
  * - `Reflect.get(window, 'process')`, `Reflect.set(globalThis, '__probe', x)` — the idiom's real
  *   purpose: a property the environment's type does not declare, where there is no member to reach
  *   around. Decided by the binding, not by a list of names: a bare identifier that resolves to no
- *   declaration in the file is the environment's.
+ *   declaration in the file is the environment's, and so is a spec's own name declared as `Window`
+ *   or `typeof globalThis` (`let win: Window` holding an injected `WINDOW`).
  * - A name an **import** introduced — a module namespace object, most often. Patching one is
  *   `vi.mock`'s business and the advice here would be wrong.
  * - A **computed** key: `Reflect.get(component, method)` in a helper that takes the name as a
@@ -50,12 +51,16 @@ import {
   type EsFixer,
   type EsLiteral,
   type EsNode,
+  type EsVariableDefinition,
   type RuleContext,
   type SuggestionDescriptor,
   isCallExpression,
   isIdentifier,
   isMemberCall,
   isMemberExpression,
+  isObjectExpression,
+  isTypeReference,
+  isVariableDeclarator,
 } from './rule-types';
 
 /** The helper that performs the same write and registers the undo. */
@@ -95,6 +100,45 @@ function rootIdentifier(node: EsNode): EsNode | undefined {
   return isIdentifier(current) ? current : undefined;
 }
 
+/** `typeof globalThis`. */
+interface EsTypeQuery extends EsNode {
+  exprName: EsNode;
+}
+
+/** `Window & { extra?: number }`. */
+interface EsIntersectionType extends EsNode {
+  types: EsNode[];
+}
+
+function isTypeQuery(node: EsNode): node is EsTypeQuery {
+  return node.type === 'TSTypeQuery';
+}
+
+function isIntersectionType(node: EsNode): node is EsIntersectionType {
+  return node.type === 'TSIntersectionType';
+}
+
+/** `Window`, `typeof globalThis`, or an intersection with either — the environment's type. */
+function isEnvironmentType(node: EsNode): boolean {
+  if (isIntersectionType(node)) {
+    return node.types.some(isEnvironmentType);
+  }
+
+  if (isTypeQuery(node)) {
+    return isIdentifier(node.exprName) && node.exprName.name === 'globalThis';
+  }
+
+  return isTypeReference(node) && isIdentifier(node.typeName) && node.typeName.name === 'Window';
+}
+
+/** `let win: Window` — a name of the spec's own for the environment, which is what the idiom is for. */
+function declaresEnvironment(definition: EsVariableDefinition): boolean {
+  const { node } = definition;
+  const annotation = isVariableDeclarator(node) && isIdentifier(node.id) ? node.id.typeAnnotation : undefined;
+
+  return annotation !== undefined && isEnvironmentType(annotation.typeAnnotation);
+}
+
 /**
  * Whether the target is something this file has in hand, rather than the environment's.
  *
@@ -112,7 +156,11 @@ function isLocalSubject(context: RuleContext, target: EsNode): boolean {
 
   const binding = findBinding(context.sourceCode.getScope(root), root.name);
 
-  return binding !== undefined && binding.defs.length > 0 && !binding.defs.some((definition) => definition.type === IMPORT_DEFINITION);
+  return (
+    binding !== undefined &&
+    binding.defs.length > 0 &&
+    !binding.defs.some((definition) => definition.type === IMPORT_DEFINITION || declaresEnvironment(definition))
+  );
 }
 
 /** Whether the value a name holds came out of one of this library's double factories. */
@@ -130,6 +178,13 @@ function isDouble(context: RuleContext, target: EsNode): boolean {
   }
 
   return isFactoryCall(value) || (isCallExpression(value) && isIdentifier(value.callee) && DOUBLE_READERS.has(value.callee.name));
+}
+
+/** Whether the name holds an object literal the spec wrote itself — a fixture, not a subject. */
+function isFixtureLiteral(context: RuleContext, target: EsNode): boolean {
+  const value = isIdentifier(target) ? boundValueOf(context.sourceCode.getScope(target), target) : undefined;
+
+  return value !== undefined && isObjectExpression(value);
 }
 
 /** `Reflect.set(double, 'prop', value)` → `mockValueProp(double, 'prop', value)`, importing the helper. */
@@ -163,7 +218,8 @@ const SURFACE =
   'Drive the member through the public API that uses it and assert the effect. On a **component**, the rendered template is ' +
   'the other public surface, and it is the one `protected` members exist for: `renderShallow(Cmp)` and read the DOM rather ' +
   'than the field. A property the environment’s own type does not declare — `window`, `globalThis` — is what the idiom is ' +
-  'for and is never reported here.';
+  'for and is never reported here. A private member with no observable effect at all is the one case this leaves: there ' +
+  "`component['member']` keeps the key where the compiler checks it, under a `no-private-member-access` disable that says why.";
 
 /** `Reflect.get(component, 'privateField')` — the bracket escape, spelled so no checker can see it. */
 export const noReflectMemberAccess = defineRule({
@@ -173,6 +229,7 @@ export const noReflectMemberAccess = defineRule({
   messages: {
     reflectGet: `This reads \`{{key}}\` off a subject the test already holds. ${ESCAPE} So the spec pins a member the class never promised anybody, and it pins it by a name a rename cannot reach: the refactor stays green in production and the spec keeps reading a property that is no longer there, answering \`undefined\` to whatever asserts on it. ${SURFACE}`,
     reflectSet: `This writes \`{{key}}\` onto a subject the test already holds, and it does not write the member — \`Reflect.set\` installs an **own** property over the prototype. ${ESCAPE} Rename the field in production and this line keeps compiling, keeps running, and now writes a **dead** property nothing reads, while every assertion under it goes on passing: the test outlives the thing it was written to check. ${SURFACE} Where the value has to be forced onto a real object, \`mockValueProp(obj, '{{key}}', value)\` writes it and registers the undo with \`restoreMockedProps()\`.`,
+    reflectSetOnFixture: `This writes \`{{key}}\` onto an object literal this spec built — a fixture, where the key could have been written in the literal and checked there. ${ESCAPE} Put it in the literal. Where the value is deliberately outside the declared type — an unknown enum member fed in to reach the fallback branch — cast the **value** (\`{ {{key}}: value as Model['{{key}}'] }\`), which keeps the key under the compiler and says out loud which value is impossible.`,
     reflectSetOnDouble: `\`{{key}}\` is being patched onto a double this library built, behind the library’s back: no journal entry and no restore, so the patch is live for every later test of this file and — under \`isolate: false\` — for every later file of the worker. \`mockValueProp({{target}}, '{{key}}', value)\` performs the same write and registers the undo with \`restoreMockedProps()\`, which \`setupAutoSpy()\` runs in a hook, so it happens whatever the assertions did. A member the double should answer from the start belongs in the seed it was built with — \`provideAutoSpy(X, { returns: { … } })\`, \`provideAutoSpyForToken(TOKEN, { … })\` — rather than in a write afterwards.`,
   },
   create: (context) => ({
@@ -196,7 +253,9 @@ export const noReflectMemberAccess = defineRule({
         return;
       }
 
-      context.report({ node, messageId: writes ? 'reflectSet' : 'reflectGet', data: { key } });
+      const messageId = writes ? (isFixtureLiteral(context, target) ? 'reflectSetOnFixture' : 'reflectSet') : 'reflectGet';
+
+      context.report({ node, messageId, data: { key } });
     },
   }),
 });

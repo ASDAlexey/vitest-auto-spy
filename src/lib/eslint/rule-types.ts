@@ -130,6 +130,8 @@ export interface EsSpreadElement extends EsNode {
  */
 export interface EsImportSpecifier extends EsNode {
   parent: EsImportDeclaration;
+  /** The exported name — an identifier, or a string literal for `import { 'a-b' as ab }`. */
+  imported: EsNode;
 }
 
 /** An import statement, with the specifiers a fixer has to rewrite and the module they come from. */
@@ -335,6 +337,8 @@ export interface RuleContext {
   readonly options: readonly unknown[];
   /** The file being linted. One rule reads it: `no-redundant-mock-reset` searches upwards for the runner config. */
   readonly filename: string;
+  /** ESLint's working directory — what a relative `configFile` option of `no-redundant-mock-reset` resolves against. */
+  readonly cwd: string;
   report(descriptor: ReportDescriptor): void;
 }
 
@@ -529,7 +533,7 @@ const FN = new Set(['fn']);
  * The walk is down the chain rather than one step, so `vi.fn().mockReturnValue(x).mockName('y')`
  * arrives at the same place.
  */
-function rootCall(node: EsNode): EsNode {
+export function rootCall(node: EsNode): EsNode {
   let current = node;
 
   while (isCallExpression(current) && isMemberExpression(current.callee) && isCallExpression(current.callee.object)) {
