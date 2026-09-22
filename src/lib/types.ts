@@ -734,8 +734,12 @@ export type DeepPartial<T> = T extends Func
  *
  * Mapping over a `Date` or a `Map` would turn it into an object of optional methods — accepted by
  * the compiler, useless at runtime, and impossible to write a fixture against.
+ *
+ * `Error` is deliberately not here. The check is structural, so it caught every type with a `name`
+ * and a `message` — an `HttpErrorResponse`, a class extending `Error` — and a partial of one
+ * demanded all of it. An `Error` has no methods to lose, so it is mapped like any other object.
  */
-type BuiltIn = Date | Error | Func | Promise<unknown> | ReadonlyMap<unknown, unknown> | ReadonlySet<unknown> | RegExp;
+type BuiltIn = Date | Func | Promise<unknown> | ReadonlyMap<unknown, unknown> | ReadonlySet<unknown> | RegExp;
 
 // ---------------------------------------------------------------------------
 // Configuration

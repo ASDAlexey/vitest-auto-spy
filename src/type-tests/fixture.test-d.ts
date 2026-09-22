@@ -8,7 +8,7 @@
  */
 import { describe, expectTypeOf, it } from 'vitest';
 
-import { createFixture, createFixtureFactory, narrow } from '../auto-spy';
+import { createFixture, createFixtureFactory, createMock, narrow } from '../auto-spy';
 
 interface Article {
   id: string;
@@ -45,6 +45,32 @@ describe('createFixture', () => {
 
   it('hands a Date through untouched rather than mapping over it', () => {
     expectTypeOf(createFixture(ARTICLE, { publishedAt: new Date(1) }).publishedAt).toEqualTypeOf<Date>();
+  });
+});
+
+/** An error response: a class, and structurally an `Error` — `name`, `message` and the rest. */
+class ServerError extends Error {
+  constructor(
+    readonly status: number,
+    readonly body: { code: string; detail: string },
+  ) {
+    super('server error');
+  }
+}
+
+describe('createMock over an Error-shaped type', () => {
+  it('takes a partial of it, at any depth, like any other object', () => {
+    // `Error` was among the values handed back untouched, so a partial of any type that is
+    // structurally an `Error` demanded every member of it.
+    expectTypeOf(createMock<ServerError>({ status: 500 })).toEqualTypeOf<ServerError>();
+    createMock<ServerError>({ body: { code: 'E1' } });
+    createMock<ServerError>(new ServerError(500, { code: 'E1', detail: '' }));
+    createMock<Error>({ message: 'boom' });
+  });
+
+  it('still rejects a key the type does not have', () => {
+    // @ts-expect-error — `statusCode` is not on ServerError
+    createMock<ServerError>({ statusCode: 500 });
   });
 });
 
