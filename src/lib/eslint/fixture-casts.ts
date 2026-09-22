@@ -263,8 +263,9 @@ const MOCK_REPAIR =
   'A member of a double built here is already a spy, and it is typed from the real signature: read it as it is — ' +
   `\`${INJECT_SPY}(Service).method\` for one DI handed out, \`asSpy(double).method\` for one the test holds — and the cast has ` +
   'nothing left to do. `mockReturnValue` then takes what the method returns, and `toHaveBeenCalledWith` compares what it ' +
-  'accepts. A parameterised `Mock<[…], R>` is no repair either: it is the signature written a second time, in a place nothing ' +
-  'keeps in step with the first.';
+  'accepts. A `vi.spyOn` spy or a `vi.fn()` on an object that is not such a double takes `vi.mocked(object.method)`, which ' +
+  'reads the type from the member itself. A parameterised `Mock<[…], R>` is no repair either: it is the signature written a ' +
+  'second time, in a place nothing keeps in step with the first.';
 
 /** `TestBed.inject(S).m as Mock` → `injectSpy(S).m`. */
 export const noMockCast: RuleModule = defineRule({
@@ -281,7 +282,10 @@ export const noMockCast: RuleModule = defineRule({
       'The cast is on `{{member}}` itself, so nothing checks the value being installed — not the argument, and not the ' +
       'method’s own return type, which is two steps away behind a `{{type}}<any>`. A double seeded this way answers a value ' +
       'the real collaborator could not produce, and every assertion downstream is about that value rather than about the ' +
-      `contract. ${MOCK_REPAIR}`,
+      'contract. Where the cast went in because the value would not compile, look at the method: an overloaded one is typed ' +
+      "against its **last** signature (`observe: 'events'` on a generated client), and " +
+      "`Spy<Service, { overload: { method: 'first' } }>` picks the one the code calls. " +
+      `${MOCK_REPAIR}`,
   },
   create: (context) => ({
     [REFERENCE_CAST_SELECTORS.join(', ')]: (node: EsReferenceCast): void => {

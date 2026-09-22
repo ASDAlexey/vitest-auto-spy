@@ -39,6 +39,7 @@ describe('no-mock-cast', () => {
     expect(text).toContain('`Mock` with no parameters is `Mock<any>`');
     expect(text).toContain('toHaveBeenCalledWith` stops comparing arguments');
     expect(text).toContain('injectSpy(Service).method');
+    expect(text).toContain('vi.mocked(object.method)');
   });
 
   it('names the worse form apart: the cast sits on the member that installs the answer', () => {
@@ -47,6 +48,7 @@ describe('no-mock-cast', () => {
 
     expect(count(code)).toBe(1);
     expect(text).toContain('cast is on `mockReturnValue` itself');
+    expect(text).toContain("Spy<Service, { overload: { method: 'first' } }>");
     expect(text).toContain('not the method’s own return type');
   });
 
