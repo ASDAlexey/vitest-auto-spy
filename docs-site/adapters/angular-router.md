@@ -421,6 +421,14 @@ the one asymmetry that surprises a first read: `back()` and `forward()` fire the
 subscribers but do **not** write `urlChanges` — the journal holds what the app asked for, the
 subscribers carry what the browser did.
 
+**One member answers differently from Angular's `SpyLocation`, on purpose.** `SpyLocation.path()`
+returns the path alone and keeps the query of `go(path, query)` / `replaceState(path, query)` in a
+field it never reads back; the real `Location.path()` answers both. So the double's `path()` answers
+`/reports?tab=7` after `go('/reports', 'tab=7')`, the way production code that splits `path()` on `?`
+expects — and `isCurrentPathEqualTo(path, query)` and the popstate `url` agree with it. The
+instance is still a `SpyLocation`, and a query the router folds into the path reads the same either
+way.
+
 ## Its own entry, and an optional peer
 
 `vitest-auto-spy/angular-router` is the only part of the package that imports `@angular/router`, so

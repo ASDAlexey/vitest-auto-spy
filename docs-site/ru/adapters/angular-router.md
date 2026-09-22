@@ -420,6 +420,13 @@ location.simulateUrlPop('/'); // popstate, которого не вызвать 
 но **не** пишут `urlChanges` — журнал хранит то, что попросило приложение, подписчики несут то, что
 сделал браузер.
 
+**Один член отвечает иначе, чем `SpyLocation` Angular, намеренно.** `SpyLocation.path()` возвращает
+один путь, а query из `go(path, query)` / `replaceState(path, query)` хранит в поле, которое сам не
+читает; настоящий `Location.path()` отдаёт и то и другое. Поэтому `path()` дубля после
+`go('/reports', 'tab=7')` отвечает `/reports?tab=7`, как и ждёт код, который делит `path()` по `?`, —
+и `isCurrentPathEqualTo(path, query)` и `url` у popstate с ним согласны. Экземпляр по-прежнему
+`SpyLocation`, а query, который роутер вклеивает в путь, читается одинаково в обоих случаях.
+
 ## Отдельный вход и опциональная peer-зависимость {#its-own-entry-and-an-optional-peer}
 
 `vitest-auto-spy/angular-router` — единственная часть пакета, которая импортирует `@angular/router`,
