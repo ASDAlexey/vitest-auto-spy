@@ -42,46 +42,62 @@ describe('no-redundant-mock-reset', () => {
   });
 
   it('deletes the hook the reset was the whole of, where nothing can have run before it', () => {
-    expect(fixed(`beforeEach(() => { vi.clearAllMocks(); });\nit('x', () => {});`)).toBe(`\nit('x', () => {});`);
-    expect(fixed(`beforeEach(() => vi.clearAllMocks());\nit('x', () => {});`)).toBe(`\nit('x', () => {});`);
+    expect(fixed(`beforeEach(() => { vi.clearAllMocks(); });\nit('x', () => {});`)).toBe(`it('x', () => {});`);
+    expect(fixed(`beforeEach(() => vi.clearAllMocks());\nit('x', () => {});`)).toBe(`it('x', () => {});`);
   });
 
   it('deletes the reset alone when the hook holds something else after it', () => {
     const code = `beforeEach(() => {\n  vi.clearAllMocks();\n  build();\n});`;
 
-    expect(fixed(code)).toBe(`beforeEach(() => {\n  \n  build();\n});`);
+    expect(fixed(code)).toBe(`beforeEach(() => {\n  build();\n});`);
   });
 
-  it('only suggests where something in the file could have run in between', () => {
-    // The statements above it in the hook are the obvious half; the other `beforeEach` is the half a
-    // rule reading one hook would miss, because it may sit in an enclosing `describe`.
-    const later = `beforeEach(() => {\n  build();\n  vi.clearAllMocks();\n});`;
-    const outer = `beforeEach(() => build());\ndescribe('x', () => {\n  beforeEach(() => { vi.clearAllMocks(); });\n});`;
+  it('stays silent where something the file wrote ran after the runner’s reset and before this one', () => {
+    // The runner resets before the whole `beforeEach` chain, so whatever ran first — the statements
+    // above it in the hook, an earlier `beforeEach` beside it, any `beforeEach` of an enclosing scope
+    // wherever it is written — is exactly what this reset undoes.
+    expect(count(`beforeEach(() => {\n  build();\n  vi.clearAllMocks();\n});`)).toBe(0);
+    expect(count(`beforeEach(() => build());\nbeforeEach(() => { vi.clearAllMocks(); });`)).toBe(0);
+    expect(count(`beforeEach(() => build());\ndescribe('x', () => {\n  beforeEach(() => { vi.clearAllMocks(); });\n});`)).toBe(0);
+    expect(
+      count(
+        `describe('x', () => {\n  describe('y', () => { beforeEach(() => { vi.clearAllMocks(); }); });\n  beforeEach(() => build());\n});`,
+      ),
+    ).toBe(0);
+    // A spy an enclosing `beforeEach` installed is still there, and taking it off is the point.
+    const outerSpy = [
+      'let spy;',
+      "beforeEach(() => { spy = vi.spyOn(component, 'updateChannels'); });",
+      "describe('updateChannels', () => { beforeEach(() => { spy.mockRestore(); }); });",
+    ].join('\n');
 
-    expect(count(later)).toBe(1);
-    expect(fixed(later)).toBe(later);
-    expect(verify(later)[0]?.suggestions?.[0]?.desc).toBe('Delete this reset');
-    expect(count(outer)).toBe(1);
-    expect(fixed(outer)).toBe(outer);
-    expect(verify(outer)[0]?.suggestions?.[0]?.desc).toBe('Delete this reset, and the beforeEach it is the whole of');
+    expect(count(outerSpy, CLEARS_AND_RESTORES)).toBe(0);
   });
 
-  it('suggests rather than edits in the hooks the runner’s reset does not immediately precede', () => {
+  it('reads a beforeEach of a sibling describe as not running first, and only suggests', () => {
+    const code = `describe('a', () => { beforeEach(() => build()); });\ndescribe('x', () => {\n  beforeEach(() => { vi.clearAllMocks(); });\n});`;
+    const fix = verify(code)[0]?.suggestions?.[0]?.fix;
+
+    expect(count(code)).toBe(1);
+    expect(fixed(code)).toBe(code);
+    expect(verify(code)[0]?.suggestions?.[0]?.desc).toBe('Delete this reset, and the beforeEach it is the whole of');
+    expect(code.slice(0, fix?.range[0]) + (fix?.text ?? '') + code.slice(fix?.range[1])).toBe(
+      `describe('a', () => { beforeEach(() => build()); });\ndescribe('x', () => {\n});`,
+    );
+  });
+
+  it('reports only a clear in an afterEach, and only as its last statement', () => {
     const code = `afterEach(() => { vi.clearAllMocks(); });`;
 
     expect(count(code)).toBe(1);
     expect(message(code)).toContain('the next test starts on the same registry');
     expect(fixed(code)).toBe(code);
-    expect(fixed(`afterAll(() => { vi.clearAllMocks(); });`)).toBe(`afterAll(() => { vi.clearAllMocks(); });`);
-  });
-
-  it('applies the suggestion it offered, hook and all', () => {
-    const code = `beforeEach(() => build());\ndescribe('x', () => {\n  beforeEach(() => { vi.clearAllMocks(); });\n});`;
-    const fix = verify(code)[0]?.suggestions?.[0]?.fix;
-
-    expect(code.slice(0, fix?.range[0]) + (fix?.text ?? '') + code.slice(fix?.range[1])).toBe(
-      `beforeEach(() => build());\ndescribe('x', () => {\n  \n});`,
-    );
+    expect(count(`afterEach(() => { vi.clearAllMocks(); cleanup(); });`)).toBe(0);
+    // Nothing resets after a file's last test: this is what takes a spy off `window` before the next file.
+    expect(count(`afterEach(() => { fixture.destroy(); vi.restoreAllMocks(); });`, { restoreMocks: true })).toBe(0);
+    expect(count(`afterEach(() => { vi.resetAllMocks(); });`, { mockReset: true })).toBe(0);
+    expect(count(`afterAll(() => { vi.clearAllMocks(); });`)).toBe(0);
+    expect(count(`beforeAll(() => { vi.clearAllMocks(); });`)).toBe(0);
   });
 
   it('matches the flag to the call and not to the family', () => {
@@ -101,13 +117,13 @@ describe('no-redundant-mock-reset', () => {
     const plain = `const mock = vi.fn();\n`;
 
     expect(count(`${plain}beforeEach(() => { mock.mockClear(); });`, CLEARS)).toBe(1);
-    expect(count(`${plain}afterEach(() => { mock.mockRestore(); });`, { restoreMocks: true })).toBe(0);
-    expect(count(`${spy}afterEach(() => { spy.mockRestore(); });`, { restoreMocks: true })).toBe(1);
-    expect(count(`${spy}afterEach(() => { spy.mockReset(); });`, { restoreMocks: true })).toBe(1);
-    expect(count(`afterEach(() => { vi.spyOn(api, 'load').mockReturnValue(1).mockRestore(); });`, { restoreMocks: true })).toBe(1);
+    expect(count(`${plain}beforeEach(() => { mock.mockRestore(); });`, { restoreMocks: true })).toBe(0);
+    expect(count(`${spy}beforeEach(() => { spy.mockRestore(); });`, { restoreMocks: true })).toBe(1);
+    expect(count(`${spy}beforeEach(() => { spy.mockReset(); });`, { restoreMocks: true })).toBe(1);
+    expect(count(`beforeEach(() => { vi.spyOn(api, 'load').mockReturnValue(1).mockRestore(); });`, { restoreMocks: true })).toBe(1);
     // Two writes: what the name holds in the hook depends on run order, so nothing is decided here.
     expect(
-      count(`let spy;\nspy = vi.spyOn(api, 'a');\nspy = vi.fn();\nafterEach(() => { spy.mockRestore(); });`, {
+      count(`let spy;\nspy = vi.spyOn(api, 'a');\nspy = vi.fn();\nbeforeEach(() => { spy.mockRestore(); });`, {
         restoreMocks: true,
       }),
     ).toBe(0);
@@ -182,7 +198,7 @@ describe('no-redundant-mock-reset, finding the runner config itself', () => {
 
   it('falls back to a vite config, and reads its flags the same way', () => {
     expect(inDirectory(vite)).toBe(0);
-    expect(inDirectory(vite, `afterEach(() => { vi.restoreAllMocks(); });`)).toBe(1);
+    expect(inDirectory(vite, `beforeEach(() => { vi.restoreAllMocks(); });`)).toBe(1);
   });
 
   it('stays silent where the walk finds no config at all', () => {
@@ -192,5 +208,22 @@ describe('no-redundant-mock-reset, finding the runner config itself', () => {
   it('prefers the options over anything on disk', () => {
     expect(inDirectory(bare, code, CLEARS)).toBe(1);
     expect(inDirectory(configured, code, {})).toBe(0);
+  });
+
+  it('reads the runner config the configFile option names, where no search would find it', () => {
+    // A builder's runner config at a path nothing standard names — the search above finds nothing.
+    mkdirSync(join(bare, 'tools'), { recursive: true });
+    writeFileSync(join(bare, 'tools', 'vitest-runner.config.ts'), `export default { test: { clearMocks: true } };\n`);
+
+    expect(inDirectory(bare, code, { configFile: 'tools/vitest-runner.config.ts' })).toBe(1);
+    expect(inDirectory(configured, code, { configFile: join(bare, 'tools', 'vitest-runner.config.ts') })).toBe(1);
+    // A flag written beside it still has the last word.
+    expect(inDirectory(bare, code, { configFile: 'tools/vitest-runner.config.ts', clearMocks: false })).toBe(0);
+  });
+
+  it('fails loudly on a configFile that is not there, rather than going quiet', () => {
+    expect(() => inDirectory(bare, code, { configFile: 'tools/missing.config.ts' })).toThrow(
+      /the configFile option names .*missing\.config\.ts, which does not exist/,
+    );
   });
 });

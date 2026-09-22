@@ -6,7 +6,10 @@
  *
  * 1. **The rule's own options**, `{ clearMocks, restoreMocks, mockReset }`. Given at all, they are
  *    the answer: a project that writes them has said what its runner does, and going to the disk
- *    behind that would let a stray `vite.config.ts` overrule it.
+ *    behind that would let a stray `vite.config.ts` overrule it. `{ configFile }` names the runner
+ *    config instead — absolute, or relative to ESLint's working directory — and it is read the same
+ *    way as a config the search finds; a flag given beside it wins over the file. A `configFile`
+ *    that does not exist is a configuration error and says so, rather than a rule that goes quiet.
  * 2. **The runner config beside the file**, found by walking up from the linted file's directory
  *    for `vitest.config.*` / `vite.config.*` and read as **text** — a `clearMocks: true` and its two
  *    siblings, nothing evaluated, no module loaded. A lint run must not execute a project's config
@@ -19,15 +22,16 @@
  * about a file it never found would be wrong in the one direction that costs a suite its isolation.
  *
  * **What the search misses**, said out loud because the workspace this was measured on is the case:
- * a runner config at a path nothing standard names — `tools/unit-test-bench/vitest-runner.config.ts`
- * there, chosen by the `@angular/build:unit-test` builder — is not found, and the option is what
- * makes the rule work. The search is a convenience for the ordinary layout, not a promise.
+ * a runner config at a path nothing standard names — one a builder picks, such as the
+ * `runnerConfig` of `@angular/build:unit-test` — is not found. `configFile` points at it, so the
+ * flags are read from the file that sets them rather than copied into the lint config and kept in
+ * step by hand. The search is a convenience for the ordinary layout, not a promise.
  *
  * The result is cached per directory for the length of the lint run, because a suite asks the same
  * question once per spec file and the answer is one directory walk shared by all of them.
  */
 import { existsSync, readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 
 import { type RuleContext } from './rule-types';
 
@@ -88,18 +92,45 @@ function search(directory: string): RunnerResets | null {
   return found;
 }
 
-/** Whether an options object names at least one of the three flags. */
-function isResetOptions(value: unknown): value is Partial<RunnerResets> {
+/** The rule's options: the three flags, and the runner config to read them from. */
+interface ResetOptions extends Partial<RunnerResets> {
+  configFile?: string;
+}
+
+function isResetOptions(value: unknown): value is ResetOptions {
   return typeof value === 'object' && value !== null;
+}
+
+/** The runner config `configFile` names, read; loud when it is not there. */
+function namedConfig(context: RuleContext, configFile: string): RunnerResets {
+  const path = resolve(context.cwd, configFile);
+
+  if (!existsSync(path)) {
+    throw new Error(
+      `[vitest-auto-spy] no-redundant-mock-reset: the configFile option names ${path}, which does not exist. ` +
+        'Point it at the runner config that sets clearMocks / restoreMocks / mockReset, relative to the directory ESLint runs in.',
+    );
+  }
+
+  return flagsIn(readFileSync(path, 'utf8'));
 }
 
 /** What the runner resets between tests, or `undefined` when nothing said. */
 export function runnerResets(context: RuleContext): RunnerResets | undefined {
   const [options] = context.options;
 
-  if (isResetOptions(options)) {
-    return { clearMocks: options.clearMocks === true, mockReset: options.mockReset === true, restoreMocks: options.restoreMocks === true };
+  if (!isResetOptions(options)) {
+    return search(dirname(context.filename)) ?? undefined;
   }
 
-  return search(dirname(context.filename)) ?? undefined;
+  const base =
+    options.configFile === undefined
+      ? { clearMocks: false, mockReset: false, restoreMocks: false }
+      : namedConfig(context, options.configFile);
+
+  return {
+    clearMocks: options.clearMocks ?? base.clearMocks,
+    mockReset: options.mockReset ?? base.mockReset,
+    restoreMocks: options.restoreMocks ?? base.restoreMocks,
+  };
 }

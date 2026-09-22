@@ -9,11 +9,27 @@
  * ```
  *
  * Vitest resets mocks in `onBeforeTryTask`, which runs **before** every test's `beforeEach` chain
- * and after the previous test's `afterEach` chain: `restoreMocks` calls `vi.restoreAllMocks()`,
- * `mockReset` calls `vi.resetAllMocks()`, `clearMocks` calls `vi.clearAllMocks()`. A hook that
- * repeats one of those is doing again what the runner has just done — and it is not free: it reads
- * as the line that keeps the suite honest, so nobody deletes it, and the next author copies it into
- * their hook too.
+ * and never after a test: `restoreMocks` calls `vi.restoreAllMocks()`, `mockReset` calls
+ * `vi.resetAllMocks()`, `clearMocks` calls `vi.clearAllMocks()`. A `beforeEach` that opens with
+ * one of those is doing again what the runner has just done — and it is not free: it reads as the
+ * line that keeps the suite honest, so nobody deletes it, and the next author copies it into their
+ * hook too.
+ *
+ * **Which hooks, and why only two.** After a file's last test nothing resets until the file is over:
+ * Vitest calls `vi.restoreAllMocks()` once more at the file boundary, after every `afterAll`. So in
+ * between — the `afterEach` hooks of enclosing `describe`s and every `afterAll`, the setup file's
+ * included — a spy on `window`, `document` or a prototype is still installed, and a restore or a
+ * reset in `afterEach` / `afterAll` is what takes it off. Those are never reported. A **clear** in
+ * `afterEach` is, as its hook's last statement: the recorded calls it forgets are forgotten again
+ * before the next test starts, and nothing reads them in between. `beforeAll` runs before the
+ * runner's first reset, so a reset there protects the hook's own body and repeats nothing.
+ *
+ * **In a `beforeEach`, only where nothing ran first.** The runner's reset precedes the whole
+ * `beforeEach` chain, so a `beforeEach` of an enclosing `describe`, or an earlier one beside it,
+ * has run by the time this hook does — and a reset here undoes the spy or the calls it set up, which
+ * is often the point. The same goes for the statements above the call in its own hook. So a reset
+ * is reported only as the first statement of a `beforeEach` that no other `beforeEach` in the file
+ * precedes.
  *
  * **The rule is silent unless it knows the configuration, and that is the design rather than a
  * gap.** On the call alone it would be wrong in every project that leaves those options off, where
@@ -31,13 +47,9 @@
  * `vi.restoreAllMocks()` covers a per-mock `mockClear` / `mockReset` / `mockRestore` when the file
  * shows the receiver is a `vi.spyOn` spy, which is the population it reaches.
  *
- * **Why a fix is rarer than a report.** Between the runner's reset and a statement inside a hook,
- * other code may have run: the statements above it in the same hook, and every `beforeEach` of
- * every enclosing `describe`, which the hook cannot see. Whatever those touched, the reset wipes;
- * delete it and a seed survives into the test, which is a change of behaviour rather than a
- * cleanup. So `--fix` is offered only where nothing can have run in between — the first statement
- * of a `beforeEach`, in a file that holds no other `beforeEach` and no `beforeAll`. Everything else
- * is a suggestion. When the deletion would empty the hook, the hook goes with it.
+ * **Why a fix is rarer than a report.** `--fix` is offered only where the file holds no other
+ * `beforeEach` and no `beforeAll` at all; everything else is a suggestion. When the deletion would
+ * empty the hook, the hook goes with it, and a statement alone on its line takes the line with it.
  *
  * **A reset in the middle of a test body is never reported**, and that is the line this rule does
  * not cross: there the call separates one arrangement from the next inside one test, and no runner
@@ -71,8 +83,8 @@ import { type RunnerResets, runnerResets } from './runner-config';
 /** What a reset call does, and therefore which runner option has to be on for it to be dead. */
 type ResetKind = 'clear' | 'reset' | 'restore';
 
-/** The hooks a reset is reported in. */
-const HOOKS = new Set(['afterAll', 'afterEach', 'beforeAll', 'beforeEach']);
+/** The hooks a reset is reported in: the runner resets before each test, and after none. */
+const HOOKS = new Set(['afterEach', 'beforeEach']);
 
 /** The two whose bodies run before a test, and therefore the two that can seed what a reset wipes. */
 const BEFORE_HOOKS = new Set(['beforeAll', 'beforeEach']);
@@ -104,10 +116,12 @@ interface Reset {
   receiver?: EsNode | undefined;
 }
 
-/** Where the call sits in its hook, which is what decides between an edit and a suggestion. */
+/** Where the call sits in its hook, which is what decides whether it can be redundant at all. */
 interface Placement {
   /** Nothing else in this hook ran before the call. */
   first: boolean;
+  /** Nothing else in this hook runs after the call. */
+  last: boolean;
   /** The statement to delete — `undefined` where the reset is all the hook holds and the hook itself goes. */
   statement?: EsNode | undefined;
 }
@@ -176,7 +190,7 @@ function hookStatement(fn: EsFunction): EsNode | undefined {
  */
 function placementOf(node: EsNode, fn: EsFunction): Placement | undefined {
   if (!isBlockStatement(fn.body)) {
-    return fn.body === node ? { first: true } : undefined;
+    return fn.body === node ? { first: true, last: true } : undefined;
   }
 
   const block: EsBlockStatement = fn.body;
@@ -186,7 +200,9 @@ function placementOf(node: EsNode, fn: EsFunction): Placement | undefined {
     return undefined;
   }
 
-  return block.body.length === 1 ? { first: true } : { first: index === 0, statement: block.body[index] };
+  const last = index === block.body.length - 1;
+
+  return block.body.length === 1 ? { first: true, last } : { first: index === 0, last, statement: block.body[index] };
 }
 
 /** The `vi.spyOn(…)` behind a configured spy — `vi.spyOn(a, 'b').mockReturnValue(1)` is still one. */
@@ -218,21 +234,55 @@ function covered(context: RuleContext, flags: RunnerResets, reset: Reset): boole
   return reset.kind === 'reset' ? flags.mockReset || byRestore : flags.clearMocks || flags.mockReset || byRestore;
 }
 
-/** Delete the reset, or the hook when the reset is all it holds. */
-function removal(target: EsNode): (fixer: EsFixer) => EsFix[] {
-  return (fixer: EsFixer): EsFix[] => [fixer.remove(target)];
+/** Delete the reset, or the hook when the reset is all it holds — with its line, when it is alone on it. */
+function removal(context: RuleContext, target: EsNode): (fixer: EsFixer) => EsFix[] {
+  const text = context.sourceCode.getText();
+  const [start, end] = target.range;
+  const lineStart = text.lastIndexOf('\n', start - 1) + 1;
+  const alone = text.slice(lineStart, start).trim() === '' && text[end] === '\n';
+
+  return (fixer: EsFixer): EsFix[] => [alone ? fixer.replaceTextRange([lineStart, end + 1], '') : fixer.remove(target)];
+}
+
+/** Whether a `beforeEach` of this file runs before `hook`: an earlier one beside it, or any of an enclosing scope. */
+function precededByAnotherBeforeEach(hook: EsFunction, beforeEaches: EsCallExpression[]): boolean {
+  const call = hook.parent;
+  const scope = enclosingFunction(call);
+
+  return beforeEaches.some((other) => {
+    if (other === call) {
+      return false;
+    }
+
+    const otherScope = enclosingFunction(other);
+
+    if (otherScope === scope) {
+      return other.range[0] < call.range[0];
+    }
+
+    return otherScope === undefined || (otherScope.range[0] <= call.range[0] && call.range[1] <= otherScope.range[1]);
+  });
+}
+
+/** Whether a reset stands where nothing the file wrote can have run since the runner's own reset. */
+function standsAlone(finding: Finding, beforeEaches: EsCallExpression[]): boolean {
+  if (finding.hook === 'afterEach') {
+    return finding.reset.kind === 'clear' && finding.placement.last;
+  }
+
+  return finding.placement.first && !precededByAnotherBeforeEach(finding.fn, beforeEaches);
 }
 
 const REPAIR =
-  'Delete the line: the runner performs this reset itself, in `onBeforeTryTask`, before every test’s `beforeEach` chain and ' +
-  'after the previous test’s `afterEach` chain, so the registry the next test starts on is the same with or without it. What ' +
-  'is *not* the same is whatever ran in between — the statements above this one in the hook, and every `beforeEach` of every ' +
-  'enclosing `describe` — because this call wipes that as well, which is why the deletion is an edit only where the file ' +
-  'shows nothing could have run in between, and a suggestion everywhere else. A reset in the middle of a test body is a ' +
-  'different thing and is never reported: there it separates one arrangement from the next inside one test.';
+  'Delete the line: the runner performs this reset itself, in `onBeforeTryTask`, before every test’s `beforeEach` chain, and ' +
+  'this one stands where nothing the file wrote has run since — the first statement of a `beforeEach` no other `beforeEach` ' +
+  'precedes, or the last of an `afterEach` that only forgets calls. The runner resets before a test and never after one, so a ' +
+  'restore or a reset in an `afterEach` / `afterAll` is not reported: after the file’s last test it is what takes a spy off ' +
+  '`window` or a prototype before the `afterAll` hooks run. A reset in the middle of a test body is a different thing and is ' +
+  'never reported either: there it separates one arrangement from the next inside one test.';
 
 /** Build the report, with an edit where the deletion is provably a no-op and a suggestion otherwise. */
-function describeReport(finding: Finding, dead: boolean): ReportDescriptor {
+function describeReport(context: RuleContext, finding: Finding, dead: boolean): ReportDescriptor {
   const { fn, hook, node, placement, reset } = finding;
   const target = placement.statement ?? hookStatement(fn);
   const data = { flag: FLAG[reset.kind], hook };
@@ -244,7 +294,7 @@ function describeReport(finding: Finding, dead: boolean): ReportDescriptor {
 
   const desc = placement.statement ? 'Delete this reset' : `Delete this reset, and the ${hook} it is the whole of`;
 
-  return dead ? { ...report, fix: removal(target) } : { ...report, suggest: [{ desc, fix: removal(target) }] };
+  return dead ? { ...report, fix: removal(context, target) } : { ...report, suggest: [{ desc, fix: removal(context, target) }] };
 }
 
 /** `vi.clearAllMocks()` in a `beforeEach` under `clearMocks: true` → a line with nothing to do. */
@@ -256,7 +306,12 @@ export const noRedundantMockReset: RuleModule = defineRule({
   schema: [
     {
       type: 'object',
-      properties: { clearMocks: { type: 'boolean' }, mockReset: { type: 'boolean' }, restoreMocks: { type: 'boolean' } },
+      properties: {
+        clearMocks: { type: 'boolean' },
+        configFile: { type: 'string' },
+        mockReset: { type: 'boolean' },
+        restoreMocks: { type: 'boolean' },
+      },
       additionalProperties: false,
     },
   ],
@@ -270,12 +325,17 @@ export const noRedundantMockReset: RuleModule = defineRule({
   },
   create: (context) => {
     const findings: Finding[] = [];
+    const beforeEaches: EsCallExpression[] = [];
     let beforeHooks = 0;
 
     return {
       CallExpression: (node: EsCallExpression): void => {
         if (isIdentifier(node.callee) && BEFORE_HOOKS.has(node.callee.name)) {
           beforeHooks += 1;
+
+          if (node.callee.name === 'beforeEach') {
+            beforeEaches.push(node);
+          }
         }
 
         const reset = resetOf(node);
@@ -290,10 +350,8 @@ export const noRedundantMockReset: RuleModule = defineRule({
         const flags = findings.length > 0 ? runnerResets(context) : undefined;
 
         findings.forEach((finding) => {
-          if (flags && covered(context, flags, finding.reset)) {
-            const dead = finding.hook === 'beforeEach' && finding.placement.first && beforeHooks === 1;
-
-            context.report(describeReport(finding, dead));
+          if (flags && covered(context, flags, finding.reset) && standsAlone(finding, beforeEaches)) {
+            context.report(describeReport(context, finding, finding.hook === 'beforeEach' && beforeHooks === 1));
           }
         });
       },
