@@ -48,7 +48,22 @@ describe('prefer-settle-dynamic-import', () => {
   });
 
   it('reads the destructured form, which the helper returns the namespace for', () => {
-    expect(count(`it('x', async () => { const { Modal } = await import('./modal'); expect(Modal).toBeDefined(); });`)).toBe(1);
+    expect(count(`it('x', async () => { button.click(); const { Modal } = await import('./modal'); expect(Modal).toBeDefined(); });`)).toBe(
+      1,
+    );
+    expect(count(`it('x', async () => { button.click(); ns = await import('./modal'); });`)).toBe(1);
+  });
+
+  it('leaves a namespace the callback takes before it does anything — read, not waited on', () => {
+    expect(count(`it('exports the routes', async () => { const api = await import('./index'); expect(api.Routes).toBeDefined(); });`)).toBe(
+      0,
+    );
+    expect(count(`let ns;\nbeforeEach(async () => { ns = await import('@scope/lib'); vi.spyOn(ns, 'init'); });`)).toBe(0);
+    expect(count(`it('x', async () => { const { Modal } = await import('./modal'); });`)).toBe(0);
+    // A bare await as the first statement still waits on something a hook set loading.
+    expect(count(`it('x', async () => { await import('./modal'); expect(dialog.open).toHaveBeenCalled(); });`)).toBe(1);
+    expect(count(`it('x', async () => { ns.value = await import('./modal'); });`)).toBe(0);
+    expect(count(`it('x', async () => await import('./modal'));`)).toBe(1);
   });
 
   it('names the second failure mode of the then form rather than repeating the first', () => {
@@ -81,6 +96,36 @@ describe('prefer-settle-dynamic-import', () => {
     const code = `import { flushEventLoop } from 'vitest-auto-spy';\nit('x', async () => { await import('./modal'); });`;
 
     expect(applied(code)).toContain(`import { flushEventLoop, settleDynamicImport } from 'vitest-auto-spy';`);
+
+    // Where the list is already in order, case aside, the name goes where it sorts; otherwise at the end.
+    expect(applied(`import { createAutoMock, Spy } from 'vitest-auto-spy';\nit('x', async () => { await import('./m'); });`)).toContain(
+      `import { createAutoMock, settleDynamicImport, Spy } from 'vitest-auto-spy';`,
+    );
+    expect(applied(`import { Spy, createAutoMock } from 'vitest-auto-spy';\nit('x', async () => { await import('./m'); });`)).toContain(
+      `import { Spy, createAutoMock, settleDynamicImport } from 'vitest-auto-spy';`,
+    );
+    // A string-named specifier has no identifier to sort by, and sorts first.
+    expect(applied(`import { 'odd-name' as odd, Spy } from 'vitest-auto-spy';\nit('x', async () => { await import('./m'); });`)).toContain(
+      `import { 'odd-name' as odd, settleDynamicImport, Spy } from 'vitest-auto-spy';`,
+    );
+  });
+
+  it('writes a new import beside the imports of the package the file already has, not above the first import', () => {
+    // At the top of the file the line lands above `@angular/core/testing` and outside its group,
+    // which `import/order` reports twice on the next run.
+    const code = [
+      "import { TestBed } from '@angular/core/testing';",
+      '',
+      "import { injectSpy } from 'vitest-auto-spy/angular';",
+      "it('x', async () => { await import('./modal'); });",
+    ].join('\n');
+
+    expect(applied(code).split('\n').slice(0, 4)).toEqual([
+      "import { TestBed } from '@angular/core/testing';",
+      '',
+      "import { settleDynamicImport } from 'vitest-auto-spy';",
+      "import { injectSpy } from 'vitest-auto-spy/angular';",
+    ]);
   });
 
   it('wraps the loader of the then form too, leaving the chain where it was', () => {

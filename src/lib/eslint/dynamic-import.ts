@@ -36,6 +36,12 @@
  * hands it to the code under test as a loader — and for the second one `settleDynamicImport` would
  * be wrong advice. Nothing in the file settles which it is, so the rule declines rather than
  * guesses.
+ *
+ * **Nor is a namespace taken before the callback does anything.** `const ns = await import('./x')`
+ * — or `ns = await import(…)` — as the **first** statement of a test or a hook is the spec fetching
+ * a module to read it: a barrel's exports, the handle on a `vi.mock`ed package a `beforeEach`
+ * spies on. Nothing in that callback has run yet whose continuation could be pending, and the
+ * repair is a static `import * as ns`, not a turn of the event loop.
  */
 import { PACKAGE, bindingState, importNamed } from './bindings';
 import { defineRule } from './define-rule';
@@ -47,9 +53,13 @@ import {
   type RuleModule,
   type SuggestionDescriptor,
   enclosingFunction,
+  isAssignmentExpression,
+  isBlockStatement,
   isCallExpression,
+  isExpressionStatement,
   isIdentifier,
   isMemberExpression,
+  isVariableDeclarator,
   memberName,
 } from './rule-types';
 
@@ -115,6 +125,25 @@ function consumptionOf(node: EsNode): Consumption | undefined {
   return chained && isCallExpression(parent.parent) && parent.parent.callee === parent ? 'then' : undefined;
 }
 
+/** The statement an awaited value is bound by — `const ns = await …` or `ns = await …` — if that is what holds it. */
+function bindingStatement(awaited: EsNode): EsNode | undefined {
+  const holder = awaited.parent;
+
+  if (isVariableDeclarator(holder) && holder.init === awaited) {
+    return holder.parent;
+  }
+
+  return isAssignmentExpression(holder) && isExpressionStatement(holder.parent) ? holder.parent : undefined;
+}
+
+/** A namespace bound as the first thing a test or a hook does: read, not waited on. */
+function takesTheNamespaceFirst(node: EsNode): boolean {
+  const statement = bindingStatement(node.parent);
+  const callback = enclosingFunction(node);
+
+  return statement !== undefined && callback !== undefined && isBlockStatement(callback.body) && callback.body.body[0] === statement;
+}
+
 /** `import(x)` → `settleDynamicImport(() => import(x))`, importing the helper when the name is free. */
 function wrap(context: RuleContext, node: EsNode): SuggestionDescriptor | undefined {
   const state = bindingState(context.sourceCode.getScope(node), HELPER);
@@ -168,7 +197,7 @@ export const preferSettleDynamicImport: RuleModule = defineRule({
     ImportExpression: (node: EsNode): void => {
       const consumption = consumptionOf(node);
 
-      if (consumption === undefined || !insideRunnerCallback(node)) {
+      if (consumption === undefined || !insideRunnerCallback(node) || (consumption === 'await' && takesTheNamespaceFirst(node))) {
         return;
       }
 
