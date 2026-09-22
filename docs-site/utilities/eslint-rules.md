@@ -192,7 +192,9 @@ value under assertion is a variable the test declared and only a `subscribe` cal
   This is deliberately literal rather than by matcher family: `toBeNull()` on a `let` with no
   initialiser does fail on silence, and is not reported.
 - **That nothing else in the test could fail.** Every other `expect()` in the test is weighed the
-  same way, and a single one that a silent source could fail silences the rule.
+  same way, and a single one that a silent source could fail silences the rule. So does a call to
+  this library's `expectEmission`, `expectEmissions`, `expectCompletion` or `expectError`, each of
+  which times out on a source that never emits or completes.
 
 **Finding, and the repair.**
 
@@ -1257,6 +1259,12 @@ the file settles which it is. And a callback something other than the runner inv
 scope for the same reason, `it('x', waitForAsync(async () => …))` included. Neither is silent about
 a defect the rule can prove; both are a rule that reports only what one file settles.
 
+A namespace bound as the **first** statement of a test or a hook — `const api = await import('./index')`,
+`ns = await import('@scope/lib')` in a `beforeEach` that then spies on it — is not reported either.
+Nothing in that callback has run whose continuation could be pending: the spec is fetching a module
+to read it, and the better repair is a static `import * as ns`. A bare `await import(…)` in the same
+position is still reported, since it can only be waiting on something a hook set loading.
+
 **Severity.** `error`. The evidence is the line, the repair is one line the rule offers as an edit,
 and there is no migration to gate — adopting it is not a decision a suite takes file by file, the
 way [`prefer-set-inputs`](#prefer-set-inputs) is. It does not arrive at zero on a large suite the
@@ -1290,7 +1298,9 @@ expect(service.rename).toHaveBeenCalledWith({ ...device, name: 'Box' });
 ```
 
 The suggestion wraps the literal where it stands and imports `createMock`, merging the specifier
-into an existing `vitest-auto-spy` import when the file has one.
+into an existing `vitest-auto-spy` import when the file has one, and otherwise writing the new line
+directly above the file's `vitest-auto-spy/*` imports, inside the group an `import/order` expects it
+in. Every fix and suggestion of the plugin that adds an import places it the same way.
 
 **Why it is recommended.** A cast is not an assignment. `as T` asks whether the two types _overlap_,
 not whether the value is one of them, so it passes both directions an assignment refuses: the
@@ -1335,7 +1345,10 @@ it was. That is the trade: the report is cheap and the evidence arrives on the n
 type name that is a utility (`Partial<T>`, `Pick<T, …>`, `Record<…>`, `ReturnType<typeof f>` — 25 of
 the 1 200 above) is reported like any other; `createMock<Partial<T>>({ … })` compiles and still
 checks the keys, but a cast to `Partial<T>` in a slot that is already `Partial<T>` is usually just
-redundant, and deleting it is the better repair.
+redundant, and deleting it is the better repair. A fixture that is invalid **on purpose** — a
+`linkType: 'INVALID_TYPE'` fed in to cover the fallback branch — is what the cast is for: the
+suggestion does not compile there, which is the compiler confirming it, and the cast stays with an
+`eslint-disable-next-line` that says why.
 
 **Severity.** `warn`, and it is the repair that is graded rather than the evidence — the same
 reading as [`prefer-set-inputs`](#prefer-set-inputs), not the heuristics behind
@@ -1416,10 +1429,11 @@ graded differently.
 **`error`** · `--fix` where the deletion is provably a no-op, otherwise a suggestion · syntax, plus
 the runner's configuration
 
-**Reports.** A mock reset written inside a `beforeEach` / `afterEach` / `beforeAll` / `afterAll`
-that the runner is already configured to perform between tests: `vi.clearAllMocks()`,
-`vi.resetAllMocks()`, `vi.restoreAllMocks()` and the per-mock `mockClear()` / `mockReset()` /
-`mockRestore()`.
+**Reports.** A mock reset the runner is already configured to perform between tests —
+`vi.clearAllMocks()`, `vi.resetAllMocks()`, `vi.restoreAllMocks()` and the per-mock `mockClear()` /
+`mockReset()` / `mockRestore()` — where nothing the file wrote has run since the runner's own: the
+first statement of a `beforeEach` that no other `beforeEach` precedes, or a clear as the last
+statement of an `afterEach`.
 
 **Decides on.** Two things, and the second one is what makes this rule different from every other
 rule here.
@@ -1437,6 +1451,16 @@ rule here.
   evaluated and no module is loaded: a lint run has no business executing a project's config, and
   these three values are literals in every config that sets them. **With neither an option nor a
   config found, the rule reports nothing at all.**
+
+  A runner config at a path the search does not look for is named instead, and read the same way:
+
+  ```js
+  'vitest-auto-spy/no-redundant-mock-reset': ['error', { configFile: 'tools/unit-test-bench/vitest-runner.config.ts' }],
+  ```
+
+  The path is absolute or relative to the directory ESLint runs in; a flag written beside it wins
+  over the file, and a `configFile` that does not exist fails the lint run by name rather than
+  leaving the rule silent.
 
 **The flag has to match the call, not the family.** The three options are not three grades of one
 thing, and reading them that way is how a rule like this turns into a rule that deletes lines a
@@ -1468,18 +1492,29 @@ beforeEach(() => {
 
 Delete the line, and the hook with it where that is all the hook held.
 
-**Why the fix is rarer than the report.** Vitest resets in `onBeforeTryTask`, which runs **before**
-every test's `beforeEach` chain and after the previous test's `afterEach` chain. That makes a reset
-at the top of a hook look dead, and usually it is — but "usually" is not what an `--fix` may run on.
-Between the runner's reset and a statement inside a hook, two things can have run: the statements
-above it in the same hook, and every `beforeEach` of every enclosing `describe`, which the hook
-cannot see. Both touch mocks, and the reset wipes what they did — delete it and a seed survives into
-the test, which is a change of behaviour rather than a cleanup. So the edit is applied only where
-the file shows nothing could have run in between: the **first statement of a `beforeEach`, in a file
-that holds no other `beforeEach` and no `beforeAll`**. Everything else is a suggestion, which an
-editor shows and a human accepts. Measured on a 2032-file Angular suite against
-`{ clearMocks: true, restoreMocks: true }` — the flags its runner config actually sets — the rule
-reports **202 times in 167 files**, of which **19 carry the edit** and 183 a suggestion.
+**Where it looks, and why so narrowly.** Vitest resets in `onBeforeTryTask`, which runs **before**
+every test's `beforeEach` chain — and never after a test. Three consequences, each of them a report
+5.23.0 made and this rule no longer does:
+
+- **Whatever ran first is what the reset undoes.** Between the runner's reset and a statement inside
+  a `beforeEach`, the statements above it in the same hook have run, and so has every `beforeEach`
+  of an enclosing `describe` — wherever it is written — and every earlier one beside it. A spy one of
+  them installed, or the calls an arrangement made, are exactly what a `spy.mockRestore()` or a
+  `mockClear()` there takes away, and on the consumer below deleting such a line failed the tests
+  under it. So a `beforeEach` reset is reported only as the first statement of a hook no other
+  `beforeEach` precedes; one inside a sibling `describe` does not count.
+- **After a file's last test nothing resets until the file is over.** Vitest calls
+  `vi.restoreAllMocks()` once more at the file boundary, after every `afterAll` — so until then the
+  `afterEach` hooks of enclosing `describe`s and every `afterAll`, the setup file's included, run
+  with the last test's spies on `window`, `document` or a prototype still installed. A restore or a
+  reset in `afterEach` / `afterAll` is what takes them off, and is never reported; only a clear, as
+  the last statement of an `afterEach`, is.
+- **`beforeAll` runs before the runner's first reset**, so a reset there protects the hook's own
+  body and repeats nothing.
+
+The edit is applied only in a file that holds no other `beforeEach` and no `beforeAll`; everything
+else is a suggestion, which an editor shows and a human accepts. A statement alone on its line takes
+the line with it.
 
 **A reset in the middle of a test body is never reported.** That is a different thing entirely:
 there the call separates one arrangement from the next inside one test, and no runner option does
@@ -1490,9 +1525,10 @@ hook registers, inside an `if`, or inside a helper the hook calls is outside the
 
 **Limits.** The search finds a runner config only where it is named the way the ecosystem names it.
 The suite above keeps its runner config at `tools/unit-test-bench/vitest-runner.config.ts`, chosen
-by the `@angular/build:unit-test` builder, so the search misses it entirely and the option is what
-makes the rule work there — that is the honest trade, not a defect. A project that would rather not
-have its disk read at lint time passes the flags as options, which skips the search.
+by the `@angular/build:unit-test` builder, so the search misses it entirely; `configFile` names it,
+which keeps the flags in the one file that sets them instead of a copy in the lint config that has to
+be kept in step by hand. A project that would rather not have its disk read at lint time passes the
+flags as options, which skips the search.
 
 **Severity.** `error`, and the argument is the silence: a project that has said nothing gets nothing
 reported, so the rule cannot be wrong about a suite it knows nothing about. Where it does fire, the
@@ -1521,8 +1557,11 @@ arguments are the point, on one of two readings.
 
 Two subjects are the same subject when the **source text** of what `expect()` was handed is the
 same, whitespace aside. `expect(api.load)` and `expect(loadSpy)` are therefore two subjects even
-where they are one spy: the rule misses findings that way and invents none, which is the trade it is
-built on.
+where they are one spy. Two names are read through what they hold, because tests declare their own
+under a generic name: a `spy` holding `vi.spyOn(obj, 'm')` is that member whatever the variable is
+called, and a `vi.fn()` is nobody but itself — so the `const spy = vi.spyOn(dialog, 'close')` of one
+test is not the `const spy = vi.spyOn(logger, 'info')` of the next. The rule misses findings that way
+and invents none, which is the trade it is built on.
 
 **Finding, and the repair.**
 
@@ -2855,7 +2894,9 @@ fixture, a double.
 
 **Decides on.** The binding behind the target, and the key. A bare identifier has to resolve to a
 declaration of the linted file that no `import` made; anything else — a member chain, a call's
-result — is a value the file computed and is read as a subject. The key has to be a string literal.
+result — is a value the file computed and is read as a subject. A name the spec declares as `Window`
+or `typeof globalThis` (`let win: Window` holding an injected `WINDOW`) is the environment under
+another name and is left alone like `window`. The key has to be a string literal.
 Nothing here asks the type checker, which is the point rather than a limitation: this is the shape a
 suite reaches for precisely where the checker would have objected.
 
@@ -2896,6 +2937,14 @@ and, under `isolate: false`, for every later file of the worker. That one is off
 `restoreMockedProps()`. It is a suggestion rather than a fix for the reason
 [`no-object-define-property`](#no-object-define-property) is: registering an undo is a change between
 tests, which is the point of the repair and still a change.
+
+**A fixture gets a message of its own.** `Reflect.set(link, 'linkType', value)` where `link` holds an
+object literal the spec wrote is not reaching past an API — the key belongs in the literal, where the
+compiler checks it. Where the value is outside the declared type on purpose, to reach a fallback
+branch, the message names the cast on the **value** (`{ linkType: value as Model['linkType'] }`),
+which keeps the key checked. And where a private member has no observable effect at all,
+`component['member']` under a `no-private-member-access` disable that says why is the lesser escape:
+the key stays where the compiler sees it.
 
 **Limits.** A computed key is never reported — `Reflect.get(component, method)` in a helper that
 takes the name as a parameter is the one shape where the string is not a member written out in the

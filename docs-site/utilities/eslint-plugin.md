@@ -593,8 +593,9 @@ Whether a reset written in a hook is dead depends on what the **runner** does be
 that lives in the runner config rather than in the file being linted. Given at all, these three are
 the answer. With no options the rule searches upwards from the linted file for `vitest.config.*` /
 `vite.config.*` and reads the first one it finds as text, looking for a literal
-`clearMocks: true` and its two siblings — nothing is evaluated and no module is loaded. With neither
-an option nor a config found it reports nothing, which is the point: on the call alone it would be
+`clearMocks: true` and its two siblings — nothing is evaluated and no module is loaded;
+`{ configFile: 'tools/unit-test-bench/vitest-runner.config.ts' }` names a runner config the search
+cannot find, and it is read the same way. With neither an option nor a config found it reports nothing, which is the point: on the call alone it would be
 wrong in every project that leaves those options off, where the hook is the only reset there is.
 
 Name the flags the runner actually sets and no others. `restoreMocks` is not a stronger

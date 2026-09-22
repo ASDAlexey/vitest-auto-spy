@@ -23,13 +23,13 @@ family ships in its own entry — `vitest-auto-spy/angular/diagnostics` — whic
 `vitest-auto-spy/angular` in 5.21.0, so that importing spies no longer evaluates the instrumentation a
 suite that never turns it on should not pay for.
 
-| Member              | Default | Fails when                                                                         |
-| ------------------- | ------- | ---------------------------------------------------------------------------------- |
-| `ngModuleScopes`    | `true`  | a testing module imports an NgModule that contributes nothing at all               |
-| `deadSchemas`       | `true`  | `schemas` sit next to a standalone component, where they can never apply           |
-| `unspiedProviders`  | `true`  | `injectSpy` gets a real instance — a `console.warn` today, a throw under the group |
-| `pendingRequests`   | `true`  | a test ends with unflushed `HttpTestingController` requests                        |
-| `shadowedProviders` | `true`  | a double on the testing module loses to the component's own `providers`            |
+| Member              | Default | Fails when                                                                                                       |
+| ------------------- | ------- | ---------------------------------------------------------------------------------------------------------------- |
+| `ngModuleScopes`    | `true`  | a testing module imports an NgModule that contributes nothing at all                                             |
+| `deadSchemas`       | `true`  | `schemas` sit next to a standalone component, where they can never apply                                         |
+| `unspiedProviders`  | `true`  | `injectSpy` gets a real instance — a `console.warn` today, a throw under the group                               |
+| `pendingRequests`   | `true`  | a test ends with unflushed `HttpTestingController` requests; `{ ignoreCancelled: true }` forgives cancelled ones |
+| `shadowedProviders` | `true`  | a double on the testing module loses to the component's own `providers`                                          |
 
 Every member defaults to `true`; pass `false` to leave one out. Calling `enableAngularDiagnostics`
 again **replaces** the previous selection rather than adding to it. The per-test hooks are

@@ -675,14 +675,14 @@ only pays for the ones it imports:
 | `.` — the core entry, what the badge measures | **22.5 kB** |
 | `vitest-auto-spy/angular`                     |     26.3 kB |
 | `vitest-auto-spy/angular/doubles`             |      9.6 kB |
-| `vitest-auto-spy/angular/diagnostics`         |      5.9 kB |
+| `vitest-auto-spy/angular/diagnostics`         |      6.0 kB |
 | `vitest-auto-spy/angular/matchers`            |      1.7 kB |
 | `vitest-auto-spy/react` / `/vue` / `/svelte`  |     22.5 kB |
 | `vitest-auto-spy/setup`                       |     19.5 kB |
 | `vitest-auto-spy/node`                        |     21.3 kB |
 | `vitest-auto-spy/dom-stubs`                   |      6.4 kB |
 | `vitest-auto-spy/rxjs`                        |      2.6 kB |
-| `vitest-auto-spy/angular-router`              |      9.1 kB |
+| `vitest-auto-spy/angular-router`              |      9.4 kB |
 | `vitest-auto-spy/signal-forms`                |      1.4 kB |
 | `vitest-auto-spy/zone`                        |      1.1 kB |
 
@@ -696,7 +696,7 @@ weighs, within a rounding error of each other, because that is what they are: `s
 barrel — a `registerMockAdapter` call and `export * from './auto-spy'` — and its own code is seven
 bytes in the bundle. Nobody should go looking for weight in it.
 
-Every figure here is the committed baseline in `size-entries.json` as of 2026-09-20, which is what
+Every figure here is the committed baseline in `size-entries.json` as of 2026-09-22, which is what
 `size:entries:check` and the badge both read; an earlier edition of this table quoted 15.1, 18.7 and
 14.5 kB for the first three rows, taken before the defaults registry, the outside-a-hook report and
 the shadowed-provider check. `/dom-stubs` last moved for `stubWebStorage`, +256 B, and `/angular` for
