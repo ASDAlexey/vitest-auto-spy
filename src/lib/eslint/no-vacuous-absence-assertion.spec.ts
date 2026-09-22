@@ -219,6 +219,25 @@ describe('no-vacuous-absence-assertion', () => {
     expect(count(capturing('buildLinks();\nexpect(chips).toEqual([]);'))).toBe(1);
   });
 
+  it('counts this library’s stream assertions, which fail on a source that stays silent', () => {
+    const shape = (assertion: string): string => `
+      it('completes without a value', async () => {
+        const next = vi.fn();
+        source$.subscribe({ next });
+        ${assertion}
+        expect(next).not.toHaveBeenCalled();
+      });
+    `;
+
+    // `NEVER` in place of the source fails each of these by timeout, so the test is not vacuous.
+    expect(count(shape('await expectCompletion(source$);'))).toBe(0);
+    expect(count(shape('expect(await expectEmission(other$)).toBe(1);'))).toBe(0);
+    expect(count(shape('await expectEmissions(other$, 2);'))).toBe(0);
+    expect(count(shape('await expectError(source$);'))).toBe(0);
+    // Asserting the silence itself is the repair, not a positive sibling.
+    expect(count(shape('await expectNoEmission(source$);'))).toBe(1);
+  });
+
   it('reads the marked spellings of a test name, and a wrapped body', () => {
     expect(count(capturing('expect(chips).toEqual([]);').replace('it(', 'it.only('))).toBe(1);
     expect(count(capturing('expect(chips).toEqual([]);').replace("it('yields an empty list',", "it.each([1])('yields %s',"))).toBe(1);

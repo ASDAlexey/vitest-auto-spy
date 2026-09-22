@@ -45,7 +45,9 @@
  *
  * **Syntax and scope, never types.** A value taken through `firstValueFrom`, `expectEmission` or a
  * plain `await` is not a capture — nothing wrote it from a callback — so those tests are outside the
- * rule by construction rather than through an exception list. An assertion this rule cannot read in
+ * rule by construction rather than through an exception list. This library's own stream assertions
+ * that fail on a silent source — `expectEmission`, `expectEmissions`, `expectCompletion`,
+ * `expectError` — count as the positive sibling of condition 3 wherever they are called. An assertion this rule cannot read in
  * full (`resolves` / `rejects`, a matcher reached some other way) counts as positive, which can only
  * make it quieter, and a test that asserts through a helper of its own is left alone entirely.
  */
@@ -361,9 +363,16 @@ function capturesOf(context: RuleContext, scan: TestScan, body: EsNode): Map<str
   return captures;
 }
 
+/** This library's assertions that time out on a source that never emits or completes. */
+const FAILS_ON_SILENCE = new Set(['expectCompletion', 'expectEmission', 'expectEmissions', 'expectError']);
+
 /** Whether the test reaches assertions through a helper of its own, which this rule cannot weigh. */
 function assertsThroughAHelper(context: RuleContext, scan: TestScan): boolean {
   return scan.helperCalls.some((callee) => {
+    if (FAILS_ON_SILENCE.has(callee.name)) {
+      return true;
+    }
+
     const helper = localFunction(context, callee);
 
     return helper !== undefined && anyInSubtree(context, helper, isExpectCall, true);
