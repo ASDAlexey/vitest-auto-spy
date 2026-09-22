@@ -42,6 +42,38 @@ describe('no-unasserted-argument', () => {
     expect(count(`expect(saveSpy).toHaveBeenCalled();\nexpect(api.save).toHaveBeenCalledWith(1);`)).toBe(0);
   });
 
+  it('reads a test-local spy through what it holds, not through its name', () => {
+    const twoTests = (first: string, second: string): string => `
+      it('logs the payload', () => {
+        const spy = ${first};
+        run();
+        expect(spy).toHaveBeenCalledWith('payload');
+      });
+      it('closes the dialog', () => {
+        const spy = ${second};
+        run();
+        expect(spy).toHaveBeenCalled();
+      });
+    `;
+
+    // Two members spied under one generic name are two subjects.
+    expect(count(twoTests("vi.spyOn(logger, 'info')", "vi.spyOn(dialog, 'close')"))).toBe(0);
+    // The same member is one subject, configured or not.
+    expect(count(twoTests("vi.spyOn(component.char, 'emit')", "vi.spyOn(component.char, 'emit').mockReturnValue(true)"))).toBe(1);
+    // A `vi.fn()` is nobody but itself.
+    expect(count(twoTests('vi.fn()', 'vi.fn()'))).toBe(0);
+    // One binding shared by both tests is still one subject.
+    expect(count(`let spy;\n${twoTests("vi.spyOn(logger, 'info')", "vi.spyOn(dialog, 'close')").replaceAll('const spy =', 'spy =')}`)).toBe(
+      1,
+    );
+    expect(count(`const spy = vi.fn();\n${twoTests('x', 'x').replaceAll('const spy = x;', '')}`)).toBe(1);
+    // A subject read through a call, or with no name to start from, is matched by its text alone.
+    expect(count(`expect(TestBed.inject(Api).save).toHaveBeenCalled();\nexpect(TestBed.inject(Api).save).toHaveBeenCalledWith(1);`)).toBe(
+      1,
+    );
+    expect(count(`expect((api as Api).save).toHaveBeenCalled();\nexpect((api as Api).save).toHaveBeenCalledWith(1);`)).toBe(1);
+  });
+
   it('leaves the test that pins the arguments itself alone', () => {
     const code = `
       it('saves the draft', () => {

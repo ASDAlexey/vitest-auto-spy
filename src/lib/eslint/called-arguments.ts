@@ -33,12 +33,29 @@
  * the call and not about its arguments, and there are no arguments to name. `toHaveBeenCalledTimes`
  * and the other counting matchers, which assert something the bare one does not. And a subject the
  * rule cannot match by name: identity here is the **source text** of what `expect()` was handed, so
- * `expect(api.load)` and `expect(loadSpy)` are two subjects even where they are one spy. That
- * misses findings and invents none, which is the trade this rule is built on.
+ * `expect(api.load)` and `expect(loadSpy)` are two subjects even where they are one spy. Two names
+ * are read through what they hold, because a test declares its own under a generic name: a `spy`
+ * holding `vi.spyOn(obj, 'm')` is that member whatever the variable is called, and a `vi.fn()` is
+ * nobody but itself, so the `const spy = vi.fn()` of one test is not the `const spy` of the next.
+ * That misses findings and invents none, which is the trade this rule is built on.
  */
 import { type Matcher, enclosingTestCall, matcherOf } from './absence-assertion';
+import { boundValueOf, findBinding } from './bindings';
 import { defineRule } from './define-rule';
-import { type EsCallExpression, type EsNode, type RuleContext, type RuleModule, isMemberExpression } from './rule-types';
+import {
+  type EsCallExpression,
+  type EsIdentifier,
+  type EsNode,
+  type EsVariable,
+  type RuleContext,
+  type RuleModule,
+  isCallExpression,
+  isIdentifier,
+  isMemberExpression,
+  isRunnerCall,
+  isRunnerFnCall,
+  rootCall,
+} from './rule-types';
 import { isExpectCall } from './subscribe-repair';
 
 /** The matcher this rule is about: a call, and nothing said about what it was called with. */
@@ -61,8 +78,12 @@ interface Assertion {
   callOnly: boolean;
   /** The whole chain, which is what a report underlines. */
   node: EsNode;
-  /** The subject as written, whitespace removed: how two assertions are told to be about one spy. */
+  /** The subject as written, whitespace removed: what a report names. */
   subject: string;
+  /** How two assertions are told to be about one spy — the text, or the member a `vi.spyOn` variable holds. */
+  key: string;
+  /** The variable, when it holds a `vi.fn()`: such a subject is only ever itself. */
+  fresh: EsVariable | undefined;
   /** The `it(…)` call this sits in, or `undefined` at describe scope. */
   test?: EsCallExpression | undefined;
   /** Whether the chain names the arguments — which is what makes (1) evidence rather than a guess. */
@@ -72,8 +93,50 @@ interface Assertion {
 /** What the file said about one subject, gathered before anything is reported. */
 interface Scan {
   assertions: Assertion[];
-  /** The subjects some assertion in the file names arguments for. */
-  declared: Set<string>;
+}
+
+/** The identifier a subject's text starts from: `spy` in `spy`, `api` in `api.save` and `TestBed.inject(X).m`. */
+function rootIdentifier(node: EsNode): EsIdentifier | undefined {
+  if (isMemberExpression(node)) {
+    return rootIdentifier(node.object);
+  }
+
+  if (isCallExpression(node)) {
+    return rootIdentifier(node.callee);
+  }
+
+  return isIdentifier(node) ? node : undefined;
+}
+
+const SPY_ON = new Set(['spyOn']);
+
+function compact(context: RuleContext, node: EsNode): string {
+  return context.sourceCode.getText(node).replace(/\s+/g, '');
+}
+
+/** Who a subject is: its text, unless the name it starts from holds a spy the file made itself. */
+function identityOf(context: RuleContext, argument: EsNode): Pick<Assertion, 'fresh' | 'key' | 'subject'> {
+  const subject = compact(context, argument);
+  const root = rootIdentifier(argument);
+  const scope = root && context.sourceCode.getScope(root);
+  const held = root && scope ? boundValueOf(scope, root) : undefined;
+  const made = held ? rootCall(held) : undefined;
+
+  if (root && scope && made && isRunnerFnCall(made)) {
+    return { subject, key: subject, fresh: findBinding(scope, root.name) };
+  }
+
+  if (root && made && isCallExpression(made) && isRunnerCall(made, SPY_ON)) {
+    const target = made.arguments.map((part) => compact(context, part)).join(',');
+
+    return { subject, key: `spyOn(${target})${subject.slice(root.name.length)}`, fresh: undefined };
+  }
+
+  return { subject, key: subject, fresh: undefined };
+}
+
+function sameSubject(one: Assertion, other: Assertion): boolean {
+  return one.key === other.key && one.fresh === other.fresh;
 }
 
 /** The end of the `expect(…)` chain — past the `.not`, at the call the matcher is. */
@@ -101,7 +164,7 @@ function assertionOf(context: RuleContext, node: EsCallExpression): Assertion | 
   }
 
   const matcher = matcherOf(node);
-  const read = { subject: context.sourceCode.getText(argument).replace(/\s+/g, ''), test: enclosingTestCall(node) };
+  const read = { ...identityOf(context, argument), test: enclosingTestCall(node) };
 
   if (!matcher) {
     return { ...read, bare: false, callOnly: false, node, withArguments: false };
@@ -119,10 +182,9 @@ function sameTest(one: Assertion, other: Assertion): boolean {
 
 /** Whether some *other* test in the file pins the arguments of this subject. */
 function pinnedElsewhere(scan: Scan, assertion: Assertion): boolean {
-  return (
-    scan.declared.has(assertion.subject) &&
-    !scan.assertions.some((other) => other.withArguments && other.subject === assertion.subject && sameTest(assertion, other))
-  );
+  const pinning = scan.assertions.filter((other) => other.withArguments && sameSubject(assertion, other));
+
+  return pinning.length > 0 && !pinning.some((other) => sameTest(assertion, other));
 }
 
 /** The title of a test, as it is written; the empty string for one named by a variable. */
@@ -164,7 +226,7 @@ export const noUnassertedArgument: RuleModule = defineRule({
       `whose titles differ only in that phrase have identical bodies as soon as this is all either of them asserts. ${REPAIR}`,
   },
   create: (context) => {
-    const scan: Scan = { assertions: [], declared: new Set() };
+    const scan: Scan = { assertions: [] };
 
     return {
       CallExpression: (node: EsCallExpression): void => {
@@ -172,10 +234,6 @@ export const noUnassertedArgument: RuleModule = defineRule({
 
         if (assertion) {
           scan.assertions.push(assertion);
-
-          if (assertion.withArguments) {
-            scan.declared.add(assertion.subject);
-          }
         }
       },
       'Program:exit': (): void => {
