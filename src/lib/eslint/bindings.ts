@@ -24,6 +24,7 @@ import {
   type EsScope,
   type EsSourceCode,
   type EsVariable,
+  isIdentifier,
   isNamedImportSpecifier,
   isVariableDeclarator,
 } from './rule-types';
@@ -72,18 +73,6 @@ export function importSpecifierOf(variable: EsVariable): EsImportSpecifier | und
   return variable.defs.map((definition) => definition.node).find(isNamedImportSpecifier);
 }
 
-/**
- * Put an import at the very top of the file.
- *
- * Before the first character rather than before the first statement, and deliberately so: "does
- * this file open with a licence header, a directive or a comment" is a question with no answer a
- * fixer could take without a branch nothing would ever exercise. The formatter the project already
- * runs owns the final placement; this only has to be valid.
- */
-export function insertImport(fixer: EsFixer, statement: string): EsFix {
-  return fixer.insertTextBeforeRange([0, 0], `${statement}\n`);
-}
-
 /** The file itself. Declared here because one fixer needs the import list, which hangs off nothing else. */
 interface EsProgram extends EsNode {
   body: EsNode[];
@@ -97,17 +86,46 @@ function isProgram(node: EsNode): node is EsProgram {
   return node.type === 'Program';
 }
 
-/** The file's own `import … from 'module'`, when it has exactly one and every specifier in it is named. */
-function namedImportFrom(node: EsNode, module: string): EsImportDeclaration | undefined {
+function importsOf(node: EsNode): EsImportDeclaration[] {
   let program: EsNode = node;
 
   while (!isProgram(program)) {
     program = program.parent;
   }
 
-  const declarations = program.body
-    .filter(isImportDeclaration)
-    .filter((declaration) => declaration.source.value === module && declaration.importKind !== 'type');
+  return program.body.filter(isImportDeclaration);
+}
+
+/** `vitest-auto-spy` for `vitest-auto-spy/angular`, `@scope/pkg` for `@scope/pkg/sub`. */
+function packageOf(module: string): string {
+  const parts = module.split('/');
+
+  return parts.slice(0, module.startsWith('@') ? 2 : 1).join('/');
+}
+
+/**
+ * Add `import <clause> from 'module'` to the file.
+ *
+ * Directly above the file's first import of the same package that sorts after it — `vitest-auto-spy`
+ * above `vitest-auto-spy/angular` — or above the last one when none does, so an `import/order` the
+ * project enforces finds the new line inside the group it belongs to. Above rather than below,
+ * because the same fix may be removing that import, and a line written after a removed one starts
+ * with the newline the removal left. A file with no import of the package gets it before the first
+ * character: "does this file open with a licence header, a directive or a comment" is a question
+ * with no answer a fixer could take without a branch nothing would ever exercise, and the formatter
+ * the project already runs owns the final placement.
+ */
+export function insertImport(fixer: EsFixer, node: EsNode, module: string, clause: string): EsFix {
+  const family = importsOf(node).filter((declaration) => packageOf(String(declaration.source.value)) === packageOf(module));
+  const anchor = family.find((declaration) => String(declaration.source.value) > module) ?? family.at(-1);
+  const at = anchor?.range[0] ?? 0;
+
+  return fixer.insertTextBeforeRange([at, at], `import ${clause} from '${module}';\n`);
+}
+
+/** The file's own `import … from 'module'`, when it has exactly one and every specifier in it is named. */
+function namedImportFrom(node: EsNode, module: string): EsImportDeclaration | undefined {
+  const declarations = importsOf(node).filter((declaration) => declaration.source.value === module && declaration.importKind !== 'type');
 
   const [only] = declarations;
 
@@ -121,14 +139,25 @@ function namedImportFrom(node: EsNode, module: string): EsImportDeclaration | un
  * the fix having worked, and then `import/no-duplicates` — an error in every repository that enables
  * it — reports the line the fixer just wrote. Measured while rolling `prefer-provide-auto-spy` over a
  * suite of 1771 spec files: 20 of the 49 files it rewrites already import from that entry point.
+ *
+ * Into a list that is already in order — case aside, which is how `sort-imports` and most formatters
+ * read it — the name goes where it sorts; into one that is not, at the end.
  */
 export function importNamed(fixer: EsFixer, node: EsNode, name: string, module: string): EsFix {
-  const existing = namedImportFrom(node, module);
-  const last = existing?.specifiers.at(-1);
+  const specifiers = namedImportFrom(node, module)?.specifiers.filter(isNamedImportSpecifier) ?? [];
+  const entries = specifiers.map((specifier) => ({
+    specifier,
+    key: (isIdentifier(specifier.imported) ? specifier.imported.name : '').toLowerCase(),
+  }));
+  const ordered = entries.every((entry, index) => entries.slice(0, index).every((before) => before.key <= entry.key));
+  const next = ordered ? entries.find((entry) => entry.key > name.toLowerCase())?.specifier : undefined;
+  const last = specifiers.at(-1);
 
-  return last
-    ? fixer.replaceTextRange([last.range[1], last.range[1]], `, ${name}`)
-    : insertImport(fixer, `import { ${name} } from '${module}';`);
+  if (next) {
+    return fixer.insertTextBeforeRange([next.range[0], next.range[0]], `${name}, `);
+  }
+
+  return last ? fixer.replaceTextRange([last.range[1], last.range[1]], `, ${name}`) : insertImport(fixer, node, module, `{ ${name} }`);
 }
 
 /**

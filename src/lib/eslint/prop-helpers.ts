@@ -108,7 +108,7 @@ export function propHelperSuggestion(context: RuleContext, node: EsCallExpressio
       const edits = [fixer.replaceText(node, replacement)];
 
       if (state === 'free') {
-        edits.push(insertImport(fixer, `import { ${rewrite.helper} } from '${PACKAGE}';`));
+        edits.push(insertImport(fixer, node, PACKAGE, `{ ${rewrite.helper} }`));
       }
 
       return edits;

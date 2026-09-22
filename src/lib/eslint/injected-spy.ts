@@ -144,7 +144,7 @@ export function injectSpySuggestion(
       const edits = [fixer.replaceText(node, replacement)];
 
       if (state === 'free') {
-        edits.push(insertImport(fixer, `import { injectSpy } from '${PACKAGE}/angular';`));
+        edits.push(insertImport(fixer, node, `${PACKAGE}/angular`, '{ injectSpy }'));
       }
 
       return edits;
@@ -206,7 +206,7 @@ export function asSpyFixes(context: RuleContext, fixer: EsFixer, node: EsSpyCast
   const edits = [fixer.replaceText(node, call)];
 
   if (bindingState(sourceCode.getScope(node), 'asSpy') === 'free') {
-    edits.push(insertImport(fixer, `import { asSpy } from '${PACKAGE}';`));
+    edits.push(insertImport(fixer, node, PACKAGE, '{ asSpy }'));
   }
 
   // The cast was the last thing naming the type: the same bookkeeping `no-mocked-for-spy` does, and

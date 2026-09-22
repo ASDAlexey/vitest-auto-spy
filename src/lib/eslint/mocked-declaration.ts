@@ -122,7 +122,7 @@ export function spyTypeFixes(context: RuleContext, fixer: EsFixer, node: EsMocke
   const edits = [fixer.replaceText(node, 'Spy')];
 
   if (bindingState(context.sourceCode.getScope(node), 'Spy') === 'free') {
-    edits.push(insertImport(fixer, `import type { Spy } from '${PACKAGE}';`));
+    edits.push(insertImport(fixer, node, PACKAGE, 'type { Spy }'));
   }
 
   // One reference left means this is it: renaming it orphans the import. Several, and the import is

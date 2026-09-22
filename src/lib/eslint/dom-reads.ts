@@ -151,7 +151,7 @@ export function renderShallowSuggestion(context: RuleContext, node: EsCallExpres
       const edits = [fixer.replaceText(node, replacement)];
 
       if (state === 'free') {
-        edits.push(insertImport(fixer, `import { renderShallow } from '${PACKAGE}/angular';`));
+        edits.push(insertImport(fixer, node, `${PACKAGE}/angular`, '{ renderShallow }'));
       }
 
       return edits;

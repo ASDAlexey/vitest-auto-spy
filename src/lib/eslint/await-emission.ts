@@ -307,7 +307,7 @@ function buildSuggestion(context: RuleContext, parts: RewriteParts): SuggestionD
       const edits = [fixer.replaceText(parts.testCallback, replacement)];
 
       if (parts.state === 'free') {
-        edits.push(insertImport(fixer, `import { ${parts.awaiter.helper} } from 'rxjs';`));
+        edits.push(insertImport(fixer, parts.testCallback, 'rxjs', `{ ${parts.awaiter.helper} }`));
       }
 
       return edits;
