@@ -271,6 +271,7 @@ export const EXPORTED_BY: Readonly<Record<string, string>> = {
   Overloads: '0 1 2 3 4 20 21 22',
   overrideAutoSpy: '12',
   overrideComponentProvider: '12',
+  PendingRequestsOptions: '13',
   PerTestHandle: '23',
   PlatformOverrides: '14',
   PropStubValue: '0 1 2 3 4 20 21 22',

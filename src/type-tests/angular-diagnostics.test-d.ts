@@ -8,14 +8,20 @@
  */
 import { describe, expectTypeOf, it } from 'vitest';
 
-import { type AngularDiagnosticsOptions, disableAngularDiagnostics, enableAngularDiagnostics } from '../angular-diagnostics';
+import {
+  type AngularDiagnosticsOptions,
+  type PendingRequestsOptions,
+  assertNoPendingRequests,
+  disableAngularDiagnostics,
+  enableAngularDiagnostics,
+} from '../angular-diagnostics';
 
 describe('AngularDiagnosticsOptions', () => {
-  it('declares every check as a boolean switch, and nothing wider', () => {
+  it('declares every check as a boolean switch, and only pendingRequests wider', () => {
     expectTypeOf<AngularDiagnosticsOptions['ngModuleScopes']>().toEqualTypeOf<boolean | undefined>();
     expectTypeOf<AngularDiagnosticsOptions['deadSchemas']>().toEqualTypeOf<boolean | undefined>();
     expectTypeOf<AngularDiagnosticsOptions['unspiedProviders']>().toEqualTypeOf<boolean | undefined>();
-    expectTypeOf<AngularDiagnosticsOptions['pendingRequests']>().toEqualTypeOf<boolean | undefined>();
+    expectTypeOf<AngularDiagnosticsOptions['pendingRequests']>().toEqualTypeOf<PendingRequestsOptions | boolean | undefined>();
     expectTypeOf<AngularDiagnosticsOptions['shadowedProviders']>().toEqualTypeOf<boolean | undefined>();
   });
 
@@ -35,6 +41,15 @@ describe('AngularDiagnosticsOptions', () => {
     enableAngularDiagnostics({ shadowedProviders: false });
   });
 
+  it('lets pendingRequests carry ignoreCancelled, and assertNoPendingRequests override it', () => {
+    enableAngularDiagnostics({ pendingRequests: { ignoreCancelled: true } });
+    enableAngularDiagnostics({ pendingRequests: {} });
+    assertNoPendingRequests();
+    assertNoPendingRequests({ ignoreCancelled: false });
+
+    expectTypeOf<PendingRequestsOptions>().toEqualTypeOf<{ ignoreCancelled?: boolean }>();
+  });
+
   it('rejects what the switches are not', () => {
     // @ts-expect-error -- a check is on or off; it has no grade to pick
     enableAngularDiagnostics({ pendingRequests: 'yes' });
@@ -42,6 +57,8 @@ describe('AngularDiagnosticsOptions', () => {
     enableAngularDiagnostics({ overlappingSchemas: true });
     // @ts-expect-error -- unspiedProviders is a switch, not a list
     enableAngularDiagnostics({ unspiedProviders: ['Router'] });
+    // @ts-expect-error -- the Angular option is ignoreCancelled; a misspelling must not pass as on
+    enableAngularDiagnostics({ pendingRequests: { ignoreCanceled: true } });
   });
 
   it('leaves `disableAngularDiagnostics` nothing to configure', () => {

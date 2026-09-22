@@ -10,6 +10,123 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+`ignoreCancelled` reaches the diagnostics group, the `Location` double answers `path()` the way
+the real `Location` does, and the 5.23.0 rules stop reporting what they got wrong on the consumer they
+were rolled out over.
+
+### Added
+
+- **`no-redundant-mock-reset` takes `{ configFile }`.** A runner config at a path the upward search
+  does not look for — the `runnerConfig` of `@angular/build:unit-test`, say — used to leave the rule
+  silent unless the flags were copied into the lint config and kept in step by hand. The option
+  names the file, absolute or relative to ESLint's working directory, and it is read as text the way
+  a found config is; a flag written beside it wins, and a `configFile` that does not exist fails the
+  run by name instead of silencing the rule.
+
+- **`enableAngularDiagnostics({ pendingRequests: { ignoreCancelled: true } })`.** A request the code
+  under test unsubscribed from — an `httpResource()` whose component was destroyed, a `takeUntil`
+  that cut a call, a `switchMap` that moved on — stays in `HttpTestingController` flagged
+  `cancelled`, and the `pendingRequests` check failed the test on it like on any other. Where
+  cancelling is the behaviour, an object in place of `true` now keeps the check on and forgives the
+  cancelled ones: the same opt-in `HttpTestingController.verify({ ignoreCancelled })` names and
+  `provideHttpTesting({ verifyOnTeardown: { ignoreCancelled: true } })` has taken since 5.22.0. A
+  cancelled request is still taken, so it cannot leak into the next test; a request still waiting
+  fails exactly as before. `assertNoPendingRequests({ ignoreCancelled })` overrides the group's
+  setting for one call, and the option object is exported as `PendingRequestsOptions`.
+
+### Changed
+
+- **`provideLocationDouble()` / `injectLocationDouble()` / `createLocationDouble()`: `path()` keeps
+  the query.** Angular's `SpyLocation` stores the query of `go(path, query)` and
+  `replaceState(path, query)` beside the path and never reads it back, so its `path()` answered
+  `/reports` where the real `Location.path()` answers `/reports?tab=7`. Code that splits `path()` on
+  `?` read no query from the double and took a branch production never takes. The double is now a
+  `SpyLocation` whose `path()` appends the query of the current history entry, and
+  `provideLocationDouble()` provides it directly instead of through `provideLocationMocks()`. A spec
+  that asserted the query-less path after a `go()` with a query was asserting `SpyLocation`'s
+  omission, not the application's behaviour. If a later Angular moves the field the query is read
+  from, `path()` throws by name instead of quietly dropping the query again.
+
+### Fixed
+
+Reports from rolling the 5.23.0 rules over the 2 032-file consumer they were measured on, each
+reduced to a minimal case in the rule's spec first.
+
+- **`no-redundant-mock-reset` reported resets that are not redundant.** Vitest resets mocks in
+  `onBeforeTryTask`, ahead of each test's `beforeEach` chain, and never after a test — 5.23.0 also
+  read it as running behind the previous test's `afterEach` chain, which it does not. Three kinds
+  of finding followed from that and are gone:
+  - **A restore or a reset in `afterEach` / `afterAll`.** After a file's last test nothing resets
+    until the file is over (Vitest restores spies once more at the file boundary, after every
+    `afterAll`), so the `afterEach` hooks of enclosing `describe`s and every `afterAll`, the setup
+    file's included, run with the last test's spies on `window`, `document` or a prototype still
+    installed. Only a clear, as the last statement of an `afterEach`, is still reported.
+  - **A reset something else ran before.** The runner's reset precedes the whole `beforeEach`
+    chain, so a `beforeEach` of an enclosing `describe` — wherever it is written — or an earlier one
+    beside it has already run, and a `spy.mockRestore()` taking off the spy it installed is the
+    point: on the consumer, deleting one failed both tests under it. The same for a `mockClear()`
+    after the arrangement in its own hook (seven tests failed without one). A `beforeEach` reset is
+    now reported only as the first statement of a hook no other `beforeEach` precedes.
+  - **Anything in `beforeAll`**, which runs before the runner's first reset.
+
+  The `--fix` also takes the line of a statement that stood alone on it, where it used to leave an
+  indented blank line behind.
+
+- **`no-unasserted-argument` took two test-local spies of one name for one subject.** Identity was
+  the source text alone, so `const emit = vi.spyOn(component.setFocus, 'emit')` asserted bare in
+  one test was "pinned elsewhere" by `const emit = vi.spyOn(component.seasonSelected, 'emit')` with
+  `toHaveBeenCalledWith` in the next — the one direction the rule promised never to err in. A name
+  holding `vi.spyOn(obj, 'm')` is now read as that member whatever it is called, and a name holding
+  a `vi.fn()` as nobody but itself. On the consumer: six findings gone, two gained where two
+  differently named variables spied one member.
+- **`no-vacuous-absence-assertion` did not count this library's own stream assertions.**
+  `await expectCompletion(source$)` beside `expect(next).not.toHaveBeenCalled()` fails on a source
+  that never completes, and was reported as a test silence satisfies. `expectEmission`,
+  `expectEmissions`, `expectCompletion` and `expectError` now count as the positive sibling.
+- **`prefer-settle-dynamic-import` reported a namespace taken to be read.**
+  `const api = await import('./index')` as the first statement of a test, or
+  `ns = await import('@scope/lib')` opening a `beforeEach` that then spies on the module, waits on no
+  continuation — nothing in that callback has run yet. A namespace bound as the first statement of
+  a test or a hook is now left alone; a bare `await import(…)` there is still reported.
+- **`no-reflect-member-access` reported the environment under a name of the spec's own.**
+  `let win: Window` holding an injected `WINDOW` token is the window, and `Reflect.get(win, 'kinfo')`
+  is the idiom the rule leaves alone on `window` itself. A binding declared as `Window`,
+  `typeof globalThis` or an intersection with either is now read as the environment. A
+  `Reflect.set` onto an object literal the spec built gets a message of its own — the key belongs in
+  the literal, and a value outside the type on purpose takes a cast on the value, not on the object.
+- **`no-mock-cast` did not say why the cast usually went in.** On `(spy.m.mockReturnValue as Mock)(…)`
+  the message now names `Spy<Service, { overload: { method: 'first' } }>`: an overloaded method is
+  typed against its last signature, which on a generated client is the `observe: 'events'` one.
+- **A fix or suggestion that adds an import put it above the file's first line.** In a file whose
+  only `vitest-auto-spy` import is a subpath entry, `prefer-settle-dynamic-import` and
+  `prefer-create-mock` wrote `import { … } from 'vitest-auto-spy'` above `@angular/core/testing`,
+  outside its group, and `import/order` reported the line on the next run — 14 errors across ten
+  files of the consumer. Every rule that adds an import now writes it directly above the file's
+  first import of the same package that sorts after it (or its last one), and at the top only when
+  the file has none.
+- **`createMock<T>` demanded all of an `Error`-shaped `T`.** `DeepPartial` handed `Error` back
+  untouched, and the check is structural, so an `HttpErrorResponse` or a class extending `Error`
+  took no partial at all: the fixture `prefer-create-mock` suggests for
+  `{ status: 500, … } as HttpErrorResponse` failed both type gates on `name`, `ok`, `headers`, `url`
+  and `type`, and so did `createMock<Error>({})`. `Error` is now mapped like any other object — it
+  has no methods to lose — and a real instance is still accepted at every level.
+
+### Size
+
+`/angular-router` **9.05 → 9.37 kB** min+gzip (+325 B, +3.6 %): the query-aware `path()` and the
+error it raises when `SpyLocation`'s history shape moves. The error helper was split out of the
+Angular-internals probes for it, so the entry pulls the message builder and not the probes —
+that took the growth down from +356 B and the cold-import graph from +2.7 kB to +1.5 kB, and trimmed
+`/bun-angular` by 17 B on the way. `/angular/diagnostics` 5.91 → 6.04 kB (+127 B, +2.1 %) for
+`ignoreCancelled`. Every other runtime entry is byte-identical to 5.23.0, and heap per spied method
+is unchanged at 2.92 kB.
+
+`/eslint-plugin` **47.24 → 48.62 kB** min+gzip (+1.38 kB, +2.9 %) for the rule repairs above — the
+`beforeEach` chain walk and `configFile` of `no-redundant-mock-reset` the most of it; a lint-time
+entry no test run imports.
+
+## [5.23.0] - 2026-09-21
+
 **Eight lint rules, which take the plugin to forty-eight.** Six of them report a test that is green
 and should not be: a test every assertion of which the stream never emitting already satisfies
 (`no-vacuous-absence-assertion`), a test that calls the spied method itself and then asserts the call
@@ -118,8 +235,9 @@ edit are the two that ship at `warn`.
   `beforeAll` / `afterAll` that the runner is already configured to perform between tests:
   `vi.clearAllMocks()`, `vi.resetAllMocks()`, `vi.restoreAllMocks()` and the per-mock
   `mockClear()` / `mockReset()` / `mockRestore()`. Vitest resets in `onBeforeTryTask`, which runs
-  ahead of every test's `beforeEach` chain and behind the previous test's `afterEach` chain, so the
-  hook does again what the runner has just done — and the line is not free: it reads as the thing
+  ahead of every test's `beforeEach` chain and never after a test, so a reset opening a `beforeEach`
+  does again what the runner has just done (the `afterEach` / `afterAll` half of this was wrong, and
+  is withdrawn in the next release) — and the line is not free: it reads as the thing
   keeping the suite honest, so nobody deletes it, and the next author copies it into their hook too.
 
   **The configuration is the hard part, and the rule refuses to guess at it.** Options first,
@@ -7178,7 +7296,8 @@ by hand there, in more than one place, by more than one person.
   `mockAccessorsProp`.
 - Dual ESM + CJS build with type declarations; 100% test coverage.
 
-[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.22.0...HEAD
+[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.23.0...HEAD
+[5.23.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.22.0...v5.23.0
 [5.22.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.21.1...v5.22.0
 [5.21.1]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.21.0...v5.21.1
 [5.21.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.20.0...v5.21.0

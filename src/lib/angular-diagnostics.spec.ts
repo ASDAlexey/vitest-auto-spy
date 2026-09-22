@@ -352,4 +352,11 @@ describe('enableAngularDiagnostics', () => {
 
     expect(() => TestBed.configureTestingModule({ imports: [EmptyModule, DiagnosedComponent], schemas: [NO_ERRORS_SCHEMA] })).not.toThrow();
   });
+
+  it('leaves an explicit check with no controller to read while the group is off', () => {
+    TestBed.configureTestingModule({ providers: [provideHttpClient(), provideHttpClientTesting()] });
+    TestBed.inject(HttpClient).get('/api/cancelled-while-off').subscribe().unsubscribe();
+
+    expect(assertNoPendingRequests).not.toThrow();
+  });
 });

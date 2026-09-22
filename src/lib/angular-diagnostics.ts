@@ -51,7 +51,7 @@ export interface AngularDiagnosticsOptions {
    * opt-in `HttpTestingController.verify({ ignoreCancelled })` names — a request the code under test
    * cancelled, by unsubscribing, is taken but no longer fails the test.
    */
-  pendingRequests?: boolean | PendingRequestsOptions;
+  pendingRequests?: PendingRequestsOptions | boolean;
   /**
    * Fail when a double registered on the testing module loses to the component's own `providers`,
    * so the component under test is running against the real service.
