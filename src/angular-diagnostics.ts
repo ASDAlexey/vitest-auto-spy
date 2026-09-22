@@ -21,6 +21,7 @@ export {
   disableAngularDiagnostics,
   enableAngularDiagnostics,
   type AngularDiagnosticsOptions,
+  type PendingRequestsOptions,
 } from './lib/angular-diagnostics';
 
 export {

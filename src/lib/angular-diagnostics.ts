@@ -44,13 +44,25 @@ export interface AngularDiagnosticsOptions {
   deadSchemas?: boolean;
   /** Fail — rather than warn — when `injectSpy` finds a real instance where a spy was expected. */
   unspiedProviders?: boolean;
-  /** Fail a test that ends with unflushed `HttpTestingController` requests. */
-  pendingRequests?: boolean;
+  /**
+   * Fail a test that ends with unflushed `HttpTestingController` requests.
+   *
+   * An object keeps the check on and carries its option to it: `{ ignoreCancelled: true }` is the
+   * opt-in `HttpTestingController.verify({ ignoreCancelled })` names — a request the code under test
+   * cancelled, by unsubscribing, is taken but no longer fails the test.
+   */
+  pendingRequests?: boolean | PendingRequestsOptions;
   /**
    * Fail when a double registered on the testing module loses to the component's own `providers`,
    * so the component under test is running against the real service.
    */
   shadowedProviders?: boolean;
+}
+
+/** What `pendingRequests` and {@link assertNoPendingRequests} accept. */
+export interface PendingRequestsOptions {
+  /** Skip requests the code under test cancelled. Default `false`, like Angular's own `verify()`. */
+  ignoreCancelled?: boolean;
 }
 
 /** Read a config key as a list, whatever the caller passed. */
@@ -234,11 +246,19 @@ function readControllerToken(config: unknown): unknown {
     .find((token) => token !== undefined);
 }
 
-/** One open request, as it reads in the failure. */
-function describeRequest(open: unknown): string {
+/** One open request: how it reads in the failure, and whether the code under test cancelled it. */
+interface OpenRequest {
+  description: string;
+  cancelled: boolean;
+}
+
+function describeRequest(open: unknown): OpenRequest {
   const request = readProperty(open, 'request');
 
-  return `${String(readProperty(request, 'method'))} ${String(readProperty(request, 'urlWithParams'))}`;
+  return {
+    description: `${String(readProperty(request, 'method'))} ${String(readProperty(request, 'urlWithParams'))}`,
+    cancelled: readProperty(open, 'cancelled') === true,
+  };
 }
 
 /**
@@ -247,7 +267,7 @@ function describeRequest(open: unknown): string {
  * `match(() => true)` both lists them and takes them, which is what stops one unflushed request
  * being reported twice by two hooks that both looked.
  */
-function takeOpenRequests(controller: unknown): string[] {
+function takeOpenRequests(controller: unknown): OpenRequest[] {
   const match = readProperty(controller, 'match');
 
   if (typeof match !== 'function') {
@@ -268,7 +288,7 @@ let controllerToken: unknown;
  * A list, and pushed to rather than replaced: a test that resets twice used to overwrite the first
  * snapshot with the second, empty one, and the requests of the first module were never reported.
  */
-const openAtReset: string[] = [];
+const openAtReset: OpenRequest[] = [];
 
 /** The one `TestBed` member read with a token of unknown type, declared structurally so it needs no assertion. */
 interface InjectingTestBed {
@@ -285,7 +305,7 @@ function injectFromModule(token: unknown): unknown {
   return readProperty(testBed, '_testModuleRef') ? testBed.inject(token, null) : null;
 }
 
-function readOpenRequests(): string[] {
+function readOpenRequests(): OpenRequest[] {
   return controllerToken === undefined ? [] : takeOpenRequests(injectFromModule(controllerToken));
 }
 
@@ -297,6 +317,7 @@ function readOpenRequests(): string[] {
  * reading it takes the requests, so calling it yourself is not paid for twice.
  *
  * A no-op when the group is off, or when the test never configured HTTP testing at all.
+ * `ignoreCancelled` defaults to what `enableAngularDiagnostics({ pendingRequests })` was given.
  *
  * @example
  * ```ts
@@ -305,11 +326,13 @@ function readOpenRequests(): string[] {
  * assertNoPendingRequests(); // nothing else went out
  * ```
  */
-export function assertNoPendingRequests(): void {
+export function assertNoPendingRequests(options: PendingRequestsOptions = {}): void {
   // One-shot, like `match()` itself: whoever reads the pending requests owns them, so the group's
   // own `afterEach` does not report the same two requests a second time. Snapshot *and* live: a
   // module built after the reset is holding requests of its own.
-  const open = [...openAtReset.splice(0), ...readOpenRequests()];
+  const taken = [...openAtReset.splice(0), ...readOpenRequests()];
+  const ignoreCancelled = options.ignoreCancelled ?? active?.ignoreCancelled ?? false;
+  const open = ignoreCancelled ? taken.filter((request) => !request.cancelled) : taken;
 
   if (open.length === 0) {
     return;
@@ -318,11 +341,12 @@ export function assertNoPendingRequests(): void {
   throw new Error(
     withDocs(
       `[vitest-auto-spy] enableAngularDiagnostics({ pendingRequests }): the test ended with ${open.length} unflushed ` +
-        `HttpTestingController request(s): ${open.join(', ')}.\n` +
+        `HttpTestingController request(s): ${open.map((request) => request.description).join(', ')}.\n` +
         'Nothing answered them and nothing asserted them, so the code under test is still waiting on a response it never ' +
         'received — everything the spec expected to happen after that call did not happen here.\n' +
         "Flush each one (`controller.expectOne('/url').flush(body)`), or call `controller.verify()` in the spec where the " +
-        'absence of a request is the thing being asserted.',
+        'absence of a request is the thing being asserted. A request the code cancels on purpose is excused by ' +
+        '`enableAngularDiagnostics({ pendingRequests: { ignoreCancelled: true } })`.',
       DOCS_LINKS.angularDiagnostics,
     ),
   );
@@ -439,7 +463,12 @@ export function assertNoShadowedProviders(component: unknown, fixture: unknown):
 }
 
 /** The active selection, or `undefined` when the group is off. Read by the hooks, so a second call replaces it. */
-let active: Required<AngularDiagnosticsOptions> | undefined;
+interface ActiveSelection extends Required<Omit<AngularDiagnosticsOptions, 'pendingRequests'>> {
+  pendingRequests: boolean;
+  ignoreCancelled: boolean;
+}
+
+let active: ActiveSelection | undefined;
 let removeInspector: (() => void) | undefined;
 let removeComponentInspector: (() => void) | undefined;
 
@@ -490,7 +519,7 @@ function registerPerTestHooks(): void {
     preparedTest = undefined;
 
     if (active?.pendingRequests) {
-      verifyOnTeardown(assertNoPendingRequests);
+      verifyOnTeardown(() => assertNoPendingRequests());
     }
   });
 }
@@ -511,7 +540,8 @@ export function enableAngularDiagnostics(options: AngularDiagnosticsOptions = {}
     ngModuleScopes: options.ngModuleScopes ?? true,
     deadSchemas: options.deadSchemas ?? true,
     unspiedProviders: options.unspiedProviders ?? true,
-    pendingRequests: options.pendingRequests ?? true,
+    pendingRequests: options.pendingRequests !== false,
+    ignoreCancelled: typeof options.pendingRequests === 'object' && options.pendingRequests.ignoreCancelled === true,
     shadowedProviders: options.shadowedProviders ?? true,
   };
 

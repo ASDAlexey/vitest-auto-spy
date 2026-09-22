@@ -9,7 +9,7 @@ import { HttpClient, provideHttpClient } from '@angular/common/http';
 import { HttpClientTestingModule, provideHttpClientTesting } from '@angular/common/http/testing';
 import { Component, Injectable, InjectionToken, NO_ERRORS_SCHEMA, NgModule, inject } from '@angular/core';
 import { TestBed, getTestBed } from '@angular/core/testing';
-import { afterAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, describe, expect, it, onTestFinished, vi } from 'vitest';
 
 import '../angular';
 import { injectSpy } from './angular';
@@ -151,6 +151,39 @@ describe('enableAngularDiagnostics', () => {
     http.post('/api/orders', {}).subscribe();
 
     expect(assertNoPendingRequests).toThrow(/2 unflushed HttpTestingController request\(s\): GET \/api\/users, POST \/api\/orders/);
+  });
+
+  it('holds a cancelled request against the test unless asked not to', () => {
+    TestBed.configureTestingModule({ providers: [provideHttpClient(), provideHttpClientTesting()] });
+
+    const http = TestBed.inject(HttpClient);
+
+    http.get('/api/cancelled').subscribe().unsubscribe();
+
+    expect(assertNoPendingRequests).toThrow(/1 unflushed HttpTestingController request\(s\): GET \/api\/cancelled/);
+
+    http.get('/api/cancelled-again').subscribe().unsubscribe();
+    http.get('/api/waiting').subscribe();
+
+    expect(() => assertNoPendingRequests({ ignoreCancelled: true })).toThrow(/1 unflushed [^:]*: GET \/api\/waiting\./);
+  });
+
+  it('ignores cancelled requests at teardown when the group was enabled with ignoreCancelled', () => {
+    enableAngularDiagnostics({ pendingRequests: { ignoreCancelled: true } });
+    TestBed.configureTestingModule({ providers: [provideHttpClient(), provideHttpClientTesting()] });
+
+    const http = TestBed.inject(HttpClient);
+
+    http.get('/api/snapshot-cancelled').subscribe().unsubscribe();
+    TestBed.resetTestingModule();
+    TestBed.configureTestingModule({ providers: [provideHttpClient(), provideHttpClientTesting()] });
+    TestBed.inject(HttpClient).get('/api/still-open').subscribe();
+
+    expect(assertNoPendingRequests).toThrow(/1 unflushed [^:]*: GET \/api\/still-open\./);
+    expect(() => assertNoPendingRequests({ ignoreCancelled: false })).not.toThrow();
+
+    TestBed.inject(HttpClient).get('/api/cancelled-at-teardown').subscribe().unsubscribe();
+    onTestFinished(() => enableAngularDiagnostics());
   });
 
   it('finds the controller behind the legacy HttpClientTestingModule too', () => {

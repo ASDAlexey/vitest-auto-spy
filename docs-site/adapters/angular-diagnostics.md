@@ -174,9 +174,26 @@ Fails a test that ends while the `HttpTestingController` it configured is still 
 ```
 [vitest-auto-spy] enableAngularDiagnostics({ pendingRequests }): the test ended with 2 unflushed HttpTestingController request(s): GET /api/users, POST /api/orders.
 Nothing answered them and nothing asserted them, so the code under test is still waiting on a response it never received — everything the spec expected to happen after that call did not happen here.
-Flush each one (`controller.expectOne('/url').flush(body)`), or call `controller.verify()` in the spec where the absence of a request is the thing being asserted.
+Flush each one (`controller.expectOne('/url').flush(body)`), or call `controller.verify()` in the spec where the absence of a request is the thing being asserted. A request the code cancels on purpose is excused by `enableAngularDiagnostics({ pendingRequests: { ignoreCancelled: true } })`.
 Docs: https://asdalexey.github.io/vitest-auto-spy/adapters/angular-diagnostics
 ```
+
+### `ignoreCancelled`
+
+A request the code under test unsubscribed from — an `httpResource()` whose component was
+destroyed, a `takeUntil` that cut a call, a `switchMap` that moved on — stays in the controller,
+flagged `cancelled`, and fails the test like any other. Where cancelling is the behaviour, pass an
+object instead of `true`:
+
+```ts
+enableAngularDiagnostics({ pendingRequests: { ignoreCancelled: true } });
+```
+
+It is the opt-in `HttpTestingController.verify({ ignoreCancelled })` names, and the one
+`provideHttpTesting({ verifyOnTeardown: { ignoreCancelled: true } })` takes: a cancelled request is
+still taken, so it cannot leak into the next test, but it no longer fails this one. A request still
+waiting fails exactly as before. `assertNoPendingRequests()` reads the same setting and takes
+`{ ignoreCancelled }` of its own to override it for one call.
 
 ### How it works without a second peer dependency
 
@@ -255,7 +272,8 @@ assertNoPendingRequests(); // nothing else went out
 
 Because reading takes the requests, calling it yourself is not paid for twice: the group's own
 `afterEach` will not re-report what you already inspected. It is a no-op when the group is off, and
-a no-op when the test never configured HTTP testing at all.
+a no-op when the test never configured HTTP testing at all. `assertNoPendingRequests({ ignoreCancelled })`
+overrides the group's [`ignoreCancelled`](#ignorecancelled) for that one call.
 
 ## `shadowedProviders`
 
