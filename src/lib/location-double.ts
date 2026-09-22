@@ -31,7 +31,7 @@ import { MockLocationStrategy, SpyLocation } from '@angular/common/testing';
 import { type Injector, type Provider } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 
-import { angularInternalsError } from './angular-internals';
+import { angularInternalsError } from './angular-internals-error';
 import { DOCS_LINKS, withDocs } from './docs-links';
 
 /** What `injectLocationDouble()` and `createLocationDouble()` hand back: Angular's own recording fake. */

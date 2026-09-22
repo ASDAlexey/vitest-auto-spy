@@ -15,7 +15,7 @@
  */
 import { Component, Directive, EventEmitter, Input, Output, Pipe, type Type, input, model } from '@angular/core';
 
-import { angularInternalsError } from './angular-internals';
+import { angularInternalsError } from './angular-internals-error';
 import { DOCS_LINKS, withDocs } from './docs-links';
 
 /** `SelectorFlags` from Angular's selector matcher: what the entries after a flag describe. */

@@ -14,7 +14,7 @@
  */
 import { type Type } from '@angular/core';
 
-import { angularInternalsError } from './angular-internals';
+import { angularInternalsError } from './angular-internals-error';
 import { DOCS_LINKS, withDocs } from './docs-links';
 
 /** The half of a compiled definition this reads: public input name → the field behind it. */

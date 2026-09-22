@@ -9,7 +9,8 @@ import { Component, VERSION, input, signal, ɵSIGNAL } from '@angular/core';
 import { TestBed, getTestBed } from '@angular/core/testing';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { angularInternalsError, assertAngularInternals, resetAngularInternalsCheck } from './angular-internals';
+import { assertAngularInternals, resetAngularInternalsCheck } from './angular-internals';
+import { angularInternalsError } from './angular-internals-error';
 
 @Component({
   selector: 'app-pinned',
