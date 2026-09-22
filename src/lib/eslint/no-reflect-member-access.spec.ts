@@ -49,6 +49,19 @@ describe('no-reflect-member-access', () => {
     expect(text).toContain('installs an **own** property over the prototype');
     expect(text).toContain('dead');
     expect(text).toContain('mockValueProp');
+    expect(text).toContain("`component['member']` keeps the key where the compiler checks it");
+  });
+
+  it('names the literal as the place for the key when the target is a fixture the spec built', () => {
+    const code = `const link: MusicLink = {};\nReflect.set(link, 'linkType', linkType);`;
+    const text = message(code);
+
+    expect(count(code)).toBe(1);
+    expect(text).toContain('onto an object literal this spec built');
+    expect(text).toContain("{ linkType: value as Model['linkType'] }");
+    expect(text).not.toContain('mockValueProp');
+    // A read of a fixture is the ordinary finding.
+    expect(message(`const link = {};\nReflect.get(link, 'linkType');`)).toContain('reads `linkType`');
   });
 
   it('reads a member chain and a call result as the subject they are', () => {
@@ -80,6 +93,17 @@ describe('no-reflect-member-access', () => {
     expect(count(`Reflect.get(window.process, 'env');`)).toBe(0);
     // A name nothing in the file declares is the environment's, whether or not the config names it.
     expect(count(`Reflect.set(unknownGlobal, 'flag', true);`)).toBe(0);
+  });
+
+  it('leaves the environment alone under a name of the spec’s own, when its declaration says so', () => {
+    expect(count(`let win: Window;\nwin = TestBed.inject(WINDOW);\nReflect.get(win, 'kinfo');`)).toBe(0);
+    expect(count(`const root: typeof globalThis = globalThis;\nReflect.set(root, '__probe', 1);`)).toBe(0);
+    expect(count(`let win: Window & { extra?: number };\nReflect.get(win, 'kinfo');`)).toBe(0);
+    // Any other annotation is a subject like the rest.
+    expect(count(`let service: Service;\nReflect.get(service, 'cache');`)).toBe(1);
+    expect(count(`let service: Service & Other;\nReflect.get(service, 'cache');`)).toBe(1);
+    expect(count(`let service: typeof other;\nReflect.get(service, 'cache');`)).toBe(1);
+    expect(count(`let service: ns.Window;\nReflect.get(service, 'cache');`)).toBe(1);
   });
 
   it('leaves a module namespace alone — patching one is vi.mock’s business', () => {
