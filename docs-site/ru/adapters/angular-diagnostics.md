@@ -23,12 +23,12 @@ enableAngularDiagnostics({ pendingRequests: false }); // или выборочн
 `vitest-auto-spy/angular` в 5.21.0: импорт спаев больше не исполняет инструментацию, которую не
 включили.
 
-| Член               | По умолчанию | Падает, когда                                                                      |
-| ------------------ | ------------ | ---------------------------------------------------------------------------------- |
-| `ngModuleScopes`   | `true`       | тестовый модуль импортирует NgModule, который не приносит вообще ничего            |
-| `deadSchemas`      | `true`       | `schemas` стоят рядом со standalone-компонентом, где они не могут примениться      |
-| `unspiedProviders` | `true`       | `injectSpy` получает настоящий инстанс — сегодня `console.warn`, под группой throw |
-| `pendingRequests`  | `true`       | тест заканчивается с недофлашенными запросами `HttpTestingController`              |
+| Член               | По умолчанию | Падает, когда                                                                                                         |
+| ------------------ | ------------ | --------------------------------------------------------------------------------------------------------------------- |
+| `ngModuleScopes`   | `true`       | тестовый модуль импортирует NgModule, который не приносит вообще ничего                                               |
+| `deadSchemas`      | `true`       | `schemas` стоят рядом со standalone-компонентом, где они не могут примениться                                         |
+| `unspiedProviders` | `true`       | `injectSpy` получает настоящий инстанс — сегодня `console.warn`, под группой throw                                    |
+| `pendingRequests`  | `true`       | тест заканчивается с недофлашенными запросами `HttpTestingController`; `{ ignoreCancelled: true }` прощает отменённые |
 
 Каждый член по умолчанию `true`; передайте `false`, чтобы исключить один. Повторный вызов
 `enableAngularDiagnostics` **заменяет** предыдущий набор, а не дополняет его, и потестовые хуки
@@ -164,9 +164,26 @@ Docs: https://asdalexey.github.io/vitest-auto-spy/adapters/angular
 ```
 [vitest-auto-spy] enableAngularDiagnostics({ pendingRequests }): the test ended with 2 unflushed HttpTestingController request(s): GET /api/users, POST /api/orders.
 Nothing answered them and nothing asserted them, so the code under test is still waiting on a response it never received — everything the spec expected to happen after that call did not happen here.
-Flush each one (`controller.expectOne('/url').flush(body)`), or call `controller.verify()` in the spec where the absence of a request is the thing being asserted.
+Flush each one (`controller.expectOne('/url').flush(body)`), or call `controller.verify()` in the spec where the absence of a request is the thing being asserted. A request the code cancels on purpose is excused by `enableAngularDiagnostics({ pendingRequests: { ignoreCancelled: true } })`.
 Docs: https://asdalexey.github.io/vitest-auto-spy/adapters/angular-diagnostics
 ```
+
+### `ignoreCancelled` {#ignorecancelled}
+
+Запрос, от которого код под тестом отписался, — `httpResource()` уничтоженного компонента,
+`takeUntil`, оборвавший вызов, `switchMap`, ушедший дальше, — остаётся в контроллере с пометкой
+`cancelled` и роняет тест, как любой другой. Где отмена и есть поведение, передайте объект вместо
+`true`:
+
+```ts
+enableAngularDiagnostics({ pendingRequests: { ignoreCancelled: true } });
+```
+
+Это та же опция, что у `HttpTestingController.verify({ ignoreCancelled })` и у
+`provideHttpTesting({ verifyOnTeardown: { ignoreCancelled: true } })`: отменённый запрос всё равно
+забирается, чтобы не утечь в следующий тест, но этот тест больше не роняет. Запрос, который всё ещё
+ждёт ответа, роняет тест как раньше. `assertNoPendingRequests()` читает ту же настройку и принимает
+собственный `{ ignoreCancelled }`, чтобы переопределить её на один вызов.
 
 ### Как это работает без второй пир-зависимости {#how-it-works-without-a-second-peer-dependency}
 
@@ -219,7 +236,8 @@ assertNoPendingRequests(); // больше наружу ничего не ушл
 
 Поскольку чтение забирает запросы, за собственный вызов вы не платите дважды: `afterEach` группы не
 сообщит повторно о том, что вы уже разобрали. Она ничего не делает, когда группа выключена, и ничего
-не делает, когда тест вообще не настраивал HTTP-тестирование.
+не делает, когда тест вообще не настраивал HTTP-тестирование. `assertNoPendingRequests({ ignoreCancelled })`
+переопределяет [`ignoreCancelled`](#ignorecancelled) группы на один вызов.
 
 ## `shadowedProviders` {#shadowedproviders}
 

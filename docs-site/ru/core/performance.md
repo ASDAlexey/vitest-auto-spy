@@ -663,14 +663,14 @@ npm run bench:suite --help       # стенд масштаба сюиты сам
 | `.` — корневая точка входа, то, что меряет бейдж | **22,5 кБ** |
 | `vitest-auto-spy/angular`                        |     26,3 кБ |
 | `vitest-auto-spy/angular/doubles`                |      9,6 кБ |
-| `vitest-auto-spy/angular/diagnostics`            |      5,9 кБ |
+| `vitest-auto-spy/angular/diagnostics`            |      6,0 кБ |
 | `vitest-auto-spy/angular/matchers`               |      1,7 кБ |
 | `vitest-auto-spy/react` / `/vue` / `/svelte`     |     22,5 кБ |
 | `vitest-auto-spy/setup`                          |     19,5 кБ |
 | `vitest-auto-spy/node`                           |     21,3 кБ |
 | `vitest-auto-spy/dom-stubs`                      |      6,4 кБ |
 | `vitest-auto-spy/rxjs`                           |      2,6 кБ |
-| `vitest-auto-spy/angular-router`                 |      9,1 кБ |
+| `vitest-auto-spy/angular-router`                 |      9,4 кБ |
 | `vitest-auto-spy/signal-forms`                   |      1,4 кБ |
 | `vitest-auto-spy/zone`                           |      1,1 кБ |
 
@@ -684,7 +684,7 @@ npm run bench:suite --help       # стенд масштаба сюиты сам
 `src/react.ts` — барыль, вызов `registerMockAdapter` плюс `export * from './auto-spy'`, а его
 собственный код — семь байт в бандле. Искать жир там не нужно.
 
-Каждая цифра здесь — зафиксированная базовая линия в `size-entries.json` по состоянию на 20.09.2026,
+Каждая цифра здесь — зафиксированная базовая линия в `size-entries.json` по состоянию на 22.09.2026,
 которую читают и `size:entries:check`, и бейдж; более ранняя редакция этой таблицы приводила 15,1,
 18,7 и 14,5 кБ для первых трёх строк — они были сняты до реестра умолчаний, отчёта о патче вне хука
 и проверки перекрытых провайдеров. `/dom-stubs` последний раз
