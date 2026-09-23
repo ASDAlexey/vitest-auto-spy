@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { abandonEmissionWaits } from './emission-timeout';
 import {
   type SubscribableLike,
+  expectAllEmissions,
   expectCompletion,
   expectEmission,
   expectEmissions,
@@ -11,6 +12,7 @@ import {
   expectNoEmission,
   setEmissionTimeout,
 } from './expect-emission';
+import { setupFakeTimers } from './fake-timers';
 
 /** Emit `value` on the next macrotask, the shape of a stream fed by an async source. */
 function later<T>(value: T, delay = 1): Subject<T> {
@@ -87,21 +89,15 @@ describe('expectEmissions', () => {
 });
 
 describe('under fake timers', () => {
-  afterEach(() => {
-    vi.useRealTimers();
-  });
+  setupFakeTimers();
 
   it('still times out: the watchdog is the real clock, not the faked one', async () => {
-    vi.useFakeTimers();
-
     await expect(expectEmission(new Subject<number>(), { timeout: 10, label: 'saved$' })).rejects.toThrow(
       /saved\$ did not emit within 10 ms/,
     );
   });
 
   it('still resolves a stream a spec advances by hand', async () => {
-    vi.useFakeTimers();
-
     const source$ = new Subject<number>();
 
     setTimeout(() => source$.next(3), 5_000);
@@ -115,6 +111,14 @@ describe('under fake timers', () => {
 });
 
 describe('expectNoEmission', () => {
+  it('resolves when the source completes inside the quiet window instead of hanging', async () => {
+    const source$ = new Subject<number>();
+
+    setTimeout(() => source$.complete(), 1);
+
+    await expect(expectNoEmission(source$, { timeout: 60_000 })).resolves.toBeUndefined();
+  });
+
   it('resolves when the stream stays silent', async () => {
     await expect(expectNoEmission(new Subject<number>(), { timeout: 5 })).resolves.toBeUndefined();
   });
@@ -167,6 +171,20 @@ describe('expectNoEmission', () => {
 
   it('is satisfied by a stream that completes without emitting', async () => {
     await expect(expectNoEmission(EMPTY, { timeout: 5 })).resolves.toBeUndefined();
+  });
+});
+
+describe('expectAllEmissions', () => {
+  it('resolves every value once the stream completes, however many there were', async () => {
+    await expect(expectAllEmissions(of(1, 2, 3))).resolves.toEqual([1, 2, 3]);
+    await expect(expectAllEmissions(EMPTY)).resolves.toEqual([]);
+  });
+
+  it('fails like expectCompletion on a stream that never completes or errors', async () => {
+    await expect(expectAllEmissions(new Subject<number>(), { timeout: 5, label: 'ids$' })).rejects.toThrow(
+      /ids\$ did not complete within 5 ms/,
+    );
+    await expect(expectAllEmissions(from(Promise.reject(new Error('boom'))))).rejects.toThrow(/errored instead of completing: Error: boom/);
   });
 });
 

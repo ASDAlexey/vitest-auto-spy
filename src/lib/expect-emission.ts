@@ -586,6 +586,7 @@ function completedError(received: number, expected: number, options: AnyEmission
  * await expect(expectEmission(component.visible$)).resolves.toBe(true);
  * await expect(expectEmission(tasks$)).resolves.toEqual({ id: 1 }); // the task, not `[task]`
  * await expectEmission(saved$, { label: 'saved$', timeout: 2_000 });
+ * await expect(expectEmission(status$, { until: (s) => s === 'ready' })).resolves.toBe('ready'); // not `filter`
  * ```
  *
  * **It subscribes when you call it, not when you await it.** That is what makes it the tool for a
@@ -704,7 +705,9 @@ export function expectNoEmission<T>(source$: EmissionSource<T>, options?: Emissi
       },
       {
         isDone: (acceptedCount) => acceptedCount > 0,
-        onComplete: () => undefined,
+        // A completed source can emit no more, so silence is proven; waiting for the window instead
+        // hung, because the collector's teardown clears the window timer.
+        onComplete: () => resolve(),
         // Never reached — the watchdog is off (`timeout: 0`) and the quiet window below is this
         // helper's own timer. Named rather than inlined so it is not an uncalled arrow.
         onTimeout: timeoutError,
@@ -752,27 +755,46 @@ export function expectNoEmission<T>(source$: EmissionSource<T>, options?: Emissi
  * when a value is.
  */
 export function expectCompletion(source$: EmissionSource<unknown>, options?: EmissionOptions): Promise<void> {
-  const anchor = captureAnchor(expectCompletion);
+  return collectUntilComplete(source$, options, captureAnchor(expectCompletion), false).then(() => undefined);
+}
 
-  // Resolved with the collected values and mapped to `void` afterwards, rather than declared
-  // `Promise<void>` with a `() => resolve()` wrapper: `staysOpen` means the collector's success path
-  // runs only from `onComplete`, so a separate `resolve` wrapper would be a function no test can
-  // ever call — an unreachable line the 100 % coverage gate would (rightly) fail on.
-  return new Promise<unknown[]>((resolve, reject) => {
-    subscribeAndCollect<unknown>(
+/**
+ * Await **every** value of `source$`, once it completes — the assertion for "emits exactly these, and
+ * nothing after". `expectEmissions(source$, n)` stops at `n` and cannot see an `n + 1`-th.
+ *
+ * ```ts
+ * await expect(expectAllEmissions(source$.pipe(trueMap()))).resolves.toEqual([true, true]);
+ * ```
+ *
+ * Fails like {@link expectCompletion}: on the timeout, and on an error instead of completing.
+ */
+export function expectAllEmissions<T>(source$: CallbackSubscribable<T>, options?: EmissionOptions<T>): Promise<T[]>;
+export function expectAllEmissions<T>(source$: SubscribableLike<T>, options?: EmissionOptions<T>): Promise<T[]>;
+export function expectAllEmissions<T>(source$: EmissionSource<T>, options?: EmissionOptions<T>): Promise<T[]> {
+  return collectUntilComplete(source$, options, captureAnchor(expectAllEmissions), true);
+}
+
+function collectUntilComplete<T>(
+  source$: EmissionSource<T>,
+  options: EmissionOptions<T> | undefined,
+  anchor: StackAnchor,
+  collect: boolean,
+): Promise<T[]> {
+  return new Promise<T[]>((resolve, reject) => {
+    subscribeAndCollect<T>(
       source$,
       options,
       { resolve, reject: anchoredRejecter(reject, anchor) },
       {
-        // Emissions are counted for the failure message, but only completion settles this.
+        // Only completion settles this; `collect` decides whether `skip` and `until` pick values.
         isDone: staysOpen,
         onComplete: resolve,
         onTimeout: notCompletedError,
         onError: rejectAsNotCompleted,
-        emissionsSettle: false,
+        emissionsSettle: collect,
       },
     );
-  }).then(() => undefined);
+  });
 }
 
 /** `isDone` for a helper that no emission can satisfy — only `complete` settles it. */
