@@ -75,10 +75,43 @@ export function createAutoMock<T, Options extends SpyOptions = SpyOptions>(
   overrides?: DeepPartial<T>,
   config?: AutoMockConfiguration<T>,
 ): Spy<T, Options> {
-  // No class was read, so there is no name to put in a strict-mode message — hence `undefined`
-  // rather than a placeholder: the failure says `load(1)`, which is all this factory truthfully
-  // knows about the double.
-  const unstubbed = resolveUnstubbedGuard(config?.name, { strict: config?.strict, onUnstubbedCall: config?.onUnstubbedCall });
+  return buildAutoMock<T, Options>(overrides, config, createAutoMock);
+}
+
+/**
+ * `createAutoMock(users.spec.ts:12)` for a double nobody named — the only thing that tells two unnamed
+ * strict doubles of one file apart. `undefined` when the stack carries no file position.
+ */
+export function callSiteName(factory: string, stack: string | undefined): string | undefined {
+  const frame = String(stack)
+    .split('\n')
+    .find((line) => /:\d+:\d+\)?\s*$/.test(line));
+  const position = frame === undefined ? null : /([^\s(/@\\]+):(\d+):\d+\)?\s*$/.exec(frame);
+
+  return position === null ? undefined : `${factory}(${position[1]}:${position[2]})`;
+}
+
+function nameOfDouble(name: string | undefined, boundary: Func): string | undefined {
+  if (name !== undefined) {
+    return name;
+  }
+
+  const holder: { stack?: string } = {};
+
+  Error.captureStackTrace(holder, boundary);
+
+  return callSiteName(boundary.name, holder.stack);
+}
+
+function buildAutoMock<T, Options extends SpyOptions>(
+  overrides: DeepPartial<T> | undefined,
+  config: AutoMockConfiguration<T> | undefined,
+  boundary: Func,
+): Spy<T, Options> {
+  const strictness = { strict: config?.strict, onUnstubbedCall: config?.onUnstubbedCall };
+  // The call-site name is taken only for a double something will report on: a stack costs.
+  const unstubbed =
+    resolveUnstubbedGuard(config?.name, strictness) && resolveUnstubbedGuard(nameOfDouble(config?.name, boundary), strictness);
 
   const target: Record<PropertyKey, unknown> = { [INTERNALS]: { store: createProxyPropStore(overrides ?? {}), unstubbed } };
 
@@ -374,7 +407,7 @@ function readKey(store: ProxyPropStore, key: string | symbol, receiver: unknown,
  * {@link createAutoMock}'s: `returns`, `selfReturning`, `name`, `strict`, `observablePropsToSpyOn`.
  */
 export function autoMocked<T>(overrides?: DeepPartial<T>, config?: AutoMockConfiguration<T>): Spy<T> & T {
-  const mock = createAutoMock<T>(overrides, config);
+  const mock = buildAutoMock<T, SpyOptions>(overrides, config, autoMocked);
 
   // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- one object, two views, exactly as in `asInstance` / `asSpy`: the proxy answers every key of `T` and every key `Spy<T>` adds, and the intersection is what lets a spec pass it as `T` and assert on it as a spy without a bridge call at each site.
   return mock as Spy<T> & T;

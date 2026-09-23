@@ -7,7 +7,7 @@
  */
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 
-import { autoMocked, createAutoMock } from './auto-mock';
+import { autoMocked, callSiteName, createAutoMock } from './auto-mock';
 import { takeStrictViolations } from './function-spy';
 import { registerMockAdapter } from './mock-adapter';
 import { mockValueProp, restoreMockedProps } from './prop-mock';
@@ -317,7 +317,7 @@ describe('createAutoMock returns configuration', () => {
 
     resetAutoSpy(store);
 
-    expect(() => store.save('x')).toThrow('Nothing configured save');
+    expect(() => store.save('x')).toThrow(/Nothing configured createAutoMock\(auto-mock\.spec\.ts:\d+\)\.save/);
     takeStrictViolations();
   });
 
@@ -405,10 +405,24 @@ describe('createAutoMock — Symbol.dispose', () => {
 });
 
 describe('createAutoMock — strict mode', () => {
-  it('throws without a class name, since a type-driven double has none to print', () => {
+  it('names an unnamed double by the line that built it, so two of them in one file stay apart', () => {
     const users = createAutoMock<UserService>(undefined, { strict: true });
+    const logs = autoMocked<UserService>(undefined, { strict: true });
 
-    expect(() => users.getName(1)).toThrow('[vitest-auto-spy] Nothing configured getName, and strict mode is on.\nCalled as: getName(1)');
+    expect(() => users.getName(1)).toThrow(
+      /^\[vitest-auto-spy\] Nothing configured createAutoMock\(auto-mock\.spec\.ts:\d+\)\.getName, and strict mode is on\.\nCalled as: createAutoMock\(auto-mock\.spec\.ts:\d+\)\.getName\(1\)/,
+    );
+    expect(() => logs.getUser(1)).toThrow(/Nothing configured autoMocked\(auto-mock\.spec\.ts:\d+\)\.getUser/);
+  });
+
+  it('reads the call site out of either stack shape, and gives up on one with no position', () => {
+    expect(callSiteName('createAutoMock', 'Error\n    at Object.<anonymous> (/repo/src/users.spec.ts:12:7)')).toBe(
+      'createAutoMock(users.spec.ts:12)',
+    );
+    expect(callSiteName('createAutoMock', 'Error\n    at file:///repo/src/users.spec.ts:12:7')).toBe('createAutoMock(users.spec.ts:12)');
+    expect(callSiteName('autoMocked', 'fn@/repo/src/users.spec.ts:3:1')).toBe('autoMocked(users.spec.ts:3)');
+    expect(callSiteName('createAutoMock', 'Error\n    at <anonymous>')).toBeUndefined();
+    expect(callSiteName('createAutoMock', undefined)).toBeUndefined();
   });
 
   it('names the double in the strict report when it is given a name', () => {
@@ -431,7 +445,7 @@ describe('createAutoMock — strict mode', () => {
 
     expect(users.getName(1)).toBe('Ada');
     expect(users.getUser(1)).toBe('noted');
-    expect(seen).toEqual([undefined, 'getUser']);
+    expect(seen).toEqual([expect.stringMatching(/^createAutoMock\(auto-mock\.spec\.ts:\d+\)$/), 'getUser']);
   });
 });
 
@@ -460,7 +474,7 @@ describe('createAutoMock — selfReturning', () => {
     const logger = createAutoMock<AppLogger>(undefined, { strict: true, selfReturning: ['channel'] });
 
     expect(logger.channel('auth')).toBe(logger);
-    expect(() => logger.err('boom')).toThrow('Nothing configured err, and strict mode is on.');
+    expect(() => logger.err('boom')).toThrow(/Nothing configured createAutoMock\(auto-mock\.spec\.ts:\d+\)\.err, and strict mode is on\./);
     expect(takeStrictViolations()).toHaveLength(1);
   });
 
