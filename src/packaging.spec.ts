@@ -29,6 +29,7 @@ interface Workflow {
 }
 
 interface Manifest {
+  files: string[];
   exports: Record<string, unknown>;
   sideEffects: string[];
   peerDependencies: Record<string, string>;
@@ -107,6 +108,10 @@ describe('the published manifest', () => {
       default: './dist/perf-reporter.js',
     });
     expect(readFileSync('src/perf-reporter.ts', 'utf8')).toMatch(/^export default /m);
+  });
+
+  it('ships the changelog, so a consumer reads what an upgrade changed from node_modules', () => {
+    expect(manifest.files).toContain('CHANGELOG.md');
   });
 
   it('keeps vitest an optional peer, since /bun and /node run on another runner', () => {

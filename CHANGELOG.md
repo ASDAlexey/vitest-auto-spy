@@ -10,6 +10,39 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+### Changed
+
+- **The published package ships `CHANGELOG.md`.** A consumer bumping the version had `README.md` and
+  `AGENTS.md` in `node_modules/vitest-auto-spy` but not the one file that says what the bump changed,
+  and had to leave the install to read it. The tarball grows by about 220 kB packed (600 kB
+  unpacked); the entry bundles, and so `size-entries.json` and the size badge, are unchanged.
+
+### Fixed
+
+- **The repository scan skips a package-manager store kept inside the checkout.** CI that points
+  bun at `.bun/install/cache` (or npm at `.npm`, pnpm at `.pnpm-store`) left 50 000 third-party files
+  in the tree: `doctor` reported `tsconfig-file-missing`, `tsconfig-glob-matches-nothing` and
+  `dead-runner-config` in packages under the cache, then `scan-cap-reached`, having read only part
+  of the repository itself. `.bun`, `.npm` and `.pnpm-store` are now skipped with `node_modules`,
+  and so is `out-tsc`, which the docs already listed as skipped. The `tsconfig` glob check exempts a
+  pattern rooted in any skipped directory, read from the same list rather than a second copy that
+  had drifted from it.
+- **`prefer-create-spy-from-class` at `{ minRunnerFns: 1 }` leaves five more shapes alone.** Counting
+  a `vi.fn()` held in a name (5.25.0) reached one-member objects that are not doubles: 16 reports in
+  10 files of one consumer suite, none with a repair the message could name. Now exempt: a provider
+  descriptor (`{ provide: CLOSE, useValue: close }`, where the token's value is the function); the
+  input map of `setInputs(fixture, { … })` and `renderShallow(C, { inputs: { … } })`; a
+  `return { a, b }` of names whose spies are also read elsewhere, i.e. handles a helper installed; and
+  an options bag nested in a call argument (`render({ options: { slide, onClose } })`). A one-member
+  literal bound to a name with a declared type (`const p: Record<string, unknown> = { fn }`, at any
+  depth inside it), or inside the value of `mockValueProp` / `mockReadonlyProp` / `mockSignalProp`,
+  is checked against that type already and is not reported either, unless the type is an inline
+  object type of mocks. A typed parameter of a project helper stays reported: a syntax-only rule cannot see it.
+- **`prefer-create-spy-from-class` names `mockSignalProp` for a nested `{ set: vi.fn() }`.** The
+  one-member advice, `createMock<T>({ set: vi.fn() })`, does not compile for a `ModelSignal` or
+  `WritableSignal` member (`TS2345`: a callable cannot be seeded partially). A nested `set` /
+  `update` literal now gets a message that names `mockSignalProp(instance, '<member>', value)`.
+
 ## [5.25.0] - 2026-09-23
 
 ### Added
