@@ -12,7 +12,7 @@
  *  3. **Draining the runner's restore registry.** Every `vi.spyOn` adds an entry that only
  *     `vi.restoreAllMocks()` removes; with a shared environment that list grows for the whole run.
  */
-import { afterAll, beforeAll, beforeEach, vi } from 'vitest';
+import { afterAll, beforeAll, beforeEach, expect, vi } from 'vitest';
 
 import { noticeAngularBuildSplitting } from './angular-build-notice';
 import { DOCS_LINKS, withDocs } from './docs-links';
@@ -42,6 +42,7 @@ import {
   trackStrayTimers,
   withoutStrayTimerTracking,
 } from './stray-timers';
+import { type StrictSurvey, createStrictSurvey } from './strict-survey';
 import { restoreTimerGlobals } from './timer-globals';
 import type { UnstubbedCallHandler, UnstubbedReadHandler } from './types';
 import { openReadWindow, reportUnconfiguredReads, setUnconfiguredReadsDefault } from './unconfigured-reads';
@@ -297,8 +298,11 @@ export interface SetupAutoSpyOptions {
    * exempt one wide collaborator from a suite-wide default.
    *
    * See {@link StrictSpyConfiguration.strict} for what counts as configured.
+   *
+   * `'survey'` refuses nothing: every call and read strict mode would refuse is counted, and each file
+   * ends with the list — the members to seed in `returns` before switching to `true`.
    */
-  strict?: boolean;
+  strict?: boolean | 'survey';
   /**
    * The general form of {@link strict} for a whole suite: run this instead of returning `undefined`
    * from a call nobody configured, and use whatever it returns as that call's result.
@@ -423,7 +427,7 @@ export function reportStrayTimers(
  * default some other seam installed — `{ strict: undefined, onUnstubbedCall: undefined }` resolves
  * to "off", but writing it would still overwrite whatever was there.
  */
-function armStrictMode(options: SetupAutoSpyOptions): void {
+function armStrictMode(options: SetupAutoSpyOptions & { strict?: boolean }): void {
   // One value rather than two conditions, because `strict: false` is an answer and not an absence:
   // `??` keeps it (`false ?? handler` is `false`), so the only way to reach `undefined` here is a
   // caller that mentioned neither option.
@@ -943,6 +947,52 @@ function buildRestores(options: SetupAutoSpyOptions): TeardownStep[] {
   return restores;
 }
 
+/** Flips `strict` for one run without editing the setup file: `VITEST_AUTO_SPY_STRICT=1 vitest run <slice>`. */
+export const STRICT_ENV = 'VITEST_AUTO_SPY_STRICT';
+
+/** The `strict` the environment asks for, which wins over the option; `undefined` when it asks nothing. */
+export function strictFromEnvironment(
+  env: Readonly<Record<string, string | undefined>> | undefined = globalThis.process?.env,
+): boolean | 'survey' | undefined {
+  const raw = env?.[STRICT_ENV]?.trim().toLowerCase();
+
+  if (raw === '1' || raw === 'true') {
+    return true;
+  }
+
+  if (raw === 'survey') {
+    return raw;
+  }
+
+  return raw === '0' || raw === 'false' ? false : undefined;
+}
+
+/**
+ * `strict: 'survey'` as the handlers that count instead of throwing, and the per-file report.
+ * A handler the caller passed still wins, so the survey never swallows one.
+ */
+export function surveyInstead(
+  options: SetupAutoSpyOptions,
+  survey: StrictSurvey = createStrictSurvey(),
+  write: (message: string) => void = writeWarning,
+): SetupAutoSpyOptions & { strict?: boolean } {
+  const { strict, ...rest } = options;
+
+  if (strict !== 'survey') {
+    return strict === undefined ? rest : { ...rest, strict };
+  }
+
+  afterAll(() => {
+    const report = survey.flush(expect.getState().testPath);
+
+    if (report !== undefined) {
+      write(report);
+    }
+  });
+
+  return { ...rest, onUnstubbedCall: options.onUnstubbedCall ?? survey.onCall, onUnstubbedRead: options.onUnstubbedRead ?? survey.onRead };
+}
+
 /**
  * Install the library's test-run hygiene.
  *
@@ -954,7 +1004,8 @@ function buildRestores(options: SetupAutoSpyOptions): TeardownStep[] {
  * ```
  */
 export function setupAutoSpy(input: SetupAutoSpyOptions = {}): void {
-  const options = applyPreset(input);
+  const strict = strictFromEnvironment();
+  const options = surveyInstead(applyPreset(strict === undefined ? input : { ...input, strict }));
 
   reportDuplicateCopies(options.duplicateCopies ?? 'throw');
 

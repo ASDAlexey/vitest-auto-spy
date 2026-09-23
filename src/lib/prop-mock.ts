@@ -57,12 +57,18 @@ interface PatchedProp {
  */
 declare global {
   // A `globalThis` augmentation has to be declared with `var`.
-  var __vitestAutoSpyPropEpoch__: { current: number } | undefined;
+  var __vitestAutoSpyPropEpoch__: PropEpoch | undefined;
 }
 
-let sharedEpoch: { current: number } | undefined;
+interface PropEpoch {
+  current: number;
+  /** The test that opened `current`, so a second `setupAutoSpy()` does not open another one mid-test. */
+  openedBy?: unknown;
+}
 
-function propEpoch(): { current: number } {
+let sharedEpoch: PropEpoch | undefined;
+
+function propEpoch(): PropEpoch {
   return (sharedEpoch ??= globalThis.__vitestAutoSpyPropEpoch__ ??= { current: 0 });
 }
 
@@ -72,8 +78,18 @@ function propEpoch(): { current: number } {
  * A suite that does not call `setupAutoSpy` never advances it, so nothing is ever reported there —
  * correct, because without the sweep a `describe`-body patch stays where it was put.
  */
-export function beginPropEpoch(): void {
-  propEpoch().current += 1;
+export function beginPropEpoch(context?: { readonly task?: unknown }): void {
+  const epoch = propEpoch();
+  const task = context?.task;
+
+  // A second `setupAutoSpy()` — an extra setup file — registers its own `beforeEach` after the first
+  // call's network stubs went in; advancing again would grade those stubs as written outside a hook.
+  if (task !== undefined && epoch.openedBy === task) {
+    return;
+  }
+
+  epoch.openedBy = task;
+  epoch.current += 1;
 }
 
 /**
@@ -455,7 +471,7 @@ export function restoreMockedProps(): void {
  * ```
  */
 export function mockReadonlyProp<T, K extends keyof T>(object: T, property: K, value: PropStubValue<T[K]>): RestoreProp;
-/** Escape hatch for members the public type does not describe — `#private` fields, ad-hoc keys. */
+/** For members the public type does not describe — TS `private` members, ad-hoc keys. A JS `#private` field is out of reach of any property key. */
 export function mockReadonlyProp<T>(object: T, property: PropertyKey, value: unknown): RestoreProp;
 export function mockReadonlyProp<T>(object: T, property: PropertyKey, value: unknown): RestoreProp {
   // `set: undefined` is load-bearing: defineProperty over an existing get/set pair inherits the
@@ -475,7 +491,7 @@ export function mockReadonlyProp<T>(object: T, property: PropertyKey, value: unk
  * ```
  */
 export function mockReadonlyPropGetter<T, K extends keyof T>(object: T, property: K, getter: () => unknown): RestoreProp;
-/** Escape hatch for members the public type does not describe — `#private` fields, ad-hoc keys. */
+/** For members the public type does not describe — TS `private` members, ad-hoc keys. A JS `#private` field is out of reach of any property key. */
 export function mockReadonlyPropGetter<T>(object: T, property: PropertyKey, getter: () => unknown): RestoreProp;
 export function mockReadonlyPropGetter<T>(object: T, property: PropertyKey, getter: () => unknown): RestoreProp {
   // See mockReadonlyProp for why `set` must be named explicitly.
@@ -498,7 +514,7 @@ export function mockReadonlyPropGetter<T>(object: T, property: PropertyKey, gett
  * ```
  */
 export function mockValueProp<T, K extends keyof T>(object: T, property: K, value: PropStubValue<T[K]>): RestoreProp;
-/** Escape hatch for members the public type does not describe — `#private` fields, ad-hoc keys. */
+/** For members the public type does not describe — TS `private` members, ad-hoc keys. A JS `#private` field is out of reach of any property key. */
 export function mockValueProp<T>(object: T, property: PropertyKey, value: unknown): RestoreProp;
 export function mockValueProp<T>(object: T, property: PropertyKey, value: unknown): RestoreProp {
   return applyPatch(object, property, { value, writable: true, configurable: true });
@@ -519,7 +535,7 @@ export function mockValueProp<T>(object: T, property: PropertyKey, value: unknow
  * ```
  */
 export function mockAccessorsProp<T, K extends keyof T>(object: T, property: K, accessors?: AccessorImplementations): RestoreProp;
-/** Escape hatch for members the public type does not describe — `#private` fields, ad-hoc keys. */
+/** For members the public type does not describe — TS `private` members, ad-hoc keys. A JS `#private` field is out of reach of any property key. */
 export function mockAccessorsProp<T>(object: T, property: PropertyKey, accessors?: AccessorImplementations): RestoreProp;
 export function mockAccessorsProp<T>(object: T, property: PropertyKey, accessors?: AccessorImplementations): RestoreProp {
   const adapter = getMockAdapter();
