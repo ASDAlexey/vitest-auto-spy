@@ -24,6 +24,7 @@ const VALUE_FLAGS = new Set([
   'format',
   'from',
   'gate-only',
+  'ignore',
   'json',
   'max-file-ms',
   'max-file-tests',

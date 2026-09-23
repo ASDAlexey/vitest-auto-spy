@@ -9,7 +9,7 @@ import { flagEnabled, flagList, flagNumber, flagValue, parseArgs } from './args'
 import { isSpecFile } from './checks/graph';
 import { writeCodeQuality } from './code-quality';
 import { runCodemod } from './codemod/run';
-import { runDoctor } from './doctor';
+import { doctorDocument, runDoctor } from './doctor';
 import { isDirectory } from './fs-scan';
 import { HELP } from './help';
 import { runInit } from './init';
@@ -23,7 +23,8 @@ import { GATE_DEFAULTS } from './perf-gate';
 import type { PerfRunOptions } from './perf-run';
 import { perfRemeasure, readPerfRun, spawnProcess, spawnToStderr } from './perf-run';
 import { readProfile } from './profile';
-import { REPORT_SCHEMA, type Severity, findingJson, formatFindings, hasFailures, sortFindings, summarize, tallyOf } from './report';
+import { type Severity, formatFindings, hasFailures, summarize } from './report';
+import { doctorMarkdown } from './report-markdown';
 import { ownVersion } from './self';
 
 export interface CliIo {
@@ -48,7 +49,7 @@ function minSeverityOf(args: ParsedArgs): Severity | undefined {
 function formatOf(args: ParsedArgs): OutputFormat | undefined {
   const raw = flagValue(args, 'format')?.trim().toLowerCase() ?? 'text';
 
-  return raw === 'json' || raw === 'text' ? raw : undefined;
+  return raw === 'json' || raw === 'markdown' || raw === 'text' ? raw : undefined;
 }
 
 function rejectFormat(args: ParsedArgs, io: CliIo): boolean {
@@ -56,7 +57,7 @@ function rejectFormat(args: ParsedArgs, io: CliIo): boolean {
     return false;
   }
 
-  io.err(`Unknown --format value: ${String(flagValue(args, 'format'))}. Accepted values: text, json. Nothing ran.`);
+  io.err(`Unknown --format value: ${String(flagValue(args, 'format'))}. Accepted values: text, json, markdown. Nothing ran.`);
 
   return true;
 }
@@ -64,7 +65,8 @@ function rejectFormat(args: ParsedArgs, io: CliIo): boolean {
 function doctorCommand(cwd: string, argv: readonly string[], io: CliIo): number {
   const args = parseArgs(argv);
   const profile = readProfile(cwd);
-  const findings = runDoctor(profile);
+  const ignored = new Set((flagValue(args, 'ignore') ?? '').split(',').map((check) => check.trim()));
+  const findings = runDoctor(profile).filter((finding) => !ignored.has(finding.check));
   const minSeverity = minSeverityOf(args);
   const codeQuality = flagValue(args, 'code-quality');
   const exitCode = hasFailures(findings) ? 1 : 0;
@@ -74,25 +76,12 @@ function doctorCommand(cwd: string, argv: readonly string[], io: CliIo): number 
     writeCodeQuality(resolve(cwd, codeQuality), findings, minSeverity);
   }
 
-  if (formatOf(args) === 'json') {
-    io.out(
-      JSON.stringify(
-        {
-          schema: REPORT_SCHEMA,
-          command: 'doctor',
-          version: ownVersion(),
-          cwd,
-          runner: profile.runner,
-          entry: profile.entry,
-          scanned: { files: profile.files.length, specFiles, truncated: profile.filesTruncated },
-          exitCode,
-          tally: tallyOf(findings),
-          findings: sortFindings(findings).map(findingJson),
-        },
-        undefined,
-        2,
-      ),
-    );
+  const format = formatOf(args);
+
+  if (format === 'json' || format === 'markdown') {
+    const document = doctorDocument(profile, findings, exitCode);
+
+    io.out(format === 'markdown' ? doctorMarkdown(document) : JSON.stringify(document, undefined, 2));
 
     return exitCode;
   }
@@ -159,7 +148,7 @@ function baselineRequest(args: ParsedArgs, cwd: string): BaselineRequest | undef
 function perfCommand(cwd: string, argv: readonly string[], io: CliIo): number {
   const args = parseArgs(argv);
   const format = formatOf(args);
-  const spawn = format === 'json' ? spawnToStderr : spawnProcess;
+  const spawn = format === 'json' || format === 'markdown' ? spawnToStderr : spawnProcess;
   const profile = readProfile(cwd);
   const options: PerfRunOptions = {
     cwd,
@@ -180,13 +169,14 @@ function perfCommand(cwd: string, argv: readonly string[], io: CliIo): number {
 
   return renderPerf(readPerfRun(options, spawn), profile, io, {
     budgets: gateOptions(args),
-    ...(format === 'json' ? { format } : {}),
+    ...(format === 'json' || format === 'markdown' ? { format } : {}),
     ...(gate === undefined ? {} : { gate }),
     ...(baseline === undefined ? {} : { baseline }),
     ...(top === undefined ? {} : { top }),
     ...(minSeverity === undefined ? {} : { minSeverity }),
     ...(codeQuality === undefined ? {} : { codeQuality: resolve(cwd, codeQuality) }),
     ...(flagEnabled(args, 'fail-on-flaky') ? { failOnFlaky: true } : {}),
+    ...(flagEnabled(args, 'fail-on-red') ? { failOnRed: true } : {}),
   });
 }
 
@@ -222,6 +212,7 @@ function initCommand(cwd: string, argv: readonly string[], io: CliIo): number {
     check,
     dryRun: flagEnabled(args, 'dry-run'),
     uninstall: flagEnabled(args, 'uninstall'),
+    ...(flagValue(args, 'only') === undefined ? {} : { only: flagList(args, 'only') }),
   });
 
   io.out(`vitest-auto-spy init — ${cwd}`);
@@ -259,8 +250,8 @@ const COMMON_FLAGS: readonly string[] = ['cwd', 'help', 'version'];
  */
 const COMMAND_FLAGS: Readonly<Record<string, readonly string[]>> = {
   codemod: ['from', 'list', 'only', 'skip', 'verify', 'write'],
-  doctor: ['code-quality', 'format', 'min-severity'],
-  init: ['check', 'dry-run', 'uninstall'],
+  doctor: ['code-quality', 'format', 'ignore', 'min-severity'],
+  init: ['check', 'dry-run', 'only', 'uninstall'],
   perf: [
     'baseline',
     'baseline-factor',
@@ -269,6 +260,7 @@ const COMMAND_FLAGS: Readonly<Record<string, readonly string[]>> = {
     'command',
     'factor',
     'fail-on-flaky',
+    'fail-on-red',
     'format',
     'gate',
     'gate-only',

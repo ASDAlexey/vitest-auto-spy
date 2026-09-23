@@ -184,3 +184,23 @@ describe('renderPerf --fail-on-flaky', () => {
     expect(runCli(['perf', '--cwd', root, '--json', 'perf.json', '--fail-on-flaky'], recorder())).toBe(1);
   });
 });
+
+describe('renderPerf --fail-on-red', () => {
+  it('fails a run whose suite failed, and only with the flag', () => {
+    const root = repo();
+    const red = run(root, [file(root, 'src/a.spec.ts')], { failed: 1 });
+
+    expect(renderPerf({ ok: true, run: red, runFailed: true }, readProfile(root), recorder())).toBe(0);
+    expect(renderPerf({ ok: true, run: red, runFailed: true }, readProfile(root), recorder(), { failOnRed: true })).toBe(1);
+    expect(renderPerf({ ok: true, run: red, runFailed: false }, readProfile(root), recorder(), { failOnRed: true })).toBe(0);
+    expect(renderPerf({ ok: false, error: 'nothing' }, readProfile(root), recorder(), { failOnRed: true })).toBe(2);
+  });
+
+  it('is read from the command line', () => {
+    const root = repo();
+
+    writeTextFile(join(root, 'perf.json'), JSON.stringify(run(root, [file(root, 'src/a.spec.ts')], { failed: 1 })));
+
+    expect(runCli(['perf', '--cwd', root, '--json', 'perf.json', '--fail-on-red'], recorder())).toBe(1);
+  });
+});

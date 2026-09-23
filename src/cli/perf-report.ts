@@ -6,14 +6,14 @@ import type { CliIo } from './main';
 import type { BaselineRequest, GateRequest, PerfAnalysis, PerfOptions } from './perf';
 import type { PerfBaseline } from './perf-baseline';
 import { baselineDrift, baselineRegressions, buildBaseline, readBaseline, writeBaseline } from './perf-baseline';
-import type { PerfRun } from './perf-data';
+import type { PerfRun, Phase } from './perf-data';
 import { formatMs, testsRunOf } from './perf-data';
 import type { GateCandidate, GateOptions, GateRow } from './perf-gate';
 import { GATE_DEFAULTS, measuredFiles, medianFileMs, medianTestMs } from './perf-gate';
 import { HISTORY_LIMIT, appendHistory, historyCandidates, historyEntry, isHistoryPath } from './perf-history';
 import type { PerfSource } from './perf-run';
 import type { Profile } from './profile';
-import { type Finding, REPORT_SCHEMA, findingJson, sortFindings, tallyOf } from './report';
+import { type Finding, REPORT_SCHEMA, type Tally, findingJson, sortFindings, tallyOf } from './report';
 import { ownVersion } from './self';
 
 /** Everything a run decided, collected while the text is printed so `--format json` can say the same. */
@@ -98,11 +98,61 @@ function confirmationOf(gate: GateRequest): 'remeasure' | 'single-reading' | 'un
   return gate.remeasure === undefined ? 'unavailable' : 'remeasure';
 }
 
+/** Rows of the report's own tables, so a CI summary need not parse the raw reporter file. */
+const SLOWEST_FILES_DEFAULT = 10;
+
+export interface SlowFile {
+  readonly file: string;
+  readonly totalMs: number;
+  readonly tests: number;
+  readonly phases: Readonly<Record<'environment' | 'import' | 'prepare' | 'setup' | 'tests', number>>;
+}
+
+/** The `--format json` document, which `--format markdown` renders too. */
+export interface PerfDocument {
+  readonly schema: number;
+  readonly command: 'perf';
+  readonly version: string;
+  readonly cwd: string;
+  readonly exitCode: number;
+  readonly error?: string;
+  readonly run: {
+    readonly files: number;
+    readonly tests: number;
+    readonly failed: boolean;
+    readonly wallMs: number;
+    readonly cpuMs: number;
+    readonly medianTestMs: number;
+    readonly medianFileMs: number;
+    readonly phases: readonly Phase[];
+    readonly slowestFiles: readonly SlowFile[];
+  } | null;
+  readonly budgets: Omit<GateOptions, 'maxWallMs'> & { readonly maxWallMs: number | null };
+  readonly gate: {
+    readonly status: 'judged' | 'refused' | 'skipped';
+    readonly confirmation: 'remeasure' | 'single-reading' | 'unavailable';
+    readonly verdicts: readonly GateRow[];
+  } | null;
+  readonly tally: Tally;
+  readonly findings: readonly Finding[];
+}
+
+function slowestFiles(run: PerfRun, cwd: string, top: number | undefined): SlowFile[] {
+  return [...measuredFiles(run, cwd)]
+    .map(([file, row]) => {
+      const phases = { environment: row.environment, prepare: row.prepare, setup: row.setup, import: row.imports, tests: row.tests };
+
+      return { file, totalMs: Object.values(phases).reduce((sum, ms) => sum + ms, 0), tests: row.testCount, phases };
+    })
+    .sort((a, b) => b.totalMs - a.totalMs)
+    .slice(0, top ?? SLOWEST_FILES_DEFAULT);
+}
+
 /**
  * The `--format json` document. Its fields only ever grow; one that changes meaning or goes away
  * raises `schema`.
  */
-export function perfJson(source: PerfSource, profile: Profile, options: PerfOptions, collected: Collected, exitCode: number): unknown {
+export function perfJson(source: PerfSource, profile: Profile, options: PerfOptions, collected: Collected, exitCode: number): PerfDocument {
   const gate = budgetsOf(options);
   const measured = collected.run === undefined ? [] : [...measuredFiles(collected.run, profile.cwd).values()];
 
@@ -125,6 +175,7 @@ export function perfJson(source: PerfSource, profile: Profile, options: PerfOpti
             medianTestMs: medianTestMs(measured),
             medianFileMs: medianFileMs(measured),
             phases: collected.analysis.phases,
+            slowestFiles: slowestFiles(collected.run, profile.cwd, options.top),
           },
     budgets: { ...gate, maxWallMs: gate.maxWallMs ?? null },
     gate:

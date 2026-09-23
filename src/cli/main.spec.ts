@@ -126,6 +126,14 @@ describe('doctor', () => {
     expect(io.stdout.join('\n')).toContain('1 error, 0 warnings, 0 notes');
   });
 
+  it('leaves the checks named by --ignore out of the report and the exit code', () => {
+    const io = recorder();
+    const root = createTempRepo({ ...HEALTHY, 'tsconfig.json': JSON.stringify({ include: ['src*.ts'] }) });
+
+    expect(runCli(['doctor', '--cwd', root, '--ignore', 'no-agent-instructions, tsconfig-glob-matches-nothing'], io)).toBe(0);
+    expect(io.stdout.join('\n')).toContain('No problems found.');
+  });
+
   it('exits 0 when the only finding is the note suggesting init', () => {
     const io = recorder();
     const root = createTempRepo({ 'package.json': '{}' });
@@ -175,6 +183,15 @@ describe('init', () => {
 
     expect(runCli(['init', '--cwd', root, '--check'], io)).toBe(1);
     expect(io.stderr.join('\n')).toContain('out of date');
+  });
+
+  it('writes only the files --only names', () => {
+    const io = recorder();
+    const root = createTempRepo(HEALTHY);
+
+    expect(runCli(['init', '--cwd', root, '--only', 'CLAUDE.md, .claude'], io)).toBe(0);
+    expect(io.stdout.join('\n')).not.toContain('AGENTS.md');
+    expect(pathExists(join(root, 'CLAUDE.md'))).toBe(true);
   });
 
   it('prints the budget warning on stderr', () => {
@@ -408,6 +425,49 @@ describe('--format json', () => {
     expect(runCli(['doctor', '--format', 'xml'], io)).toBe(2);
     expect(io.stderr.join('\n')).toContain('Unknown --format value: xml');
     expect(runCli(['doctor', '--format', 'TEXT', '--cwd', createTempRepo(HEALTHY)], recorder())).toBe(0);
+  });
+});
+
+describe('--format markdown', () => {
+  it('prints doctor as a findings table and the tally', () => {
+    const io = recorder();
+    const root = createTempRepo({ 'package.json': '{}', 'src/a.spec.ts': '' });
+
+    expect(runCli(['doctor', '--cwd', root, '--format', 'markdown'], io)).toBe(0);
+
+    const out = io.stdout.join('\n');
+
+    expect(out).toContain('### vitest-auto-spy doctor');
+    expect(out).toContain('| Severity | Check | File | Message | Fix |');
+    expect(out).toContain('| info | `no-agent-instructions` |');
+    expect(out).toContain('**0 errors, 0 warnings, 1 notes**');
+  });
+
+  it('prints perf with the phases, the slowest files and the gate, and keeps the suite off stdout', () => {
+    const io = recorder();
+    const root = createTempRepo(HEALTHY);
+    const files = [
+      ...Array.from({ length: 9 }, (_unused, index) => ({ file: `${root}/o-${index}.spec.ts`, tests: 100, testCount: 40 })),
+      { file: `${root}/slow.spec.ts`, tests: 9_000, testCount: 4 },
+    ];
+
+    writeTextFile(join(root, 'perf.json'), JSON.stringify({ version: 2, root, transform: 0, wall: 1_000, failed: 0, files }));
+
+    expect(
+      runCli(
+        ['perf', '--cwd', root, '--json', join(root, 'perf.json'), '--gate', '--no-confirm', '--format', 'markdown', '--top', '1'],
+        io,
+      ),
+    ).toBe(1);
+    expect(io.stdout).toHaveLength(1);
+
+    const out = io.stdout.join('');
+
+    expect(out).toContain('| Phase | Time | Share |');
+    expect(out).toContain('#### Slowest files');
+    expect(out).toContain('| slow.spec.ts | 9.00s | 4 |');
+    expect(out).toContain('#### Gate: judged');
+    expect(out).toContain('| single reading | `perf-gate-slow-file` | slow.spec.ts |');
   });
 });
 
