@@ -90,8 +90,13 @@ export interface UnstubbedGuard {
 }
 
 /** `UserService.load` — or just `load` on a type-driven double, which has no class to name. */
+/** A bundler's rename taken back off: esbuild's `_Service` for a decorated class, Rollup's `Service$1`. */
+function sourceClassName(name: string): string {
+  return name.replace(/^_(?=[A-Z])/, '').replace(/\$\d+$/, '');
+}
+
 function describeTarget(call: UnstubbedCall): string {
-  return call.className === undefined ? call.method : `${call.className}.${call.method}`;
+  return call.className === undefined || call.className === '' ? call.method : `${sourceClassName(call.className)}.${call.method}`;
 }
 
 /**
