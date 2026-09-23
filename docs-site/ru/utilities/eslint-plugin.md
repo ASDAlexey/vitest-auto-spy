@@ -565,9 +565,13 @@ const xhr = createAutoMock<XhrLike>({ send: vi.fn(), abort: vi.fn() }); // ✅ �
 const api = mockDeep<Api>({ api: { load: vi.fn(), save: vi.fn() } }); // ✅ и ни на какой глубине
 ```
 
-Всё, что внутри вызова `autoMocked`, `createAutoMock`, `createMock`, `createSpyClass`,
-`createSpyFromClass`, `mockConstructor`, `mockDeep`, `provideAutoSpy` или `provideAutoSpyForToken`,
-исключено. `prefer-provide-auto-spy` в таком исключении не нуждается: `useValue`, построенный фабрикой,
+Всё, что внутри вызова `autoMocked`, `createActivatedRoute`, `createAutoMock`, `createComponentStub`,
+`createDirectiveHost`, `createDocumentDouble`, `createMock`, `createRouterDouble`,
+`createSpyClass`, `createSpyFromClass`, `createWindowDouble`, `mockConstructor`, `mockDeep`,
+`provideActivatedRoute`, `provideAutoSpy`, `provideAutoSpyForToken`, `provideDocumentDouble`,
+`provideRouterDouble` или `provideWindowDouble`,
+исключено — включая встроенные дубли и стабы, чей второй аргумент — набор переопределений или
+затравка на экземпляр, а не самодельный сервис. `prefer-provide-auto-spy` в таком исключении не нуждается: `useValue`, построенный фабрикой,
 — это вызов, а он всегда смотрел только на объектные литералы; имя, за которым он делает один шаг,
 приводит к тому же вызову и там останавливается.
 

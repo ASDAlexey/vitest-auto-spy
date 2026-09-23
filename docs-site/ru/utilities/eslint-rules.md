@@ -609,18 +609,31 @@ it('relays subscribeClick from children', () => {
 если разворачивается в `vi.fn()` / `jest.fn()` — обход идёт вниз по настроенной цепочке, поэтому и
 `vi.fn().mockReturnValue(of([]))`, и `vi.fn().mockReturnValue(x).mockName('y')` попадают в счёт.
 Вложенность отдельной обработки не требует: правило срабатывает на каждом объектном литерале файла,
-поэтому внутренний объект судится по своим свойствам. Вычитаются четыре формы:
+поэтому внутренний объект судится по своим свойствам. Вычитаются такие формы:
 
 - объект, который `useValue` провайдера отдаёт в DI, написан ли он в слоте или в одном имени от него
   (5.5.0) — это строка [`prefer-provide-auto-spy`](#prefer-provide-auto-spy), а два отчёта на один
   дубль учат отключать оба. Шаг по имени важен потому, что то правило идёт по имени _внутрь_ слота:
   пока это не читалось с двух концов, литерал, припаркованный в `const`, получал по отчёту от каждого
   — один советовал `createSpyFromClass`, другой `provideAutoSpy`;
-- всё внутри вызова `autoMocked`, `createAutoMock`, `createMock`, `createSpyClass`,
-  `createSpyFromClass`, `mockConstructor`, `mockDeep`, `provideAutoSpy` или `provideAutoSpyForToken`,
+- всё внутри вызова `autoMocked`, `createActivatedRoute`, `createAutoMock`, `createComponentStub`,
+  `createDirectiveHost`, `createDocumentDouble`, `createMock`, `createRouterDouble`,
+  `createSpyClass`, `createSpyFromClass`, `createWindowDouble`, `mockConstructor`, `mockDeep`,
+  `provideActivatedRoute`, `provideAutoSpy`, `provideAutoSpyForToken`, `provideDocumentDouble`,
+  `provideRouterDouble` или `provideWindowDouble`,
   на любой глубине — такой объект является **затравкой**, то есть тем, о чём правило и просило;
 - всё внутри фабрики `vi.mock()` / `vi.doMock()`, чей объект подменяет _экспорты_ модуля, а не
-  стоит вместо сервиса;
+  стоит вместо сервиса, и всё, что возвращает колбэк `vi.hoisted()`, — набор, который несёт моки в
+  такую фабрику, `vi.hoisted(() => ({ spawnMock: vi.fn() }))`;
+- набор опций, переданный прямо в вызов или в `new`: ровно один `vi.fn()` рядом хотя бы с одним
+  обычным значением, как в `service.openDialog({ elRef, options, onColorChange: vi.fn() })`. До этой
+  формы доходит только `{ minRunnerFns: 1 }`, и это колбэк среди аргументов, а не дубль класса. Два
+  мока, значение-функция или тот же объект, сначала припаркованный в `const`, по-прежнему в отчёте;
+- всё внутри вызова `createFixture(…)` / `createFixtureFactory(…)` — значения по умолчанию или
+  переопределения модели с полем-колбэком, `createFixture<Options>({ changeOptionsCallback: vi.fn() })`,
+  уже типизированные по модели;
+- RxJS-обсервер, переданный прямо в `subscribe(…)` или `tap(…)`, как в
+  `source$.subscribe({ error: vi.fn() })`;
 - описание провайдера — любой объект с ключом `provide:`. В `{ provide: CLOSE, useValue: close }`,
   где значение токена само функция, дубль лежит в `useValue`, а объект вокруг — синтаксис DI;
 - карта инпутов в `setInputs(fixture, { … })` и в `renderShallow(C, { inputs: { … } })` — оба

@@ -617,15 +617,18 @@ heuristic, and what it reports is a test that proves nothing about the code it n
 unwraps to `vi.fn()` / `jest.fn()` — the walk goes down a configured chain, so
 `vi.fn().mockReturnValue(of([]))` and `vi.fn().mockReturnValue(x).mockName('y')` both count. Nesting
 needs no special handling because the rule fires on every object literal in the file, so an inner
-object is judged on its own properties. Four shapes are subtracted:
+object is judged on its own properties. These shapes are subtracted:
 
 - an object a provider's `useValue` hands to DI, whether it is written in the slot or one name away
   (5.5.0) — that is [`prefer-provide-auto-spy`](#prefer-provide-auto-spy)'s line, and two reports on
   one double teach people to disable both. The name step matters because that rule follows a name
   _into_ the slot: before this was read from both ends, a literal parked in a `const` drew a report
   from each of the two, one recommending `createSpyFromClass` and one `provideAutoSpy`;
-- anything inside a call to `autoMocked`, `createAutoMock`, `createMock`, `createSpyClass`,
-  `createSpyFromClass`, `mockConstructor`, `mockDeep`, `provideAutoSpy` or `provideAutoSpyForToken`,
+- anything inside a call to `autoMocked`, `createActivatedRoute`, `createAutoMock`, `createComponentStub`,
+  `createDirectiveHost`, `createDocumentDouble`, `createMock`, `createRouterDouble`,
+  `createSpyClass`, `createSpyFromClass`, `createWindowDouble`, `mockConstructor`, `mockDeep`,
+  `provideActivatedRoute`, `provideAutoSpy`, `provideAutoSpyForToken`, `provideDocumentDouble`,
+  `provideRouterDouble` or `provideWindowDouble`,
   at any depth — that object is a **seed**, which is what the rule asked for;
 - anything inside a `vi.mock()` / `vi.doMock()` factory, whose object replaces a module's _exports_
   rather than standing in for a service, and anything a `vi.hoisted()` callback returns — the bag

@@ -568,9 +568,13 @@ const xhr = createAutoMock<XhrLike>({ send: vi.fn(), abort: vi.fn() }); // ✅ n
 const api = mockDeep<Api>({ api: { load: vi.fn(), save: vi.fn() } }); // ✅ nor at any depth
 ```
 
-Anything inside a call to `autoMocked`, `createAutoMock`, `createMock`, `createSpyClass`,
-`createSpyFromClass`, `mockConstructor`, `mockDeep`, `provideAutoSpy` or `provideAutoSpyForToken`
-is exempt. `prefer-provide-auto-spy` needs no such exemption: a `useValue` a factory built is a
+Anything inside a call to `autoMocked`, `createActivatedRoute`, `createAutoMock`, `createComponentStub`,
+`createDirectiveHost`, `createDocumentDouble`, `createMock`, `createRouterDouble`,
+`createSpyClass`, `createSpyFromClass`, `createWindowDouble`, `mockConstructor`, `mockDeep`,
+`provideActivatedRoute`, `provideAutoSpy`, `provideAutoSpyForToken`, `provideDocumentDouble`,
+`provideRouterDouble` or `provideWindowDouble`
+is exempt — the built-in doubles and stubs included, whose second argument is an overrides bag or a
+per-instance seed rather than a hand-rolled service. `prefer-provide-auto-spy` needs no such exemption: a `useValue` a factory built is a
 call, and it only ever looked at object literals — a name it follows one step lands on that same
 call and stops there.
 

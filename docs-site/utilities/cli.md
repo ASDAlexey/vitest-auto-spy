@@ -186,18 +186,24 @@ doctor:
 
 Two shapes of pattern are deliberately exempt, because for them "matches nothing" is not evidence
 of anything: a declaration-only glob (`src/**/*.d.ts`, routinely a placeholder for ambient types
-that do not exist yet) and a pattern rooted in a directory the scan never enters (`dist`,
-`out-tsc`, `coverage`).
+that do not exist yet) and a pattern inside a directory the scan never enters (`dist`,
+`libs/app/out-tsc`, `coverage`, or one the root `.gitignore` excludes). A `files` entry inside such
+a directory is not reported missing either.
 
 ### What the scan counts as this repository
 
 Every check above reads one list of files, and the first line of the report is its length — so what
-goes into it decides what every finding is about. Three rules make it:
+goes into it decides what every finding is about. Four rules make it:
 
 - **Build output and package directories are skipped outright**: `node_modules`, `dist`, `build`,
   `coverage`, `out-tsc`, `.git`, `.angular`, `.nx`, `.next`, `.nuxt`, `.output`, `.svelte-kit`,
   `.turbo`, `.yarn`, `.cache`, `bower_components` and their siblings — and the package-manager
   stores CI tends to keep inside the checkout: `.bun`, `.npm`, `.pnpm-store`.
+- **A directory the root `.gitignore` excludes is skipped too** — `src/generated/`, `/reports`,
+  `tmp-*/`, `**/cache`, with `!` re-including a directory as git does. The file is read, not `git`:
+  only the root `.gitignore`, only directories (an ignored file is still listed), and a pattern with a
+  `\` escape or a POSIX class is dropped — which only means scanning more. A `!` rule it cannot read
+  makes it ignore the whole file rather than prune a directory git keeps.
 - **A directory that is a repository of its own is not descended into** — a git worktree, whose
   `.git` is a file, or a nested clone. Its files are on somebody else's branch: counting them made
   every import graph a duplicate of itself, and on this repository's own tree, which carries
@@ -206,9 +212,6 @@ goes into it decides what every finding is about. Three rules make it:
 - **The scan stops at 50 000 files.** `codemod` says so on stderr rather than calling a repository
   migrated off a list it never finished, and `VITEST_AUTO_SPY_SCAN_CAP` raises the cap for a
   repository that really is bigger.
-
-Nothing here reads `.gitignore` — that would mean spawning `git`, and the CLI has no dependencies
-and shells out to nothing.
 
 ### The two checks that resolve a name
 
