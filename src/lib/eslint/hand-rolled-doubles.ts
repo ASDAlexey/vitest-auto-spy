@@ -20,12 +20,14 @@ import {
   hasAncestor,
   isAssignmentExpression,
   isCallExpression,
+  isFunctionNode,
   isIdentifier,
   isNewExpression,
   isObjectExpression,
   isRunnerCall,
   isRunnerFnCall,
   isVariableDeclarator,
+  memberName,
   propertyName,
   propertyValue,
 } from './rule-types';
@@ -39,7 +41,7 @@ import {
  * spies — the shape these rules steer towards — is not mistaken for a hand-rolled double.
  */
 export function looksLikeHandRolledMock(context: RuleContext, object: EsObjectExpression): boolean {
-  return buildsRunnerFnAtModuleScope(context, object);
+  return buildsRunnerFnAtModuleScope(context, object) || countRunnerFns(context, object) > 0;
 }
 
 /**
@@ -134,8 +136,62 @@ export function substitutesADependency(context: RuleContext, object: EsObjectExp
   return binding?.references.some((reference) => isProvidedValue(reference.identifier)) === true;
 }
 
-export function countRunnerFns(object: EsObjectExpression): number {
-  return object.properties.filter((property) => propertyName(property) !== undefined && isRunnerFnCall(propertyValue(property))).length;
+/** A `vi.fn()` written in place, or a name the file binds once to one — `{ open }` over `const open = vi.fn()`. */
+function holdsRunnerFn(context: RuleContext, value: EsNode): boolean {
+  if (isRunnerFnCall(value)) {
+    return true;
+  }
+
+  const bound = isIdentifier(value) ? boundValueOf(context.sourceCode.getScope(value), value) : undefined;
+
+  return bound !== undefined && isRunnerFnCall(bound);
+}
+
+/** The static names of the direct properties holding a runner mock. */
+export function runnerFnNames(context: RuleContext, object: EsObjectExpression): string[] {
+  return object.properties.flatMap((property) => {
+    const name = propertyName(property);
+
+    return name !== undefined && holdsRunnerFn(context, propertyValue(property)) ? [name] : [];
+  });
+}
+
+export function countRunnerFns(context: RuleContext, object: EsObjectExpression): number {
+  return runnerFnNames(context, object).length;
+}
+
+/**
+ * `service.openDialog({ elRef, options, onChange: vi.fn() })`: one callback among values, handed
+ * straight to a call. That is an options bag, which only `{ minRunnerFns: 1 }` ever reached.
+ */
+export function isOptionsArgument(context: RuleContext, object: EsObjectExpression): boolean {
+  const call = object.parent;
+  const carriesValues = object.properties.some(
+    (property) =>
+      propertyName(property) !== undefined && !holdsRunnerFn(context, propertyValue(property)) && !isFunctionNode(propertyValue(property)),
+  );
+
+  return (
+    (isCallExpression(call) || isNewExpression(call)) &&
+    call.arguments.includes(object) &&
+    countRunnerFns(context, object) === 1 &&
+    carriesValues
+  );
+}
+
+const OBSERVER_CALLS = new Set(['subscribe', 'tap']);
+
+/** `source$.subscribe({ error: vi.fn() })`, `tap({ next: vi.fn() })`: an RxJS observer, not a double. */
+export function isObserverArgument(object: EsObjectExpression): boolean {
+  const call = object.parent;
+
+  if (!isCallExpression(call) || !call.arguments.includes(object)) {
+    return false;
+  }
+
+  const name = isIdentifier(call.callee) ? call.callee.name : memberName(call.callee);
+
+  return name !== undefined && OBSERVER_CALLS.has(name);
 }
 
 /**
@@ -257,8 +313,19 @@ export function insideFactorySeed(node: EsNode): boolean {
   return hasAncestor(node, isFactoryCall);
 }
 
-/** `vi.mock(…)` and friends: the second argument replaces a module's exports, not a service. */
-const MODULE_MOCKS = new Set(['doMock', 'mock']);
+/** Kept out of `SPY_FACTORIES`: what they return is a model, not a double other rules may treat as one. */
+const FIXTURE_FACTORIES = new Set(['createFixture', 'createFixtureFactory']);
+
+/** `createFixture<T>({ onChange: vi.fn() })`: a model's callback field, typed against `T` already. */
+export function insideFixtureSeed(node: EsNode): boolean {
+  return hasAncestor(
+    node,
+    (candidate) => isCallExpression(candidate) && isIdentifier(candidate.callee) && FIXTURE_FACTORIES.has(candidate.callee.name),
+  );
+}
+
+/** `vi.mock(…)` and friends replace a module's exports; `vi.hoisted(…)` returns the bag their factories share. */
+const MODULE_MOCKS = new Set(['doMock', 'hoisted', 'mock']);
 
 /**
  * How many `vi.fn()`s make an object a hand-rolled double, per the rule's options.
@@ -290,6 +357,10 @@ export function minRunnerFns(context: RuleContext, fallback = 2): number {
  * in for classes that are then used as DI tokens — `createSpyFromClass` cannot go there in any
  * form, because a token has to be a constructor. Reported once, and the agent's own repair
  * (`class DialogRefStub {}`) had nothing to do with what the message said.
+ */
+/**
+ * A `vi.hoisted(() => ({ spawnMock: vi.fn() }))` bag counts as the same thing: it exists only to hand
+ * the mocks to a `vi.mock` factory, which runs before any import could build a spy from a class.
  */
 export function insideModuleMock(node: EsNode): boolean {
   return hasAncestor(node, (candidate) => isRunnerCall(candidate, MODULE_MOCKS));

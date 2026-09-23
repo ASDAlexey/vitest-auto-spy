@@ -461,3 +461,12 @@ describe('prefer-provide-auto-spy — the hand-rolled arm', () => {
     );
   });
 });
+
+it('reads a shorthand property that names a vi.fn() bound once, as the double it is', () => {
+  const provider = '{ provide: NotificationsService, useValue: { open } }';
+
+  expect(count(`const open = vi.fn();\nTestBed.configureTestingModule({ providers: [${provider}] });`)).toBe(1);
+  expect(count(`let open;\nbeforeEach(() => { open = vi.fn(); });\nTestBed.configureTestingModule({ providers: [${provider}] });`)).toBe(1);
+  expect(count(`let open = vi.fn();\nopen = vi.fn();\nTestBed.configureTestingModule({ providers: [${provider}] });`)).toBe(0);
+  expect(count(`const open = () => 1;\nTestBed.configureTestingModule({ providers: [${provider}] });`)).toBe(0);
+});

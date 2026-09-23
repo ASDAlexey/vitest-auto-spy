@@ -42,8 +42,17 @@ describe('prefer-create-spy-from-class', () => {
   });
 
   it('names the threshold, so the asymmetry between two neighbouring lines is readable', () => {
-    expect(firstMessage('const p = { a: vi.fn(), b: vi.fn() };')).toContain('two or more');
+    expect(firstMessage('const p = { a: vi.fn(), b: vi.fn() };')).toContain('2 or more');
     expect(firstMessage('const p = { a: vi.fn(), b: vi.fn() };')).toContain('minRunnerFns');
+  });
+
+  it('names the configured threshold and drops the advice to lower it once it is one', () => {
+    const [atThree] = verify('const p = { a: vi.fn(), b: vi.fn(), c: vi.fn() };', { minRunnerFns: 3 });
+    const [atOne] = verify('const p = { a: vi.fn(), b: 1 };', { minRunnerFns: 1 });
+
+    expect(atThree?.message).toContain('An object of 3 or more');
+    expect(atOne?.message).toContain('An object of one or more');
+    expect(atOne?.message).not.toContain('minRunnerFns');
   });
 
   it('leaves the overrides bag of a built-in double alone — there is no class behind it to read', () => {
@@ -74,6 +83,56 @@ describe('prefer-create-spy-from-class', () => {
     expect(lint("vi.mock('@acme/ui', () => ({ DialogRef: vi.fn(), ToastService: vi.fn() }));")).toEqual([]);
     expect(lint("vi.doMock('x', () => ({ A: vi.fn(), B: vi.fn() }));")).toEqual([]);
     expect(lint("register('x', () => ({ A: vi.fn(), B: vi.fn() }));")).toHaveLength(1);
+  });
+
+  it('leaves an options bag handed straight to a call alone — one callback among values is not a double', () => {
+    const one = { minRunnerFns: 1 };
+
+    expect(lintWith('service.openDialog({ elRef, options, onColorChange: vi.fn() });', one)).toEqual([]);
+    expect(lintWith('new Picker({ value: 1, onPick: vi.fn() });', one)).toEqual([]);
+    // Two mocks, no values, not an argument, or a function value: each still reads as a double.
+    expect(lintWith('service.open({ size: 1, load: vi.fn(), save: vi.fn() });', one)).toHaveLength(1);
+    expect(lintWith('service.open({ onPick: vi.fn(), format: () => "" });', one)).toHaveLength(1);
+    expect(lintWith('const bag = { value: 1, onPick: vi.fn() };', one)).toHaveLength(1);
+    expect(lintWith('run(x, { ...rest, onPick: vi.fn() });', one)).toHaveLength(1);
+    expect(lintWith('run[{ value: 1, onPick: vi.fn() }.k]();', one)).toHaveLength(1);
+  });
+
+  it('counts a name bound once to a vi.fn() as the mock it holds', () => {
+    expect(lint('const load = vi.fn();\nconst save = vi.fn();\nconst api = { load, save };')).toHaveLength(1);
+    expect(lint('const load = vi.fn();\nconst api = { load, save: other };')).toEqual([]);
+    expect(lintWith('const onPick = vi.fn();\nservice.open({ value: 1, onPick });', { minRunnerFns: 1 })).toEqual([]);
+  });
+
+  it('leaves the defaults and overrides of createFixture / createFixtureFactory alone', () => {
+    const one = { minRunnerFns: 1 };
+
+    expect(lintWith('const options = createFixture<Options>({ size: 1, changeOptionsCallback: vi.fn() });', one)).toEqual([]);
+    expect(lintWith('const make = createFixtureFactory<Options>({ nested: { changeOptionsCallback: vi.fn() } });', one)).toEqual([]);
+    expect(lintWith('createFixture<Options>(defaults, { changeOptionsCallback: vi.fn() });', one)).toEqual([]);
+    expect(lintWith('buildFixture<Options>({ changeOptionsCallback: vi.fn() });', one)).toHaveLength(1);
+  });
+
+  it('leaves an RxJS observer handed to subscribe or tap alone', () => {
+    const one = { minRunnerFns: 1 };
+
+    expect(lintWith('source$.subscribe({ error: vi.fn() });', one)).toEqual([]);
+    expect(lintWith('source$.pipe(tap({ next: vi.fn(), error: vi.fn() }));', one)).toEqual([]);
+    expect(lintWith('source$.pipe(operators.tap({ next: vi.fn() }));', one)).toEqual([]);
+    expect(lintWith('source$.pipe(map({ next: vi.fn() }));', one)).toHaveLength(1);
+    expect(lintWith('(factory())({ next: vi.fn() });', one)).toHaveLength(1);
+  });
+
+  it('names createMock<T> for a one-member object, which has no class to read', () => {
+    const [thenable] = verify('const pending = { then: vi.fn() };', { minRunnerFns: 1 });
+
+    expect(thenable?.message).toContain('`createMock<T>({ then: vi.fn() })`');
+    expect(thenable?.message).not.toContain('createSpyFromClass(X)');
+  });
+
+  it('leaves a vi.hoisted bag alone — it only carries mocks into a vi.mock factory', () => {
+    expect(lintWith('const { spawnMock } = vi.hoisted(() => ({ spawnMock: vi.fn() }));', { minRunnerFns: 1 })).toEqual([]);
+    expect(lint('const mocks = vi.hoisted(() => ({ load: vi.fn(), save: vi.fn() }));')).toEqual([]);
   });
 
   it('counts a configured spy as a spy — the tuned double is the one that drifted furthest', () => {

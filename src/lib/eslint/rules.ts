@@ -47,6 +47,7 @@ import { noUnassertedArgument } from './called-arguments';
 import { noCompileComponents } from './compile-components';
 import { noConsoleInSpec, noImportTimeConsoleSpies, noPassthroughConsoleSpy } from './console-rules';
 import { noConstantExpect } from './constant-expect';
+import { preferCreateSpyFromClass } from './create-spy-from-class';
 import { noDeadSchemas } from './dead-schemas';
 import { noStructuralDouble } from './declared-double';
 import { defineRule } from './define-rule';
@@ -54,7 +55,6 @@ import { preferSettleDynamicImport } from './dynamic-import';
 import { noMockCast, preferCreateMock } from './fixture-casts';
 import { isFloatingChain, isPromiseCallback } from './floating-assertion';
 import { noHandAssignedGlobal } from './global-assignment';
-import { countRunnerFns, insideFactorySeed, insideModuleMock, minRunnerFns, substitutesADependency } from './hand-rolled-doubles';
 import { lazyValueSuggestion, runsAtImportTime, spreadFailureMode, spreadOfImport } from './import-time-spread';
 import {
   INJECTED_SPY_SCHEMA,
@@ -87,7 +87,6 @@ import {
   type EsIdentifier,
   type EsMemberExpression,
   type EsNode,
-  type EsObjectExpression,
   type EsSpreadElement,
   type EsVariableDeclarator,
   type RuleContext,
@@ -112,38 +111,6 @@ import { INSTANTIATES_THE_MODULE, OVERRIDES_THE_MODULE, RESETS_THE_MODULE, type 
 import { noTsExpectErrorOnDouble } from './ts-expect-error-on-double';
 import { noUnknownUseValueKey } from './unknown-use-value-key';
 import { emptyRegistrations, readCall, readProviders, unregisteredInjections } from './unregistered-spy';
-
-/** `{ a: vi.fn(), b: vi.fn() }` → `createSpyFromClass(X)` / `createAutoMock<T>()`. */
-const preferCreateSpyFromClass = defineRule({
-  anchor: '-a-service-without-di',
-  description: 'Build a spy from the class (createSpyFromClass / createAutoMock) instead of an object of vi.fn()s',
-  schema: [{ type: 'object', properties: { minRunnerFns: { type: 'integer', minimum: 1 } }, additionalProperties: false }],
-  messages: {
-    preferCreateSpyFromClass:
-      'An object of **two or more** `vi.fn()`s only mocks the methods you remembered. `createSpyFromClass(X)` reads the class, `createAutoMock<T>()` the type — both stay in step with it. The threshold is why an object next to this one with a single `vi.fn()` is not flagged: on its own that is indistinguishable from an options bag with a callback in it. Lower it with `{ minRunnerFns: 1 }` if the suite has no such objects — and note that a one-method double handed to DI, or one whose declared type is an object of Vitest `Mock`s, is reported at one either way.',
-  },
-  create: (context) => ({
-    ObjectExpression: (node: EsObjectExpression): void => {
-      // The provider form is `prefer-provide-auto-spy`'s business — do not report it twice; a seed
-      // handed to one of this library's own factories is the fix rather than the problem; and a
-      // module mock's exports are not a service double at all.
-      //
-      // "The provider form" is read one name wide, because that is how far the provider rule reads:
-      // a literal parked in a `const` and passed to `useValue` by name drew a report from each of
-      // the two, one recommending `createSpyFromClass` and one `provideAutoSpy`, on the same double.
-      if (
-        substitutesADependency(context, node) ||
-        countRunnerFns(node) < minRunnerFns(context) ||
-        insideFactorySeed(node) ||
-        insideModuleMock(node)
-      ) {
-        return;
-      }
-
-      context.report({ node, messageId: 'preferCreateSpyFromClass' });
-    },
-  }),
-});
 
 /** `vi.spyOn(TestBed.inject(X), 'method')`, in one step or in two → `injectSpy(X).method`. */
 const preferInjectSpy = defineRule({

@@ -155,7 +155,7 @@ export const noStructuralDouble: RuleModule = defineRule({
   },
   create: (context) => ({
     ObjectExpression: (node: EsObjectExpression): void => {
-      const runnerFns = countRunnerFns(node);
+      const runnerFns = countRunnerFns(context, node);
 
       // The same three carve-outs the count-based rule makes, for the same reasons — a double DI
       // hands out is `prefer-provide-auto-spy`'s, a factory seed is the fix, and a module mock's
