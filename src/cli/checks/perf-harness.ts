@@ -19,6 +19,7 @@ import { join } from 'node:path';
 import { pathExists } from '../fs-scan';
 import { PERF_DOCS, PERF_OUTPUT_ENV, PERF_REPORTER_ENV } from '../perf-data';
 import type { Profile } from '../profile';
+import { type UnitTestTarget, unitTestTargets } from './unit-test-targets';
 
 /** Config files `vitest run` reads from the directory it is started in. */
 const ROOT_CONFIGS: readonly string[] = [
@@ -55,6 +56,20 @@ export function scriptRunsVitest(script: string | undefined): boolean {
 }
 
 /**
+ * The Angular unit-test builder reads no Vitest config unless its target names one, but it takes
+ * `--reporters` and `--include` on the command line, so the reporter attaches with no file edited.
+ */
+function builderRecipe(target: UnitTestTarget): string[] {
+  const cli = target.builder.startsWith('@nx/') ? 'nx' : 'ng';
+
+  return [
+    '',
+    `This workspace runs its tests through \`${target.builder}\`, which takes the reporter as an option — nothing to edit:`,
+    `  npx vitest-auto-spy perf --command 'npx ${cli} run ${target.project}:${target.name} --reporters=default --reporters="$${PERF_REPORTER_ENV}" {paths:--include=}'`,
+  ];
+}
+
+/**
  * The refusal, or `undefined` when a bare run is fair. Prose rather than a `Finding`: it is
  * returned before anything ran, and it replaces the report instead of appearing inside one.
  */
@@ -65,6 +80,7 @@ export function bareRunWouldMeasureSomethingElse(profile: Profile): string | und
 
   const script = profile.scripts['test'];
   const seen = script === undefined ? 'there is no `test` script' : `\`npm test\` is \`${script}\``;
+  const [target] = unitTestTargets(profile);
 
   return [
     `A bare \`vitest run\` here would not measure this repository's suite: no vitest.config/vite.config at the root, and ${seen}.`,
@@ -76,6 +92,7 @@ export function bareRunWouldMeasureSomethingElse(profile: Profile): string | und
     `\`--command\` runs it with ${PERF_OUTPUT_ENV} and ${PERF_REPORTER_ENV} in the environment; the configuration that command reaches has to attach the reporter, which is two lines wherever its \`reporters\` are declared:`,
     `  const perf = process.env['${PERF_REPORTER_ENV}'];`,
     "  reporters: perf === undefined ? ['default'] : ['default', perf],",
+    ...(target === undefined ? [] : builderRecipe(target)),
     '',
     'Or hand it a report something else already wrote:  npx vitest-auto-spy perf --json <path>',
     `Docs: ${PERF_DOCS}`,

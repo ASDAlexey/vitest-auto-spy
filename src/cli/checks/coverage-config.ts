@@ -16,6 +16,7 @@ import { captures, parseJsonc, readTextFile } from '../fs-scan';
 import type { Profile } from '../profile';
 import { isRecord } from '../profile';
 import type { Finding } from '../report';
+import { UNIT_TEST_BUILDERS } from './unit-test-targets';
 
 /** Where a Vitest config lives when no builder target names one explicitly. */
 const CONFIG_CANDIDATES = [
@@ -33,6 +34,9 @@ const CONFIG_CANDIDATES = [
 
 const WORKSPACE_FILE = /(^|\/)(?:angular|workspace|project)\.json$/;
 const UNIT_TEST_BUILDER = '@angular/build:unit-test';
+
+const runsUnitTestBuilder = (target: Record<string, unknown>): boolean =>
+  [target['builder'], target['executor']].some((name) => typeof name === 'string' && UNIT_TEST_BUILDERS.has(name));
 
 /** Vitest 4 is where `coverage.all` stopped existing. */
 const ALL_REMOVED_IN = 4;
@@ -164,7 +168,7 @@ function forEachUnitTestOptions(value: unknown, onOptions: (options: Record<stri
 
   const options = value['options'];
 
-  if ((value['builder'] === UNIT_TEST_BUILDER || value['executor'] === UNIT_TEST_BUILDER) && isRecord(options)) {
+  if (runsUnitTestBuilder(value) && isRecord(options)) {
     onOptions(options);
   }
 

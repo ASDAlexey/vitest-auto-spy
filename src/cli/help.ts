@@ -70,6 +70,15 @@ Usage of perf
     const perf = process.env['VITEST_AUTO_SPY_PERF_REPORTER'];
     reporters: perf === undefined ? ['default'] : ['default', perf],
 
+  Declared permanently, the reporter has a name of its own:
+  'vitest-auto-spy/perf-reporter'. It writes nothing unless
+  VITEST_AUTO_SPY_PERF_OUT names a file.
+
+  Under the Angular or Nx unit-test builder nothing needs editing — the builder
+  takes the reporter as an option:
+
+    npx vitest-auto-spy perf --command 'npx nx run app:test --reporters=default --reporters="$VITEST_AUTO_SPY_PERF_REPORTER"'
+
   Add {paths} to the command — \`npm test -- {paths:--include=}\` — and the gate
   can re-measure its suspects through the same harness.
 
@@ -120,9 +129,17 @@ Options
   --fail-on-flaky
                  perf only. A test that passed only on a retry fails the run,
                  exit 1. Without it such a test is a warning.
+  --fail-on-red
+                 perf only. A measured suite that failed fails perf too, exit 1,
+                 so \`perf --command\` can be a CI job's test step. Without it a
+                 red suite is a warning and perf exits 0.
   --code-quality <path>
                  Also write the findings as a GitLab Code Quality report, for
                  the merge request widget. Works for doctor and for perf.
+  --ignore <check,…>
+                 doctor only. Leave these check ids out of the report, the
+                 tally and the exit code — for a finding the repository has
+                 answered in a way doctor cannot see, such as a patched builder.
   --min-severity <error|warning|info>
                  The quietest findings the report prints. Default info, which
                  prints everything. The tally line still counts what was hidden,
@@ -131,12 +148,18 @@ Options
   --top <n>      perf only. Rows in the "files over budget" and "test bodies
                  over budget" tables. 0 turns them off. The budget flags draw
                  the tables with or without --gate.
-  --format <f>   text (default) or json: one JSON document on stdout, with
-                 every finding and, for perf, the gate's verdict rows. The
-                 suite's own output goes to stderr. Works for doctor and perf.
+  --format <f>   text (default), json or markdown. json: one JSON document on
+                 stdout, with every finding and, for perf, the gate's verdict
+                 rows. markdown: the same document as tables, for an MR note or
+                 a job summary. The suite's own output goes to stderr. Works for
+                 doctor and perf.
   --check        init only. Write nothing; exit 1 if the block is out of date.
   --dry-run      init only. Print what would change and write nothing.
   --uninstall    init only. Remove the managed blocks and the files it created.
+  --only <paths> init only. Touch only these targets, comma-separated; a
+                 directory selects what init writes under it — e.g.
+                 CLAUDE.md,.claude where the other files would be tracked.
+                 --check and --uninstall honour it.
   --write        codemod only. Apply the edits. Without it nothing is written.
   --verify       codemod only. Transform nothing; match the files against the
                  patterns the codemod removes and report what is left. Exit 1

@@ -12,69 +12,17 @@
  * they made.
  *
  * This reads the builder target rather than guessing from the dependency list, because the
- * dependency is present in every Angular workspace while the runner is not.
+ * dependency is present in every Angular workspace while the runner is not. The Nx executor
+ * delegates to the same builder and inherits the same default.
  */
-import { join } from 'node:path';
-
-import { parseJsonc, readTextFile } from '../fs-scan';
-import { isRecord } from '../profile';
-
-/** The builder whose default this is about. Nothing else in the Angular CLI shares it. */
-const UNIT_TEST_BUILDER = '@angular/build:unit-test';
-
-/** Both names the Angular CLI has used for the workspace file, newest first. */
-const WORKSPACE_FILES = ['angular.json', 'workspace.json'];
+import type { Profile } from '../profile';
+import { unitTestTargets } from './unit-test-targets';
 
 export interface IsolationVerdict {
   /** `true` when the workspace asked for per-file isolation, `false` when it takes the builder default. */
   readonly isolated: boolean;
   /** What decided it, for the message that suppresses the finding. */
   readonly why: string;
-}
-
-function targetsOf(project: unknown): Record<string, unknown> {
-  if (!isRecord(project)) {
-    return {};
-  }
-
-  const targets = project['architect'] ?? project['targets'];
-
-  return isRecord(targets) ? targets : {};
-}
-
-/** Every place an option can be declared on a target: its options, and each named configuration. */
-function optionBlocks(target: Record<string, unknown>): Record<string, unknown>[] {
-  const blocks: Record<string, unknown>[] = [];
-  const options = target['options'];
-
-  if (isRecord(options)) {
-    blocks.push(options);
-  }
-
-  const configurations = target['configurations'];
-
-  if (isRecord(configurations)) {
-    for (const configuration of Object.values(configurations)) {
-      if (isRecord(configuration)) {
-        blocks.push(configuration);
-      }
-    }
-  }
-
-  return blocks;
-}
-
-function readWorkspace(cwd: string): Record<string, unknown> | undefined {
-  for (const candidate of WORKSPACE_FILES) {
-    const text = readTextFile(join(cwd, candidate));
-    const parsed = text === undefined ? undefined : parseJsonc(text);
-
-    if (isRecord(parsed)) {
-      return parsed;
-    }
-  }
-
-  return undefined;
 }
 
 /**
@@ -85,31 +33,17 @@ function readWorkspace(cwd: string): Record<string, unknown> | undefined {
  * isolation: the finding is a suggestion to a reader, and a reader who has written the key once has
  * had the thought.
  */
-export function isolationFromAngularBuilder(cwd: string): IsolationVerdict | undefined {
-  const workspace = readWorkspace(cwd);
-  const projects = workspace === undefined ? undefined : workspace['projects'];
+export function isolationFromAngularBuilder(profile: Profile): IsolationVerdict | undefined {
+  const targets = unitTestTargets(profile);
+  const asked = targets.find((target) => target.optionBlocks.some((block) => block['isolate'] === true));
 
-  if (!isRecord(projects)) {
-    return undefined;
+  if (asked !== undefined) {
+    return { isolated: true, why: `${asked.builder} runs with \`isolate: true\`, declared on its target` };
   }
 
-  let found = false;
+  const [first] = targets;
 
-  for (const project of Object.values(projects)) {
-    for (const target of Object.values(targetsOf(project))) {
-      if (!isRecord(target) || target['builder'] !== UNIT_TEST_BUILDER) {
-        continue;
-      }
-
-      found = true;
-
-      for (const block of optionBlocks(target)) {
-        if (block['isolate'] === true) {
-          return { isolated: true, why: `${UNIT_TEST_BUILDER} runs with \`isolate: true\`, declared on its target` };
-        }
-      }
-    }
-  }
-
-  return found ? { isolated: false, why: `${UNIT_TEST_BUILDER} already runs without per-file isolation — that is its default` } : undefined;
+  return first === undefined
+    ? undefined
+    : { isolated: false, why: `${first.builder} already runs without per-file isolation — that is its default` };
 }

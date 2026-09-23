@@ -34,6 +34,7 @@ import type { PerfMeasured, PerfSource, Remeasure } from './perf-run';
 import { formatVerdict, shortName } from './perf-verdict';
 import type { Profile } from './profile';
 import { type Finding, type Severity, formatFindings, summarize } from './report';
+import { perfMarkdown } from './report-markdown';
 import { bar, drawTable } from './table';
 
 /** The share at which a phase is worth naming files over. Below it the advice would be noise. */
@@ -289,7 +290,7 @@ function workerFindings(total: number, graph: SourceGraph): Finding[] {
   ];
 }
 
-function isolationFindings(phases: readonly Phase[], graph: SourceGraph, cwd: string): Finding[] {
+function isolationFindings(phases: readonly Phase[], graph: SourceGraph, profile: Profile): Finding[] {
   const overhead = shareOf(phases, 'environment') + shareOf(phases, 'setup') + shareOf(phases, 'prepare');
   /**
    * A builder can have made this decision where no config can show it. `@angular/build:unit-test`
@@ -297,7 +298,7 @@ function isolationFindings(phases: readonly Phase[], graph: SourceGraph, cwd: st
    * on it has already taken the trade — and being told to take a decision you made is the one thing
    * a findings tool must never spend a reader's attention on.
    */
-  const builder = isolationFromAngularBuilder(cwd);
+  const builder = isolationFromAngularBuilder(profile);
 
   if (overhead < DOMINATES || declaresNoIsolation(graph) || builder?.isolated === false) {
     return [];
@@ -333,7 +334,7 @@ export function analysePerf(run: PerfRun, profile: Profile, failOnFlaky = false)
       ...environmentFindings(phases, profile, graph, measured),
       ...domEngineFindings(phases, graph),
       ...importFindings(phases, graph),
-      ...isolationFindings(phases, graph, profile.cwd),
+      ...isolationFindings(phases, graph, profile),
       ...workerFindings(total, graph),
     ],
   };
@@ -422,11 +423,13 @@ export interface PerfOptions {
   readonly codeQuality?: string;
   /** `--fail-on-flaky`: a test that passed only on a retry fails the run like a gate finding. */
   readonly failOnFlaky?: boolean;
-  /** `--format json`: one JSON document on stdout instead of the text report. */
+  /** `--fail-on-red`: a run whose suite failed exits 1, so `perf --command` can stand in for the test step. */
+  readonly failOnRed?: boolean;
+  /** `--format json` or `markdown`: one document on stdout instead of the text report. */
   readonly format?: OutputFormat;
 }
 
-export type OutputFormat = 'json' | 'text';
+export type OutputFormat = 'json' | 'markdown' | 'text';
 
 /**
  * What a run that collected files and executed nothing is told.
@@ -637,17 +640,21 @@ function reportHotspots(source: PerfMeasured, cwd: string, options: PerfOptions,
  * The whole command below the argument parsing.
  *
  * Without `--gate` it still always exits 0 on a report it could read: a slow suite is not a broken
- * one, and the advisory findings must never redden a pipeline. The two non-zero codes are the gate
+ * one, and the advisory findings must never redden a pipeline. `--fail-on-red` opts into exit 1 for
+ * a suite that failed, for a job whose only test step is `perf --command`. The two non-zero codes are the gate
  * failing (1) and there being nothing to judge (2).
  */
 export function renderPerf(source: PerfSource, profile: Profile, io: CliIo, options: PerfOptions = {}): number {
-  const json = options.format === 'json';
-  const text: CliIo = json ? { out: () => undefined, err: io.err } : io;
+  const document = options.format === 'json' || options.format === 'markdown';
+  const text: CliIo = document ? { out: () => undefined, err: io.err } : io;
   const collected: Collected = { findings: [], rows: [] };
-  const code = renderInto(source, profile, text, options, collected);
+  const rendered = renderInto(source, profile, text, options, collected);
+  const code = rendered === 0 && options.failOnRed === true && source.ok && source.runFailed ? PERF_GATE_FAILED : rendered;
 
-  if (json) {
-    io.out(JSON.stringify(perfJson(source, profile, options, collected, code), undefined, 2));
+  if (document) {
+    const report = perfJson(source, profile, options, collected, code);
+
+    io.out(options.format === 'markdown' ? perfMarkdown(report) : JSON.stringify(report, undefined, 2));
   }
 
   return code;

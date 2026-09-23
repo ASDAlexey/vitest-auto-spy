@@ -250,6 +250,27 @@ describe('readPerfRun', () => {
     expect(source.ok ? '' : source.error).toContain('--command');
   });
 
+  it('names the builder recipe when the suite runs through the Angular unit-test builder', () => {
+    const nx = createTempRepo({
+      'package.json': '{}',
+      'libs/ui/project.json': JSON.stringify({ name: 'ui', targets: { test: { executor: '@nx/angular:unit-test' } } }),
+    });
+    const ng = createTempRepo({
+      'package.json': '{}',
+      'angular.json': JSON.stringify({ projects: { app: { architect: { test: { builder: '@angular/build:unit-test' } } } } }),
+    });
+    const error = (root: string): string => {
+      const source = readPerfRun(options(root));
+
+      return source.ok ? '' : source.error;
+    };
+
+    expect(error(nx)).toContain(
+      `perf --command 'npx nx run ui:test --reporters=default --reporters="$VITEST_AUTO_SPY_PERF_REPORTER" {paths:--include=}'`,
+    );
+    expect(error(ng)).toContain("perf --command 'npx ng run app:test --reporters=default");
+  });
+
   it('says which of the two it saw when there is no test script at all', () => {
     const root = createTempRepo({ 'package.json': '{}' });
     const source = readPerfRun(options(root));
@@ -821,6 +842,30 @@ describe('renderPerf', () => {
     renderPerf(sourceOf(root, { tests: 100, testCount: 1 }), readProfile(root), plain, { format: 'json' });
 
     expect(JSON.parse(plain.stdout.join(''))).toMatchObject({ gate: null, budgets: { maxWallMs: null } });
+  });
+
+  it('lists the slowest files in --format json, relative, per phase, bounded by --top', () => {
+    const root = cleanRepo(1);
+    const rows = (top?: number): unknown => {
+      const io = recorder();
+
+      renderPerf(sourceOf(root, { environment: 30, setup: 20, tests: 100, testCount: 4 }), readProfile(root), io, {
+        format: 'json',
+        ...(top === undefined ? {} : { top }),
+      });
+
+      return (JSON.parse(io.stdout.join('')) as { run: { slowestFiles: unknown } }).run.slowestFiles;
+    };
+
+    expect(rows()).toEqual([
+      {
+        file: 'src/case-0.spec.ts',
+        totalMs: 150,
+        tests: 4,
+        phases: { environment: 30, prepare: 0, setup: 20, import: 0, tests: 100 },
+      },
+    ]);
+    expect(rows(0)).toEqual([]);
   });
 
   it('prints the phase table and the findings', () => {

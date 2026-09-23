@@ -6,8 +6,11 @@
  */
 import { afterEach, describe, expect, it } from 'vitest';
 
+import { readProfile } from '../profile';
 import { createTempRepo, removeTempRepos } from '../temp-repo';
-import { isolationFromAngularBuilder } from './runner-isolation';
+import { isolationFromAngularBuilder as fromProfile } from './runner-isolation';
+
+const isolationFromAngularBuilder = (root: string): ReturnType<typeof fromProfile> => fromProfile(readProfile(root));
 
 afterEach(() => {
   removeTempRepos();
@@ -67,5 +70,19 @@ describe('isolationFromAngularBuilder', () => {
 
     expect(isolationFromAngularBuilder(older)?.isolated).toBe(false);
     expect(isolationFromAngularBuilder(odd)).toBeUndefined();
+  });
+
+  it('reads an Nx project and the options `nx.json` gives every unit-test target', () => {
+    const project = JSON.stringify({ targets: { test: { executor: '@nx/angular:unit-test' } } });
+    const plain = createTempRepo({ 'libs/a/project.json': project });
+    const byDefault = createTempRepo({
+      'libs/a/project.json': project,
+      'nx.json': JSON.stringify({ targetDefaults: { '@nx/angular:unit-test': { options: { isolate: true } } } }),
+    });
+
+    expect(isolationFromAngularBuilder(plain)?.why).toBe(
+      '@nx/angular:unit-test already runs without per-file isolation — that is its default',
+    );
+    expect(isolationFromAngularBuilder(byDefault)?.isolated).toBe(true);
   });
 });
