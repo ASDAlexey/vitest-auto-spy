@@ -2,7 +2,7 @@ import { beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { createSpyFromClass } from './create-spy-from-class';
 import { registerMockAdapter } from './mock-adapter';
-import { asInstance, asInstances, asSpy, createSpyClass } from './spy-typing';
+import { asInstance, asInstances, asSpy, createSpyClass, outOfType } from './spy-typing';
 import { vitestMockAdapter } from './vitest-adapter';
 
 beforeAll(() => {
@@ -115,5 +115,14 @@ describe('createSpyClass', () => {
 
     expect(worker.postMessage('ping')).toBe('stubbed');
     expect(worker.postMessage).toHaveBeenCalledWith('ping');
+  });
+});
+
+describe('outOfType', () => {
+  it('hands the value back unchanged, whatever type it is named as', () => {
+    const payload = { owner: [] };
+
+    expect(outOfType<{ owner: { id: string } }>(payload)).toBe(payload);
+    expect(outOfType<{ owner: { id: string } }>(null)).toBeNull();
   });
 });

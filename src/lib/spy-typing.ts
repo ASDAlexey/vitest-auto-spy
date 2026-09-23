@@ -45,6 +45,24 @@ export function asInstance<T>(spy: DeepMockProxy<T> | Spy<T>): T {
   return spy as T;
 }
 
+/**
+ * A fixture that is outside its declared type **on purpose** — the `null` a backend sends where the
+ * type says object, the payload that has to reach a runtime guard — handed over as `T`.
+ *
+ * ```ts
+ * service.handle(outOfType<Beneficiary>({ owner: [] })); // the array the API sends, not the object it declares
+ * ```
+ *
+ * Nothing is checked, which is the point, and the name says so at the call site: a reader and a grep
+ * find the deliberate ones, where `as unknown as T`, `@ts-expect-error` or a `JSON.parse` helper look
+ * like every accidental cast. Everything else belongs in `createMock<T>()`, which checks what it can.
+ */
+export function outOfType<T>(value: unknown): T;
+// The public overload is the view; the implementation hands the value back unchanged.
+export function outOfType(value: unknown): unknown {
+  return value;
+}
+
 /** Each element of a tuple of spies, viewed as the class it stands for. */
 export type AsInstances<Spies> = { -readonly [K in keyof Spies]: Spies[K] extends Spy<infer T> ? T : Spies[K] };
 
