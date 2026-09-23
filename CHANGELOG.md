@@ -10,6 +10,8 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+## [5.27.0] - 2026-09-23
+
 ### Changed
 
 - **The `doctor` and `codemod` repository scan honours the root `.gitignore` for directories.** The
@@ -7794,7 +7796,8 @@ by hand there, in more than one place, by more than one person.
   `mockAccessorsProp`.
 - Dual ESM + CJS build with type declarations; 100% test coverage.
 
-[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.26.0...HEAD
+[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.27.0...HEAD
+[5.27.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.26.0...v5.27.0
 [5.26.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.25.0...v5.26.0
 [5.25.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.24.0...v5.25.0
 [5.24.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.23.0...v5.24.0
