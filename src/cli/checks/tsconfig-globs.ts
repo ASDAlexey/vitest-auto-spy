@@ -77,14 +77,19 @@ export function expandInclude(pattern: string): string[] {
 /**
  * Two shapes of pattern are exempt, because for them "matches nothing" is not evidence of
  * anything. A declaration-only glob (`src/**` + `/*.d.ts`) is routinely a placeholder for ambient
- * types a repository has not written yet, and a pattern rooted in a directory this scan never
- * descends into (`dist`, `out-tsc`, `coverage`) cannot match by construction.
+ * types a repository has not written yet, and a pattern inside a directory this scan never
+ * descends into (`dist`, `libs/a/out-tsc`, a `.gitignore`d `src/generated`) cannot match by construction.
  */
-export function isExemptPattern(pattern: string): boolean {
-  const slash = pattern.indexOf('/');
-  const root = slash === -1 ? pattern : pattern.slice(0, slash);
+export function isExemptPattern(pattern: string, ignoredDirectories: readonly string[] = []): boolean {
+  return /\.d\.[cm]?ts$/.test(pattern) || isOutsideScan(pattern, ignoredDirectories);
+}
 
-  return /\.d\.[cm]?ts$/.test(pattern) || isSkippedDirectory(root);
+function isOutsideScan(path: string, ignoredDirectories: readonly string[]): boolean {
+  const segments = path.split('/');
+  const wildcard = segments.findIndex((segment) => /[*?[]/.test(segment));
+  const literal = wildcard === -1 ? segments : segments.slice(0, wildcard);
+
+  return literal.some(isSkippedDirectory) || ignoredDirectories.some((directory) => `${path}/`.startsWith(`${directory}/`));
 }
 
 /**
@@ -133,14 +138,16 @@ function resolveFromConfig(configPath: string, entry: string): string {
 }
 
 /** What one `include` entry that matches nothing amounts to — or nothing, when it matches or is exempt. */
-function checkInclude(configPath: string, entry: string, files: readonly string[]): Finding | undefined {
+function checkInclude(configPath: string, entry: string, profile: Profile): Finding | undefined {
+  const files = profile.files;
+
   if (entry.includes('${') || entry.startsWith('/')) {
     return undefined;
   }
 
   const resolved = resolveFromConfig(configPath, entry);
 
-  if (isExemptPattern(resolved) || matchesAnyFile(resolved, files)) {
+  if (isExemptPattern(resolved, profile.ignoredDirectories) || matchesAnyFile(resolved, files)) {
     return undefined;
   }
 
@@ -165,20 +172,20 @@ function checkInclude(configPath: string, entry: string, files: readonly string[
   };
 }
 
-function checkOne(cwd: string, configPath: string, files: readonly string[]): Finding[] {
-  const text = readTextFile(join(cwd, configPath));
+function checkOne(profile: Profile, configPath: string): Finding[] {
+  const text = readTextFile(join(profile.cwd, configPath));
   const parsed = text === undefined ? undefined : parseJsonc(text);
 
   if (!isRecord(parsed)) {
     return [];
   }
 
-  const findings = stringList(parsed['include']).flatMap((entry) => checkInclude(configPath, entry, files) ?? []);
+  const findings = stringList(parsed['include']).flatMap((entry) => checkInclude(configPath, entry, profile) ?? []);
 
   for (const entry of stringList(parsed['files'])) {
     const resolved = resolveFromConfig(configPath, entry);
 
-    if (!files.includes(resolved)) {
+    if (!profile.files.includes(resolved) && !isOutsideScan(resolved, profile.ignoredDirectories)) {
       findings.push({
         check: 'tsconfig-file-missing',
         severity: 'error',
@@ -195,5 +202,5 @@ function checkOne(cwd: string, configPath: string, files: readonly string[]): Fi
 export function checkTsconfigGlobs(profile: Profile): Finding[] {
   const configs = profile.files.filter((file) => TSCONFIG_NAME.test(file));
 
-  return configs.flatMap((config) => checkOne(profile.cwd, config, profile.files));
+  return configs.flatMap((config) => checkOne(profile, config));
 }
