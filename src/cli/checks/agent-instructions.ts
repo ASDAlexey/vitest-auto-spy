@@ -12,7 +12,7 @@ import { readTextFile } from '../fs-scan';
 import type { Profile } from '../profile';
 import type { Finding } from '../report';
 
-const INSTRUCTION_FILES = ['AGENTS.md', 'CLAUDE.md', 'GEMINI.md'];
+const INSTRUCTION_FILES = ['AGENTS.md', 'CLAUDE.md', 'GEMINI.md', '.claude/CLAUDE.md'];
 
 export function checkAgentInstructions(profile: Profile): Finding[] {
   const mentioned = INSTRUCTION_FILES.some((file) => (readTextFile(join(profile.cwd, file)) ?? '').includes('vitest-auto-spy'));
@@ -25,8 +25,8 @@ export function checkAgentInstructions(profile: Profile): Finding[] {
     {
       check: 'no-agent-instructions',
       severity: 'info',
-      message: 'No root AGENTS.md, CLAUDE.md or GEMINI.md mentions vitest-auto-spy.',
-      fix: 'Run `npx vitest-auto-spy init` to write a pointer to `node_modules/vitest-auto-spy/AGENTS.md` into the files the agents in this repository read.',
+      message: 'No root AGENTS.md, CLAUDE.md, GEMINI.md or .claude/CLAUDE.md mentions vitest-auto-spy.',
+      fix: 'Run `npx vitest-auto-spy init` to write a pointer to `node_modules/vitest-auto-spy/AGENTS.md` into the files the agents in this repository read — `--only CLAUDE.md,.claude` where the others would be tracked files.',
     },
   ];
 }
