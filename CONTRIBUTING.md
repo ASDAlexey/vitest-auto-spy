@@ -18,7 +18,7 @@ npm ci
 | `npm run test:watch`       | Run tests in watch mode                                                                                                                                                                                                                                                                |
 | `npm run test:coverage`    | Run tests with coverage (100% thresholds enforced)                                                                                                                                                                                                                                     |
 | `npm run typecheck`        | Type-check the project with `tsc --noEmit`                                                                                                                                                                                                                                             |
-| `npm run check`            | The full gate CI runs — everything below plus lint, `format:check`, jscpd, the sync checks, every suite, and finally `build` + `cold-import:check`, which reads `dist/` and so has to come after it                                                                                    |
+| `npm run check`            | Every step the CI `test`, `static` and `bun` jobs run, on one Node — everything below plus lint, `format:check`, jscpd, the sync checks, every suite, then `build` + `smoke:dist`, `size:entries:check`, `size:badge:check` and `cold-import:check`, which read `dist/`                |
 | `npm run deps:check`       | Fail when `node_modules` drifted from `package-lock.json`, so the gate tests the versions `npm ci` installs                                                                                                                                                                            |
 | `npm run test:types`       | Assert what callers **infer** — `expectTypeOf` cases under `src/type-tests`                                                                                                                                                                                                            |
 | `npm run types:budget`     | Count the type instantiations `Spy<T>` costs `tsc` on a generated fixture; fails past the budget in `scripts/check-type-budget.mjs` (`--measure` prints the numbers, `--print` the fixture)                                                                                            |
@@ -98,8 +98,8 @@ root, and its dependencies install on their own (`npm ci --prefix docs-site`, th
 - **One logical change per PR.** Small, focused PRs get reviewed faster.
 - **Every user-facing change updates [`CHANGELOG.md`](./CHANGELOG.md) in the same PR** under
   the `## [Unreleased]` heading (`Added` / `Changed` / `Fixed` / `Removed`). The release
-  automation bumps the version and publishes, but it does **not** write the changelog — so if
-  you skip this, the changelog silently falls behind npm. See [Releasing](#releasing).
+  automation stamps that section with the version, but it does **not** write its content — so if
+  you skip this, the release goes out with an empty section. See [Releasing](#releasing).
 
 ## Every surface a feature has to reach
 
@@ -241,21 +241,21 @@ Not affected by any of this: `GITHUB_TOKEN`, GitHub PATs, GitHub App tokens.
 
 ### Keeping the changelog in sync with npm
 
-The automation owns the **version number**; humans own the **changelog**. The two only stay
-aligned if we follow one rule:
+The automation owns the **version number** and the stamp; humans own the **content**. The two only
+stay aligned if we follow these rules:
 
 1. **Choose the commit type deliberately** — it decides the bump (table above). A `feat:` for a
    non-feature (or a `fix:` for a refactor) produces a misleading release. When in doubt about
    whether something should release at all, use `chore`/`refactor`/`docs` (no release).
 2. **Update `## [Unreleased]` in the same PR** as any user-facing change. This is the entire
    defence against drift — the workflow will not do it for you.
-3. **Right after an auto-release lands** (you'll see the `chore(release): x.y.z` commit and a new
-   `vX.Y.Z` tag), open a tiny follow-up PR that:
-   - renames `## [Unreleased]` → `## [x.y.z] - YYYY-MM-DD` (date = the npm publish date),
-   - adds a fresh empty `## [Unreleased]` on top,
-   - adds the `[x.y.z]` compare link at the bottom and repoints `[Unreleased]` to `vX.Y.Z...HEAD`.
-
-   Type this commit `docs(changelog): ...` so it does **not** trigger another release.
+3. **Leave the stamp to the release.** The `version` lifecycle script runs
+   `scripts/stamp-changelog.mjs` inside `npm version`, so the `chore(release): x.y.z` commit itself
+   renames `## [Unreleased]` → `## [x.y.z] - YYYY-MM-DD` (the UTC date of the release run), puts a
+   fresh empty `## [Unreleased]` on top, adds the `[x.y.z]` compare link and repoints `[Unreleased]`
+   to `vX.Y.Z...HEAD`. A changelog without that heading or that link fails the release before
+   anything is published. Before this, the stamp was a hand-made follow-up commit, and 4.2.0 and
+   5.24.0 were tagged without it.
 
 ### The `vitest-auto-spies` alias
 
@@ -308,7 +308,7 @@ Before and after every release, verify the single source of truth lines up:
 npm view vitest-auto-spy version          # npm latest
 node -p "require('./package.json').version"  # package.json
 git describe --tags --abbrev=0            # latest git tag (drop the leading v)
-grep -m1 '## \[' CHANGELOG.md             # top versioned changelog heading
+grep -m1 '^## \[[0-9]' CHANGELOG.md        # top versioned changelog heading
 ```
 
 All four must be the **same version**. If they drift (as happened once between 1.1.0 and 1.3.0),
@@ -325,7 +325,10 @@ optional local staging mirror and is not required by the release flow.
 
 1. Fork the repo and create a branch from `master`.
 2. Make your change with tests.
-3. Run `npm run check` locally — it is the same gate CI runs, and it builds at the end.
+3. Run `npm run check` locally — it runs every step of CI's `test`, `static` and `bun` jobs, and it
+   builds at the end. CI also repeats the `test` job on Node 22, 24 and 26 and runs two jobs
+   `check` does not: `angular-range` (link and types on Angular 20–22) and `peer-floor` (the packed tarball
+   against the lowest Vitest and rxjs peers).
 4. Open a pull request describing the change and the motivation.
 
 By contributing you agree that your contributions are licensed under the project's
