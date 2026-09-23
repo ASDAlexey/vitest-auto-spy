@@ -345,7 +345,9 @@ export function applyReturns(autoSpy: object, factory: string, returns: Record<s
         withDocs(
           `[vitest-auto-spy] ${factory}: ${option} names '${name}', which is not a spied ` +
             `method of the spy. Check the spelling, and check that a restricting onlyMethodsToSpyOn list did not leave ` +
-            `it out — a value configured for a method that is not there is silently never returned.`,
+            `it out — a value configured for a method that is not there is silently never returned. A method the ` +
+            `constructor assigns — an ngrx rxMethod, an arrow-function field — is not on the prototype: list it in ` +
+            `instanceMethodsToSpyOn: ['${name}'].`,
           DOCS_LINKS.createSpyFromClass,
         ),
       );
@@ -639,6 +641,32 @@ function applyOverrides(autoSpy: object, overrides: object): void {
 }
 
 /**
+ * The prototype named nothing, and the overwhelmingly common reason is that the class is
+ * `abstract`: `abstract read(key: string): string` is a declaration, erased before it reaches a
+ * prototype, so an `abstract class` DI token — the standard Angular shape,
+ * `{ provide: LocalStorage, useClass: BrowserLocalStorage }` — walks out of the chain with an
+ * empty method set. Assembling `{}` from that is worse than useless: the double is accepted by
+ * DI, and then every call the code under test makes dies on "is not a function", pointing at
+ * production code rather than at the spec.
+ *
+ * `createAutoMock<T>()` is the double for exactly this situation — it works from the *type*,
+ * materialising a spy per accessed key — so hand back that instead of an empty record. It also
+ * subsumes the workaround: naming the missing callables in `instanceMethodsToSpyOn` cannot be
+ * needed on an object that answers every key. The same fallback covers a genuinely empty
+ * concrete class, where a `{}` spy is no more useful, and `returns` is applied to it by the
+ * caller either way.
+ *
+ * Throwing here — "use createAutoMock<T>()" — was the alternative, and it is worse: it turns
+ * the single most common Angular token shape into a hard error with a manual workaround, when
+ * the workaround is a thing this library can simply do.
+ * Strict mode travels with it: a fully abstract class is exactly the wide-collaborator shape
+ * `strict: true` exists for, and losing the flag at the fallback would switch it off silently.
+ */
+function abstractClassDouble<T, Options extends SpyOptions>(ObjectClass: ClassType<T>, config: ResolvedSpyConfiguration): Spy<T, Options> {
+  return createAutoMock<T, Options>(undefined, { name: ObjectClass.name, strict: config.strict, onUnstubbedCall: config.onUnstubbedCall });
+}
+
+/**
  * Build the spy object itself — every branch except the `returns` seeding, which is shared.
  *
  * Split out of {@link createSpyFromClass} so the empty-prototype fallback can hand back an entirely
@@ -649,27 +677,7 @@ function assembleSpy<T, Options extends SpyOptions>(ObjectClass: ClassType<T>, c
   const accessors = resolveAccessors(ObjectClass.prototype, config);
 
   if (hasNothingToRead(ObjectClass, accessors, config)) {
-    // The prototype named nothing, and the overwhelmingly common reason is that the class is
-    // `abstract`: `abstract read(key: string): string` is a declaration, erased before it reaches a
-    // prototype, so an `abstract class` DI token — the standard Angular shape,
-    // `{ provide: LocalStorage, useClass: BrowserLocalStorage }` — walks out of the chain with an
-    // empty method set. Assembling `{}` from that is worse than useless: the double is accepted by
-    // DI, and then every call the code under test makes dies on "is not a function", pointing at
-    // production code rather than at the spec.
-    //
-    // `createAutoMock<T>()` is the double for exactly this situation — it works from the *type*,
-    // materialising a spy per accessed key — so hand back that instead of an empty record. It also
-    // subsumes the workaround: naming the missing callables in `instanceMethodsToSpyOn` cannot be
-    // needed on an object that answers every key. The same fallback covers a genuinely empty
-    // concrete class, where a `{}` spy is no more useful, and `returns` is applied to it by the
-    // caller either way.
-    //
-    // Throwing here — "use createAutoMock<T>()" — was the alternative, and it is worse: it turns
-    // the single most common Angular token shape into a hard error with a manual workaround, when
-    // the workaround is a thing this library can simply do.
-    // Strict mode travels with it: a fully abstract class is exactly the wide-collaborator shape
-    // `strict: true` exists for, and losing the flag at the fallback would switch it off silently.
-    return createAutoMock<T, Options>(undefined, { strict: config.strict, onUnstubbedCall: config.onUnstubbedCall });
+    return abstractClassDouble<T, Options>(ObjectClass, config);
   }
 
   const methodNames = resolveMethodNames(ObjectClass, config);

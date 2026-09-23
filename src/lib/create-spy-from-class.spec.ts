@@ -90,6 +90,28 @@ describe('createSpyFromClass — strict mode', () => {
     );
   });
 
+  it('takes `returns: { m: undefined }` as configured, for an answer nobody reads', () => {
+    const cart = createSpyFromClass(Cart, { strict: true, returns: { checkout: undefined } });
+
+    expect(cart.checkout(1, 'now')).toBeUndefined();
+  });
+
+  it('names the class as the source spells it, not as a bundler renamed it', () => {
+    const renamed = (name: string): typeof Cart => {
+      class Named extends Cart {}
+
+      Object.defineProperty(Named, 'name', { value: name });
+
+      return Named;
+    };
+
+    expect(() => createSpyFromClass(renamed('_FeatureFlagService'), { strict: true }).checkout(1, 'now')).toThrow(
+      'Nothing configured FeatureFlagService.checkout',
+    );
+    expect(() => createSpyFromClass(renamed('Cart$1'), { strict: true }).checkout(1, 'now')).toThrow('Nothing configured Cart.checkout');
+    expect(() => createSpyFromClass(renamed('_cart'), { strict: true }).checkout(1, 'now')).toThrow('Nothing configured _cart.checkout');
+  });
+
   it('renders data in full up to a bound, and an instance by its class alone', () => {
     class Session {
       readonly token = 'secret';
@@ -148,10 +170,14 @@ describe('createSpyFromClass — strict mode', () => {
     await expect(perCall.load()).resolves.toBe(5);
   });
 
-  it('carries strict mode into the abstract-class fallback, which has no class name to print', () => {
+  it('carries strict mode and the class name into the abstract-class fallback', () => {
     const storage = createSpyFromClass(Storage, { strict: true });
+    abstract class Unnamed extends Storage {}
 
-    expect(() => storage.read('k')).toThrow("Nothing configured read, and strict mode is on.\nCalled as: read('k')");
+    Object.defineProperty(Unnamed, 'name', { value: '' });
+
+    expect(() => storage.read('k')).toThrow("Nothing configured Storage.read, and strict mode is on.\nCalled as: Storage.read('k')");
+    expect(() => createSpyFromClass(Unnamed, { strict: true }).read('k')).toThrow('Nothing configured read, and strict mode is on.');
   });
 
   it('runs onUnstubbedCall instead of throwing, and uses what it returns', () => {
@@ -296,6 +322,7 @@ describe('createSpyFromClass — selfReturning', () => {
     createSpyFromClass(QueryBuilder, { onlyMethodsToSpyOn: ['run'], selfReturning: ['where'] });
 
     expect(warn).toHaveBeenCalledWith(expect.stringContaining("createSpyFromClass(QueryBuilder): selfReturning names 'where'"));
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("list it in instanceMethodsToSpyOn: ['where']"));
     warn.mockRestore();
   });
 });
