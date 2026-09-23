@@ -42,6 +42,13 @@ describe('createFixture', () => {
     expect(article.header).toEqual({ title: 'Draft', subtitle: 'none' });
   });
 
+  it('clears an optional field the override sets to undefined', () => {
+    const organisation = createFixture<{ name: string; sites?: string[] }>({ name: 'Acme', sites: ['a'] }, { sites: undefined });
+
+    expect(organisation).toEqual({ name: 'Acme', sites: undefined });
+    expect('sites' in organisation).toBe(true);
+  });
+
   it('replaces an overridden array instead of merging into it', () => {
     const article = createFixture(ARTICLE, { tags: ['news'] });
 
