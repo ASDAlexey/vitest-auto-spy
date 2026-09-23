@@ -1274,10 +1274,11 @@ The pieces are exported too, from `vitest-auto-spy/setup`:
 | `describeStrayListeners()` | Each stray's target, type, spec file and up to five frames — the `onStrayListeners` list |
 
 `setupAutoSpy({ strayListeners: true, onStrayListeners: ({ removed }) => expect(removed).toBe(0) })`
-fails the file that leaked instead of tidying it away quietly. A listener registered with
-`{ once: true }` that already fired stays counted until something removes it — the wrapper cannot
-observe the firing without breaking identity-based `removeEventListener` from the code under test,
-and removing an already-fired listener is a no-op anyway.
+fails the file that leaked instead of tidying it away quietly. Under jsdom a listener registered
+with `{ once: true }` that already fired stays counted until something removes it — the wrapper
+cannot observe the firing without breaking identity-based `removeEventListener` from the code under
+test, and removing an already-fired listener is a no-op anyway. happy-dom detaches it through the
+public `removeEventListener`, so there it leaves the count by itself.
 
 ## 20. Globals put back at the file boundary
 

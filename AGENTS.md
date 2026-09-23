@@ -1628,10 +1628,12 @@ initialisation — and the `afterAll` takes off everything added since. The piec
 `trackStrayListeners()` (idempotent, returns the undo), `baselineStrayListeners()`,
 `removeStrayListeners()` (returns how many), `countStrayListeners()` (throws before
 `trackStrayListeners()` has run, like the timer counter) and `describeStrayListeners()` — each
-stray's target, type, spec file and up to five frames. A listener registered with `{ once: true }`
-that already fired stays counted until something removes it: the wrapper cannot observe the firing
-without breaking identity-based `removeEventListener` from the code under test, and removing an
-already-fired listener is a no-op anyway.
+stray's target, type, spec file and up to five frames, the list `onStrayListeners({ removed, listeners })`
+receives when a file should fail instead: `onStrayListeners: ({ removed }) => expect(removed).toBe(0)`.
+Under jsdom a listener registered with `{ once: true }` that already fired stays counted until
+something removes it: the wrapper cannot observe the firing without breaking identity-based
+`removeEventListener` from the code under test, and removing an already-fired listener is a no-op
+anyway. happy-dom detaches it through the public `removeEventListener`, so there it leaves the count.
 
 **The one no registry tracks:** `vi.stubGlobal` is undone by `unstubGlobals` and
 `vi.spyOn(globalThis, …)` by `restoreMocks`, but a plain assignment —
@@ -4285,6 +4287,7 @@ diagnostic and is free to change: print it, never assert on it.
 | `{ ...modelInstance, flag: true }` (drops every getter)                         | `withOverrides(modelInstance, { flag: true })`                                                                   |
 | `if ('params' in link) … else throw` in every spec                              | `narrow.byKey(link, 'params')`                                                                                   |
 | `const x = a?.b; assert.exists(x); … x …` on every optional read                | `narrow.defined(a?.b)` — it returns the value, so the narrowing sits in the expression                           |
+| `expect(body).toBeInstanceOf(FormData); const form = body as FormData`          | `narrow.instanceOf(body, FormData)` — the check and the type in one expression                                   |
 | five `asInstance(...)` in one call                                              | `...asInstances(a, b, c, d, e)`                                                                                  |
 | `vi.stubGlobal('Image', vi.fn(() => ({ src: '' })))`                            | `stubConstructor(globalThis, 'Image', () => ({ src: '' }))`                                                      |
 | `Object.defineProperty(document, 'cookie', { value })`                          | `mockValueProp(document, 'cookie', value)`                                                                       |

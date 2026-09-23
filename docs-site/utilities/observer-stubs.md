@@ -137,7 +137,8 @@ intersectionEntry(element, true, { boundingClientRect: new DOMRect(0, 0, 200, 10
 
 The rect fields are left out unless asked for. Fabricating four `DOMRectReadOnly`s for an assertion
 that looks at `isIntersecting` would be ceremony, not fidelity — and `overrides` supplies whatever
-a particular component does read.
+a particular component does read: `boundingClientRect`, `intersectionRect` and `rootBounds` each
+take a `DOMRect` or the four numbers.
 
 For `ResizeObserver` and `MutationObserver` the entries stay yours, since what a component reads
 from them varies too much to guess:

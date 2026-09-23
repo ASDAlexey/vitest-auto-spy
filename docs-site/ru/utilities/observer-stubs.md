@@ -131,7 +131,8 @@ intersectionEntry(element, true, { boundingClientRect: new DOMRect(0, 0, 200, 10
 
 Поля с прямоугольниками не заполняются, пока их не попросят. Сочинять четыре `DOMRectReadOnly` ради
 ассерта, который смотрит на `isIntersecting`, — это церемония, а не достоверность, а `overrides`
-подставит то, что конкретный компонент действительно читает.
+подставит то, что конкретный компонент действительно читает: `boundingClientRect`,
+`intersectionRect` и `rootBounds` принимают `DOMRect` или четыре числа.
 
 Для `ResizeObserver` и `MutationObserver` entries остаются вашими, потому что читаемое из них
 компонентом слишком разное, чтобы угадывать:
