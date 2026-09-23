@@ -177,6 +177,55 @@ describe('flushEventLoopUntil', () => {
   });
 });
 
+describe('flushEventLoopUntil with a time budget', () => {
+  afterEach(() => {
+    if (vi.isFakeTimers()) {
+      vi.useRealTimers();
+    }
+  });
+
+  it('waits on the real clock for work that takes milliseconds, not turns', async () => {
+    let ready = false;
+
+    globalThis.setTimeout(() => {
+      ready = true;
+    }, 30);
+
+    await flushEventLoopUntil(() => ready, { timeoutMs: 1000 });
+
+    expect(ready).toBe(true);
+  });
+
+  it('is not frozen by fake timers', async () => {
+    const realNow = performance.now.bind(performance);
+
+    vi.useFakeTimers();
+
+    const started = realNow();
+
+    await expect(flushEventLoopUntil(() => false, { timeoutMs: 25, label: 'the socket' })).rejects.toThrow(
+      /the socket was still not ready after 25 ms of real time/,
+    );
+    expect(realNow() - started).toBeGreaterThanOrEqual(20);
+  });
+
+  it('checks once and fails at a budget of zero, naming the condition when no label is given', async () => {
+    let checks = 0;
+    const failure = await flushEventLoopUntil(
+      () => {
+        checks += 1;
+
+        return false;
+      },
+      { timeoutMs: 0 },
+    ).catch((error: unknown) => String(error));
+
+    expect(checks).toBe(1);
+    expect(failure).toContain('the condition was still not ready after 0 ms');
+    expect(failure).toContain('advanceTimers()');
+  });
+});
+
 describe('the flushEventLoopUntil budget message', () => {
   it('names the cause that reads as a flake, and its fix', async () => {
     // A cold dynamic `import()` outruns the budget; the next test in the file passes off the module

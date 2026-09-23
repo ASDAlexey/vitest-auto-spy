@@ -73,12 +73,53 @@ export async function flushEventLoop(turns = 1): Promise<void> {
   }
 }
 
-/** Options for {@link flushEventLoopUntil}. */
-export interface FlushUntilOptions {
-  /** How many real turns to spend before giving up. Default 20. */
-  turns?: number;
-  /** What was being waited for, quoted in the failure — `'the resource to leave loading'`. */
-  label?: string;
+/** Options for {@link flushEventLoopUntil}: a budget in turns, or one in real milliseconds — not both. */
+export type FlushUntilOptions =
+  | {
+      /**
+       * Poll on the real clock for up to this long instead of counting turns — for a wait on real I/O
+       * (a socket round-trip, a child process), which takes milliseconds rather than turns. Fake timers
+       * do not slow it down or speed it up.
+       */
+      timeoutMs: number;
+      turns?: never;
+      label?: string;
+    }
+  | {
+      /** How many real turns to spend before giving up. Default 20. */
+      turns?: number;
+      timeoutMs?: never;
+      /** What was being waited for, quoted in the failure — `'the resource to leave loading'`. */
+      label?: string;
+    };
+
+/** How often a {@link FlushUntilOptions.timeoutMs} wait checks its condition. */
+const POLL_MS = 10;
+
+async function pollUntil(isDone: () => boolean, timeoutMs: number): Promise<boolean> {
+  for (let waited = 0; ; waited += POLL_MS) {
+    if (isDone()) {
+      return true;
+    }
+
+    if (waited >= timeoutMs) {
+      return false;
+    }
+
+    await new Promise<void>((resume) => nativeSetTimeout(resume, Math.min(POLL_MS, timeoutMs - waited)));
+  }
+}
+
+function notReady(what: string, timeoutMs: number): Error {
+  return new Error(
+    withDocs(
+      `[vitest-auto-spy] flushEventLoopUntil: ${what} was still not ready after ${timeoutMs} ms of real time. ` +
+        'The wait polls the real clock, so fake timers neither stretch nor shorten it: either the work never started (the call ' +
+        'under test did not run, the server was never listening), or it is waiting on a timer the test faked — only ' +
+        '`advanceTimers()` moves those — or it genuinely needs longer, which a larger `timeoutMs` answers.',
+      DOCS_LINKS.eventLoop,
+    ),
+  );
 }
 
 /**
@@ -108,9 +149,20 @@ export interface FlushUntilOptions {
  * — and a test that hangs until the runner's timeout reports the file, not the wait.
  *
  * @param isDone Checked before the first turn, then after every turn.
- * @param options Turn budget and the label used in the failure.
+ * A wait on real I/O — an HTTP round-trip to a server the spec started, a child process exiting —
+ * takes milliseconds, not turns: `{ timeoutMs: 1000 }` polls the real clock instead, every 10 ms.
+ *
+ * @param options Turn budget, or `timeoutMs`, and the label used in the failure.
  */
 export async function flushEventLoopUntil(isDone: () => boolean, options: FlushUntilOptions = {}): Promise<void> {
+  if (options.timeoutMs !== undefined) {
+    if (!(await pollUntil(isDone, options.timeoutMs))) {
+      throw notReady(options.label ?? 'the condition', options.timeoutMs);
+    }
+
+    return;
+  }
+
   const turns = options.turns ?? 20;
 
   for (let turn = 0; turn <= turns; turn += 1) {
