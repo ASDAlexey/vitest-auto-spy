@@ -17,11 +17,18 @@ import type {} from '../console';
 import type { WebStorageKey } from '../dom-stubs';
 import {
   type SetupAutoSpyPreset,
+  type StorageSpyKey,
+  type StrayListener,
+  type StrayListenerReport,
   advanceTimers,
   blockNetwork,
+  countStrayListeners,
   countStrayRejections,
   countStrayTimers,
   mockNow,
+  removeStrayListeners,
+  restoreGlobals,
+  restoreStorageSpies,
   restoreWebStorage,
   setupAutoSpy,
   setupFakeTimers,
@@ -146,10 +153,34 @@ describe('the reactions', () => {
   });
 });
 
+describe('the file-boundary repairs', () => {
+  it('are switches, and the listener report carries the count and each origin', () => {
+    setupAutoSpy({ restoreStorageSpies: false, strayListeners: true, restoreGlobals: true });
+    setupAutoSpy({
+      strayListeners: true,
+      onStrayListeners: (report) => {
+        expectTypeOf(report).toEqualTypeOf<StrayListenerReport>();
+        expectTypeOf(report.removed).toEqualTypeOf<number>();
+        expectTypeOf(report.listeners).toEqualTypeOf<readonly StrayListener[]>();
+        expectTypeOf(report.listeners[0]?.file).toEqualTypeOf<string | undefined>();
+      },
+    });
+
+    // @ts-expect-error -- the listener sweep is a switch
+    setupAutoSpy({ strayListeners: 'warn' });
+    // @ts-expect-error -- the report counts what was removed, not what was cancelled
+    setupAutoSpy({ onStrayListeners: ({ cancelled }) => cancelled });
+  });
+});
+
 describe('the runtime-thin counters', () => {
   it('answer the shapes a setup file reads once', () => {
     expectTypeOf(countStrayTimers()).toEqualTypeOf<number>();
     expectTypeOf(countStrayRejections()).toEqualTypeOf<number>();
+    expectTypeOf(countStrayListeners()).toEqualTypeOf<number>();
+    expectTypeOf(removeStrayListeners()).toEqualTypeOf<number>();
     expectTypeOf(restoreWebStorage()).toEqualTypeOf<WebStorageKey[]>();
+    expectTypeOf(restoreStorageSpies()).toEqualTypeOf<readonly StorageSpyKey[]>();
+    expectTypeOf(restoreGlobals()).toEqualTypeOf<readonly PropertyKey[]>();
   });
 });

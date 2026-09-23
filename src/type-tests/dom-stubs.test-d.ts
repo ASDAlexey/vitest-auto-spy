@@ -21,6 +21,7 @@ import {
   stubObserver,
   stubResizeObserver,
   stubWebStorage,
+  stubWorker,
 } from '../dom-stubs';
 
 declare const host: Element;
@@ -163,5 +164,42 @@ describe('the entry builders', () => {
     resizeEntry(host, { width: 'wide' });
     // @ts-expect-error -- the three boxes are derived; there is no `depth` to set
     resizeEntry(host, { depth: 1 });
+  });
+});
+
+describe('stubWorker', () => {
+  interface Request {
+    requestId: string;
+  }
+
+  interface Response {
+    requestId: string;
+    nodes: string[];
+  }
+
+  it('carries the declared protocol through the handle and the script', () => {
+    const workers = stubWorker<Request, Response>({
+      respond: (request, worker) => {
+        expectTypeOf(request).toEqualTypeOf<Request>();
+        expectTypeOf(worker.host).toEqualTypeOf<Worker>();
+
+        return { requestId: request.requestId, nodes: [] };
+      },
+    });
+
+    expectTypeOf(workers.last.messages).toEqualTypeOf<Request[]>();
+    expectTypeOf(workers.last.emit).parameter(0).toEqualTypeOf<Response>();
+    expectTypeOf(workers.last.options).toEqualTypeOf<WorkerOptions | undefined>();
+    expectTypeOf(stubWorker().last.messages).toEqualTypeOf<unknown[]>();
+  });
+
+  it('lets the script stay silent, and refuses a reply of the wrong shape', () => {
+    stubWorker<Request, Response>({ respond: () => undefined });
+    // @ts-expect-error -- the reply is the declared response, not the request echoed back
+    stubWorker<Request, Response>({ respond: (request) => request });
+    // @ts-expect-error -- emit sends what the worker would, not what the page posts
+    stubWorker<Request, Response>().last.emit({ requestId: 'a' });
+    // @ts-expect-error -- no such option; a reply is what `respond` returns
+    stubWorker({ response: 1 });
   });
 });
