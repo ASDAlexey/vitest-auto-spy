@@ -74,7 +74,7 @@ function shortfalls(text) {
 }
 
 function testFileCount(text) {
-  const match = /Test Files\s+(\d+) passed \((\d+)\)/.exec(text);
+  const match = /Test Files\s+.*?(\d+) passed\b.*?\((\d+)\)/.exec(text);
 
   return match ? { passed: Number(match[1]), total: Number(match[2]) } : null;
 }
