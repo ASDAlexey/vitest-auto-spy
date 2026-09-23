@@ -39,6 +39,8 @@ describe('no-reflect-member-access', () => {
     expect(text).toContain('`viewTimeMin`');
     expect(text).toContain('nothing checks it');
     expect(text).toContain('no-private-member-access');
+    expect(text).toContain('stubbed with `createComponentStub` and read off its input');
+    expect(text).toContain("`mockSignalProp(component, 'x', value)`");
   });
 
   it('names the second failure mode on a write rather than repeating the first', () => {
@@ -59,7 +61,7 @@ describe('no-reflect-member-access', () => {
     expect(count(code)).toBe(1);
     expect(text).toContain('onto an object literal this spec built');
     expect(text).toContain("{ linkType: value as Model['linkType'] }");
-    expect(text).not.toContain('mockValueProp');
+    expect(text).toContain("consistent-type-assertions: never`), `mockValueProp(fixture, 'linkType', value)`");
     // A read of a fixture is the ordinary finding.
     expect(message(`const link = {};\nReflect.get(link, 'linkType');`)).toContain('reads `linkType`');
   });
