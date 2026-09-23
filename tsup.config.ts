@@ -289,14 +289,13 @@ export default defineConfig([
   },
   {
     ...SHARED,
-    // The reporter `vitest-auto-spy perf` attaches to the consumer's own Vitest run. Its own pass
-    // because it must not carry the `#!` banner of the one above, and a file rather than an
-    // `exports` subpath because the CLI hands Vitest an absolute path — nobody imports it by name,
-    // so a subpath would be a public API with no reader.
-    entry: { 'perf-reporter': 'src/cli/perf-reporter.ts', 'perf-profiler': 'src/perf-profiler.ts' },
+    // The reporter `vitest-auto-spy perf` attaches to the consumer's own Vitest run, in its own pass
+    // because it must not carry the `#!` banner of the one above. The CLI hands Vitest an absolute
+    // path, but a builder target or a CI script names it too, hence `./perf-reporter` in `exports`.
+    entry: { 'perf-reporter': 'src/perf-reporter.ts', 'perf-profiler': 'src/perf-profiler.ts' },
     format: ['esm'] as const,
     splitting: false,
-    dts: false,
+    dts: { entry: { 'perf-reporter': 'src/perf-reporter.ts' } },
     clean: false,
   },
 ]);
