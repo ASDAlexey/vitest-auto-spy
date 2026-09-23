@@ -275,3 +275,18 @@ describe(RULE, () => {
     expect(subjects(PROVING, ...orphans)).toEqual([]);
   });
 });
+
+it('leaves alone an element a DOM query found — that asserts which branch of the template rendered', () => {
+  const sibling = "it('pans', () => { minimap().click(); expect(panned).toBe(true); });";
+  const count = (setup: string, subject = 'minimap()'): number =>
+    verify(`${setup}\nit('shows the minimap', () => { expect(${subject}).not.toBeNull(); });\n${sibling.replaceAll('minimap()', subject)}`)
+      .length;
+
+  expect(count("const minimap = () => fixture.debugElement.query(By.css('app-minimap-2d'));")).toBe(0);
+  expect(count("function minimap() { return host.querySelector('app-minimap-2d'); }")).toBe(0);
+  expect(count("const minimap = () => fixture.debugElement.children.find(byCss('app-minimap-2d'));")).toBe(1);
+  expect(count("const minimap = () => $$(By.tagName('app-minimap-2d'));")).toBe(0);
+  expect(count("let minimap;\nbeforeEach(() => { minimap = host.querySelectorAll('app-minimap-2d'); });", 'minimap')).toBe(0);
+  expect(count('let minimap = build();', 'minimap')).toBe(1);
+  expect(count('', 'minimap()')).toBe(1);
+});

@@ -11,6 +11,7 @@
  * Alone in its block it is not reported: a file whose only test is this one at least proves the
  * subject can be constructed, and a rule that empties a spec file has stopped being a lint rule.
  */
+import { boundValueOf, findBinding } from './bindings';
 import { defineRule } from './define-rule';
 import {
   type EsCallExpression,
@@ -19,6 +20,7 @@ import {
   type EsNode,
   type FixFunction,
   type RuleContext,
+  anyInSubtree,
   enclosingFunction,
   isBlockStatement,
   isCallExpression,
@@ -195,8 +197,60 @@ function subjectReference(subject: EsNode, context: RuleContext): string | undef
   return isIdentifier(current) ? current.name : undefined;
 }
 
+/** Calls that look an element up in a rendered template — their result says which branch rendered. */
+const DOM_QUERIES = new Set([
+  'closest',
+  'getElementById',
+  'getElementsByClassName',
+  'getElementsByTagName',
+  'query',
+  'queryAll',
+  'querySelector',
+  'querySelectorAll',
+]);
+
+function isDomQuery(node: EsNode): boolean {
+  if (!isCallExpression(node)) {
+    return false;
+  }
+
+  const { callee } = node;
+
+  return (
+    DOM_QUERIES.has(memberName(callee) ?? '') || (isMemberExpression(callee) && isIdentifier(callee.object) && callee.object.name === 'By')
+  );
+}
+
+/** What a named subject holds: the value bound to `el`, or the body of the local helper `minimap()` calls. */
+function heldValue(context: RuleContext, subject: EsNode): EsNode | undefined {
+  const name = isCallExpression(subject) ? subject.callee : subject;
+
+  if (!isIdentifier(name)) {
+    return undefined;
+  }
+
+  const scope = context.sourceCode.getScope(name);
+
+  return (
+    boundValueOf(scope, name) ??
+    findBinding(scope, name.name)
+      ?.defs.map((definition) => definition.node)
+      .find(isFunctionNode)
+  );
+}
+
+/**
+ * `expect(minimap()).not.toBeNull()` over `const minimap = () => fixture.debugElement.query(By.css('app-minimap'))`
+ * asserts which template branch rendered, not that a subject was built.
+ */
+function readsTheDom(context: RuleContext, subject: EsNode): boolean {
+  const held = heldValue(context, subject);
+
+  return held !== undefined && anyInSubtree(context, held, isDomQuery, true);
+}
+
 /** The value an assertion asks to exist, or `undefined` for an assertion that asks anything else. */
-function existenceSubject(expression: EsNode): EsNode | undefined {
+function existenceSubject(context: RuleContext, expression: EsNode): EsNode | undefined {
   if (!isCallExpression(expression) || !isMemberExpression(expression.callee)) {
     return undefined;
   }
@@ -220,19 +274,21 @@ function existenceSubject(expression: EsNode): EsNode | undefined {
     return undefined;
   }
 
-  return namesSubject(subject, matcher) ? subject : undefined;
+  return namesSubject(subject, matcher) && !readsTheDom(context, subject) ? subject : undefined;
 }
 
 /** The value a test body does nothing but assert the existence of — `undefined` as soon as it does anything else. */
-function existenceOnly(callback: EsFunction): EsNode | undefined {
+function existenceOnly(context: RuleContext, callback: EsFunction): EsNode | undefined {
   const body = callback.body;
 
   // A concise arrow carries the expression itself where a block carries statements.
   if (!isBlockStatement(body)) {
-    return existenceSubject(body);
+    return existenceSubject(context, body);
   }
 
-  const subjects = body.body.map((statement) => (isExpressionStatement(statement) ? existenceSubject(statement.expression) : undefined));
+  const subjects = body.body.map((statement) =>
+    isExpressionStatement(statement) ? existenceSubject(context, statement.expression) : undefined,
+  );
 
   return subjects.length > 0 && subjects.every(Boolean) ? subjects[0] : undefined;
 }
@@ -409,7 +465,7 @@ export const noRedundantSmokeTest = defineRule({
         const scope = enclosingFunction(node);
         const block = blocks.get(scope) ?? { below: 0, proving: 0, running: [], smoke: [] };
         const callback = node.arguments.find(isFunctionNode);
-        const subject = callback && existenceOnly(callback);
+        const subject = callback && existenceOnly(context, callback);
 
         if (subject) {
           block.smoke.push({ node, subject });
