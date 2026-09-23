@@ -212,6 +212,11 @@
         "default": "./dist/eslint-plugin.cjs"
       }
     },
+    "./perf-reporter": {
+      "types": "./dist/perf-reporter.d.ts",
+      "import": "./dist/perf-reporter.js",
+      "default": "./dist/perf-reporter.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [
@@ -313,7 +318,7 @@
     "jscpd": "jscpd",
     "check": "npm run deps:check && npm run typecheck && npm run lint && npm run format:check && npm run jscpd && npm run export-map:check && npm run llms:check && npm run docs:check && npm run ru:check && npm run plugin:sync:check && npm run skill:check && npm run alias:sync:check && npm run test:coverage && npm run test:types && npm run types:budget && npm run test:shared-env && npm run test:zone && npm run test:happy-dom && npm run test:invariants && npm run test:node && npm run test:bun && npm run test:bun:angular && npm run test:bun:isolate && npm run test:rstest && npm run build && npm run smoke:dist && npm run size:entries:check && npm run size:badge:check && npm run test:bun:preload && npm run cold-import:check",
     "prepublishOnly": "npm run build",
-    "version": "node scripts/sync-plugin-version.mjs && node scripts/sync-alias.mjs && node scripts/generate-export-map.mjs && git add .claude-plugin alias src/cli/checks/export-map.generated.ts"
+    "version": "node scripts/sync-plugin-version.mjs && node scripts/sync-alias.mjs && node scripts/generate-export-map.mjs && node scripts/stamp-changelog.mjs && git add .claude-plugin alias src/cli/checks/export-map.generated.ts CHANGELOG.md"
   },
   "peerDependencies": {
     "@angular/common": ">=20.0.0",
