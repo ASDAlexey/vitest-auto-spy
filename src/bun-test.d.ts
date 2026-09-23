@@ -40,6 +40,7 @@ declare module 'bun:test' {
   export function expect<T>(actual: T): BunExpectation<T>;
   export function describe(label: string, body: () => void): void;
   export function it(label: string, body: () => Promise<void> | void): void;
+  export function beforeAll(body: () => Promise<void> | void): void;
   export function beforeEach(body: () => Promise<void> | void): void;
   export function afterEach(body: () => Promise<void> | void): void;
 }

@@ -40,7 +40,7 @@ import { NgModule, provideZonelessChangeDetection } from '@angular/core';
 import { TestBed, getTestBed } from '@angular/core/testing';
 import { BrowserTestingModule, platformBrowserTesting } from '@angular/platform-browser/testing';
 import { type BunOnLoadArgs, type BunOnLoadResult, type BunPluginBuilder, plugin } from 'bun';
-import { afterEach } from 'bun:test';
+import { afterEach, beforeAll } from 'bun:test';
 import { readFileSync } from 'node:fs';
 
 import { inlineAngularResources } from './lib/angular-resource-inliner';
@@ -50,9 +50,9 @@ import { createGlobalRegistratorRegistrar, createJsdomRegistrar, registerDomGlob
 const BUN_ANGULAR_SETUP = Symbol.for('vitest-auto-spy:bun-angular');
 
 // 1. A DOM first: `@angular/*` modules import fine without one, but everything from
-//    `platformBrowserTesting()` onwards reads `document`. Bun awaits a preload's top-level `await`
-//    before it loads the first test file, so this is finished by the time any spec runs.
-await registerDomGlobals({
+//    `platformBrowserTesting()` onwards reads `document`. Started here, awaited by the hook below
+//    and at the end of the file.
+const domReady = registerDomGlobals({
   registrars: [
     createGlobalRegistratorRegistrar({ name: '@happy-dom/global-registrator', load: () => import('@happy-dom/global-registrator') }),
     createJsdomRegistrar({ load: () => import('jsdom'), target: globalThis }),
@@ -77,20 +77,37 @@ if (Reflect.get(globalThis, BUN_ANGULAR_SETUP) !== true) {
       });
     },
   });
+}
 
-  // 3. A zoneless TestBed environment. The decorator is applied as a plain call so the published
-  //    bundle carries no `__decorate` helper and no dependency on the consumer's decorator setting.
+// 3. A zoneless TestBed environment. The decorator is applied as a plain call so the published
+//    bundle carries no `__decorate` helper and no dependency on the consumer's decorator setting.
+function initTestEnvironment(): void {
+  if ((Reflect.get(getTestBed(), 'platform') ?? null) !== null) {
+    return;
+  }
+
   const ZonelessTestModule = NgModule({ providers: [provideZonelessChangeDetection()] })(class ZonelessTestModule {});
 
   getTestBed().initTestEnvironment([BrowserTestingModule, ZonelessTestModule], platformBrowserTesting());
-
-  // Vitest resets the module between files; `bun test` shares one global unless `--isolate` is on,
-  // so the reset has to be explicit — otherwise the second `configureTestingModule` of the run
-  // fails with "the test module has already been instantiated".
-  afterEach((): void => {
-    TestBed.resetTestingModule();
-  });
 }
+
+// The hooks are registered before any `await`: under `--isolate` Bun re-runs this preload for every
+// file in a fresh global and starts the file without waiting for the preload's top-level await.
+beforeAll(async (): Promise<void> => {
+  await domReady;
+  initTestEnvironment();
+});
+
+// Vitest resets the module between files; `bun test` shares one global unless `--isolate` is on,
+// so the reset has to be explicit — otherwise the second `configureTestingModule` of the run
+// fails with "the test module has already been instantiated".
+afterEach((): void => {
+  TestBed.resetTestingModule();
+});
+
+// Without `--isolate` Bun awaits this before the first test file, so specs can touch the DOM at import.
+await domReady;
+initTestEnvironment();
 
 // 4. The core API on Bun's mocks — importing `./bun` is what registers the Bun adapter.
 export * from './bun';

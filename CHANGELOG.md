@@ -198,6 +198,11 @@ The latest released version here must always match the one published on
 
 ### Fixed
 
+- **`vitest-auto-spy/bun-angular` under `bun test --isolate`.** Bun re-runs the preload for every
+  file in a fresh global and starts the file without waiting for the preload's top-level `await`,
+  so every `TestBed` spec failed with "Need to call TestBed.initTestEnvironment() first". The
+  preload now registers its hooks before awaiting the DOM, and a `beforeAll` finishes the setup.
+
 - **`init` names the setup file, not the `sequence.setupFiles` order.** The block it writes tells
   an agent where `import 'vitest-auto-spy/rxjs'` goes, and it took the first `setupFiles:` in the
   config — which in a config with `sequence: { setupFiles: 'list' }` above the real list is the
