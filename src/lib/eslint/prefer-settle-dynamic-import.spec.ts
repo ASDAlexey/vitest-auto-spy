@@ -45,6 +45,7 @@ describe('prefer-settle-dynamic-import', () => {
     expect(text).toContain('waits for the **module** and not for the code that was loading it');
     expect(text).toContain('settleDynamicImport(() => import(');
     expect(text).toContain('vitest-auto-spy');
+    expect(text).toContain('the spec only reads its exports, after an arrangement line — the repair is a static `import`');
   });
 
   it('reads the destructured form, which the helper returns the namespace for', () => {

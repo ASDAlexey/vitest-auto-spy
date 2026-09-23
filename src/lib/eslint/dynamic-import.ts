@@ -173,7 +173,8 @@ const REPAIR =
   '`flushEventLoop(1)`, which is the turn that continuation needs; it returns the module namespace, so ' +
   '`const { Thing } = await import(…)` keeps reading the same way. A continuation that spans more than one turn takes the ' +
   'second argument. What it cannot replace is `fakeAsync` / `tick()` / `flushMicrotasks()`: those drive Angular’s zone ' +
-  'queues, and the module loader is not one of them.';
+  'queues, and the module loader is not one of them. Where nothing the test ran loads this module — the spec only reads its ' +
+  'exports, after an arrangement line — the repair is a static `import` at the top of the file instead.';
 
 /** `await import('./thing')` in a test body → `await settleDynamicImport(() => import('./thing'))`. */
 export const preferSettleDynamicImport: RuleModule = defineRule({
