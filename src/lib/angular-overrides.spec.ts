@@ -94,6 +94,28 @@ describe('overrideComponentProvider', () => {
     expect(menu.build).toHaveBeenCalled();
   });
 
+  it('names the inject that ran first when the module is already instantiated', () => {
+    TestBed.configureTestingModule({ providers: [UnrelatedService] });
+    TestBed.inject(UnrelatedService);
+
+    expect(() => overrideComponentProvider(MenuHostComponent, NavigationBuilderService)).toThrow(
+      /overrideComponentProvider\(MenuHostComponent, NavigationBuilderService\) ran after the testing module was instantiated[\s\S]*Override first, then inject/,
+    );
+  });
+
+  it('passes any other failure through unchanged', () => {
+    const boom = new Error('boom');
+    const configure = vi.spyOn(TestBed, 'configureTestingModule').mockImplementation(() => {
+      throw boom;
+    });
+
+    try {
+      expect(() => overrideComponentProvider(MenuHostComponent, NavigationBuilderService)).toThrow(boom);
+    } finally {
+      configure.mockRestore();
+    }
+  });
+
   it('queues a non-standalone component as a declaration', () => {
     const menu = overrideComponentProvider(DeclaredHostComponent, NavigationBuilderService);
 

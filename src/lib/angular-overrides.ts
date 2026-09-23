@@ -95,11 +95,33 @@ export function overrideComponentProvider<T = any>(
 ): Spy<T> {
   const override = overrideAutoSpy(ObjectClass, methodsToSpyOnOrConfig);
 
-  TestBed.configureTestingModule(isStandalone(component) ? { imports: [component] } : { declarations: [component] });
-  TestBed.overrideProvider(ObjectClass, override);
+  try {
+    TestBed.configureTestingModule(isStandalone(component) ? { imports: [component] } : { declarations: [component] });
+    TestBed.overrideProvider(ObjectClass, override);
+  } catch (error) {
+    throw explainLateOverride(error, component, ObjectClass);
+  }
+
   verifyOnNextCreate({ component, token: ObjectClass, spy: override.useValue });
 
   return override.useValue;
+}
+
+function explainLateOverride(error: unknown, component: Type<unknown>, token: ClassType<unknown>): unknown {
+  if (!(error instanceof Error) || !error.message.includes('already been instantiated')) {
+    return error;
+  }
+
+  return new Error(
+    withDocs(
+      `[vitest-auto-spy] overrideComponentProvider(${component.name}, ${token.name}) ran after the testing module was ` +
+        'instantiated, and Angular accepts no override past that point. Something read the injector first — a ' +
+        '`TestBed.inject`, an `injectSpy`, a `createComponent` — earlier in this test or in the same `beforeCreate`. ' +
+        'Override first, then inject.',
+      DOCS_LINKS.angularOverrides,
+    ),
+    { cause: error },
+  );
 }
 
 /** The `DebugElement` surface the verification walks, read structurally so no `@angular/platform-browser` import is needed. */
