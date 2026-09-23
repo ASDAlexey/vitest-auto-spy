@@ -421,6 +421,23 @@ The latest released version here must always match the one published on
   its tag. A changelog without the heading or the `[Unreleased]` link now fails the release before
   anything is published.
 
+### Size
+
+`/setup` **19.65 → 21.80 kB** min+gzip (+2.15 kB, +10.9 %): 1.44 kB of it is the three file-boundary
+repairs — `strayListeners`, `restoreGlobals`, `restoreStorageSpies` and the ordered `afterAll` that
+runs them — and the rest is `strict: 'survey'`, the `VITEST_AUTO_SPY_STRICT` override and
+`isAngularUnitTestBuilder()`. The `vitest` import the repairs need stays in `dist/setup.js`; no
+runtime entry imports it. `/dom-stubs` 6.35 → 7.07 kB (+0.72 kB, +11.4 %) for `stubWorker` and the
+rect completion in `intersectionEntry`. `/bun-angular` 27.41 → 28.32 kB (+0.90 kB, +3.3 %): the
+core's +0.60 kB that every runtime entry carries (`outOfType`, `expectAllEmissions`, the strict
+survey, call-site names for strict doubles) plus `keepModules` / `keepHostDirectives` and the
+protected-member keys of `mockSignalProp`. Heap per spied method is unchanged at 2.92 kB, and
+creating a spy costs 12.08 µs against 12.14 µs.
+
+`/eslint-plugin` **48.62 → 50.92 kB** min+gzip (+2.30 kB, +4.7 %) for the rule work above —
+the `renderShallow` fold, the wider hand-rolled double detection and the fixture-cast unwrapping
+the most of it; a lint-time entry no test run imports.
+
 ## [5.24.0] - 2026-09-22
 
 `ignoreCancelled` reaches the diagnostics group, the `Location` double answers `path()` the way
