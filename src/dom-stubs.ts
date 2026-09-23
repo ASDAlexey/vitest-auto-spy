@@ -30,6 +30,9 @@ export { stubAbortController } from './lib/abort-controller-stub';
 // An in-memory localStorage / sessionStorage a spec installs for itself, with a snapshot to assert on
 export { stubWebStorage, type WebStorageKey, type WebStorageStub, type WebStorageStubOptions } from './lib/web-storage';
 
+// A `Worker` whose script is the spec: messages recorded, replies queued like the platform queues them
+export { stubWorker, type WorkerInstance, type WorkerScript, type WorkerStub, type WorkerStubOptions } from './lib/worker-stub';
+
 // Observer globals a component constructs itself, replaced by ones a spec can drive
 export {
   intersectionEntry,
