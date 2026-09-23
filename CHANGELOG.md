@@ -86,7 +86,9 @@ The latest released version here must always match the one published on
 - **`doctor --ignore <check,…>`.** A finding the repository has answered in a way `doctor` cannot
   see — `angular-build-splitting-off` on a project that patches the builder's code splitting back on,
   say — had to be lived with in every run and turned the exit code of a CI step. The named checks are
-  left out of the report, the tally and the exit code.
+  left out of the report, the tally, the exit code and the `--code-quality` file. The
+  `no-agent-instructions` fix now names it for repositories that keep their agent instruction files
+  out of git, where CI never sees them.
 
 - **`isAngularUnitTestBuilder()` on `/setup`.** A setup file that both the Angular unit-test builder
   and plain Vitest run cannot call `initTestEnvironment()` under the builder — it has initialised

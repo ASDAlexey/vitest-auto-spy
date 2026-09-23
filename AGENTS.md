@@ -4442,6 +4442,12 @@ pipe), groups one cause found in many files into one block, and ends in a tally 
 with `N errors, N warnings, N notes`. `--format markdown` renders the same document as tables — for a
 merge request note or a job summary, not for parsing.
 
+**`doctor --ignore <check,…>`** leaves the named checks out of the report, the tally, the exit code
+and the `--code-quality` file. Use it only for a finding the repository has answered in a way
+`doctor` cannot see — `no-agent-instructions` in CI where the instruction files are kept out of git,
+`angular-build-splitting-off` under a patched builder. `--min-severity` hides findings from the text
+only; `--ignore` removes them.
+
 ### If you were asked why a suite is slow
 
 ```bash

@@ -16395,6 +16395,19 @@ warn   dead-runner-config karma.conf.js
 0 errors, 1 warning, 3 notes (3 not shown: --min-severity warning)
 ```
 
+**`--ignore` for a finding the repository has already answered.** Some findings are right in
+general and wrong for one repository in a way `doctor` cannot see: `angular-build-splitting-off` on
+a project that patches the builder's code splitting back on, or `no-agent-instructions` in CI for a
+repository that keeps its agent instruction files out of git — they exist on every developer's
+machine, and the clean checkout never has them. `--ignore <check,…>` takes a comma-separated list
+of check ids and leaves those checks out of the report, the tally, the exit code and the
+`--code-quality` file, so the merge request widget does not show them either. Unlike
+`--min-severity`, it hides the finding completely — name only the checks you have answered.
+
+```bash
+npx vitest-auto-spy doctor --ignore no-agent-instructions --code-quality reports/doctor.json
+```
+
 **One cause is printed once.** Findings of the same check with the same fix are one block: the
 message once when every place says the same thing — six library tsconfigs with the same empty
 `include` — and each file's own line under it otherwise, then the fix once. A finding that carries

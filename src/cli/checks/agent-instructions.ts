@@ -26,7 +26,7 @@ export function checkAgentInstructions(profile: Profile): Finding[] {
       check: 'no-agent-instructions',
       severity: 'info',
       message: 'No root AGENTS.md, CLAUDE.md, GEMINI.md or .claude/CLAUDE.md mentions vitest-auto-spy.',
-      fix: 'Run `npx vitest-auto-spy init` to write a pointer to `node_modules/vitest-auto-spy/AGENTS.md` into the files the agents in this repository read — `--only CLAUDE.md,.claude` where the others would be tracked files.',
+      fix: 'Run `npx vitest-auto-spy init` to write a pointer to `node_modules/vitest-auto-spy/AGENTS.md` into the files the agents in this repository read — `--only CLAUDE.md,.claude` where the others would be tracked files. Where the instruction files are kept out of git, CI never sees them: pass `--ignore no-agent-instructions` there.',
     },
   ];
 }
