@@ -317,6 +317,19 @@ export interface AddVoidReturnHelpers {
   returnValue(value?: undefined): void;
 }
 
+/** `true` for a union, `false` for anything else — an intersection included. */
+type IsUnion<T, Whole = T> = T extends unknown ? ([Whole] extends [T] ? false : true) : never;
+
+/**
+ * The signature a stub is checked against: the method's own, or one signature for a union of them.
+ *
+ * `MockInstance<A | B>` types `mockImplementation` as `(() => A) | (() => B)`, which a function
+ * returning `A | B` matches neither half of. `@ngrx/signals` hands every nullable object slice of a
+ * store over as exactly such a union — `DeepSignal<Angle> | Signal<null>` for `Angle | null` — so
+ * `store.angle.mockImplementation(() => angle())` could not compile against a real signal.
+ */
+type StubSignature<Method extends Func> = true extends IsUnion<Method> ? (...args: Parameters<Method>) => ReturnType<Method> : Method;
+
 /**
  * Wrap a method's spy with the helper bundle chosen by its return type.
  *
@@ -368,7 +381,7 @@ export interface AddVoidReturnHelpers {
  */
 export type AddSpyMethodsByReturnTypes<Method extends Func> = AddThrowHelper &
   Method &
-  MockInstance<Method> &
+  MockInstance<StubSignature<Method>> &
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the `(...args: any[]) => infer ReturnType` conditional only extracts the return type; the parameter shape is irrelevant here and a narrower signature would fail to match arbitrary methods.
   (Method extends (...args: any[]) => infer ReturnType
     ? 0 extends ReturnType & 1
@@ -381,6 +394,12 @@ export type AddSpyMethodsByReturnTypes<Method extends Func> = AddThrowHelper &
             ? AddCalledWithSpyMethods<Method> & AddVoidReturnHelpers
             : AddCalledWithSpyMethods<Method>
     : AddCalledWithSpyMethods<Method>);
+
+/**
+ * What `createFunctionSpy<Fn>()` returns — the name to declare a variable with:
+ * `let onSave: FunctionSpy<(draft: Draft) => void>;`, then `onSave.mustBeCalledWith(draft)`.
+ */
+export type FunctionSpy<Fn extends Func> = AddSpyMethodsByReturnTypes<Fn>;
 
 // ---------------------------------------------------------------------------
 // Overload selection
@@ -696,6 +715,13 @@ export type PropStubValue<V> = (V extends (...args: infer Args) => infer Return 
 export type Mutable<T> = { -readonly [K in keyof T]: T[K] };
 
 /**
+ * `unknown` for a key the public type does not describe, `never` for one it does — so the loose
+ * overload of `mockSignalProp` / `mockResourceProp` reaches a `protected` member without taking a
+ * public one past its value check.
+ */
+export type NotAPublicKey<T, P extends PropertyKey> = P extends keyof T ? never : unknown;
+
+/**
  * A partial `T` that stays partial all the way down.
  *
  * `Partial<T>` is one level deep, so a fixture for a configuration object, an account token or a
@@ -719,15 +745,33 @@ export type Mutable<T> = { -readonly [K in keyof T]: T[K] };
  * accepts a key present in *some* member, and both members here have exactly the keys of `T`, so a
  * key `T` does not have is still rejected — at any depth.
  */
-export type DeepPartial<T> = T extends Func
+export type DeepPartial<T> = DistributedPartial<T> | UnionCall<Extract<T, Func>>;
+
+/**
+ * One signature for a member typed as a union of them, which no distributed branch accepts as a whole:
+ * `@ngrx/signals` gives a nullable slice as `DeepSignal<A> | Signal<null>`, and a `signal<A | null>()` is neither.
+ */
+type UnionCall<F extends Func> = true extends IsUnion<F> ? (...args: Parameters<F>) => ReturnType<F> : never;
+
+type DistributedPartial<T> = T extends Func
   ? T | ((...args: Parameters<T>) => ReturnType<T>)
   : T extends BuiltIn
     ? T
     : T extends readonly (infer Element)[]
       ? DeepPartial<Element>[]
       : T extends object
-        ? T | { [K in keyof T]?: DeepPartial<T[K]> }
+        ? ConstructSignature<T> | T | { [K in keyof T]?: DeepPartial<T[K]> | PresentButUndefined<T, K> }
         : T;
+
+/**
+ * `undefined` for a key `T` itself declares optional: under `exactOptionalPropertyTypes` that is how a
+ * fixture says "present, and unset" — `createFixture(base, { sites: undefined })` clears it. A required
+ * key still refuses `undefined`.
+ */
+type PresentButUndefined<T, K extends keyof T> = Partial<Pick<T, K>> extends Pick<T, K> ? undefined : never;
+
+/** A class-typed member also takes a bare construct signature — a mock class typed `new () => X` has no `prototype` to map. */
+type ConstructSignature<T> = T extends abstract new (...args: infer A) => infer R ? new (...args: A) => R : never;
 
 /**
  * Values {@link DeepPartial} must hand back untouched.
@@ -754,9 +798,13 @@ type BuiltIn = Date | Func | Promise<unknown> | ReadonlyMap<unknown, unknown> | 
  *
  * A method `Object.prototype` also has (`toString`) accepts the inherited member too: every literal
  * carries it, so `{ returns: { reload: undefined } }` was rejected on a type declaring `toString()`.
+ *
+ * `undefined` is accepted for any method: under `strict` it marks the method configured whose answer
+ * the caller ignores — an ngrx `rxMethod` ref, a snack-bar ref — which `exactOptionalPropertyTypes`
+ * otherwise refused for every return type that does not already include it.
  */
 export type MethodReturns<T> = {
-  [K in Exclude<OnlyMethodKeysOf<T>, ObjectPrototypeKey>]?: Required<T>[K] extends Func ? ReturnType<Required<T>[K]> : never;
+  [K in Exclude<OnlyMethodKeysOf<T>, ObjectPrototypeKey>]?: Required<T>[K] extends Func ? ReturnType<Required<T>[K]> | undefined : never;
 } & {
   [K in Extract<OnlyMethodKeysOf<T>, ObjectPrototypeKey>]?: Required<T>[K] extends Func
     ? ObjectPrototypeMembers[K] | ReturnType<Required<T>[K]>
@@ -770,7 +818,7 @@ type ObjectPrototypeKey = keyof ObjectPrototypeMembers;
 
 /** Everything the strict-mode handler is told about a call nobody configured. */
 export interface UnstubbedCall {
-  /** The class the double was built from — `undefined` for a type-driven `createAutoMock`. */
+  /** The class the double was built from, the `name` a type-driven double was given, or `createAutoMock(file:line)` for one without. */
   className: string | undefined;
   /** The method that was called. */
   method: string;
@@ -789,7 +837,7 @@ export type UnstubbedCallHandler = (call: UnstubbedCall) => unknown;
 
 /** What the read hook is told about a member of a double that was read — or subscribed to — with nothing configured. */
 export interface UnstubbedRead {
-  /** The class the double was built from — `undefined` for a type-driven `createAutoMock` given no `name`. */
+  /** The class the double was built from, the `name` a type-driven double was given, or `createAutoMock(file:line)` for one without. */
   className: string | undefined;
   /** The spied getter that was read, or the observable property that was subscribed to. */
   member: string;
