@@ -73,6 +73,19 @@ describe('runCli', () => {
     expect(runCli(['codemod', '--wirte', '--cwd', root], recorder())).toBe(2);
   });
 
+  it('points a --json or --markdown on doctor at --format, and says nothing of it where --format is not taken', () => {
+    const root = createTempRepo(HEALTHY);
+    const doctor = recorder();
+    const init = recorder();
+
+    expect(runCli(['doctor', '--json', '--cwd', root], doctor)).toBe(2);
+    expect(doctor.stderr.at(-1)).toBe('Did you mean `--format json`?');
+    expect(runCli(['doctor', '--markdown', '--jsn', '--cwd', root], doctor)).toBe(2);
+    expect(doctor.stderr.at(-1)).toBe('Did you mean `--format markdown`?');
+    expect(runCli(['init', '--markdown', '--cwd', root], init)).toBe(2);
+    expect(init.stderr.join('\n')).not.toContain('Did you mean');
+  });
+
   it('refuses a --cwd that is not a directory instead of reporting a clean repository', () => {
     const root = createTempRepo(HEALTHY);
     const io = recorder();

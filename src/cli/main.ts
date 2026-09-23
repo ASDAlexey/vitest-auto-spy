@@ -298,6 +298,12 @@ function rejectFlags(args: ParsedArgs, command: string, io: CliIo): boolean {
       .join(', ')}.`,
   );
 
+  const formats = unknown.filter((name) => accepted.includes('format') && (name === 'json' || name === 'markdown'));
+
+  if (formats.length > 0) {
+    io.err(`Did you mean ${formats.map((name) => `\`--format ${name}\``).join(', ')}?`);
+  }
+
   return true;
 }
 
