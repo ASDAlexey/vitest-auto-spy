@@ -169,6 +169,12 @@ describe('runInit --check and --dry-run', () => {
     expect(runInit(readProfile(root), '9.9.9', { ...OPTIONS, check: true }).ok).toBe(true);
     expect(statusOf(runInit(readProfile(root), '9.9.9', { ...OPTIONS, check: true }), 'AGENTS.md')).toBe('unchanged');
 
+    const stampNotes = [{ check: true }, { dryRun: true }].map(
+      (mode) => runInit(readProfile(root), '9.9.9', { ...OPTIONS, ...mode }).actions.find((action) => action.path === 'AGENTS.md')?.note,
+    );
+
+    expect(stampNotes.every((note) => note?.includes('only the version stamp differs'))).toBe(true);
+
     const stale = (readTextFile(join(root, 'AGENTS.md')) ?? '').replace('`methodsToSpyOn`', '`methodsToSpyOnce`');
 
     writeTextFile(join(root, 'AGENTS.md'), stale);

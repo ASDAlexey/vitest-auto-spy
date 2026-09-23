@@ -81,6 +81,18 @@ function planFor(target: Target, content: string | undefined, profile: Profile, 
  * `--check` judges the block, not the version stamp in its marker: a bump with an identical body is
  * not work for the consumer's CI to fail over. A plain run still refreshes the stamp.
  */
+function isStampOnly(plan: Plan): boolean {
+  return (
+    plan.existing !== undefined &&
+    plan.desired !== undefined &&
+    plan.existing !== plan.desired &&
+    withoutVersion(plan.existing) === withoutVersion(plan.desired)
+  );
+}
+
+/** `--check` and `--dry-run` must not seem to disagree over a marker whose only change is the stamp. */
+const STAMP_ONLY_NOTE = 'only the version stamp differs, which `--check` does not count; a plain `init` refreshes it';
+
 function statusOf(plan: Plan, check: boolean): ActionStatus {
   if (plan.desired === undefined) {
     return 'skipped';
@@ -94,7 +106,7 @@ function statusOf(plan: Plan, check: boolean): ActionStatus {
     return 'unchanged';
   }
 
-  return check && withoutVersion(plan.existing) === withoutVersion(plan.desired) ? 'unchanged' : 'updated';
+  return check && isStampOnly(plan) ? 'unchanged' : 'updated';
 }
 
 /** `.claude` selects `.claude/skills/…`; a trailing slash or `./` is spelling, not meaning. */
@@ -176,9 +188,10 @@ function uninstallPlan(plan: Plan): Plan {
 function applyPlan(cwd: string, plan: Plan, options: InitOptions): InitAction {
   const status = options.uninstall ? uninstallStatus(plan) : statusOf(plan, options.check);
   const path = plan.target.path;
+  const note = !options.uninstall && isStampOnly(plan) ? `${plan.note} — ${STAMP_ONLY_NOTE}` : plan.note;
 
   if (options.check || options.dryRun || plan.desired === undefined || status === 'unchanged') {
-    return { path, status, note: plan.note };
+    return { path, status, note };
   }
 
   if (plan.desired === '') {
@@ -187,7 +200,7 @@ function applyPlan(cwd: string, plan: Plan, options: InitOptions): InitAction {
     writeTextFile(join(cwd, path), plan.desired);
   }
 
-  return { path, status, note: plan.note };
+  return { path, status, note };
 }
 
 function uninstallStatus(plan: Plan): ActionStatus {
