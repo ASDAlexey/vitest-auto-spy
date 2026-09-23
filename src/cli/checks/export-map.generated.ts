@@ -12,7 +12,7 @@ export const EXPORT_MAP_VERSION = '5.24.0';
 
 /** Every published entry specifier, in `exports` order. `EXPORTED_BY` indexes into this list. */
 export const ENTRY_SPECIFIERS =
-  'vitest-auto-spy vitest-auto-spy/bun vitest-auto-spy/bun-angular vitest-auto-spy/node vitest-auto-spy/rstest vitest-auto-spy/rxjs vitest-auto-spy/console vitest-auto-spy/dom-stubs vitest-auto-spy/diagnostics vitest-auto-spy/jasmine vitest-auto-spy/jasmine-compat vitest-auto-spy/observer-spy vitest-auto-spy/angular vitest-auto-spy/angular/diagnostics vitest-auto-spy/angular/doubles vitest-auto-spy/angular/matchers vitest-auto-spy/angular-http vitest-auto-spy/angular-router vitest-auto-spy/signal-forms vitest-auto-spy/nestjs vitest-auto-spy/react vitest-auto-spy/vue vitest-auto-spy/svelte vitest-auto-spy/setup vitest-auto-spy/zone vitest-auto-spy/eslint-plugin';
+  'vitest-auto-spy vitest-auto-spy/bun vitest-auto-spy/bun-angular vitest-auto-spy/node vitest-auto-spy/rstest vitest-auto-spy/rxjs vitest-auto-spy/console vitest-auto-spy/dom-stubs vitest-auto-spy/diagnostics vitest-auto-spy/jasmine vitest-auto-spy/jasmine-compat vitest-auto-spy/observer-spy vitest-auto-spy/angular vitest-auto-spy/angular/diagnostics vitest-auto-spy/angular/doubles vitest-auto-spy/angular/matchers vitest-auto-spy/angular-http vitest-auto-spy/angular-router vitest-auto-spy/signal-forms vitest-auto-spy/nestjs vitest-auto-spy/react vitest-auto-spy/vue vitest-auto-spy/svelte vitest-auto-spy/setup vitest-auto-spy/zone vitest-auto-spy/eslint-plugin vitest-auto-spy/perf-reporter';
 
 /** Export name → the space-separated indices of every entry that exports it. */
 export const EXPORTED_BY: Readonly<Record<string, string>> = {
@@ -129,7 +129,7 @@ export const EXPORTED_BY: Readonly<Record<string, string>> = {
   CreateWithAutoSpiesOptions: '2 12',
   DeepMockProxy: '0 1 2 3 4 20 21 22',
   DeepPartial: '0 1 2 3 4 20 21 22',
-  default: '25',
+  default: '25 26',
   describeDuplicateCopies: '0 1 2 3 4 20 21 22 23',
   describeStrayTimers: '23',
   DialogComponent: '14',
@@ -151,6 +151,7 @@ export const EXPORTED_BY: Readonly<Record<string, string>> = {
   enableTestBedDiagnostics: '13',
   errorHandler: '0 1 2 3 4 20 21 22',
   ErrorValueConfig: '0 1 2 3 4 5 20 21 22',
+  expectAllEmissions: '0 1 2 3 4 12 20 21 22',
   expectCompletion: '0 1 2 3 4 12 20 21 22',
   expectEmission: '0 1 2 3 4 12 20 21 22',
   expectEmissions: '0 1 2 3 4 12 20 21 22',
@@ -175,6 +176,7 @@ export const EXPORTED_BY: Readonly<Record<string, string>> = {
   formatSpecTiming: '13',
   formatTestRunComparison: '8',
   Func: '0 1 2 3 4 20 21 22',
+  FunctionSpy: '0 1 2 3 4 20 21 22',
   getMockRegistrySize: '23',
   getPackageCopies: '0 1 2 3 4 20 21 22 23',
   getSpyEngine: '23',
@@ -200,7 +202,9 @@ export const EXPORTED_BY: Readonly<Record<string, string>> = {
   InstanceSpyConfiguration: '0 1 2 3 4 20 21 22',
   instrumentTestBed: '13',
   intersectionEntry: '7',
+  IntersectionEntryOverrides: '7',
   IntersectionObserverStubOptions: '7',
+  isAngularUnitTestBuilder: '23',
   jasmine: '9',
   JasmineAccessorSpies: '9 10',
   JasmineAccessorSpy: '9 10',
@@ -255,6 +259,7 @@ export const EXPORTED_BY: Readonly<Record<string, string>> = {
   NestUnitSpies: '19',
   NestValueProvider: '19',
   NextValueConfig: '0 1 2 3 4 5 20 21 22',
+  NotAPublicKey: '0 1 2 3 4 20 21 22',
   ObservableLike: '0 1 2 3 4 20 21 22',
   ObserverGlobal: '7',
   ObserverInstance: '7',
@@ -265,6 +270,7 @@ export const EXPORTED_BY: Readonly<Record<string, string>> = {
   OnlyMethodKeysOf: '0 1 2 3 4 9 20 21 22',
   OnlyObservablePropsOf: '0 1 2 3 4 9 20 21 22',
   OnlyPropsOf: '0 1 2 3 4 9 20 21 22',
+  outOfType: '0 1 2 3 4 20 21 22',
   OutsideHookReaction: '0 1 2 3 4 20 21 22',
   Overload: '0 1 2 3 4 20 21 22',
   OverloadChoice: '0 1 2 3 4 20 21 22',
@@ -422,4 +428,4 @@ export const EXPORTED_BY: Readonly<Record<string, string>> = {
 
 /** Exports whose every call signature returns a promise — calling one and dropping it is a bug. */
 export const AWAITABLE_HELPERS =
-  'advanceTimers expectCompletion expectEmission expectEmissions expectError expectNoEmission flushEventLoop flushEventLoopUntil registerDomGlobals setInputs settleDynamicImport settleResource stable withSystemTime';
+  'advanceTimers expectAllEmissions expectCompletion expectEmission expectEmissions expectError expectNoEmission flushEventLoop flushEventLoopUntil registerDomGlobals setInputs settleDynamicImport settleResource stable withSystemTime';

@@ -33,6 +33,7 @@ export { stubWebStorage, type WebStorageKey, type WebStorageStub, type WebStorag
 // Observer globals a component constructs itself, replaced by ones a spec can drive
 export {
   intersectionEntry,
+  type IntersectionEntryOverrides,
   mutationRecord,
   resizeEntry,
   stubIntersectionObserver,

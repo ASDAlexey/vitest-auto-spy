@@ -59,6 +59,7 @@ export {
 export { mockSignalProp } from './lib/signal-prop';
 
 export {
+  expectAllEmissions,
   expectCompletion,
   expectEmission,
   expectEmissions,

@@ -172,6 +172,7 @@ export {
 
 // Observable assertions that fail when the stream stays silent
 export {
+  expectAllEmissions,
   expectCompletion,
   expectEmission,
   expectEmissions,
@@ -191,6 +192,7 @@ export {
   asInstances,
   asSpy,
   createSpyClass,
+  outOfType,
   type AsInstances,
   type ConstructorSpy,
   type SpyClassOptions,
