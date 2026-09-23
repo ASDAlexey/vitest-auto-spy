@@ -119,7 +119,7 @@ Copilot, Cline, Windsurf/Cascade, Zed, OpenCode, Qwen, Junie, Roo и Aider. Дв
 | ------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
 | **Claude Code**                                                     | `CLAUDE.md` — проектный, `.claude/CLAUDE.md` и `~/.claude/CLAUDE.md`, все склеиваются                                                                                                                 | **Нет.** Свяжите строкой импорта `@AGENTS.md` или симлинком                     |
 | **OpenAI Codex** — CLI `codex`, расширение для IDE, облачный Codex  | `AGENTS.md`, по одному на директорию от корня git вниз до cwd ([ниже](#openai-codex))                                                                                                                 | нативно                                                                         |
-| **GLM (тарифный план z.ai)**, **Kimi K2**                           | то, что читает их клиент — внутри Claude Code это `CLAUDE.md` ([ниже](#glm-z-ai-kimi-k2-and-other-claude-compatible-models))                                                                          | через клиент                                                                    |
+| **GLM (тарифный план z.ai)**, **Kimi K3**                           | то, что читает их клиент — внутри Claude Code это `CLAUDE.md` ([ниже](#glm-z-ai-kimi-k3-and-other-claude-compatible-models))                                                                          | через клиент                                                                    |
 | **Cursor**                                                          | корневой `AGENTS.md`; `.cursor/rules/*.mdc` для правил с glob-областью                                                                                                                                | нативно — и корневой `CLAUDE.md` он применяет тем же всегда-включённым способом |
 | **GitHub Copilot**                                                  | корневой `AGENTS.md`; `.github/copilot-instructions.md`                                                                                                                                               | нативно, включая coding agent                                                   |
 | **OpenCode**                                                        | `AGENTS.md`, затем `CLAUDE.md`, по директориям вверх                                                                                                                                                  | нативно                                                                         |
@@ -174,7 +174,7 @@ printf '\nRead `AGENTS.md` in this directory — it is the single source.\n' >> 
 | ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Claude Code**                             | `/plugin marketplace add ASDAlexey/vitest-auto-spy`, затем `/plugin install vitest-auto-spy@vitest-auto-spy` — [скилл](#claude-code-plugin), файлы проекта не трогаются |
 | **OpenAI Codex**                            | больше ничего; по желанию `~/.codex/config.toml` [отсюда](#openai-codex)                                                                                                |
-| **GLM (z.ai)**, **Kimi K2**                 | как у Claude Code — тот же клиент, та же команда плагина                                                                                                                |
+| **GLM (z.ai)**, **Kimi K3**                 | как у Claude Code — тот же клиент, та же команда плагина                                                                                                                |
 | **Cursor**                                  | `.cursor/rules/vitest-auto-spy.mdc`, чтобы грузить его только для файлов спек (см. ниже)                                                                                |
 | **GitHub Copilot**                          | `.github/instructions/vitest-auto-spy.instructions.md` (см. ниже)                                                                                                       |
 | **Cline**                                   | `.clinerules/vitest-auto-spy.md` — те же три строки плюс `paths: ["**/*.spec.ts","**/*.test.ts"]`                                                                       |
@@ -254,14 +254,14 @@ project_doc_max_bytes = 65536                    # поднять бюджет �
 `node_modules/vitest-auto-spy/AGENTS.md` лежит на диске с того момента, как setup-скрипт поставил
 зависимости, так что скачивать ничего не нужно.
 
-## GLM (z.ai), Kimi K2 и другие Claude-совместимые модели {#glm-z-ai-kimi-k2-and-other-claude-compatible-models}
+## GLM (z.ai), Kimi K3 и другие Claude-совместимые модели {#glm-z-ai-kimi-k3-and-other-claude-compatible-models}
 
 GLM — это **модель**, а не агент; файлы читает тот клиент, в котором вы её запускаете.
 
 Тарифный план z.ai запускает GLM **внутри Claude Code**, направляя `ANTHROPIC_BASE_URL` (вместе с
 `ANTHROPIC_AUTH_TOKEN`) на Anthropic-совместимый эндпоинт z.ai. Обнаружение файлов это никак не
 меняет: `CLAUDE.md`, `.claude/skills/` и [плагин](#claude-code-plugin) ниже ведут себя ровно так же,
-как на Claude, потому что клиент тот же самый. С Kimi K2, запущенной через Claude Code, история та
+как на Claude, потому что клиент тот же самый. С Kimi K3, запущенной через Claude Code, история та
 же — и там скилл и плагин ценнее вставленного фрагмента, потому что грузятся, только когда спека
 действительно упоминает библиотеку, и всё остальное время не стоят ни токена контекста.
 

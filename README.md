@@ -139,7 +139,7 @@ includes — that one import is what keeps `returnSubject()` typed as rxjs's own
   - [Which file your agent reads](#which-file-your-agent-reads)
   - [Install it in your agent](#install-it-in-your-agent)
   - [OpenAI Codex](#openai-codex)
-  - [GLM (z.ai), Kimi K2 and other Claude-compatible models](#glm-zai-kimi-k2-and-other-claude-compatible-models)
+  - [GLM (z.ai), Kimi K3 and other Claude-compatible models](#glm-zai-kimi-k3-and-other-claude-compatible-models)
   - [Gemini CLI](#gemini-cli)
   - [Claude Code plugin](#claude-code-plugin)
 - [Availability](#availability)
@@ -653,7 +653,7 @@ served — including the ones your teammates use and you do not.
 | ------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
 | **Claude Code**                                                     | `CLAUDE.md` — project, `.claude/CLAUDE.md` and `~/.claude/CLAUDE.md`, all concatenated                                                                                                    | **No.** Bridge with an `@AGENTS.md` import line, or a symlink     |
 | **OpenAI Codex** — the `codex` CLI, the IDE extension, Codex cloud  | `AGENTS.md`, one per directory from the git root down to the cwd ([below](#openai-codex))                                                                                                 | native                                                            |
-| **GLM (z.ai coding plan)**, **Kimi K2**                             | whatever their client reads — inside Claude Code that is `CLAUDE.md` ([below](#glm-zai-kimi-k2-and-other-claude-compatible-models))                                                       | through the client                                                |
+| **GLM (z.ai coding plan)**, **Kimi K3**                             | whatever their client reads — inside Claude Code that is `CLAUDE.md` ([below](#glm-zai-kimi-k3-and-other-claude-compatible-models))                                                       | through the client                                                |
 | **Cursor**                                                          | root `AGENTS.md`; `.cursor/rules/*.mdc` for glob-scoped rules                                                                                                                             | native — and it applies a root `CLAUDE.md` the same always-on way |
 | **GitHub Copilot**                                                  | root `AGENTS.md`; `.github/copilot-instructions.md`                                                                                                                                       | native, coding agent included                                     |
 | **OpenCode**                                                        | `AGENTS.md`, then `CLAUDE.md`, per directory upwards                                                                                                                                      | native                                                            |
@@ -708,7 +708,7 @@ Then, per tool — everything in the right-hand column is optional on top of tho
 | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | **Claude Code**                             | `/plugin marketplace add ASDAlexey/vitest-auto-spy`, then `/plugin install vitest-auto-spy@vitest-auto-spy` — [the skill](#claude-code-plugin), no project files touched |
 | **OpenAI Codex**                            | nothing more; optionally `~/.codex/config.toml` from [below](#openai-codex)                                                                                              |
-| **GLM (z.ai)**, **Kimi K2**                 | identical to Claude Code — same client, same plugin command                                                                                                              |
+| **GLM (z.ai)**, **Kimi K3**                 | identical to Claude Code — same client, same plugin command                                                                                                              |
 | **Cursor**                                  | `.cursor/rules/vitest-auto-spy.mdc` to load it only for spec files (see below)                                                                                           |
 | **GitHub Copilot**                          | `.github/instructions/vitest-auto-spy.instructions.md` (see below)                                                                                                       |
 | **Cline**                                   | `.clinerules/vitest-auto-spy.md` — the same three lines, plus `paths: ["**/*.spec.ts","**/*.test.ts"]`                                                                   |
@@ -788,14 +788,14 @@ which is exactly why this reference ships inside the tarball rather than only on
 `node_modules/vitest-auto-spy/AGENTS.md` is on disk the moment the setup script has installed
 dependencies, so nothing has to be fetched.
 
-### GLM (z.ai), Kimi K2 and other Claude-compatible models
+### GLM (z.ai), Kimi K3 and other Claude-compatible models
 
 GLM is a **model**, not an agent — the thing that reads files is the client you run it in.
 
 The z.ai coding plan runs GLM **inside Claude Code**, by pointing `ANTHROPIC_BASE_URL` (with
 `ANTHROPIC_AUTH_TOKEN`) at z.ai's Anthropic-compatible endpoint. File discovery is untouched by
 that: `CLAUDE.md`, `.claude/skills/` and the [plugin](#claude-code-plugin) below behave exactly as
-they do on Claude, because it is the same client. Kimi K2 driven through Claude Code is the same
+they do on Claude, because it is the same client. Kimi K3 driven through Claude Code is the same
 story — and there the skill and the plugin are worth more than a pasted snippet, because they load
 only when a spec actually mentions the library and cost no context the rest of the time.
 
