@@ -90,3 +90,4 @@ export {
   type XhrBlockMode,
 } from './lib/network-stub';
 export { restoreWebStorage, type RestoreWebStorageOptions } from './lib/web-storage';
+export { underAngularUnitTestBuilder as isAngularUnitTestBuilder } from './lib/angular-build-notice';

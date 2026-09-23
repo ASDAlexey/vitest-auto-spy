@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest';
 
 import { getMockAdapter } from './lib/mock-adapter';
 import { vitestMockAdapter } from './lib/vitest-adapter';
-import { getSpyEngine, setSpyEngine } from './setup';
+import { getSpyEngine, isAngularUnitTestBuilder, setSpyEngine } from './setup';
 
 describe('vitest-auto-spy/setup', () => {
   it('registers the Vitest mock adapter on import', () => {
@@ -20,5 +20,19 @@ describe('vitest-auto-spy/setup', () => {
     expect(getSpyEngine()).toBe('runner');
 
     setSpyEngine('auto-spy');
+  });
+
+  it('tells a setup file shared with plain Vitest that the Angular unit-test builder is running it', () => {
+    const marker = Symbol.for('@angular/cli/vitest-mock-patch');
+
+    expect(isAngularUnitTestBuilder()).toBe(false);
+
+    Reflect.set(globalThis, marker, true);
+
+    try {
+      expect(isAngularUnitTestBuilder()).toBe(true);
+    } finally {
+      Reflect.deleteProperty(globalThis, marker);
+    }
   });
 });
