@@ -8,8 +8,7 @@
  * half of them is worse than one that reports on none. One DOM read anywhere silences the file, so
  * the rule under-reports by construction and never claims a spec reads nothing when it does.
  */
-import { PACKAGE, bindingState, insertImport } from './bindings';
-import type { EsCallExpression, EsFix, RuleContext, SuggestionDescriptor } from './rule-types';
+import type { RuleContext } from './rule-types';
 
 /**
  * Members and helpers that only mean something against a rendered template.
@@ -118,43 +117,4 @@ export function rendersOnlyWhatIsRead(context: RuleContext): boolean {
   const source = context.sourceCode.getText();
 
   return templatePolicy(context) === 'as-needed' ? readsRenderedTemplate(source) : buildsDirectiveHarness(source);
-}
-
-/**
- * The rewrite, offered rather than applied.
- *
- * It is a **suggestion** and not a `--fix` for one reason: `renderShallow` calls
- * `configureTestingModule` itself, adds `NO_ERRORS_SCHEMA` and runs the first change detection. That
- * is the right module for a spec that reads no markup, but it is not the module the file had, and
- * `--fix` runs unattended across a repository. A spec that already instantiated the module — any
- * `TestBed.inject` before this line — would start throwing "Cannot configure the test module when
- * the test module has already been instantiated", and finding out from a red suite is worse than
- * pressing the suggestion and reading the diff.
- *
- * Offered only for `TestBed.createComponent(X)` with the component alone: the two-argument form
- * carries a `ComponentFixtureAutoDetect`-style options object that `renderShallow` spells
- * differently, and a rewrite that dropped it would be silent damage.
- */
-export function renderShallowSuggestion(context: RuleContext, node: EsCallExpression): SuggestionDescriptor | undefined {
-  const [component, ...extra] = node.arguments;
-  const state = bindingState(context.sourceCode.getScope(node), 'renderShallow');
-
-  if (!component || extra.length > 0 || state === 'taken') {
-    return undefined;
-  }
-
-  const replacement = `renderShallow(${context.sourceCode.getText(component)}).fixture`;
-
-  return {
-    desc: `Render without the children and the template: ${replacement}`,
-    fix: (fixer): EsFix[] => {
-      const edits = [fixer.replaceText(node, replacement)];
-
-      if (state === 'free') {
-        edits.push(insertImport(fixer, node, `${PACKAGE}/angular`, '{ renderShallow }'));
-      }
-
-      return edits;
-    },
-  };
 }

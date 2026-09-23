@@ -73,25 +73,122 @@ describe('prefer-render-shallow', () => {
     expect(lint(twice)).toEqual([`vitest-auto-spy/${RULE}`, `vitest-auto-spy/${RULE}`]);
   });
 
-  it('suggests the renderShallow rewrite and adds the import', () => {
-    const [message] = verify(stateOnly);
-    const suggestion = message?.suggestions?.[0];
+  /** The source after accepting the first report's suggestion, or `undefined` without one. */
+  function applied(code: string): string | undefined {
+    const fix = verify(code)[0]?.suggestions?.[0]?.fix;
 
-    expect(suggestion?.desc).toContain('renderShallow(CardComponent).fixture');
-    expect(suggestion?.fix.text).toBeDefined();
+    return fix && `${code.slice(0, fix.range[0])}${fix.text}${code.slice(fix.range[1])}`;
+  }
+
+  /** A `beforeEach` holding the given lines, and a test that reads only component state. */
+  function spec(...lines: string[]): string {
+    return `beforeEach(() => {\n${lines.map((line) => `  ${line}`).join('\n')}\n});\nit('labels', () => { expect(fixture.componentInstance.label()).toBe('a'); });`;
+  }
+
+  const configure = 'TestBed.configureTestingModule({ imports: [CardComponent, RouterStub], providers: [provideAutoSpy(Api)] });';
+
+  it('folds the testing module into renderShallow, keeping the render where the spec had it', () => {
+    expect(applied(spec(configure, 'fixture = TestBed.createComponent(CardComponent);', 'fixture.detectChanges();'))).toBe(
+      "import { renderShallow } from 'vitest-auto-spy/angular';\n" +
+        spec('fixture = renderShallow(CardComponent, { imports: [RouterStub], providers: [provideAutoSpy(Api)] }).fixture;'),
+    );
   });
 
-  it('adds no import when renderShallow is already imported', () => {
-    const imported = `
-      import { renderShallow } from 'vitest-auto-spy/angular';
+  it('asks for no render where the spec did not render straight away', () => {
+    const code = spec(
+      'TestBed.configureTestingModule({ imports: [CardComponent] });',
+      'const fixture = TestBed.createComponent(CardComponent);',
+      "fixture.componentRef.setInput('total', 3);",
+      'fixture.detectChanges();',
+    );
 
-      const fixture = TestBed.createComponent(CardComponent);
+    expect(applied(code)).toContain(
+      'const fixture = renderShallow(CardComponent, { detectChanges: false }).fixture;\n  fixture.componentRef',
+    );
+  });
 
-      expect(fixture.componentInstance.label()).toBe('a');
-    `;
-    const suggestion = verify(imported)[0]?.suggestions?.[0];
+  it('writes the bare call when nothing is left to fold', () => {
+    const code = spec(
+      'TestBed.configureTestingModule({ imports: [CardComponent] });',
+      'fixture = TestBed.createComponent(CardComponent);',
+      'fixture.detectChanges();',
+    );
 
-    expect(suggestion?.fix.text).toBe('renderShallow(CardComponent).fixture');
+    expect(applied(code)).toContain('  fixture = renderShallow(CardComponent).fixture;\n});');
+  });
+
+  it('moves the injectSpy reads between the two below the render, where the module exists', () => {
+    const code = spec(
+      configure,
+      'api = injectSpy(Api);',
+      'store = injectSpy(Store);',
+      'fixture = TestBed.createComponent(CardComponent);',
+      'fixture.detectChanges();',
+    );
+
+    expect(applied(code)).toContain(
+      'fixture = renderShallow(CardComponent, { imports: [RouterStub], providers: [provideAutoSpy(Api)] }).fixture;\n  api = injectSpy(Api);\n  store = injectSpy(Store);\n});',
+    );
+  });
+
+  it('merges the helper into an import the file already has from the Angular entry', () => {
+    const code = `import { injectSpy, provideAutoSpy } from 'vitest-auto-spy/angular';\n${spec(configure, 'fixture = TestBed.createComponent(CardComponent);')}`;
+
+    expect(applied(code)).toContain("import { injectSpy, provideAutoSpy, renderShallow } from 'vitest-auto-spy/angular';");
+    expect(
+      applied(
+        `import { renderShallow } from 'vitest-auto-spy/angular';\n${spec(configure, 'fixture = TestBed.createComponent(CardComponent);')}`,
+      ),
+    ).toMatch(/^import \{ renderShallow \} from 'vitest-auto-spy\/angular';\nbeforeEach/);
+  });
+
+  it.each([
+    ['no configureTestingModule in the block', ['fixture = TestBed.createComponent(CardComponent);']],
+    [
+      'a key renderShallow spells differently',
+      ['TestBed.configureTestingModule({ imports: [CardComponent], schemas: [] });', 'fixture = TestBed.createComponent(CardComponent);'],
+    ],
+    [
+      'a spread into the configuration',
+      ['TestBed.configureTestingModule({ ...base, imports: [CardComponent] });', 'fixture = TestBed.createComponent(CardComponent);'],
+    ],
+    [
+      'a configuration that is not a literal',
+      ['TestBed.configureTestingModule(moduleDef);', 'fixture = TestBed.createComponent(CardComponent);'],
+    ],
+    [
+      'a chained compileComponents',
+      [
+        'TestBed.configureTestingModule({ imports: [CardComponent] }).compileComponents();',
+        'fixture = TestBed.createComponent(CardComponent);',
+      ],
+    ],
+    [
+      'the component missing from imports',
+      ['TestBed.configureTestingModule({ providers: [] });', 'fixture = TestBed.createComponent(CardComponent);'],
+    ],
+    [
+      'imports that are not an array',
+      ['TestBed.configureTestingModule({ imports: shared });', 'fixture = TestBed.createComponent(CardComponent);'],
+    ],
+    [
+      'a configured spy between the two',
+      [configure, 'injectSpy(Api).load.mockReturnValue(of([]));', 'fixture = TestBed.createComponent(CardComponent);'],
+    ],
+    ['an injectSpy read into a member', [configure, 'this.api = injectSpy(Api);', 'fixture = TestBed.createComponent(CardComponent);']],
+    ['an assignment of something else', [configure, 'api = TestBed.inject(Api);', 'fixture = TestBed.createComponent(CardComponent);']],
+    ['a comment the edit would delete', [configure, '// the module is ready', 'fixture = TestBed.createComponent(CardComponent);']],
+    ['a render that is not assigned', [configure, 'TestBed.createComponent(CardComponent);']],
+    ['a render inside a larger expression', [configure, 'fixture = wrap(TestBed.createComponent(CardComponent));']],
+    ['two declarations in one statement', [configure, 'const fixture = TestBed.createComponent(CardComponent), other = 1;']],
+    ['a component that is not a name', [configure, 'fixture = TestBed.createComponent(components.card);']],
+    ['a render with no component', [configure, 'fixture = TestBed.createComponent();']],
+  ])('offers no suggestion for %s', (_label, lines) => {
+    expect(verify(spec(...lines))[0]?.suggestions ?? []).toHaveLength(0);
+  });
+
+  it('offers no suggestion outside a block, where there is no setup to read', () => {
+    expect(verify(stateOnly)[0]?.suggestions ?? []).toHaveLength(0);
   });
 
   it('offers no suggestion when createComponent carries a second argument', () => {
