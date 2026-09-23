@@ -8,6 +8,9 @@
 import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, sep } from 'node:path';
 
+import type { IgnoreRule } from './gitignore';
+import { isIgnoredDirectory, parseGitignore } from './gitignore';
+
 /**
  * Directories a repository-wide scan must never descend into. The package-manager stores are here
  * because CI points them inside the checkout (`.bun/install/cache`, `npm ci --cache .npm`).
@@ -124,18 +127,44 @@ export function removeFile(path: string): void {
  * directories skipped. Sorted, so a report is stable across platforms.
  */
 export function listRepositoryFiles(root: string, limit: number = scanCap()): string[] {
-  return scanRepository(root, limit).files;
+  return scan(root, limit, []).files;
+}
+
+export interface RepositoryScan {
+  readonly files: string[];
+  /** Directories the root `.gitignore` pruned, root-relative — a check must not expect files there. */
+  readonly ignored: string[];
+  readonly truncated: boolean;
 }
 
 /**
  * The scan plus whether it stopped at {@link SCAN_CAP} — a caller that reports a *clean* result off
- * a truncated list would be lying about the part of the tree it never saw.
+ * a truncated list would be lying about the part of the tree it never saw. Unlike
+ * {@link listRepositoryFiles}, it also honours the directory rules of the root `.gitignore`.
  */
-export function scanRepository(root: string, limit: number = scanCap()): { files: string[]; truncated: boolean } {
-  const found: string[] = [];
-  const truncated = walk(root, root, found, limit);
+export function scanRepository(root: string, limit: number = scanCap()): RepositoryScan {
+  return scan(root, limit, readGitignoreRules(root));
+}
 
-  return { files: found.sort(), truncated };
+function scan(root: string, limit: number, rules: readonly IgnoreRule[]): RepositoryScan {
+  const walker: Walker = { root, rules, found: [], ignored: [], limit };
+  const truncated = walk(walker, root);
+
+  return { files: walker.found.sort(), ignored: walker.ignored.sort(), truncated };
+}
+
+function readGitignoreRules(root: string): IgnoreRule[] {
+  const text = readTextFile(join(root, '.gitignore'));
+
+  return (text === undefined ? undefined : parseGitignore(text)) ?? [];
+}
+
+interface Walker {
+  readonly root: string;
+  readonly rules: readonly IgnoreRule[];
+  readonly found: string[];
+  readonly ignored: string[];
+  readonly limit: number;
 }
 
 /**
@@ -150,8 +179,8 @@ function isRepositoryRoot(directory: string): boolean {
   return existsSync(join(directory, '.git'));
 }
 
-function walk(root: string, directory: string, found: string[], limit: number): boolean {
-  if (found.length >= limit) {
+function walk(walker: Walker, directory: string): boolean {
+  if (walker.found.length >= walker.limit) {
     return true;
   }
 
@@ -164,14 +193,14 @@ function walk(root: string, directory: string, found: string[], limit: number): 
   }
 
   for (const entry of entries) {
-    if (found.length >= limit) {
+    if (walker.found.length >= walker.limit) {
       return true;
     }
 
     const full = join(directory, entry.name);
 
     if (entry.isDirectory()) {
-      if (!isSkippedDirectory(entry.name) && !isRepositoryRoot(full) && walk(root, full, found, limit)) {
+      if (!isSkippedDirectory(entry.name) && !isRepositoryRoot(full) && !isGitignored(walker, full) && walk(walker, full)) {
         return true;
       }
 
@@ -179,11 +208,23 @@ function walk(root: string, directory: string, found: string[], limit: number): 
     }
 
     if (entry.isFile()) {
-      found.push(toPosix(relative(root, full)));
+      walker.found.push(toPosix(relative(walker.root, full)));
     }
   }
 
   return false;
+}
+
+function isGitignored(walker: Walker, directory: string): boolean {
+  const path = toPosix(relative(walker.root, directory));
+
+  if (!isIgnoredDirectory(walker.rules, path)) {
+    return false;
+  }
+
+  walker.ignored.push(path);
+
+  return true;
 }
 
 /**

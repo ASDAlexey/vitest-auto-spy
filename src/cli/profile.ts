@@ -26,6 +26,8 @@ export interface Profile {
   readonly files: readonly string[];
   /** The scan stopped at its safety cap — results built off `files` did not see the whole tree. */
   readonly filesTruncated: boolean;
+  /** Directories the root `.gitignore` kept out of `files`, POSIX-relative. */
+  readonly ignoredDirectories: readonly string[];
 }
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
@@ -234,5 +236,6 @@ export function readProfile(cwd: string): Profile {
     scripts,
     files: scan.files,
     filesTruncated: scan.truncated,
+    ignoredDirectories: scan.ignored,
   };
 }

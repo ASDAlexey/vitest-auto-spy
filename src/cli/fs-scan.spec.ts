@@ -47,6 +47,12 @@ describe('listRepositoryFiles', () => {
     expect(listRepositoryFiles(root)).toEqual(['src/a.ts']);
   });
 
+  it('does not honour .gitignore, so a report directory is listed whatever the base ignores', () => {
+    const root = createTempRepo({ '.gitignore': 'shard-*/\n', 'shard-1/perf.json': '' });
+
+    expect(listRepositoryFiles(root)).toEqual(['.gitignore', 'shard-1/perf.json']);
+  });
+
   it('counts a symlink as neither a file nor a directory', () => {
     const root = createTempRepo({ 'src/a.ts': '' });
 
@@ -82,7 +88,35 @@ describe('scanRepository', () => {
   it('says the list is complete when the whole tree fits', () => {
     const root = createTempRepo({ 'src/a.ts': '', 'src/b.ts': '' });
 
-    expect(scanRepository(root)).toEqual({ files: ['src/a.ts', 'src/b.ts'], truncated: false });
+    expect(scanRepository(root)).toEqual({ files: ['src/a.ts', 'src/b.ts'], ignored: [], truncated: false });
+  });
+
+  it('prunes the directories the root .gitignore excludes and names them', () => {
+    const root = createTempRepo({
+      '.gitignore': ['# local output', '/reports/', 'generated', 'tmp-*/', 'keep/*', '!keep/src/', ''].join('\n'),
+      'src/a.ts': '',
+      'src/generated/b.ts': '',
+      'reports/r.json': '',
+      'libs/reports/c.ts': '',
+      'tmp-run/x.ts': '',
+      'keep/drop/y.ts': '',
+      'keep/src/z.ts': '',
+      'keep/top.ts': '',
+    });
+
+    expect(scanRepository(root)).toEqual({
+      files: ['.gitignore', 'keep/src/z.ts', 'keep/top.ts', 'libs/reports/c.ts', 'src/a.ts'],
+      ignored: ['keep/drop', 'reports', 'src/generated', 'tmp-run'],
+      truncated: false,
+    });
+  });
+
+  it('scans as before when there is no .gitignore or it cannot be honoured', () => {
+    expect(scanRepository(createTempRepo({ 'gen/a.ts': '' })).files).toEqual(['gen/a.ts']);
+
+    const root = createTempRepo({ '.gitignore': 'gen/\n!gen\\ keep/\n', 'gen/a.ts': '' });
+
+    expect(scanRepository(root)).toEqual({ files: ['.gitignore', 'gen/a.ts'], ignored: [], truncated: false });
   });
 
   it('reports truncation when the cap is reached inside a subdirectory', () => {
@@ -98,7 +132,7 @@ describe('scanRepository', () => {
   it('scans nothing and says so for a cap of zero', () => {
     const root = createTempRepo({ 'src/a.ts': '' });
 
-    expect(scanRepository(root, 0)).toEqual({ files: [], truncated: true });
+    expect(scanRepository(root, 0)).toEqual({ files: [], ignored: [], truncated: true });
   });
 });
 
