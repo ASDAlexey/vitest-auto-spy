@@ -246,6 +246,24 @@ describe('intersectionEntry', () => {
     expect(entry.boundingClientRect).toBe(rect);
     expect(entry.time).toBe(42);
   });
+
+  it('completes a rect given as plain numbers, and leaves rootBounds null unless one is given', () => {
+    const element = document.createElement('div');
+    const entry = intersectionEntry(element, true, {
+      boundingClientRect: { x: 10, y: 20, width: 200, height: 100 },
+      intersectionRect: { width: 50 },
+    });
+
+    expect(entry.boundingClientRect).toMatchObject({ top: 20, left: 10, right: 210, bottom: 120 });
+    expect(entry.boundingClientRect.toJSON()).toEqual({ x: 10, y: 20, width: 200, height: 100 });
+    expect(entry.intersectionRect).toMatchObject({ x: 0, y: 0, width: 50, height: 0 });
+    expect(entry.rootBounds).toBeNull();
+    expect(intersectionEntry(element, true, { rootBounds: { width: 800, height: 600 } }).rootBounds).toMatchObject({
+      right: 800,
+      bottom: 600,
+    });
+    expect(intersectionEntry(element, true, { rootBounds: null }).rootBounds).toBeNull();
+  });
 });
 
 describe('stubObserver options', () => {

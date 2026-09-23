@@ -267,6 +267,20 @@ export function stubMutationObserver(options?: ObserverStubOptions<MutationRecor
   return stubObserver<MutationRecord, Node>('MutationObserver', options);
 }
 
+/** The rect fields of an `IntersectionObserverEntry`, which also take a plain `{ x, y, width, height }`. */
+export interface IntersectionEntryOverrides extends Partial<
+  Omit<IntersectionObserverEntry, 'boundingClientRect' | 'intersectionRect' | 'rootBounds'>
+> {
+  boundingClientRect?: DOMRectReadOnly | ResizeEntryRect;
+  intersectionRect?: DOMRectReadOnly | ResizeEntryRect;
+  rootBounds?: DOMRectReadOnly | ResizeEntryRect | null;
+}
+
+/** A real `DOMRect` is handed over as it is; a plain record is completed. */
+function entryRect(rect: DOMRectReadOnly | ResizeEntryRect): DOMRectReadOnly {
+  return 'toJSON' in rect ? rect : rectOf(rect);
+}
+
 /**
  * Build one `IntersectionObserverEntry` without spelling out the six fields nothing reads.
  *
@@ -275,20 +289,24 @@ export function stubMutationObserver(options?: ObserverStubOptions<MutationRecor
  *
  * @param target The element the entry is about.
  * @param isIntersecting Whether it is in view.
- * @param overrides Any field a particular component does read — `boundingClientRect`, `time`, …
+ * @param overrides Any field a particular component does read — `time`, a `DOMRect`, or a rect as a
+ *   plain `{ x, y, width, height }`, from which `top`/`right`/… are derived.
  */
 export function intersectionEntry(
   target: Element,
   isIntersecting: boolean,
-  overrides: Partial<IntersectionObserverEntry> = {},
+  overrides: IntersectionEntryOverrides = {},
 ): IntersectionObserverEntry {
+  const { boundingClientRect, intersectionRect, rootBounds, ...rest } = overrides;
   const entry = {
     target,
     isIntersecting,
     intersectionRatio: isIntersecting ? 1 : 0,
-    rootBounds: null,
     time: 0,
-    ...overrides,
+    ...rest,
+    rootBounds: rootBounds === undefined || rootBounds === null ? null : entryRect(rootBounds),
+    ...(boundingClientRect === undefined ? {} : { boundingClientRect: entryRect(boundingClientRect) }),
+    ...(intersectionRect === undefined ? {} : { intersectionRect: entryRect(intersectionRect) }),
   };
 
   // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- the rect fields are left out on purpose: a component reads `isIntersecting` and occasionally `boundingClientRect`, and fabricating four `DOMRectReadOnly`s for every entry would be ceremony rather than fidelity. `overrides` supplies any field a specific component does read.
@@ -376,6 +394,26 @@ export interface ResizeEntryRect {
   y?: number;
 }
 
+/** A `DOMRectReadOnly` from the four numbers a browser derives the rest from. */
+function rectOf(rect: ResizeEntryRect): DOMRectReadOnly {
+  const width = rect.width ?? 0;
+  const height = rect.height ?? 0;
+  const x = rect.x ?? 0;
+  const y = rect.y ?? 0;
+
+  return {
+    x,
+    y,
+    width,
+    height,
+    top: y,
+    left: x,
+    right: x + width,
+    bottom: y + height,
+    toJSON: (): unknown => ({ x, y, width, height }),
+  };
+}
+
 /**
  * Build one `ResizeObserverEntry` from the size a component reads.
  *
@@ -384,25 +422,12 @@ export interface ResizeEntryRect {
  * cannot happen.
  */
 export function resizeEntry(target: Element, rect: ResizeEntryRect = {}): ResizeObserverEntry {
-  const width = rect.width ?? 0;
-  const height = rect.height ?? 0;
-  const x = rect.x ?? 0;
-  const y = rect.y ?? 0;
-  const size: readonly ResizeObserverSize[] = [{ blockSize: height, inlineSize: width }];
+  const contentRect = rectOf(rect);
+  const size: readonly ResizeObserverSize[] = [{ blockSize: contentRect.height, inlineSize: contentRect.width }];
 
   const entry: ResizeObserverEntry = {
     target,
-    contentRect: {
-      x,
-      y,
-      width,
-      height,
-      top: y,
-      left: x,
-      right: x + width,
-      bottom: y + height,
-      toJSON: (): unknown => ({ x, y, width, height }),
-    },
+    contentRect,
     borderBoxSize: size,
     contentBoxSize: size,
     devicePixelContentBoxSize: size,
