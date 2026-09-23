@@ -142,6 +142,7 @@ describe(IMPORT_TIME, () => {
     const [report] = verify("import { consoleWarnSpy } from 'vitest-auto-spy/console';", IMPORT_TIME);
 
     expect(report?.message).toMatch(/once per worker[\s\S]*installConsoleSpies\(\)[\s\S]*restoreConsole\(\)/);
+    expect(report?.message).toMatch(/`beforeAll` with `afterAll` for a suite that shares one server/);
   });
 
   it('stays silent once the file installs the spies itself, however it reaches the call', () => {
@@ -152,6 +153,13 @@ describe(IMPORT_TIME, () => {
       ),
     ).toBe(0);
     expect(count("import * as entry from 'vitest-auto-spy/console';\nentry.installConsoleSpies();", IMPORT_TIME)).toBe(0);
+    expect(
+      count(
+        "import { consoleErrorSpy, installConsoleSpies } from 'vitest-auto-spy/console';\nbeforeAll(installConsoleSpies);",
+        IMPORT_TIME,
+      ),
+    ).toBe(0);
+    expect(count("import * as entry from 'vitest-auto-spy/console';\nbeforeAll(entry.installConsoleSpies);", IMPORT_TIME)).toBe(0);
   });
 
   it('leaves imports of the helpers, of types, and of other modules alone', () => {

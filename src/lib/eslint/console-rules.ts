@@ -270,6 +270,11 @@ function leansOnImportInstall(node: EsNode): boolean {
   );
 }
 
+/** `installConsoleSpies` in `installConsoleSpies()`, `entry.installConsoleSpies()` and `beforeAll(installConsoleSpies)`. */
+function nameOf(node: EsNode): string | undefined {
+  return isMemberExpression(node) ? memberName(node) : isIdentifier(node) ? node.name : undefined;
+}
+
 /** `import { consoleErrorSpy } from 'vitest-auto-spy/console'` in a file that never calls `installConsoleSpies()`. */
 export const noImportTimeConsoleSpies = defineRule({
   anchor: '-the-console',
@@ -280,7 +285,8 @@ export const noImportTimeConsoleSpies = defineRule({
       '`installConsoleSpies()`. The import runs once per worker: under `isolate: false` it silences every later file of ' +
       'the worker, and nothing in this file takes the spies off again. Install them where ' +
       'this file needs them — `beforeEach(() => { consoleSpies = installConsoleSpies(); })` with ' +
-      '`afterEach(() => restoreConsole())`, or `installConsoleSpies()` once at the top of the file. Under ' +
+      '`afterEach(() => restoreConsole())`; `beforeAll` with `afterAll` for a suite that shares one server or fixture ' +
+      'across its tests; or `installConsoleSpies()` once at the top of the file. Under ' +
       '`setupAutoSpy({ strayConsole })` the import installs nothing at all.',
   },
   create: (context) => {
@@ -294,9 +300,7 @@ export const noImportTimeConsoleSpies = defineRule({
         }
       },
       CallExpression: (node: EsCallExpression): void => {
-        const callee = isMemberExpression(node.callee) ? memberName(node.callee) : isIdentifier(node.callee) ? node.callee.name : undefined;
-
-        installs ||= callee === 'installConsoleSpies';
+        installs ||= [node.callee, ...node.arguments].some((part) => nameOf(part) === 'installConsoleSpies');
       },
       'Program:exit': (): void => {
         if (!installs) {
