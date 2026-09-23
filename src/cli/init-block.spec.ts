@@ -20,6 +20,7 @@ const profileWith = (over: Partial<Profile>): Profile => ({
   scripts: {},
   files: [],
   filesTruncated: false,
+  ignoredDirectories: [],
   ...over,
 });
 
