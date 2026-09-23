@@ -1592,6 +1592,70 @@ One entry is never pruned, and it is not one of yours: the Vitest adapter regist
 `vi.clearAllMocks()` into a silent no-op for every double in the run, so it carries a mark the
 pruner skips. Why the library needs a mock of its own for that is the next section.
 
+**The one that answers for every file that follows:** `vi.spyOn(localStorage, 'setItem')` puts the
+mock on the storage as an own property, and happy-dom's `Storage` hands each instance out wrapped
+in a Proxy whose `deleteProperty` trap only knows stored items. `mockRestore()` — and
+`vi.restoreAllMocks()` walking the same path — deletes through that trap, comes back green, and
+does nothing: the spy keeps recording, and a later spec's own `vi.spyOn` is handed the same mock
+with the previous file's calls already in it, so "not to have been called" fails every other run.
+Probing by running `vi.restoreAllMocks()` rules nothing out — it is the failing path itself. Writing
+`Storage.prototype`'s method back over the spy does go through the proxy; that asymmetry, define
+passes and delete does not, is the repair, and it is on by default:
+
+```ts
+setupAutoSpy(); // restoreStorageSpies: true — the sweep runs at the file boundary only
+```
+
+`restoreStorageSpies()` is the one-shot (it returns the storages it repaired); a suite that
+deliberately keeps a spy on a storage method for a whole worker turns the option off. jsdom breaks
+the other half of the same contract — its Storage proxy turns a `defineProperty` of a method into a
+stored item — which is why the gate is `vi.isMockFunction` rather than "differs from the
+prototype": a junk item is left alone, a mock is repaired.
+
+**The one that outlives its component:** a listener on `window` or `document` is not the
+component's to take off. Overlays, portals and services register on the shared targets, and under
+`isolate: false` whatever a file leaves registered fires during the next one — the same wrong-file
+blame as a stray timer, with none of the visibility: nothing errors, the callback simply runs
+against mocks and a DOM it was never written for.
+
+```ts
+setupAutoSpy({ strayListeners: true }); // wrap addEventListener, sweep what the file added
+```
+
+The split is the one `pruneMockRegistry` uses: a `beforeAll` marks the listeners already on
+`window`/`document` — registered while the module graph was evaluated, a framework's one-time
+initialisation — and the `afterAll` takes off everything added since. The pieces are exported too:
+`trackStrayListeners()` (idempotent, returns the undo), `baselineStrayListeners()`,
+`removeStrayListeners()` (returns how many), `countStrayListeners()` (throws before
+`trackStrayListeners()` has run, like the timer counter) and `describeStrayListeners()` — each
+stray's target, type, spec file and up to five frames. A listener registered with `{ once: true }`
+that already fired stays counted until something removes it: the wrapper cannot observe the firing
+without breaking identity-based `removeEventListener` from the code under test, and removing an
+already-fired listener is a no-op anyway.
+
+**The one no registry tracks:** `vi.stubGlobal` is undone by `unstubGlobals` and
+`vi.spyOn(globalThis, …)` by `restoreMocks`, but a plain assignment —
+`global.ResizeObserver = stub` — is written straight into the shared worker and read by every later
+file. `guardGlobals` names the _unrepairable_ case, a non-configurable redefine; this is the net
+for the repairable one:
+
+```ts
+setupAutoSpy({ restoreGlobals: true }); // one snapshot per worker, restored at every file boundary
+```
+
+`captureGlobalBaseline()` takes the snapshot — the first call is the worker's truth, a later one
+does nothing, so a re-capture can never launder a replacement into the baseline. `restoreGlobals()`
+is the sweep, and returns the keys it changed. Two traps it steps around, both load-bearing. A DOM
+environment installs window properties on `globalThis` as accessor pairs forwarding to an override
+map, so `global.ResizeObserver = stub` leaves the descriptor untouched and the restore has to write
+the captured value back through the same setter, not just re-define the descriptor. And the
+library's own wrappers — `setTimeout` under `strayTimers`, `addEventListener` under
+`strayListeners` — are marked as theirs, so the restore steps around them instead of uninstalling
+the tracking at the first boundary. Added keys are never deleted (a framework that installs a
+global at import time must not lose it), and the identity globals — `location`, `document`,
+`window` and their kin — are never written back at all. A leftover fake clock comes off first,
+because restoring timer descriptors under an installed fake breaks both.
+
 ### What a method spy is, and the one thing that differs from `vi.fn()`
 
 A method spy is **not** a `vi.fn()`. It is this library's own mock function: one shared prototype
@@ -2231,7 +2295,10 @@ for that last reason: a class with a static named `calls` would otherwise shadow
 log. **The statics are not typed** — the return type is still `ConstructorSpy<T>`, so reading one
 needs a cast at the spec; type them and this note goes.
 
-For the three observers, prefer the purpose-built stubs (§13). For `AbortController` — which breaks
+For the three observers, prefer the purpose-built stubs (§13). For a `Worker` the code builds with
+`new Worker(new URL(…, import.meta.url))`, prefer `stubWorker({ respond })` from `/dom-stubs`: an
+`EventTarget` whose listeners all receive the reply, answered on a microtask after `postMessage`
+returns, with `last.messages`, `last.emit(data)` and `last.fail(error)` on the handle. For `AbortController` — which breaks
 in a jsdom run for a reason involving none of the three parties in the stack trace — use
 `stubAbortController()`.
 
@@ -4069,6 +4136,9 @@ packages, which a subpath export can never be.
 | an assertion error printed to stderr, every test green and the run exiting 0                                                                        | zone.js swallowed a rejection nobody handled                                                                                                                                                                                                                                | `setupAutoSpy({ strayRejections: true })` fails the test it surfaced in (§10)                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | an `expect()` inside a `.then()` that never seems to run                                                                                            | nothing awaits the chain, so the test ended first                                                                                                                                                                                                                           | `await` the promise and assert the settled value — `no-floating-assertion` (§16)                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | `trackStrayRejections() found no zone.js on the host`                                                                                               | `strayRejections` turned on where zone.js is not loaded                                                                                                                                                                                                                     | `import 'zone.js';` in the setup file, or drop the option                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| a spy on a storage method still answering after `vi.restoreAllMocks()` probed green                                                                 | happy-dom's Storage proxy deletes only stored items, so the restore behind `mockRestore()` never lands; a later spec's `vi.spyOn` gets the same mock with the old calls in it                                                                                               | on by default — `setupAutoSpy()` repairs it at the file boundary; `restoreStorageSpies()` on its own, or `restoreStorageSpies: false` for a worker-lifetime spy (§10)                                                                                                                                                                                                                                                                                                                                             |
+| a listener callback running against mocks and a DOM it was never written for, in a file that never added it                                         | a `window`/`document` listener a previous file left registered, under `isolate: false`                                                                                                                                                                                      | `setupAutoSpy({ strayListeners: true })` — module-graph registrations stay, per-file ones go at the boundary (§10)                                                                                                                                                                                                                                                                                                                                                                                                |
+| a global a previous file patched (`ResizeObserver` answering a stub) with no file named                                                             | a raw assignment no registry tracks — not `vi.stubGlobal`, not `vi.spyOn`                                                                                                                                                                                                   | `setupAutoSpy({ restoreGlobals: true })` puts the worker's baseline back at every file boundary; `guardGlobals` for the non-configurable case (§10)                                                                                                                                                                                                                                                                                                                                                               |
 | `… .destroy is not a function`                                                                                                                      | an ngrx `rxMethod` replaced with a bare mock                                                                                                                                                                                                                                | `Object.assign(vi.fn(), { destroy: vi.fn() })`                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `NullInjectorError` for a service you did provide                                                                                                   | it is a component-level provider, not a module one                                                                                                                                                                                                                          | `asSpy(fixture.debugElement.injector.get(X))`, not `injectSpy(X)`                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | `runEffect(): … not an EffectRef returned by effect()`                                                                                              | passed the callback, a signal, or an unassigned field                                                                                                                                                                                                                       | pass what `effect()` returned; a field may need its lifecycle hook to run first                                                                                                                                                                                                                                                                                                                                                                                                                                   |
