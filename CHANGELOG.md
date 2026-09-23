@@ -10,6 +10,8 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+## [5.25.0] - 2026-09-23
+
 ### Added
 
 - **Three file-boundary repairs in `setupAutoSpy()` for `isolate: false`.** `restoreStorageSpies`
@@ -7733,7 +7735,8 @@ by hand there, in more than one place, by more than one person.
   `mockAccessorsProp`.
 - Dual ESM + CJS build with type declarations; 100% test coverage.
 
-[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.24.0...HEAD
+[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.25.0...HEAD
+[5.25.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.24.0...v5.25.0
 [5.24.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.23.0...v5.24.0
 [5.23.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.22.0...v5.23.0
 [5.22.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.21.1...v5.22.0
