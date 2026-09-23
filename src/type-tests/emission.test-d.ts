@@ -14,7 +14,7 @@
 import { Subject, map, of, throwError, timer } from 'rxjs';
 import { describe, expectTypeOf, it } from 'vitest';
 
-import { expectCompletion, expectEmission, expectEmissions, expectError, expectNoEmission } from '../auto-spy';
+import { expectAllEmissions, expectCompletion, expectEmission, expectEmissions, expectError, expectNoEmission } from '../auto-spy';
 
 describe('expectEmission', () => {
   it('carries the emitted type through, rather than widening it to unknown', () => {
@@ -48,6 +48,10 @@ describe('expectEmissions', () => {
   it('survives destructuring, the other half of the regression', () => {
     // Destructuring an `unknown` is TS2488; this is the assertion that would have caught it.
     expectTypeOf(expectEmissions(of('a', 'b'), 2)).resolves.items.toEqualTypeOf<string>();
+  });
+
+  it('expectAllEmissions resolves every value, typed from the stream', () => {
+    expectTypeOf(expectAllEmissions(of('a', 'b'))).toEqualTypeOf<Promise<string[]>>();
   });
 });
 

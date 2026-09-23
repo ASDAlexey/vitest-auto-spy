@@ -8,7 +8,7 @@
  */
 import { describe, expectTypeOf, it } from 'vitest';
 
-import { createFixture, createFixtureFactory, createMock, narrow } from '../auto-spy';
+import { createFixture, createFixtureFactory, createMock, mockValueProp, narrow, outOfType } from '../auto-spy';
 
 interface Article {
   id: string;
@@ -41,6 +41,22 @@ describe('createFixture', () => {
   it('still rejects a field of the right name and the wrong type', () => {
     // @ts-expect-error — `tags` is a string[]
     createFixture(ARTICLE, { tags: 'news' });
+  });
+
+  it('takes an explicit undefined for a key the model declares optional, and only there', () => {
+    interface Organisation {
+      name: string;
+      sites?: string[];
+      address?: { city: string };
+    }
+
+    const base: Organisation = { name: 'Acme', sites: ['a'], address: { city: 'X' } };
+
+    createMock<Organisation>({ ...base, sites: undefined });
+    createFixture(base, { sites: undefined, address: undefined });
+
+    // @ts-expect-error — `name` is required, so undefined is not a value for it
+    createFixture(base, { name: undefined });
   });
 
   it('hands a Date through untouched rather than mapping over it', () => {
@@ -91,6 +107,20 @@ describe('createFixtureFactory', () => {
   });
 });
 
+describe('narrow.instanceOf', () => {
+  it('returns the instance type of the class, an abstract one included', () => {
+    abstract class Shape {
+      abstract area(): number;
+    }
+
+    const body: FormData | string | null = null;
+    const shape: unknown = null;
+
+    expectTypeOf(narrow.instanceOf(body, FormData)).toEqualTypeOf<FormData>();
+    expectTypeOf(narrow.instanceOf(shape, Shape)).toEqualTypeOf<Shape>();
+  });
+});
+
 describe('narrow.defined', () => {
   it('strips null and undefined from the returned type, which assert.exists cannot do in an expression', () => {
     const covers: string[] | null | undefined = ['a'];
@@ -112,5 +142,46 @@ describe('narrow.defined', () => {
     const falsy = (): '' | 0 | false | null => 0;
 
     expectTypeOf(narrow.defined(falsy())).toEqualTypeOf<'' | 0 | false>();
+  });
+});
+
+describe('outOfType', () => {
+  it('takes any value and answers the type it is asked for, which createMock would refuse', () => {
+    expectTypeOf(outOfType<Article>(null)).toEqualTypeOf<Article>();
+    expectTypeOf(outOfType<Article>([1, 2])).toEqualTypeOf<Article>();
+  });
+
+  it('takes its type from the slot, so mockValueProp still checks the key', () => {
+    const job: { status: 'done' | 'queued' } = { status: 'done' };
+
+    const status: typeof job.status = outOfType('UNKNOWN');
+
+    mockValueProp(job, 'status', outOfType('UNKNOWN'));
+    expectTypeOf(status).toEqualTypeOf<'done' | 'queued'>();
+  });
+});
+
+describe('a class-typed member seeded with a construct signature', () => {
+  class Transceiver {
+    static readonly kind = 'audio';
+
+    stop(): void {
+      /* real */
+    }
+  }
+
+  interface PlatformWindow {
+    Transceiver: typeof Transceiver;
+  }
+
+  it('accepts a mock class typed as a bare constructor, and still checks what it builds', () => {
+    const MockTransceiver: new () => Transceiver = Transceiver;
+    const Wrong: new () => { stop: string } = class {
+      stop = 'no';
+    };
+
+    expectTypeOf(createMock<PlatformWindow>({ Transceiver: MockTransceiver })).toEqualTypeOf<PlatformWindow>();
+    // @ts-expect-error — the instance it builds is not a Transceiver.
+    createMock<PlatformWindow>({ Transceiver: Wrong });
   });
 });

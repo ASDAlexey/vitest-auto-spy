@@ -15,8 +15,8 @@
  */
 import { describe, expectTypeOf, it } from 'vitest';
 
-import { asInstance, createAutoMock, createSpyFromClass, mockValueProp, registerAutoSpyDefaults } from '../auto-spy';
-import type { Mutable, ObservableLike, OnlyMethodKeysOf, RestoreProp, Spy, SpyDisposable } from '../auto-spy';
+import { asInstance, createAutoMock, createFunctionSpy, createSpyFromClass, mockValueProp, registerAutoSpyDefaults } from '../auto-spy';
+import type { FunctionSpy, Mutable, ObservableLike, OnlyMethodKeysOf, RestoreProp, Spy, SpyDisposable } from '../auto-spy';
 
 class Storage {
   readonly name: string = 'storage';
@@ -133,6 +133,71 @@ describe('a spy checks the stub, not only the call', () => {
     expectTypeOf(spy.read.mock.calls).toEqualTypeOf<[key: string][]>();
     expectTypeOf(spy.read.mock.lastCall).toEqualTypeOf<[key: string] | undefined>();
     expectTypeOf(spy.read.getMockImplementation()).toEqualTypeOf<((key: string) => string | null) | undefined>();
+  });
+});
+
+describe('a member typed as a union of call signatures', () => {
+  interface Angle {
+    readonly id: string;
+  }
+
+  type Signal<T> = (() => T) & { readonly brand: 'signal' };
+  type WritableSignal<T> = Signal<T> & { set(value: T): void };
+
+  function writableSignal<T>(value: T): WritableSignal<T> {
+    return Object.assign(() => value, { brand: 'signal' as const, set: (): void => undefined });
+  }
+
+  // The shape `@ngrx/signals` gives a nullable object slice: `DeepSignal<Angle> | Signal<null>`.
+  interface ReportStore {
+    readonly currentAngle: Signal<null> | (Signal<Angle> & { readonly id: Signal<string> });
+    readonly previousAngle?: Signal<null> | (Signal<Angle> & { readonly id: Signal<string> });
+  }
+
+  it('takes a stub that returns the union, which neither half of it accepts on its own', () => {
+    const store: Spy<ReportStore> = createAutoMock<ReportStore>();
+    const current = (): Angle | null => null;
+
+    store.currentAngle.mockImplementation(() => current());
+    store.currentAngle.mockImplementationOnce(current);
+    store.currentAngle.mockReturnValue(null);
+    expectTypeOf(store.currentAngle.mock.calls).toEqualTypeOf<[][]>();
+
+    // @ts-expect-error -- the union is still the limit of what the stub may return
+    store.currentAngle.mockImplementation(() => 42);
+  });
+
+  it('is seeded through overrides with one signal of the whole union, optional or not', () => {
+    const angle = writableSignal<Angle | null>(null);
+
+    createAutoMock<ReportStore>({ currentAngle: angle, previousAngle: angle });
+    createAutoMock<ReportStore>({}, { returns: { currentAngle: null } });
+
+    // @ts-expect-error -- a signal of something else is still rejected
+    createAutoMock<ReportStore>({ currentAngle: writableSignal(42) });
+  });
+
+  it('takes the signal of an optional slice, which `@ngrx/signals` gives as `DeepSignal<A> | Signal<undefined>`', () => {
+    interface SlidesStore {
+      readonly currentSlide: Signal<undefined> | (Signal<Angle> & { readonly id: Signal<string> });
+    }
+
+    createAutoMock<SlidesStore>({ currentSlide: writableSignal<Angle | undefined>(undefined) });
+  });
+
+  it('takes one signal of the whole union for union state, `DeepSignal<A> | DeepSignal<B>`', () => {
+    interface Tool {
+      readonly kind: 'tool';
+    }
+
+    interface ControlModesStore {
+      readonly mode: (Signal<Angle> & { readonly id: Signal<string> }) | (Signal<Tool> & { readonly kind: Signal<'tool'> });
+    }
+
+    createAutoMock<ControlModesStore>({ mode: writableSignal<Angle | Tool>({ id: '1' }) });
+
+    // @ts-expect-error -- a signal of something outside the union is still rejected
+    createAutoMock<ControlModesStore>({ mode: writableSignal(42) });
   });
 });
 
@@ -463,5 +528,17 @@ describe('a member whose type failed to resolve does not erase the other keys', 
     createAutoMock<Host>(undefined, { returns: { open: null } });
     // @ts-expect-error -- open answers Host | null, not a number
     createAutoMock<Host>(undefined, { returns: { open: 1 } });
+  });
+});
+
+describe('FunctionSpy', () => {
+  it('names what createFunctionSpy returns, so a variable can be declared before it is assigned', () => {
+    const onSave: FunctionSpy<(draft: string) => void> = createFunctionSpy<(draft: string) => void>('onSave');
+
+    expectTypeOf(onSave).toEqualTypeOf(createFunctionSpy<(draft: string) => void>('onSave'));
+    onSave.mustBeCalledWith('draft');
+
+    // @ts-expect-error -- the arguments are still the signature's
+    onSave.mustBeCalledWith(42);
   });
 });

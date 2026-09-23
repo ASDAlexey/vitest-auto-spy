@@ -11,6 +11,7 @@ import type { InjectionToken, Provider } from '@angular/core';
 import { describe, expectTypeOf, it } from 'vitest';
 
 import { createDocumentDouble, createWindowDouble, provideDocumentDouble, provideWindowDouble } from '../angular-doubles';
+import { createMock, mockConstructor } from '../index';
 
 interface AppWindow extends Window {
   appBuildId: string;
@@ -63,6 +64,15 @@ describe('the providers', () => {
 
     // @ts-expect-error — nothing on a Document is called that
     provideDocumentDouble({ quesrySelector: () => null });
+  });
+
+  it('takes a constructor double for a global class once it carries the statics code compares against', () => {
+    const fakeSource = mockConstructor((_url: URL | string) => createMock<EventSource>());
+
+    // @ts-expect-error — `EventSource.OPEN` and its siblings would read as `undefined`
+    provideDocumentDouble({ defaultView: { EventSource: fakeSource } });
+
+    provideDocumentDouble({ defaultView: { EventSource: Object.assign(fakeSource, { CONNECTING: 0, OPEN: 1, CLOSED: 2 } as const) } });
   });
 });
 
