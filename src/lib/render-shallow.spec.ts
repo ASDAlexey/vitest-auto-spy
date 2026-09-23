@@ -19,8 +19,10 @@ import {
   makeEnvironmentProviders,
   signal,
 } from '@angular/core';
+import { TestBed } from '@angular/core/testing';
+import { FormControl, FormsModule, ReactiveFormsModule } from '@angular/forms';
 import { By } from '@angular/platform-browser';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { injectSpy, provideAutoSpy } from '../angular';
 import { disableAngularDiagnostics, enableAngularDiagnostics } from '../angular-diagnostics';
@@ -166,6 +168,26 @@ describe('renderShallow', () => {
     fixture.detectChanges();
 
     expect(component.initialized).toBe(true);
+  });
+
+  it('drops the host directives, and the graph they inject, on request', () => {
+    @Injectable()
+    class HeavyGraph {}
+
+    @Directive({ selector: '[draggable-host]', standalone: true })
+    class DraggableHost {
+      readonly graph = inject(HeavyGraph);
+    }
+
+    @Component({ selector: 'player', standalone: true, template: '', hostDirectives: [DraggableHost] })
+    class PlayerComponent {}
+
+    expect(() => renderShallow(PlayerComponent)).toThrow(/HeavyGraph/);
+    TestBed.resetTestingModule();
+
+    const { fixture } = renderShallow(PlayerComponent, { keepHostDirectives: false });
+
+    expect(fixture.debugElement.injector.get(DraggableHost, null)).toBeNull();
   });
 
   it('renders a stand-in template when one is given', () => {
@@ -326,6 +348,28 @@ describe('the shapes a compiled `dependencies` comes in', () => {
   });
 });
 
+@Component({
+  selector: 'app-with-form',
+  imports: [ReactiveFormsModule],
+  template: '<input [formControl]="title" />',
+})
+class WithFormComponent {
+  readonly title = new FormControl('draft');
+}
+
+/** What ngtsc flattens `ReactiveFormsModule` into: its exports, through the modules it re-exports. */
+function reactiveFormsExports(module: unknown = ReactiveFormsModule, into: Set<unknown> = new Set()): Set<unknown> {
+  const definition = Reflect.get(Object(module), 'ɵmod') as { exports: unknown } | undefined;
+  const exported = typeof definition?.exports === 'function' ? (definition.exports as () => unknown[])() : definition?.exports;
+
+  (Array.isArray(exported) ? exported : []).forEach((entry: unknown) => {
+    into.add(entry);
+    reactiveFormsExports(entry, into);
+  });
+
+  return into;
+}
+
 describe('a template dependency an NgModule declares', () => {
   /**
    * What ngtsc leaves behind, written onto a JIT definition.
@@ -355,7 +399,69 @@ describe('a template dependency an NgModule declares', () => {
       // call this was, that the declaration is not the thing to change, and what to do instead.
       expect(() => renderShallow(WithModulePipeComponent, { keepTemplate: true })).toThrow(/renderShallow\(WithModulePipeComponent/);
       expect(() => renderShallow(WithModulePipeComponent, { keepTemplate: true })).toThrow(/Nothing is wrong with those declarations/);
-      expect(() => renderShallow(WithModulePipeComponent, { keepTemplate: true })).toThrow(/Drop `keepTemplate`/);
+      expect(() => renderShallow(WithModulePipeComponent, { keepTemplate: true })).toThrow(
+        /keepModules: \[ReactiveFormsModule\][\s\S]*template: '<input #searchInput \/>'[\s\S]*Or drop `keepTemplate`/,
+      );
+    } finally {
+      restore();
+    }
+  });
+
+  it('puts a module named in keepModules back in place of the declarations it exports', () => {
+    const restore = forceFlattenedScope(WithModulePipeComponent, [WhisperPipe]);
+
+    try {
+      const { fixture } = renderShallow(WithModulePipeComponent, { keepTemplate: true, keepModules: [WhisperModule] });
+
+      expect(fixture.nativeElement.textContent).toBe('hello');
+    } finally {
+      restore();
+    }
+  });
+
+  const withExports = (exports: unknown, check: () => void): void => {
+    const restore = forceFlattenedScope(WithModulePipeComponent, [WhisperPipe]);
+    const definition = Reflect.get(WhisperModule, 'ɵmod') as Record<string, unknown>;
+    const compiled = definition['exports'];
+
+    definition['exports'] = exports;
+
+    try {
+      check();
+    } finally {
+      definition['exports'] = compiled;
+      restore();
+    }
+  };
+
+  it('reads the exports of a module the compiler stored as a factory', () => {
+    withExports(
+      () => [WhisperPipe],
+      () => {
+        const { fixture } = renderShallow(WithModulePipeComponent, { keepTemplate: true, keepModules: [WhisperModule] });
+
+        expect(fixture.nativeElement.textContent).toBe('hello');
+      },
+    );
+  });
+
+  it('puts back only what a named module exports', () => {
+    withExports(undefined, () => {
+      expect(() => renderShallow(WithModulePipeComponent, { keepTemplate: true, keepModules: [WhisperModule] })).toThrow(/WhisperPipe/);
+    });
+  });
+
+  it('keeps a reactive form bound when AOT flattened ReactiveFormsModule and the module is named', () => {
+    const flattened = [...reactiveFormsExports()].filter((entry): entry is Type<unknown> => !Reflect.has(Object(entry), 'ɵmod'));
+    const restore = forceFlattenedScope(WithFormComponent, flattened);
+
+    try {
+      expect(() => renderShallow(WithFormComponent, { keepTemplate: true })).toThrow(/DefaultValueAccessor/);
+
+      const { fixture } = renderShallow(WithFormComponent, { keepTemplate: true, keepModules: [ReactiveFormsModule, FormsModule] });
+      const field = fixture.nativeElement.querySelector('input') as HTMLInputElement;
+
+      expect(field.value).toBe('draft');
     } finally {
       restore();
     }
@@ -398,6 +504,22 @@ describe('the schema it configures', () => {
       expect(() => renderShallow(HostComponent)).not.toThrow();
     } finally {
       disableAngularDiagnostics();
+    }
+  });
+});
+
+describe('keepTemplate on a module-declared component', () => {
+  it('issues no override when there is nothing to change, so the compiled component stays as built', () => {
+    TestBed.configureTestingModule({});
+    const override = vi.spyOn(TestBed, 'overrideComponent');
+
+    try {
+      const { fixture } = renderShallow(LegacyComponent, { keepTemplate: true });
+
+      expect(override).not.toHaveBeenCalled();
+      expect(fixture.componentInstance).toBeInstanceOf(LegacyComponent);
+    } finally {
+      override.mockRestore();
     }
   });
 });

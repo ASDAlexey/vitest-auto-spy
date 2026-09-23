@@ -81,14 +81,28 @@ export interface RenderShallowOptions<T> {
    * pipe's author; see the error for what to do instead.
    */
   keepTemplate?: boolean;
+  /**
+   * `NgModule`s to put back whole under `keepTemplate: true` — `ReactiveFormsModule`, `FormsModule`.
+   * An AOT build flattens an imported module into its exported declarations, which Angular refuses in
+   * `imports`; a module named here replaces every declaration it exports, so the scope is importable.
+   */
+  keepModules?: Type<unknown>[];
   /** Child components/directives/pipes to keep resolvable in the template (everything else is dropped). */
   keepChildren?: Type<unknown>[];
+  /**
+   * `false` drops the component's `hostDirectives`, and with them every service they inject — the
+   * graph a shallow render exists to avoid. Default `true`: a host directive is part of the component,
+   * not a child of it.
+   */
+  keepHostDirectives?: boolean;
   /** Stand-in template to render instead of a blank one (ignored when `keepTemplate` is set). */
   template?: string;
   /**
    * Runs after the testing module is configured and the component is trimmed, but before it is
    * created — the seam a spec needs when a field initializer or the constructor reads a dependency
-   * it must first stub (`mockReadonlyProp(injectSpy(Store), 'items', signal([]))`).
+   * it must first stub (`mockReadonlyProp(injectSpy(Store), 'items', signal([]))`). An
+   * `overrideComponentProvider` goes before any `injectSpy` here: the first read of the injector
+   * instantiates the module, and no override applies after it.
    */
   beforeCreate?: () => void;
   /** Run the first change detection (and therefore `ngOnInit`). Default `true`. */
@@ -179,12 +193,52 @@ function assertScopeIsImportable(component: Type<unknown>, kept: Type<unknown>[]
         'ngtsc resolves an imported NgModule at compile time and flattens its exported declarations into the ' +
         'component, so the module that would carry them is not in the list to keep. The scope cannot be rebuilt from ' +
         'what the definition holds.\n' +
-        `Drop \`keepTemplate\` when the spec reads TypeScript state only — that is the case \`renderShallow\` is for — ` +
+        'Name the module that declares them in `keepModules` — `keepModules: [ReactiveFormsModule]` — and it is put ' +
+        'back whole in their place.\n' +
+        'A spec that only needs a `viewChild` can drop `keepTemplate` for a stand-in with just that element — ' +
+        "`template: '<input #searchInput />'`.\n" +
+        `Or drop \`keepTemplate\` when the spec reads TypeScript state only — that is the case \`renderShallow\` is for — ` +
         `or build ${component.name} with \`TestBed\` directly, which keeps its compiled scope untouched, and hold the ` +
         'cost down by seeding the services its children inject rather than by trimming the template.',
       DOCS_LINKS.angular,
     ),
   );
+}
+
+/** A definition list the compiler stored either as the array or as a factory for it. */
+function unwrapList(value: unknown): unknown[] {
+  const resolved: unknown = typeof value === 'function' ? Reflect.apply(value, undefined, []) : value;
+
+  return Array.isArray(resolved) ? resolved : NOTHING;
+}
+
+/** Everything an `NgModule` exports, through the modules it re-exports: what AOT flattens it into. */
+function exportedScope(module: unknown, into: Set<unknown>, visited: Set<unknown>): void {
+  const definition: unknown = Reflect.get(Object(module), 'ɵmod');
+
+  if (definition === undefined || visited.has(module)) {
+    return;
+  }
+
+  visited.add(module);
+  unwrapList(Reflect.get(Object(definition), 'exports')).forEach((exported) => {
+    into.add(exported);
+    exportedScope(exported, into, visited);
+  });
+}
+
+/** The kept list with each named module standing in for the declarations it exports. */
+function withModulesRestored(kept: Type<unknown>[], modules: Type<unknown>[]): Type<unknown>[] {
+  if (modules.length === 0) {
+    return kept;
+  }
+
+  const covered = new Set<unknown>();
+  const visited = new Set<unknown>();
+
+  modules.forEach((module) => exportedScope(module, covered, visited));
+
+  return [...kept.filter((dependency) => !covered.has(dependency)), ...modules];
 }
 
 /**
@@ -196,7 +250,10 @@ function assertScopeIsImportable(component: Type<unknown>, kept: Type<unknown>[]
  * Angular refuse a flattened declaration with a message aimed at its author.
  */
 function keptScope<T>(component: Type<unknown>, definition: object, options: RenderShallowOptions<T>): Type<unknown>[] {
-  const kept = importsOf(definition).filter((dependency) => !isChildComponent(dependency));
+  const kept = withModulesRestored(
+    importsOf(definition).filter((dependency) => !isChildComponent(dependency)),
+    options.keepModules ?? NOTHING,
+  );
 
   kept.push(...(options.keepChildren ?? NOTHING));
   assertScopeIsImportable(component, kept);
@@ -214,6 +271,10 @@ function buildOverride<T>(component: Type<unknown>, definition: unknown, options
     // every directive silently never apply.
     override.imports = options.keepTemplate ? keptScope(component, definition, options) : (options.keepChildren ?? NOTHING);
     override.schemas = PERMISSIVE_SCHEMAS;
+  }
+
+  if (options.keepHostDirectives === false) {
+    override.hostDirectives = NOTHING;
   }
 
   if (!options.keepTemplate) {
@@ -268,7 +329,13 @@ export function renderShallow<T>(component: Type<T>, options: RenderShallowOptio
     ...(standalone ? {} : { schemas: PERMISSIVE_SCHEMAS }),
   });
 
-  TestBed.overrideComponent(component, { set: buildOverride(component, definition, options) });
+  const override = buildOverride(component, definition, options);
+
+  // An override recompiles the component under JIT for the rest of the file, and the AOT factory,
+  // template and host-binding branches then drop out of coverage — so none is issued that changes nothing.
+  if (Object.keys(override).length > 0) {
+    TestBed.overrideComponent(component, { set: override });
+  }
   options.beforeCreate?.();
 
   const fixture = TestBed.createComponent(component);
