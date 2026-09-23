@@ -27,6 +27,7 @@ export {
   type DuplicateCopiesReaction,
   type SetupAutoSpyOptions,
   type SetupAutoSpyPreset,
+  type StrayListenerReport,
   type StrayTimerReport,
   type SwallowedStrictCallsReaction,
   type UnconfiguredReadsReaction,
@@ -80,6 +81,18 @@ export {
   type StopTrackingTimers,
 } from './lib/stray-timers';
 export { getWatchedTimerGlobals, restoreTimerGlobals } from './lib/timer-globals';
+export {
+  baselineStrayListeners,
+  countStrayListeners,
+  describeStrayListeners,
+  removeStrayListeners,
+  trackStrayListeners,
+  type StopTrackingListeners,
+  type StrayListener,
+  type TrackedListenerTarget,
+} from './lib/stray-listeners';
+export { captureGlobalBaseline, restoreGlobals } from './lib/global-restore';
+export { restoreStorageSpies, type StorageSpyKey } from './lib/storage-spy-restore';
 export {
   BLOCKED_FETCH_MESSAGE,
   BLOCKED_XHR_MESSAGE,

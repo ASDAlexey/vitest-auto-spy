@@ -54,4 +54,5 @@ export const DOCS_LINKS = {
   strictMode: `${DOCS}/core/strict-mode`,
   unconfiguredReads: `${DOCS}/core/strict-mode#reads-nobody-configured`,
   trackInjections: `${DOCS}/utilities/track-injections`,
+  workerStub: `${DOCS}/utilities/worker-stub`,
 } as const;
