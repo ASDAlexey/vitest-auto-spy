@@ -39,6 +39,8 @@ describe('prefer-create-mock', () => {
     expect(text).toContain('claims to be a whole `Device`');
     expect(text).toContain('excess-property check is skipped for a cast');
     expect(text).toContain('createMock<T>({ … })');
+    expect(text).toContain('is `outOfType<T>(…)` from `vitest-auto-spy`');
+    expect(count(`const device = outOfType<Device>({ id: 1 });`)).toBe(0);
   });
 
   it('reads the older cast spelling too', () => {
@@ -88,6 +90,20 @@ describe('prefer-create-mock', () => {
     // The hop through `unknown` is there because the compiler refused the single cast, so
     // `createMock<Device>` would not compile either — a different finding with a ban of its own.
     expect(count(`const device = { id: '1' } as unknown as Device;`)).toBe(0);
+  });
+
+  it('reports the outermost cast once, and its edit unwraps the fixture casts inside it', () => {
+    const code = `import { createMock } from 'vitest-auto-spy';\nconst o = { inner: { id: '1', deep: <Deep>{ n: 1 } } as Inner, list: [{ a: 1 } as Item] } as Outer;`;
+
+    expect(count(code)).toBe(1);
+    expect(applied(code)).toContain(`createMock<Outer>({ inner: { id: '1', deep: { n: 1 } }, list: [{ a: 1 }] })`);
+  });
+
+  it('keeps the casts the edit has no business with, and reports a cast behind a function on its own', () => {
+    const code = `import { createMock } from 'vitest-auto-spy';\nconst o = { raw: x as Inner, n: { a: 1 } as const, make: () => ({ a: 1 }) as Item } as Outer;`;
+
+    expect(count(code)).toBe(2);
+    expect(applied(code)).toContain(`createMock<Outer>({ raw: x as Inner, n: { a: 1 } as const, make: () => ({ a: 1 }) as Item })`);
   });
 
   it('leaves a cast of something that is not a literal alone', () => {

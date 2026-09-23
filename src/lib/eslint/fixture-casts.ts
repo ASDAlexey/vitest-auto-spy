@@ -37,6 +37,8 @@ import {
   type RuleContext,
   type RuleModule,
   type SuggestionDescriptor,
+  countInSubtree,
+  isFunctionNode,
   isIdentifier,
   isMemberExpression,
   isNamedImportSpecifier,
@@ -85,6 +87,61 @@ const NOT_A_FIXTURE: ReadonlySet<string> = new Set([
   'const',
 ]);
 
+function isReferenceCast(node: EsNode): node is EsReferenceCast {
+  const annotation: unknown = Reflect.get(node, 'typeAnnotation');
+
+  return (
+    (node.type === 'TSAsExpression' || node.type === 'TSTypeAssertion') &&
+    typeof annotation === 'object' &&
+    annotation !== null &&
+    Reflect.get(annotation, 'type') === 'TSTypeReference'
+  );
+}
+
+/** A literal cast this rule reports — the operand an object literal, the type one `createMock` can take. */
+function isFixtureCast(context: RuleContext, node: EsNode): node is EsReferenceCast {
+  return isReferenceCast(node) && isObjectExpression(node.expression) && !NOT_A_FIXTURE.has(typeHead(context, node));
+}
+
+/** Whether a fixture cast encloses this one without a function between: the outer report carries it. */
+function insideFixtureCast(context: RuleContext, node: EsNode): boolean {
+  for (let current = node.parent; current.type !== 'Program' && !isFunctionNode(current); current = current.parent) {
+    if (isFixtureCast(context, current)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/** The source of `node` with every fixture cast inside it unwrapped — `createMock` checks those literals at every depth. */
+function withoutNestedCasts(context: RuleContext, node: EsNode): string {
+  const nested: EsReferenceCast[] = [];
+
+  countInSubtree(
+    context,
+    node,
+    (candidate) => {
+      const found = candidate !== node && isFixtureCast(context, candidate);
+
+      if (found) {
+        nested.push(candidate);
+      }
+
+      return found;
+    },
+    false,
+  );
+
+  return nested
+    .sort((a, b) => b.range[0] - a.range[0])
+    .reduce(
+      (text, cast) =>
+        `${text.slice(0, cast.range[0] - node.range[0])}${withoutNestedCasts(context, cast.expression)}${text.slice(cast.range[1] - node.range[0])}`,
+      context.sourceCode.getText(node),
+    );
+}
+
 /** `{ … } as T` → `createMock<T>({ … })`, importing the helper when the name is free. */
 function buildFixture(context: RuleContext, node: EsReferenceCast): SuggestionDescriptor | undefined {
   const state = bindingState(context.sourceCode.getScope(node), CREATE_MOCK);
@@ -99,7 +156,7 @@ function buildFixture(context: RuleContext, node: EsReferenceCast): SuggestionDe
   return {
     desc: `Build it with ${CREATE_MOCK}<${type}>(), which checks the fixture against ${type}`,
     fix: (fixer: EsFixer): EsFix[] => {
-      const fixes = [fixer.replaceText(node, `${CREATE_MOCK}<${type}>(${context.sourceCode.getText(node.expression)})`)];
+      const fixes = [fixer.replaceText(node, `${CREATE_MOCK}<${type}>(${withoutNestedCasts(context, node.expression)})`)];
 
       if (state === 'free') {
         fixes.push(importNamed(fixer, node, CREATE_MOCK, PACKAGE));
@@ -117,7 +174,9 @@ const FIXTURE_REPAIR =
   'is checked at every depth while a field the fixture does not care about stays optional — a fixture is a partial by design, ' +
   'and that is the half a cast gets right. What it stops getting away with is the other half: a key `T` does not declare is a ' +
   'compile error on the literal, which is the drift this reports. Adopting it on a suite that has drifted therefore turns those ' +
-  'literals red, one fixture at a time; that redness is the finding, not a side effect of the repair.';
+  'literals red, one fixture at a time; that redness is the finding, not a side effect of the repair. A value outside `T` on ' +
+  `purpose — the \`null\` a backend sends, a payload that has to reach a guard — is \`outOfType<T>(…)\` from \`${PACKAGE}\`, which ` +
+  'names the intent at the call site and is not reported.';
 
 /** `{ … } as Device` → `createMock<Device>({ … })`. */
 export const preferCreateMock: RuleModule = defineRule({
@@ -139,7 +198,7 @@ export const preferCreateMock: RuleModule = defineRule({
       // The literal has to be the cast's own operand. `{ … } as unknown as T` is a different
       // finding with a ban of its own in most consumers, and `createMock<T>` cannot replace it:
       // the hop through `unknown` is there precisely because the compiler refused the single cast.
-      if (!isObjectExpression(node.expression) || NOT_A_FIXTURE.has(type) || insideFactorySeed(node)) {
+      if (!isFixtureCast(context, node) || insideFactorySeed(node) || insideFixtureCast(context, node)) {
         return;
       }
 
