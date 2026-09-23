@@ -82,6 +82,7 @@ describe('isExemptPattern', () => {
   it('exempts a declaration-only glob and anything rooted in a directory the scan never enters', () => {
     expect(isExemptPattern('src/**/*.d.ts')).toBe(true);
     expect(isExemptPattern('out-tsc/**/*.ts')).toBe(true);
+    expect(isExemptPattern('.bun/**/*.ts')).toBe(true);
     expect(isExemptPattern('src/**/*.ts')).toBe(false);
   });
 });

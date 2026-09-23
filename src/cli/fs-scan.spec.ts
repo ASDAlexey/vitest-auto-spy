@@ -35,6 +35,18 @@ describe('listRepositoryFiles', () => {
     expect(listRepositoryFiles(root)).toEqual(['src/a.ts', 'src/b.ts']);
   });
 
+  it('skips a package-manager store that CI keeps inside the checkout', () => {
+    const root = createTempRepo({
+      'src/a.ts': '',
+      '.bun/install/cache/pkg@1.0.0/tsconfig.json': '{}',
+      '.npm/_cacache/index-v5/00/entry': '',
+      '.pnpm-store/v3/files/00/pkg.json': '',
+      'out-tsc/src/a.js': '',
+    });
+
+    expect(listRepositoryFiles(root)).toEqual(['src/a.ts']);
+  });
+
   it('counts a symlink as neither a file nor a directory', () => {
     const root = createTempRepo({ 'src/a.ts': '' });
 

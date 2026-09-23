@@ -8,15 +8,21 @@
 import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, sep } from 'node:path';
 
-/** Directories a repository-wide scan must never descend into. */
+/**
+ * Directories a repository-wide scan must never descend into. The package-manager stores are here
+ * because CI points them inside the checkout (`.bun/install/cache`, `npm ci --cache .npm`).
+ */
 const SKIPPED_DIRECTORIES = new Set([
   '.angular',
+  '.bun',
   '.cache',
   '.git',
   '.next',
+  '.npm',
   '.nuxt',
   '.nx',
   '.output',
+  '.pnpm-store',
   '.svelte-kit',
   '.turbo',
   '.yarn',
@@ -26,9 +32,14 @@ const SKIPPED_DIRECTORIES = new Set([
   'dist',
   'node_modules',
   'out',
+  'out-tsc',
   'tmp',
   'vendor',
 ]);
+
+export function isSkippedDirectory(name: string): boolean {
+  return SKIPPED_DIRECTORIES.has(name);
+}
 
 /** A guard against a pathological tree: a doctor run must stay a few seconds, not a few minutes. */
 export const SCAN_CAP = 50_000;
@@ -160,7 +171,7 @@ function walk(root: string, directory: string, found: string[], limit: number): 
     const full = join(directory, entry.name);
 
     if (entry.isDirectory()) {
-      if (!SKIPPED_DIRECTORIES.has(entry.name) && !isRepositoryRoot(full) && walk(root, full, found, limit)) {
+      if (!isSkippedDirectory(entry.name) && !isRepositoryRoot(full) && walk(root, full, found, limit)) {
         return true;
       }
 

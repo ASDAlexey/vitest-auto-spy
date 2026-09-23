@@ -15,7 +15,7 @@
  */
 import { join, posix } from 'node:path';
 
-import { parseJsonc, readTextFile } from '../fs-scan';
+import { isSkippedDirectory, parseJsonc, readTextFile } from '../fs-scan';
 import type { Profile } from '../profile';
 import { isRecord } from '../profile';
 import type { Finding } from '../report';
@@ -84,23 +84,8 @@ export function isExemptPattern(pattern: string): boolean {
   const slash = pattern.indexOf('/');
   const root = slash === -1 ? pattern : pattern.slice(0, slash);
 
-  return /\.d\.[cm]?ts$/.test(pattern) || UNSCANNED_ROOTS.has(root);
+  return /\.d\.[cm]?ts$/.test(pattern) || isSkippedDirectory(root);
 }
-
-const UNSCANNED_ROOTS = new Set([
-  '.angular',
-  '.next',
-  '.nuxt',
-  '.output',
-  '.svelte-kit',
-  'build',
-  'coverage',
-  'dist',
-  'node_modules',
-  'out',
-  'out-tsc',
-  'tmp',
-]);
 
 /**
  * The file-name ending a pattern is written for: the part of its last segment after the final
