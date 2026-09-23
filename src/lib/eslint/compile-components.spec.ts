@@ -27,6 +27,17 @@ describe(RULE, () => {
     expect(verify(code, INLINED)).toHaveLength(1);
   });
 
+  it('leaves a spec alone that names a component listed in ignoreComponents, with no disable comment', () => {
+    const code = 'beforeEach(async () => {\n  await TestBed.configureTestingModule({ imports: [DeferredCard] }).compileComponents();\n});';
+    const options = { ...INLINED, ignoreComponents: ['DeferredCard'] };
+
+    expect(verify(code, options)).toEqual([]);
+    expect(verify(code.replaceAll('DeferredCard', 'DeferredCardList'), options)).toHaveLength(1);
+    expect(verify(code, { ...INLINED, ignoreComponents: [] })).toHaveLength(1);
+    expect(verify(code, INLINED)[0]?.message).toContain('{ ignoreComponents: ["CardComponent"] }');
+    expect(() => verify(code, { ...INLINED, ignoreComponents: ['a.b'] })).toThrow(/should match pattern/);
+  });
+
   it('rejects a builder it does not know', () => {
     expect(() => verify('TestBed.compileComponents();', { builder: 'karma' })).toThrow(/should be equal to one of the allowed values/);
   });

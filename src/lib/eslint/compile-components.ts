@@ -28,6 +28,15 @@ function inlinesResources(context: RuleContext): boolean {
   return Reflect.get(Object(context.options[0]), 'builder') === 'inline-resources';
 }
 
+/** Whether the file names one of the `ignoreComponents` — the `@defer` components the project listed. */
+function namesIgnoredComponent(context: RuleContext): boolean {
+  const listed: unknown = Reflect.get(Object(context.options[0]), 'ignoreComponents');
+  const names = Array.isArray(listed) ? listed.map(String) : [];
+  const source = context.sourceCode.getText();
+
+  return names.some((name) => new RegExp(`\\b${name}\\b`).test(source));
+}
+
 /** Drop the call — the whole statement when only a name is left in front of it — and an `async` nothing else needs. */
 function removal(context: RuleContext, call: EsCallExpression): SuggestionDescriptor | undefined {
   const awaited = call.parent.type === 'AwaitExpression' ? call.parent : call;
@@ -58,7 +67,16 @@ export const noCompileComponents = defineRule({
   anchor: '-a-components-children',
   description: 'Drop compileComponents() under a builder that inlines component resources',
   hasSuggestions: true,
-  schema: [{ type: 'object', properties: { builder: { enum: ['inline-resources'] } }, additionalProperties: false }],
+  schema: [
+    {
+      type: 'object',
+      properties: {
+        builder: { enum: ['inline-resources'] },
+        ignoreComponents: { type: 'array', items: { type: 'string', pattern: '^[A-Za-z_]\\w*$' }, uniqueItems: true },
+      },
+      additionalProperties: false,
+    },
+  ],
   messages: {
     noCompileComponents:
       '`compileComponents()` is usually redundant here. It exists to fetch the `templateUrl` / `styleUrls` of a component at run ' +
@@ -66,13 +84,14 @@ export const noCompileComponents = defineRule({
       'settled and the `await` in front of it waits for nothing. Delete the call, and the `async` of a hook that awaits nothing ' +
       'else. One exception this rule cannot see, because the template is another file: a component whose template holds a ' +
       '`@defer` block ships async class metadata, which `compileComponents()` resolves whatever the builder did — drop the call ' +
-      'there and the test dies on "has unresolved metadata. Please call `await TestBed.compileComponents()`". Keep those, each ' +
-      'behind its own `// eslint-disable-next-line vitest-auto-spy/no-compile-components -- @defer: async class metadata`. ' +
+      'there and the test dies on "has unresolved metadata. Please call `await TestBed.compileComponents()`". Keep those: list ' +
+      'the component classes in `{ ignoreComponents: ["CardComponent"] }` and a spec that names one is left alone, or put ' +
+      'the call behind `// eslint-disable-next-line vitest-auto-spy/no-compile-components -- @defer: async class metadata`. ' +
       'Under a setup that loads resources at run time — a JIT compile reading `templateUrl` with no build step inlining it — the ' +
       'call is load-bearing everywhere, which is why this rule reports nothing until the option says otherwise.',
   },
   create: (context) =>
-    inlinesResources(context)
+    inlinesResources(context) && !namesIgnoredComponent(context)
       ? {
           'CallExpression[callee.computed=false][callee.property.name="compileComponents"]': (node: EsCallExpression): void => {
             const suggestion = removal(context, node);
