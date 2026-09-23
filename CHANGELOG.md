@@ -10,6 +10,394 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+### Added
+
+- **`doctor` reports a setup file the Angular unit-test builder never runs
+  (`builder-setup-unreached`).** `@angular/build:unit-test`, and Nx's `@nx/angular:unit-test` that
+  delegates to it, run only the `setupFiles` their target names and read a Vitest config only through
+  `runnerConfig`. A project that lists its setup file in `vitest.config.ts` — typically because the
+  root config also runs it under plain `vitest` — got two suites from one repository: under the
+  builder `setupAutoSpy()` and its `strict`, `registerSignalMatchers()` and the adapter the setup file
+  imports were all missing, and each surfaced as a different error ("No mock adapter registered",
+  "Invalid Chai property", a strict double that did not throw). The check reads `angular.json`,
+  every Nx `project.json` and `nx.json` `targetDefaults`, and names the `setupFiles` line to add. Ten
+  projects of the consumer it was written against reported it.
+- **`perf` prints a ready command for the Angular and Nx unit-test builders.** Where a bare run is
+  refused and the workspace has such a target, the refusal now ends in
+  `perf --command 'npx nx run <project>:<target> --reporters=default --reporters="$VITEST_AUTO_SPY_PERF_REPORTER" {paths:--include=}'`
+  (`npx ng run …` for the Angular CLI). The builder takes the reporter and the file filter as
+  options, so no runner config has to be created or edited; measured end to end through
+  `@nx/angular:unit-test` on Angular 22.
+
+- **`configs.strict`: `recommended` with every rule at `error`.** A project that wanted every
+  finding to stop the build had to map `Object.keys(plugin.rules)` by hand, and redo it whenever a
+  rule shipped. The seven `warn` rules are graded on how a suite adopts them, not on whether they are
+  right, so a suite that has adopted the plugin can drop that grading with one spread.
+  `no-compile-components` and `no-redundant-mock-reset` still report nothing until their options
+  describe the builder and the runner.
+- **`no-compile-components` takes `{ ignoreComponents }`.** The only way to keep `compileComponents()`
+  for a `@defer` component was an `eslint-disable-next-line`, which a project that bans disable
+  comments cannot write. The option lists the component classes, and a spec that names one of them is
+  left alone. The message now names the option first.
+
+- **`perf --format json` carries the slowest files.** A CI job that wanted a "slowest spec files"
+  table had to parse the raw reporter file, with absolute paths and no totals. `run.slowestFiles` now
+  lists the `--top` slowest files (10 by default, none at `--top 0`), each with its
+  repository-relative path, total milliseconds, test count and per-phase milliseconds.
+
+- **`flushEventLoopUntil(isDone, { timeoutMs, label })` — a budget in real milliseconds.** Turns are
+  the right unit for a chunk loading or an SDK getting ready, and the wrong one for real I/O: an HTTP
+  round-trip to a server the spec started, or a child process exiting, takes milliseconds. A turn
+  budget either runs out first or has to be set so high that a condition that never holds waits for
+  the runner's timeout anyway. `timeoutMs` checks the condition on the real clock every 10 ms, through
+  the `setTimeout` captured when the module loaded, so fake timers neither freeze nor shorten it. It
+  fails with "… after N ms of real time" and replaces the hand-rolled `waitFor(predicate, ms)` such
+  specs carry. `turns` and `timeoutMs` are exclusive in the options type. The core entries grow about
+  0.2 kB, most of it the new failure message.
+- **`perf --fail-on-red`.** Without `--gate`, `perf` exits 0 on a suite that failed — advice must not
+  redden a pipeline — so `perf --command 'npm test'` could not be a CI job's test step: the job went
+  green on failing tests. The flag makes a failed measured suite exit 1.
+
+- **`doctor --ignore <check,…>`.** A finding the repository has answered in a way `doctor` cannot
+  see — `angular-build-splitting-off` on a project that patches the builder's code splitting back on,
+  say — had to be lived with in every run and turned the exit code of a CI step. The named checks are
+  left out of the report, the tally and the exit code.
+
+- **`isAngularUnitTestBuilder()` on `/setup`.** A setup file that both the Angular unit-test builder
+  and plain Vitest run cannot call `initTestEnvironment()` under the builder — it has initialised
+  `TestBed` already, and a second call throws "Cannot set base providers because it has already been
+  called". Projects were reading `Symbol.for('@angular/cli/vitest-mock-patch')` by hand; the function
+  reads the same marker `angularBuildHint` does, and the setup page shows the two-runner recipe.
+
+- **`expectAllEmissions(source$, options?)`.** "Emits exactly these values and completes" had no
+  helper: `expectEmissions(source$, n)` stops at `n` and cannot see an `n + 1`-th, so specs collected
+  into an array by hand next to `expectEmission`, or reached for `subscribeSpyTo` from the migration
+  shim. It resolves every value once the stream completes, typed from the stream, and fails like
+  `expectCompletion` on the timeout or an error.
+
+- **`init --only <paths>`.** `init` always wrote `AGENTS.md`, `CLAUDE.md` and `GEMINI.md`. In a work
+  repository that keeps only its Claude files out of version control, it would create two tracked
+  files nobody asked for. `--only CLAUDE.md,.claude` limits the run to the listed targets; a directory
+  selects everything `init` writes under it. `--check` and `--uninstall` use the same set, and an
+  entry that selects nothing gives a warning. Doctor's `no-agent-instructions` note now also counts a
+  `.claude/CLAUDE.md`.
+- **The `init` block names the Angular companion entries a repository uses.** After 5.21.0 moved
+  thirty-two names to `/angular/diagnostics`, `/angular/doubles` and `/angular/matchers`, the block
+  for an Angular repository still said only "imports from `vitest-auto-spy/angular`", and an agent
+  writing a setup file reached for the old entry. When the sources import from a companion, or still
+  import a moved name from `/angular`, the block adds one line naming the companions and saying they
+  do not re-export the core.
+
+- **`--format markdown` for `doctor` and `perf`.** Every CI job that posted a report had to turn the
+  JSON into a merge-request note or a job summary by hand. The same document now comes out as
+  GitHub/GitLab tables: both commands print a findings table with severity, check, file, message and
+  fix, then the tally; `perf` adds the phase table, the slowest files and the gate's verdicts. It is
+  rendered from the `--format json` document, so the two cannot disagree about a run; `|` and line
+  breaks inside a cell are escaped, and the suite's own output goes to stderr as under json.
+- **`vitest-auto-spy/perf-reporter`.** The reporter `perf` attaches could only be reached as
+  `node_modules/vitest-auto-spy/dist/perf-reporter.js`, and consumers were writing that path into
+  `angular.json` and CI scripts — a CI job attaches the reporter to its real test run and reads the
+  file back with `perf --json`. It now has a subpath with types:
+  `reporters: ['default', 'vitest-auto-spy/perf-reporter']`, or
+  `--reporters=vitest-auto-spy/perf-reporter` on an Angular or Nx unit-test target. It still writes
+  nothing unless `VITEST_AUTO_SPY_PERF_OUT` names a file; 1.07 kB min+gzip, one module, and no spec
+  imports it.
+
+- **`VITEST_AUTO_SPY_STRICT=1` turns `strict` on for one run.** Measuring a slice of a suite under
+  strict meant editing the setup file or adding a second one. `setupAutoSpy()` now reads the variable
+  (`1`/`true`, or `0`/`false` to turn it off), and it wins over the option the setup file passed;
+  anything else leaves the option alone.
+- **`createActivatedRoute({ children })` / `provideActivatedRoute({ children })`.** A directive that
+  walks `activatedRoute.children` for a named outlet had no double to walk, so specs patched
+  `children` by hand with `mockValueProp`. Each entry is now a double of its own: `children`,
+  `firstChild`, a child's `parent` and `root`, and the snapshot tree all answer, and the handle's
+  `children` navigates a child with the snapshot tree following.
+- **`outOfType<T>(value)`.** A fixture outside its type on purpose — the `null` or array a backend
+  sends where the type says object, a payload that has to reach a runtime guard — had no sanctioned
+  spelling, and projects that ban casts and disable comments wrote a `JSON.parse` helper instead.
+  `outOfType` types the value as `T`, checks nothing, and says so at the call site. It takes its type
+  from where it is used, so `mockValueProp(obj, 'status', outOfType('UNKNOWN'))` keeps the key
+  checked. `prefer-create-mock` and `no-ts-expect-error-on-double` now name it as the way out.
+
+- **`renderShallow(X, { keepTemplate: true, keepModules: [ReactiveFormsModule] })`.** An AOT build
+  replaces an imported NgModule with the declarations it exports, and Angular refuses those in
+  `imports`, so every component importing `ReactiveFormsModule` or `FormsModule` threw under
+  `keepTemplate: true` ("DefaultValueAccessor, NgControlStatus, … are declared by an NgModule") and
+  form components fell back to plain `TestBed`. A module named in `keepModules` replaces every
+  declaration it exports, re-exports included, and is imported whole; the error now suggests the
+  option first.
+- **`FunctionSpy<Fn>`, the type `createFunctionSpy<Fn>()` returns.** Declaring a variable for one meant
+  writing `AddSpyMethodsByReturnTypes<Fn>`, a name that reads as internal, just to keep
+  `mustBeCalledWith` typed.
+- **`mockSignalProp` and `mockResourceProp` reach a `protected` signal.** Both had only the checked
+  overload, so a signal or resource missing from the public type could not be driven, and specs read
+  it back through `Reflect.get`. A key missing from the public type now takes the value's own type; a
+  public key never uses that form, so its value is still checked against the property.
+
+- **`intersectionEntry` takes a rect as plain numbers.** A component that reads `boundingClientRect`
+  needed a hand-built `DOMRect` in `overrides`, and a spec without the DOM class wrote all eight fields
+  by hand. `boundingClientRect`, `intersectionRect` and `rootBounds` now also take
+  `{ x, y, width, height }` (each optional), with `top`/`left`/`right`/`bottom` and `toJSON` derived
+  as a browser would; a real `DOMRect` is still handed over unchanged.
+- **`narrow.instanceOf(value, Ctor)`.** Narrowing `HttpRequest.body` to the `FormData` a test knows it
+  is took a hand-written guard. The helper returns the instance type, accepts an abstract class, and
+  fails naming the class and the value it got, like the rest of `narrow`.
+
+- **`strict: 'survey'`, and `VITEST_AUTO_SPY_STRICT=survey` for one run.** Moving a suite to strict
+  meant fixing one refused call per test per run, since `strict: true` stops each test at its first
+  unconfigured call; one consumer turned about 800 such failures into a single list of 70 members with
+  a hand-written `onUnstubbedCall` setup file. Survey mode is that built in: nothing throws, every call
+  and read strict mode would refuse is counted, and each file ends with the list on stderr, most
+  frequent first, ready for `returns` or `registerAutoSpyDefaults`. A handler the caller passed still
+  wins.
+- **`renderShallow(X, { keepHostDirectives: false })`.** A component whose host directives inject a
+  large service graph could not be rendered shallow without providing that graph, short of
+  `TestBed.overrideComponent(X, { set: { hostDirectives: [] } })` before the call. The option drops the
+  host directives in the same override that blanks the template; it defaults to `true`, because a host
+  directive is part of the component, not a child of it.
+- **`provideRouterDouble({ children })`.** A component that walks `router.routerState.root.children`
+  to find which outlets a page has open got an empty root, and specs replaced `routerState` by hand.
+  Each entry is an `ActivatedRouteInit`, nested as deep as the walk goes; the live tree and the
+  snapshot tree both answer, and `setUrl` keeps them.
+
+- **`doctor` reports a module mock that leaks across files (`module-mock-leak`).** Under
+  `isolate: false` Vitest keeps a `vi.mock(x, factory)` on the module after its file ends and hands it
+  to a later file's `vi.mock(x)` or `vi.mock(x, { spy: true })`, which then fails with `No "X" export is
+  defined on the "x" mock` in a spec with no factory at all — only when the two files share a worker.
+  The check pairs the files that mock one module both ways, when a Vitest config sets
+  `isolate: false` or the Angular unit-test builder runs the suite; on the consumer it was found on it
+  names six files. `AGENTS.md` carries the error row. A `setupAutoSpy()` cleanup was weighed and left
+  out: it would depend on undocumented runner state (see `DECISIONS.md`).
+
+### Fixed
+
+- **`init` names the setup file, not the `sequence.setupFiles` order.** The block it writes tells
+  an agent where `import 'vitest-auto-spy/rxjs'` goes, and it took the first `setupFiles:` in the
+  config — which in a config with `sequence: { setupFiles: 'list' }` above the real list is the
+  order, so the instruction read "once, in `list`". The values `list` and `parallel` are now
+  skipped and the file list after them is read. A block already written that way is corrected by
+  the next `init`, and `init --check` reports it as stale until then.
+- **The `perf-isolation` note and the coverage checks recognise Nx's `@nx/angular:unit-test`.** Both
+  read only `@angular/build:unit-test` targets in `angular.json`, so an Nx workspace was offered
+  `isolate: false` it already runs with, and a source-only `coverage.include` in the runner config its
+  target names went unreported. They now read `project.json` targets and `nx.json` `targetDefaults`
+  too.
+- **`expectNoEmission` resolves when the source completes inside the quiet window.** Completing tore
+  the subscription down, and the teardown cleared the window timer that was the only thing able to
+  resolve the promise — so `expectNoEmission(http.get(…).pipe(catchError(() => EMPTY)))`, flushed
+  with an error after the call, hung until the test timed out, with no message. A synchronous `EMPTY`
+  passed only because it completed before the timer existed. A completed source can emit nothing
+  more, so completion now resolves at once.
+- **`prefer-create-spy-from-class` leaves a `vi.hoisted()` bag alone.**
+  `const { spawnMock } = vi.hoisted(() => ({ spawnMock: vi.fn() }))` exists only to hand a mock to a
+  `vi.mock` factory, which runs before any import could build a spy from a class. At
+  `{ minRunnerFns: 1 }` it was reported as a service double. The `vi.mock` factory exemption now
+  covers the bag too, in `no-stub-class-double` and `no-structural-double` as well.
+- **`prefer-create-spy-from-class` names the threshold it reported at.** The message said "two or
+  more" whatever the option was, and told a project already at `{ minRunnerFns: 1 }` to lower it to
+  1. It now uses the configured number, and at 1 it drops that advice and the explanation behind it.
+- **`no-redundant-mock-reset` finds `vitest-base.config.*`.** That is the file `runnerConfig: true` of
+  `@angular/build:unit-test` resolves, and the search looked only for `vitest.config.*` and
+  `vite.config.*`, so an Angular CLI project had to spell out `configFile` for a file the builder finds
+  on its own. The rule page now also says that `setupAutoSpy({ restoreMocks })` restores after each
+  test, not before it, and cannot stand in for the runner flag.
+- **A member typed as a union of call signatures takes an implementation again.** `@ngrx/signals`
+  hands every nullable object slice of a store over as `DeepSignal<A> | Signal<null>`, and since 5.1.0
+  `mockImplementation` on such a member was typed as `(() => A) | (() => null)`. A function returning
+  `A | null`, which is what a real signal is, matched neither half, so
+  `store.angle.mockImplementation(() => angle())` did not compile at all. The stub is now checked
+  against one signature returning the union; a wrong return type is still rejected, and a member that
+  is not a union is typed exactly as before. Found on a 4.6 → 5.24 upgrade of an 850-spec Angular
+  application, where it was 2 of 61 errors.
+- **The `strict` error names the class as the source spells it.** Under the Angular unit-test
+  builder esbuild renames a decorated class to `_FeatureFlagService`, and the error read "Nothing
+  configured _FeatureFlagService.isFeatureOn". A leading `_` before a capital and Rollup's `$1` suffix
+  are now taken off the name the message prints.
+- **`init` names the setup file the unit-test builder runs.** In an Nx or Angular CLI workspace the
+  rxjs line pointed at the Vitest config's `setupFiles`, a file `@angular/build:unit-test` and
+  `@nx/angular:unit-test` do not run unless their target names it. The line now takes the first
+  `setupFiles` entry of such a target, `nx.json` `targetDefaults` included, and falls back to the
+  Vitest config only when no target names one.
+- **`returns` naming a method the constructor assigns says to list it in `instanceMethodsToSpyOn`.**
+  On an ngrx `signalStore()` class an `rxMethod` is an instance field, so
+  `provideAutoSpy(Store, { returns: { loadFavorites: … } })` type-checked and then warned that
+  `loadFavorites` "is not a spied method", pointing only at spelling and `onlyMethodsToSpyOn`. The
+  message now names the third cause and the exact option to add.
+- **A nullable ngrx state slice can be seeded through `overrides`.** `@ngrx/signals` types a nullable
+  object slice as `DeepSignal<A> | Signal<null>`, and `DeepPartial` distributed over that union: every
+  member it offered was single-valued, so the `signal<A | null>()` a spec actually holds matched none
+  of them, and `createAutoMock<Store>({ currentAngle: signal<Angle | null>(null) })` — or the same
+  seed in `provideAutoSpy` / `createSpyFromClass` `overrides` — failed with `TS2322`. A member typed as
+  a union of call signatures now also accepts one function returning the whole union, required or
+  optional. A signal of the wrong type is still rejected, and a member that is not a union is typed
+  exactly as before. `AGENTS.md` §13 now says a store's state goes through `mockSignalProp`, which also
+  hands back the handle to change it mid-test.
+- **`no-reflect-member-access` gives a fixture a way out without an assertion.** For a value
+  deliberately outside the declared type it recommended `{ data: value as Model['data'] }`, which a
+  project with `@typescript-eslint/consistent-type-assertions: never` cannot write. The message now
+  also names `mockValueProp(fixture, 'data', value)`, whose loose overload takes the out-of-type value
+  and restores it after the test.
+- **`prefer-create-spy-from-class` leaves an options bag passed to a call alone.** At
+  `{ minRunnerFns: 1 }`, `service.openDialog({ elRef, options, onColorChange: vi.fn() })` was reported
+  as a hand-rolled double, but it is one callback among values handed to the code under test, with no
+  class behind it. An object passed straight to a call or a `new`, holding exactly one `vi.fn()` beside
+  a plain value, is no longer reported; two mocks, a function value, or the object parked in a `const`
+  still are, and the default threshold never reached this shape.
+- **`prefer-create-spy-from-class` names `createMock<T>` for a one-member object.** A thenable
+  `{ then: vi.fn() }` or a single-callback holder has no class for `createSpyFromClass` to read, so the
+  repair the message named was not one. Such an object now gets `createMock<T>({ then: vi.fn() })`,
+  which checks the key and the signature against `T`.
+- **`prefer-set-inputs` follows a `componentRef` held in a variable.**
+  `const componentRef = fixture.componentRef; componentRef.setInput('title', 'Hi')` was left alone,
+  and one consumer had 14 such calls. A name the file binds once to `<fixture>.componentRef`, as a
+  const or as a let a hook assigns, is now followed to its fixture, and the suggestion names that
+  fixture in `setInputs(fixture, …)`. A binding written twice, or a fixture out of reach at the call,
+  is still skipped.
+- **`prefer-provide-auto-spy` and `prefer-create-spy-from-class` count a `vi.fn()` held in a name.**
+  `const open = vi.fn(); … { provide: NotificationsService, useValue: { open } }` read as an object of
+  plain values, so neither rule reported it, even at `{ minRunnerFns: 1 }`. A property whose value is
+  a name bound once to a `vi.fn()` now counts as the mock it is, in `no-structural-double` too.
+- **`prefer-create-spy-from-class` leaves an RxJS observer alone.** At `{ minRunnerFns: 1 }`,
+  `source$.subscribe({ error: vi.fn() })` and `tap({ next: vi.fn() })` were reported as hand-rolled
+  doubles. An object literal handed straight to `subscribe(…)` or `tap(…)` is an observer, with no
+  class behind it, and is no longer reported.
+- **`prefer-create-spy-from-class` leaves `createFixture` and `createFixtureFactory` seeds alone.** At
+  `{ minRunnerFns: 1 }`, `createFixture<Options>({ changeOptionsCallback: vi.fn() })` was reported as a
+  hand-rolled double, though the object is the defaults of a model with one callback field, already
+  typed against `T`, with no class to read. The object arguments of both helpers are now exempt, as a
+  `createMock` seed is; other rules still do not treat what those helpers return as a library double.
+- **A second `setupAutoSpy()` no longer fails every test on the first call's network stubs.** An
+  extra setup file calling it again, to try `strict` on a slice, registered its per-test hook after
+  the first call's `blockNetwork` stubs went in, and every test then failed with "send, open, fetch —
+  patched outside a per-test hook": the library's own stubs reported as the spec's defect. The calls
+  now share one per-test epoch.
+- **`returns: { m: undefined }` type-checks for any method.** Under `strict` it marks a method
+  configured whose answer nobody reads — an ngrx `rxMethod` ref, a snack-bar ref — and the runtime
+  always took it that way, but `exactOptionalPropertyTypes` refused it for every return type that did
+  not already include `undefined`, so specs wrote `createMock<ReturnType<Store['m']>>()` instead.
+- **The strict read report advises by what was read.** A stream nobody fed was told to configure a
+  getter it does not have. A stream finding now names seeding `overrides: { <name>: new Subject() }`
+  driven from the test first, and `NEVER` or a silent Subject for a stream the test never fires, where
+  `observablePropsToSpyOn` is the wrong tool. The getter advice appears only for a getter.
+- **`overrideComponentProvider` after an inject says what went wrong.** In
+  `renderShallow({ beforeCreate })`, an `injectSpy(Store)` before `overrideComponentProvider(Cmp, X)`
+  instantiated the testing module, and the override died with Angular's bare "Cannot configure the
+  test module when the test module has already been instantiated", which names neither call. The
+  error now names the override, the read that came first (a `TestBed.inject`, an `injectSpy`, a
+  `createComponent`) and the order that works, with Angular's error as its `cause`; the `beforeCreate`
+  JSDoc says the override goes first.
+- **A class-typed member can be seeded with a mock class typed as a bare constructor.**
+  `provideAutoSpyForToken(WINDOW, { RTCRtpTransceiver: MockTransceiver })` failed with a 40-line
+  `TS2345` when `MockTransceiver` was typed `new () => X`, because a construct signature has no
+  `prototype` for the partial to map, while the class value itself passed. `overrides` now also accepts
+  a constructor of the right instance type; one building the wrong instance is still rejected.
+- **`prefer-create-mock` reports nested fixture casts once, and its edit unwraps them.**
+  `{ inner: { id: '1' } as Inner } as Outer` drew one report per cast, and accepting the outer
+  suggestion put the inner literal inside a `createMock` seed, which the rule exempts, so its cast
+  stayed forever and nothing checked that literal. Only the outermost cast is reported now, and its
+  suggestion removes the fixture casts nested inside it, so the whole literal is checked against
+  `DeepPartial<Outer>`. A cast behind a function keeps its own report, and the edit remains a
+  suggestion rather than a `--fix`.
+- **`prefer-render-shallow` folds the testing module instead of swapping one call.** The suggestion
+  replaced `TestBed.createComponent(X)` with `renderShallow(X).fixture` and left the spec's own
+  `configureTestingModule` and any `injectSpy` between the two in place; applied to 49 files it broke
+  17 with "Cannot configure the test module when the test module has already been instantiated", and
+  it rendered early wherever no `fixture.detectChanges()` followed. The suggestion now folds a
+  same-block `configureTestingModule({ providers, imports })` into `renderShallow(X, { providers,
+  imports })`, dropping X from `imports`, moves bare `v = injectSpy(…)` reads below the render, absorbs
+  a `fixture.detectChanges()` directly under it and otherwise adds `detectChanges: false`. Any other
+  shape is reported with no edit.
+- **`prefer-set-inputs` and `prefer-render-shallow` merge their import into the one the file already
+  has.** Both suggestions wrote a new `import { … } from 'vitest-auto-spy/angular'` line even when the
+  file already imported from that entry, which `import-x/no-duplicates` then reported in 47 files.
+- **`no-redundant-smoke-test` leaves an element found by a DOM query alone.**
+  `expect(minimap()).not.toBeNull()`, where the file's `minimap` helper runs
+  `debugElement.query(By.css('app-minimap-2d'))`, asserts which branch of the template rendered, not
+  that a subject was built. A subject that is a local helper or a name whose value calls
+  `querySelector`, `query`/`queryAll`, `getElement*`, `closest` or `By.*` is no longer treated as the
+  setup subject.
+- **An unnamed strict double is named by the line that built it.** A `createAutoMock` or `autoMocked`
+  double without a `name` reported "Nothing configured goToLiveMode", and an `onUnstubbedCall` handler
+  received `className: undefined`, so with several unnamed doubles in a file nothing said which one it
+  was. The message and the handler now get `createAutoMock(users.spec.ts:12)`; the stack is captured
+  only for a double that strict mode or a handler will report on. A `createSpyFromClass` over a fully
+  abstract class keeps the class name: `Nothing configured Storage.read`.
+- **An optional key takes an explicit `undefined` in `createMock`, `createFixture` and `overrides`.**
+  Under `exactOptionalPropertyTypes`, `createMock<Dto>({ ...base, sites: undefined })` failed with
+  `TS2375`, and a fixture could not clear an optional field it had spread in, so specs split their
+  models into a base without the optional fields. A key `T` declares optional now accepts `undefined`,
+  and `createFixture` writes it; a required key still refuses it.
+- **A `mustBeCalledWith` / `calledWith` argument that reaches the DOM no longer throws
+  `RangeError: Invalid string length`.** `mustBeCalledWith(new ElementRef(div))` expanded the
+  argument for its description, and through `ownerDocument` that walked the whole document with a
+  per-path cycle guard, so the output grew with whatever the page held. A class instance that holds no
+  matcher now prints as `<ElementRef>`, and the walk shares one visited set.
+- **`renderShallow` issues no override that changes nothing.** A module-declared component under
+  `keepTemplate: true` still went through `TestBed.overrideComponent` with an empty set, which
+  recompiles it under JIT for the rest of the file and takes its AOT template, factory and host-binding
+  branches out of coverage. The call is now skipped when there is nothing to set. Where an override is
+  needed — a standalone component's children — the Angular page and the `prefer-render-shallow` rule
+  page say what it costs: about 310 branches on an 850-spec suite, enough to fail a 90 % gate, and one
+  real `TestBed` render per component placed before any `renderShallow` keeps them.
+- **`no-unasserted-argument` no longer reads the `with` of a method name as an argument list.**
+  `it('should dismiss with action …')` over `expect(ref.dismissWithAction).toHaveBeenCalled()` was
+  reported, although the title spells the method and `dismissWithAction()` takes no arguments. A
+  title's `with` that is part of the asserted subject's name, split at its capitals, is now skipped;
+  any other `with` in the same title still reports.
+- **`no-unasserted-argument` leaves `preventDefault()`, `stopPropagation()` and
+  `stopImmediatePropagation()` alone.** A title such as "ignores events with `metaKey`" over
+  `expect(event.preventDefault).toHaveBeenCalled()` was read as promising arguments, but those
+  `Event` methods take none, so the only repair the message offered could not be written. A subject
+  whose last member is one of them is no longer reported. The message now also says that for a method
+  taking no arguments the repair is `toHaveBeenCalledOnce()` or `toHaveBeenCalledTimes(n)`.
+- **`no-import-time-console-spies` accepts `beforeAll(installConsoleSpies)`.** The rule looked for a
+  call to `installConsoleSpies`, so handing the function to a hook by reference was reported as a
+  file that never installs the spies. The message and the rule page now also name `beforeAll` with
+  `afterAll`, the shape for a suite that shares one server or fixture across its tests.
+- **`prefer-settle-dynamic-import` names the static `import` for a spec that only reads a module.**
+  `configure(…); const { run } = await import('./run')` is still reported — the arrangement line is
+  written the same way as the `button.click()` that sets a module loading, and the rule reads syntax
+  only — but the message no longer offers `settleDynamicImport` as the only way out: where nothing
+  the test ran loads the module, it says the repair is a static `import`.
+
+### Changed
+
+- **`AGENTS.md` fills three gaps an 850-spec migration hit:** writes to a `stubWebStorage()` stub go
+  through `.storage` (the stub is not a `Storage`, and `local.setItem` is a `TS2339`); an ngrx
+  `rxMethod` under `strict` is configured with `returns: { m: undefined }`, or seeded with
+  `createAutoMock<ReturnType<Store['m']>>()` when the code reads the ref ngrx does not export; and a
+  component-level provider is overridden under `renderShallow` in `beforeCreate`.
+- **The upgrade page names 5.6.0's `strict` fix as the behaviour change it is.** A suite on 5.5 or
+  earlier that set `setupAutoSpy({ strict: true })` never had it applied; from 5.6.0 every
+  unconfigured call throws, and the 5.6.0 entry files that under _Fixed_ only. Ten tests of one
+  consumer went red on the upgrade.
+- **`AGENTS.md` says how to adopt `setupAutoSpy()` in a suite that restored its patches once per
+  file.** The sweep changes such a patch from "lives for the file" to "lives for one test", and the
+  default `'warn'` for a patch outside the hooks is easy to miss in a full run: 3 of 176 files of one
+  suite broke that way. The recipe runs the first time with `propsOutsideHooks: 'throw'`.
+- **The upgrade page sorts 5.1.0's stub-typing errors by message.** A suite going from 4.x straight to
+  a later 5.x read "nothing but a number in `package.json`" on `upgrading-5` and then met the one
+  change that produces type errors. The page now carries the eight shapes measured on that 850-spec
+  upgrade — 21 `exactOptionalPropertyTypes`, 9 `Spy<X>` returned from another double, 8 fixtures
+  that were wrong, 5 annotated implementation parameters, 6 implementation bodies that are now
+  checked, 4 hand-built partial doubles, 4 typed `mock.calls`, 2 `vi.fn(impl)` inside
+  `mockReadonlyProp` — each with its fix, and `AGENTS.md`' error table carries the same rows keyed by
+  the exact TypeScript message.
+- **A global class replaced through `provideDocumentDouble` / `provideWindowDouble` has to carry its
+  statics, and the Angular page now says how.** `{ defaultView: { EventSource: mockConstructor(…) } }`
+  is a type error because the override replaces the member, and code comparing
+  `readyState === EventSource.OPEN` would read `undefined`.
+  `Object.assign(mockConstructor(…), { CONNECTING: 0, OPEN: 1, CLOSED: 2 } as const)` type-checks and
+  is now pinned by a type test.
+- **The release commit stamps this changelog.** `npm version` runs the `version` lifecycle script,
+  which now moves `## [Unreleased]` under the version being released, with the date and the compare
+  links, so the `chore(release)` commit carries its own section. It used to be a hand-made
+  follow-up, and 4.2.0 and 5.24.0 were tagged without it; the 5.24.0 section above is dated from
+  its tag. A changelog without the heading or the `[Unreleased]` link now fails the release before
+  anything is published.
+
+## [5.24.0] - 2026-09-22
+
 `ignoreCancelled` reaches the diagnostics group, the `Location` double answers `path()` the way
 the real `Location` does, and the 5.23.0 rules stop reporting what they got wrong on the consumer they
 were rolled out over.
@@ -237,7 +625,7 @@ edit are the two that ship at `warn`.
   `mockClear()` / `mockReset()` / `mockRestore()`. Vitest resets in `onBeforeTryTask`, which runs
   ahead of every test's `beforeEach` chain and never after a test, so a reset opening a `beforeEach`
   does again what the runner has just done (the `afterEach` / `afterAll` half of this was wrong, and
-  is withdrawn in the next release) — and the line is not free: it reads as the thing
+  is withdrawn in 5.24.0) — and the line is not free: it reads as the thing
   keeping the suite honest, so nobody deletes it, and the next author copies it into their hook too.
 
   **The configuration is the hard part, and the rule refuses to guess at it.** Options first,
@@ -7296,7 +7684,8 @@ by hand there, in more than one place, by more than one person.
   `mockAccessorsProp`.
 - Dual ESM + CJS build with type declarations; 100% test coverage.
 
-[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.23.0...HEAD
+[Unreleased]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.24.0...HEAD
+[5.24.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.23.0...v5.24.0
 [5.23.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.22.0...v5.23.0
 [5.22.0]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.21.1...v5.22.0
 [5.21.1]: https://github.com/ASDAlexey/vitest-auto-spy/compare/v5.21.0...v5.21.1
