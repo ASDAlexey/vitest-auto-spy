@@ -26,7 +26,7 @@ import { type Signal, type WritableSignal, computed, signal, untracked } from '@
 import { DOCS_LINKS, withDocs } from './docs-links';
 import { createFunctionSpy } from './function-spy';
 import { mockReadonlyProp } from './prop-mock';
-import type { AddSpyMethodsByReturnTypes } from './types';
+import type { AddSpyMethodsByReturnTypes, NotAPublicKey } from './types';
 
 /**
  * The resource statuses Angular defines, as a string union.
@@ -183,8 +183,21 @@ export function mockResourceProp<T, K extends keyof T>(
   object: T,
   property: K,
   initialValue: T[K] extends { value: Signal<infer TValue> } ? TValue : never,
+  options?: MockResourceOptions,
+): MockedResource<T[K] extends { value: Signal<infer TValue> } ? TValue : never>;
+/** For a resource the public type does not describe — a TS `protected` or `private` one. A JS `#private` field is out of reach of any property key. */
+export function mockResourceProp<T extends object, P extends PropertyKey, TValue>(
+  object: T,
+  property: NotAPublicKey<T, P> & P,
+  initialValue: TValue,
+  options?: MockResourceOptions,
+): MockedResource<TValue>;
+export function mockResourceProp<TValue>(
+  object: unknown,
+  property: PropertyKey,
+  initialValue: TValue,
   options: MockResourceOptions = {},
-): MockedResource<T[K] extends { value: Signal<infer TValue> } ? TValue : never> {
+): MockedResource<TValue> {
   return installResourceDouble(object, property, initialValue, options);
 }
 

@@ -42,6 +42,7 @@ import { type SignalNode, signalGetFn, signalSetFn, signalUpdateFn } from '@angu
 import { assertAngularInternals } from './angular-internals';
 import { DOCS_LINKS, withDocs } from './docs-links';
 import { mockReadonlyProp } from './prop-mock';
+import type { NotAPublicKey } from './types';
 
 /** The three members of Angular's reactive node this helper reads, all optional across versions. */
 interface ReactiveNode {
@@ -183,9 +184,14 @@ export function mockSignalProp<T, K extends keyof T>(
   object: T,
   property: K,
   initialValue: T[K] extends Signal<infer TValue> ? TValue : never,
-): WritableSignal<T[K] extends Signal<infer TValue> ? TValue : never> {
-  type TValue = T[K] extends Signal<infer TInner> ? TInner : never;
-
+): WritableSignal<T[K] extends Signal<infer TValue> ? TValue : never>;
+/** For a signal the public type does not describe — a TS `protected` or `private` one. A JS `#private` field is out of reach of any property key. */
+export function mockSignalProp<T extends object, P extends PropertyKey, TValue>(
+  object: T,
+  property: NotAPublicKey<T, P> & P,
+  initialValue: TValue,
+): WritableSignal<TValue>;
+export function mockSignalProp<TValue>(object: unknown, property: PropertyKey, initialValue: TValue): WritableSignal<TValue> {
   const holder: Record<PropertyKey, unknown> = Object(object);
   const existing = holder[property];
 
