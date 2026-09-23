@@ -160,11 +160,22 @@ function describeRead({ guard, member, kind, count }: ReadEntry): string {
     : `[vitest-auto-spy] ${target} was subscribed to ${times(count)} and nothing fed it, and strict mode is on.`;
 }
 
-const UNCONFIGURED_READS_ADVICE =
-  'The getter answered undefined and the stream never emitted, so the code under test ran on without the value it depended ' +
-  "on. Configure the getter — accessorSpies.getters.<name>.mockReturnValue(…), overrides: { <name>: … } or mockReadonlyProp(double, '<name>', …) — " +
-  'feed the stream — nextWith(…), returnSubject(), complete() — or seed a real one through overrides. When undefined is the answer ' +
-  "meant, say so: mockReturnValue(undefined). Or drop 'strict' from this double.";
+const GETTER_ADVICE =
+  'The getter answered undefined, so the code under test ran on without the value it depended on. Configure it — ' +
+  "accessorSpies.getters.<name>.mockReturnValue(…), overrides: { <name>: … } or mockReadonlyProp(double, '<name>', …) — or, " +
+  'when undefined is the answer meant, say so: mockReturnValue(undefined).';
+
+const STREAM_ADVICE =
+  'The stream never emitted. When the spec fires it, seed a real one — overrides: { <name>: new Subject() } — and drive that ' +
+  'Subject from the test; nextWith(…), returnSubject() and complete() feed the spy instead. When this test never fires it, ' +
+  'observablePropsToSpyOn is the wrong tool: it adds a stream nobody feeds — seed overrides: { <name>: NEVER } or a Subject left silent.';
+
+function readsAdvice(found: readonly ReadEntry[]): string {
+  const kinds = new Set(found.map((entry) => entry.kind));
+  const advice = [kinds.has('getter') ? GETTER_ADVICE : undefined, kinds.has('observable') ? STREAM_ADVICE : undefined];
+
+  return [...advice.filter((line) => line !== undefined), "Or drop 'strict' from this double."].join(' ');
+}
 
 /**
  * Stop counting and judge what the test read: a double's handler takes its own findings, the rest are
@@ -174,6 +185,7 @@ export function reportUnconfiguredReads(reaction: GuardReaction): void {
   const current = ledger();
   const found = [...current.entries.values()].filter((entry) => entry.stillUnconfigured?.() ?? true);
   const lines: string[] = [];
+  const reported: ReadEntry[] = [];
 
   current.entries.clear();
   current.open = false;
@@ -185,10 +197,11 @@ export function reportUnconfiguredReads(reaction: GuardReaction): void {
       guard.handle({ className: guard.className, member, kind, count });
     } else {
       lines.push(describeRead(entry));
+      reported.push(entry);
     }
   }
 
   if (reaction !== 'off' && lines.length > 0) {
-    reactToFindings([withDocs(`${lines.join('\n')}\n${UNCONFIGURED_READS_ADVICE}`, DOCS_LINKS.unconfiguredReads)], reaction);
+    reactToFindings([withDocs(`${lines.join('\n')}\n${readsAdvice(reported)}`, DOCS_LINKS.unconfiguredReads)], reaction);
   }
 }

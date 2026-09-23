@@ -259,6 +259,24 @@ describe('an observable property nobody fed', () => {
     );
   });
 
+  it('advises a seeded Subject for a stream, and leaves the getter advice out', () => {
+    strictFeed().items$.subscribe();
+
+    const thrown = ((): string => {
+      try {
+        reportUnconfiguredReads('throw');
+      } catch (error) {
+        return String(error);
+      }
+
+      return '';
+    })();
+
+    expect(thrown).toContain('overrides: { <name>: new Subject() } — and drive that Subject from the test');
+    expect(thrown).toContain('observablePropsToSpyOn is the wrong tool');
+    expect(thrown).not.toContain('accessorSpies.getters');
+  });
+
   it.each([
     ['nextWith', (feed: Spy<Feed>): unknown => feed.items$.nextWith(1)],
     ['returnSubject', (feed: Spy<Feed>): unknown => feed.items$.returnSubject()],
