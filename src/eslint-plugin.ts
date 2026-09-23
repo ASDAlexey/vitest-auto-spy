@@ -13,8 +13,9 @@
  * Scope the config to spec files yourself: every rule here is about test code, and `Object.
  * defineProperty` or an object of `vi.fn()`s is perfectly reasonable in application code.
  *
- * `configs.typeErrors` is the second config: the subset whose findings are compile errors, to spread
- * back over a blanket downgrade while a large suite is being adopted.
+ * `configs.strict` is `recommended` with every rule at `error`. `configs.typeErrors` is the subset whose
+ * findings are compile errors — already `error` in `recommended` — to spread back over a blanket
+ * downgrade while a large suite is being adopted.
  *
  * Flat config only. The legacy `.eslintrc` `plugins: ['…']` form resolves plugin names to
  * `eslint-plugin-*` packages, which a subpath export of this package can never be.
@@ -34,7 +35,7 @@ export interface FlatConfig {
 /** The plugin object, as ESLint consumes it. */
 export interface AutoSpyEslintPlugin {
   rules: Record<string, RuleModule>;
-  configs: { recommended: FlatConfig; typeErrors: FlatConfig };
+  configs: { recommended: FlatConfig; strict: FlatConfig; typeErrors: FlatConfig };
 }
 
 const PLUGIN_NAME = 'vitest-auto-spy';
@@ -225,10 +226,20 @@ const typeErrorRules: Record<string, RuleSeverity> = {
   [`${PLUGIN_NAME}/no-mocked-for-spy`]: 'error',
 };
 
+/**
+ * `recommended` with its `warn` rules raised to `error`, for a project that wants every finding to
+ * stop the build and would otherwise map `Object.keys(plugin.rules)` by hand. The grading above is
+ * advice about adoption, not about correctness, so a suite that has adopted the plugin can drop it.
+ * `no-compile-components` and `no-redundant-mock-reset` still report nothing until their options say
+ * what the project's builder and runner do.
+ */
+const strictRules: Record<string, RuleSeverity> = Object.fromEntries(Object.keys(recommendedRules).map((id) => [id, 'error']));
+
 const plugin: AutoSpyEslintPlugin = {
   rules,
   configs: {
     recommended: { plugins: {}, rules: recommendedRules },
+    strict: { plugins: {}, rules: strictRules },
     typeErrors: { plugins: {}, rules: typeErrorRules },
   },
 };
@@ -236,6 +247,7 @@ const plugin: AutoSpyEslintPlugin = {
 // Flat config names the plugin object itself, so the config can only be completed once the plugin
 // exists — hence the assignment rather than a literal.
 plugin.configs.recommended.plugins[PLUGIN_NAME] = plugin;
+plugin.configs.strict.plugins[PLUGIN_NAME] = plugin;
 plugin.configs.typeErrors.plugins[PLUGIN_NAME] = plugin;
 
 export default plugin;
