@@ -8,18 +8,21 @@
  */
 import { checkAgentInstructions } from './checks/agent-instructions';
 import { checkAngularBuild } from './checks/angular-build';
+import { checkBuilderSetup } from './checks/builder-setup';
 import { checkCoverageConfig } from './checks/coverage-config';
 import { checkForeignPragma } from './checks/foreign-pragma';
-import { buildGraph } from './checks/graph';
+import { buildGraph, isSpecFile } from './checks/graph';
 import { checkHelperEntry } from './checks/helper-entry';
 import { checkJasmineEra } from './checks/jasmine-era';
+import { checkModuleMockLeak } from './checks/module-mock-leak';
 import { checkOrphanRunnerConfig } from './checks/orphan-runner-config';
 import { checkScanCap } from './checks/scan-cap';
 import { checkSpecImports } from './checks/spec-imports';
 import { checkTsconfigGlobs } from './checks/tsconfig-globs';
 import { checkUnawaitedHelper } from './checks/unawaited-helper';
 import type { Profile } from './profile';
-import type { Finding } from './report';
+import { type Finding, REPORT_SCHEMA, type Tally, findingJson, sortFindings, tallyOf } from './report';
+import { ownVersion } from './self';
 
 export function runDoctor(profile: Profile): Finding[] {
   const graph = buildGraph(profile);
@@ -31,10 +34,41 @@ export function runDoctor(profile: Profile): Finding[] {
     ...checkForeignPragma(graph),
     ...checkOrphanRunnerConfig(profile, graph),
     ...checkAngularBuild(profile),
+    ...checkBuilderSetup(profile),
     ...checkCoverageConfig(profile),
     ...checkAgentInstructions(profile),
     ...checkJasmineEra(profile),
     ...checkHelperEntry(profile, graph),
     ...checkUnawaitedHelper(profile, graph),
+    ...checkModuleMockLeak(profile, graph),
   ];
+}
+
+/** The `--format json` document, which `--format markdown` renders too. */
+export interface DoctorDocument {
+  readonly schema: number;
+  readonly command: 'doctor';
+  readonly version: string;
+  readonly cwd: string;
+  readonly runner: Profile['runner'];
+  readonly entry: string;
+  readonly scanned: { readonly files: number; readonly specFiles: number; readonly truncated: boolean };
+  readonly exitCode: number;
+  readonly tally: Tally;
+  readonly findings: readonly Finding[];
+}
+
+export function doctorDocument(profile: Profile, findings: readonly Finding[], exitCode: number): DoctorDocument {
+  return {
+    schema: REPORT_SCHEMA,
+    command: 'doctor',
+    version: ownVersion(),
+    cwd: profile.cwd,
+    runner: profile.runner,
+    entry: profile.entry,
+    scanned: { files: profile.files.length, specFiles: profile.files.filter(isSpecFile).length, truncated: profile.filesTruncated },
+    exitCode,
+    tally: tallyOf(findings),
+    findings: sortFindings(findings).map(findingJson),
+  };
 }

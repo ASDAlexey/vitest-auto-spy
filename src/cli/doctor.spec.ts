@@ -387,6 +387,18 @@ describe('checkCoverageConfig', () => {
     expect(checks(checkCoverageConfig(readProfile(root)))).toEqual(['coverage-include-misses-bundle']);
   });
 
+  it('reads the runner config an Nx unit-test target names the same way', () => {
+    const root = createTempRepo({
+      'package.json': '{}',
+      'libs/ui/project.json': JSON.stringify({
+        targets: { test: { executor: '@nx/angular:unit-test', options: { runnerConfig: 'libs/ui/vitest-runner.config.ts' } } },
+      }),
+      'libs/ui/vitest-runner.config.ts': 'export default { test: { coverage: { include: ["libs/ui/**/*.ts"] } } };',
+    });
+
+    expect(checks(checkCoverageConfig(readProfile(root)))).toEqual(['coverage-include-misses-bundle']);
+  });
+
   it('stays quiet when the list can reach a chunk, and when the same list is not a runner config', () => {
     const reachable = createTempRepo({
       'package.json': '{}',
@@ -531,6 +543,12 @@ describe('checkAgentInstructions', () => {
 
     expect(checks(checkAgentInstructions(silent))).toEqual(['no-agent-instructions']);
     expect(checkAgentInstructions(told)).toEqual([]);
+  });
+
+  it('counts a `.claude/CLAUDE.md` a repository keeps out of version control', () => {
+    const local = readProfile(createTempRepo({ 'package.json': '{}', '.claude/CLAUDE.md': 'vitest-auto-spy' }));
+
+    expect(checkAgentInstructions(local)).toEqual([]);
   });
 });
 

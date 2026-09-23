@@ -48,8 +48,21 @@ describe('renderBody', () => {
     expect(renderBody(profileWith({ hasRxjs: true }))).toContain('`the test setup file`');
   });
 
+  it('prefers the setup file the builder runs, and names the Angular companions in use', () => {
+    const body = renderBody(profileWith({ hasRxjs: true, setupFiles: ['src/test-setup.ts'] }), {
+      setupFile: 'libs/ui/src/test-setup.builder.ts',
+      companions: ['vitest-auto-spy/angular/diagnostics', 'vitest-auto-spy/angular/matchers'],
+    });
+
+    expect(body).toContain('`libs/ui/src/test-setup.builder.ts`');
+    expect(body).toContain('also come from `vitest-auto-spy/angular/diagnostics`, `vitest-auto-spy/angular/matchers`');
+  });
+
   it('stays inside the budget Codex truncates at', () => {
-    const body = renderBody(profileWith({ framework: 'angular', hasRxjs: true, setupFiles: ['src/test-setup.ts'] }));
+    const body = renderBody(profileWith({ framework: 'angular', hasRxjs: true, setupFiles: ['src/test-setup.ts'] }), {
+      setupFile: 'libs/some-long-project-name/src/test-setup.builder.ts',
+      companions: ['vitest-auto-spy/angular/diagnostics', 'vitest-auto-spy/angular/doubles', 'vitest-auto-spy/angular/matchers'],
+    });
 
     expect(Buffer.byteLength(body, 'utf8')).toBeLessThan(1_600);
   });

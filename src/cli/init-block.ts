@@ -26,12 +26,22 @@ const FRAMEWORK_BULLET: Record<Profile['framework'], string> = {
   none: '- `createSpyFromClass(Class)` for a real class, `createAutoMock<T>()` when only the type exists.',
 };
 
-function rxjsBullet(profile: Profile): string | undefined {
+/** What the repository scan adds to the profile: facts only a read of its sources and targets gives. */
+export interface BlockFacts {
+  /** The setup file the test target runs, when a unit-test builder target names one. */
+  readonly setupFile?: string | undefined;
+  /** The Angular companion entries the repository imports from, in `exports` order. */
+  readonly companions: readonly string[];
+}
+
+const NO_FACTS: BlockFacts = { companions: [] };
+
+function rxjsBullet(profile: Profile, facts: BlockFacts): string | undefined {
   if (!profile.hasRxjs) {
     return undefined;
   }
 
-  const target = profile.setupFiles[0] ?? 'the test setup file';
+  const target = facts.setupFile ?? profile.setupFiles[0] ?? 'the test setup file';
 
   return `- Observable spies (\`nextWith\`, \`observablePropsToSpyOn\`) need \`import 'vitest-auto-spy/rxjs'\` once, in\n  \`${target}\`. Without it they throw "Observable spies require rxjs".`;
 }
@@ -41,7 +51,17 @@ function rxjsBullet(profile: Profile): string | undefined {
  * at `project_doc_max_bytes` (32 768 by default) and silently truncates past it, so a pointer that
  * costs a kilobyte is a pointer that survives in a repository that already has instructions.
  */
-export function renderBody(profile: Profile): string {
+function companionsBullet(facts: BlockFacts): string | undefined {
+  if (facts.companions.length === 0) {
+    return undefined;
+  }
+
+  const list = facts.companions.map((entry) => `\`${entry}\``).join(', ');
+
+  return `- Setup helpers also come from ${list}, which since 5.21.0 are separate\n  entries and do not re-export the core.`;
+}
+
+export function renderBody(profile: Profile, facts: BlockFacts = NO_FACTS): string {
   const lines = [
     '## Tests that use `vitest-auto-spy`',
     '',
@@ -52,7 +72,8 @@ export function renderBody(profile: Profile): string {
     `- This repository imports from \`${profile.entry}\`. Each entry registers its mock adapter on`,
     '  import, so the wrong one leaves the wrong adapter installed and the spies fail at runtime.',
     FRAMEWORK_BULLET[profile.framework],
-    rxjsBullet(profile),
+    companionsBullet(facts),
+    rxjsBullet(profile, facts),
     '- `methodsToSpyOn` **adds** to the auto-discovered prototype methods; the exhaustive whitelist is',
     '  `onlyMethodsToSpyOn`. For methods that live on the instance rather than the prototype, use',
     '  `createAutoMock<T>()`.',

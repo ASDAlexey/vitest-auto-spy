@@ -13,7 +13,7 @@
  * resolves instructions first-match-wins over an ordered list ending in `AGENTS.md`, so creating
  * any of them silently shadows the entire project's instructions. Appended to only if one exists.
  */
-import { renderBody, wrapManaged } from './init-block';
+import { type BlockFacts, renderBody, wrapManaged } from './init-block';
 import type { Profile } from './profile';
 
 export type TargetKind = 'managed-if-exists' | 'managed' | 'owned';
@@ -104,6 +104,6 @@ export function ownedContent(target: Target, profile: Profile, version: string):
 }
 
 /** The managed block for a tier-1 (or legacy) Markdown file. */
-export function managedBlock(profile: Profile, version: string): string {
-  return wrapManaged(renderBody(profile), version);
+export function managedBlock(profile: Profile, version: string, facts?: BlockFacts): string {
+  return wrapManaged(renderBody(profile, facts), version);
 }

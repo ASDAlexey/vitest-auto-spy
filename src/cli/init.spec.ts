@@ -224,6 +224,30 @@ describe('runInit --uninstall', () => {
   });
 });
 
+describe('runInit --only', () => {
+  it('touches only the targets it names, for writing, checking and removing alike', () => {
+    const root = createTempRepo({ 'package.json': MANIFEST });
+    const only = ['CLAUDE.md', './.claude/'];
+    const result = install(root, { only });
+
+    expect(result.actions.map((action) => action.path)).toEqual(['CLAUDE.md', '.claude/skills/vitest-auto-spy/SKILL.md']);
+    expect(result.warnings).toEqual([]);
+    expect(pathExists(join(root, 'AGENTS.md'))).toBe(false);
+    expect(install(root, { only, check: true }).ok).toBe(true);
+    expect(install(root, { check: true }).ok).toBe(false);
+    expect(install(root, { only: ['CLAUDE.md'], uninstall: true }).actions.map((action) => action.path)).toEqual(['CLAUDE.md']);
+    expect(pathExists(join(root, 'CLAUDE.md'))).toBe(false);
+    expect(pathExists(join(root, '.claude/skills/vitest-auto-spy/SKILL.md'))).toBe(true);
+  });
+
+  it('warns about an entry that selects nothing', () => {
+    const root = createTempRepo({ 'package.json': MANIFEST });
+    const result = install(root, { only: ['CLAUDE.md', 'CLAUDE.MD'], dryRun: true });
+
+    expect(result.warnings).toEqual([expect.stringContaining('--only CLAUDE.MD selects no file init writes')]);
+  });
+});
+
 describe('skillPlan', () => {
   const plan: Plan = {
     target: { path: '.claude/skills/vitest-auto-spy/SKILL.md', kind: 'owned', note: 'stub' },

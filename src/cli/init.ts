@@ -8,7 +8,8 @@
 import { join } from 'node:path';
 
 import { isDirectory, isSymlink, pathExists, readTextFile, removeFile, writeTextFile } from './fs-scan';
-import { applyManaged, hasManaged, removeManaged, withoutVersion } from './init-block';
+import { type BlockFacts, applyManaged, hasManaged, removeManaged, withoutVersion } from './init-block';
+import { blockFacts } from './init-facts';
 import { LEGACY_FILES, TIER_ONE_MARKDOWN, TIER_TWO, managedBlock, ownedContent, skillStub } from './init-targets';
 import type { Target } from './init-targets';
 import type { Profile } from './profile';
@@ -26,6 +27,8 @@ export interface InitOptions {
   readonly check: boolean;
   readonly dryRun: boolean;
   readonly uninstall: boolean;
+  /** `--only`: the target paths, or directories holding them, init may touch. Every target when absent. */
+  readonly only?: readonly string[] | undefined;
 }
 
 export interface InitResult {
@@ -47,7 +50,7 @@ export interface Plan {
   readonly note: string;
 }
 
-function planFor(target: Target, content: string | undefined, profile: Profile, version: string): Plan {
+function planFor(target: Target, content: string | undefined, profile: Profile, version: string, facts: BlockFacts): Plan {
   const existing = content;
   const note = target.note;
 
@@ -71,7 +74,7 @@ function planFor(target: Target, content: string | undefined, profile: Profile, 
     return { target, existing, desired: undefined, note: 'already imports @AGENTS.md — nothing to add' };
   }
 
-  return { target, existing, desired: applyManaged(existing ?? '', managedBlock(profile, version)), note };
+  return { target, existing, desired: applyManaged(existing ?? '', managedBlock(profile, version, facts)), note };
 }
 
 /**
@@ -94,11 +97,23 @@ function statusOf(plan: Plan, check: boolean): ActionStatus {
   return check && withoutVersion(plan.existing) === withoutVersion(plan.desired) ? 'unchanged' : 'updated';
 }
 
-function collectTargets(profile: Profile): Target[] {
+/** `.claude` selects `.claude/skills/…`; a trailing slash or `./` is spelling, not meaning. */
+function isSelected(path: string, only: readonly string[] | undefined): boolean {
+  return (
+    only === undefined ||
+    only.some((entry) => {
+      const prefix = entry.replace(/^\.\//, '').replace(/\/+$/, '');
+
+      return path === prefix || path.startsWith(`${prefix}/`);
+    })
+  );
+}
+
+function collectTargets(profile: Profile, only: readonly string[] | undefined): Target[] {
   const tierTwo = TIER_TWO.filter((target) => isDirectory(join(profile.cwd, target.requiresDirectory)));
   const skill: Target = { path: SKILL_PATH, kind: 'owned', note: 'Claude Code skill stub — frontmatter copied from the shipped skill' };
 
-  return [...TIER_ONE_MARKDOWN, skill, ...tierTwo, ...LEGACY_FILES];
+  return [...TIER_ONE_MARKDOWN, skill, ...tierTwo, ...LEGACY_FILES].filter((target) => isSelected(target.path, only));
 }
 
 /** A file that exists but cannot be read is treated as absent — there is nothing to preserve. */
@@ -129,10 +144,12 @@ function symlinkPlan(plan: Plan): Plan {
   return { ...plan, desired: undefined, note: 'a symlink — its target already carries the block' };
 }
 
-function buildPlans(profile: Profile, version: string): Plan[] {
-  return collectTargets(profile).map((target) => {
+function buildPlans(profile: Profile, version: string, only: readonly string[] | undefined): Plan[] {
+  const facts = blockFacts(profile);
+
+  return collectTargets(profile, only).map((target) => {
     const existing = readTarget(profile.cwd, target);
-    const plan = planFor(target, existing, profile, version);
+    const plan = planFor(target, existing, profile, version, facts);
 
     if (isSymlink(join(profile.cwd, target.path))) {
       return symlinkPlan(plan);
@@ -207,14 +224,23 @@ function untouchedWarnings(plans: readonly Plan[]): string[] {
     );
 }
 
+/** An `--only` entry that selects no target is a typo, and a silent one would read as "nothing to do". */
+function unmatchedWarnings(only: readonly string[] | undefined): string[] {
+  const known = [...TIER_ONE_MARKDOWN, ...TIER_TWO, ...LEGACY_FILES].map((target) => target.path).concat(SKILL_PATH);
+
+  return (only ?? [])
+    .filter((entry) => !known.some((path) => isSelected(path, [entry])))
+    .map((entry) => `--only ${entry} selects no file init writes — known targets: ${known.join(', ')}.`);
+}
+
 export function runInit(profile: Profile, version: string, options: InitOptions): InitResult {
-  const plans = buildPlans(profile, version).map((plan) => (options.uninstall ? uninstallPlan(plan) : plan));
+  const plans = buildPlans(profile, version, options.only).map((plan) => (options.uninstall ? uninstallPlan(plan) : plan));
   const actions = plans.map((plan) => applyPlan(profile.cwd, plan, options));
   const pending = actions.some((action) => action.status === 'created' || action.status === 'updated');
 
   return {
     actions,
-    warnings: options.uninstall ? [] : [...untouchedWarnings(plans), ...budgetWarnings(plans)],
+    warnings: [...unmatchedWarnings(options.only), ...(options.uninstall ? [] : [...untouchedWarnings(plans), ...budgetWarnings(plans)])],
     ok: !options.check || !pending,
   };
 }
