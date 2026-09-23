@@ -144,6 +144,14 @@ describe('the plugin', () => {
     expect(typeErrors.plugins['vitest-auto-spy']).toBe(plugin);
   });
 
+  it('ships recommended with every rule at error as the strict config', () => {
+    const { recommended, strict } = plugin.configs;
+
+    expect(Object.keys(strict.rules)).toEqual(Object.keys(recommended.rules));
+    expect(new Set(Object.values(strict.rules))).toEqual(new Set(['error']));
+    expect(strict.plugins['vitest-auto-spy']).toBe(plugin);
+  });
+
   it('documents every rule with a link to the recipe it recommends', () => {
     Object.values(rules).forEach((rule) => {
       expect(rule.meta.docs.url).toContain('#how-to-mock');
