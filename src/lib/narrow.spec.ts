@@ -3,7 +3,7 @@
  * narrowing that only threw `Assertion failed` would be no cheaper than the type assertion it
  * replaces.
  */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, expectTypeOf, it } from 'vitest';
 
 import { narrow } from './narrow';
 
@@ -131,5 +131,24 @@ describe('narrow — a value with no constructor', () => {
     Object.defineProperty(Anonymous, 'name', { value: '' });
 
     expect(() => narrow(new Anonymous(), () => false, 'a route')).toThrow(/but the value is Object \{ id \}/);
+  });
+});
+
+describe('narrow.instanceOf', () => {
+  it('hands back an instance of the class, typed as it', () => {
+    const body: FormData | string | null = new FormData();
+    const form = narrow.instanceOf(body, FormData);
+
+    expectTypeOf(form).toEqualTypeOf<FormData>();
+    expect(form).toBe(body);
+  });
+
+  it('names the class and the value when it is not one', () => {
+    expect(() => narrow.instanceOf('text', FormData)).toThrow(/expected an instance of FormData, but the value is string 'text'/);
+
+    const Anonymous = class {};
+    Object.defineProperty(Anonymous, 'name', { value: '' });
+
+    expect(() => narrow.instanceOf(null, Anonymous)).toThrow(/expected an instance of the given class, but the value is null/);
   });
 });

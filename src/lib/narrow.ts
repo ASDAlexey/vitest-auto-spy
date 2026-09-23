@@ -126,6 +126,21 @@ function observable<T>(value: T): Subscribable<T> {
 }
 
 /**
+ * The branch of a union that is an instance of `ctor` — `HttpRequest.body` as a `FormData`, say.
+ *
+ * ```ts
+ * const form = narrow.instanceOf(request.body, FormData);
+ * ```
+ */
+function instanceOf<Instance>(value: unknown, ctor: abstract new (...args: never[]) => Instance): Instance {
+  if (!(value instanceof ctor)) {
+    throw narrowingFailed(`an instance of ${ctor.name || 'the given class'}`, value);
+  }
+
+  return value;
+}
+
+/**
  * The callable shape of {@link narrow}, spelled out because the runtime value is a wrapped
  * function rather than a `function` declaration: `vi.defineHelper` returns a new function, so the
  * two overloads and the two attached helpers have to be declared rather than inferred.
@@ -137,6 +152,8 @@ interface Narrow {
   byKey: typeof byKey;
   /** {@link defined} */
   defined: typeof defined;
+  /** {@link instanceOf} */
+  instanceOf: typeof instanceOf;
   /** {@link observable} */
   observable: typeof observable;
 }
@@ -157,5 +174,6 @@ interface Narrow {
 export const narrow: Narrow = Object.assign(narrowValue, {
   byKey: defineHelper(byKey),
   defined: defineHelper(defined),
+  instanceOf: defineHelper(instanceOf),
   observable: defineHelper(observable),
 });
