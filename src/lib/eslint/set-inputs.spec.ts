@@ -64,6 +64,7 @@ describe(RULE, () => {
     expect(report?.message).toContain('NG0303');
     expect(report?.message).toContain('setInputs(fixture, { name: value })');
     expect(report?.message).toContain('#how-to-mock-a-components-children');
+    expect(report?.message).toContain('const render = async () => { …; await setInputs(fixture, { … }); }');
   });
 
   it('offers the edit rather than applying it, and says what accepting it does', () => {
@@ -203,6 +204,14 @@ describe(RULE, () => {
     );
   });
 
+  it('merges the helper into an import the file already has from the Angular entry', () => {
+    const code = `import { injectSpy, provideAutoSpy } from 'vitest-auto-spy/angular';\n${test("  fixture.componentRef.setInput('title', 'Hi');")}`;
+
+    expect(fixed(code)).toBe(
+      "import { injectSpy, provideAutoSpy, setInputs } from 'vitest-auto-spy/angular';\nit('renders', async () => {\n  await setInputs(fixture, { title: 'Hi' });\n});",
+    );
+  });
+
   it('adds the import once when two callbacks need it', () => {
     const code = [
       "beforeEach(() => {\n  fixture.componentRef.setInput('title', 'Hi');\n});",
@@ -228,6 +237,33 @@ describe(RULE, () => {
     expect(count('const f = page;\n\n' + test("  f.componentRef.setInput('title', 'Hi');"))).toBe(0);
     expect(count('const f = TestBed[make](Card);\n\n' + test("  f.componentRef.setInput('title', 'Hi');"))).toBe(0);
     expect(count('const f = TestBed.createComponent(Card);\n\nf = other;\n\n' + test("  f.componentRef.setInput('title', 'Hi');"))).toBe(0);
+  });
+
+  it('follows a componentRef the file binds once to a fixture, and names the fixture in the edit', () => {
+    const local = "it('renders', () => {\n  const componentRef = fixture.componentRef;\n  componentRef.setInput('title', 'Hi');\n});";
+    const hooked = [
+      'let fixture: ComponentFixture<Card>;',
+      'let componentRef: ComponentRef<Card>;',
+      'beforeEach(() => {',
+      '  fixture = TestBed.createComponent(Card);',
+      '  componentRef = fixture.componentRef;',
+      '});',
+      test("  componentRef.setInput('title', 'Hi');\n  fixture.componentRef.setInput('size', 2);"),
+    ].join('\n');
+
+    expect(fixed(local)).toContain("const componentRef = fixture.componentRef;\n  await setInputs(fixture, { title: 'Hi' });");
+    expect(fixed(hooked)).toContain("await setInputs(fixture, { title: 'Hi', size: 2 });");
+  });
+
+  it('does not follow a componentRef bound twice, to a non-fixture, or to a fixture out of reach', () => {
+    const twice = 'let ref = fixture.componentRef;\nref = other.componentRef;\n';
+    const outOfReach =
+      'beforeEach(() => {\n  const fixture = TestBed.createComponent(Card);\n  ref = fixture.componentRef;\n});\nlet ref;\n';
+
+    expect(count(`${twice}${test("  ref.setInput('title', 'Hi');")}`)).toBe(0);
+    expect(count(`const ref = page.componentRef;\n${test("  ref.setInput('title', 'Hi');")}`)).toBe(0);
+    expect(count(`const ref = view.create();\n${test("  ref.setInput('title', 'Hi');")}`)).toBe(0);
+    expect(count(`${outOfReach}${test("  ref.setInput('title', 'Hi');")}`)).toBe(0);
   });
 
   it('says nothing about a ComponentRef that is not a fixture’s', () => {

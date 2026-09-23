@@ -55,7 +55,7 @@
  * nothing reports that. Those keep the report alone: 53 of the 504 findings on the measured suite.
  */
 import { isHookCallback } from './async-hooks';
-import { PACKAGE, bindingState, boundValueOf } from './bindings';
+import { PACKAGE, bindingState, boundValueOf, findBinding, importNamed } from './bindings';
 import { defineRule } from './define-rule';
 import {
   type EsCallExpression,
@@ -106,15 +106,38 @@ interface Run {
   last: InputCall;
 }
 
-/** Whether a node is `<name>.componentRef.setInput('input', value)` and nothing more inventive. */
-function readInputCall(node: EsNode): InputCall | undefined {
+/** `fixture` in `fixture.componentRef`. */
+function ownerOf(node: EsNode): EsIdentifier | undefined {
+  return isMemberExpression(node) && memberName(node) === 'componentRef' && isIdentifier(node.object) ? node.object : undefined;
+}
+
+/**
+ * The fixture behind `fixture.componentRef`, or behind a name the file binds to it once. The fixture
+ * has to be the same binding where the call is, since the edit names it there.
+ */
+function componentRefOwner(context: RuleContext, node: EsNode): EsIdentifier | undefined {
+  const direct = ownerOf(node);
+
+  if (direct || !isIdentifier(node)) {
+    return direct;
+  }
+
+  const scope = context.sourceCode.getScope(node);
+  const bound = boundValueOf(scope, node);
+  const owner = bound && ownerOf(bound);
+
+  return owner && findBinding(scope, owner.name) === findBinding(context.sourceCode.getScope(owner), owner.name) ? owner : undefined;
+}
+
+/** Whether a node is `<name>.componentRef.setInput('input', value)`, directly or through a `componentRef` binding. */
+function readInputCall(context: RuleContext, node: EsNode): InputCall | undefined {
   if (!isCallExpression(node) || !isMemberExpression(node.callee) || memberName(node.callee) !== 'setInput') {
     return undefined;
   }
 
-  const componentRef = node.callee.object;
+  const receiver = componentRefOwner(context, node.callee.object);
 
-  if (!isMemberExpression(componentRef) || memberName(componentRef) !== 'componentRef' || !isIdentifier(componentRef.object)) {
+  if (!receiver) {
     return undefined;
   }
 
@@ -126,12 +149,12 @@ function readInputCall(node: EsNode): InputCall | undefined {
     return undefined;
   }
 
-  return { statement: node.parent, receiver: componentRef.object, key, value };
+  return { statement: node.parent, receiver, key, value };
 }
 
 /** The call a statement is, when it is one of these. */
-function inputCallOf(statement: EsNode | undefined): InputCall | undefined {
-  return statement && isExpressionStatement(statement) ? readInputCall(statement.expression) : undefined;
+function inputCallOf(context: RuleContext, statement: EsNode | undefined): InputCall | undefined {
+  return statement && isExpressionStatement(statement) ? readInputCall(context, statement.expression) : undefined;
 }
 
 /**
@@ -192,7 +215,7 @@ function runFrom(context: RuleContext, first: InputCall, statements: EsNode[], i
   let last = first;
 
   for (let at = index + 1; at < statements.length; at += 1) {
-    const next = inputCallOf(statements[at]);
+    const next = inputCallOf(context, statements[at]);
 
     if (!next) {
       break;
@@ -221,7 +244,7 @@ function runsIn(context: RuleContext, statements: EsNode[]): Map<EsNode, Run> {
   const runs = new Map<EsNode, Run>();
 
   for (let index = 0; index < statements.length; index += 1) {
-    const call = inputCallOf(statements[index]);
+    const call = inputCallOf(context, statements[index]);
 
     if (call && isFixture(context, call.receiver)) {
       const run = runFrom(context, call, statements, index);
@@ -292,7 +315,7 @@ function rewrite(context: RuleContext, run: Run, callback: EsNode): (fixer: EsFi
     }
 
     if (bindingState(context.sourceCode.getScope(run.first.statement), HELPER) === 'free') {
-      fixes.push(fixer.insertTextBeforeRange([0, 0], `import { ${HELPER} } from '${ANGULAR}';\n`));
+      fixes.push(importNamed(fixer, run.first.statement, HELPER, ANGULAR));
     }
 
     return fixes;
@@ -305,7 +328,7 @@ export const preferSetInputs: RuleModule = defineRule({
   hasSuggestions: true,
   messages: {
     preferSetInputs:
-      '`componentRef.setInput` answers a name the component does not declare with an `NG0303` on the console and **no change at all**, so a typo, an input renamed under the spec, or an alias written as its class-field name all end the same way: green `setInput` calls, and an assertion that fails several lines later on state nothing moved. `setInputs(fixture, { name: value })` from `vitest-auto-spy/angular` resolves every key against the compiled definition before it writes the first one — a rejected call leaves the component exactly as it was and names the inputs it really has — and it types the value, which is what turns a fixture that has drifted from its model into a compile error instead of a passing test. It ends in `stable(fixture)`, so the `fixture.detectChanges()` underneath goes with the call: that flushes effects and awaits the fixture, where one `detectChanges()` pass does neither.',
+      '`componentRef.setInput` answers a name the component does not declare with an `NG0303` on the console and **no change at all**, so a typo, an input renamed under the spec, or an alias written as its class-field name all end the same way: green `setInput` calls, and an assertion that fails several lines later on state nothing moved. `setInputs(fixture, { name: value })` from `vitest-auto-spy/angular` resolves every key against the compiled definition before it writes the first one — a rejected call leaves the component exactly as it was and names the inputs it really has — and it types the value, which is what turns a fixture that has drifted from its model into a compile error instead of a passing test. It ends in `stable(fixture)`, so the `fixture.detectChanges()` underneath goes with the call: that flushes effects and awaits the fixture, where one `detectChanges()` pass does neither. A suite that cannot await in its hooks keeps the call in the test: `const render = async () => { …; await setInputs(fixture, { … }); }`, awaited first thing in each `it`.',
   },
   create: (context) => {
     // Runs are read per statement list, once, and every call of one answers from the same reading.
@@ -313,7 +336,7 @@ export const preferSetInputs: RuleModule = defineRule({
 
     return {
       CallExpression: (node: EsCallExpression): void => {
-        const call = readInputCall(node);
+        const call = readInputCall(context, node);
 
         if (!call || !isFixture(context, call.receiver)) {
           return;
