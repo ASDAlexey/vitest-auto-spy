@@ -8,6 +8,7 @@ import { describe, expect, it } from 'vitest';
 import { runRule } from './run-rule';
 
 const RULE = 'prefer-create-spy-from-class';
+const REPORTED = [`vitest-auto-spy/${RULE}`];
 
 /** Lint one snippet with only this rule enabled, configured when options are given. */
 function verify(code: string, options?: object): LintMessage[] {
@@ -253,8 +254,50 @@ describe('prefer-create-spy-from-class', () => {
       expect(lintWith('undeclared = { devMode: vi.fn() };', one)).toHaveLength(1);
       expect(lintWith('holder.service = { devMode: vi.fn() };', one)).toHaveLength(1);
       expect(lintWith('function f(p: Params) {\n  p = { devMode: vi.fn() };\n}', one)).toHaveLength(1);
-      // A typed parameter of a project helper is out of reach without type information.
+      // An imported helper's parameter is out of reach without type information.
       expect(lintWith('const callback = vi.fn();\ncreateDefaultOptions({ changeOptionsCallback: callback });', one)).toHaveLength(1);
+    });
+
+    it('leaves a one-member literal passed to a typed parameter of a helper this file declares alone', () => {
+      const call = 'const callback = vi.fn();\ncreateDefaultOptions({ changeOptionsCallback: callback });';
+
+      expect(
+        lintWith(
+          `const createDefaultOptions = (overrides?: Partial<InfoboxOptions>): InfoboxOptions => ({ ...base, ...overrides });\n${call}`,
+          one,
+        ),
+      ).toEqual([]);
+      expect(
+        lintWith(
+          `function createDefaultOptions(id: number, overrides: Partial<InfoboxOptions> = {}) {}\n${call.replace('({', '(1, {')}`,
+          one,
+        ),
+      ).toEqual([]);
+      expect(lintWith(`const createDefaultOptions = function ({ changeOptionsCallback }: Overrides) {};\n${call}`, one)).toEqual([]);
+      expect(
+        lintWith(
+          `const createDefaultOptions = (overrides?: Partial<InfoboxOptions>) => overrides;\ncreateDefaultOptions({ nested: { onDone: vi.fn() } });`,
+          one,
+        ),
+      ).toEqual([]);
+    });
+
+    it('still reports it when the local helper leaves that parameter untyped, types it as mocks, or is not a function', () => {
+      const call = 'const callback = vi.fn();\ncreateDefaultOptions({ changeOptionsCallback: callback });';
+
+      expect(lintWith(`const createDefaultOptions = (overrides) => overrides;\n${call}`, one)).toEqual(REPORTED);
+      expect(lintWith(`const createDefaultOptions = (overrides = {}) => overrides;\n${call}`, one)).toEqual(REPORTED);
+      expect(lintWith(`const createDefaultOptions = (overrides: { changeOptionsCallback: Mock }) => overrides;\n${call}`, one)).toEqual(
+        REPORTED,
+      );
+      expect(lintWith(`const createDefaultOptions = (...overrides: Partial<InfoboxOptions>[]) => overrides;\n${call}`, one)).toEqual(
+        REPORTED,
+      );
+      expect(lintWith(`const createDefaultOptions = (id: number) => id;\n${call.replace('({', '(1, {')}`, one)).toEqual(REPORTED);
+      expect(lintWith(`const createDefaultOptions = factories.options;\n${call}`, one)).toEqual(REPORTED);
+      expect(
+        lintWith(`const helpers = { build: (o: Options) => o };\nconst callback = vi.fn();\nhelpers.build({ onDone: callback });`, one),
+      ).toEqual(REPORTED);
     });
 
     it('reads a bag nested in an argument as the options bag it is', () => {

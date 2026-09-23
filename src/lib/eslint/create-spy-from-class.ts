@@ -1,4 +1,4 @@
-import { findBinding } from './bindings';
+import { boundValueOf, findBinding } from './bindings';
 import { defineRule } from './define-rule';
 import {
   boundName,
@@ -13,14 +13,18 @@ import {
   substitutesADependency,
 } from './hand-rolled-doubles';
 import {
+  type EsFunction,
+  type EsIdentifier,
   type EsNode,
   type EsObjectExpression,
   type EsScope,
+  type EsTypeAnnotation,
   type RuleContext,
   findProperty,
   hasAncestor,
   isArrayExpression,
   isCallExpression,
+  isFunctionNode,
   isIdentifier,
   isObjectExpression,
   isVariableDeclarator,
@@ -97,6 +101,57 @@ function declaredTypeOf(context: RuleContext, node: EsNode): EsNode | undefined 
   return declared && isIdentifier(declared) ? declared.typeAnnotation?.typeAnnotation : undefined;
 }
 
+/** A function this file declares under the name a call reads, as a declaration or a single binding. */
+function localFunction(context: RuleContext, callee: EsIdentifier): EsFunction | undefined {
+  const scope = context.sourceCode.getScope(callee);
+  const declared = findBinding(scope, callee.name)
+    ?.defs.map((definition) => definition.node)
+    .find(isFunctionNode);
+  const bound = declared ?? boundValueOf(scope, callee);
+
+  return bound && isFunctionNode(bound) ? bound : undefined;
+}
+
+/** A parameter that can carry `: T` — a name or a destructuring pattern. */
+interface EsAnnotatedParameter extends EsNode {
+  typeAnnotation?: EsTypeAnnotation;
+}
+
+interface EsAssignmentPattern extends EsNode {
+  left: EsNode;
+}
+
+function isAssignmentPattern(node: EsNode): node is EsAssignmentPattern {
+  return node.type === 'AssignmentPattern';
+}
+
+function isAnnotatedParameter(node: EsNode): node is EsAnnotatedParameter {
+  return node.type === 'Identifier' || node.type === 'ObjectPattern';
+}
+
+/** The `: T` of a parameter, bare or with a default. */
+function parameterType(parameter: EsNode | undefined): EsNode | undefined {
+  const target = parameter && isAssignmentPattern(parameter) ? parameter.left : parameter;
+
+  return target && isAnnotatedParameter(target) ? target.typeAnnotation?.typeAnnotation : undefined;
+}
+
+/**
+ * `build({ onChange })` over `const build = (overrides?: Partial<Options>) => …` in the same file: the
+ * helper's parameter declares the type the argument is checked against. An imported helper is out of reach.
+ */
+function declaredParameterTypeOf(context: RuleContext, node: EsNode): EsNode | undefined {
+  const call = node.parent;
+
+  if (!isCallExpression(call) || !isIdentifier(call.callee)) {
+    return undefined;
+  }
+
+  const helper = localFunction(context, call.callee);
+
+  return parameterType(helper?.params[call.arguments.indexOf(node)]);
+}
+
 /** The literal or array a nested object is data inside of: `{ nested: { fn } }`, `[{ parameters: { fn } }]`. */
 function outermostData(node: EsNode): EsNode {
   let current = node;
@@ -124,13 +179,13 @@ function isMemberStubValue(node: EsNode): boolean {
 }
 
 /**
- * A one-member literal whose type is already declared — by the name it is bound to, or by the member
- * a stub replaces — is checked against it, which is all `createMock<T>` would add. An inline object
- * type of mocks proves nothing, so it is still reported.
+ * A one-member literal whose type is already declared — by the name it is bound to, the parameter of
+ * a local helper it is passed to, or the member a stub replaces — is checked against it, which is all
+ * `createMock<T>` would add. An inline object type of mocks proves nothing, so it is still reported.
  */
 function isCheckedByDeclaration(context: RuleContext, node: EsObjectExpression): boolean {
   const data = outermostData(node);
-  const declared = declaredTypeOf(context, data);
+  const declared = declaredTypeOf(context, data) ?? declaredParameterTypeOf(context, data);
 
   return isMemberStubValue(data) || (declared !== undefined && declared.type !== 'TSTypeLiteral');
 }
