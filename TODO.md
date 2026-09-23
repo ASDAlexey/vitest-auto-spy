@@ -173,6 +173,12 @@ which is where this file's `[~]` entries went on 2026-09-10 — a decision is no
       the rule follows only a `const` used once in the same scope, which is the case worth having and
       the one that cannot go wrong. Measured demand: 4 of 7 findings on the 1771-file suite.
 
+- [ ] **`no-hand-assigned-global` does not name `stubWorker` for `globalThis.Worker = …`.** A hand
+      assigned worker double gets the generic `handAssignedGlobal` message (`mockValueProp` /
+      `stubConstructor`). Give `Worker` its own message pointing at `stubWorker({ respond })` from
+      `/dom-stubs`, the way `webStorage` names `stubWebStorage`, with the rule test and the
+      `eslint-rules.md` entry that come with a new message id.
+
 ## Mocking follow-ups, 2026-09-19
 
 - [ ] **The passthrough family and an unmatched `calledWith`.** `createSpyFromInstance(obj, { passthrough: true })`,

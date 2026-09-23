@@ -12,6 +12,31 @@ The latest released version here must always match the one published on
 
 ### Added
 
+- **Three file-boundary repairs in `setupAutoSpy()` for `isolate: false`.** `restoreStorageSpies`
+  (on by default) writes `Storage.prototype`'s method back over a `localStorage` / `sessionStorage`
+  spy that `mockRestore()` could not take off: happy-dom's Storage proxy deletes only stored items,
+  so the restore came back green and the next file's `vi.spyOn` was handed the same mock with the
+  old calls in it. `strayListeners` wraps `addEventListener` on `window` and `document` and, at
+  each file's end, takes off what the file added — listeners registered while the module graph was
+  evaluated stay — with `onStrayListeners({ removed, listeners })` to fail the file instead.
+  `restoreGlobals` snapshots `globalThis` once per worker and puts every global a plain assignment
+  replaced back at the boundary, writing the value through the DOM environment's forwarding setter
+  where the descriptor never moved; added globals are kept. The pieces are exported from `/setup`
+  (`trackStrayListeners`, `removeStrayListeners`, `countStrayListeners`, `describeStrayListeners`,
+  `baselineStrayListeners`, `captureGlobalBaseline`, `restoreGlobals`, `restoreStorageSpies`).
+- **`stubWorker()` on `/dom-stubs` — a `Worker` whose script is the spec.** Neither jsdom nor
+  happy-dom runs a worker script and Node has no `Worker` global, so every project that builds one
+  writes its own stub, and the copies go wrong the same way: `addEventListener('message', …)` is an
+  assignment to `onmessage`, so a second subscriber replaces the first and code that correlates
+  replies by request id cannot be tested; the reply arrives from inside `postMessage`, which no
+  browser does; and the stub stays on `globalThis` for the next file. The stub is an `EventTarget`
+  (listeners stack, `once` and `removeEventListener` work, `onmessage` / `onerror` are called with
+  the worker as `this`), `respond` answers each posted message on a microtask — a throw becomes an
+  `error` event — and the handle records `url`, `options`, the posted `messages`, the
+  `postMessage` / `terminate` spies and `terminated`, with `emit()` and `fail()` to drive it from the
+  worker's side. Messages go through `structuredClone` both ways, so posting a callback fails with
+  the `DataCloneError` the browser throws. Installed through `mockValueProp`, so `setupAutoSpy()`
+  takes it off after the test.
 - **`doctor` reports a setup file the Angular unit-test builder never runs
   (`builder-setup-unreached`).** `@angular/build:unit-test`, and Nx's `@nx/angular:unit-test` that
   delegates to it, run only the `setupFiles` their target names and read a Vitest config only through
