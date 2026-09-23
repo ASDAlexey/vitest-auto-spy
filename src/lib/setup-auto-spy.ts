@@ -19,6 +19,7 @@ import { DOCS_LINKS, withDocs } from './docs-links';
 import { type DocumentPollutionOptions, type DocumentPollutionReaction, watchDocumentPollution } from './document-guard';
 import { abandonEmissionWaits } from './emission-timeout';
 import { type FakeTimersConfig, setupFakeTimers } from './fake-timers';
+import { type StrayListenerReport, installFileBoundary } from './file-boundary';
 import { annotateFrozenClockTimeout, readFrozenClock } from './frozen-clock';
 import { setDefaultStrictMode, takeStrictViolations } from './function-spy';
 import { type GlobalPatchReaction, type GlobalSnapshot, checkSealedAdditions, snapshotWatchedGlobals } from './global-patch-guard';
@@ -50,6 +51,7 @@ import { restoreWebStorage } from './web-storage';
 import { writeWarning } from './write-warning';
 
 export { type TeardownStep, runTeardown } from './setup-teardown';
+export type { StrayListenerReport } from './file-boundary';
 
 /** How `setupAutoSpy` should react to more than one install of the library. */
 export type DuplicateCopiesReaction = 'off' | 'throw' | 'warn';
@@ -210,6 +212,41 @@ export interface SetupAutoSpyOptions {
    * happy-dom alike. See {@link restoreWebStorage}.
    */
   restoreWebStorage?: boolean;
+  /**
+   * Take a spy off a `localStorage` / `sessionStorage` method at the end of each file, when the
+   * runner's own restore could not. Default `true`: it only ever replaces a method that is still a
+   * mock once the file is over.
+   *
+   * happy-dom's `Storage` is a Proxy whose `deleteProperty` trap only knows stored items, so the
+   * delete behind `mockRestore()` never lands and the spy answers for every later file of the worker.
+   * Turn it off for a suite that keeps a storage spy for a whole worker on purpose. See
+   * {@link restoreStorageSpies}.
+   */
+  restoreStorageSpies?: boolean;
+  /**
+   * Take off `window` / `document` listeners a file added and never removed. Default `false`, because
+   * it wraps `addEventListener` on both. Listeners already registered when the file's `beforeAll`
+   * runs — the module graph's own — are kept. See {@link trackStrayListeners}.
+   */
+  strayListeners?: boolean;
+  /**
+   * What to do with the listeners `strayListeners` took off at the end of a file. Default: nothing.
+   * Called only when something was removed, once per file, after the other file-boundary repairs:
+   *
+   * ```ts
+   * setupAutoSpy({ strayListeners: true, onStrayListeners: ({ removed }) => expect(removed).toBe(0) });
+   * ```
+   */
+  onStrayListeners?: (info: StrayListenerReport) => void;
+  /**
+   * Put every `globalThis` global a file changed back at the end of the file. Default `false`.
+   *
+   * One snapshot per worker, taken when the first `setupAutoSpy` call runs; a plain
+   * `global.ResizeObserver = stub` is tracked by neither `unstubGlobals` nor `restoreMocks`, and
+   * under `isolate: false` it answers for every later file. Globals added after the snapshot are
+   * kept. See {@link restoreGlobals}.
+   */
+  restoreGlobals?: boolean;
   /**
    * Keep `@vitest/spy`'s registry of every mock ever created down to the mocks that outlive a file.
    * Default `false`, because it reaches into a set the runner does not expose.
@@ -1037,6 +1074,8 @@ export function setupAutoSpy(input: SetupAutoSpyOptions = {}): void {
   if (options.pruneMockRegistry ?? false) {
     trackMockRegistry();
   }
+
+  installFileBoundary(options);
 
   armStrictMode(options);
   armUnconfiguredReads(options);
