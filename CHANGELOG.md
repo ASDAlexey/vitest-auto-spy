@@ -10,6 +10,30 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+### Changed
+
+- **The `doctor` and `codemod` repository scan honours the root `.gitignore` for directories.** The
+  hardcoded skip list only knew the usual build and store names, so a repository's own generated or
+  local output (`src/generated/`, `/reports`, `tmp-*/`) was read as source: counted in the report,
+  walked by the import graph and offered to `codemod --write`. The file is parsed directly, with no
+  `git` process and no dependency: comments, `!` negations with the last match winning, anchored and
+  unanchored patterns, `*`, `?`, `**` and bracket classes. Only the root file and only directories
+  are honoured — an ignored file is still listed. A pattern with a `\` escape or a POSIX class is
+  dropped, which only means scanning more, and a `!` rule that cannot be read disables the whole
+  file rather than prune a directory git keeps. `perf-merge`'s report listing is unaffected.
+
+### Fixed
+
+- **The `tsconfig` glob check no longer reports a pattern it could never see matched.** A pattern
+  inside a skipped directory below the root (`libs/app/out-tsc/**/*.ts`) or inside a directory the
+  root `.gitignore` excludes is exempt, and so is a `files` entry there — both were reported as
+  matching nothing or missing, although the scan had simply not descended into them.
+- **The `prefer-create-spy-from-class` reference lists every factory whose arguments are exempt.**
+  The built-in doubles and stubs (`createComponentStub`, `createDirectiveHost`, `createWindowDouble`,
+  `provideRouterDouble` and the rest) were exempt in the rule but missing from the docs, which also
+  still said "four shapes" over a list of eleven. The Russian page gained the four exemptions it was
+  missing (`vi.hoisted`, the options bag, `createFixture`, an RxJS observer).
+
 ## [5.26.0] - 2026-09-23
 
 ### Changed
