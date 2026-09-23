@@ -31,6 +31,7 @@
  */
 import { defineHelper } from './define-helper';
 import { DOCS_LINKS, withDocs } from './docs-links';
+import { markOwnedPatch } from './owned-patch';
 import { currentSpecFile } from './spec-file';
 import { ownFrames, stackFrames } from './stack-frames';
 
@@ -278,6 +279,7 @@ function wrapTimerScheduler(host: SchedulerHost, name: 'setInterval' | 'setTimeo
     Object.defineProperty(wrapper, PROMISIFY_CUSTOM, { configurable: true, value: promisified });
   }
 
+  markOwnedPatch(wrapper);
   defineScheduler(host, name, wrapper);
 
   return () => defineScheduler(host, name, original);
@@ -297,10 +299,13 @@ function wrapTimerCanceller(
 ): () => void {
   const original = host[name];
 
-  defineScheduler(host, name, (handle: unknown): void => {
+  const wrapper = (handle: unknown): void => {
     forgetHandle(sets, handle);
     original(handle);
-  });
+  };
+
+  markOwnedPatch(wrapper);
+  defineScheduler(host, name, wrapper);
 
   return () => defineScheduler(host, name, original);
 }
@@ -322,15 +327,21 @@ function wrapFrameScheduler(host: SchedulerHost, frames: Map<number, Origin>, pa
     return () => undefined;
   }
 
-  host.requestAnimationFrame = defineHelper((callback: ScheduledCallback): number =>
+  const request = defineHelper((callback: ScheduledCallback): number =>
     pause.paused ? original(callback) : scheduleTracked((tracked) => original(tracked), callback, frames, 'frame'),
   );
 
+  markOwnedPatch(request);
+  host.requestAnimationFrame = request;
+
   if (originalCancel) {
-    host.cancelAnimationFrame = (handle: number): void => {
+    const cancel = (handle: number): void => {
       frames.delete(handle);
       originalCancel(handle);
     };
+
+    markOwnedPatch(cancel);
+    host.cancelAnimationFrame = cancel;
   }
 
   return () => {

@@ -2,6 +2,7 @@ import * as nodeTimers from 'node:timers';
 import { promisify } from 'node:util';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { isOwnedPatch } from './owned-patch';
 import {
   type ScheduledCallback,
   type SchedulerHost,
@@ -222,6 +223,23 @@ describe('stray timers', () => {
 
     expect(trackStrayTimers(host)).toBe(stop);
     expect(host.setTimeout).toBe(wrapped);
+  });
+
+  it('marks every installed wrapper as owned by the library, so a global restore steps around it', () => {
+    const host = createHost();
+
+    track(host);
+
+    const installed = [
+      host.setTimeout,
+      host.setInterval,
+      host.clearTimeout,
+      host.clearInterval,
+      host.requestAnimationFrame,
+      host.cancelAnimationFrame,
+    ];
+
+    expect(installed.every(isOwnedPatch)).toBe(true);
   });
 
   it('restores the original schedulers and cancels what is left', () => {
