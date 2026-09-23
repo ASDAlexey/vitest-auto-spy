@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
 import type { IgnoreRule } from './gitignore';
-import { isIgnoredDirectory, parseGitignore } from './gitignore';
+import { excludesFileSetting, isIgnoredBy, parseGitignore } from './gitignore';
 
 function ignores(text: string, path: string): boolean {
   const rules: readonly IgnoreRule[] = parseGitignore(text) ?? [];
 
-  return isIgnoredDirectory(rules, path);
+  return isIgnoredBy([{ base: '', rules }], path);
 }
 
 describe('parseGitignore', () => {
@@ -23,7 +23,7 @@ describe('parseGitignore', () => {
   });
 });
 
-describe('isIgnoredDirectory', () => {
+describe('isIgnoredBy', () => {
   it('matches a slash-free pattern at any depth and an anchored one only from the root', () => {
     expect(ignores('generated/', 'src/app/generated')).toBe(true);
     expect(ignores('/generated/', 'src/generated')).toBe(false);
@@ -64,5 +64,47 @@ describe('isIgnoredDirectory', () => {
     expect(ignores('/packages/*\n!/packages/core/', 'packages/core')).toBe(false);
     expect(ignores('/packages/*\n!/packages/core/', 'packages/cli')).toBe(true);
     expect(ignores('!keep/\nkeep/', 'keep')).toBe(true);
+  });
+});
+
+describe('isIgnoredBy across files', () => {
+  const source = (base: string, text: string): { base: string; rules: IgnoreRule[] } => ({ base, rules: parseGitignore(text) ?? [] });
+
+  it('reads a nested file relative to its own directory and only below it', () => {
+    const sources = [source('', ''), source('libs/app', '/generated/\ncache')];
+
+    expect(isIgnoredBy(sources, 'libs/app/generated')).toBe(true);
+    expect(isIgnoredBy(sources, 'libs/app/src/generated')).toBe(false);
+    expect(isIgnoredBy(sources, 'libs/app/src/cache')).toBe(true);
+    expect(isIgnoredBy(sources, 'generated')).toBe(false);
+    expect(isIgnoredBy(sources, 'libs/application/generated')).toBe(false);
+  });
+
+  it('lets a deeper file override a shallower one, and any file override info/exclude', () => {
+    const sources = [source('', 'scratch/'), source('', 'generated/'), source('libs/app', '!generated/\n!scratch/')];
+
+    expect(isIgnoredBy(sources, 'libs/app/generated')).toBe(false);
+    expect(isIgnoredBy(sources, 'libs/app/scratch')).toBe(false);
+    expect(isIgnoredBy(sources, 'libs/web/generated')).toBe(true);
+    expect(isIgnoredBy(sources, 'scratch')).toBe(true);
+  });
+});
+
+describe('excludesFileSetting', () => {
+  it('takes the last core.excludesFile, whatever the key case, quoted or with a trailing comment', () => {
+    const config = [
+      '[user]',
+      '  excludesFile = /not/core',
+      '[core]',
+      '  autocrlf = input',
+      '  excludesFile = ~/.gitignore_global ; comment',
+      '[Core]',
+      '\texcludesfile = "/path with \\"quote\\"/ignore"',
+    ].join('\n');
+
+    expect(excludesFileSetting(config)).toBe('/path with "quote"/ignore');
+    expect(excludesFileSetting('[core]\n  excludesFile = ~/.gitignore_global # comment')).toBe('~/.gitignore_global');
+    expect(excludesFileSetting('[user]\n  name = x')).toBeUndefined();
+    expect(excludesFileSetting('excludesFile = /before/any/section')).toBeUndefined();
   });
 });

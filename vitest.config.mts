@@ -9,6 +9,8 @@ export default defineConfig({
     globals: true,
     environment: 'jsdom',
     setupFiles: ['src/test-setup.ts'],
+    // The CLI reads the per-user git excludes; the developer's own must not prune the temp repos.
+    env: { GIT_CONFIG_GLOBAL: '/nonexistent/gitconfig', XDG_CONFIG_HOME: '/nonexistent' },
     include: ['src/**/*.spec.ts'],
     // The invariant specs need `--expose-gc` and a process to themselves; they run under
     // `vitest.invariants.config.mts` (`npm run test:invariants`), never in this suite.

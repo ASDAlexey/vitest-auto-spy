@@ -15,6 +15,7 @@
  */
 import { join, posix } from 'node:path';
 
+import type { DirectoryFilter } from '../fs-scan';
 import { isSkippedDirectory, parseJsonc, readTextFile } from '../fs-scan';
 import type { Profile } from '../profile';
 import { isRecord } from '../profile';
@@ -78,18 +79,19 @@ export function expandInclude(pattern: string): string[] {
  * Two shapes of pattern are exempt, because for them "matches nothing" is not evidence of
  * anything. A declaration-only glob (`src/**` + `/*.d.ts`) is routinely a placeholder for ambient
  * types a repository has not written yet, and a pattern inside a directory this scan never
- * descends into (`dist`, `libs/a/out-tsc`, a `.gitignore`d `src/generated`) cannot match by construction.
+ * descends into (`dist`, `libs/a/out-tsc`, a `.gitignore`d `src/generated`, present or not) cannot match by construction.
  */
-export function isExemptPattern(pattern: string, ignoredDirectories: readonly string[] = []): boolean {
-  return /\.d\.[cm]?ts$/.test(pattern) || isOutsideScan(pattern, ignoredDirectories);
+export function isExemptPattern(pattern: string, isIgnored: DirectoryFilter = () => false): boolean {
+  return /\.d\.[cm]?ts$/.test(pattern) || isOutsideScan(pattern, isIgnored);
 }
 
-function isOutsideScan(path: string, ignoredDirectories: readonly string[]): boolean {
+/** A directory need not exist to be ignored: output a build step has not generated yet is exempt as well. */
+function isOutsideScan(path: string, isIgnored: DirectoryFilter): boolean {
   const segments = path.split('/');
   const wildcard = segments.findIndex((segment) => /[*?[]/.test(segment));
   const literal = wildcard === -1 ? segments : segments.slice(0, wildcard);
 
-  return literal.some(isSkippedDirectory) || ignoredDirectories.some((directory) => `${path}/`.startsWith(`${directory}/`));
+  return literal.some(isSkippedDirectory) || literal.some((_, index) => isIgnored(literal.slice(0, index + 1).join('/')));
 }
 
 /**
@@ -147,7 +149,7 @@ function checkInclude(configPath: string, entry: string, profile: Profile): Find
 
   const resolved = resolveFromConfig(configPath, entry);
 
-  if (isExemptPattern(resolved, profile.ignoredDirectories) || matchesAnyFile(resolved, files)) {
+  if (isExemptPattern(resolved, profile.isIgnoredDirectory) || matchesAnyFile(resolved, files)) {
     return undefined;
   }
 
@@ -185,7 +187,7 @@ function checkOne(profile: Profile, configPath: string): Finding[] {
   for (const entry of stringList(parsed['files'])) {
     const resolved = resolveFromConfig(configPath, entry);
 
-    if (!profile.files.includes(resolved) && !isOutsideScan(resolved, profile.ignoredDirectories)) {
+    if (!profile.files.includes(resolved) && !isOutsideScan(resolved, profile.isIgnoredDirectory)) {
       findings.push({
         check: 'tsconfig-file-missing',
         severity: 'error',

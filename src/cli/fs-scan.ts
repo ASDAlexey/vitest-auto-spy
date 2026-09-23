@@ -6,10 +6,11 @@
  * module works on plain strings and can therefore be tested without a temporary directory.
  */
 import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { dirname, join, relative, sep } from 'node:path';
+import { homedir } from 'node:os';
+import { dirname, join, relative, resolve, sep } from 'node:path';
 
-import type { IgnoreRule } from './gitignore';
-import { isIgnoredDirectory, parseGitignore } from './gitignore';
+import type { IgnoreRule, IgnoreSource } from './gitignore';
+import { excludesFileSetting, isIgnoredBy, parseGitignore } from './gitignore';
 
 /**
  * Directories a repository-wide scan must never descend into. The package-manager stores are here
@@ -127,41 +128,137 @@ export function removeFile(path: string): void {
  * directories skipped. Sorted, so a report is stable across platforms.
  */
 export function listRepositoryFiles(root: string, limit: number = scanCap()): string[] {
-  return scan(root, limit, []).files;
+  return scan(root, limit, () => false).files;
 }
 
 export interface RepositoryScan {
   readonly files: string[];
-  /** Directories the root `.gitignore` pruned, root-relative — a check must not expect files there. */
+  /** Directories git's exclude rules pruned, root-relative — a check must not expect files there. */
   readonly ignored: string[];
   readonly truncated: boolean;
 }
 
+/** Whether a directory, root-relative and POSIX, is one the scan leaves out. */
+export type DirectoryFilter = (directory: string) => boolean;
+
 /**
  * The scan plus whether it stopped at {@link SCAN_CAP} — a caller that reports a *clean* result off
  * a truncated list would be lying about the part of the tree it never saw. Unlike
- * {@link listRepositoryFiles}, it also honours the directory rules of the root `.gitignore`.
+ * {@link listRepositoryFiles}, it also honours git's exclude rules for directories.
  */
-export function scanRepository(root: string, limit: number = scanCap()): RepositoryScan {
-  return scan(root, limit, readGitignoreRules(root));
+export function scanRepository(root: string, limit: number = scanCap(), filter: DirectoryFilter = gitignoreFilter(root)): RepositoryScan {
+  return scan(root, limit, filter);
 }
 
-function scan(root: string, limit: number, rules: readonly IgnoreRule[]): RepositoryScan {
-  const walker: Walker = { root, rules, found: [], ignored: [], limit };
+function scan(root: string, limit: number, filter: DirectoryFilter): RepositoryScan {
+  const walker: Walker = { root, filter, found: [], ignored: [], limit };
   const truncated = walk(walker, root);
 
   return { files: walker.found.sort(), ignored: walker.ignored.sort(), truncated };
 }
 
-function readGitignoreRules(root: string): IgnoreRule[] {
-  const text = readTextFile(join(root, '.gitignore'));
+/**
+ * Git's exclude rules below `root`, read from the files rather than asked of `git`: the per-user
+ * `core.excludesFile`, the root's own `info/exclude` and every `.gitignore` from the root down. It
+ * answers for a directory that does not exist too, which is what a `tsconfig` pattern into
+ * not-yet-generated output needs. A `.gitignore` above the root is not read: a home directory kept
+ * in git with `*` in it would empty the scan.
+ */
+export function gitignoreFilter(root: string): DirectoryFilter {
+  const gitDirectory = commonGitDirectory(root);
+  const excludes: IgnoreSource[] = [
+    { base: '', rules: rulesOf(readTextFile(resolve(root, globalExcludesFile(gitDirectory)))) },
+    { base: '', rules: rulesOf(gitDirectory === undefined ? undefined : readTextFile(join(gitDirectory, 'info', 'exclude'))) },
+  ];
+  const files = new Map<string, IgnoreSource>();
+  const verdicts = new Map<string, boolean>();
 
+  const sourceIn = (directory: string): IgnoreSource => {
+    const cached = files.get(directory) ?? { base: directory, rules: rulesOf(readTextFile(join(root, directory, '.gitignore'))) };
+
+    files.set(directory, cached);
+
+    return cached;
+  };
+
+  const isIgnored = (path: string): boolean => {
+    if (path === '' || path === '..' || path.startsWith('../')) {
+      return false;
+    }
+
+    const cached = verdicts.get(path);
+
+    if (cached !== undefined) {
+      return cached;
+    }
+
+    const segments = path.split('/');
+    const parents = segments.slice(0, -1).map((_, index) => segments.slice(0, index + 1).join('/'));
+    const verdict = isIgnored(parents.at(-1) ?? '') || isIgnoredBy([...excludes, sourceIn(''), ...parents.map(sourceIn)], path);
+
+    verdicts.set(path, verdict);
+
+    return verdict;
+  };
+
+  return isIgnored;
+}
+
+function rulesOf(text: string | undefined): IgnoreRule[] {
   return (text === undefined ? undefined : parseGitignore(text)) ?? [];
+}
+
+/**
+ * The git directory that holds `info/exclude` and `config` for the root: `.git` itself, or the
+ * common directory a worktree's `.git` file leads to.
+ */
+function commonGitDirectory(root: string): string | undefined {
+  const dotGit = join(root, '.git');
+  const gitDirectory = isDirectory(dotGit) ? dotGit : linkedGitDirectory(root, dotGit);
+
+  if (gitDirectory === undefined) {
+    return undefined;
+  }
+
+  const common = readTextFile(join(gitDirectory, 'commondir'))?.trim();
+
+  return common ? resolve(gitDirectory, common) : gitDirectory;
+}
+
+function linkedGitDirectory(root: string, dotGit: string): string | undefined {
+  const [target] = captures(readTextFile(dotGit) ?? '', /^gitdir:\s*(.+?)\s*$/m);
+
+  return target === undefined ? undefined : resolve(root, target);
+}
+
+/** An environment variable git reads, where set to the empty string counts as unset. */
+function setting(name: string): string | undefined {
+  const value = process.env[name];
+
+  return value === '' ? undefined : value;
+}
+
+/**
+ * Where git reads the per-user excludes from: the last `core.excludesFile` among the global and the
+ * repository config, else `$XDG_CONFIG_HOME/git/ignore`. `GIT_CONFIG_GLOBAL` replaces the global
+ * files, as in git; `[include]` is not followed.
+ */
+function globalExcludesFile(gitDirectory: string | undefined): string {
+  const home = setting('HOME') ?? homedir();
+  const xdg = setting('XDG_CONFIG_HOME') ?? join(home, '.config');
+  const override = process.env['GIT_CONFIG_GLOBAL'];
+  const configs = [
+    ...(override === undefined ? [join(xdg, 'git', 'config'), join(home, '.gitconfig')] : [override]),
+    ...(gitDirectory === undefined ? [] : [join(gitDirectory, 'config')]),
+  ];
+  const configured = configs.flatMap((config) => excludesFileSetting(readTextFile(config) ?? '') ?? []).at(-1);
+
+  return configured === undefined ? join(xdg, 'git', 'ignore') : configured.replace(/^~(?=\/|$)/, home);
 }
 
 interface Walker {
   readonly root: string;
-  readonly rules: readonly IgnoreRule[];
+  readonly filter: DirectoryFilter;
   readonly found: string[];
   readonly ignored: string[];
   readonly limit: number;
@@ -218,7 +315,7 @@ function walk(walker: Walker, directory: string): boolean {
 function isGitignored(walker: Walker, directory: string): boolean {
   const path = toPosix(relative(walker.root, directory));
 
-  if (!isIgnoredDirectory(walker.rules, path)) {
+  if (!walker.filter(path)) {
     return false;
   }
 

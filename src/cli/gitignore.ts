@@ -1,6 +1,6 @@
 /**
- * The subset of `.gitignore` the repository scan honours: the root file only, applied to
- * directories only. Pure string work — `fs-scan` reads the file and prunes the walk with the result.
+ * The subset of git's exclude rules the repository scan honours, applied to directories only. Pure
+ * string work — `fs-scan` reads `.git/info/exclude` and every `.gitignore` and prunes the walk with the result.
  */
 
 export interface IgnoreRule {
@@ -35,17 +35,62 @@ export function parseGitignore(text: string): IgnoreRule[] | undefined {
   return rules;
 }
 
-/** Whether the rules ignore a directory, given as a root-relative POSIX path. The last match wins. */
-export function isIgnoredDirectory(rules: readonly IgnoreRule[], path: string): boolean {
+/** The rules of one file, read relative to the directory it sits in — `''` for the scan root. */
+export interface IgnoreSource {
+  readonly base: string;
+  readonly rules: readonly IgnoreRule[];
+}
+
+/**
+ * Whether a directory is ignored by sources given lowest precedence first, as git orders them:
+ * `info/exclude`, then each `.gitignore` from the root down. The last matching rule wins.
+ */
+export function isIgnoredBy(sources: readonly IgnoreSource[], path: string): boolean {
   let ignored = false;
 
-  for (const rule of rules) {
-    if (rule.pattern.test(path)) {
-      ignored = !rule.negated;
+  for (const { base, rules } of sources) {
+    if (base === '' || path.startsWith(`${base}/`)) {
+      const local = base === '' ? path : path.slice(base.length + 1);
+
+      for (const rule of rules) {
+        if (rule.pattern.test(local)) {
+          ignored = !rule.negated;
+        }
+      }
     }
   }
 
   return ignored;
+}
+
+/** The last `core.excludesFile` a git config file sets, unquoted — the few lines of INI git's own reader needs here. */
+export function excludesFileSetting(config: string): string | undefined {
+  let section = '';
+  let found: string | undefined;
+
+  for (const line of config.split('\n')) {
+    const header = /^\s*\[\s*([\w.-]+)/.exec(line)?.[1];
+
+    if (header !== undefined) {
+      section = header.toLowerCase();
+
+      continue;
+    }
+
+    const value = /^\s*excludesfile\s*=\s*(.*)$/i.exec(line)?.[1];
+
+    if (section === 'core' && value !== undefined) {
+      found = configValue(value);
+    }
+  }
+
+  return found;
+}
+
+function configValue(raw: string): string {
+  const quoted = /^"((?:[^"\\]|\\.)*)"/.exec(raw)?.[1];
+
+  return quoted === undefined ? raw.replace(/\s*[#;].*$/, '').trim() : quoted.replace(/\\(.)/g, '$1');
 }
 
 function toRegExp(line: string): RegExp | undefined {

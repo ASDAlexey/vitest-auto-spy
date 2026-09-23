@@ -52,7 +52,7 @@ const profileWith = (over: Partial<Profile>): Profile => ({
   scripts: {},
   files: [],
   filesTruncated: false,
-  ignoredDirectories: [],
+  isIgnoredDirectory: () => false,
   ...over,
 });
 
@@ -90,9 +90,11 @@ describe('isExemptPattern', () => {
   it('exempts a pattern inside a skipped directory below the root, or inside a gitignored one', () => {
     expect(isExemptPattern('libs/app/out-tsc/**/*.ts')).toBe(true);
     expect(isExemptPattern('src/**/dist/*.ts')).toBe(false);
-    expect(isExemptPattern('src/generated/**/*.ts', ['src/generated'])).toBe(true);
-    expect(isExemptPattern('src/generated', ['src/generated'])).toBe(true);
-    expect(isExemptPattern('src/generated-types/**/*.ts', ['src/generated'])).toBe(false);
+    const generated = (directory: string): boolean => directory === 'src/generated';
+
+    expect(isExemptPattern('src/generated/**/*.ts', generated)).toBe(true);
+    expect(isExemptPattern('src/generated', generated)).toBe(true);
+    expect(isExemptPattern('src/generated-types/**/*.ts', generated)).toBe(false);
   });
 });
 
@@ -172,6 +174,21 @@ describe('checkTsconfigGlobs', () => {
       'src/main.ts': '',
       'src/generated/api.ts': '',
       'tsconfig.json': JSON.stringify({ include: ['src/**/*.ts', 'src/generated/**/*.ts'], files: ['src/generated/api.ts'] }),
+    });
+
+    expect(checkTsconfigGlobs(readProfile(root))).toEqual([]);
+  });
+
+  it('does not report a pattern into gitignored output that has not been generated yet, or one a nested .gitignore excludes', () => {
+    const root = createTempRepo({
+      'package.json': '{}',
+      '.gitignore': '/src/generated/\n',
+      'libs/app/.gitignore': 'gen/\n',
+      'src/main.ts': '',
+      'tsconfig.json': JSON.stringify({
+        include: ['src/**/*.ts', 'src/generated/**/*.ts', 'libs/app/gen/**/*.ts'],
+        files: ['src/generated/api.ts'],
+      }),
     });
 
     expect(checkTsconfigGlobs(readProfile(root))).toEqual([]);

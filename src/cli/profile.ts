@@ -5,7 +5,8 @@
  */
 import { join } from 'node:path';
 
-import { captures, parseJsonc, pathExists, readTextFile, scanRepository } from './fs-scan';
+import type { DirectoryFilter } from './fs-scan';
+import { captures, gitignoreFilter, parseJsonc, pathExists, readTextFile, scanCap, scanRepository } from './fs-scan';
 
 export type Framework = 'angular' | 'nestjs' | 'none' | 'react' | 'svelte' | 'vue';
 export type Runner = 'bun' | 'node' | 'rstest' | 'vitest';
@@ -26,8 +27,8 @@ export interface Profile {
   readonly files: readonly string[];
   /** The scan stopped at its safety cap — results built off `files` did not see the whole tree. */
   readonly filesTruncated: boolean;
-  /** Directories the root `.gitignore` kept out of `files`, POSIX-relative. */
-  readonly ignoredDirectories: readonly string[];
+  /** Whether git's exclude rules keep a directory out of `files`, asked with a POSIX-relative path. */
+  readonly isIgnoredDirectory: DirectoryFilter;
 }
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
@@ -222,7 +223,8 @@ export function readProfile(cwd: string): Profile {
   const scripts = stringMap(packageJson['scripts']);
   const runner = detectRunner(dependencies, scripts);
   const framework = detectFramework(dependencies);
-  const scan = scanRepository(cwd);
+  const isIgnoredDirectory = gitignoreFilter(cwd);
+  const scan = scanRepository(cwd, scanCap(), isIgnoredDirectory);
 
   return {
     cwd,
@@ -236,6 +238,6 @@ export function readProfile(cwd: string): Profile {
     scripts,
     files: scan.files,
     filesTruncated: scan.truncated,
-    ignoredDirectories: scan.ignored,
+    isIgnoredDirectory,
   };
 }
