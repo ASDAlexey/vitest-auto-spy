@@ -8,6 +8,28 @@ reason.
 
 Shipped work is not here either — it is in `CHANGELOG.md` and in git history.
 
+## Module mocks that leak across files under `isolate: false`, 2026-09-23
+
+Found on an 850-spec Angular suite (Vitest 4.1.11): a `vi.mock(x, factory)` leaves its
+`ManualMockedModule` on the real module node's `meta`, the next file re-fetches the node with
+`cached: true` and keeps that meta, and `VitestModuleRunner.cachedRequest` checks only that _some_
+mock is registered for the id, not that it is this file's. A later `vi.mock(x)` or
+`vi.mock(x, { spy: true })` therefore gets the old factory. Shipped: the `doctor` check
+`module-mock-leak` (the factory/automock pair across spec files, when the environment is shared) and
+an `AGENTS.md` error row.
+
+- [~] **A `setupAutoSpy()` option that clears the leaked mocks at the end of each file.** It would walk
+  `__vitest_worker__.evaluatedModules.idToModuleMap`, drop `meta` / `mockedExports` on the nodes that
+  carry `mockedModule`, and delete the finished file's entry from `__vitest_mocker__.registries`. Every
+  one of those names is undocumented runner state that changed shape between 3.x and 4.x, and a
+  cleanup that silently stops matching after a Vitest minor would reintroduce the leak with nothing
+  saying so — worse than the static warning, which cannot rot. `vi.resetModules()` in the affected
+  file is the public, version-proof repair. Revisit if Vitest exposes the registry, or upstream fixes
+  `cachedRequest` to compare identity (`getDependencyMock(id) !== meta.mockedModule` → refetch),
+  which is the fix to propose there.
+- [~] **A runtime guard naming the leaking specifier at file start.** Same internals, same objection;
+  the `doctor` check names the file pair before a test runs, which is what the guard would have said.
+
 ## `no-reflect-member-access` and `no-self-called-spy`, 2026-09-21
 
 - **The reflect rule is syntactic on purpose, where its twin is type-aware.**
