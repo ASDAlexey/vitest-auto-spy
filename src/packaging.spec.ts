@@ -100,6 +100,15 @@ describe('the published manifest', () => {
     expect(manifest.exports['./package.json']).toBe('./package.json');
   });
 
+  it('names the perf reporter the CLI hands Vitest, so a config or a builder target can write it by name', () => {
+    expect(manifest.exports['./perf-reporter']).toEqual({
+      types: './dist/perf-reporter.d.ts',
+      import: './dist/perf-reporter.js',
+      default: './dist/perf-reporter.js',
+    });
+    expect(readFileSync('src/perf-reporter.ts', 'utf8')).toMatch(/^export default /m);
+  });
+
   it('keeps vitest an optional peer, since /bun and /node run on another runner', () => {
     expect(manifest.peerDependencies['vitest']).toBeDefined();
     expect(manifest.peerDependenciesMeta['vitest']?.optional).toBe(true);
