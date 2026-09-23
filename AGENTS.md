@@ -4421,7 +4421,9 @@ Full reference: <https://asdalexey.github.io/vitest-auto-spy/utilities/cli>.
 - **The scan does not descend into a nested repository or a git worktree.** A tree carrying
   worktrees under it listed every file twice, so `doctor` reported each import graph in duplicate and
   `codemod --write` would have rewritten specs on another branch. A `.git` entry is a stop, whether
-  it is a directory (a nested clone) or a file (a worktree). Past 50 000 files the scan still
+  it is a directory (a nested clone) or a file (a worktree). Directories git ignores are skipped too
+  — every `.gitignore` from the scan root down, `.git/info/exclude` and the per-user
+  `core.excludesFile`, directories only, so an ignored file is still listed. Past 50 000 files the scan still
   truncates, and `doctor` reports that as a `scan-cap-reached` warning (exit 1) rather than a clean
   result; `VITEST_AUTO_SPY_SCAN_CAP` raises the cap.
 - **A path that matches no file is an error, exit 2.** _Nothing left to migrate_ off a path nobody

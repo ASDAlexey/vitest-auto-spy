@@ -372,8 +372,10 @@ that matches no file is the same kind of error, because _Nothing left to migrate
 read is not a result. A red suite under `perf --gate` lands there too: a failing test is measured
 until its timeout, and 30 s of timeout looks exactly like 30 s of slow code.
 
-The repository scan behind `doctor` and `codemod` stops at a nested repository or a git worktree — a
-`.git` entry, whether it is a directory or a file. A tree carrying worktrees under it used to be
+The repository scan behind `doctor` and `codemod` skips the directories git ignores — every
+`.gitignore` from the root down, `.git/info/exclude` and the per-user `core.excludesFile`, read as
+files with no `git` process — and stops at a nested repository or a git worktree — a `.git` entry,
+whether it is a directory or a file. A tree carrying worktrees under it used to be
 listed twice, so `doctor` reported every import graph in duplicate and `codemod --write` could have
 rewritten specs on someone else's branch.
 

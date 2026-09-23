@@ -663,8 +663,12 @@ that declares a type (`const parameters: Record<string, unknown> = { fn }`, at a
 it) or inside the value of `mockValueProp` / `mockReadonlyProp` / `mockSignalProp` is checked against
 that type already and is not reported, unless the type is itself an inline object type; and a nested
 `{ set: vi.fn() }` / `{ update: vi.fn() }` stands in for a signal, which `createMock<T>` cannot seed,
-so its message names `mockSignalProp` instead. A typed parameter of a project helper is out of reach
-of a syntax-only rule, so `createDefaultOptions({ onChange: callback })` is still reported.
+so its message names `mockSignalProp` instead. The same holds for an argument of a helper the same
+file declares, when the parameter it lands in is typed —
+`createDefaultOptions({ onChange: callback })` over
+`const createDefaultOptions = (overrides?: Partial<Options>) => …` is not reported. An **imported**
+helper's parameter is out of reach of a syntax-only rule, so the same call is still reported there:
+wrap the literal in `createMock<Partial<Options>>(…)` or bind it to a typed `const`.
 
 **Finding, and the repair.**
 

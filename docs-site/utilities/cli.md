@@ -187,8 +187,9 @@ doctor:
 Two shapes of pattern are deliberately exempt, because for them "matches nothing" is not evidence
 of anything: a declaration-only glob (`src/**/*.d.ts`, routinely a placeholder for ambient types
 that do not exist yet) and a pattern inside a directory the scan never enters (`dist`,
-`libs/app/out-tsc`, `coverage`, or one the root `.gitignore` excludes). A `files` entry inside such
-a directory is not reported missing either.
+`libs/app/out-tsc`, `coverage`, or one git's exclude rules cover, whether or not it exists yet — a
+pattern into `src/generated/` is exempt before the code generator has run). A `files` entry inside
+such a directory is not reported missing either.
 
 ### What the scan counts as this repository
 
@@ -197,13 +198,19 @@ goes into it decides what every finding is about. Four rules make it:
 
 - **Build output and package directories are skipped outright**: `node_modules`, `dist`, `build`,
   `coverage`, `out-tsc`, `.git`, `.angular`, `.nx`, `.next`, `.nuxt`, `.output`, `.svelte-kit`,
-  `.turbo`, `.yarn`, `.cache`, `bower_components` and their siblings — and the package-manager
+  `.turbo`, `.yarn`, `.cache`, `bower_components`, `out`, `tmp`, `vendor` — and the package-manager
   stores CI tends to keep inside the checkout: `.bun`, `.npm`, `.pnpm-store`.
-- **A directory the root `.gitignore` excludes is skipped too** — `src/generated/`, `/reports`,
-  `tmp-*/`, `**/cache`, with `!` re-including a directory as git does. The file is read, not `git`:
-  only the root `.gitignore`, only directories (an ignored file is still listed), and a pattern with a
-  `\` escape or a POSIX class is dropped — which only means scanning more. A `!` rule it cannot read
-  makes it ignore the whole file rather than prune a directory git keeps.
+- **A directory git's exclude rules cover is skipped too** — `src/generated/`, `/reports`, `tmp-*/`,
+  `**/cache`, with `!` re-including a directory as git does. The rules come from where git reads
+  them, lowest precedence first: the per-user excludes (`core.excludesFile` from the global or the
+  repository config, else `$XDG_CONFIG_HOME/git/ignore`; `GIT_CONFIG_GLOBAL` is honoured, `[include]`
+  is not followed), the root's `.git/info/exclude` (through a worktree's `.git` file too), the root
+  `.gitignore` and every `.gitignore` below it, each relative to its own directory. The files are
+  read, not `git`, and only directories count: an ignored file is still listed. A pattern with a `\`
+  escape or a POSIX class is dropped — which only means scanning more — and a `!` rule that cannot be
+  read makes its file ignored whole rather than prune a directory git keeps. A `.gitignore` above the
+  scan root is not read: run from the repository root, since a home directory kept in git with `*` in
+  it would otherwise empty the scan.
 - **A directory that is a repository of its own is not descended into** — a git worktree, whose
   `.git` is a file, or a nested clone. Its files are on somebody else's branch: counting them made
   every import graph a duplicate of itself, and on this repository's own tree, which carries
@@ -843,7 +850,8 @@ questions, and only one of them is a consumer's business: an upgrade that change
 to do, an upgrade that changes nothing but the `v=` in the marker is not — and comparing the files
 byte for byte turned every release of this package into a red step on a repository whose instructions
 had not moved a word. A plain `init` still refreshes the stamp, on the next run that has another
-reason to write.
+reason to write. Such a file is `unchanged` under `--check` and `updated` under `--dry-run`, and both
+say why in its note: _only the version stamp differs_.
 
 ## In CI
 

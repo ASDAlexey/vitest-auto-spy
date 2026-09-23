@@ -8,6 +8,24 @@ reason.
 
 Shipped work is not here either — it is in `CHANGELOG.md` and in git history.
 
+## git's exclude rules in the repository scan, 2026-09-23
+
+Shipped: nested `.gitignore` files, each relative to its directory, the root's `.git/info/exclude`
+and the per-user `core.excludesFile`, read as files — no `git` process, no dependency — and applied to
+directories. The per-user file is in because a directory only one developer ignores is one only that
+developer has: honouring it makes the local report match the CI one, not diverge from it. Tests pin
+`GIT_CONFIG_GLOBAL` and `XDG_CONFIG_HOME` in `vitest.config.mts` so a developer's excludes cannot prune
+the temp repositories.
+
+- [~] **A `.gitignore` above the scan root.** Git applies it to a `--cwd` below the repository root,
+  but the walk up would also find a home directory kept in git, whose `.gitignore` is often `*`, and
+  empty the scan of a project that is not a repository of its own. Running from the root is the fix.
+- [~] **`[include]` / `[includeIf]` in git config, and the system config.** Following them is a
+  config resolver, not a lookup; a `core.excludesFile` set only there is missed, which scans more.
+- [~] **Ignored files, not only directories.** `no-agent-instructions` reads `AGENTS.md` and friends
+  by name and must see them where `info/exclude` hides them from git; a CI checkout lacks them anyway,
+  which is what `--ignore no-agent-instructions` is for.
+
 ## Module mocks that leak across files under `isolate: false`, 2026-09-23
 
 Found on an 850-spec Angular suite (Vitest 4.1.11): a `vi.mock(x, factory)` leaves its

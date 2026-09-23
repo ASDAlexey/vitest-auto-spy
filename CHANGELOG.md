@@ -10,6 +10,36 @@ The latest released version here must always match the one published on
 
 ## [Unreleased]
 
+### Changed
+
+- **The `doctor` and `codemod` repository scan honours git's exclude rules below the root, not only
+  the root `.gitignore`.** A nested `.gitignore` is read relative to its own directory and overrides a
+  shallower one; below every `.gitignore` sit the root's `.git/info/exclude` (followed through a
+  worktree's `.git` file) and the per-user `core.excludesFile` (else `$XDG_CONFIG_HOME/git/ignore`),
+  as in git. A monorepo keeping `/generated` in `libs/app/.gitignore`, or a checkout excluding local
+  directories through `info/exclude` or a global ignore, had them counted, walked and offered to
+  `codemod --write` — so a local run reported more files than CI did. Still no `git` process and no
+  dependency, and still directories only: an ignored file is listed. A `.gitignore` above the scan
+  root is not read, and `[include]` in git config is not followed.
+- **`doctor --json` and `doctor --markdown` name the flag they meant.** Both are still refused, exit 2,
+  like any unknown flag; the error now ends with ``Did you mean `--format json`?``.
+
+### Fixed
+
+- **`init --check` and `init --dry-run` no longer seem to disagree over a version-only change.** A
+  block whose marker differs only in `v=` is `unchanged` under `--check` (by design since 5.19.0: CI
+  must not go red on a release that changed no advice) and `updated` under `--dry-run`, which read as
+  a contradiction. Both now say _only the version stamp differs_ in the file's note.
+- **The `tsconfig` glob check exempts a pattern into an ignored directory that does not exist yet.**
+  `src/generated/**/*.ts` in `include`, or a `files` entry there, was reported as matching nothing or
+  missing whenever `doctor` ran before the code generator — in CI, typically — although
+  `src/generated/` is in `.gitignore`: the exemption only knew directories the scan had pruned.
+- **`prefer-create-spy-from-class` at `{ minRunnerFns: 1 }` leaves a one-member literal passed to a
+  typed parameter of a helper the same file declares alone.** `createDefaultOptions({ changeOptionsCallback:
+  callback })` over `const createDefaultOptions = (overrides?: Partial<InfoboxOptions>) => …` is
+  checked against that type already. An untyped parameter, a rest parameter, an inline object type
+  of mocks and an imported helper still report — the last is out of reach of a syntax-only rule.
+
 ## [5.27.0] - 2026-09-23
 
 ### Changed

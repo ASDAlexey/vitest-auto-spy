@@ -645,8 +645,12 @@ it('relays subscribeClick from children', () => {
   правилу «один мок рядом со значением», что и набор, переданный в вызов напрямую;
 - объект из одного члена, привязанный к имени с объявленным типом
   (`const parameters: Record<string, unknown> = { fn }`, на любой глубине внутри), или лежащий в
-  значении `mockValueProp` / `mockReadonlyProp` / `mockSignalProp`, — он уже сверяется с типом; инлайновый
-  объектный тип из моков не в счёт. Вложенный `{ set: vi.fn() }` / `{ update: vi.fn() }` стоит вместо
+  значении `mockValueProp` / `mockReadonlyProp` / `mockSignalProp`, или переданный в типизированный
+  параметр хелпера, объявленного в том же файле (`createDefaultOptions({ onChange: callback })` при
+  `const createDefaultOptions = (overrides?: Partial<Options>) => …`), — он уже сверяется с типом; инлайновый
+  объектный тип из моков не в счёт. Параметр **импортированного** хелпера синтаксическому правилу не
+  виден, поэтому там тот же вызов по-прежнему в отчёте: оберните литерал в
+  `createMock<Partial<Options>>(…)` или привяжите к `const` с типом. Вложенный `{ set: vi.fn() }` / `{ update: vi.fn() }` стоит вместо
   сигнала, который `createMock<T>` засеять не может, поэтому сообщение называет `mockSignalProp`;
 - объект ниже порога.
 
