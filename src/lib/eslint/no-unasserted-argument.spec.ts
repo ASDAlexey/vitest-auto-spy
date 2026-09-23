@@ -111,6 +111,25 @@ describe('no-unasserted-argument', () => {
     expect(count('it(NAME, () => { expect(offers.drop).toHaveBeenCalled(); });')).toBe(0);
   });
 
+  it('does not read the `with` of the asserted method name as an argument list', () => {
+    expect(count("it('should dismiss with action on click', () => { expect(ref.dismissWithAction).toHaveBeenCalled(); });")).toBe(0);
+    expect(
+      count("it('dismisses with the action, via dismissWithAction', () => { expect(ref.dismissWithAction).toHaveBeenCalled(); });"),
+    ).toBe(1);
+    expect(count("it('opens with the id', () => { expect(ref.dismissWithAction).toHaveBeenCalled(); });")).toBe(1);
+    expect(count("it('starts with a payload', () => { expect(spies[0]).toHaveBeenCalled(); });")).toBe(1);
+  });
+
+  it('leaves the Event methods that take no arguments alone, and names the count as their repair', () => {
+    expect(count("it('ignores events with metaKey', () => { expect(event.preventDefault).toHaveBeenCalled(); });")).toBe(0);
+    expect(count("it('stops with a click', () => { expect(e.stopPropagation).toHaveBeenCalled(); });")).toBe(0);
+    expect(count("it('stops with a click', () => { expect(e.stopImmediatePropagation).toHaveBeenCalled(); });")).toBe(0);
+    expect(count(`expect(event.preventDefault).toHaveBeenCalled();\nexpect(event.preventDefault).toHaveBeenCalledWith();`)).toBe(0);
+    expect(message("it('loads with the id', () => { expect(api.load).toHaveBeenCalled(); });")).toContain(
+      '`toHaveBeenCalledOnce()` or `toHaveBeenCalledTimes(n)`',
+    );
+  });
+
   it('is silenced by any assertion in the test that is not a bare call', () => {
     const result = `it('loads with the id', () => { expect(api.load).toHaveBeenCalled(); expect(result).toEqual(page); });`;
     const counted = `it('loads with the id', () => { expect(api.load).toHaveBeenCalled(); expect(api.load).toHaveBeenCalledTimes(1); });`;

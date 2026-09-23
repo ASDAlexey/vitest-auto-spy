@@ -67,6 +67,9 @@ const WITH_ARGUMENTS = new Set(['toHaveBeenCalledWith']);
 /** A title that promises an argument list. `without` is not a match, which is what the word boundary is for. */
 const NAMES_ARGUMENTS = /\bwith\b/i;
 
+/** DOM `Event` methods that take no arguments, so there is no argument list to pin. */
+const NO_ARGUMENTS = new Set(['preventDefault', 'stopImmediatePropagation', 'stopPropagation']);
+
 /** The argument of a runner call that is its title, as opposed to its body or its options. */
 const TITLES = new Set(['Literal', 'TemplateLiteral']);
 
@@ -194,22 +197,44 @@ function titleOf(context: RuleContext, test: EsCallExpression): string {
   return title === undefined ? '' : context.sourceCode.getText(title);
 }
 
+/** `dismiss with action` for `ref.dismissWithAction`: a subject's own name, spelled the way a title spells it. */
+function spelledName(subject: string): RegExp | undefined {
+  const words = /\w+$/.exec(subject)?.[0].split(/(?=[A-Z])/) ?? [];
+
+  return words.some((word) => NAMES_ARGUMENTS.test(word)) ? new RegExp(`\\b${words.join('[\\s_-]+')}\\b`, 'gi') : undefined;
+}
+
+function takesNoArguments(subject: string): boolean {
+  return NO_ARGUMENTS.has(/\w+$/.exec(subject)?.[0] ?? '');
+}
+
 /** Whether the test around this assertion promises arguments and checks nothing but bare calls. */
 function titlePromisesArguments(context: RuleContext, scan: Scan, assertion: Assertion): boolean {
   const { test } = assertion;
 
-  if (!test || !NAMES_ARGUMENTS.test(titleOf(context, test))) {
+  if (!test) {
     return false;
   }
 
-  return scan.assertions.every((other) => other.test !== test || other.callOnly);
+  const inTest = scan.assertions.filter((other) => other.test === test);
+  const title = inTest.reduce(
+    (text, other) => {
+      const name = spelledName(other.subject);
+
+      return name === undefined ? text : text.replace(name, '');
+    },
+    titleOf(context, test),
+  );
+
+  return NAMES_ARGUMENTS.test(title) && inTest.every((other) => other.callOnly);
 }
 
 const REPAIR =
   'Name them: `expect(spy).toHaveBeenCalledWith(…)`, or `expect(spy).toHaveBeenCalledExactlyOnceWith(…)` where once is part of ' +
   'the claim; `expect.objectContaining({ … })` and `expect.any(Type)` cover the part of an argument the test does not decide, ' +
   'and a double this package built takes `mustBeCalledWith(…)` at the point it is configured, which fails at the call rather ' +
-  'than after it. Where the call really is all that matters, the title is what should say so — this rule reads it.';
+  'than after it. For a method that takes no arguments, pin the count instead: `toHaveBeenCalledOnce()` or ' +
+  '`toHaveBeenCalledTimes(n)`. Where the call really is all that matters, the title is what should say so — this rule reads it.';
 
 /** `expect(spy).toHaveBeenCalled()` in a test whose subject is the argument list. */
 export const noUnassertedArgument: RuleModule = defineRule({
@@ -238,7 +263,7 @@ export const noUnassertedArgument: RuleModule = defineRule({
       },
       'Program:exit': (): void => {
         scan.assertions
-          .filter((assertion) => assertion.bare)
+          .filter((assertion) => assertion.bare && !takesNoArguments(assertion.subject))
           .forEach((assertion) => {
             const data = { subject: assertion.subject };
 
