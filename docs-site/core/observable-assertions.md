@@ -11,7 +11,7 @@ evaluated and the test is green and empty. These helpers invert that — **the a
 `await`**.
 
 ```ts
-import { expectCompletion, expectEmission, expectEmissions, expectError, expectNoEmission } from 'vitest-auto-spy';
+import { expectAllEmissions, expectCompletion, expectEmission, expectEmissions, expectError, expectNoEmission } from 'vitest-auto-spy';
 
 await expect(expectEmission(component.visible$)).resolves.toBe(true); // the first VALUE, not a list
 await expect(expectEmission(tasks$)).resolves.toEqual({ id: 1 }); // the task itself, not `[task]`
@@ -132,6 +132,16 @@ await expectCompletion(closed$, { label: 'closed$', timeout: 2_000 });
 
 Emissions do not fail it — it asserts termination and nothing about what came before. Use
 `expectNoEmission` when silence is what matters.
+
+`expectAllEmissions` is the same wait resolving **every** value, for "emits exactly these, and
+nothing after" — which `expectEmissions(source$, n)` cannot say, because it stops at `n` and never
+sees an `n + 1`-th:
+
+```ts
+await expect(expectAllEmissions(source$.pipe(trueMap()))).resolves.toEqual([true, true]);
+```
+
+`skip` and `until` pick which values are collected, as they do for the other helpers.
 
 ## `expectError` — when the failure is the subject
 

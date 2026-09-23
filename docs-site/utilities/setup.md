@@ -704,6 +704,32 @@ setupAutoSpy({ strict: true, unconfiguredReads: 'warn' }); // 'off' by default; 
 Where the guard reaches, what counts as configured, the full precedence chain and what the read report
 counts are on [Strict mode](/core/strict-mode#reads-nobody-configured).
 
+**To try it on a slice without editing the setup file**, set `VITEST_AUTO_SPY_STRICT` for the run:
+
+```bash
+VITEST_AUTO_SPY_STRICT=1 npx vitest run src/app/cards   # strict for this run; 0 turns it off
+```
+
+`setupAutoSpy()` reads `1`/`true`, `0`/`false` and `survey`, and lets the variable win over the
+`strict` it was passed; anything else leaves the option alone.
+
+**`strict: 'survey'`** (or `VITEST_AUTO_SPY_STRICT=survey`) is the step before `true`: nothing throws,
+every call and read strict mode would refuse is counted, and each file ends with the list on stderr —
+the whole migration from one run, where `strict: true` stops every test at its first unconfigured
+call:
+
+```
+[vitest-auto-spy] strict survey — src/app/cards/card.component.spec.ts: what strict mode would have refused.
+Calls nobody configured (seed them in `returns`, or `registerAutoSpyDefaults` in the setup file):
+  NotificationsService.open ×12
+  SvgIconService.getIcon ×4
+```
+
+A double built without a class and without a `name` is listed by the line that built it,
+`createAutoMock(card.component.spec.ts:42)`. A second `setupAutoSpy()` in an extra setup file works
+too — the per-test hooks of both calls share one epoch, so the first call's network stubs are not
+graded as written outside a hook — but the variable is the one that needs no file.
+
 ## 11. The hook budget Jest had only one of
 
 On by default, because it only ever appends a sentence to a test that has already failed.
@@ -818,6 +844,24 @@ library reads the disk**: one file, read-only, through `process.getBuiltinModule
 static `node:fs` import so the `/setup` entry still loads where there is no `process`, and nothing
 but the line depends on what it finds. On a Node without `getBuiltinModule` (before 20.16 / 22.3)
 it stays silent rather than guessing.
+
+The same marker is exported as `isAngularUnitTestBuilder()`, for a setup file that both the builder
+and plain Vitest run. The builder initialises `TestBed` before any setup file, so a second
+`initTestEnvironment()` throws "Cannot set base providers because it has already been called":
+
+```ts
+import { isAngularUnitTestBuilder, setupAutoSpy } from 'vitest-auto-spy/setup';
+
+if (!isAngularUnitTestBuilder()) {
+  setupTestBed(); // plain Vitest only; the builder has done this already
+}
+
+setupAutoSpy();
+```
+
+The builder runs that file only when its target names it in `setupFiles` —
+[`doctor`](/utilities/cli#doctor-—-defects-that-never-fail) reports `builder-setup-unreached` when it
+does not.
 
 ## 14. Web Storage the runner never handed over
 
@@ -1068,6 +1112,12 @@ under test makes, which is a defect to fix or an assertion to write:
 setupAutoSpy({ strayConsole: { allow: ['Download the React DevTools', /^Lit is in dev mode/] } });
 ```
 
+An Angular suite that resets its module graph between files under `isolate: false` is the common
+case: Angular prints `NG0912: Component ID generation collision` while a spec bundle is evaluated
+again, and the guard blames whichever file is importing at the time. No spec can absorb an
+import-time warning, so allow that one — `allow: [/NG0912/]` — rather than every warning. It is not
+allowed by default: outside a reset it names two components that really do share a generated id.
+
 A string matches as a substring, a `RegExp` is searched (its `g` / `y` flags make no difference). The
 object form's `reaction` defaults to `'throw'`; `'warn'` prints the same report — through the console
 for a test, to stderr for a file — without failing, which is how to measure a large suite before
@@ -1102,6 +1152,11 @@ left the shared document changed:
 `DestroyRef.onDestroy` of the component that set it, in an `afterEach` of this spec, or by destroying
 the fixture that owns it.
 ```
+
+It finds production leaks as well as spec ones. On an 850-spec Angular application, turning it on
+exposed two components that left `style="cursor: grabbing"` on `<body>` when destroyed mid-drag —
+fixed in their `ngOnDestroy` — and two tests that passed only on a CSS variable an earlier test had
+left behind.
 
 The attributes of `<html>`, `<head>` and `<body>` are recorded before each test. Every attribute
 added, changed or removed by the end of it is reported with both values and put back, and the test

@@ -48,16 +48,15 @@ instance or a DOM node prints as its class — `[HTMLDivElement]`, `[Session]` �
 one in full walks everything it can reach, and a run with hundreds of strict failures could take a
 worker's heap through the message strings alone.
 
-**Two doubles have no class name to print**, and their message is one word shorter — `Nothing
-configured read, and strict mode is on. / Called as: read('k')` — unless they are given one:
-`createAutoMock<T>(undefined, { strict: true, name: 'USERS' })`, and `provideAutoSpyForToken` passes
-the token's description on its own (`Nothing configured InjectionToken CAROUSEL_RESIZE_OBSERVER.observe`):
-
-- [`createAutoMock<T>()`](./auto-mock-by-type), which is built from a type and never read a class;
-- the **fully abstract class** fallback in `createSpyFromClass`, which hands back that same proxy
-  when the prototype named nothing. Strict mode travels into the fallback rather than being dropped
-  there — a DI token whose members are all `abstract` is exactly the wide-collaborator shape this
-  exists for.
+**A double built from a type has no class to name**, so it is named by the line that built it —
+`Nothing configured createAutoMock(users.spec.ts:12).getName` — which is what keeps two unnamed
+doubles of one file apart. A `name` replaces that:
+`createAutoMock<T>(undefined, { strict: true, name: 'USERS' })`, and `provideAutoSpyForToken` passes the
+token's description on its own (`Nothing configured InjectionToken CAROUSEL_RESIZE_OBSERVER.observe`).
+The **fully abstract class** fallback in `createSpyFromClass`, which hands back the same type-driven
+proxy when the prototype named nothing, carries the class name into it — `Nothing configured
+Storage.read` — along with strict mode: a DI token whose members are all `abstract` is exactly the
+wide-collaborator shape this exists for.
 
 ## What counts as configured
 
@@ -99,6 +98,12 @@ out.
 `returns:` is different since it stopped doing the same: the value is the spy's default, so a
 `calledWith` configured later wins for its arguments, a later `resolveWith` or `failWith` replaces
 it, and `returns: { save: undefined }` is how a `void` call is declared expected.
+
+The same `undefined` reaches a defensive branch — `camera.translate(…) ?? of(null)` — on a method
+typed to return an `Observable`, where `mockReturnValue(undefined)` is a type error. `returns` takes
+it for any method; after construction, `camera.translate.mockReturnValue(outOfType(undefined))` says
+at the call that the value is outside the type on purpose. Both count as configured, so the double
+can stay strict.
 
 A reset puts the method back to unconfigured, so the guard fires again after `resetAutoSpy(users)`
 or at the end of a [`using` block](./create-spy-from-class#using) —
@@ -158,8 +163,8 @@ under another name:
 createAutoMock<Api>(undefined, { onUnstubbedCall: () => null }); // never undefined, never a throw
 ```
 
-`className` is `undefined` on a type-driven double for the same reason the message is shorter there:
-no class was read, so there is nothing truthful to put in it.
+`className` on a type-driven double is the same name the message prints: its `name`, or
+`createAutoMock(file:line)` for one given none.
 
 ## Turning it on for a whole suite
 
@@ -175,6 +180,10 @@ call. The default is armed only when the option is actually passed, and released
 file that armed it — under `isolate: false` the module holding it is shared by every file in the
 worker, and a default left armed would fail a spec that never opted in. See
 [Test-run hygiene → strict doubles](/utilities/setup#_10-strict-doubles-for-the-whole-suite).
+
+Before switching it on, `setupAutoSpy({ strict: 'survey' })` — or `VITEST_AUTO_SPY_STRICT=survey` for
+one run — counts every call strict mode would refuse instead of throwing, and prints each file's list
+when the file is over.
 
 ### A throw that never reached the test
 

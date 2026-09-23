@@ -25,7 +25,8 @@ satisfies the rxjs one.
 
 **Two breaking changes, both peer ranges. No helper was removed or renamed, no option changed
 meaning, no spy behaves differently.** Most suites upgrade by changing the version and running the
-suite.
+suite. A suite that goes from 4.x straight to a later 5.x will also see type errors from 5.1.0,
+which checks what a stub returns — the warning above _What did not change_ sorts them by message.
 
 |                                                                                                                        | What to do                                                                             |
 | ---------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
@@ -162,6 +163,68 @@ export function flushEffects(): void {
 `ApplicationRef`, which is why it was always preferred. The `ApplicationRef.tick()` fallback behind
 it existed only for versions the package no longer admits — and with it goes the spec that deleted
 `TestBed.tick` at runtime to force that branch to execute. No supported Angular ever took it.
+
+::: warning Past 5.0: the stub is type-checked (5.1.0)
+
+The table above is 5.0 itself. A suite that jumps from 4.x to a later 5.x meets one more change in
+the type check, and it is the one that produces errors: since **5.1.0** a spied method's mock
+surface is `MockInstance<Method>` instead of `MockInstance` with no type argument, which meant
+`(...args: any[]) => any`. `mockReturnValue`, `mockImplementation`, `mockResolvedValue`, their
+`Once` variants, the parameters an implementation receives and `mock.calls` are all typed from the
+method now. Nothing changes at run time. (5.21.0 also moved 32 exports off `vitest-auto-spy/angular`
+— the table is in the changelog, and `npx vitest-auto-spy doctor` names each import to change.)
+
+Measured on a 4.6 → 5.24 upgrade of an Angular application with 850 spec files: **61 errors in 22
+files**, none of them a runtime change. 59 fall into eight shapes, and the last two were the
+package's own:
+
+| The error says                                                                                     | Count | What it is                                                                                                   | Fix                                                                                                |
+| -------------------------------------------------------------------------------------------------- | ----: | ------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------- |
+| `… with 'exactOptionalPropertyTypes: true'. Consider adding 'undefined' …`                         |    21 | a stub whose type differs from the method's in `?: T` against `?: T \| undefined`, or a `key: undefined`     | build the subject from the method (`returnSubject()`); omit the key instead of writing `undefined` |
+| `Argument of type 'Spy<X>' is not assignable to parameter of type 'X'`                             |     9 | a double handed back as the return value of another double                                                   | `mockReturnValue(asInstance(double))`                                                              |
+| `Argument of type 'Observable<A>' is not assignable to parameter of type 'Observable<B>'`          |     8 | the fixture is not what the method returns — a DOM `Event` for a router `Event`, `null` for a non-null value | fix the fixture; that is the finding                                                               |
+| `Types of parameters 'x' and 'y' are incompatible` on `mockImplementation`                         |     5 | a parameter annotation in the implementation that disagrees with the method                                  | drop the annotation and let the method type it                                                     |
+| `TS4111` or `TS2375` inside a `mockImplementation` body                                            |     6 | the body used to receive `any` parameters, so nothing in it was checked                                      | the ordinary fix for that error, now that the body is typed                                        |
+| `Argument of type 'Partial<X>'`, a hand-written `MockXType`, or a base class where `X` is wanted   |     4 | a hand-built partial double where the method returns the class                                               | `createSpyFromClass(X)` or `createAutoMock<X>()`, then `asInstance`                                |
+| `TS2349: This expression is not callable` on something read from `mock.calls`                      |     4 | `mock.calls` is typed; a listener taken from `addEventListener` is `EventListenerOrEventListenerObject`      | narrow it — `typeof listener === 'function'` — before calling it                                   |
+| `… is not assignable to parameter of type 'RxMethod<…>'` inside `mockReadonlyProp(…, vi.fn(impl))` |     2 | `vi.fn(impl)` takes its type from the member it replaces, and the implementation returns the wrong thing     | return what the member returns — `Object.assign(vi.fn(), { destroy: vi.fn() })` for an `rxMethod`  |
+
+The two largest shapes, before and after:
+
+```ts
+// `Subject` is invariant, so its type argument has to be the method's own, `?` for `?` and `| undefined` for `| undefined`
+const events$ = new Subject<EventData<{ params?: EventDataParams }>>(); // ❌ `on` declares `params?: EventDataParams | undefined`
+pixelStreaming.on.mockReturnValue(events$);
+
+const events$ = pixelStreaming.on.returnSubject(); // ✅ typed from `on`, whatever it declares
+```
+
+```ts
+overlay.create.mockReturnValue(overlayRef); // ❌ a Spy<OverlayRef> has none of OverlayRef's private members
+overlay.create.mockReturnValue(asInstance(overlayRef)); // ✅ the same object, typed as the class
+```
+
+One shape was the package's, not the spec's: a member typed as a **union of call signatures** — what
+`@ngrx/signals` hands over for every nullable object slice of a store, `DeepSignal<Angle> | Signal<null>`
+— took no implementation at all from 5.1.0 through 5.24.0, because `mockImplementation(() => angle())`
+matched neither half of the union. The release after 5.24.0 types such a stub against one signature
+returning the union; upgrade rather than cast (2 of the 61 above).
+
+Answer none of these with `as any`, `as unknown as X` or `@ts-expect-error`: each switches off the
+check the line exists for, and 8 of the 61 were fixtures that did not describe what the method
+returns.
+
+:::
+
+::: warning Past 5.0: a suite-wide `strict: true` starts to bite (5.6.0)
+
+Before **5.6.0**, `setupAutoSpy({ strict: true })` lived in a copy of the module no spec file read, so
+a suite that had set it ran without it. 5.6.0 lists the fix under _Fixed_, and for a suite on 5.5 or
+earlier with the option set it is a behaviour change: every unconfigured call on a double now throws
+"Nothing configured …". Ten tests of one consumer went red on it. Configure the call the error
+names, or drop `strict` for that double.
+
+:::
 
 ## What did _not_ change
 

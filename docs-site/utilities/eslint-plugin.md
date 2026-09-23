@@ -55,8 +55,13 @@ export default [
 
 There is a second config, `configs.typeErrors` — the subset whose findings are compile errors, for
 [landing the plugin on a large suite](#land-it-on-a-large-existing-suite-without-a-red-ci) without a
-red CI. It is a subset of `recommended`, so a project adopting the plugin outright needs only the
-one above.
+red CI. Both of its rules are already `error` in `recommended`, so a project adopting the plugin
+outright needs only the one above.
+
+`configs.strict` is `recommended` with its seven `warn` rules raised to `error` — the config for a
+suite that has adopted the plugin and wants every finding to stop the build. `no-compile-components`
+and `no-redundant-mock-reset` still report nothing until their options describe the builder and the
+runner.
 
 ### 2. The `files` glob is not optional
 

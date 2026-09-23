@@ -54,18 +54,30 @@ TestBed.configureTestingModule({
 });
 ```
 
-| `init` member | Reaches                                                                                                                                               | Default     |
-| ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- | ----------- |
-| `params`      | `params`, `paramMap`, `snapshot.params`, `snapshot.paramMap`                                                                                          | `{}`        |
-| `queryParams` | `queryParams`, `queryParamMap` and their snapshot twins                                                                                               | `{}`        |
-| `data`        | `data`, `snapshot.data`                                                                                                                               | `{}`        |
-| `title`       | `route.title`, `snapshot.title` — stored under the router's own `RouteTitleKey`, which the double reads off the installed router rather than guessing | `undefined` |
-| `fragment`    | `fragment`, `snapshot.fragment`                                                                                                                       | `null`      |
-| `url`         | `url`, `snapshot.url` — a string is split on `/`                                                                                                      | `[]`        |
-| `outlet`      | `outlet`, `snapshot.outlet`                                                                                                                           | `'primary'` |
-| `component`   | `component`, `snapshot.component`                                                                                                                     | `null`      |
-| `routeConfig` | `routeConfig`, `snapshot.routeConfig`                                                                                                                 | `null`      |
-| `resolve`     | `snapshot`'s resolved-data record, kept apart from `data` as Angular keeps it                                                                         | `{}`        |
+| `init` member | Reaches                                                                                                                                                    | Default     |
+| ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------- |
+| `params`      | `params`, `paramMap`, `snapshot.params`, `snapshot.paramMap`                                                                                               | `{}`        |
+| `queryParams` | `queryParams`, `queryParamMap` and their snapshot twins                                                                                                    | `{}`        |
+| `data`        | `data`, `snapshot.data`                                                                                                                                    | `{}`        |
+| `title`       | `route.title`, `snapshot.title` — stored under the router's own `RouteTitleKey`, which the double reads off the installed router rather than guessing      | `undefined` |
+| `fragment`    | `fragment`, `snapshot.fragment`                                                                                                                            | `null`      |
+| `url`         | `url`, `snapshot.url` — a string is split on `/`                                                                                                           | `[]`        |
+| `outlet`      | `outlet`, `snapshot.outlet`                                                                                                                                | `'primary'` |
+| `component`   | `component`, `snapshot.component`                                                                                                                          | `null`      |
+| `routeConfig` | `routeConfig`, `snapshot.routeConfig`                                                                                                                      | `null`      |
+| `resolve`     | `snapshot`'s resolved-data record, kept apart from `data` as Angular keeps it                                                                              | `{}`        |
+| `children`    | `children`, `firstChild`, and each child's `parent` and `root` — one double per entry, built from the same options; the handle's `children` navigates them | `[]`        |
+
+A directive that walks `activatedRoute.children` for a named outlet gets them from `children`, and
+the double keeps the snapshot tree in step when any of them navigates:
+
+```ts
+const { route, children } = createActivatedRoute({
+  children: [{ outlet: 'aside', routeConfig: { path: 'map' } }],
+});
+
+children[0]?.setParams({ id: '8' }); // route.snapshot.firstChild.params follows
+```
 
 A string `url` gives segments without matrix parameters; pass `UrlSegment`s
 (`[new UrlSegment('products', { color: 'red' })]`) when the code reads them.
@@ -222,6 +234,16 @@ is a structural stand-in provided for the `Router` token:
 | `routerState`               | Angular's own `RouterState`: `snapshot.url` is the URL, and `root` a route carrying its query params and fragment |
 | `currentNavigation`         | the signal Angular 20.2+ declares: the navigation in flight, `null` while the router stands still                 |
 | `getCurrentNavigation()`    | the same answer through the deprecated method, so a component reading either one sees one truth                   |
+
+Code that walks `routerState.root.children` for the outlets a page has open gets them from
+`children`, each an `ActivatedRouteInit` nested as deep as the walk goes; `setUrl` keeps them:
+
+```ts
+provideRouterDouble({
+  url: '/cards/7',
+  children: [{ routeConfig: { path: 'cards' }, children: [{ outlet: 'report' }, { outlet: 'map' }] }],
+});
+```
 
 Anything else Angular's `Router` declares — `isActive`, `resetConfig`, `lastSuccessfulNavigation` —
 is **not** `undefined`: reading it throws, naming the member and what the double covers. A member
@@ -439,7 +461,8 @@ and `@angular/router` already depends on `@angular/common`.
 
 - Like `/angular-http` it does **not** re-export the core; it is a companion to
   `vitest-auto-spy/angular`.
-- It registers no hooks and no mock adapter and imports nothing from a test runner, so it works the
-  same under [`bun test`](/runtimes/bun-angular).
+- It registers no hooks and no mock adapter, so it works the same under
+  [`bun test`](/runtimes/bun-angular). The spies the Router double builds therefore need the entry
+  that registers the adapter — see below.
 - The entry weighs **9.05 kB min+gzip** (9048 B, measured the way the README badge is: esbuild
   bundle, minified, gzipped, peers external).

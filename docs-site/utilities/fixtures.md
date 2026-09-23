@@ -68,6 +68,11 @@ Overrides are deep-partial-checked like `createMock`'s, and merge leaf by leaf â
 above survives an override that only names `header.title`. An overridden **array** replaces the
 default one outright; no merge rule over arrays is right often enough to guess at.
 
+**An optional key takes an explicit `undefined`**, under `exactOptionalPropertyTypes` too:
+`createFixture(anOrganisation, { sites: undefined })` clears it, and `createMock<T>({ ...base, sites: undefined })`
+says "present, and unset". A required key still refuses `undefined` â€” that is
+[`outOfType`](/api) territory.
+
 **Every call hands back a new object**, and the defaults are copied when the factory is built. A
 fixture shared by reference is the most common way one test's mutation decides another's outcome,
 and under `isolate: false` that sharing reaches across files.
@@ -87,6 +92,7 @@ const open = narrow(result.link, (link): link is OpenLink => 'params' in link);
 const params = narrow.byKey(result.link, 'params').params;
 const canMatch$ = narrow.observable(guard.canMatch(route, segments));
 const covers = narrow.defined(row.content?.covers);
+const form = narrow.instanceOf(request.body, FormData); // a class instance, typed as it
 ```
 
 A spec routinely knows something the type does not: that `result.link` is the one form of twenty that

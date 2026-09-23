@@ -100,6 +100,26 @@ such test in a file fails while every later one passes off the module cache. Tha
 and it is not — the answer is to await the module rather than count turns, with
 [`settleDynamicImport`](#settledynamicimport-load-turns) below.
 
+### A time budget, for real I/O
+
+A turn is the wrong unit when the work is real I/O: an HTTP round-trip to a server the spec started,
+a child process exiting, a file watcher firing. Those take milliseconds, and a turn budget either
+runs out long before them or has to be tuned so high that a condition that never holds waits for
+the runner's timeout anyway. `{ timeoutMs }` polls the real clock instead, every 10 ms:
+
+```ts
+await server.listen(0);
+void request(server.url('/health'));
+
+await flushEventLoopUntil(() => server.requests.length > 0, { timeoutMs: 1000, label: 'the health check' });
+```
+
+It replaces the hand-rolled `waitFor(predicate, ms)` such a spec carries. The poll schedules
+through the `setTimeout` captured when the module loaded, so fake timers neither freeze it nor
+shorten it, and the failure says `after 1000 ms of real time`. `turns` and `timeoutMs` do not
+combine — the options type refuses the pair, because a reader could not tell which one ends the
+wait.
+
 ## `settleDynamicImport(load, turns?)`
 
 ```ts

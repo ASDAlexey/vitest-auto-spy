@@ -293,16 +293,27 @@ const { fixture, component } = renderShallow(TaskListComponent, {
 });
 ```
 
-| Option          | Default | What it does                                                                                                                    |
-| --------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| `providers`     | `[]`    | Providers for the testing module. `EnvironmentProviders` (`provideHttpClient()`, …) welcome                                     |
-| `imports`       | `[]`    | Extra imports for the testing module (a stub module, a routing harness)                                                         |
-| `inputs`        | —       | Values for the component's inputs — signal inputs take the **value**, not the signal; keyed by class field or by public name    |
-| `keepTemplate`  | `false` | Keep the real template (for `viewChild`, content projection, host bindings)                                                     |
-| `keepChildren`  | `[]`    | Child components/directives/pipes that stay resolvable; everything else is dropped                                              |
-| `template`      | `''`    | A stand-in template to render instead of a blank one                                                                            |
-| `beforeCreate`  | —       | Runs after the module is configured, before the component exists — the seam for stubbing a dependency a field initializer reads |
-| `detectChanges` | `true`  | Run the first change detection, and therefore `ngOnInit`                                                                        |
+| Option               | Default | What it does                                                                                                                                                                                                                                         |
+| -------------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `providers`          | `[]`    | Providers for the testing module. `EnvironmentProviders` (`provideHttpClient()`, …) welcome                                                                                                                                                          |
+| `imports`            | `[]`    | Extra imports for the testing module (a stub module, a routing harness)                                                                                                                                                                              |
+| `inputs`             | —       | Values for the component's inputs — signal inputs take the **value**, not the signal; keyed by class field or by public name                                                                                                                         |
+| `keepTemplate`       | `false` | Keep the real template (for `viewChild`, content projection, host bindings)                                                                                                                                                                          |
+| `keepChildren`       | `[]`    | Child components/directives/pipes that stay resolvable; everything else is dropped                                                                                                                                                                   |
+| `keepModules`        | `[]`    | `NgModule`s put back whole under `keepTemplate`, in place of the declarations an AOT build flattened them into — `ReactiveFormsModule`                                                                                                               |
+| `keepHostDirectives` | `true`  | `false` drops the component's `hostDirectives`, and every service they inject — for a component whose host directives pull in a graph the spec does not test. The sanctioned form of `TestBed.overrideComponent(X, { set: { hostDirectives: [] } })` |
+| `template`           | `''`    | A stand-in template to render instead of a blank one                                                                                                                                                                                                 |
+| `beforeCreate`       | —       | Runs after the module is configured, before the component exists — the seam for stubbing a dependency a field initializer reads                                                                                                                      |
+| `detectChanges`      | `true`  | Run the first change detection, and therefore `ngOnInit`                                                                                                                                                                                             |
+
+**It moves branch coverage off the compiled component.** `renderShallow` changes the component
+through `TestBed.overrideComponent`, which recompiles it under JIT for the rest of the spec file —
+even with `keepTemplate: true`, because the children still have to go. The AOT factory, template and
+host-binding branches the build produced then drop out of coverage, and a later plain render in the
+same file does not bring them back: on an 850-spec suite that was about 310 branches, enough to fail
+a 90 % gate. Keep one real `TestBed.createComponent` render per component where those branches
+matter, placed before any `renderShallow` of it in the file. When nothing would change — a
+module-declared component under `keepTemplate: true` — no override is issued at all.
 
 `fixture` is a real `ComponentFixture`; nothing here replaces `@angular/core/testing`. Blanking the
 template keeps lifecycle hooks, inputs, signals and DI — everything a spec that asserts on
@@ -331,9 +342,12 @@ pipe or directive with no module beside it — and Angular takes only standalone
 `The "WhisperPipe" pipe, imported from "ReportComponent", is not standalone. Does the pipe have the standalone: false flag?`,
 which reads as an instruction to go and change that pipe; the pipe is fine, and the same call works
 under JIT. `renderShallow` checks the scope it is about to hand over and throws first, naming the
-declarations and saying the scope cannot be rebuilt from what the definition holds. There are two
-ways on: drop `keepTemplate` when the spec reads TypeScript state only — the case this helper exists
-for — or build the component with `TestBed` directly, which leaves its compiled scope untouched, and
+declarations and saying the scope cannot be rebuilt from what the definition holds. The way on for
+a module you can name — `ReactiveFormsModule`, `FormsModule`, an `NgModule` of your own — is
+`keepModules`: `renderShallow(FormComponent, { keepTemplate: true, keepModules: [ReactiveFormsModule] })`
+removes every declaration the module exports, through the modules it re-exports, and imports the
+module whole in their place. Otherwise drop `keepTemplate` when the spec reads TypeScript state
+only — the case this helper exists for — or build the component with `TestBed` directly, which leaves its compiled scope untouched, and
 hold the cost down by seeding the services its children inject instead of by trimming the template.
 
 ### Changing an input mid-test
@@ -1012,6 +1026,20 @@ Six things to know:
   `new win.Event('resize')` all work, and `win.Event === window.Event` holds, which is what an
   `instanceof` in the code under test is reading. A constructor needs no binding anyway — its `this`
   is the instance being built.
+
+  To **replace** a global class, hand over a [`mockConstructor`](/utilities/constructor-doubles) with the
+  statics the class declares — the type asks for them, because code that compares
+  `source.readyState === EventSource.OPEN` would otherwise compare against `undefined`:
+
+  ```ts
+  const FakeSource = Object.assign(
+    mockConstructor((url: string | URL) => createMock<EventSource>({ url: String(url) })),
+    { CONNECTING: 0, OPEN: 1, CLOSED: 2 } as const,
+  );
+
+  provideDocumentDouble({ defaultView: { EventSource: FakeSource } });
+  ```
+
 - **`location` takes overrides like every other member.** The platform declares its members
   unforgeable, which is what makes the hand-written `{ location: { reload: vi.fn() } }` the shape it
   is; here it merges the same way everything else does:

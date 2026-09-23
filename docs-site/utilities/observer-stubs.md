@@ -93,6 +93,13 @@ reachable:
 observers.last.emit([intersectionEntry(first, false), intersectionEntry(second, true)]);
 ```
 
+A component that reads a rect gets it from `overrides`, as a `DOMRect` or as the four numbers the
+rest is derived from:
+
+```ts
+observers.last.emit([intersectionEntry(tooltip, true, { boundingClientRect: { x: 10, y: 20, width: 200, height: 100 } })]);
+```
+
 ## The observer the callback is handed
 
 The callback's second argument is the object `new IntersectionObserver(…)` returned — the one the

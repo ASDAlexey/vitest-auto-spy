@@ -56,13 +56,14 @@ The second argument is the configuration: `observablePropsToSpyOn`, `returns`, a
 ```ts
 const users = createAutoMock<UserService>(undefined, { strict: true });
 
-users.getName(1); // throws: Nothing configured getName, and strict mode is on.
+users.getName(1); // throws: Nothing configured createAutoMock(users.spec.ts:12).getName, and strict mode is on.
 ```
 
-The message has **no class name** — a type-driven double never read one, and `className` is
-`undefined` in an `onUnstubbedCall` handler for the same reason. A **seeded** member is a stored
+A type-driven double never read a class, so the message names it by the line that built it —
+`autoMocked(…)` for that factory — and `className` in an `onUnstubbedCall` handler is the same string;
+`{ name: 'USERS' }` replaces it. A **seeded** member is a stored
 value rather than a spy, so it never reaches the guard at all. The same fallback covers a fully
-abstract class handed to `createSpyFromClass`, which returns this proxy: `strict` travels into it.
+abstract class handed to `createSpyFromClass`, which returns this proxy named after the class: `strict` travels into it.
 
 ### `using` — reset at the end of the block {#using}
 
