@@ -11,7 +11,8 @@
  *    way as a config the search finds; a flag given beside it wins over the file. A `configFile`
  *    that does not exist is a configuration error and says so, rather than a rule that goes quiet.
  * 2. **The runner config beside the file**, found by walking up from the linted file's directory
- *    for `vitest.config.*` / `vite.config.*` and read as **text** — a `clearMocks: true` and its two
+ *    for `vitest.config.*` / `vite.config.*` / `vitest-base.config.*` (the name `runnerConfig: true` of
+ *    `@angular/build:unit-test` resolves) and read as **text** — a `clearMocks: true` and its two
  *    siblings, nothing evaluated, no module loaded. A lint run must not execute a project's config
  *    to decide what to report, and the three values this needs are written as literals in every
  *    config that sets them.
@@ -22,8 +23,8 @@
  * about a file it never found would be wrong in the one direction that costs a suite its isolation.
  *
  * **What the search misses**, said out loud because the workspace this was measured on is the case:
- * a runner config at a path nothing standard names — one a builder picks, such as the
- * `runnerConfig` of `@angular/build:unit-test` — is not found. `configFile` points at it, so the
+ * a runner config at a path nothing standard names — a `runnerConfig` string of
+ * `@angular/build:unit-test` pointing elsewhere — is not found. `configFile` points at it, so the
  * flags are read from the file that sets them rather than copied into the lint config and kept in
  * step by hand. The search is a convenience for the ordinary layout, not a promise.
  *
@@ -43,7 +44,7 @@ export interface RunnerResets {
 }
 
 /** The config file names a runner is configured in, in the order a directory is searched. */
-const CONFIG_NAMES = ['vitest.config', 'vite.config'].flatMap((base) =>
+const CONFIG_NAMES = ['vitest.config', 'vite.config', 'vitest-base.config'].flatMap((base) =>
   ['ts', 'mts', 'cts', 'js', 'mjs', 'cjs'].map((extension) => `${base}.${extension}`),
 );
 

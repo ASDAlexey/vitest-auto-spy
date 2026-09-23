@@ -172,10 +172,12 @@ describe('no-redundant-mock-reset, finding the runner config itself', () => {
   const configured = join(root, 'configured');
   const vite = join(root, 'vite-only');
   const bare = join(root, 'bare');
+  const angular = join(root, 'angular-cli');
   const code = `beforeEach(() => { vi.clearAllMocks(); });`;
 
   beforeAll(() => {
-    [configured, vite, bare].forEach((directory) => mkdirSync(join(directory, 'nested'), { recursive: true }));
+    [configured, vite, bare, angular].forEach((directory) => mkdirSync(join(directory, 'nested'), { recursive: true }));
+    writeFileSync(join(angular, 'vitest-base.config.mts'), `export default { test: { clearMocks: true } };\n`);
     writeFileSync(join(configured, 'vitest.config.ts'), `export default { test: { clearMocks: true } };\n`);
     writeFileSync(join(vite, 'vite.config.ts'), `export default { test: { restoreMocks: true } };\n`);
   });
@@ -199,6 +201,10 @@ describe('no-redundant-mock-reset, finding the runner config itself', () => {
   it('falls back to a vite config, and reads its flags the same way', () => {
     expect(inDirectory(vite)).toBe(0);
     expect(inDirectory(vite, `beforeEach(() => { vi.restoreAllMocks(); });`)).toBe(1);
+  });
+
+  it('finds the vitest-base config that the Angular unit-test builder resolves for runnerConfig: true', () => {
+    expect(inDirectory(angular)).toBe(1);
   });
 
   it('stays silent where the walk finds no config at all', () => {
