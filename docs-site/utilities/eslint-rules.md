@@ -639,13 +639,29 @@ object is judged on its own properties. Four shapes are subtracted:
   already typed against the model;
 - an RxJS observer handed straight to `subscribe(…)` or `tap(…)`, as in
   `source$.subscribe({ error: vi.fn() })`;
+- a provider descriptor — any object with a `provide:` key. `{ provide: CLOSE, useValue: close }`
+  where the token's value is itself a function holds its double in the `useValue`, and the object
+  around it is DI syntax;
+- the input map of `setInputs(fixture, { … })` and of `renderShallow(C, { inputs: { … } })`, which
+  both check it against the component's inputs;
+- a `return { preventDefault, stopPropagation }` of names only, where every spy in it is also read
+  somewhere else — handles to spies a helper installed, handed back for destructuring. A factory whose
+  spies exist only in what it returns still reports;
+- an options bag nested inside a call argument, `render({ options: { slide, onClose } })`, by the
+  same one-mock-beside-a-value rule as the bag handed straight to the call;
 - an object under the threshold. The message names the threshold it was reported at, and at
   `{ minRunnerFns: 1 }` it stops suggesting to lower it. A property counts toward it when its value
   is a `vi.fn()` or a name the file binds once to one: `{ load, save }` over two `const … = vi.fn()`.
 
 A one-member object — a thenable `{ then: vi.fn() }`, a holder for one callback — has no class for
 `createSpyFromClass` to read, so its message names `createMock<T>({ then: vi.fn() })` instead, which
-checks the key and the signature against `T`.
+checks the key and the signature against `T`. Two exceptions: a one-member literal bound to a name
+that declares a type (`const parameters: Record<string, unknown> = { fn }`, at any depth inside
+it) or inside the value of `mockValueProp` / `mockReadonlyProp` / `mockSignalProp` is checked against
+that type already and is not reported, unless the type is itself an inline object type; and a nested
+`{ set: vi.fn() }` / `{ update: vi.fn() }` stands in for a signal, which `createMock<T>` cannot seed,
+so its message names `mockSignalProp` instead. A typed parameter of a project helper is out of reach
+of a syntax-only rule, so `createDefaultOptions({ onChange: callback })` is still reported.
 
 **Finding, and the repair.**
 

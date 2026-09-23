@@ -196,7 +196,8 @@ goes into it decides what every finding is about. Three rules make it:
 
 - **Build output and package directories are skipped outright**: `node_modules`, `dist`, `build`,
   `coverage`, `out-tsc`, `.git`, `.angular`, `.nx`, `.next`, `.nuxt`, `.output`, `.svelte-kit`,
-  `.turbo`, `.yarn`, `.cache`, `bower_components` and their siblings.
+  `.turbo`, `.yarn`, `.cache`, `bower_components` and their siblings — and the package-manager
+  stores CI tends to keep inside the checkout: `.bun`, `.npm`, `.pnpm-store`.
 - **A directory that is a repository of its own is not descended into** — a git worktree, whose
   `.git` is a file, or a nested clone. Its files are on somebody else's branch: counting them made
   every import graph a duplicate of itself, and on this repository's own tree, which carries
