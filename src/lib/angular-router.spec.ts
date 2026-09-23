@@ -364,6 +364,41 @@ describe('createActivatedRoute — resolve and title', () => {
   });
 });
 
+describe('createActivatedRoute — child routes', () => {
+  it("answers children, firstChild and a child's parent with doubles of their own", () => {
+    const { route } = createActivatedRoute({
+      children: [
+        { outlet: 'aside', routeConfig: { path: 'map' } },
+        { routeConfig: { path: 'list' }, params: { id: '7' } },
+      ],
+    });
+    const [aside, list] = route.children;
+
+    expect(route.children.map((child) => child.routeConfig?.path)).toEqual(['map', 'list']);
+    expect(route.firstChild).toBe(aside);
+    expect(aside?.outlet).toBe('aside');
+    expect(list?.parent).toBe(route);
+    expect(list?.root).toBe(route);
+    expect(list?.snapshot.params).toEqual({ id: '7' });
+    expect(route.snapshot.children.map((child) => child.routeConfig?.path)).toEqual(['map', 'list']);
+    expect(list?.snapshot.parent).toBe(route.snapshot);
+  });
+
+  it('keeps the tree whole when the root or a grandchild navigates', () => {
+    const { route, setParams, children } = createActivatedRoute({ children: [{ children: [{ params: { leaf: '1' } }] }] });
+    const leaf = route.firstChild?.firstChild;
+
+    setParams({ id: '8' });
+    children[0]?.children[0]?.setParams({ leaf: '2' });
+
+    expect(route.snapshot.params).toEqual({ id: '8' });
+    expect(route.snapshot.firstChild?.firstChild?.params).toEqual({ leaf: '2' });
+    expect(children[0]?.children[0]?.route).toBe(leaf);
+    expect(leaf?.root).toBe(route);
+    expect(leaf?.snapshot.root).toBe(route.snapshot);
+  });
+});
+
 describe('readTitleKey and withTitle', () => {
   it('finds the key a title getter reads off the data record it is handed', () => {
     const probe = Symbol('a probe of the spec');

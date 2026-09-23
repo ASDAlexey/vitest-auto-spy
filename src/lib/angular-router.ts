@@ -60,6 +60,8 @@ export interface ActivatedRouteInit extends ActivatedRouteChange {
   routeConfig?: Route | null;
   /** The resolve record — the snapshot's own `_resolve`, kept apart from `data` as Angular keeps it. */
   resolve?: ResolveData;
+  /** Child routes, each a double of its own: `route.children`, `firstChild` and a child's `parent` answer them. */
+  children?: readonly ActivatedRouteInit[];
 }
 
 /** The handle a spec drives the route through. The route itself stays exactly Angular's shape. */
@@ -78,6 +80,8 @@ export interface ActivatedRouteDouble {
   setFragment(fragment: string | null): void;
   /** Replace the URL segments. */
   setUrl(url: UrlSegment[] | string): void;
+  /** The doubles of the `children` it was built with, in order — to navigate a child. */
+  readonly children: readonly ActivatedRouteDouble[];
 }
 
 export interface RouteState {
@@ -107,6 +111,19 @@ export interface Streams {
 }
 
 const doubles = new WeakMap<ActivatedRoute, ActivatedRouteDouble>();
+
+/** Angular's `TreeNode` shape, which its `RouterState` and `RouterStateSnapshot` walk. */
+interface RouteNode<T> {
+  value: T;
+  children: RouteNode<T>[];
+}
+
+/** Where a route sits in the tree, so a parent can adopt it and a child's navigation reaches the root's snapshot. */
+interface Subtree {
+  node: RouteNode<ActivatedRoute>;
+  snapshotNode: () => RouteNode<ActivatedRouteSnapshot>;
+  retree: () => void;
+}
 
 function toSegments(url: UrlSegment[] | string): UrlSegment[] {
   return typeof url === 'string'
@@ -239,8 +256,8 @@ export function withTitle(data: Data, title: string | undefined, key: symbol | n
   return { ...data, [key]: title };
 }
 
-/** A snapshot of `state`, placed in a one-node tree so `root`, `parent`, `children` answer instead of throwing. */
-function buildSnapshot(state: RouteState, fixed: FixedParts): { snapshot: ActivatedRouteSnapshot; tree: RouterStateSnapshot } {
+/** A snapshot of `state`; the tree it is placed in is built by the route that owns the tree's root. */
+function buildSnapshot(state: RouteState, fixed: FixedParts): ActivatedRouteSnapshot {
   const args = [
     state.url,
     state.params,
@@ -252,11 +269,7 @@ function buildSnapshot(state: RouteState, fixed: FixedParts): { snapshot: Activa
     fixed.routeConfig,
     state.resolve,
   ];
-  const snapshot: ActivatedRouteSnapshot = Reflect.construct(ActivatedRouteSnapshot, args);
-  const path = `/${state.url.map((segment) => segment.path).join('/')}`;
-  const tree: RouterStateSnapshot = Reflect.construct(RouterStateSnapshot, [path, { value: snapshot, children: [] }]);
-
-  return { snapshot, tree };
+  return Reflect.construct(ActivatedRouteSnapshot, args);
 }
 
 /** The one failure this file reports: a member Angular's own wiring did not put the double's value into. */
@@ -338,20 +351,20 @@ function emitChanges(streams: Streams, previous: RouteState, next: RouteState): 
  * ```
  */
 export function createActivatedRoute(init: ActivatedRouteInit = {}): ActivatedRouteDouble {
-  const fixed: FixedParts = {
-    outlet: init.outlet ?? PRIMARY_OUTLET,
-    component: init.component ?? null,
-    routeConfig: init.routeConfig ?? null,
-  };
-  let state = initialState(init);
-  const streams: Streams = {
+  return buildActivatedRoute(init).double;
+}
+
+function streamsOf(state: RouteState): Streams {
+  return {
     params: new BehaviorSubject(state.params),
     queryParams: new BehaviorSubject(state.queryParams),
     data: new BehaviorSubject(state.data),
     fragment: new BehaviorSubject(state.fragment),
     url: new BehaviorSubject(state.url),
   };
-  const first = buildSnapshot(state, fixed);
+}
+
+function constructRoute(streams: Streams, fixed: FixedParts, snapshot: ActivatedRouteSnapshot): ActivatedRoute {
   const route: ActivatedRoute = Reflect.construct(ActivatedRoute, [
     streams.url,
     streams.params,
@@ -360,22 +373,48 @@ export function createActivatedRoute(init: ActivatedRouteInit = {}): ActivatedRo
     streams.data,
     fixed.outlet,
     fixed.component,
-    first.snapshot,
+    snapshot,
   ]);
-  const routerState: RouterState = Reflect.construct(RouterState, [{ value: route, children: [] }, first.tree]);
 
-  route.snapshot = first.snapshot;
+  route.snapshot = snapshot;
+
+  return route;
+}
+
+function buildActivatedRoute(init: ActivatedRouteInit): { double: ActivatedRouteDouble; subtree: Subtree } {
+  const fixed: FixedParts = {
+    outlet: init.outlet ?? PRIMARY_OUTLET,
+    component: init.component ?? null,
+    routeConfig: init.routeConfig ?? null,
+  };
+  let state = initialState(init);
+  const streams = streamsOf(state);
+  const built = (init.children ?? []).map(buildActivatedRoute);
+  const children = built.map((child) => child.subtree);
+  const route = constructRoute(streams, fixed, buildSnapshot(state, fixed));
+  const subtree: Subtree = {
+    node: { value: route, children: children.map((child) => child.node) },
+    snapshotNode: () => ({ value: route.snapshot, children: children.map((child) => child.snapshotNode()) }),
+    retree: () => {
+      routerState.snapshot = snapshotTree();
+    },
+  };
+  const snapshotTree = (): RouterStateSnapshot =>
+    Reflect.construct(RouterStateSnapshot, [`/${state.url.map((segment) => segment.path).join('/')}`, subtree.snapshotNode()]);
+
+  const routerState: RouterState = Reflect.construct(RouterState, [subtree.node, snapshotTree()]);
+
   assertRouteWiring(route, streams, state, fixed);
+  children.forEach((child) => {
+    child.retree = (): void => subtree.retree();
+  });
 
   const set = (change: ActivatedRouteChange): void => {
     const previous = state;
 
     state = nextState(previous, change);
-
-    const next = buildSnapshot(state, fixed);
-
-    route.snapshot = next.snapshot;
-    routerState.snapshot = next.tree;
+    route.snapshot = buildSnapshot(state, fixed);
+    subtree.retree();
     emitChanges(streams, previous, state);
   };
 
@@ -387,11 +426,12 @@ export function createActivatedRoute(init: ActivatedRouteInit = {}): ActivatedRo
     setData: (data) => set({ data }),
     setFragment: (fragment) => set({ fragment }),
     setUrl: (url) => set({ url }),
+    children: built.map((child) => child.double),
   };
 
   doubles.set(route, double);
 
-  return double;
+  return { double, subtree };
 }
 
 /**
