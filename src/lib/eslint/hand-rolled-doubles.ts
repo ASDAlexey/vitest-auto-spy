@@ -95,7 +95,7 @@ function isProvidedValue(node: EsNode): boolean {
  * of the `describe` and `x = { … }` in a `beforeEach`, so a reading that only looked at declarators
  * would have seen none of them.
  */
-export function boundName(object: EsObjectExpression): EsNode | undefined {
+export function boundName(object: EsNode): EsNode | undefined {
   const { parent } = object;
 
   if (isVariableDeclarator(parent) && parent.init === object) {
@@ -165,7 +165,8 @@ export function countRunnerFns(context: RuleContext, object: EsObjectExpression)
  * straight to a call. That is an options bag, which only `{ minRunnerFns: 1 }` ever reached.
  */
 export function isOptionsArgument(context: RuleContext, object: EsObjectExpression): boolean {
-  const call = object.parent;
+  const argument = outermostLiteral(object);
+  const call = argument.parent;
   const carriesValues = object.properties.some(
     (property) =>
       propertyName(property) !== undefined && !holdsRunnerFn(context, propertyValue(property)) && !isFunctionNode(propertyValue(property)),
@@ -173,10 +174,21 @@ export function isOptionsArgument(context: RuleContext, object: EsObjectExpressi
 
   return (
     (isCallExpression(call) || isNewExpression(call)) &&
-    call.arguments.includes(object) &&
+    call.arguments.includes(argument) &&
     countRunnerFns(context, object) === 1 &&
     carriesValues
   );
+}
+
+/** `render({ options: { slide, onClose } })`: a bag nested in the argument is still the argument's. */
+function outermostLiteral(object: EsObjectExpression): EsNode {
+  let current: EsNode = object;
+
+  while (propertyValue(current.parent) === current && isObjectExpression(current.parent.parent)) {
+    current = current.parent.parent;
+  }
+
+  return current;
 }
 
 const OBSERVER_CALLS = new Set(['subscribe', 'tap']);

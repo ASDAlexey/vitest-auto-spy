@@ -171,4 +171,107 @@ describe('prefer-create-spy-from-class', () => {
     expect(lint('const cart = { ...base, total: vi.fn() };')).toEqual([]);
     expect(lint('const p = { provide: Cart, useValue: { total: vi.fn(), clear: vi.fn() } };')).toEqual([]);
   });
+  describe('at minRunnerFns: 1, the shapes a one-member object takes that are not a double', () => {
+    const one = { minRunnerFns: 1 };
+
+    it('leaves a provider whose token is a function alone — the vi.fn() is the double, the object is DI syntax', () => {
+      expect(lintWith('const modalClose = vi.fn();\nconst providers = [{ provide: MODAL_CLOSE, useValue: modalClose }];', one)).toEqual([]);
+      expect(
+        lintWith(
+          'let closeFn;\nbeforeEach(() => {\n  closeFn = vi.fn();\n  render([{ provide: GEO_PANEL_CLOSE, useValue: closeFn }]);\n});',
+          one,
+        ),
+      ).toEqual([]);
+    });
+
+    it('leaves the input map of setInputs and of renderShallow alone — both check it against the inputs', () => {
+      expect(
+        lintWith('const disableHandler = vi.fn(() => true);\nawait setInputs(fixture, { disableDropHandler: disableHandler });', one),
+      ).toEqual([]);
+      expect(lintWith('const callback = vi.fn();\nawait setInputs(fixture, { setTopCallback: callback });', one)).toEqual([]);
+      expect(lintWith('const onOptionSelect = vi.fn();\nrenderShallow(FieldMenuComponent, { inputs: { onOptionSelect } });', one)).toEqual(
+        [],
+      );
+      // Any other slot of the same calls, or the same key handed to another helper, is not an input map.
+      expect(lintWith('await setInputs(fixture, inputs, { onStable: vi.fn() });', one)).toHaveLength(1);
+      expect(lintWith('await setInputs({ onStable: vi.fn() });', one)).toHaveLength(1);
+      expect(lintWith('render(C, { inputs: { onPick: vi.fn() } });', one)).toHaveLength(1);
+      expect(lintWith('renderShallow({ inputs: { onPick: vi.fn() } });', one)).toHaveLength(1);
+      expect(lintWith('const options = { inputs: { onPick: vi.fn() } };', one)).toHaveLength(1);
+    });
+
+    it('leaves a helper returning spies it installed elsewhere alone — those are handles, not a double', () => {
+      const helper = [
+        'function dispatch() {',
+        '  const preventDefault = vi.fn();',
+        '  const stopPropagation = vi.fn();',
+        '  emit(createMock<KeyboardEvent>({ preventDefault, stopPropagation }));',
+        '  return { preventDefault, stopPropagation };',
+        '}',
+      ].join('\n');
+      const withElements = [
+        'function setup() {',
+        '  const tooltipDiv = document.createElement("div");',
+        '  const setContent = vi.fn();',
+        '  popup.mockReturnValue(createAutoMock<Popup>({ setContent }));',
+        '  return { tooltipDiv, setContent };',
+        '}',
+      ].join('\n');
+
+      expect(lintWith(helper, one)).toEqual([]);
+      expect(lintWith(withElements, one)).toEqual([]);
+    });
+
+    it('still reports a factory whose spies exist only in what it returns', () => {
+      expect(lintWith('function make() {\n  const load = vi.fn();\n  return { load };\n}', one)).toHaveLength(1);
+      expect(lintWith('function make() {\n  return { load: vi.fn() };\n}', one)).toHaveLength(1);
+      expect(lintWith('function make() {\n  const load = vi.fn();\n  use(load);\n  return { load, ...rest };\n}', one)).toHaveLength(1);
+      expect(lintWith('function make() {\n  return { load: globalLoad, save: vi.fn() };\n}', one)).toHaveLength(1);
+    });
+
+    it('leaves a one-member literal whose binding names its type alone — it is checked against that type already', () => {
+      expect(lintWith('const fnValue = vi.fn();\nconst parameters: Record<string, unknown> = { fn: fnValue };', one)).toEqual([]);
+      expect(lintWith('let params: Params;\nparams = { onDone: vi.fn() };', one)).toEqual([]);
+      expect(lintWith('const fnValue = vi.fn();\nconst parameters: Record<string, unknown> = { nested: { fn: fnValue } };', one)).toEqual(
+        [],
+      );
+    });
+
+    it('leaves a one-member literal inside the value of a member stub alone — it is typed against that member', () => {
+      const stub = "mockValueProp(angle, 'info_legend_config', [{ blockName: 'header', parameters: { fn: fnValue } }]);";
+
+      expect(lintWith(`const fnValue = vi.fn();\n${stub}`, one)).toEqual([]);
+      expect(lintWith("mockReadonlyProp(host, 'config', { onDone: vi.fn() });", one)).toEqual([]);
+      expect(lintWith('mockValueProp(angle, { fn: vi.fn() });', one)).toHaveLength(1);
+      expect(lintWith("stubValue(angle, 'config', { fn: vi.fn() });", one)).toHaveLength(1);
+      expect(lintWith("helpers.mockValueProp(angle, 'config', { fn: vi.fn() });", one)).toHaveLength(1);
+    });
+
+    it('still reports a one-member literal whose declared type is itself an object of mocks, or that has no declaration', () => {
+      expect(lintWith('let service: { devMode: Mock };\nservice = { devMode: vi.fn() };', one)).toHaveLength(1);
+      expect(lintWith('let service;\nservice = { devMode: vi.fn() };', one)).toHaveLength(1);
+      expect(lintWith('undeclared = { devMode: vi.fn() };', one)).toHaveLength(1);
+      expect(lintWith('holder.service = { devMode: vi.fn() };', one)).toHaveLength(1);
+      expect(lintWith('function f(p: Params) {\n  p = { devMode: vi.fn() };\n}', one)).toHaveLength(1);
+      // A typed parameter of a project helper is out of reach without type information.
+      expect(lintWith('const callback = vi.fn();\ncreateDefaultOptions({ changeOptionsCallback: callback });', one)).toHaveLength(1);
+    });
+
+    it('reads a bag nested in an argument as the options bag it is', () => {
+      expect(lintWith('const onClose = vi.fn();\nrender({ options: { slide: slideMock, onClose }, router });', one)).toEqual([]);
+      expect(lintWith('const onClose = vi.fn();\nconst params = { options: { slide: slideMock, onClose } };', one)).toHaveLength(1);
+    });
+
+    it('names mockSignalProp for a nested set / update, which createMock<T> cannot seed', () => {
+      const [signal] = verify('const directive = { hide: { set: vi.fn() } };', one);
+      const [update] = verify('const directive = { value: { update: vi.fn() } };', one);
+      const [topLevel] = verify('const cache = { set: vi.fn() };', one);
+      const [key] = verify('const map = { [{ set: vi.fn() }.set]: 1 };', one);
+
+      expect(signal?.message).toContain("mockSignalProp(instance, 'hide', value)");
+      expect(update?.message).toContain("mockSignalProp(instance, 'value', value)");
+      expect(topLevel?.message).toContain('`createMock<T>({ set: vi.fn() })`');
+      expect(key?.message).toContain('`createMock<T>({ set: vi.fn() })`');
+    });
+  });
 });
