@@ -83,6 +83,24 @@ describe('createRouterDouble — where the router starts', () => {
     expect(router.routerState.root.snapshot.url).toEqual([]);
   });
 
+  it('hands the root the routes a page has open, for code that walks the outlets', () => {
+    const { router, setUrl } = createRouterDouble({
+      url: '/cards/7',
+      children: [{ routeConfig: { path: 'cards' }, children: [{ outlet: 'report' }, { outlet: 'map' }] }],
+    });
+    const outlets = (): string[] => (router.routerState.root.children[0]?.children ?? []).map((child) => child.outlet);
+
+    expect(outlets()).toEqual(['report', 'map']);
+    expect(router.routerState.root.firstChild?.routeConfig?.path).toBe('cards');
+    expect(router.routerState.snapshot.root.children[0]?.children.map((child) => child.outlet)).toEqual(['report', 'map']);
+
+    setUrl('/cards/8?tab=a');
+
+    expect(outlets()).toEqual(['report', 'map']);
+    expect(router.routerState.snapshot.root.queryParams).toEqual({ tab: 'a' });
+    expect(router.routerState.snapshot.root.children).toHaveLength(1);
+  });
+
   it('starts its events at the NavigationEnd that put it there', () => {
     const { router } = createRouterDouble({ url: '/products/7' });
     const seen: NavigationEnd[] = [];

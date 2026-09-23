@@ -26,6 +26,8 @@
 import { type FactoryProvider, type Injector, type Signal, type Type, type WritableSignal, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import {
+  type ActivatedRoute,
+  type ActivatedRouteSnapshot,
   DefaultUrlSerializer,
   type Navigation,
   NavigationCancel,
@@ -45,7 +47,7 @@ import {
 import { BehaviorSubject, type Observable, skip } from 'rxjs';
 import { expect, onTestFinished } from 'vitest';
 
-import { createActivatedRoute } from './angular-router';
+import { type ActivatedRouteDouble, type ActivatedRouteInit, createActivatedRoute } from './angular-router';
 import { DOCS_LINKS, withDocs } from './docs-links';
 import { createFunctionSpy } from './function-spy';
 import type { AddSpyMethodsByReturnTypes } from './types';
@@ -63,6 +65,12 @@ export interface RouterDoubleInit {
    * Named here rather than only on the handle because a component reads it in a field initializer.
    */
   currentNavigation?: NavigationInit | null;
+  /**
+   * The routes activated under the root, for code that walks `routerState.root.children` — the
+   * outlets a page has open. Each is an `ActivatedRouteInit`, nested as deep as the spec needs:
+   * `children: [{ children: [{ outlet: 'report' }] }]`. Default none, like a root with nothing routed.
+   */
+  children?: readonly ActivatedRouteInit[];
 }
 
 /** The handle a spec drives the router through. */
@@ -132,9 +140,22 @@ const doubles = new WeakMap<object, RouterDouble>();
 
 const serializer = new DefaultUrlSerializer();
 
-/** A snapshot tree of one node — the shape a router state has before any route is activated. */
-function stateSnapshot(url: string, root: RouterState['root']['snapshot']): RouterStateSnapshot {
-  return Reflect.construct(RouterStateSnapshot, [url, { value: root, children: [] }]);
+/** Angular's `TreeNode` over a route double and the doubles of its children. */
+interface RouteNode<T> {
+  value: T;
+  children: RouteNode<T>[];
+}
+
+function routeTree(double: ActivatedRouteDouble): RouteNode<ActivatedRoute> {
+  return { value: double.route, children: double.children.map(routeTree) };
+}
+
+function snapshotTree(double: ActivatedRouteDouble): RouteNode<ActivatedRouteSnapshot> {
+  return { value: double.route.snapshot, children: double.children.map(snapshotTree) };
+}
+
+function stateSnapshot(url: string, root: ActivatedRouteDouble): RouterStateSnapshot {
+  return Reflect.construct(RouterStateSnapshot, [url, snapshotTree(root)]);
 }
 
 function queryParamsOf(current: UrlTree, extras: UrlCreationOptions): Params | null {
@@ -185,14 +206,11 @@ function guardMissingMembers(double: object): Router {
  * against its snapshot the way the real router resolves them against `routerState.snapshot.root`,
  * so it holds the URL's query parameters and fragment and, like a real root route, no segments.
  */
-function createUrlState(initial: string): UrlState {
+function createUrlState(initial: string, children: readonly ActivatedRouteInit[]): UrlState {
   let tree = serializer.parse(initial);
   let url = serializer.serialize(tree);
-  const root = createActivatedRoute({ queryParams: tree.queryParams, fragment: tree.fragment });
-  const routerState: RouterState = Reflect.construct(RouterState, [
-    { value: root.route, children: [] },
-    stateSnapshot(url, root.route.snapshot),
-  ]);
+  const root = createActivatedRoute({ queryParams: tree.queryParams, fragment: tree.fragment, children });
+  const routerState: RouterState = Reflect.construct(RouterState, [routeTree(root), stateSnapshot(url, root)]);
 
   return {
     routerState,
@@ -202,7 +220,7 @@ function createUrlState(initial: string): UrlState {
       tree = serializer.parse(next);
       url = serializer.serialize(tree);
       root.set({ queryParams: tree.queryParams, fragment: tree.fragment });
-      routerState.snapshot = stateSnapshot(url, root.route.snapshot);
+      routerState.snapshot = stateSnapshot(url, root);
     },
   };
 }
@@ -330,7 +348,7 @@ function buildRouter(state: UrlState, stream: Observable<RouterNavigationEvent>,
  * ```
  */
 export function createRouterDouble(init: RouterDoubleInit = {}): RouterDouble {
-  const state = createUrlState(init.url ?? '/');
+  const state = createUrlState(init.url ?? '/', init.children ?? []);
   const events = new BehaviorSubject<RouterNavigationEvent>(new NavigationEnd(1, state.url(), state.url()));
   const stream = events.asObservable();
   let navigationId = 1;
