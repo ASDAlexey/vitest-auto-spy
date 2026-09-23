@@ -1214,6 +1214,106 @@ set once on purpose.
 `guardDocumentPollution(option)` registers the same check on its own. Vitest only, like every guard
 in `/setup`: `bun:test`, `node:test` and Rstest have no setup entry to host it.
 
+## 18. A spy on storage the runner cannot take off
+
+On by default. `vi.spyOn(localStorage, 'setItem')` puts the mock on the storage as an own property;
+taking it off again means deleting that property, so the prototype's method shows through once more.
+Under happy-dom that delete never lands: its `Storage` hands each instance out wrapped in a Proxy
+whose `deleteProperty` trap only knows stored items. `mockRestore()` — and `vi.restoreAllMocks()`
+walking the same path — comes back green having done nothing. The spy keeps recording, and a later
+spec's own `vi.spyOn` is handed the same mock with the previous file's calls already in it, so
+"not to have been called" fails every other run.
+
+Debugging it by hand sends the search the wrong way: the natural probe — run
+`vi.restoreAllMocks()` and see if the leftover clears — is the very path that silently does nothing,
+so it comes back green and appears to rule the mock out.
+
+Writing `Storage.prototype`'s method back over the spy does go through the proxy; that asymmetry,
+define passes and delete does not, is the repair:
+
+```ts
+setupAutoSpy(); // restoreStorageSpies: true — the sweep runs at the file boundary only
+```
+
+The boundary, not the test, is deliberate: a spy a `beforeAll` installed for its whole file is still
+standing while that file's tests run, and only the next file is protected. `restoreStorageSpies()`
+is the one-shot (it returns the storages it repaired), and `restoreStorageSpies: false` is the
+opt-out for a suite that deliberately keeps a spy on a storage method for a whole worker.
+
+The gate is `vi.isMockFunction`, not "differs from the prototype" — jsdom breaks the other half of
+the same contract, its Storage proxy turning a `defineProperty` of a method into a stored item, and
+a gate that compared against the prototype would keep rewriting a storage that is merely odd. A
+mock is repaired; a clean storage, a deliberate replacement and jsdom's junk item are left alone.
+
+## 19. Listeners that outlive their file
+
+```ts
+setupAutoSpy({ strayListeners: true });
+```
+
+A listener on `window` or `document` is not the component's to take off. Overlays, portals and
+services register on the shared targets, and under `isolate: false` whatever a file leaves
+registered fires during the next one — the same wrong-file blame as a stray timer, with none of the
+visibility: nothing errors, the callback simply runs against mocks and a DOM it was never written
+for.
+
+The split is the one the mock-registry pruner uses (section 9). A `beforeAll` marks the listeners
+already on `window` and `document` — registered while the module graph was evaluated, a framework's
+one-time initialisation — and the `afterAll` takes off everything added since. No first-file
+special case: import-time registrations are in the baseline of whichever file imports them, so they
+survive every sweep after that.
+
+The pieces are exported too, from `vitest-auto-spy/setup`:
+
+| Function                   | What it does                                                                             |
+| -------------------------- | ---------------------------------------------------------------------------------------- |
+| `trackStrayListeners()`    | Wrap `addEventListener` / `removeEventListener`; idempotent, returns the undo            |
+| `baselineStrayListeners()` | Mark what is registered now as module-graph state — the default `beforeAll` step         |
+| `removeStrayListeners()`   | Take off everything added since the baseline; returns how many                           |
+| `countStrayListeners()`    | How many are outstanding — throws before `trackStrayListeners()` has run                 |
+| `describeStrayListeners()` | Each stray's target, type, spec file and up to five frames — the `onStrayListeners` list |
+
+`setupAutoSpy({ strayListeners: true, onStrayListeners: ({ removed }) => expect(removed).toBe(0) })`
+fails the file that leaked instead of tidying it away quietly. A listener registered with
+`{ once: true }` that already fired stays counted until something removes it — the wrapper cannot
+observe the firing without breaking identity-based `removeEventListener` from the code under test,
+and removing an already-fired listener is a no-op anyway.
+
+## 20. Globals put back at the file boundary
+
+```ts
+setupAutoSpy({ restoreGlobals: true });
+```
+
+`vi.stubGlobal` is undone by `unstubGlobals` and `vi.spyOn(globalThis, …)` by `restoreMocks`, but a
+plain assignment — `global.ResizeObserver = stub` — is tracked by nothing. Under `isolate: false`
+it is written straight into the shared worker and read by every later file, and the failure it
+causes names neither the property nor the file that planted it. `guardGlobals` (section 7) covers
+the _unrepairable_ case, a non-configurable redefine; this is the net for the repairable one.
+
+One snapshot per worker, restored at every file boundary. `captureGlobalBaseline()` takes it — the
+first call is the worker's truth, a later one does nothing, so a re-capture can never launder a
+replacement into the baseline — and `restoreGlobals()` is the sweep, returning the keys it changed.
+
+Two traps the restore steps around, both load-bearing:
+
+- **The descriptor is not the whole story.** A DOM environment installs window properties on
+  `globalThis` as accessor pairs forwarding to an override map. `global.ResizeObserver = stub`
+  runs the setter and leaves the descriptor exactly as it was, so a restore that only re-defines
+  descriptors reports "nothing changed" while the stub keeps answering. The captured value has to
+  go back through the same setter.
+- **The library's own wrappers must survive.** `strayTimers` has `setTimeout` wrapped,
+  `strayListeners` has `addEventListener`; a restore that put every original back would uninstall
+  the tracking at the first boundary. Wrappers this library installs carry a mark, and the restore
+  steps around them.
+
+The boundaries of the net: keys **added** after the snapshot are never deleted (a framework that
+installs a global at import time must not lose it at the first boundary), and the identity globals —
+`location`, `document`, `window`, `frames`, `global`, `parent`, `self`, `top` — are never written
+back at all, because assigning them navigates or swaps the environment rather than replacing a
+value. A leftover fake clock comes off before the sweep, because restoring timer descriptors under
+an installed fake breaks both.
+
 ## One grade for everything: `preset: 'strict'` {#one-grade-for-everything-preset-strict}
 
 ```ts
@@ -1381,6 +1481,10 @@ each test: a stub installed for the previous test is exactly what must not still
 | `globalFakeTimers`    | `false`   | Fake timers for every test **and between them** — see below                                 |
 | `restoreTimerGlobals` | `true`    | Put back timer globals that uninstalling the fakes deleted                                  |
 | `restoreWebStorage`   | `true`    | Give the run a `localStorage` / `sessionStorage` that work — see section 14                 |
+| `restoreStorageSpies` | `true`    | Take spies off Web Storage methods `mockRestore()` cannot — happy-dom's proxy, section 18   |
+| `strayListeners`      | `false`   | Remove `window` / `document` listeners a file leaves registered — section 19                |
+| `onStrayListeners`    | —         | Takes the per-file count and each stray's origin, instead of the quiet sweep                |
+| `restoreGlobals`      | `false`   | Put every changed `globalThis` global back at the file boundary — section 20                |
 | `pruneMockRegistry`   | `false`   | Keep @vitest/spy's ever-growing mock registry to the mocks that outlive a file              |
 | `hookTimeoutHint`     | `true`    | Explain a hook that ran out of `hookTimeout` while `testTimeout` is larger                  |
 | `frozenClockHint`     | `true`    | Explain a timeout that happened because nothing advanced the fake clock                     |
