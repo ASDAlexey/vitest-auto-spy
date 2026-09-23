@@ -125,6 +125,11 @@ describe('extractSetupFiles', () => {
     expect(extractSetupFiles('environment: "jsdom"')).toEqual([]);
     expect(extractSetupFiles('setupFiles: []')).toEqual([]);
   });
+
+  it('skips the order that `sequence.setupFiles` takes and reads the file list after it', () => {
+    expect(extractSetupFiles(`sequence: { setupFiles: 'list' },\nsetupFiles: ['test-setup.ts'],`)).toEqual(['test-setup.ts']);
+    expect(extractSetupFiles(`sequence: { setupFiles: "parallel" }`)).toEqual([]);
+  });
 });
 
 describe('isRecord', () => {

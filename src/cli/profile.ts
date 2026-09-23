@@ -170,6 +170,9 @@ const CONFIG_CANDIDATES = [
   'bunfig.toml',
 ];
 
+/** `sequence.setupFiles` shares the key with the file list and takes one of these. */
+const SEQUENCE_ORDERS = new Set(['list', 'parallel']);
+
 const SETUP_FILE_FALLBACKS = ['src/test-setup.ts', 'src/vitest.setup.ts', 'src/setup-tests.ts', 'vitest.setup.ts', 'test/setup.ts'];
 
 /**
@@ -178,13 +181,15 @@ const SETUP_FILE_FALLBACKS = ['src/test-setup.ts', 'src/vitest.setup.ts', 'src/s
  * inside a `setupFiles` array covers every config anybody actually writes.
  */
 export function extractSetupFiles(configText: string): string[] {
-  const block = /setup[Ff]iles\s*:\s*(\[[^\]]*]|["'`][^"'`]*["'`])/.exec(configText);
+  for (const [block] of configText.matchAll(/setup[Ff]iles\s*:\s*(\[[^\]]*]|["'`][^"'`]*["'`])/g)) {
+    const files = captures(block, /["'`]([^"'`]+)["'`]/g).filter((file) => !SEQUENCE_ORDERS.has(file));
 
-  if (block === null) {
-    return [];
+    if (files.length > 0) {
+      return files;
+    }
   }
 
-  return captures(block[0], /["'`]([^"'`]+)["'`]/g);
+  return [];
 }
 
 function detectSetupFiles(cwd: string): string[] {
