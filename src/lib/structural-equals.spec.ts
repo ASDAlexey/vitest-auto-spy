@@ -244,6 +244,39 @@ describe('describeWithMatchers', () => {
     expect(describeWithMatchers({ [key]: expect.anything() }, serializeValue)).toBe('{Symbol(flag):Anything}');
   });
 
+  it('names an instance holding no matcher instead of walking what it reaches', () => {
+    class ElementRef {
+      readonly focus = (): void => undefined;
+
+      constructor(readonly nativeElement: object) {}
+    }
+
+    const node = document.createElement('div');
+
+    document.body.append(node);
+
+    try {
+      expect(describeWithMatchers(new ElementRef(node), serializeValue)).toBe('<ElementRef>');
+      expect(describeWithMatchers([new ElementRef(node), expect.any(Number)], serializeValue)).toBe('[<ElementRef>,Any<Number>]');
+      expect(describeWithMatchers(Object.assign(Object.create({ shared: true }) as object, { run: () => 1 }), serializeValue)).toBe(
+        '<Object>',
+      );
+      expect(
+        describeWithMatchers(
+          [
+            new (class {
+              readonly run = (): number => 1;
+            })(),
+          ],
+          serializeValue,
+        ),
+      ).toBe('[<object>]');
+      expect(describeWithMatchers(new ElementRef({ id: expect.any(Number) }), serializeValue)).toContain('nativeElement:{id:Any<Number>}');
+    } finally {
+      node.remove();
+    }
+  });
+
   it('stops at a cycle and lets the serializer render the repeat', () => {
     const cyclic: Record<string, unknown> = { id: expect.any(Number) };
     cyclic['self'] = cyclic;

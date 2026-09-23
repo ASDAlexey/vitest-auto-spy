@@ -82,8 +82,13 @@ function childrenOf(value: object): unknown[] {
  * `Set` of the objects already visited (not just the current path): an object that answered "no" on
  * one branch answers "no" on every other, so revisiting it would only repeat work.
  */
-export function needsStructuralMatch(value: unknown, seen: Set<object> = new Set<object>()): boolean {
-  if (typeof value === 'function' || isAsymmetricMatcher(value)) {
+export function needsStructuralMatch(value: unknown): boolean {
+  return reaches(value, (found) => typeof found === 'function' || isAsymmetricMatcher(found), new Set<object>());
+}
+
+/** Whether `value`, or anything reachable from it, satisfies `hit` — each object visited once. */
+function reaches(value: unknown, hit: (value: unknown) => boolean, seen: Set<object>): boolean {
+  if (hit(value)) {
     return true;
   }
 
@@ -93,7 +98,7 @@ export function needsStructuralMatch(value: unknown, seen: Set<object> = new Set
 
   seen.add(value);
 
-  return childrenOf(value).some((child) => needsStructuralMatch(child, seen));
+  return childrenOf(value).some((child) => reaches(child, hit, seen));
 }
 
 /** One side of the pair currently being compared, so a cyclic pair answers instead of recursing forever. */
@@ -263,9 +268,21 @@ export function sameExpectation(left: unknown, right: unknown): boolean {
   return compare(left, right, [], false);
 }
 
+function isPlainContainer(value: object): boolean {
+  const prototype: unknown = Object.getPrototypeOf(value);
+
+  return prototype === Object.prototype || prototype === null || Array.isArray(value) || value instanceof Map || value instanceof Set;
+}
+
+function holdsMatcher(value: unknown): boolean {
+  return reaches(value, isAsymmetricMatcher, new Set<object>());
+}
+
 /**
  * A config argument rendered for a human: the serializer's own output, with every matcher replaced
- * by the description the runner prints for it (`Any<Number>` rather than its fields).
+ * by the description the runner prints for it (`Any<Number>` rather than its fields). An instance
+ * holding no matcher prints as `<ElementRef>`: expanding one walked a whole DOM through
+ * `ownerDocument` and threw `RangeError: Invalid string length`.
  */
 export function describeWithMatchers(value: unknown, render: (value: unknown) => string, seen: Set<object> = new Set<object>()): string {
   if (isAsymmetricMatcher(value)) {
@@ -276,8 +293,13 @@ export function describeWithMatchers(value: unknown, render: (value: unknown) =>
     return render(value);
   }
 
-  const described = new Set<object>(seen).add(value);
-  const describe = (child: unknown): string => describeWithMatchers(child, render, described);
+  if (!isPlainContainer(value) && !holdsMatcher(value)) {
+    return `<${value.constructor.name || 'object'}>`;
+  }
+
+  seen.add(value);
+
+  const describe = (child: unknown): string => describeWithMatchers(child, render, seen);
 
   if (value instanceof Map) {
     return `new Map([${[...value.entries()].map(([key, entry]) => `[${describe(key)},${describe(entry)}]`).join(',')}])`;
