@@ -82,8 +82,9 @@ export const noTsExpectErrorOnDouble = defineRule({
       "generated client with `observe` overloads — the double is typed against the **last** signature: name the one the spec means, `Spy<X, { overload: { {{method}}: 'first' } }>` " +
       "(or `asSpy<X, { overload: 'first' }>(…)`). Otherwise the fixture has the wrong shape — check it against " +
       "`ReturnType<X['{{method}}']>` (a `calledWith` argument against `Parameters<X['{{method}}']>`), and build a partial one " +
-      'with `createMock<…>()`. A value outside the declared type on purpose, to reach a default branch, keeps its directive ' +
-      'under `// eslint-disable-next-line vitest-auto-spy/no-ts-expect-error-on-double -- <why>`.',
+      'with `createMock<…>()`. A value outside the declared type on purpose, to reach a default branch, is ' +
+      '`outOfType<T>(…)` from `vitest-auto-spy` in place of the directive — or the directive under ' +
+      '`// eslint-disable-next-line vitest-auto-spy/no-ts-expect-error-on-double -- <why>`.',
   },
   create: (context) => {
     const configurations: Configuration[] = [];

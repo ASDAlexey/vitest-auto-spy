@@ -71,6 +71,7 @@ describe(RULE, () => {
       /`@ts-expect-error` above `getShelf\.mockReturnValue\(…\)`[\s\S]*Spy<X, \{ overload: \{ getShelf: 'first' \} \}>[\s\S]*ReturnType<X\['getShelf'\]>[\s\S]*eslint-disable-next-line/,
     );
     expect(report?.message).toContain('#how-to-mock-an-overloaded-method');
+    expect(report?.message).toContain('`outOfType<T>(…)` from `vitest-auto-spy` in place of the directive');
     expect(verify('// @ts-ignore\nconfirm.send.mustBeCalledWith(code).resolveWith(ok);')[0]?.message).toMatch(
       /`@ts-ignore` above `send\.resolveWith/,
     );
